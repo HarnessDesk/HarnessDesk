@@ -65,8 +65,9 @@ const AGENTS = [
 const MARK = 28
 const STEP = 76
 const LABEL_Y = MARK + 20
-const HEIGHT = LABEL_Y + 6
-const WIDTH = STEP * AGENTS.length
+
+/* The bare strip packs tighter because it has no names to sit under. */
+const BARE_STEP = 44
 
 /** The mark's own paths, and the box they were drawn in. */
 const glyph = (name) => {
@@ -83,17 +84,33 @@ const glyph = (name) => {
   return { inner, w: w || 24, h: h || 24 }
 }
 
+/**
+ * A strip of marks. Pass a `label` colour and each mark carries its name;
+ * pass null and the strip is marks only, packed tighter.
+ *
+ * The bare variant is for the social card, which is seen at the width a link
+ * unfurl gives it — around 440px, a third of the card's own 1280. Measured
+ * rather than assumed: downscaled to that width the labelled strip's ten names
+ * are illegible smears and the marks under them are grey blobs. Names that
+ * cannot be read are not information, they are dirt along the bottom edge.
+ */
 const strip = (ink, label) => {
+  const bare = label == null
+  const step = bare ? BARE_STEP : STEP
+  const height = bare ? MARK : LABEL_Y + 6
+  const width = step * AGENTS.length
   const items = AGENTS.map(([name, text], n) => {
     const { inner, w, h } = glyph(name)
     const scale = MARK / Math.max(w, h)
-    const x = n * STEP + STEP / 2
+    const x = n * step + step / 2
     /* Each mark is scaled into a MARK-sized box and centred on the column, so
        a tall logo and a wide one still sit on the same optical line. */
-    return `  <g transform="translate(${(x - MARK / 2).toFixed(1)} 0) scale(${scale.toFixed(4)})" fill="${ink}">${inner}</g>
+    const mark = `  <g transform="translate(${(x - MARK / 2).toFixed(1)} 0) scale(${scale.toFixed(4)})" fill="${ink}">${inner}</g>`
+    if (bare) return mark
+    return `${mark}
   <text x="${x.toFixed(1)}" y="${LABEL_Y}" fill="${label}" font-size="10.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" text-anchor="middle">${text}</text>`
   })
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="${AGENTS.map(([, t]) => t).join(', ')}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${AGENTS.map(([, t]) => t).join(', ')}">
 ${items.join('\n')}
 </svg>
 `
@@ -103,4 +120,7 @@ ${items.join('\n')}
    image pasted onto it. */
 writeFileSync(join(OUT, 'agents-light.svg'), strip('#1f2328', '#59636e'))
 writeFileSync(join(OUT, 'agents-dark.svg'), strip('#e6edf3', '#9198a1'))
-process.stdout.write(`  ✓ agents-{light,dark}.svg  ${AGENTS.length} marks  ${WIDTH}×${HEIGHT}\n`)
+/* Dark only: the card it feeds has one theme, and an unused light variant is a
+   file somebody has to keep believing in. */
+writeFileSync(join(OUT, 'agents-bare-dark.svg'), strip('#e6edf3', null))
+process.stdout.write(`  ✓ agents-{light,dark}.svg + agents-bare-dark.svg  ${AGENTS.length} marks\n`)

@@ -33,6 +33,7 @@ to run one is when its input changed.
 | --- | --- |
 | [`agent-marks.mjs`](agent-marks.mjs) | The agent logo strip in the README, in both themes, from the same icon set the app draws from. |
 | [`diagram-export.mjs`](diagram-export.mjs) | Flattens a rendered Archify diagram to PNG in both themes — see [`../docs/diagrams/README.md`](../docs/diagrams/README.md). |
+| [`social-preview.mjs`](social-preview.mjs) | The 1280×640 card GitHub shows when a link to the repo is shared. One image, dark — Open Graph has no light/dark mechanism. |
 | [`build-icons.mjs`](build-icons.mjs) · [`cut-avatars.mjs`](cut-avatars.mjs) · [`vendor-fonts.mjs`](vendor-fonts.mjs) | App icons, avatar parts, and the self-hosted font files. |
 | [`copy-fixtures.mjs`](copy-fixtures.mjs) | Copies non-TypeScript test fixtures into `dist/`. Part of `build`, not a thing to run alone. |
 
