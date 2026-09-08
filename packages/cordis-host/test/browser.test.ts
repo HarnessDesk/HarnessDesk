@@ -8,6 +8,7 @@ import {
   type BrowserEngine,
   type HarnessPlugin,
 } from '../src/index.js'
+import { KEY_NAMES, namedKey, unknownKeyMessage } from '../src/browser.js'
 
 /**
  * The browser service against an engine that is not Chrome. What the
@@ -526,4 +527,69 @@ test('a credential in a query string is not carried into the network view', asyn
   // A URL with nothing to redact comes back byte-for-byte, so an agent can
   // still match it against its own logs.
   assert.equal(rows[2]!.url, 'https://x/plain?page=2')
+})
+
+/**
+ * The offer and the table.
+ *
+ * `browser_key` used to advertise a key it did not have. The message a bad
+ * name got told the caller to press `space`; the only space in the table
+ * was the literal `' '`. An agent that read the message and retried with
+ * the word it had just been handed got the same message back, and had no
+ * third thing to try — which is what makes this worse than a key that is
+ * merely missing. The message is written from the table now, and these hold
+ * the two together in both directions.
+ */
+test('every key the message offers is a key the browser takes, and every key it takes is offered', () => {
+  const message = unknownKeyMessage('Spacebar')
+  const offered = /use (.+), or a single character\.$/.exec(message)?.[1]?.split(', ') ?? []
+  // The parse is the part that could rot into a check that cannot fail: a
+  // message this pattern misses leaves nothing to loop over, and a test that
+  // loops over nothing reports that everything is fine.
+  assert.ok(offered.length >= 10 && offered.includes('Enter'), `no key list parsed out of ${JSON.stringify(message)}`)
+  for (const name of offered) {
+    assert.ok(namedKey(name), `the message offers ${JSON.stringify(name)} and the table has no such key`)
+  }
+  assert.deepEqual([...offered].sort(), [...KEY_NAMES].sort(), 'a key nobody is told about is a key nobody presses')
+})
+
+test('a key pressed by name reaches the page as the key itself, not as its name', async (t) => {
+  const { engine, calls } = eventingEngine()
+  const { result } = await runProbe(t, engine, async (browser) => {
+    for (const name of ['space', 'Space', ' ']) await browser.key(name)
+    await browser.key('pagedown')
+    return null
+  })
+  assert.equal(result.ok, true)
+  const keys = calls.filter((call) => call.method === 'Input.dispatchKeyEvent')
+
+  // Three spellings of one key. A game listening for `event.key === ' '`
+  // starts on all three, or the word was never really accepted.
+  for (const [name, events] of [
+    ['space', keys.slice(0, 3)],
+    ['Space', keys.slice(3, 6)],
+    [' ', keys.slice(6, 9)],
+  ] as const) {
+    assert.deepEqual(events.map((call) => call.params?.['type']), ['rawKeyDown', 'char', 'keyUp'], name)
+    for (const event of events) {
+      assert.equal(event.params?.['key'], ' ', `${name} has to arrive as a space`)
+      assert.equal(event.params?.['code'], 'Space')
+      assert.equal(event.params?.['windowsVirtualKeyCode'], 32)
+    }
+    assert.equal(events[1]?.params?.['text'], ' ', 'the char event is what a text field fills from')
+  }
+
+  // Case is a spelling, not a different key — as it already is for modifiers.
+  assert.equal(keys[9]?.params?.['key'], 'PageDown')
+  assert.equal(keys[9]?.params?.['windowsVirtualKeyCode'], 34)
+})
+
+test('a name the browser really has not got is refused with the names it has', async (t) => {
+  const { engine } = eventingEngine()
+  // The legacy spelling, and a plausible thing to reach for. It is not a key
+  // here — and what comes back is a list every entry of which is.
+  const { result, said } = await runProbe(t, engine, (browser) => browser.key('Spacebar'))
+  assert.equal(result.ok, false)
+  assert.match(said, /Unknown key "Spacebar"/)
+  assert.match(said, /, space, or a single character\.$/)
 })

@@ -484,36 +484,23 @@ export class BrowserService extends Service {
   /** Presses a key (`Enter`, `ArrowLeft`, a single character…) `count` times. */
   async key(key: string, count = 1, modifiers: readonly string[] = []): Promise<void> {
     const cdp = await this.reach()
-    const named: Record<string, { keyCode: number; code: string }> = {
-      Enter: { keyCode: 13, code: 'Enter' },
-      Tab: { keyCode: 9, code: 'Tab' },
-      Escape: { keyCode: 27, code: 'Escape' },
-      Backspace: { keyCode: 8, code: 'Backspace' },
-      Delete: { keyCode: 46, code: 'Delete' },
-      Home: { keyCode: 36, code: 'Home' },
-      End: { keyCode: 35, code: 'End' },
-      PageUp: { keyCode: 33, code: 'PageUp' },
-      PageDown: { keyCode: 34, code: 'PageDown' },
-      ArrowLeft: { keyCode: 37, code: 'ArrowLeft' },
-      ArrowUp: { keyCode: 38, code: 'ArrowUp' },
-      ArrowRight: { keyCode: 39, code: 'ArrowRight' },
-      ArrowDown: { keyCode: 40, code: 'ArrowDown' },
-      ' ': { keyCode: 32, code: 'Space' },
-    }
     const mask = modifierMask(modifiers)
-    const spec = named[key]
+    const spec = namedKey(key)
     for (let i = 0; i < Math.min(count, 50); i += 1) {
       if (spec) {
         const common = {
-          key,
+          // A caller types a *name*; a page listens for the *key*. `space`
+          // and `' '` are one press, and only one of the two is what
+          // `event.key` may read.
+          key: spec.key,
           code: spec.code,
           windowsVirtualKeyCode: spec.keyCode,
           nativeVirtualKeyCode: spec.keyCode,
           ...(mask ? { modifiers: mask } : {}),
         }
         await cdp.send('Input.dispatchKeyEvent', { ...common, type: 'rawKeyDown' })
-        if (!mask && (key === ' ' || key === 'Enter')) {
-          await cdp.send('Input.dispatchKeyEvent', { ...common, type: 'char', text: key === 'Enter' ? '\r' : ' ' })
+        if (!mask && (spec.key === ' ' || spec.key === 'Enter')) {
+          await cdp.send('Input.dispatchKeyEvent', { ...common, type: 'char', text: spec.key === 'Enter' ? '\r' : ' ' })
         }
         await cdp.send('Input.dispatchKeyEvent', { ...common, type: 'keyUp' })
       } else if (key.length === 1) {
@@ -534,9 +521,7 @@ export class BrowserService extends Service {
           await cdp.send('Input.insertText', { text: key })
         }
       } else {
-        throw new Error(
-          `Unknown key ${JSON.stringify(key)} — use Enter, Tab, Escape, Backspace, Delete, Home, End, PageUp, PageDown, Arrow*, space, or a single character.`,
-        )
+        throw new Error(unknownKeyMessage(key))
       }
       await settle(60)
     }
@@ -1004,6 +989,60 @@ const networkFrom = (events: readonly CdpEvent[]): NetworkEntry[] => {
   const out = [...rows.values()]
   return out.length > REQUEST_CAP ? out.slice(out.length - REQUEST_CAP) : out
 }
+
+/**
+ * The keys `key` takes by name, and what each must look like to the page.
+ *
+ * One list, and the error a wrong name gets is written from it — because
+ * the two were written separately once and disagreed. The message told
+ * callers to press `space`; the table held only the literal `' '`. An agent
+ * that read the message and retried with the word it was handed failed
+ * again, and again, with no third thing to try. Observed on 2026-09-07, on
+ * a game whose start screen read "PRESS SPACE OR CLICK TO START".
+ *
+ * `key` is what the DOM sees, which is not always what the caller typed: a
+ * page listening for `event.key === ' '` has to receive the space itself,
+ * so a name is a spelling of a key and never reaches the page as one.
+ */
+const NAMED_KEYS: Readonly<Record<string, { key: string; keyCode: number; code: string }>> = {
+  Enter: { key: 'Enter', keyCode: 13, code: 'Enter' },
+  Tab: { key: 'Tab', keyCode: 9, code: 'Tab' },
+  Escape: { key: 'Escape', keyCode: 27, code: 'Escape' },
+  Backspace: { key: 'Backspace', keyCode: 8, code: 'Backspace' },
+  Delete: { key: 'Delete', keyCode: 46, code: 'Delete' },
+  Home: { key: 'Home', keyCode: 36, code: 'Home' },
+  End: { key: 'End', keyCode: 35, code: 'End' },
+  PageUp: { key: 'PageUp', keyCode: 33, code: 'PageUp' },
+  PageDown: { key: 'PageDown', keyCode: 34, code: 'PageDown' },
+  ArrowLeft: { key: 'ArrowLeft', keyCode: 37, code: 'ArrowLeft' },
+  ArrowUp: { key: 'ArrowUp', keyCode: 38, code: 'ArrowUp' },
+  ArrowRight: { key: 'ArrowRight', keyCode: 39, code: 'ArrowRight' },
+  ArrowDown: { key: 'ArrowDown', keyCode: 40, code: 'ArrowDown' },
+  space: { key: ' ', keyCode: 32, code: 'Space' },
+}
+
+/** Every name `key` answers to, in the order it offers them. */
+export const KEY_NAMES: readonly string[] = Object.keys(NAMED_KEYS)
+
+const KEY_BY_FOLDED_NAME = new Map(
+  Object.entries(NAMED_KEYS).map(([name, spec]) => [name.toLowerCase(), spec] as const),
+)
+
+/**
+ * A caller's name for a key, as the event the page has to receive.
+ *
+ * Case folds, the way `modifierMask` below already folds `Cmd` and `cmd`: a
+ * name that differs from the offer by its case is the same key, and
+ * answering it with "unknown" starts the retry loop this exists to end. The
+ * space character resolves here rather than falling through to the
+ * single-character path, so a page that only listens for keydown hears one.
+ */
+export const namedKey = (key: string): { key: string; keyCode: number; code: string } | undefined =>
+  KEY_BY_FOLDED_NAME.get(key === ' ' ? 'space' : key.toLowerCase())
+
+/** What a name nobody has is answered with: this table, spelled out in full. */
+export const unknownKeyMessage = (key: string): string =>
+  `Unknown key ${JSON.stringify(key)} — use ${KEY_NAMES.join(', ')}, or a single character.`
 
 /** CDP's modifier bitmask: Alt 1, Ctrl 2, Meta 4, Shift 8. */
 const modifierMask = (modifiers: readonly string[]): number => {

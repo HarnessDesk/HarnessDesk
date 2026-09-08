@@ -283,7 +283,7 @@ export const browserPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'browser_key',
         description:
-          'Press a key — Enter, Tab, Escape, Backspace, Delete, Home, End, PageUp, PageDown, ArrowLeft/Right/Up/Down, space, or a single character — optionally several times and with modifiers held. Returns a fresh screenshot.',
+          'Press a key, optionally several times and with modifiers held — use Enter, Tab, Escape, Backspace, Delete, Home, End, PageUp, PageDown, ArrowLeft, ArrowUp, ArrowRight, ArrowDown, space, or a single character. Returns a fresh screenshot.',
         inputSchema: {
           type: 'object',
           properties: {
