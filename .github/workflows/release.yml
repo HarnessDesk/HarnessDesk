@@ -114,7 +114,23 @@ jobs:
           # existing list kept: `codesign --sign` searches the list, and
           # electron-builder puts its own keychain in front of ours for the
           # build and takes it back out when the build ends.
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          #
+          # Read line by line into a list rather than substituted unquoted.
+          # `security list-keychains` prints one quoted path per line, and an
+          # unquoted `$(...)` splits every one of them on whitespace — so a
+          # keychain whose path contains a space becomes two arguments, and the
+          # search list this writes is missing the keychain that was in it.
+          EXISTING=()
+          while IFS= read -r line; do
+            line=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/^"//' -e 's/"$//')
+            if [ -n "$line" ]; then EXISTING+=("$line"); fi
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$KEYCHAIN" ${EXISTING[@]+"${EXISTING[@]}"}
+
+          # Named once, for the cleanup step at the end of the job. A second
+          # literal copy of this path is a typo away from a keychain that is
+          # never removed.
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
           # Said here rather than discovered ten minutes into a build, and
           # asked twice, because "no valid identity" has two causes that want
@@ -138,12 +154,66 @@ jobs:
           esac
           exit 1
 
-      # A dry run has no secrets on a fork, and `dist:notarized` refuses
-      # without them by design — so the two runs take different scripts.
-      # They used to share `dist`, which passes `-c.mac.notarize=false`: the
-      # job set every Apple credential and then explicitly switched off the
-      # step that used them, and would have published a signed-but-not-
-      # notarized build that Gatekeeper stops on first launch.
+      # `notarytool --key` takes a path — its own help reads "File system path
+      # to the private key" — so the secret carrying the key has to become a
+      # file before anything can submit with it. Passed straight through, as it
+      # was, the API-key route reached `notarytool` with the key's text where a
+      # filename belongs and failed there, which is the same shape of trap as
+      # the one issue #2 opened on: a credential that satisfies every check
+      # that only asks whether the name is set.
+      #
+      # The path is exported for the steps below, which is why the build step
+      # no longer maps APPLE_API_KEY itself — a step-level `env:` would put the
+      # key's text back in front of this path.
+      - name: Write the App Store Connect key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_API_KEY" ]; then
+            echo "No APPLE_API_KEY configured; notarization will take the Apple ID route."
+            exit 0
+          fi
+          if [ -f "$APPLE_API_KEY" ]; then
+            echo "APPLE_API_KEY already names a file; leaving it alone."
+            exit 0
+          fi
+
+          KEY_FILE="$RUNNER_TEMP/apple-api-key.p8"
+          # Whichever way the .p8 was put into the secret: its own text, or
+          # base64 of it, the way the certificate beside it is stored.
+          if printf '%s' "$APPLE_API_KEY" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$APPLE_API_KEY" > "$KEY_FILE"
+          else
+            printf '%s' "$APPLE_API_KEY" | base64 --decode > "$KEY_FILE" 2>/dev/null || true
+          fi
+          chmod 600 "$KEY_FILE"
+
+          if ! grep -q "BEGIN PRIVATE KEY" "$KEY_FILE"; then
+            echo "::error::APPLE_API_KEY is neither an App Store Connect .p8 key nor base64 of one, and is not a path to a file."
+            exit 1
+          fi
+          echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
+          echo "Wrote the App Store Connect key to $KEY_FILE"
+
+      # Which script runs is decided by the credentials, not by `dry_run`.
+      # `dist:notarized` refuses without them by design, so a fork — which has
+      # no secrets — takes `dist` and produces the unsigned bundle that is the
+      # whole point of a fork's run. They used to share `dist`, which passes
+      # `-c.mac.notarize=false`: the job set every Apple credential and then
+      # explicitly switched off the step that used them, and would have
+      # published a signed-but-not-notarized build that Gatekeeper stops on
+      # first launch.
+      #
+      # Keying on `dry_run` instead left the release path untested by
+      # construction. Everything below `-c.mac.notarize=true` — preflight,
+      # notarization, DMG signing, stapling, the manifest repair — ran for the
+      # first time during a real release, on a workflow no pull request can
+      # exercise because this file is `workflow_dispatch` only. That is how the
+      # DMG stapling in issue #2 stayed broken through a release. A dry run on
+      # this repository now does the whole thing and simply does not publish,
+      # which costs a real notarization submission and roughly fifteen minutes
+      # and buys the only rehearsal this workflow can have.
       #
       # `dist:notarized` also staples the DMGs and repairs `latest-mac.yml`.
       # electron-builder staples the .app and then builds a fresh DMG around
@@ -153,21 +223,24 @@ jobs:
       - name: Build signed app
         working-directory: packages/desktop
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            pnpm run dist
-          else
+          if [ -n "${CSC_LINK:-}" ]; then
             pnpm run dist:notarized
+          else
+            echo "No signing certificate in this environment; building unsigned."
+            pnpm run dist
           fi
         env:
-          # Absent on forks and in dry runs; electron-builder then produces an
-          # unsigned bundle rather than failing, which is what we want for a
-          # build that is never published.
+          # Absent on a fork, which is what selects the unsigned build above;
+          # electron-builder then produces an ad-hoc bundle rather than
+          # failing, which is what a run that is never published wants.
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          # APPLE_API_KEY is deliberately absent: the step above exported it as
+          # the path to the .p8 it wrote, and a step-level `env:` here would
+          # override that with the key's text again.
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
@@ -192,7 +265,9 @@ jobs:
           # ticket, no Gatekeeper verdict on the container. `stapler validate`
           # is the offline question — whether a first launch works on a machine
           # that cannot reach Apple, which is the whole reason DMGs are stapled
-          # at all. A dry run has none of this, and says so rather than failing.
+          # at all. An unsigned build has none of it, and says so rather than
+          # failing — which on this repository now means a fork's run, not a
+          # dry run, since a dry run here signs, notarizes and staples too.
           for dmg in *.dmg; do
             [ -f "$dmg" ] || continue
             echo "== $dmg"
@@ -236,8 +311,12 @@ jobs:
             packages/desktop/release/latest-mac.yml
             packages/desktop/release/SHA256SUMS.txt
 
-      # It outlives the build by design; it should not outlive the job. A
-      # hosted runner forgets it either way — a self-hosted one would not.
-      - name: Remove the signing keychain
+      # They outlive the build by design; they should not outlive the job. A
+      # hosted runner forgets both either way — a self-hosted one would not.
+      - name: Remove the signing credentials
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/harnessdesk-signing.keychain-db" || true
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$SIGNING_KEYCHAIN" || true
+          fi
+          rm -f "$RUNNER_TEMP/apple-api-key.p8" "$RUNNER_TEMP/signing-certificate.p12"

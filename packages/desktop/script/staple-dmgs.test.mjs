@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -134,6 +134,27 @@ test('a DMG with no row is reported, not passed over', () => {
   assert.deepEqual(missing, ['HarnessDesk-0.1.0-universal.dmg'])
 })
 
+test('a blank line or a comment under files: is not the end of the sequence', () => {
+  // Nothing electron-builder writes today, and nothing it promised not to.
+  // The point of reading the structure was to stop caring how it is spaced;
+  // taking the first entry from the line straight after `files:` cared again,
+  // and answered a comment by reporting every DMG missing and failing closed.
+  const spaced = `version: 0.1.0
+files:
+
+  # written by electron-builder
+  - url: HarnessDesk-0.1.0-arm64.dmg
+    sha512: ${OLD_ARM}
+    size: 121847296
+releaseDate: '2026-09-06T11:04:22.117Z'
+`
+  const { manifest, missing } = repairManifest(spaced, [STAPLED[0]])
+  assert.deepEqual(missing, [])
+  assert.match(manifest, new RegExp(`^    sha512: ${NEW_ARM.replace(/[+/]/g, '\\$&')}$`, 'm'))
+  assert.match(manifest, /^    size: 121858560$/m)
+  assert.match(manifest, /^  # written by electron-builder$/m)
+})
+
 test('a manifest with no files sequence repairs nothing and says so', () => {
   const { manifest, missing } = repairManifest('version: 0.1.0\n', STAPLED)
   assert.equal(manifest, 'version: 0.1.0\n')
@@ -183,6 +204,37 @@ test('the release directory comes from this file, not from the working directory
 
 test('an explicit directory is taken as given', () => {
   assert.equal(releaseDirectory(['node', SCRIPT, 'somewhere/else']), resolve('somewhere/else'))
+})
+
+test('nothing is signed before the pass knows it can finish', () => {
+  // `codesign --force` rewrites the DMG in place. The credential check used to
+  // come after the first one, so a run with an identity but no notarization
+  // credentials left a signed, unnotarized, half-processed disk image behind
+  // on its way to exit 1. Both preconditions are asked before the loop now.
+  //
+  // Which of the two refuses depends on the machine this runs on — a release
+  // machine has the identity, a plain one does not — but neither may have
+  // touched the file, and that is what is asserted.
+  const scratch = mkdtempSync(join(tmpdir(), 'harnessdesk-staple-'))
+  try {
+    const dmg = join(scratch, 'HarnessDesk-0.1.0-arm64.dmg')
+    const before = Buffer.from('not really a disk image, and it must stay that way')
+    writeFileSync(dmg, before)
+
+    const stripped = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !name.startsWith('APPLE_')),
+    )
+    const result = spawnSync(process.execPath, [SCRIPT, scratch], {
+      encoding: 'utf8',
+      env: stripped,
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /No notarization credentials|No "Developer ID Application" identity/)
+    assert.deepEqual(readFileSync(dmg), before)
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
 })
 
 test('a directory that is not there, and one with nothing in it, both fail', () => {

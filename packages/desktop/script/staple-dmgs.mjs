@@ -52,14 +52,18 @@ import {
 /**
  * Every tool run here says what matters on stderr: `codesign` and `spctl`
  * write their verdict there whether they pass or fail, and `notarytool` writes
- * Apple's rejection and the log request UUID there. So both streams are
- * printed, and a non-zero exit throws — a failed step still fails the release,
+ * Apple's rejection and the log request UUID there. So both streams reach the
+ * log, and a non-zero exit throws — a failed step still fails the release,
  * with Apple's own reason still on the log rather than
  * `Command failed: xcrun notarytool ...` and nothing else.
+ *
+ * Inherited rather than piped, because nothing here reads the output back and
+ * a pipe holds it: `notarytool submit --wait` is ten minutes during which a
+ * piped run prints nothing at all, so a release log cannot be told apart from
+ * a hung one until it ends.
  */
 const run = (command, args) => {
-  const result = spawnSync(command, args, { encoding: 'utf8' })
-  process.stdout.write(`${result.stdout ?? ''}${result.stderr ?? ''}`)
+  const result = spawnSync(command, args, { stdio: 'inherit' })
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`${command} exited ${result.status ?? `on signal ${result.signal}`}`)
@@ -125,12 +129,19 @@ const sequenceEntries = (lines, key) => {
   while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]))) end += 1
 
   // An entry begins at each `-` written at the sequence's own indentation;
-  // anything indented further belongs to the entry above it.
-  const indent = ENTRY.exec(lines[head + 1] ?? '')?.[1]
-  if (indent === undefined) return []
+  // anything indented further belongs to the entry above it. The indentation
+  // is taken from the first `-` anywhere in the sequence rather than from the
+  // line straight after `files:`, which is not always one: a blank line or a
+  // comment there used to make the whole sequence unreadable, and a rewrite
+  // that reads structure in order to stop caring about formatting should not
+  // then fail on a formatting choice electron-builder is free to make.
   const starts = []
+  let indent
   for (let index = head + 1; index < end; index += 1) {
-    if (ENTRY.exec(lines[index])?.[1] === indent) starts.push(index)
+    const found = ENTRY.exec(lines[index])?.[1]
+    if (found === undefined) continue
+    if (indent === undefined) indent = found
+    if (found === indent) starts.push(index)
   }
   return starts.map((from, i) => ({ from, to: starts[i + 1] ?? end }))
 }
@@ -241,20 +252,38 @@ const main = () => {
     return { name, path, stapled: isStapled(path) }
   })
 
-  // Fail here rather than inside `codesign`, which answers a missing identity
-  // with one line about no identity found and no hint as to why there is none
-  // on a machine that just built a signed app. There is none because
-  // electron-builder deleted the keychain it made from CSC_LINK when the build
-  // finished. Only asked when something actually needs signing, and skipped
-  // where the keychain cannot be read at all — that is not macOS, and the
-  // `xcrun` calls below will say so far more clearly.
+  // Whichever credential the environment carries — the same resolver
+  // `preflight-notarize.mjs` checks with, so a build that passed preflight
+  // cannot fail here for want of a flag this script did not know about.
+  const credentials = notarizationCredentials(process.env)
+
+  // Everything this pass needs, asked before it touches a file. Only when
+  // something actually needs signing: a re-run over DMGs that already validate
+  // wants neither an identity nor a credential.
+  //
+  // Both used to be asked later, and the second of them after the first
+  // `codesign` — which rewrites the DMG in place, so a missing credential left
+  // a signed, unnotarized, half-processed disk image behind on the way out.
   if (targets.some((target) => !target.stapled)) {
+    // Rather than inside `codesign`, which answers a missing identity with one
+    // line about no identity found and no hint as to why there is none on a
+    // machine that just built a signed app. There is none because
+    // electron-builder deleted the keychain it made from CSC_LINK when the
+    // build finished. Skipped where the keychain cannot be read at all — that
+    // is not macOS, and the `xcrun` calls below will say so far more clearly.
     if (developerIdIdentity(keychainIdentities()) === 'absent') {
       console.error('\nNo "Developer ID Application" identity in the keychain.')
       console.error('electron-builder imports CSC_LINK into a keychain of its own and destroys')
       console.error('it when the build finishes, so a certificate passed to the build alone is')
       console.error('already gone by now. Import it into a keychain that outlives the build —')
       console.error('the release workflow does this in its "Import signing certificate" step.')
+      process.exit(1)
+    }
+
+    if (credentials.kind === null) {
+      console.error('\nNo notarization credentials in the environment.')
+      console.error('Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID,')
+      console.error('or APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER.')
       process.exit(1)
     }
   }
@@ -272,17 +301,6 @@ const main = () => {
     // release machine, and naming the team in CI would hard-code it here.
     console.log('- signing')
     run('codesign', ['--force', '--sign', 'Developer ID Application', '--timestamp', path])
-
-    // Whichever credential the environment carries — the same resolver
-    // `preflight-notarize.mjs` checks with, so a build that passed preflight
-    // cannot fail here for want of a flag this script did not know about.
-    const credentials = notarizationCredentials(process.env)
-    if (credentials.kind === null) {
-      console.error('\nNo notarization credentials in the environment.')
-      console.error('Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID,')
-      console.error('or APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER.')
-      process.exit(1)
-    }
 
     console.log(`- notarizing (${credentials.kind})`)
     run('xcrun', ['notarytool', 'submit', path, ...credentials.args, '--wait', '--timeout', '30m'])
