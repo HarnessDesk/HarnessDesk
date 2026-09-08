@@ -35,6 +35,17 @@
  * into a keychain of its own and destroys it when the build finishes
  * (`app-builder-lib` does `disposeOnBuildFinish(() => removeKeychain(...))`),
  * so nothing it imported is still there by the time this runs.
+ *
+ * Everything above was reasoning until 2026-09-08, when `dist:notarized` was
+ * run end to end against Apple's real notary service. Both DMGs were signed
+ * here, submitted, and came back Accepted; `stapler validate` then found a
+ * ticket on each file, `spctl` answered `source=Notarized Developer ID`, and
+ * `latest-mac.yml` matched the sha512 and the byte count of the stapled images
+ * afterwards. Ten minutes for the whole chain.
+ *
+ * That is the offline case proved rather than argued: a ticket on the file is
+ * what makes a first launch work on a machine that cannot reach Apple, and
+ * before this pass existed there was none on any DMG we shipped.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
