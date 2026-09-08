@@ -551,6 +551,10 @@ test('every key the message offers is a key the browser takes, and every key it 
     assert.ok(namedKey(name), `the message offers ${JSON.stringify(name)} and the table has no such key`)
   }
   assert.deepEqual([...offered].sort(), [...KEY_NAMES].sort(), 'a key nobody is told about is a key nobody presses')
+  // Two names differing only in case are one entry once folded, and the one
+  // the map happened to keep would answer for both. Everything above passes
+  // while an entry is quietly dead, so the fold is counted here.
+  assert.equal(new Set(KEY_NAMES.map((name) => name.toLowerCase())).size, KEY_NAMES.length, 'two names fold to one')
 })
 
 test('a key pressed by name reaches the page as the key itself, not as its name', async (t) => {
