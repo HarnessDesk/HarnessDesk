@@ -5,7 +5,37 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.1.0 — 2026-09-07
+
+The first packaged build: signed and notarized for Apple Silicon and Intel,
+with a background updater that installs on quit. macOS 13+.
+
+- **Four agents, one window** — Codex natively; Claude Code, Cursor and
+  DeepSeek Harness over ACP, through bridges written for this app. Any other
+  ACP agent registers from Settings → Agents.
+- **Your real history** — sessions started in the agents' own CLIs appear
+  with full transcripts, read from each agent's own store.
+- **One approval surface, one permission policy, one audit log** — whichever
+  agent asked.
+- **Parallel conversations** in panes, each optionally in its own git
+  worktree, so two agents can edit the same files without seeing each other.
+- **Hand-off between agents** — goal, state, files changed, branch and
+  commit, carried as a packet no vendor could adopt from another.
+- **Plugins** — twelve built in; installed ones run isolated in a supervised
+  child process, and a plugin's tools reach every agent.
+- **The workbench** — sandboxed terminal, editor with conflict-refusing
+  saves, diffs hunk by hunk, previews, a browser with per-agent tools.
+- **The Library** — every skill and MCP server on the machine, which agents
+  actually load each one, what its catalogue line costs per turn, and whether
+  it ever fired.
+- **Usage and context** — every plan's limits on one screen; a context ring
+  fed by the agent's own numbers, never derived.
+- **Local only** — no account, no telemetry; credentials in a broker that
+  returns references, never values.
+
+What it does not do yet is part of the README, stated just as plainly.
+
+### Late changes
 
 - **The audit log keeps the last thing that happened before you quit.** Its
   entries are queued and written behind the event stream, so the fan-out never
@@ -117,33 +147,3 @@ move is real work and is not news to a person weighing an upgrade.
   green dot marks every door to the panel — the ⋯ menu item, the panel's
   tab, the conversation's sidebar row. Replaces the strip above the
   composer.
-
-## 0.1.0 — 2026-08-28 · developer preview
-
-The first packaged build: signed and notarized for Apple Silicon and Intel,
-with a background updater that installs on quit. macOS 13+.
-
-- **Four agents, one window** — Codex natively; Claude Code, Cursor and
-  DeepSeek Harness over ACP, through bridges written for this app. Any other
-  ACP agent registers from Settings → Agents.
-- **Your real history** — sessions started in the agents' own CLIs appear
-  with full transcripts, read from each agent's own store.
-- **One approval surface, one permission policy, one audit log** — whichever
-  agent asked.
-- **Parallel conversations** in panes, each optionally in its own git
-  worktree, so two agents can edit the same files without seeing each other.
-- **Hand-off between agents** — goal, state, files changed, branch and
-  commit, carried as a packet no vendor could adopt from another.
-- **Plugins** — twelve built in; installed ones run isolated in a supervised
-  child process, and a plugin's tools reach every agent.
-- **The workbench** — sandboxed terminal, editor with conflict-refusing
-  saves, diffs hunk by hunk, previews, a browser with per-agent tools.
-- **The Library** — every skill and MCP server on the machine, which agents
-  actually load each one, what its catalogue line costs per turn, and whether
-  it ever fired.
-- **Usage and context** — every plan's limits on one screen; a context ring
-  fed by the agent's own numbers, never derived.
-- **Local only** — no account, no telemetry; credentials in a broker that
-  returns references, never values.
-
-What it does not do yet is part of the README, stated just as plainly.

@@ -92,7 +92,7 @@ const DT = FAST ? 0.05 : 1
 const RECORDED_RUNTIME = TEMPLATES['turnStarted'].runtime
 const RECORDED_TURN_START = ((TEMPLATES['turnStarted'].event as { turn?: { startedAt?: number } }).turn?.startedAt) ?? CAPTURED_NOW
 
-const DOWNLOAD = 'https://updates.harnessdesk.app/mac/HarnessDesk-0.1.0-arm64.dmg'
+const DOWNLOAD = 'https://github.com/HarnessDesk/HarnessDesk/releases/download/v0.1.0/HarnessDesk-0.1.0-arm64.dmg'
 
 /**
  * What everything outside the demo's story answers with.
