@@ -63,9 +63,20 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
 
+      # A dry run has no secrets on a fork, and `dist:notarized` refuses
+      # without them by design — so the two runs take different scripts.
+      # They used to share `dist`, which passes `-c.mac.notarize=false`: the
+      # job set every Apple credential and then explicitly switched off the
+      # step that used them, and would have published a signed-but-not-
+      # notarized build that Gatekeeper stops on first launch.
       - name: Build signed app
         working-directory: packages/desktop
-        run: pnpm run dist
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            pnpm run dist
+          else
+            pnpm run dist:notarized
+          fi
         env:
           # Absent on forks and in dry runs; electron-builder then produces an
           # unsigned bundle rather than failing, which is what we want for a
@@ -76,6 +87,20 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # electron-builder staples the .app and then builds a fresh DMG around
+      # it, so the DMG Apple never saw carries no ticket. Stapling them is a
+      # separate pass, and it rewrites the DMG rows of `latest-mac.yml`,
+      # which the build wrote before these bytes changed.
+      - name: Staple the DMGs
+        if: ${{ !inputs.dry_run }}
+        working-directory: packages/desktop
+        run: node script/staple-dmgs.mjs
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # After stapling, so the sums describe the bytes that ship.
       - name: Checksums
         working-directory: packages/desktop/release
         run: shasum -a 256 *.dmg *.zip > SHA256SUMS.txt || true
@@ -98,6 +123,8 @@ jobs:
           path: |
             packages/desktop/release/*.dmg
             packages/desktop/release/*.zip
+            packages/desktop/release/*.blockmap
+            packages/desktop/release/latest-mac.yml
             packages/desktop/release/SHA256SUMS.txt
           retention-days: 14
 
@@ -108,7 +135,13 @@ jobs:
           tag_name: v${{ inputs.version }}
           name: HarnessDesk ${{ inputs.version }}
           generate_release_notes: true
+          # `latest-mac.yml` is the file electron-updater actually fetches,
+          # and the blockmaps are what let it download a delta instead of
+          # 150MB. Uploading the DMGs and zips without them publishes a
+          # release the updater cannot read.
           files: |
             packages/desktop/release/*.dmg
             packages/desktop/release/*.zip
+            packages/desktop/release/*.blockmap
+            packages/desktop/release/latest-mac.yml
             packages/desktop/release/SHA256SUMS.txt

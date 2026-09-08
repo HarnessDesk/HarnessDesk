@@ -36,8 +36,9 @@
     "productName": "HarnessDesk",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "publish": {
-      "provider": "generic",
-      "url": "https://updates.harnessdesk.app/mac"
+      "provider": "github",
+      "owner": "HarnessDesk",
+      "repo": "HarnessDesk"
     },
     "directories": {
       "output": "release"
