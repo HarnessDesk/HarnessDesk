@@ -44,6 +44,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
+  apiKeyIsUsable,
   developerIdIdentity,
   keychainIdentities,
   notarizationCredentials,
@@ -286,6 +287,17 @@ const main = () => {
       console.error('or APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER.')
       process.exit(1)
     }
+
+    // Having a credential is not the same as being able to use it. Run under
+    // `dist:notarized` the preflight has already asked this, but this script
+    // is also run on its own, and there `notarytool` was the first thing to
+    // notice — one `codesign --force` too late to leave the DMG alone.
+    if (!apiKeyIsUsable(process.env)) {
+      console.error('\nAPPLE_API_KEY does not name a file that exists.')
+      console.error('`notarytool --key` reads the .p8 off disk; a key held as text')
+      console.error('has to be written to a file first, and the variable set to its path.')
+      process.exit(1)
+    }
   }
 
   // Read now, repaired at the end. `latest-mac.yml` is as much a precondition
@@ -304,6 +316,22 @@ const main = () => {
     // cannot read. Returning success here would ship exactly that, quietly.
     console.error(`\n${manifestPath} is missing. There is nothing to repair,`)
     console.error('and a release without it is one electron-updater cannot read.')
+    process.exit(1)
+  }
+
+  // And the rows in it, asked with the very lookup that will do the repair so
+  // the two cannot come to disagree about what a row is. A stray DMG left in
+  // `release/` by an earlier build has none, which is fatal — and used to be
+  // fatal only after every disk image had been signed, submitted, waited on
+  // and stapled. The values here are placeholders; only `missing` is read.
+  const rowless = repairManifest(
+    manifest,
+    targets.map(({ name }) => ({ url: name, sha512: '', size: 0 })),
+  ).missing
+  if (rowless.length > 0) {
+    for (const url of rowless) console.error(`\n  ${url}: no row in latest-mac.yml.`)
+    console.error('  Every DMG here has to be one the manifest describes, or the release')
+    console.error('  would carry stale hashes for the ones it does not.')
     process.exit(1)
   }
 
@@ -342,9 +370,11 @@ const main = () => {
   }))
   const repair = repairManifest(manifest, files)
   if (repair.missing.length > 0) {
-    // Also fail closed: a DMG whose row cannot be found keeps the hash it had
-    // before stapling, and a green exit publishes a manifest that disagrees
-    // with the bytes.
+    // Unreachable by the check above, which asked the same question of the
+    // same manifest before any of this ran. Kept because it is the one
+    // guarding the write: a DMG whose row cannot be found keeps the hash it
+    // had before stapling, and writing anyway publishes a manifest that
+    // disagrees with the bytes.
     for (const url of repair.missing) console.error(`  ${url}: no row in latest-mac.yml.`)
     console.error('  The manifest cannot be repaired, so the release would carry stale hashes.')
     process.exit(1)

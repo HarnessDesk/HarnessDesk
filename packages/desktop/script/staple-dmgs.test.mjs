@@ -258,15 +258,89 @@ test('a missing manifest stops the pass at the start, not half an hour in', () =
         ...Object.fromEntries(
           Object.entries(process.env).filter(([name]) => !name.startsWith('APPLE_')),
         ),
-        APPLE_API_KEY: '/nowhere.p8',
-        APPLE_API_KEY_ID: 'K1',
-        APPLE_API_ISSUER: 'I1',
+        // The Apple ID route, so the API-key file check above cannot be what
+        // answers: this test is about the manifest and nothing else.
+        APPLE_ID: 'x@y.z',
+        APPLE_APP_SPECIFIC_PASSWORD: 'p',
+        APPLE_TEAM_ID: 'TEAM01',
       },
     })
 
     assert.equal(result.status, 1)
     assert.match(result.stderr, /latest-mac\.yml is missing|No "Developer ID Application" identity/)
     assert.deepEqual(readFileSync(dmg), before)
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+})
+
+test('an API key that is not a file stops the pass before it signs', () => {
+  // Run under `dist:notarized` the preflight has already asked this, but the
+  // script is also documented as runnable on its own — and there `notarytool`
+  // was the first thing to notice a key that is not on disk, one
+  // `codesign --force` too late to leave the DMG alone.
+  const scratch = mkdtempSync(join(tmpdir(), 'harnessdesk-staple-'))
+  try {
+    const dmg = join(scratch, 'HarnessDesk-0.1.0-arm64.dmg')
+    const before = Buffer.from('a disk image only in name')
+    writeFileSync(dmg, before)
+    writeFileSync(
+      join(scratch, 'latest-mac.yml'),
+      `version: 0.1.0\nfiles:\n  - url: HarnessDesk-0.1.0-arm64.dmg\n    sha512: ${OLD_ARM}\n    size: 1\n`,
+    )
+
+    const result = spawnSync(process.execPath, [SCRIPT, scratch], {
+      encoding: 'utf8',
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([name]) => !name.startsWith('APPLE_')),
+        ),
+        APPLE_API_KEY: join(scratch, 'no-such-key.p8'),
+        APPLE_API_KEY_ID: 'K1',
+        APPLE_API_ISSUER: 'I1',
+      },
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /does not name a file that exists|No "Developer ID Application" identity/)
+    assert.deepEqual(readFileSync(dmg), before)
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+})
+
+test('a DMG the manifest never mentions is caught before any of them are signed', () => {
+  // The file being present is not the same as the rows being there. A stray
+  // DMG left in release/ by an earlier build has no row, which is fatal — and
+  // used to be fatal only after every disk image had been signed, submitted,
+  // waited on and stapled.
+  const scratch = mkdtempSync(join(tmpdir(), 'harnessdesk-staple-'))
+  try {
+    const known = join(scratch, 'HarnessDesk-0.1.0-arm64.dmg')
+    const stray = join(scratch, 'HarnessDesk-0.0.9-arm64.dmg')
+    const before = Buffer.from('left over from the build before')
+    writeFileSync(known, Buffer.from('the one the manifest knows'))
+    writeFileSync(stray, before)
+    writeFileSync(
+      join(scratch, 'latest-mac.yml'),
+      `version: 0.1.0\nfiles:\n  - url: HarnessDesk-0.1.0-arm64.dmg\n    sha512: ${OLD_ARM}\n    size: 1\n`,
+    )
+
+    const result = spawnSync(process.execPath, [SCRIPT, scratch], {
+      encoding: 'utf8',
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([name]) => !name.startsWith('APPLE_')),
+        ),
+        APPLE_ID: 'x@y.z',
+        APPLE_APP_SPECIFIC_PASSWORD: 'p',
+        APPLE_TEAM_ID: 'TEAM01',
+      },
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /HarnessDesk-0\.0\.9-arm64\.dmg: no row|No "Developer ID Application" identity/)
+    assert.deepEqual(readFileSync(stray), before)
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }

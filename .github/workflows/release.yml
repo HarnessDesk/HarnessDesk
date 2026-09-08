@@ -153,52 +153,75 @@ jobs:
           esac
           exit 1
 
-      # `notarytool --key` takes a path — its own help reads "File system path
-      # to the private key" — so the secret carrying the key has to become a
-      # file before anything can submit with it. Passed straight through, as it
-      # was, the API-key route reached `notarytool` with the key's text where a
-      # filename belongs and failed there, which is the same shape of trap as
-      # the one issue #2 opened on: a credential that satisfies every check
-      # that only asks whether the name is set.
+      # One route reaches the build, chosen here.
       #
-      # The path is exported for the steps below, which is why the build step
-      # no longer maps APPLE_API_KEY itself — a step-level `env:` would put the
-      # key's text back in front of this path.
-      - name: Write the App Store Connect key
+      # `notarytool --key` takes a path — its own help reads "File system path
+      # to the private key" — so a secret carrying the key has to become a file
+      # before anything can submit with it. Passed straight through, the
+      # API-key route reached `notarytool` with the key's text where a filename
+      # belongs and failed there.
+      #
+      # And only one: electron-builder reads APPLE_ID first and throws for
+      # whichever of that trio is missing, while these scripts prefer the API
+      # key, so an environment carrying both notarizes the `.app` and the DMGs
+      # under different credentials. The preflight refuses that rather than let
+      # it happen quietly — and this workflow used to hand it both whenever
+      # both secrets existed, which made the refusal reachable from a
+      # configuration nobody had done anything wrong to arrive at.
+      #
+      # Exported rather than mapped into the build step's `env:`, which would
+      # take precedence over anything decided here.
+      - name: Choose the notarization credentials
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          if [ -z "$APPLE_API_KEY" ]; then
-            echo "No APPLE_API_KEY configured; notarization will take the Apple ID route."
-            exit 0
-          fi
-          if [ -f "$APPLE_API_KEY" ]; then
-            # Still exported. A step-level `env:` reaches only its own step, and
-            # the build step below deliberately does not map APPLE_API_KEY — so
-            # returning here without writing it out left the key set nowhere at
-            # all, and a correctly configured path failed as "no credentials".
-            echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
-            echo "APPLE_API_KEY already names a file; leaving it alone."
+
+          if [ -n "$APPLE_API_KEY" ]; then
+            if [ -f "$APPLE_API_KEY" ]; then
+              KEY_FILE="$APPLE_API_KEY"
+              echo "APPLE_API_KEY already names a file; leaving it alone."
+            else
+              KEY_FILE="$RUNNER_TEMP/apple-api-key.p8"
+              # Whichever way the .p8 was put into the secret: its own text, or
+              # base64 of it, the way the certificate beside it is stored.
+              if printf '%s' "$APPLE_API_KEY" | grep -q "BEGIN PRIVATE KEY"; then
+                printf '%s\n' "$APPLE_API_KEY" > "$KEY_FILE"
+              else
+                printf '%s' "$APPLE_API_KEY" | base64 --decode > "$KEY_FILE" 2>/dev/null || true
+              fi
+              chmod 600 "$KEY_FILE"
+              if ! grep -q "BEGIN PRIVATE KEY" "$KEY_FILE"; then
+                echo "::error::APPLE_API_KEY is neither an App Store Connect .p8 key nor base64 of one, and is not a path to a file."
+                exit 1
+              fi
+              echo "Wrote the App Store Connect key to $KEY_FILE"
+            fi
+            {
+              echo "APPLE_API_KEY=$KEY_FILE"
+              echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID"
+              echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+            } >> "$GITHUB_ENV"
+            echo "Notarizing with the App Store Connect API key."
             exit 0
           fi
 
-          KEY_FILE="$RUNNER_TEMP/apple-api-key.p8"
-          # Whichever way the .p8 was put into the secret: its own text, or
-          # base64 of it, the way the certificate beside it is stored.
-          if printf '%s' "$APPLE_API_KEY" | grep -q "BEGIN PRIVATE KEY"; then
-            printf '%s\n' "$APPLE_API_KEY" > "$KEY_FILE"
-          else
-            printf '%s' "$APPLE_API_KEY" | base64 --decode > "$KEY_FILE" 2>/dev/null || true
+          if [ -n "$APPLE_ID" ] || [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            {
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            } >> "$GITHUB_ENV"
+            echo "Notarizing with the Apple ID."
+            exit 0
           fi
-          chmod 600 "$KEY_FILE"
 
-          if ! grep -q "BEGIN PRIVATE KEY" "$KEY_FILE"; then
-            echo "::error::APPLE_API_KEY is neither an App Store Connect .p8 key nor base64 of one, and is not a path to a file."
-            exit 1
-          fi
-          echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
-          echo "Wrote the App Store Connect key to $KEY_FILE"
+          echo "No notarization credentials configured; this build will not be notarized."
 
       # Which script runs is decided by the credentials, not by `dry_run`.
       # `dist:notarized` refuses without them by design, so a fork — which has
@@ -247,14 +270,9 @@ jobs:
           # failing, which is what a run that is never published wants.
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # APPLE_API_KEY is deliberately absent: the step above exported it as
-          # the path to the .p8 it wrote, and a step-level `env:` here would
-          # override that with the key's text again.
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          # No APPLE_* here on purpose. The step above put exactly one route in
+          # the environment; naming any of them again would take precedence
+          # over that and put both back.
 
       # After stapling, so the sums describe the bytes that ship.
       - name: Checksums

@@ -94,6 +94,33 @@ export const notarizationCredentials = (env) => {
   return { kind: null, args: [] }
 }
 
+/**
+ * Whether a path names a file that is really there. Exported because two
+ * scripts ask it of the same environment variable, and `existsSync` is not the
+ * question: `notarytool --key` given a directory fails the way it fails on a
+ * key that is not there at all.
+ */
+export const isRealFile = (path) => {
+  try {
+    return Boolean(path) && statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether the API-key route, if that is the route, names a key file that
+ * exists. `notarytool --key` takes a path — "File system path to the private
+ * key", in its own help — so a secret holding the .p8's text satisfies every
+ * check that only asks whether the name is set and fails at submission.
+ *
+ * `staple-dmgs.mjs` asks this too, and asks it before it signs anything: by
+ * the time `notarytool` rejects the path, `codesign --force` has already
+ * rewritten the disk image.
+ */
+export const apiKeyIsUsable = (env, isFile = isRealFile) =>
+  notarizationCredentials(env).kind !== 'api-key' || isFile(env['APPLE_API_KEY'])
+
 export const preflightProblems = ({ env, identities, isFile = () => true }) => {
   const problems = []
 
@@ -104,28 +131,25 @@ export const preflightProblems = ({ env, identities, isFile = () => true }) => {
     )
   }
 
-  // `notarytool --key` takes a path, not a key: its own help reads "File
-  // system path to the private key". A secret holding the .p8's *text* — the
-  // obvious way to put a key in a secret, and the way the certificate beside
-  // it is stored — satisfies every check that only asks whether the name is
-  // set, and then fails at submission. Which is the ten-minutes-late failure
-  // this whole script exists to move earlier. The value is never printed: if
-  // it is wrong, it is wrong because it is the private key itself.
-  if (credentials.kind === 'api-key' && !isFile(env['APPLE_API_KEY'])) {
+  // The value is never printed: if it is wrong, it is wrong because it is the
+  // private key itself.
+  if (!apiKeyIsUsable(env, isFile)) {
     problems.push(
       'APPLE_API_KEY must be the path to the App Store Connect .p8 key file, and nothing exists at the path it holds. `notarytool --key` reads a file; a secret carrying the key text fails at submission. Write it to a file first and point APPLE_API_KEY at that.',
     )
   }
 
-  // electron-builder never reaches the API key with a half-set Apple ID pair:
-  // it tests `appleId || appleIdPassword` first and then throws if the other
-  // is missing. The resolver above just falls through to the key and reports
-  // everything present, so a stray APPLE_ID in a shell — with a perfectly good
-  // API key beside it — passed here and died at
-  // `APPLE_APP_SPECIFIC_PASSWORD env var needs to be set` minutes later.
-  if (Boolean(env['APPLE_ID']) !== Boolean(env['APPLE_APP_SPECIFIC_PASSWORD'])) {
+  // electron-builder never reaches the API key with a partly-set Apple ID
+  // route: it tests `appleId || appleIdPassword` and then throws for whichever
+  // of the *three* is missing — `MacTargetHelper.js` throws on the team id at
+  // line 230, which the first version of this check did not know about, so
+  // APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD without APPLE_TEAM_ID still
+  // passed here and still died in the build. The trigger is the first two
+  // only, because that is what electron-builder tests: APPLE_TEAM_ID alone —
+  // which this workflow sets — never enters that branch.
+  if ((env['APPLE_ID'] || env['APPLE_APP_SPECIFIC_PASSWORD']) && !appleIdComplete(env)) {
     problems.push(
-      'APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD have to be set together or not at all. electron-builder throws on one without the other before it ever looks at an API key, so a complete API key does not rescue a stray APPLE_ID.',
+      'APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID have to be set together or not at all. electron-builder throws for whichever is missing as soon as it sees either of the first two, before it looks at an API key at all, so a complete API key does not rescue a partly-set Apple ID.',
     )
   }
 
@@ -162,15 +186,7 @@ const main = () => {
   const problems = preflightProblems({
     env: process.env,
     identities: keychainIdentities(),
-    // A file, not merely something at that path: `notarytool --key` given a
-    // directory fails the same way it fails on a key that is not there.
-    isFile: (path) => {
-      try {
-        return Boolean(path) && statSync(path).isFile()
-      } catch {
-        return false
-      }
-    },
+    isFile: isRealFile,
   })
   if (problems.length === 0) {
     console.log('Notarization preflight: credentials and signing identity look present.')

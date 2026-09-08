@@ -69,7 +69,33 @@ test('a stray APPLE_ID is not rescued by a complete API key', () => {
   assert.equal(notarizationCredentials({ APPLE_ID: 'x@y.z', APPLE_API_KEY: '/k.p8', APPLE_API_KEY_ID: 'K1', APPLE_API_ISSUER: 'I1' }).kind, 'api-key')
   // electron-builder is not, and says so by throwing. So this does too.
   assert.equal(problems.length, 1)
-  assert.match(problems[0], /electron-builder throws on one without the other/)
+  assert.match(problems[0], /APPLE_TEAM_ID have to be set together/)
+})
+
+test('and neither is a pair missing only the team id', () => {
+  // The first version of the check above compared APPLE_ID against
+  // APPLE_APP_SPECIFIC_PASSWORD and stopped there, so a pair with no
+  // APPLE_TEAM_ID read as consistent and passed. electron-builder throws for
+  // that one too — `MacTargetHelper.js:230` — after the same trigger.
+  const problems = preflightProblems({
+    env: {
+      APPLE_ID: 'x@y.z',
+      APPLE_APP_SPECIFIC_PASSWORD: 'p',
+      APPLE_API_KEY: '/k.p8',
+      APPLE_API_KEY_ID: 'K1',
+      APPLE_API_ISSUER: 'I1',
+    },
+    identities: IDENTITY,
+  })
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /APPLE_TEAM_ID/)
+})
+
+test('APPLE_TEAM_ID on its own is not a partly-set Apple ID route', () => {
+  // electron-builder tests `appleId || appleIdPassword` — a team id alone
+  // never enters that branch, and this workflow sets one either way.
+  const env = { APPLE_TEAM_ID: 'TEAM01', APPLE_API_KEY: '/k.p8', APPLE_API_KEY_ID: 'K1', APPLE_API_ISSUER: 'I1' }
+  assert.deepEqual(preflightProblems({ env, identities: IDENTITY }), [])
 })
 
 test('two complete routes are two answers, not two chances', () => {
