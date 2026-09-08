@@ -112,6 +112,19 @@ export class AuditLog {
       .catch(() => {})
   }
 
+  /**
+   * Resolves once every queued entry has hit disk. `append` returns before its
+   * write lands — it is called from the event fan-out, which must not wait on
+   * a disk — so without this the quit is only the *request* to stop writing:
+   * the last approval of a session can still be appending after `dispose()`
+   * has resolved. That costs the entries a diagnostics bundle taken straight
+   * after a quit would otherwise be missing, and it costs a test the directory
+   * it is trying to remove.
+   */
+  async flush(): Promise<void> {
+    await this.#writes
+  }
+
   /** Entries under `root` (all, when omitted) within the window, newest first. */
   async query(options: { root?: string; sinceDays?: number } = {}): Promise<AuditEntry[]> {
     let raw: string

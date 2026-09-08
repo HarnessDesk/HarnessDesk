@@ -694,6 +694,12 @@ export class Host {
     await runtimesGone
     this.#runtimes.clear()
     await this.#team.flush()
+    /* Last, because everything above it can still record. `append` is called
+       from the event fan-out and returns before its write lands, so a quit
+       that did not wait here was only the *request* to stop writing: the last
+       approval of a session was still appending to `audit.ndjson` after
+       `dispose()` had resolved. */
+    await this.#audit.flush()
   }
 
   addBroadcaster(broadcast: Broadcast): Unsubscribe {

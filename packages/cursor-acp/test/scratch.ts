@@ -1,49 +1,38 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after } from 'node:test'
 
 /**
- * A temp directory that goes away when the file's tests are done.
+ * One temp root for this test file's process, and for everything it spawns.
  *
- * The workspace, the state index and the Cursor home are all built at module
- * scope here, and one of them is rebuilt per spawn inside the runtime's env.
- * None of that has a `t` to hang a `t.after` on, so a single hook registered
- * at import removes what the file asked for. A run of this package used to
+ * The bridge writes each chat's tool plugin and each attached image under a
+ * *fixed* path inside TMPDIR — production's path, shared by every cursor-acp
+ * on the machine. `node --test` runs each test file in its own process, in
+ * parallel, so the two files of this package used to share that root with
+ * each other and with the developer's real cursor-agent; a per-file cleanup
+ * that removed "whatever appeared while I ran" therefore removed directories
+ * another process was still reading. That is what made the image test flaky
+ * on CI: the file was written, and then deleted by the sibling file's
+ * cleanup in the window between the bridge's write and the test's read.
+ *
+ * So TMPDIR itself moves, before anything has read it. `os.tmpdir()` consults
+ * the variable on every call, and the runtime spawns the bridge with
+ * `{ ...process.env, ...env }`, so the bridge — and the fake CLI under it —
+ * land in here too. Nothing this file runs can now reach a path it did not
+ * create, and the whole root goes at the end. A run of this package used to
  * leave 17 directories behind.
  */
-const made: string[] = []
+export const SCRATCH_TMP = mkdtempSync(join(tmpdir(), 'cursor-acp-tmp-'))
+process.env['TMPDIR'] = SCRATCH_TMP
 
 after(() => {
-  for (const dir of made) rmSync(dir, { recursive: true, force: true })
-  made.length = 0
+  rmSync(SCRATCH_TMP, { recursive: true, force: true })
 })
-
-export const tempDir = (prefix: string): string => {
-  const dir = mkdtempSync(join(tmpdir(), prefix))
-  made.push(dir)
-  return dir
-}
 
 /**
- * The bridge writes each chat's tool plugin to a *fixed* path under TMPDIR —
- * `writeToolPlugin`'s default root, and `bridge.ts` hardcodes the same one for
- * images. It is production's path, not the tests', and a real cursor-acp on
- * this machine may be using it, so the root is never removed wholesale: only
- * the per-chat directories that appeared while these tests ran. Three of them
- * were left behind by every run.
+ * A temp directory for one thing the tests need — a workspace, a state index,
+ * a Cursor home. It lands inside {@link SCRATCH_TMP}, so it needs no cleanup
+ * of its own: the root above takes it.
  */
-const pluginRoot = join(tmpdir(), 'harnessdesk-cursor-acp')
-const rootExisted = existsSync(pluginRoot)
-const alreadyThere = new Set(rootExisted ? readdirSync(pluginRoot) : [])
-
-after(() => {
-  if (!existsSync(pluginRoot)) return
-  if (!rootExisted) {
-    rmSync(pluginRoot, { recursive: true, force: true })
-    return
-  }
-  for (const entry of readdirSync(pluginRoot)) {
-    if (!alreadyThere.has(entry)) rmSync(join(pluginRoot, entry), { recursive: true, force: true })
-  }
-})
+export const tempDir = (prefix: string): string => mkdtempSync(join(tmpdir(), prefix))

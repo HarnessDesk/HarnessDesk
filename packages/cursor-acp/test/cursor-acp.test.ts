@@ -14,7 +14,7 @@ import type { AgentEvent, AgentItem } from '@harnessdesk/protocol'
 
 import { DatabaseSync } from 'node:sqlite'
 
-import { tempDir } from './scratch.js'
+import { SCRATCH_TMP, tempDir } from './scratch.js'
 
 import { cursorMeta, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
 
@@ -90,7 +90,7 @@ test('the tool server is accepted through a generated plugin directory', async (
     )
     assert.equal(runtime.info.capabilities.pluginTools, true, 'the tools were taken, so the capability stands')
 
-    const dir = join(tmpdir(), 'harnessdesk-cursor-acp', String(session.id), 'plugin')
+    const dir = join(SCRATCH_TMP, 'harnessdesk-cursor-acp', String(session.id), 'plugin')
     const manifest = JSON.parse(readFileSync(join(dir, '.cursor-plugin', 'plugin.json'), 'utf8')) as {
       name?: string
     }
@@ -381,6 +381,10 @@ test('an attached image is written to disk and named to cursor-agent with @path'
     // reference follows them, pointing at a file that really holds the bytes.
     const match = /heard: what colour is it\n\nThe user attached this image; look at it: @(\S+\.png)/.exec(message.text)
     assert.ok(match, `the prompt names the spilled image: ${message.text}`)
+    // Under this run's own temp root, not the fixed one every cursor-acp on
+    // the machine shares: a parallel test process cleaning that root out from
+    // under this read is what used to make this test flaky on CI.
+    assert.ok(match[1]!.startsWith(`${SCRATCH_TMP}/`), `the image is spilled inside this run: ${match[1]}`)
     assert.equal(readFileSync(match[1]!).toString('base64'), png)
     // The transcript keeps the image as the user sent it, name included.
     const user = turn.items.find((item): item is Extract<AgentItem, { type: 'userMessage' }> => item.type === 'userMessage')

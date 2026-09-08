@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { runtimeId, type CatalogRefresh, type RuntimeId } from '@harnessdesk/protocol'
+import {
+  approvalId,
+  runtimeId,
+  type CatalogRefresh,
+  type RuntimeId,
+  type Session,
+} from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
-import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 
 /**
  * The quit reaches every runtime before a catalogue re-read can resume.
@@ -157,4 +164,57 @@ test('one runtime that will not shut down cleanly does not strand the others', a
   await host.dispose()
 
   assert.equal(calm.disposed, true, 'the runtime behind the throwing one was still disposed')
+})
+
+/**
+ * What `dispose()` has to mean.
+ *
+ * Every writer the host owns is fed from the event fan-out, which must not
+ * wait on a disk — so each one queues and returns, and the quit is the only
+ * place their queues are drained. A quit that drains all but one is not a
+ * slower quit; it is a quit that lies. The entries this one used to drop were
+ * the last of a session, which is the half a diagnostics bundle taken after a
+ * quit is collected *for*, and on CI it was a hook removing a state directory
+ * that `audit.ndjson` reappeared inside a moment later — ENOTEMPTY, in
+ * whichever test happened to be last.
+ */
+test('the quit waits out the writers, so what was recorded is on disk when it resolves', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-audit-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  const runtime = new FakeRuntime()
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    catalogRefreshMs: 0,
+  })
+  host.register(runtime)
+  await host.start()
+
+  // Two entries the log keeps: a session opening, and an approval answered.
+  const session = (await host.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+  const live = runtime.sessions.get(session.id) as FakeSession
+  const asked = approvalId('ap-a')
+  const answered = live.askApproval(asked)
+  await host.call('approval/respond', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    approvalId: asked,
+    decision: { type: 'option', optionId: 'opt-0' },
+  })
+  await answered
+
+  await host.dispose()
+
+  /* Read synchronously, and immediately. Every `await` here would hand the
+     loop back and let a queue the quit failed to drain finish behind the
+     test's back — which is what made this pass while the runner it is written
+     for was failing. */
+  const kinds = readFileSync(join(stateDir, 'audit.ndjson'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => (JSON.parse(line) as { kind: string }).kind)
+  assert.deepEqual(kinds, ['session/started', 'approval/decided'])
 })

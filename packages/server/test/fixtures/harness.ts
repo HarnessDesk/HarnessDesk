@@ -43,8 +43,20 @@ export const start = async (options: Partial<HostOptions> = {}): Promise<Harness
 
 export const stop = async (harness: Harness): Promise<void> => {
   await harness.server.close()
+  // `dispose()` is what makes the next line safe: it waits out every writer
+  // the host owns, so nothing is still putting files into the state directory
+  // by the time it is removed.
   await harness.host.dispose()
-  await rm(harness.stateDir, { recursive: true, force: true })
+  /*
+    And the retries are the belt to that brace. `fs.rm` empties a directory and
+    then removes it, which on a loaded runner are two IO round trips with a
+    real gap between them — so any writer that outlives its shutdown drops a
+    file into that gap and `rmdir` fails with ENOTEMPTY. That is a bug in the
+    writer and is fixed as one; what a teardown owes the run is that finding
+    the next such writer looks like a test failure, not like a hook failure in
+    whichever test happened to be last.
+  */
+  await rm(harness.stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
 }
 
 /** A typed client over the wire protocol, mirroring what the renderer uses. */

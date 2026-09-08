@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The audit log keeps the last thing that happened before you quit.** Its
+  entries are queued and written behind the event stream, so the fan-out never
+  waits on a disk — but the quit did not wait for that queue either, and both
+  the app and the CLI host exit the moment shutting down returns. The tail of a
+  session could therefore be missing from `audit.ndjson`, and from the
+  diagnostics bundle built out of it, which is the half either one is collected
+  for. Shutting down now drains it.
 - **"Add another account" signs the new account in.** It used to make the
   account and stop there: the host answered the moment the row existed, while
   the agent behind it was still starting, and Codex will answer neither
