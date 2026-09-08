@@ -33,13 +33,68 @@ test('either credential route satisfies notarization', () => {
   assert.deepEqual(preflightProblems({ env: apiKey, identities: IDENTITY }), [])
 })
 
-test('an incomplete credential set does not count', () => {
+test('an incomplete credential set does not count, and is named twice over', () => {
   const problems = preflightProblems({
     env: { APPLE_ID: 'x@y.z', APPLE_TEAM_ID: 'TEAM01' },
     identities: IDENTITY,
   })
-  assert.equal(problems.length, 1)
+  // Two, because a half-set Apple ID pair is two separate things wrong: it is
+  // not a usable credential here, and it is a hard error inside
+  // electron-builder before it looks at anything else.
+  assert.equal(problems.length, 2)
   assert.match(problems[0], /APPLE_APP_SPECIFIC_PASSWORD/)
+  assert.match(problems[1], /set together or not at all/)
+})
+
+/*
+ * Where this script and electron-builder disagree. electron-builder reads
+ * `APPLE_ID || APPLE_APP_SPECIFIC_PASSWORD` before it looks at an API key at
+ * all, and throws if only one of them is there. This script prefers the API
+ * key — for a good reason, `notarytool` puts a password in argv — so the two
+ * read the same environment and reach different answers, and both cases below
+ * were a green preflight followed by a failure the preflight was for.
+ */
+
+test('a stray APPLE_ID is not rescued by a complete API key', () => {
+  const problems = preflightProblems({
+    env: {
+      APPLE_ID: 'x@y.z',
+      APPLE_API_KEY: '/k.p8',
+      APPLE_API_KEY_ID: 'K1',
+      APPLE_API_ISSUER: 'I1',
+    },
+    identities: IDENTITY,
+  })
+  // The resolver is perfectly happy: it falls through to the key.
+  assert.equal(notarizationCredentials({ APPLE_ID: 'x@y.z', APPLE_API_KEY: '/k.p8', APPLE_API_KEY_ID: 'K1', APPLE_API_ISSUER: 'I1' }).kind, 'api-key')
+  // electron-builder is not, and says so by throwing. So this does too.
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /electron-builder throws on one without the other/)
+})
+
+test('two complete routes are two answers, not two chances', () => {
+  const problems = preflightProblems({
+    env: {
+      APPLE_ID: 'x@y.z',
+      APPLE_APP_SPECIFIC_PASSWORD: 'p',
+      APPLE_TEAM_ID: 'TEAM01',
+      APPLE_API_KEY: '/k.p8',
+      APPLE_API_KEY_ID: 'K1',
+      APPLE_API_ISSUER: 'I1',
+    },
+    identities: IDENTITY,
+  })
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /one release would go out under two credentials/)
+})
+
+test('a directory is not a key file', () => {
+  const env = { APPLE_API_KEY: '/some/dir', APPLE_API_KEY_ID: 'K1', APPLE_API_ISSUER: 'I1' }
+  // What `isFile` is for: `existsSync` says yes to a directory, and
+  // `notarytool --key` given one fails exactly as it does on a missing file.
+  const problems = preflightProblems({ env, identities: IDENTITY, isFile: () => false })
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /must be the path/)
 })
 
 test('CSC_LINK still needs its password', () => {
@@ -99,17 +154,17 @@ test('an API key that is not a file is caught before the build, not after it', (
   // says: a header with nothing behind it.
   const key = '-----BEGIN PRIVATE KEY-----' // hd-secrets-ok
   const env = { APPLE_API_KEY: key, APPLE_API_KEY_ID: 'K1', APPLE_API_ISSUER: 'I1' }
-  const problems = preflightProblems({ env, identities: IDENTITY, exists: () => false })
+  const problems = preflightProblems({ env, identities: IDENTITY, isFile: () => false })
   assert.equal(problems.length, 1)
   assert.match(problems[0], /APPLE_API_KEY must be the path/)
   // Never the value: if it is wrong, it is wrong because it is the key itself.
   assert.ok(!problems[0].includes(key))
-  assert.deepEqual(preflightProblems({ env, identities: IDENTITY, exists: () => true }), [])
+  assert.deepEqual(preflightProblems({ env, identities: IDENTITY, isFile: () => true }), [])
 })
 
 test('the Apple ID route is not asked for a file that does not apply to it', () => {
   const env = { APPLE_ID: 'x@y.z', APPLE_APP_SPECIFIC_PASSWORD: 'p', APPLE_TEAM_ID: 'TEAM01' }
-  assert.deepEqual(preflightProblems({ env, identities: IDENTITY, exists: () => false }), [])
+  assert.deepEqual(preflightProblems({ env, identities: IDENTITY, isFile: () => false }), [])
 })
 
 test('an unaskable keychain skips the identity check rather than failing it', () => {

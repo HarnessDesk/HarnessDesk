@@ -99,6 +99,10 @@ jobs:
           echo "$CSC_LINK" | base64 --decode > "$CERTIFICATE"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # Named for the cleanup step here, before anything else can fail: an
+          # import that throws leaves a keychain behind, and one exported after
+          # the import is one the cleanup step never hears about.
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" \
@@ -126,11 +130,6 @@ jobs:
             if [ -n "$line" ]; then EXISTING+=("$line"); fi
           done < <(security list-keychains -d user)
           security list-keychains -d user -s "$KEYCHAIN" ${EXISTING[@]+"${EXISTING[@]}"}
-
-          # Named once, for the cleanup step at the end of the job. A second
-          # literal copy of this path is a typo away from a keychain that is
-          # never removed.
-          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
           # Said here rather than discovered ten minutes into a build, and
           # asked twice, because "no valid identity" has two causes that want
@@ -175,6 +174,11 @@ jobs:
             exit 0
           fi
           if [ -f "$APPLE_API_KEY" ]; then
+            # Still exported. A step-level `env:` reaches only its own step, and
+            # the build step below deliberately does not map APPLE_API_KEY — so
+            # returning here without writing it out left the key set nowhere at
+            # all, and a correctly configured path failed as "no credentials".
+            echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
             echo "APPLE_API_KEY already names a file; leaving it alone."
             exit 0
           fi
@@ -225,9 +229,17 @@ jobs:
         run: |
           if [ -n "${CSC_LINK:-}" ]; then
             pnpm run dist:notarized
-          else
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "No signing certificate in this environment; building unsigned."
             pnpm run dist
+          else
+            # `Publish release` below is gated on dry_run alone, so an unsigned
+            # build here would be uploaded as a release rather than stopped.
+            # Choosing the script by credentials made that reachable: before,
+            # a publishing run always took `dist:notarized` and its preflight
+            # refused. This is that fail-closed behaviour, said out loud.
+            echo "::error::A publishing run needs MAC_CERTIFICATE_P12. Refusing to publish an unsigned build."
+            exit 1
           fi
         env:
           # Absent on a fork, which is what selects the unsigned build above;

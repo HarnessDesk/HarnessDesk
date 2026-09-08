@@ -288,6 +288,25 @@ const main = () => {
     }
   }
 
+  // Read now, repaired at the end. `latest-mac.yml` is as much a precondition
+  // as the identity and the credentials: without it there is nothing to point
+  // at the new bytes, and the release is over whether that is discovered now
+  // or in half an hour. It used to be discovered in half an hour — after every
+  // DMG had been signed, submitted, waited on and stapled — which is a long
+  // way to travel to fail on a file that was missing before any of it started.
+  const manifestPath = join(release, 'latest-mac.yml')
+  let manifest
+  try {
+    manifest = readFileSync(manifestPath, 'utf8')
+  } catch {
+    // Fail closed. `latest-mac.yml` is the file electron-updater fetches and
+    // the workflow publishes it; a release without it is one the updater
+    // cannot read. Returning success here would ship exactly that, quietly.
+    console.error(`\n${manifestPath} is missing. There is nothing to repair,`)
+    console.error('and a release without it is one electron-updater cannot read.')
+    process.exit(1)
+  }
+
   for (const { name, path, stapled } of targets) {
     console.log(`\n=== ${name}`)
 
@@ -315,19 +334,6 @@ const main = () => {
   }
 
   // Repair the manifest: only the DMG rows moved, but they moved on every DMG.
-  const manifestPath = join(release, 'latest-mac.yml')
-  let manifest
-  try {
-    manifest = readFileSync(manifestPath, 'utf8')
-  } catch {
-    // Fail closed. `latest-mac.yml` is the file electron-updater fetches and
-    // the workflow publishes it; a release without it is one the updater
-    // cannot read. Returning success here would ship exactly that, quietly.
-    console.error(`\n${manifestPath} is missing. The DMGs are stapled, but`)
-    console.error('the manifest that describes them is not there to repair.')
-    process.exit(1)
-  }
-
   console.log('\n=== repairing latest-mac.yml DMG hashes')
   const files = targets.map(({ name, path }) => ({
     url: name,

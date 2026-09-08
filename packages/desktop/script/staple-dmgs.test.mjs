@@ -237,6 +237,41 @@ test('nothing is signed before the pass knows it can finish', () => {
   }
 })
 
+test('a missing manifest stops the pass at the start, not half an hour in', () => {
+  // `latest-mac.yml` is as much a precondition as the identity and the
+  // credentials, and it used to be read after the loop — so a release with no
+  // manifest signed every DMG, waited out every notarization, stapled them
+  // all, and only then discovered a file that had been missing the whole time.
+  //
+  // Which precondition speaks depends on the machine: a release machine has
+  // the signing identity and gets as far as the manifest, a runner does not.
+  // Neither may have touched the DMG, and that is the assertion.
+  const scratch = mkdtempSync(join(tmpdir(), 'harnessdesk-staple-'))
+  try {
+    const dmg = join(scratch, 'HarnessDesk-0.1.0-arm64.dmg')
+    const before = Buffer.from('still not a disk image')
+    writeFileSync(dmg, before)
+
+    const result = spawnSync(process.execPath, [SCRIPT, scratch], {
+      encoding: 'utf8',
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([name]) => !name.startsWith('APPLE_')),
+        ),
+        APPLE_API_KEY: '/nowhere.p8',
+        APPLE_API_KEY_ID: 'K1',
+        APPLE_API_ISSUER: 'I1',
+      },
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /latest-mac\.yml is missing|No "Developer ID Application" identity/)
+    assert.deepEqual(readFileSync(dmg), before)
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+})
+
 test('a directory that is not there, and one with nothing in it, both fail', () => {
   const scratch = mkdtempSync(join(tmpdir(), 'harnessdesk-staple-'))
   try {

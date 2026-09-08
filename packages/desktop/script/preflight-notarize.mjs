@@ -16,7 +16,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 /**
@@ -60,10 +60,18 @@ export const developerIdIdentity = (identities) => {
  *
  * The API key is preferred where both are set: `notarytool` takes the password
  * as a command-line argument, so an app-specific password is readable from
- * `ps` for the length of the build.
+ * `ps` for the length of the build. That preference is this script's alone —
+ * electron-builder reads `APPLE_ID` first — so `preflightProblems` refuses a
+ * chain where both routes are configured rather than let the two disagree.
  */
+const apiKeyComplete = (env) =>
+  Boolean(env['APPLE_API_KEY'] && env['APPLE_API_KEY_ID'] && env['APPLE_API_ISSUER'])
+
+const appleIdComplete = (env) =>
+  Boolean(env['APPLE_ID'] && env['APPLE_APP_SPECIFIC_PASSWORD'] && env['APPLE_TEAM_ID'])
+
 export const notarizationCredentials = (env) => {
-  if (env['APPLE_API_KEY'] && env['APPLE_API_KEY_ID'] && env['APPLE_API_ISSUER']) {
+  if (apiKeyComplete(env)) {
     return {
       kind: 'api-key',
       args: [
@@ -73,7 +81,7 @@ export const notarizationCredentials = (env) => {
       ],
     }
   }
-  if (env['APPLE_ID'] && env['APPLE_APP_SPECIFIC_PASSWORD'] && env['APPLE_TEAM_ID']) {
+  if (appleIdComplete(env)) {
     return {
       kind: 'apple-id',
       args: [
@@ -86,7 +94,7 @@ export const notarizationCredentials = (env) => {
   return { kind: null, args: [] }
 }
 
-export const preflightProblems = ({ env, identities, exists = () => true }) => {
+export const preflightProblems = ({ env, identities, isFile = () => true }) => {
   const problems = []
 
   const credentials = notarizationCredentials(env)
@@ -103,9 +111,32 @@ export const preflightProblems = ({ env, identities, exists = () => true }) => {
   // set, and then fails at submission. Which is the ten-minutes-late failure
   // this whole script exists to move earlier. The value is never printed: if
   // it is wrong, it is wrong because it is the private key itself.
-  if (credentials.kind === 'api-key' && !exists(env['APPLE_API_KEY'])) {
+  if (credentials.kind === 'api-key' && !isFile(env['APPLE_API_KEY'])) {
     problems.push(
       'APPLE_API_KEY must be the path to the App Store Connect .p8 key file, and nothing exists at the path it holds. `notarytool --key` reads a file; a secret carrying the key text fails at submission. Write it to a file first and point APPLE_API_KEY at that.',
+    )
+  }
+
+  // electron-builder never reaches the API key with a half-set Apple ID pair:
+  // it tests `appleId || appleIdPassword` first and then throws if the other
+  // is missing. The resolver above just falls through to the key and reports
+  // everything present, so a stray APPLE_ID in a shell — with a perfectly good
+  // API key beside it — passed here and died at
+  // `APPLE_APP_SPECIFIC_PASSWORD env var needs to be set` minutes later.
+  if (Boolean(env['APPLE_ID']) !== Boolean(env['APPLE_APP_SPECIFIC_PASSWORD'])) {
+    problems.push(
+      'APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD have to be set together or not at all. electron-builder throws on one without the other before it ever looks at an API key, so a complete API key does not rescue a stray APPLE_ID.',
+    )
+  }
+
+  // Both complete is not two chances, it is two answers. electron-builder
+  // takes the Apple ID for the `.app`; this script takes the API key for the
+  // DMGs. Both notarize, and the halves of one release go up signed off by
+  // different credentials — which is the sort of thing nobody discovers
+  // deliberately. One route, chosen here rather than twice by accident.
+  if (apiKeyComplete(env) && appleIdComplete(env)) {
+    problems.push(
+      'Both notarization routes are configured. electron-builder notarizes the .app with APPLE_ID while stapling notarizes the DMGs with the API key, so one release would go out under two credentials. Set one route and unset the other; the API key is the better one to keep.',
     )
   }
 
@@ -131,7 +162,15 @@ const main = () => {
   const problems = preflightProblems({
     env: process.env,
     identities: keychainIdentities(),
-    exists: (path) => Boolean(path) && existsSync(path),
+    // A file, not merely something at that path: `notarytool --key` given a
+    // directory fails the same way it fails on a key that is not there.
+    isFile: (path) => {
+      try {
+        return Boolean(path) && statSync(path).isFile()
+      } catch {
+        return false
+      }
+    },
   })
   if (problems.length === 0) {
     console.log('Notarization preflight: credentials and signing identity look present.')
