@@ -1,0 +1,164 @@
+/*
+ * One dialog, so there is one answer to where the buttons go.
+ *
+ * Nothing here is invented. Six dialogs in this app — Settings, Approvals,
+ * the command palette, the folder picker, the hand-off sheet, sign-in —
+ * already draw the identical surface, down to the shadow; this file is that
+ * surface with the numbers replaced by the names for them. Adopting it moves
+ * no pixels.
+ *
+ * The one thing the six did NOT agree on is the footer, because four of them
+ * do not have one. It is written once here, and the rule is at the bottom.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--hd-z-dialog);
+  display: grid;
+  place-items: center;
+  padding: var(--hd-space-6);
+  background: var(--hd-scrim);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(72vh, 720px);
+  border-radius: var(--hd-surface-radius);
+  background: var(--hd-surface-fill);
+  color: var(--hd-popover-foreground);
+  /* The edge is a shadow, not a border: it costs no layout, and it survives
+     `overflow: hidden` on a rounded corner where a border does not. */
+  box-shadow: var(--hd-surface-shadow);
+  overflow: hidden;
+}
+
+/* The surface takes focus when it opens, so Escape reaches it and a reader
+   lands inside rather than behind. That is a mechanism, not a state worth
+   announcing — and the element is `tabindex="-1"`, so nobody can Tab to it
+   and be left wondering where the ring went. */
+.dialog:focus,
+.dialog:focus-visible {
+  outline: none;
+}
+
+/* --- the four widths ------------------------------------------------------
+   Counted, not chosen: 460 was the hand-off sheet, 520 the install and remove
+   dialogs, 560 the folder picker, 620 the approval. Every dialog in the app
+   already stood at one of these. */
+.sm { width: min(460px, 100%); }
+.md { width: min(520px, 100%); }
+.lg { width: min(560px, 100%); }
+.xl { width: min(620px, 100%); }
+
+/* A body that is a list wants a floor as well as a ceiling: without one the
+   surface grows and shrinks as you walk into folders, and the buttons move
+   under the pointer. */
+.tall {
+  height: min(62vh, 560px);
+  max-height: min(62vh, 560px);
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: 14px var(--hd-space-4);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+.icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--hd-muted-foreground);
+}
+
+/* Destructive dialogs mark themselves in the title icon rather than in the
+   body copy, so the consequence is legible before the sentence is read. */
+.header[data-tone='destructive'] .icon {
+  color: var(--hd-destructive);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--hd-heading);
+  line-height: 26px;
+  font-weight: var(--hd-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.close {
+  flex-shrink: 0;
+}
+
+/* Under the header, above the body, and outside the scroll — so a breadcrumb
+   still says where you are after you have scrolled the list below it. */
+.subhead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-2) var(--hd-space-4);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  font-size: var(--hd-text-sm);
+  color: var(--hd-secondary-foreground);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--hd-space-4);
+  overflow-y: auto;
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  color: var(--hd-secondary-foreground);
+}
+
+/* A body that is a list: the rows reach the edges, and the height goes to the
+   list rather than to a frame around it. */
+.flush {
+  padding: 0;
+}
+
+/* Paragraphs space themselves, so a screen never reaches for a `.blurb` class
+   to say "the sentence under the title" — that is just the body. */
+.body > p {
+  margin: 0 0 var(--hd-space-3);
+}
+
+.body > p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- the footer -----------------------------------------------------------
+   Actions sit bottom-RIGHT, and the action that proceeds is rightmost. That
+   is where every macOS dialog puts them, so it is where the pointer is
+   already travelling; a dialog that puts them bottom-left makes the reader
+   look for them.
+
+   `row-reverse` rather than `justify-content: flex-end` is deliberate: the
+   confirming action is written FIRST in the markup, so it is the first thing
+   the tab order and a screen reader reach, while still painting rightmost. */
+.footer {
+  flex: none;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-3) var(--hd-space-4);
+  border-top: var(--hd-border-width) solid var(--hd-border);
+  background: var(--hd-muted);
+}
+
+/* Anything that belongs at the far left of the footer — a "don't ask again",
+   a secondary link — goes here rather than being nudged with a margin. */
+.footerAside {
+  margin-right: auto;
+  font-size: var(--hd-text-sm);
+  color: var(--hd-muted-foreground);
+}

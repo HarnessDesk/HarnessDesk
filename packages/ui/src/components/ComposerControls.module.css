@@ -1,0 +1,68 @@
+/*
+ * The one choice this screen asks: how much of a conversation travels to
+ * another agent. The dialog around it is `Dialog`'s — this file used to be
+ * `HandoffSheet.module.css`, an orphan stylesheet with no component of its
+ * own that two screens reached into.
+ */
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--hdp-alias-border-l1);
+  border-radius: var(--hd-radius);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.choice[data-selected] {
+  border-color: var(--hd-accent);
+  background: var(--hdp-alias-bg-module-platform);
+}
+
+.choiceMark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hdp-alias-border-l3);
+}
+
+.choice[data-selected] .choiceMark {
+  border-color: var(--hd-accent);
+  background: radial-gradient(circle, var(--hd-accent) 0 40%, transparent 45%);
+}
+
+.choiceLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--hd-text);
+  font-weight: 500;
+}
+
+.choiceLabel > svg {
+  color: var(--hdp-alias-label-secondary);
+}
+
+.choiceHint {
+  font-size: var(--hd-text-sm);
+  line-height: 16px;
+  color: var(--hdp-alias-label-tertiary);
+}
+

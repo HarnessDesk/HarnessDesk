@@ -1,0 +1,19 @@
+/* The composer board's frame: five cases down one column, each labelled.
+ *
+ * The column is the app's own measure, because the composer's states are only
+ * comparable at the width the composer actually has.
+ */
+
+.composerCases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+  max-width: var(--hd-column);
+}
+
+.caseLabel {
+  margin-bottom: var(--hd-space-1-5);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}

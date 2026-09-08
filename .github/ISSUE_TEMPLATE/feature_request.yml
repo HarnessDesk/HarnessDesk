@@ -1,0 +1,20 @@
+name: Feature request
+description: Something the desk should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        What you were trying to do, and where it stopped. The situation
+        carries more weight than the proposed control.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: What would fix it
+      description: >-
+        Optional. Note that some gaps are decisions — the README's "What it
+        deliberately will not do" and docs/proposals/ record which, and why.

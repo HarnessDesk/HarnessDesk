@@ -1,0 +1,288 @@
+/*
+ * The worktree dialogs. A few shapes here rhyme with GitDialogs.module.css
+ * (the stacked body, the inline refusal, the mode cards) rather than
+ * importing them: a screen's stylesheet is not a library, and what deserves
+ * promotion goes to design/primitives instead.
+ */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lede {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  line-height: 1.5;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.note {
+  font-size: var(--hd-text-sm);
+  line-height: 1.5;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.quiet {
+  padding: 16px;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-sm);
+}
+
+.error {
+  padding: 8px 10px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger);
+  font-size: var(--hd-text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* --- the list ------------------------------------------------------------ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--hd-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+/* The checkout you are looking at gets the accent edge, not a background:
+   the row is already busy with chips, and a fill would fight them. */
+.row[data-here] {
+  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
+}
+
+.row[data-gone] .rowName,
+.row[data-gone] .rowPath {
+  color: var(--hdp-alias-label-tertiary);
+  text-decoration: line-through;
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rowIcon {
+  flex: none;
+  display: inline-flex;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.rowName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-sm);
+  font-weight: 600;
+  color: var(--hdp-alias-label-primary);
+}
+
+/* The path is the row's earned second line: two checkouts of one branch are
+   told apart by nothing else. */
+.rowPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--hd-radius-full);
+  font-size: var(--hd-text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.chip[data-kind='here'] {
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
+}
+
+.chip[data-kind='main'] {
+  background: var(--hd-tint-blue-fill);
+  color: var(--hd-tint-blue-ink);
+  box-shadow: inset 0 0 0 1px var(--hd-tint-blue-edge);
+}
+
+.chip[data-kind='managed'] {
+  background: var(--hd-tint-violet-fill);
+  color: var(--hd-tint-violet-ink);
+  box-shadow: inset 0 0 0 1px var(--hd-tint-violet-edge);
+}
+
+.chip[data-kind='locked'] {
+  background: var(--hd-tint-amber-fill);
+  color: var(--hd-tint-amber-ink);
+  box-shadow: inset 0 0 0 1px var(--hd-tint-amber-edge);
+}
+
+.chip[data-kind='dirty'] {
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.chip[data-kind='gone'] {
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger);
+}
+
+/* --- what a row can do --------------------------------------------------- */
+
+.verbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.working {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* The question a row asks, in place of its buttons: one dialog, never two. */
+.ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+}
+
+.ask[data-tone='destructive'] {
+  background: var(--hd-danger-dim);
+}
+
+.askWhat {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: var(--hd-text-sm);
+  line-height: 1.4;
+  color: var(--hdp-alias-label-primary);
+}
+
+.ask input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.askDo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* --- the form ------------------------------------------------------------ */
+
+.modes {
+  display: flex;
+  gap: 6px;
+}
+
+.mode {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mode[data-on] {
+  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
+}
+
+.modeName {
+  font-size: var(--hd-text-sm);
+  font-weight: 600;
+  color: var(--hdp-alias-label-primary);
+}
+
+.modeWhat {
+  font-size: var(--hd-text-xs);
+  line-height: 1.4;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.label {
+  flex: none;
+  width: 56px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.field input,
+.field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.select {
+  height: 28px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-primary);
+  font-size: var(--hd-text-sm);
+  padding: 0 6px;
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* The ignored contents a removal would take, named rather than counted: the
+   difference between "128 files" and "node_modules/, .env.local" is whether
+   a person can tell that something of theirs is in there. */
+.askList {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-danger);
+  overflow-wrap: anywhere;
+}

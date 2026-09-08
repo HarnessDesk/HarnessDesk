@@ -1,0 +1,19 @@
+{
+  "name": "@harnessdesk/adapter-acp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentRuntime over the Agent Client Protocol — Claude Code, Gemini CLI, and ~40 others.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "dependencies": {
+    "@harnessdesk/protocol": "workspace:*",
+    "@harnessdesk/transport-acp": "workspace:*"
+  },
+  "devDependencies": {
+    "@harnessdesk/adapter-testkit": "workspace:*"
+  },
+  "files": ["dist"],
+  "license": "MIT"
+}

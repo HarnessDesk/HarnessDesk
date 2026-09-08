@@ -1,0 +1,26 @@
+{
+  "name": "@harnessdesk/plugins",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HarnessDesk's built-in plugins, written against the same API third-party plugins use.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "dependencies": {
+    "@harnessdesk/cordis-host": "workspace:*",
+    "@harnessdesk/protocol": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@harnessdesk/cordis-host": "workspace:*"
+  }
+}

@@ -1,0 +1,30 @@
+/*
+ * The archive page inside Settings.
+ *
+ * Two classes, because everything else on the page is Kit: the field that
+ * narrows the list, and the line under each agent's heading that says where
+ * that agent's archive actually lives.
+ */
+
+.search {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+/* Sits between the agent's heading and its card, tighter to the heading than
+   to the rows: it is an aside about the heading, not a row of the card. */
+.note {
+  margin: -4px 0 10px;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* The agent's mark on its heading, pulled onto the text's centre line — the
+   heading is a span of inline text, so an icon in it sits on the baseline. */
+.mark {
+  display: inline-flex;
+  vertical-align: -3px;
+  margin-right: 6px;
+}

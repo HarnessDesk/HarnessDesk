@@ -1,0 +1,295 @@
+/* The right-hand panel.
+   One pane, one tab strip, one filter row, one footer — the tabs differ only
+   in what a row is. A tab you learned on Changes is a tab you already know on
+   Activity, which is the whole reason the chrome never moves. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* --- the tab strip -------------------------------------------------------- */
+
+.tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+}
+
+/* The tab itself is no longer drawn here.
+ *
+ * It moved onto `design/ui/tabs.tsx` (the shadcn Base UI tabs) and its look
+ * moved with it, into utilities on the trigger in Details.tsx — because a
+ * module class and a Tailwind utility describing the same padding are two
+ * sources of truth, and the utility wins: app.css is bundled last, so
+ * `.px-2` beats `.tab { padding: 0 7px }` at equal specificity. The strip's
+ * row below still belongs to this file; only the tabs in it left.
+ */
+
+.space {
+  flex: 1;
+}
+
+/* --- the filter row ------------------------------------------------------- */
+
+.tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+}
+
+/* A text field, so it stands on the text-control rung rather than on a
+   literal — at 26px with a 13px label it was at box ÷ cap 2.82, the number
+   every field in the app carried before the rung existed. */
+.findBox {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
+  padding: 0 var(--hd-space-2-5); /* desk: 9 → 10, onto the spacing scale */
+  border: 1px solid var(--hdp-alias-border-l2);
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.findBox:focus-within {
+  border-color: var(--hd-accent);
+}
+
+.findBox input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--hdp-alias-label-primary);
+  font: inherit;
+  font-size: var(--hd-text-sm);
+  outline: none;
+}
+
+.findBox input::placeholder {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: none;
+  /* A pill, said as a pill. Half the height written out is a pill only while
+     the height does not change, and it follows no shape dial. */
+  border-radius: var(--hd-radius-full); /* desk: 13 → a pill, said as one */
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  white-space: nowrap;
+}
+
+button.pill {
+  cursor: pointer;
+}
+
+button.pill:hover {
+  color: var(--hdp-alias-label-primary);
+}
+
+.pill[data-on] {
+  background: var(--hd-accent-dim);
+  color: var(--hd-accent);
+}
+
+/* --- body and footer ------------------------------------------------------ */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* The window's bottom edge row — the same height as the account row it meets
+   across the sidebar's border. See `--hd-bar-h`. */
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--hd-bar-h);
+  padding: 0 10px;
+  border-top: 1px solid var(--hdp-alias-border-l1);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- what a row is -------------------------------------------------------- */
+
+.groupLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 4px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.dayLabel {
+  padding: 10px 6px 4px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 7px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.row {
+  cursor: pointer;
+}
+
+button.row:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.row[data-selected] {
+  background: var(--hd-accent-dim);
+}
+
+/* A row with two or three lines hangs its mark from the top rather than
+   centring it against a paragraph. */
+.row[data-tall] {
+  align-items: flex-start;
+  padding: 8px 7px;
+}
+
+.rowMark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.row[data-tall] .rowMark {
+  margin-top: 1px;
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowSub {
+  margin-top: 1px;
+  font-size: var(--hd-text-xs);
+  line-height: 16px;
+  color: var(--hdp-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A path is read from its end, so it is the head that gets cut. The trick
+   only works on a plain block: on the title, which is a flex row, `rtl` moved
+   the file's name to the far edge of the panel and left the row looking like
+   it had lost its subject. `plaintext` keeps the slashes where they were
+   written rather than letting the bidi algorithm reorder them. */
+.rowSubPath {
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+/* What a sub-agent was asked runs to two lines: one is not enough to tell two
+   requests apart, and three turns the list into a transcript. */
+.rowAsk {
+  margin-top: 1px;
+  font-size: var(--hd-text-xs);
+  line-height: 16px;
+  color: var(--hdp-alias-label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rowMeta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rowTime {
+  flex: none;
+  font-size: 11px;
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.counts {
+  flex: none;
+  display: inline-flex;
+  gap: 7px;
+  font-size: var(--hd-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.add {
+  color: var(--hd-success);
+}
+
+.del {
+  color: var(--hd-danger);
+}
+
+.runDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hd-accent);
+}
+
+.empty {
+  padding: 28px 8px;
+  text-align: center;
+  font-size: var(--hd-text-sm);
+  line-height: 19px;
+  color: var(--hdp-alias-label-tertiary);
+}

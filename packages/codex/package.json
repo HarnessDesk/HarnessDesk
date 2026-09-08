@@ -1,0 +1,23 @@
+{
+  "name": "@harnessdesk/codex",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Process supervisor and typed JSON-RPC client for `codex app-server`.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/src/generated/index.d.ts",
+      "default": "./dist/src/generated/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}

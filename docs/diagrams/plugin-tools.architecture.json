@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "One plugin tool, two roads to an agent",
+    "subtitle": "Registered once in the kernel; reaches Codex natively and every ACP agent over a socket",
+    "output": "docs/diagrams/plugin-tools.html"
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [
+      60,
+      120
+    ],
+    "cols": 4,
+    "gapX": 40,
+    "gapY": 62,
+    "cellW": 168,
+    "cellH": 66
+  },
+  "components": [
+    {
+      "id": "tool",
+      "type": "backend",
+      "label": "plugin tool",
+      "sublabel": "registered once, in the kernel",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "projection",
+      "type": "backend",
+      "label": "ToolProjection",
+      "sublabel": "adapter-codex",
+      "row": 1,
+      "col": 0
+    },
+    {
+      "id": "codex",
+      "type": "external",
+      "label": "Codex",
+      "sublabel": "dynamic tools on thread/start",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "id": "gateway",
+      "type": "security",
+      "label": "tool gateway",
+      "sublabel": "one fs-permissioned socket",
+      "row": 1,
+      "col": 2
+    },
+    {
+      "id": "mcp",
+      "type": "messagebus",
+      "label": "packages/mcp-tools",
+      "sublabel": "stdio MCP server",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "acp",
+      "type": "external",
+      "label": "ACP agents",
+      "sublabel": "Claude Code, Cursor, \u2026",
+      "row": 3,
+      "col": 2
+    }
+  ],
+  "connections": [
+    {
+      "from": "tool",
+      "to": "projection",
+      "variant": "emphasis"
+    },
+    {
+      "from": "projection",
+      "to": "codex"
+    },
+    {
+      "from": "tool",
+      "to": "gateway",
+      "variant": "emphasis"
+    },
+    {
+      "from": "mcp",
+      "to": "gateway",
+      "label": "tools/list, tools/invoke",
+      "variant": "security",
+      "labelDy": -14
+    },
+    {
+      "from": "acp",
+      "to": "mcp",
+      "label": "session/new mcpServers",
+      "labelDy": -14
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Why two roads and not one",
+      "items": [
+        "Codex takes tools directly, so it gets them with no broker",
+        "ACP has no such channel \u2014 the gateway is how it reaches them",
+        "A plugin author writes neither road; the tool is registered once"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What the socket costs",
+      "items": [
+        "NDJSON JSON-RPC over one unix socket in the state directory",
+        "File permissions are the boundary; nothing is on a port",
+        "Two verbs only, so a bridge cannot widen its own reach"
+      ]
+    }
+  ]
+}

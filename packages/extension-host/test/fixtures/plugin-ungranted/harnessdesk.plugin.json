@@ -1,0 +1,7 @@
+{
+  "id": "ungranted",
+  "name": "Plugin with no team grant",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": {}
+}

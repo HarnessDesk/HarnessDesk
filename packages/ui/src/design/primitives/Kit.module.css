@@ -1,0 +1,830 @@
+/*
+ * The vocabulary every settings surface is built from.
+ *
+ * One dot with five states, one row anatomy, one control set. A surface that
+ * needs a switch reaches for `.toggle` here rather than growing its own, which
+ * is how two pages that look alike stay alike after someone edits one of them.
+ *
+ * Nothing in this file knows what page it is on. Anything that does belongs in
+ * the page's own module.
+ */
+
+/* --- the readiness vocabulary ------------------------------------------- */
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hdp-alias-label-tertiary);
+}
+
+.dot[data-state='ready'] {
+  background: var(--hd-success);
+}
+
+.dot[data-state='signin'] {
+  background: var(--hd-accent);
+}
+
+.dot[data-state='limit'] {
+  background: var(--hd-warning);
+}
+
+.dot[data-state='broken'] {
+  background: var(--hd-danger);
+}
+
+/* Not added is an outline: there is nothing to report yet, and a filled dot
+   would claim there was. */
+.dot[data-state='available'] {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--hdp-alias-border-l3);
+}
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--hd-chip-h);
+  padding: 0 9px 0 7px;
+  border-radius: var(--hd-chip-radius);
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+  background: var(--hd-chip-fill);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.chip[data-state='ready'] {
+  background: var(--hd-success-dim);
+  color: var(--hd-success-ink); /* desk: the fill colour → its readable ink; 2.4:1 became 4.6:1 */
+}
+
+.chip[data-state='signin'] {
+  background: var(--hd-accent-dim);
+  color: var(--hd-primary-ink); /* desk: the fill colour → its readable ink */
+}
+
+.chip[data-state='limit'] {
+  background: var(--hd-warning-dim);
+  color: var(--hd-warning-ink);
+}
+
+.chip[data-state='broken'] {
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger-ink); /* desk: the fill colour → its readable ink */
+}
+
+/* Inside a chip the dot borrows the chip's own ink, so the two never disagree
+   about what state they are showing. */
+.chip .dot {
+  background: currentColor;
+}
+
+/* --- controls ------------------------------------------------------------ */
+
+/* The one text field. It used to have a twin, `.field`, with a different
+   border, a different ring and one more consumer; the twin's look was the
+   better one and is now this. */
+.input {
+  width: 100%;
+  min-width: 0;
+  height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
+  padding: 0 var(--hd-space-2-5);
+  border: var(--hd-border-width) solid var(--hdp-alias-border-l2); /* desk: border-strong → border-l2, the field's own edge */
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  background: var(--hdp-alias-bg-layer-1); /* desk: --hd-input → layer-1, the field's own ground */
+  box-shadow: var(--hd-input-shadow);
+  color: var(--hd-foreground);
+  font-family: inherit;
+  font-size: var(--hd-text);
+  outline: none;
+  transition:
+    border-color var(--hd-duration-fast) var(--hd-ease),
+    box-shadow var(--hd-duration-fast) var(--hd-ease);
+}
+
+.input::placeholder {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* `:focus`, not `:focus-visible` — a text field earns its ring from a click
+   as much as from a Tab, because the click is what put the cursor there. */
+.input:focus {
+  border-color: var(--hd-ring);
+  box-shadow: var(--hd-focus-ring); /* desk: a 1px hard ring → the app's one focus ring */
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--hd-btn-h);
+  padding: var(--hd-btn-padding);
+  border: var(--hd-border-width) solid var(--hd-btn-border);
+  border-radius: var(--hd-btn-radius);
+  background-color: var(--hd-btn-fill);
+  box-shadow: var(--hd-btn-shadow);
+  color: var(--hd-foreground);
+  font-family: inherit;
+  /* The label size is a button token, not the body size. This read
+     `--hd-text` (14px) while the shadcn Button carried Tailwind's `text-sm`
+     (13px in this app's scale), so the two spellings drew two different
+     buttons and the coupling test — which checks tokens, not literals — could
+     not see it. */
+  font-size: var(--hd-btn-text); /* desk: 14 → 13, the size the other spelling already drew */
+  font-weight: var(--hd-btn-weight);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--hd-duration-fast) var(--hd-ease),
+    border-color var(--hd-duration-fast) var(--hd-ease),
+    box-shadow var(--hd-duration-fast) var(--hd-ease);
+}
+
+/* The press, and the focus mark. Both are tokens: Desk presses nothing and
+   rings hard, Studio nudges one pixel and rings soft. */
+.btn:active:not(:disabled) {
+  transform: var(--hd-press);
+}
+
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--hd-ring);
+  box-shadow: var(--hd-focus-ring);
+}
+
+/* Hover is a layer over the fill rather than a replacement for it, so one rule
+   works on every variant. */
+.btn:hover:not(:disabled) {
+  background-image: linear-gradient(
+    var(--hdp-alias-interactive-bg-hover),
+    var(--hdp-alias-interactive-bg-hover)
+  );
+  border-color: var(--hdp-alias-border-l3);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn[data-variant='primary'] {
+  border-color: transparent;
+  background-color: var(--hd-btn-primary-fill);
+  /* No elevation under a saturated fill — it reads as a smudge, not a lift. */
+  box-shadow: none;
+  color: var(--hd-btn-primary-foreground);
+}
+
+.btn[data-variant='primary']:hover:not(:disabled) {
+  background-color: var(--hd-btn-primary-hover);
+  background-image: none;
+}
+
+/*
+ * The word Kit did not have, and the reason three "add a thing" buttons in one
+ * settings window came out three different ways.
+ *
+ * A bordered action on the page's own ground, exactly as `design/ui/button.tsx`
+ * draws its `outline` — same border token, same ground, same hover — because
+ * the two spellings may not disagree about what a variant *is*. Without it, a
+ * Kit screen that wanted this had no way to ask and fell back to the grey
+ * default, which is a different weight and reads as a different rank.
+ */
+.btn[data-variant='outline'] {
+  border-color: var(--hd-btn-border);
+  background-color: var(--hd-background);
+  color: var(--hd-foreground);
+}
+
+.btn[data-variant='outline']:hover:not(:disabled) {
+  background-color: var(--hd-hover);
+  background-image: none;
+  color: var(--hd-foreground);
+  /* Restated, because `.btn:hover` above moves the border to a darker step
+     and the shadcn spelling does not move it at all. Inheriting that made one
+     variant hover two different ways depending on which file drew it, which
+     is the drift this vocabulary exists to remove — and it was invisible to a
+     parity check that only read the outline rules. */
+  border-color: var(--hd-btn-border);
+}
+
+.btn[data-variant='quiet'] {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.btn[data-variant='quiet']:hover:not(:disabled) {
+  color: var(--hdp-alias-label-primary);
+}
+
+/* The destructive button, reading the same two names the shadcn spelling
+   reads — see design/ui/button.tsx. The ink is the readable step rather than
+   the fill colour: `--hd-danger` on a card measures 3.7:1, below the bar for
+   text this size, and this button is nothing but text. */
+.btn[data-variant='danger'] {
+  color: var(--hd-btn-danger-ink);
+}
+
+.btn[data-variant='danger']:hover:not(:disabled) {
+  background-image: linear-gradient(
+    var(--hd-btn-danger-hover),
+    var(--hd-btn-danger-hover)
+  );
+  border-color: var(--hd-danger);
+}
+
+.btnSm {
+  height: var(--hd-btn-h-sm);
+  padding: var(--hd-btn-padding-sm);
+  /* One step down, with the box. A small button that keeps the default's
+     label is the shape the whole ratio note in tokens.css is about. */
+  font-size: var(--hd-btn-text-sm); /* desk: 13 → 12, with the small rung */
+}
+
+.iconBtn {
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-control-h);
+  height: var(--hd-control-h);
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* The picker wears the input; only the caret and the room for it are its own. */
+.selectWrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.select {
+  appearance: none;
+  width: auto;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.selectChev {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--hdp-alias-label-tertiary);
+  display: inline-grid;
+  place-items: center;
+}
+
+.textarea {
+  height: auto;
+  min-height: calc(var(--hd-control-h) * 3);
+  padding: var(--hd-space-1-5) var(--hd-space-2-5);
+  line-height: var(--hd-line);
+  resize: vertical;
+}
+
+/* The glass sits inside the field; the field keeps the room for it. */
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.search > svg {
+  position: absolute;
+  left: var(--hd-space-2-5);
+  pointer-events: none;
+}
+
+.search .input {
+  padding-left: calc(var(--hd-space-2-5) * 2 + 14px);
+}
+
+.search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+/* A form: fields stacked with a step of air between them. */
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+/* A form's field: the name over the control, one line under it. */
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  min-width: 0;
+}
+
+/* In a stacked form a picker takes the field's full width, like the input above it. */
+.formField .selectWrap,
+.formField .select {
+  width: 100%;
+}
+
+.formLabel {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.formHint {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.formError {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-danger-ink);
+}
+
+/* The paragraph under a section head or a card, in the support size. */
+.note {
+  margin: 0 0 var(--hd-space-2-5);
+  max-width: 62ch;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.formStack + .note {
+  margin-top: var(--hd-space-3);
+}
+
+.note[data-tone='warn'] {
+  color: var(--hd-warning-ink);
+}
+
+.note[data-tone='bad'] {
+  color: var(--hd-danger-ink);
+}
+
+.segmented {
+  display: inline-flex;
+  padding: var(--hd-seg-pad);
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  background: var(--hdp-alias-bg-module-platform);
+}
+
+/*
+ * A segment, and the arithmetic that decides how tall the track ends up.
+ *
+ * The track is this height plus `.segmented`'s 2px of padding on each edge,
+ * and both interfaces now trim both edges — so the track lands exactly on
+ * `--hd-field-h` and the segmented control, the button and the field on a
+ * settings row share a line. Desk used to trim one edge and come out 2px
+ * taller than the control beside it; that was called "a real inconsistency,
+ * simply older than this change" when `--hd-seg-trim` was named, and this is
+ * the change it was named for.
+ *
+ * The cell's label steps down with its box, the way the small button's does.
+ * At 24px with a 13px label the cell was at box ÷ cap 2.60 — the tightest
+ * control in the app, on the one that appears twenty times on the settings
+ * pages.
+ *
+ * Both trims are derived from `--hd-seg-pad` rather than written out, so the
+ * arithmetic cannot drift from the padding it depends on: widen the track
+ * and the segment follows.
+ */
+.segItem {
+  height: calc(var(--hd-field-h) - var(--hd-seg-trim, var(--hd-seg-pad))); /* desk: 24 → 26 */
+  padding: 0 11px;
+  border: none;
+  border-radius: calc(var(--hd-radius-md) - 2px); /* desk: 4 → 6, with the track */
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-seg-text); /* desk: 13 → 12, the small rung's label */
+  cursor: pointer;
+}
+
+.segItem[data-on] {
+  background: var(--hdp-alias-bg-layer-1);
+  color: var(--hdp-alias-label-primary);
+  box-shadow: var(--hd-shadow-sm);
+}
+
+/* --- the switch ---------------------------------------------------------
+ *
+ * One shape, two mountings. `.toggle` is the button you press when the switch
+ * *is* the control; `.switch` is the shape alone, for a row that is itself
+ * the control — a menu row where a nested button would be invalid markup and
+ * would swallow the row's own click.
+ *
+ * Both radii are `--hd-radius-full` rather than half the height, so the track
+ * stays a pill and the knob a circle whichever size it is drawn at, and both
+ * follow a shape change. Three of these had grown separately, with three
+ * off-state greys, two raw `#fff` knobs that ignored the theme, and one
+ * track a pixel short of a pill.
+ */
+
+/* The switch is not drawn here any more.
+ *
+ * Three copies of this shape used to exist — one in this file, one in
+ * Settings.module.css, one in Menu.module.css — with three different off-state
+ * greys and a track a pixel short of a pill. The 2026-08-29 pass consolidated
+ * them to one; the 2026-08-30 pass moved that one to `design/ui/switch.tsx`,
+ * where it is the shadcn Base UI switch wearing the app's own measured sizes.
+ * `Kit.Switch` and `Kit.Toggle` are now the two mountings and nothing else.
+ *
+ * The off-state grey survived the move as `--hd-toggle-track`, which is what
+ * the consolidation had settled on; the knob was already `--hd-toggle-knob`.
+ */
+
+/* --- a page of grouped cards -------------------------------------------- */
+
+.pageHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+
+.pageHeadText {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The page title is the heading step — the same 20px the app's own name and
+   Codex's settings pages use. It was a 26px literal, a size the scale does
+   not have, and the one thing on the page bigger than the reference. */
+.pageTitle {
+  font-size: var(--hd-heading); /* desk: 26 → 20, the scale's heading step */
+  line-height: 26px; /* desk: 32 → 26, with the size */
+  font-weight: 600;
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, lighter at 20px */
+}
+
+/* One sentence, in the support size, on a reading measure. The blurb ran the
+   whole 780px column at 14px and wrapped to three lines beside its action. */
+.pageBlurb {
+  margin: 4px 0 0;
+  max-width: 62ch; /* desk: none → 62ch, a reading measure */
+  font-size: var(--hd-text-sm); /* desk: 14 → 13, the support size */
+  line-height: var(--hd-line-sm); /* desk: 21 → 18, with the size */
+  color: var(--hdp-alias-label-secondary);
+}
+
+.pageCtl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--hd-control-h);
+  margin: var(--hd-space-5) 0 var(--hd-space-2); /* desk: 26/10 → 20/8, the section rhythm */
+}
+
+.sectionHead:first-child {
+  margin-top: 0;
+}
+
+/* The word over a card: a label, not a heading. It stood at 16px in primary
+   ink, one step under the page title, so every page read as a stack of
+   headings; the reference sets it as a 13px grey label, which is what lets
+   the rows under it be the thing you read. */
+.sectionName {
+  flex: 1;
+  font-size: var(--hd-text-sm); /* desk: 16 → 13, a label over a card */
+  font-weight: var(--hd-weight-medium);
+  color: var(--hdp-alias-label-secondary); /* desk: primary → secondary ink */
+}
+
+/*
+ * A group of settings rows, and the app's real card. Three other rules draw
+ * the same shape — `.seat`, `.agent`, `Settings.module.css .card` — and all
+ * four now read the same `--hd-card-*` tokens, which is the only reason one
+ * setting can restyle every card in the app.
+ *
+ * Desk draws it white on white with a 1px hairline. Studio fills it with a
+ * wash of the brand and drops the line, which is what the reference does and
+ * what stops a settings page reading as a stack of boxes: a tinted block
+ * separates by *area* rather than by edge, so it holds up next to another
+ * block and needs nothing inverted at night.
+ */
+.rows {
+  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
+  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
+  background: var(--hd-card-fill, var(--hd-card));
+  overflow: hidden;
+  margin-bottom: var(--hd-space-1-5);
+}
+
+/* The divider between rows. It is its own token because the two interfaces
+   need different answers: on Desk's white card `--hd-border` at 4% black is
+   exactly right, and on Studio's tinted one the same line disappeared — three
+   settings rows ran together into a single block of text. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-4); /* desk: 18 → 16, a step of the scale */
+  padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
+  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+/* A row that is itself a button — a plugin, an account — keeps the anatomy and
+   adds the affordance. */
+.rowButton {
+  width: 100%;
+  border: none;
+  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowButton:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+/* Column, not row: the title and its description are two lines, and a flex
+   parent would otherwise set them side by side. */
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The title carries the weight and the description the colour, so a row
+   reads as a name with a note under it rather than two grey lines. */
+.rowTitle {
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  font-weight: var(--hd-weight-medium);
+}
+
+.rowDesc {
+  margin-top: 1px;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.rowCtl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A row that answers with a word instead of a control, because there is
+   nothing to decide. */
+.rowFixed {
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.rowMark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l1);
+}
+
+.rowChev {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+  display: inline-grid;
+  place-items: center;
+}
+
+/* --- a drill-down page ---------------------------------------------------
+   Detail is never a dialog. It replaces the page, and a back link puts the
+   list back — same pane, same width, no layer stacked over another. */
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  margin: 0 0 14px -8px;
+  padding: 0 9px;
+  border: none;
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  background: none;
+  color: var(--hdp-alias-label-secondary);
+  font: inherit;
+  font-size: var(--hd-text-sm);
+  cursor: pointer;
+}
+
+.backLink:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.detailMark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l1);
+}
+
+.detailText {
+  flex: 1;
+  min-width: 0;
+}
+
+.detailName {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: var(--hd-heading); /* desk: 24 → 20, the same step as a page title */
+  line-height: 26px; /* desk: 30 → 26, with the size */
+  font-weight: 600;
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em */
+}
+
+.detailOwner {
+  font-size: var(--hd-text-sm);
+  font-weight: 400;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.detailBlurb {
+  margin: 4px 0 0;
+  max-width: 62ch; /* desk: 68ch → 62ch, the page blurb's measure */
+  font-size: var(--hd-text-sm); /* desk: 14 → 13, the support size */
+  line-height: var(--hd-line-sm); /* desk: 21 → 18 */
+  color: var(--hdp-alias-label-secondary);
+}
+
+.detailCtl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+/* --- odds and ends the pages share -------------------------------------- */
+
+.sectionToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.mono {
+  font-family: var(--hd-font-code);
+  font-size: 12.5px;
+}
+
+/* A tool's wire name. It is what you need to write a permission rule and not
+   what you need to read a history, so it appears only where it is the answer. */
+.wire {
+  font-family: var(--hd-font-code);
+  font-size: 12px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.field {
+  height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--hdp-alias-border-l2);
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: var(--hd-input-shadow);
+  color: var(--hdp-alias-label-primary);
+  font: inherit;
+  font-size: var(--hd-text);
+  outline: none;
+}
+
+/* `:focus`, not `:focus-visible` — a text field earns its ring from a click
+   as much as from a Tab, because the click is what put the cursor there. */
+.field:focus {
+  border-color: var(--hd-ring);
+  box-shadow: var(--hd-focus-ring);
+}
+
+/* The account's own colour. The brand mark stays the agent's — it answers
+   "which runtime is this" — so what tells two accounts of one agent apart is
+   the ring around the mark and the nickname beside it. */
+.avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.avatar[data-tint='blue'] {
+  background: var(--hd-tint-blue-fill);
+  color: var(--hd-tint-blue-ink);
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-blue-edge);
+}
+
+.avatar[data-tint='green'] {
+  background: var(--hd-tint-green-fill);
+  color: var(--hd-tint-green-ink);
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-green-edge);
+}
+
+.avatar[data-tint='amber'] {
+  background: var(--hd-tint-amber-fill);
+  color: var(--hd-tint-amber-ink);
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-amber-edge);
+}
+
+.avatar[data-tint='violet'] {
+  background: var(--hd-tint-violet-fill);
+  color: var(--hd-tint-violet-ink);
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-violet-edge);
+}
+
+.avatar[data-tint='rose'] {
+  background: var(--hd-tint-rose-fill);
+  color: var(--hd-tint-rose-ink);
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-rose-edge);
+}
+
+.avatarLg {
+  width: 44px;
+  height: 44px;
+}
+
+.avatarSm {
+  width: 22px;
+  height: 22px;
+}
+
+/* A row that is one answer among several. */
+.rowChoice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.choiceMark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  color: var(--hd-accent);
+}

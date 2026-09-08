@@ -1,0 +1,24 @@
+/* The rail board's frame: a window-shaped box, so the rail is judged next to
+ * the work it takes attention from rather than alone on a page.
+ */
+
+.railCase {
+  display: flex;
+  height: 520px;
+  overflow: hidden;
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+}
+
+.railBeside {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  padding: var(--hd-space-6);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-sm);
+  text-align: center;
+}

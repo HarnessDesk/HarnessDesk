@@ -1,0 +1,211 @@
+/* The mock page's own frame.
+ *
+ * Everything *inside* the page is a shipped component; this file draws only
+ * the things a real screen would get from the app shell — the knob rail above
+ * it, the page's ground, the grid the sections sit on. It writes tokens and
+ * no literals, so the page follows a foundation swap along with the
+ * components in it.
+ */
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+}
+
+/* --- the knob rail ------------------------------------------------------- */
+
+.knobs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-4);
+  padding: var(--hd-space-3);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+}
+
+.knob {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.knobLabel {
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.knobChoices {
+  display: flex;
+  gap: var(--hd-space-0-5);
+  padding: var(--hd-space-0-5);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+}
+
+.knobChoice {
+  height: var(--hd-control-h-sm);
+  padding: 0 var(--hd-space-2);
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hd-secondary-foreground);
+  font-family: inherit;
+  font-size: var(--hd-text-xs);
+  cursor: pointer;
+}
+
+.knobChoice:hover {
+  background: var(--hd-hover);
+}
+
+.knobChoice[data-selected] {
+  background: var(--hd-card);
+  color: var(--hd-foreground);
+  box-shadow: var(--hd-shadow-sm);
+}
+
+/* --- the page ------------------------------------------------------------ */
+
+.page,
+.pageDense {
+  display: flex;
+  flex-direction: column;
+  padding: var(--hd-space-6);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius-lg);
+  /* The window's ground, not a card's: the sections inside have to read as
+     objects laid on a page, which they cannot do on the same colour. */
+  background: var(--hd-background);
+}
+
+.page {
+  gap: var(--hd-space-6);
+}
+
+.pageDense {
+  gap: var(--hd-space-3);
+  padding: var(--hd-space-4);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--hd-space-3);
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.crumb svg {
+  width: 14px;
+  height: 14px;
+}
+
+.title {
+  font-family: var(--hd-font-display);
+  font-size: var(--hd-heading);
+  font-weight: var(--hd-weight-semibold);
+}
+
+/* Two thirds and one third, collapsing to one column when the pane is narrow.
+   A container query rather than a viewport one: this page is looked at inside
+   the explorer, inside a pane, inside a window, and the viewport knows about
+   none of that. */
+.split {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--hd-space-4);
+  container-type: inline-size;
+}
+
+@container (max-width: 720px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.totals {
+  margin-top: var(--hd-space-4);
+  padding-top: var(--hd-space-3);
+  border-top: var(--hd-border-width) solid var(--hd-border);
+}
+
+.donutBody {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-4);
+}
+
+.donutValue {
+  font-size: var(--hd-text-lg);
+  font-weight: var(--hd-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.donutCaption {
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.legend {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  font-size: var(--hd-text-sm);
+}
+
+.legendDot {
+  width: var(--hd-space-2);
+  height: var(--hd-space-2);
+  flex-shrink: 0;
+  border-radius: var(--hd-radius-full);
+}
+
+.legendLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legendValue {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--hd-muted-foreground);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+}

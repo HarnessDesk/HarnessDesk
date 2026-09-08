@@ -1,0 +1,18 @@
+{
+  "name": "@harnessdesk/cursor-acp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An ACP agent for Cursor — bridges the Agent Client Protocol onto the cursor-agent CLI's print mode.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "bin": { "cursor-acp": "./dist/src/main.js" },
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "devDependencies": {
+    "@harnessdesk/adapter-acp": "workspace:*",
+    "@harnessdesk/adapter-testkit": "workspace:*",
+    "@harnessdesk/protocol": "workspace:*"
+  },
+  "files": ["dist"],
+  "license": "MIT"
+}

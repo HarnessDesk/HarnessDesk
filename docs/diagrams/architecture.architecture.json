@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HarnessDesk",
+    "subtitle": "Two planes that never meet, and one host between them",
+    "output": "docs/diagrams/architecture.html"
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [
+      60,
+      120
+    ],
+    "cols": 6,
+    "gapX": 28,
+    "gapY": 54,
+    "cellW": 138,
+    "cellH": 62
+  },
+  "components": [
+    {
+      "id": "desktop",
+      "type": "frontend",
+      "label": "packages/desktop",
+      "sublabel": "Electron shell",
+      "row": 0,
+      "col": 2
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "packages/ui",
+      "sublabel": "renderer \u00b7 no secrets",
+      "row": 1,
+      "col": 2
+    },
+    {
+      "id": "server",
+      "type": "backend",
+      "label": "packages/server",
+      "sublabel": "the host",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "adapter-codex",
+      "type": "backend",
+      "label": "adapter-codex",
+      "sublabel": "native depth",
+      "row": 3,
+      "col": 0
+    },
+    {
+      "id": "adapter-acp",
+      "type": "backend",
+      "label": "adapter-acp",
+      "sublabel": "everything else",
+      "row": 3,
+      "col": 1
+    },
+    {
+      "id": "codex",
+      "type": "external",
+      "label": "codex",
+      "sublabel": "app-server",
+      "row": 4,
+      "col": 0
+    },
+    {
+      "id": "transport-acp",
+      "type": "messagebus",
+      "label": "transport-acp",
+      "sublabel": "Agent Client Protocol",
+      "row": 4,
+      "col": 1
+    },
+    {
+      "id": "acp-agents",
+      "type": "external",
+      "label": "ACP agents",
+      "sublabel": "claude \u00b7 cursor \u00b7 yours",
+      "row": 5,
+      "col": 1
+    },
+    {
+      "id": "extension-host",
+      "type": "backend",
+      "label": "extension-host",
+      "sublabel": "supervisor",
+      "row": 3,
+      "col": 4
+    },
+    {
+      "id": "cordis",
+      "type": "backend",
+      "label": "cordis-host",
+      "sublabel": "in-process kernel",
+      "row": 4,
+      "col": 3
+    },
+    {
+      "id": "child",
+      "type": "security",
+      "label": "child process",
+      "sublabel": "versioned IPC",
+      "row": 4,
+      "col": 5
+    },
+    {
+      "id": "plugins",
+      "type": "frontend",
+      "label": "plugins",
+      "sublabel": "same API as yours",
+      "row": 5,
+      "col": 4
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "The agent plane \u2014 one runtime interface, two protocols",
+      "wraps": [
+        "adapter-codex",
+        "adapter-acp",
+        "codex",
+        "transport-acp",
+        "acp-agents"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "The extension plane \u2014 one plugin API, in or out of process",
+      "wraps": [
+        "extension-host",
+        "cordis",
+        "child",
+        "plugins"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "desktop",
+      "to": "ui",
+      "variant": "emphasis"
+    },
+    {
+      "from": "ui",
+      "to": "server",
+      "label": "loopback WebSocket, token-gated",
+      "variant": "security",
+      "labelDy": 24
+    },
+    {
+      "from": "server",
+      "to": "adapter-codex",
+      "label": "AgentRuntime",
+      "variant": "emphasis"
+    },
+    {
+      "from": "server",
+      "to": "adapter-acp",
+      "variant": "emphasis"
+    },
+    {
+      "from": "adapter-codex",
+      "to": "codex"
+    },
+    {
+      "from": "adapter-acp",
+      "to": "transport-acp"
+    },
+    {
+      "from": "transport-acp",
+      "to": "acp-agents"
+    },
+    {
+      "from": "server",
+      "to": "extension-host",
+      "label": "CapabilityRegistry",
+      "variant": "emphasis"
+    },
+    {
+      "from": "extension-host",
+      "to": "cordis"
+    },
+    {
+      "from": "extension-host",
+      "to": "child",
+      "variant": "security"
+    },
+    {
+      "from": "cordis",
+      "to": "plugins"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Why two planes and not one protocol",
+      "items": [
+        "An agent added once can use every plugin",
+        "A plugin written once is usable by every agent",
+        "Collapsing them into one protocol gives up both"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "The rule the renderer lives by",
+      "items": [
+        "No Node, no agent, no credentials in packages/ui",
+        "It only ever talks to the host",
+        "Enforced by script/check-layering.mjs, not by convention"
+      ]
+    }
+  ]
+}

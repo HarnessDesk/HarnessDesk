@@ -1,0 +1,694 @@
+/* The group project's two columns: who is here, and what they said.
+ *
+ * Geometry, and the two marks the geometry exists to place: the presence light
+ * on a member's tile, and the pill that says how far behind the reader is.
+ * Everything else with a colour or an edge is a component; this file decides
+ * where the rail is and that both halves scroll on their own — which is the
+ * whole reason it is a pane and not a panel.
+ */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--hd-background);
+  container: hd-room / inline-size;
+}
+
+/* --- the room's one top row ----------------------------------------------
+ *
+ * One bar height, like every other edge row in the window — the conversation's
+ * header, a tool's, a panel's tab strip. That is what makes the horizontal
+ * line under it continue straight into whatever is beside the room instead of
+ * stepping.
+ *
+ * With the sidebar away this is the window's top-left, and the macOS window
+ * buttons are drawn over it — so it starts after whatever room the shell says
+ * this box owes them. See `--titlebar-inset` in `app.css`; with the sidebar up,
+ * in the browser build, or on the preview page, that is nothing.
+ */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2); /* desk: 10 → 8, one row rather than the rail head's two-line block */
+  flex: none; /* desk: the rail head's growing text box is a fixed-height row now */
+  height: var(--hd-bar-h);
+  padding: 0 var(--hd-space-2) 0 max(var(--hd-space-3), var(--titlebar-inset, 0px)); /* desk: 12 all round → a bar row's 12/8, and the window buttons' room on the left */
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+.barName {
+  /* Shrinkable, with a floor. `flex: none` here meant the row could never be
+     narrower than the room's own name: measured at a 380px room called "Final
+     round — nine pull requests", the messaging switch and the expand button
+     were pushed 9px past the bar's right edge and off the screen, with no
+     scroll and no wrap to reach them. The name gives way *second* — the facts
+     beside it carry a much larger shrink factor — and ellipsises rather than
+     taking the verbs with it. */
+  flex: 0 1 auto;
+  /* Three characters and an ellipsis. Measured: at 4rem the row still spilled
+     its verbs at a 280px room carrying the 78px the macOS buttons take —
+     narrower than anything this layout can currently produce, but a floor that
+     can still overflow is not a floor. The name is the last thing to give way
+     and the verbs are never it. */
+  min-width: 2rem;
+  max-width: 22rem;
+  overflow: hidden;
+  font-weight: var(--hd-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What is happening in the room, beside its name rather than under it: at one
+   bar height there is no second line, and these are four short numbers. They
+   give way before the name does — a room with no width left says which room it
+   is and stops counting. */
+.barFacts {
+  display: flex;
+  align-items: center;
+  gap: 0.25em;
+  /* The first thing to go. A hundred to the name's one, so a narrowing row
+     spends the whole deficit here before it touches which room this is. */
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+  white-space: nowrap;
+}
+
+/* The line between what the row says and what it does. Same rule, same 18px,
+   as the conversation header's. */
+.barRule {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 var(--hd-space-1);
+  margin-left: auto;
+  background: var(--hd-border);
+}
+
+.barVerbs {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-0-5);
+  flex: none;
+}
+
+.barTrouble {
+  flex: none;
+  margin: 0;
+  padding: var(--hd-space-1-5) var(--hd-space-3);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-danger-ink);
+}
+
+/* The two halves, under the row that names them both. */
+.split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* --- the rail ------------------------------------------------------------ */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 232px;
+  min-height: 0;
+  border-right: var(--hd-border-width) solid var(--hd-border);
+}
+
+/* The room's own heartbeat: something in here is mid-turn. Same light as the
+   one on a member's tile, so the head and the row that explains it are
+   obviously the same fact at two scales. */
+.pulse {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-success);
+  animation: hd-room-pulse 2s ease-in-out infinite;
+}
+
+@keyframes hd-room-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A person who has asked for less motion has asked for less motion. The light
+   is still there and still the same colour; it simply stops breathing. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}
+
+/* Board and room sit above the agents with a rule under them: the work and
+   the place it is agreed come before any one worker. */
+.railPinned {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-0-5);
+  flex-shrink: 0;
+  /* Even padding now that the room's name is on the row above rather than in a
+     head of its own: this is the top of the rail, and it was leaning on that
+     head for its own breathing room. */
+  padding: var(--hd-space-2); /* desk: 0 8 8 → 8, the head above it that supplied the top is gone */
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+}
+
+/* The word over the rail's agent list. On `--hd-label-*` like the sidebar's
+   and the settings window's, so the three columns cannot drift and one
+   Interface setting moves all of them. This rule reached the shape by hand
+   first — 12px uppercase medium — which is a good sign the tokens named the
+   right thing, and a bad one that it had to be typed twice. */
+.railLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  flex-shrink: 0;
+  padding: var(--hd-label-space, var(--hd-space-3)) var(--hd-space-3) var(--hd-space-1);
+  font-size: var(--hd-label-size, var(--hd-text-xs));
+  font-weight: var(--hd-label-weight, var(--hd-weight-medium));
+  letter-spacing: var(--hd-label-tracking, 0.04em);
+  text-transform: var(--hd-label-transform, uppercase);
+  color: var(--hd-label-ink, var(--hd-muted-foreground));
+}
+
+/* The filter, drawn as a line rather than a field: a box with its own border
+   inside a rail of borderless rows reads as a form to fill in. */
+.railFilter {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  flex-shrink: 0;
+  margin: 0 var(--hd-space-2) var(--hd-space-1);
+  padding-inline: var(--hd-space-2);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
+}
+
+.railFilter svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.railFilterClear {
+  display: flex;
+  flex: none;
+  padding: var(--hd-space-0-5);
+  border: 0;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hd-muted-foreground);
+  cursor: pointer;
+}
+
+.railFilterClear:hover {
+  color: var(--hd-foreground);
+}
+
+.railList {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--hd-space-2) var(--hd-space-2);
+  overflow-y: auto;
+}
+
+.railEmpty {
+  margin: 0;
+  padding: 0 var(--hd-space-1) var(--hd-space-2);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-muted-foreground);
+}
+
+/* `margin-left: auto` here and nowhere else in the row. The roster heading
+   carried it on the count *and* on the + beside it, and two auto margins in
+   one flex line split the free space between them — which left the count
+   stranded in the middle of the heading with a gap on either side, reading as
+   a number that belongs to nothing. */
+.count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--hd-muted-foreground);
+}
+
+/* Held messages are the one count in this rail that is a problem rather than a
+   quantity, so it wears the ink that says so. */
+.heldCount {
+  font-variant-numeric: tabular-nums;
+  color: var(--hd-warning-ink);
+}
+
+/* --- a member ------------------------------------------------------------
+ *
+ * The row itself is a `ListRow`; what lives here is only the geometry its
+ * slots cannot supply — the light hanging off the tile, and the two-part name
+ * that has to truncate from the right end and not the left.
+ */
+
+/* The tile, and the light that sits on its corner. Relative so the light can
+   hang half off the tile the way a presence dot does everywhere else. */
+.memberMark,
+.columnMark {
+  position: relative;
+  display: flex;
+  flex: none;
+}
+
+/* A member of the room whose conversation the desk does not have open.
+   Quieter, never absent — it is a member, it holds its name and its job, and
+   a message reaches it. The row says so in words on its second line; this is
+   the glance, and it is the same weight an unread row differs from a read one
+   by rather than a disabled control. */
+.memberMark[data-away] {
+  opacity: 0.55;
+}
+
+.dotOn {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-success);
+  /* A ring in the row's own ground, so the light reads as sitting on the tile
+     rather than as a pixel of the tile that went green. */
+  box-shadow: 0 0 0 2px var(--hd-background);
+  animation: hd-room-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dotOn {
+    animation: none;
+  }
+}
+
+/* What the conversation calls itself, trailing the nickname on the same run of
+   text. Not a flex sibling: the row already truncates from the right, which
+   drops this and keeps the nickname — exactly the right order — and a flex row
+   would have eaten the space between the two names. */
+.memberAlso {
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+/* The job's number, which is the part a person types back to an agent. It
+   leads the second line, so the row's truncation can never be what removes
+   it. */
+.memberTaskId {
+  font-family: var(--hd-font-code);
+  color: var(--hd-tint-violet-ink);
+}
+
+/* A doubt rather than a refusal: the harness says it can reach the tools and
+   the board has never seen it use one. Muted rather than warning ink, so it
+   cannot be mistaken for the line above it, which is a fact. */
+.memberIdle {
+  overflow: hidden;
+  color: var(--hd-muted-foreground);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Warning ink, because this is the one line on a member row that is about
+   something being wrong rather than about what it is doing. */
+.memberWarn {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hd-warning-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberWarn svg {
+  flex: none;
+}
+
+/* --- the right half ------------------------------------------------------ */
+
+.body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  /* How far the reading column is held off this pane's edge.
+     The stream pays it as 24px of padding plus the scrollbar gutter it
+     reserves on both edges; nothing else here scrolls, so everything else
+     that has to land on the same column adds it back by hand. Named once
+     because it was wrong the first time it was typed twice: `.trouble` was
+     given the column's `max-width` and none of this, and ran up to 64px wider
+     than the messages it is about on any pane under ~1032px — which is most of
+     them, since the 232px rail comes off the pane first.
+
+     Unprefixed on purpose: this is one component's private property, not a
+     token. `--hd-` belongs to the design system's own vocabulary in
+     `tokens.css` and `design:audit` refuses a new one declared out here —
+     rightly, since a name under that prefix reads as something the whole app
+     may rely on. `--composer-h` in `Conversation.module.css` is the same
+     shape. */
+  --room-dock: calc(var(--hd-space-6) + var(--hdp-scrollbar-width, 8px));
+}
+
+/* The stream and the thing that floats over it. */
+.streamWrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* The stream, and the measure it is read in.
+ *
+ * This used to be full-bleed — no side padding, a row's highlight reaching
+ * both edges, the way a group chat is usually drawn. It reads fine alone and
+ * wrong beside the thing it sits one keystroke from: the room's chat and an
+ * agent's conversation are the same act on the same window, and at a 1030px
+ * pane one set its lines at 736px and the other ran them to 1015. Two measures
+ * for one kind of reading, and the composers under them disagreed by the same
+ * amount.
+ *
+ * So the room takes the app's measure. `--hd-column` is what the transcript,
+ * its bars, its queue and its composer are all set in; the room's rows and its
+ * composer now sit on it too, and `.streamColumn` below is the only thing that
+ * had to be added to say so.
+ *
+ * `scrollbar-gutter: stable both-edges` is not decoration. The gutter this
+ * box loses to its own scrollbar comes off one side, which moves the centre of
+ * anything centred in it by half a bar — 4px here — and the composer below is
+ * not a scrolling box, so it does not move with it. Reserved on both edges the
+ * two share a centre line, whether or not there is enough said in the room to
+ * scroll. */
+.stream {
+  flex: 1;
+  min-height: 0;
+  padding: var(--hd-space-2) var(--hd-space-6); /* desk: 0 → 24, the room stops being full-bleed */
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+}
+
+/* The app's reading column, around rows that would otherwise be as wide as the
+   window. The rows keep their own gutter inside it — a chat has faces and a
+   transcript does not — but the column they hang in is the same one. */
+.streamColumn {
+  max-width: var(--hd-column);
+  margin-inline: auto;
+}
+
+/* How far behind the reader is, and the way back.
+ *
+ * Floating over the foot of the stream rather than pushing it: the reader is
+ * mid-sentence somewhere above, and a bar that appeared in the layout would
+ * move the line they are reading. */
+.behind {
+  position: absolute;
+  inset-inline: 0;
+  bottom: var(--hd-space-2);
+  margin-inline: auto;
+  width: fit-content;
+  padding: var(--hd-space-1) var(--hd-space-3);
+  border: 0;
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-primary);
+  color: var(--hd-primary-foreground);
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-medium);
+  box-shadow: var(--hd-shadow-sm);
+  cursor: pointer;
+}
+
+/* In the column with the words it is about: a line that runs the full pane
+   under a 736px conversation reads as the window's alarm rather than this
+   message's.
+
+   `.turnError` in the conversation is the same idea and gets away with a plain
+   `max-width` because `TurnTail` renders it *inside* `.scroll`, so it inherits
+   the scroller's inset. This one is rendered in `.body`, outside both the
+   stream and the composer — a docked item, like `.composer` — so the measure
+   has to be the column plus the dock's own gutters, and the 12px it reads at
+   is inside that rather than inside the pane. */
+.trouble {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: calc(var(--hd-column) + 2 * var(--room-dock));
+  margin: 0 auto; /* desk: 0 → centred, the line now sits in the column */
+  padding: 0 calc(var(--room-dock) + var(--hd-space-3)) var(--hd-space-1); /* desk: 12 → 44, the dock's gutter plus the line's own */
+  font-size: var(--hd-text-xs);
+  color: var(--hd-danger-ink);
+}
+
+/* No rule above it, and the reading column's own gutter beside it.
+ *
+ * This had `space-2` all round and a hairline across the top; the conversation
+ * has no rule at all. The rule was the louder half — a line drawn one click
+ * from where the conversation draws none, and a composer that needs a border
+ * to separate it from the stream is a composer whose shadow is not doing its
+ * job.
+ *
+ * The gutter was 16px for a while, measured against the channel's own rows on
+ * the reasoning that a box lining up with a wider column's number would be out
+ * of line with everything above it here. That reasoning was right and its
+ * premise has gone: the rows are not full-bleed any more. They read in
+ * `--hd-column`, the same measure the conversation is set in, so lining up
+ * with the words above is now the same thing as lining up with the
+ * conversation — which is the point. The number is the stream's own inset plus
+ * the gutter the stream reserves, so the box is exactly as wide as the words
+ * rather than 16px proud of them once the pane falls below the column's cap.
+ * The conversation's composer carries the same compensation for the same
+ * reason; see `.composerShell` for the measure itself. */
+.composer {
+  flex-shrink: 0;
+  padding: 0 var(--room-dock) var(--hd-space-4); /* desk: 16 → 32, the reading column's inset */
+}
+
+.composerShell {
+  max-width: var(--hd-column);
+  margin-inline: auto;
+}
+
+/* The way back to the roster, drawn only when there is no room for both. */
+.back {
+  display: none;
+  align-items: center;
+  gap: var(--hd-space-1);
+  flex-shrink: 0;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border: 0;
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  background: none;
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+  cursor: pointer;
+}
+
+.back:hover {
+  color: var(--hd-foreground);
+}
+
+/* --- one column at a time -------------------------------------------------
+ *
+ * Two columns need 232px of rail *and* a chat body worth reading. A message
+ * at the room's 14px with a 36px gutter wants about 360px before the lines
+ * get too short to scan, so the pair needs ~592px and the threshold is 38rem.
+ * Below it the room stops trying: the rail becomes the whole pane, and opening
+ * a row swaps it for that row's surface with a way back. The split that
+ * produces this is one keystroke away — a third pane, or the details panel
+ * open beside a room.
+ */
+@container hd-room (max-width: 38rem) {
+  .rail {
+    width: 100%;
+    border-right: 0;
+  }
+
+  .pane[data-showing='body'] .rail {
+    display: none;
+  }
+
+  .pane[data-showing='rail'] .body {
+    display: none;
+  }
+
+  .back {
+    display: flex;
+  }
+
+  /* Four short numbers are not worth a truncated sentence. At this width the
+     row keeps the room's name and the verbs, which are the two things that
+     cannot be got any other way. */
+  .barFacts {
+    display: none;
+  }
+}
+
+/*
+ * Members side by side.
+ *
+ * The one place two transcripts share a screen. Equal columns rather than a
+ * scroller: the point is to watch several at once, and a column you have to
+ * scroll to is one you are not watching. The count is capped in the component
+ * against the pane's measured width, so this never has to squeeze.
+ */
+.columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-inline-start: 1px solid var(--hd-border);
+}
+.column:first-child {
+  border-inline-start: 0;
+}
+
+/* One bar height, like every other edge row in the window. */
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  height: var(--hd-bar-h);
+  flex: none;
+  padding-inline: var(--hd-space-3);
+  border-block-end: 1px solid var(--hd-border);
+}
+
+/* One member watched, and the rail beside it already saying who: the mark, the
+   nickname and the model are all on the roster row that opened this column,
+   the title and the status are on the conversation's own header below, and the
+   agent and the model are named again by its composer. Drawing them once more
+   across the top of the transcript cost a bar height to repeat what is on
+   screen three times. Two or more columns and it earns its place at once —
+   that is the only thing saying which transcript is which, and it carries the
+   ✕ that closes one.
+
+   The narrow room hands it straight back, in the query directly below. */
+.columns[data-columns='1'] .columnHead {
+  display: none;
+}
+
+/*
+ * …and here it is, and *here* is the only place it can be.
+ *
+ * `@container` adds no specificity. This selector and the one directly above
+ * it are character-for-character identical, so the only thing deciding between
+ * them is which comes later in the file — and this rule lived fifty lines
+ * *earlier*, in the narrow-room block with the rail's own hiding. It therefore
+ * lost every time: measured at a 560px room, the rail was `display: none` and
+ * the head was `display: none` with it, which is a transcript with nothing on
+ * screen saying whose it is. Exactly the state the base rule above is allowed
+ * to create only because this one undoes it.
+ *
+ * Kept beside the rule it overrides rather than with the room's other narrow
+ * behaviour, because adjacency is what makes the pair readable *and* is what
+ * makes it correct. `TeamRoomPane.css.test.ts` fails if they are separated
+ * again or reordered.
+ */
+@container hd-room (max-width: 38rem) {
+  .columns[data-columns='1'] .columnHead {
+    display: flex;
+  }
+}
+
+.columnName {
+  font-size: var(--hd-text-sm);
+  font-weight: var(--hd-weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What it runs, under what it is called: two conversations on one agent and
+   one account are told apart here or nowhere. */
+.columnSub {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.columnClose {
+  display: flex;
+  flex: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--hd-muted-foreground);
+  padding: var(--hd-space-1);
+  border-radius: var(--hd-radius-sm);
+}
+.columnClose:hover {
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
+}
+
+.columnBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The roster's own verb, on its heading. A glyph on the rail's trailing edge,
+   where every other trailing control in the sidebar sits.
+
+   `.watchAdd` used to live beside this and is gone: watching a member beside
+   another is a verb on the *row*, not on the heading, and it is drawn by the
+   member row itself now — always, rather than appearing only once something
+   was already up. */
+/* The one verb in the roster's heading, at the size a target has to be.
+   18×18 is under WCAG 2.2 SC 2.5.8's 24×24 and well under the 28pt Apple's
+   HIG asks for a pointer, and it had no clearance to claim the standard's
+   spacing exception — it sat against the count. */
+.railAdd {
+  width: var(--hd-icon-target); /* desk: 18 → 24, WCAG 2.2 SC 2.5.8's floor */
+  height: var(--hd-icon-target); /* desk: 18 → 24 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--hd-radius-md); /* desk: 6 → 8, with the target */
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.railAdd:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+

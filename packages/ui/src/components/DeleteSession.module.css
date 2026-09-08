@@ -1,0 +1,8 @@
+/* The conversation being deleted, named with its agent's mark. */
+.subject {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  margin: 0 0 var(--hd-space-2);
+  font-weight: var(--hd-weight-medium);
+}

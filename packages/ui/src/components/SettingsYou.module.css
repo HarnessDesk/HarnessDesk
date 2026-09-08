@@ -1,0 +1,77 @@
+/* A chord, set in the code face so ⇧⌘D lines up with the row above it. */
+.chord {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--hdp-alias-border-l2);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+}
+
+/*
+ * The count at the end of a Notifications row: how often this message has been
+ * put away, and how long ago.
+ *
+ * Tertiary because it is a fact at the edge of a row rather than part of the
+ * sentence explaining the setting — the same weight the session list gives an
+ * age. It runs on from the description instead of taking a line of its own:
+ * six rows each growing a second line would turn a page you scan into a page
+ * you read.
+ */
+.putAway {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/*
+ * The paragraph closing a page, for something the list above deliberately does
+ * not contain. Matches the note under a group heading on the other settings
+ * pages, so an explanation reads the same wherever it appears.
+ */
+.pageNote {
+  margin: 12px 0 0;
+  max-width: 78ch;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* The accents, as a row of colours; the one in use is ringed, not filled. */
+.swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-full);
+  box-shadow: var(--hd-hairline-soft);
+  cursor: pointer;
+  transition: transform var(--hd-duration-fast) var(--hd-ease);
+}
+
+.swatch:hover {
+  transform: scale(1.1);
+}
+
+.swatch[data-on] {
+  box-shadow:
+    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
+    0 0 0 4px var(--hd-ring);
+}
+
+.swatch:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
+    0 0 0 4px var(--hd-ring);
+}

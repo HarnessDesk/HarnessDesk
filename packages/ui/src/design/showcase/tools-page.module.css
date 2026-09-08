@@ -1,0 +1,153 @@
+/* The tool panes' frame: a grid that fits as many panes as the width allows,
+ * and the two bodies that are stand-ins rather than components — a browser
+ * viewport and a terminal. Both have to look like the thing and obviously not
+ * be it, or the board starts being read as a bug report about a real page.
+ */
+
+.paneGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--hd-space-4);
+}
+
+.paneGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--hd-space-4);
+}
+
+.paneTall {
+  height: 460px;
+}
+
+/* Frames for the surface mock pages.
+ *
+ * Only geometry — the column a transcript is read in, the height a pane stands
+ * at, the grid a set of panes sits on. Everything with a colour or an edge on
+ * these pages is a component.
+ */
+
+/* The reading column. `--hd-column` is the app's own measure, and a transcript
+   shown at explorer width would be judged at a width it never gets. */
+.column {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--hd-column);
+  padding: var(--hd-space-4);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--hd-space-1);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius-sm);
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
+  margin-top: var(--hd-space-2);
+}
+
+/* --- the composer board --------------------------------------------------- */
+
+.composerCases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+  max-width: var(--hd-column);
+}
+
+.caseLabel {
+  margin-bottom: var(--hd-space-1-5);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+/* --- the rail board ------------------------------------------------------- */
+
+.railCase {
+  display: flex;
+  height: 520px;
+  overflow: hidden;
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+}
+
+.railBeside {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  padding: var(--hd-space-6);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-sm);
+  text-align: center;
+}
+
+/* --- the tool panes ------------------------------------------------------- */
+
+.paneGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--hd-space-4);
+}
+
+.pane {
+  height: 320px;
+}
+
+.paneTall {
+  height: 460px;
+}
+
+/* A browser viewport: a stand-in page, not a screenshot. It has to look like a
+   web page and obviously not be one, or the board starts being read as a bug
+   report about somebody's website. */
+.viewport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  height: 100%;
+  padding: var(--hd-space-4);
+  background: var(--hd-background);
+}
+
+.viewportBar {
+  height: var(--hd-space-3);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+}
+
+.viewportBlock {
+  flex: 1;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+}
+
+.terminal {
+  height: 100%;
+  padding: var(--hd-space-2-5);
+  overflow: auto;
+  background: var(--hd-muted);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+
+.terminalPrompt {
+  color: var(--hd-success-ink);
+}
+
+.terminalDim {
+  color: var(--hd-muted-foreground);
+}

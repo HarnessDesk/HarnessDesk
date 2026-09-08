@@ -1,0 +1,79 @@
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+}
+
+/* Two doors, the same size. Making one of them smaller would be the app
+   having an opinion about which kind of work you came to do. */
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-3);
+  width: 100%;
+  padding: var(--hd-space-3);
+  text-align: left;
+  background: var(--hdp-alias-bg-base);
+  border: 1px solid var(--hdp-alias-border-l1);
+  border-radius: var(--hd-radius);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.choice:hover:not(:disabled) {
+  background: var(--hdp-alias-interactive-bg-hover);
+  border-color: var(--hdp-alias-border-l2);
+}
+
+.choice:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-tint-blue-fill);
+  color: var(--hd-tint-blue-ink);
+}
+
+.mark[data-tone='team'] {
+  background: var(--hd-tint-violet-fill);
+  color: var(--hd-tint-violet-ink);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  min-width: 0;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--hdp-alias-label-primary);
+}
+
+.note {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.naming {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+}
+
+.problem {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-danger-ink);
+}

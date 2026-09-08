@@ -1,0 +1,129 @@
+/*
+ * What a skill row adds to a Kit row, and nothing more.
+ *
+ * The container, the hairlines, the 34px mark, the padding and the chevron all
+ * come from `Kit.module.css` — this file must never restate any of them. That
+ * is the whole point: the Library list drifted from Plugins because it drew
+ * its own box (`--hd-radius` and `bg-card` against Kit's `--hd-radius-lg` and
+ * `--hdp-alias-bg-layer-1`), and the outer border is the first thing anyone
+ * notices. Owning only the parts Kit has no opinion about is what stops that
+ * happening again the next time the density changes.
+ *
+ * Colours here use `--hdp-alias-*` where they sit beside Kit's own text, and
+ * `--hd-*` for this app's own judgements — the split `docs` draws between the
+ * DSH-derived platform layer and ours.
+ */
+
+/* Kit gives every list a bottom margin for stacking; this one is the page's
+   last block before the gaps and the history, which own their own spacing. */
+.list {
+  margin-bottom: 0;
+}
+
+/* The letters on Kit's neutral mark. Kit sets the 34px tile, its ground and
+   its inset hairline; only the type is ours. */
+.monogram {
+  font-size: 11px;
+  font-weight: var(--hd-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+/* --- the title line ------------------------------------------------------ */
+
+.name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The name as it is typed. Sized to the description rather than the title so
+   it reads as an annotation on the name and not a second name. */
+.command {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- the description ----------------------------------------------------- */
+
+/*
+ * Two lines, clamped.
+ *
+ * A plugin's description is ours and fits; a skill's belongs to whoever wrote
+ * it, and a real machine holds several whose frontmatter runs to a paragraph.
+ * One of those unclamped is taller than six rows, which turns a scannable
+ * list into a scroll.
+ */
+.desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.blank {
+  font-style: italic;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- the control slot ---------------------------------------------------- */
+
+/* Kit's `.rowCtl` already lays this out with an 8px gap; the finding only
+   needs its voice. */
+.finding {
+  font-size: var(--hd-text-sm);
+  white-space: nowrap;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.finding[data-tone='warn'] {
+  color: var(--hd-warning-ink);
+}
+
+.faces {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+}
+
+/*
+ * One agent, and whether this row reaches it.
+ *
+ * Three weights only — full, warning, faded — and the tooltip carries which
+ * flavour of "not". See the note in SkillRow.tsx.
+ */
+.face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--hd-radius-full);
+  color: var(--hdp-alias-label-tertiary);
+  opacity: 0.4;
+}
+
+.face[data-state='reaches'] {
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-primary);
+  opacity: 1;
+}
+
+.face[data-problem] {
+  background: var(--hd-warning-dim);
+  color: var(--hd-warning-ink);
+  opacity: 1;
+}
+
+.initial {
+  font-size: 9px;
+  font-weight: var(--hd-weight-semibold);
+}

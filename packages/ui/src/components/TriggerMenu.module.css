@@ -1,0 +1,125 @@
+.menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.16),
+    inset 0 0 0 1px var(--hdp-alias-border-l2);
+  z-index: 5;
+}
+
+.header {
+  padding: 6px 8px 4px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--hd-text);
+}
+
+.row[data-selected],
+.row:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.name {
+  flex: none;
+  font-weight: 500;
+}
+
+.nameMono {
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text);
+}
+
+.hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.hintPath {
+  direction: rtl;
+  text-align: left;
+  font-family: var(--hdp-font-family-code);
+}
+
+.badge {
+  flex: none;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--hd-accent-dim);
+  color: var(--hd-accent);
+  font-size: var(--hd-text-xs);
+  line-height: 17px;
+}
+
+.check {
+  flex: none;
+  width: 14px;
+  color: var(--hd-accent);
+}
+
+.empty {
+  padding: 14px 10px;
+  text-align: center;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* A row's own glyph, when the kinds this menu knows cannot say it — an
+   agent's brand mark for a room's members. Centred rather than left on the
+   baseline the row aligns to: a square mark hung off a text baseline sits
+   one pixel low beside every icon that is not one. */
+.mark {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  width: 14px;
+  justify-content: center;
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* The badge in the two inks that are not "what kind of thing this is".
+   `live` is a state changing under the reader, `warn` a caution about picking
+   the row at all — and a caution wearing the accent reads as a feature. */
+.badge[data-tone='live'] {
+  background: var(--hd-success-dim);
+  color: var(--hd-success-ink);
+}
+
+.badge[data-tone='warn'] {
+  background: var(--hd-warning-dim);
+  color: var(--hd-warning-ink);
+}
+
+/* Neither a state nor a caution: a fact about the row that changes nothing
+   about picking it. The quietest pill there is, because the accent would read
+   as a feature and the warning ink as a problem, and it is neither. */
+.badge[data-tone='muted'] {
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
+}

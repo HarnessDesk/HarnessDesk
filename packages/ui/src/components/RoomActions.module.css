@@ -1,0 +1,27 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* What survives, said as plainly as what does not. A delete dialog that only
+   lists losses reads as though everything in reach is going. */
+.keeps {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.problem {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  color: var(--hd-danger-ink);
+}

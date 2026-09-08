@@ -1,0 +1,158 @@
+/* Changes as a review workspace.
+
+   One reading column of files, each file a card of hunks. The chrome stays
+   quiet — the diffs are the page — and every action is a small text button,
+   because the page's one real verb is "revise this hunk". */
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--hdp-alias-label-primary);
+}
+
+.sub {
+  margin-top: 3px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* Working tree / Staged: the read scope, never the index. */
+.scope {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hdp-alias-border-l2);
+  border-radius: 8px;
+}
+
+.scopeTab {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.scopeTab[data-on] {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.empty {
+  padding: 28px 0;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.folder {
+  margin: 0 0 22px;
+}
+
+.folderName {
+  margin: 0 0 8px;
+  font-family: var(--hd-font-code);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* Same card, at the side panel's size — see TurnFiles.module.css. */
+.file {
+  border: 1px solid var(--hd-card-border, var(--hdp-alias-border-l2));
+  background: var(--hd-card-fill, transparent);
+  border-radius: var(--hd-card-radius, var(--hd-radius));
+  overflow: hidden;
+  margin: 0 0 12px;
+  scroll-margin-top: 16px;
+}
+
+.fileHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hdp-alias-border-l2);
+  background: var(--hdp-alias-bg-layer-1);
+}
+
+.filePath {
+  font-family: var(--hd-font-code);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--hdp-alias-label-primary);
+}
+
+.counts {
+  display: inline-flex;
+  gap: 7px;
+  font-family: var(--hd-font-code);
+  font-size: 11px;
+}
+
+.added {
+  color: var(--hd-success);
+}
+
+.removed {
+  color: var(--hd-danger);
+}
+
+.space {
+  flex: 1;
+}
+
+.action {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--hd-radius-sm);
+}
+
+.action:hover {
+  color: var(--hdp-alias-label-primary);
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.quiet {
+  padding: 12px;
+  font-size: 12.5px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.hunk {
+  border-top: 1px solid var(--hdp-alias-border-l2);
+}
+
+.hunk:first-of-type {
+  border-top: 0;
+}
+
+.hunkHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+}
+
+.hunkRange {
+  font-family: var(--hd-font-code);
+  font-size: 11px;
+  color: var(--hdp-alias-label-tertiary);
+}

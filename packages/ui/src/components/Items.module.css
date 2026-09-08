@@ -1,0 +1,962 @@
+/*
+ * Transcript items: what one turn looks like.
+ *
+ * Four rules hold the whole sheet, and every value below is one of them
+ * applied rather than a number anybody chose:
+ *
+ * 1. **The column is the measure.** `.item` is set in `--hd-column` and
+ *    centred, and the request is three quarters of it — one relationship, so
+ *    the reader's own line and the agent's answer are visibly different
+ *    objects without either being a width somebody liked.
+ *
+ * 2. **One shape ladder.** `--hd-radius-sm` is a mark, the base is a
+ *    container, `-lg` is a thing that floats, `-full` is a pill. A transcript
+ *    is a work record, so its one floating object takes the floating rung; a
+ *    22px corner would make it a messaging app's bubble. A chip and a badge
+ *    are pills, and the ladder has a name for a pill, so neither computes its
+ *    own half-height.
+ *
+ * 3. **Two lines.** `--hd-line` (21px) carries the 14px interface step and
+ *    `--hd-line-sm` (18px) the 12–13px one. 24px survives only on the bubble,
+ *    where 16px prose at 1.5 is its own answer.
+ *
+ * 4. **The hairline is a token.** 44 edges in this app are
+ *    `inset 0 0 0 1px <border>` rather than a border, because it costs no
+ *    layout and survives `overflow: hidden` on a rounded corner.
+ *    `--hd-hairline` and `--hd-hairline-soft` are that idiom named, and this
+ *    sheet reads them rather than spelling them.
+ *
+ * Padding and gaps are steps of `--hd-space-*` throughout, with two
+ * exceptions that are optical centring of an icon against a line — a
+ * different question from spacing, and each says so where it happens.
+ * Deliberate value moves carry a `desk:` marker on the declaration, which
+ * `check-interface-drift` requires and which is therefore the one place in
+ * this sheet a before-and-after belongs.
+ */
+
+.item {
+  width: 100%;
+  max-width: var(--hd-column);
+  margin: 0 auto;
+  padding: var(--hd-space-1) 0;
+}
+
+/* --- user bubble -------------------------------------------------------- */
+
+.userRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--hd-space-1-5);
+  padding: var(--hd-space-3) 0 var(--hd-space-1);
+}
+
+/*
+ * Under the bubble: when it was sent, copy, edit.
+ *
+ * The buttons are revealed on hover, like the assistant's, and the time is
+ * not — it is information, and it was being dimmed to 55% of a tertiary grey,
+ * which is a timestamp nobody can read rather than a quiet one. The row keeps
+ * its height either way, so nothing shifts when the buttons arrive.
+ */
+.userFooter {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-0-5);
+  min-height: var(--hd-chip-h);
+  padding-right: var(--hd-space-0-5);
+}
+
+.userFooter .action {
+  opacity: 0.55; /* desk: the whole footer at .55 → its buttons only, so the time keeps its ink */
+  transition: opacity var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+}
+
+.userRow:hover .userFooter .action,
+.userFooter:focus-within .action {
+  opacity: 1;
+}
+
+.userTime {
+  margin-right: var(--hd-space-1-5);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bubble {
+  /* Three quarters of the column: `.item` already caps at the measure, so the
+     percentage IS the rule. `min(525px, 82%)` named the same width twice and
+     only ever picked one of them. */
+  max-width: 75%; /* desk: min(525px, 82%) → three quarters of the column */
+  padding: var(--hd-space-2-5) var(--hd-space-4);
+  border-radius: var(--hd-radius-lg); /* desk: 22 → 14, the ladder's floating rung */
+  background: var(--hd-muted);
+  box-shadow: var(--hd-hairline-soft);
+  font-size: var(--hd-text-lg);
+  line-height: 24px; /* 16px at 1.5: two or three lines, tighter than a document */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------- an opened command step */
+
+/*
+ * The verbatim command, behind a shell prompt, in its own band closed off by a
+ * hairline — the same zoning as the wire name and the argument list. The row
+ * above it is a label and ellipsises; this is the string a reader compares
+ * against what actually ran, so it wraps whole and can be copied.
+ *
+ * It is set at the size the row above announced it, because the two are the
+ * same string and a reader compares them. The output below is a step down:
+ * command, then what it printed.
+ */
+.shellRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-2) var(--hd-space-3); /* desk: 9 → 8 */
+  border-bottom: 1px solid var(--hd-border);
+}
+
+.shellPrompt {
+  flex: none;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
+  line-height: var(--hd-line); /* desk: 17 → 21 */
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.shellCommand {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
+  line-height: var(--hd-line); /* desk: 17 → 21 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.shellCopy {
+  flex: none;
+  align-self: flex-start;
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-icon-target); /* desk: 22 → 24, the icon rung that clears AA on its own */
+  height: var(--hd-icon-target); /* desk: 22 → 24 */
+  /* Optical: a 24px target centred on the 21px line it sits beside, and pulled
+     out to the band's own padding on the right. */
+  margin: -2px -4px -2px 0; /* desk: -3 → -2, centred on the 21px line the band now sets */
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.shellCopy:hover {
+  background: var(--hd-hover);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* The bubble already sits on the muted surface, so a code span inside it needs
+   a plate of its own to read as code rather than as emphasis. It is the only
+   code span in the app that keeps a hairline, and that is why. */
+.bubbleCode {
+  padding: 1px var(--hd-space-1); /* desk: 5 → 4 */
+  border-radius: var(--hd-radius-sm); /* desk: 5 → 6, the ladder's mark rung */
+  background: var(--hdp-alias-bg-base);
+  box-shadow: var(--hd-hairline-soft);
+  font-family: var(--hdp-font-family-code);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-1-5);
+  justify-content: flex-end;
+}
+
+/* Images the user sent: thumbnails on the user's side, each opening at full
+   size. A single image gets room to be read; several share the row. */
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
+  justify-content: flex-end;
+  max-width: 75%; /* desk: min(525px, 82%) → the bubble's own measure, so the two agree */
+}
+
+.imageTile {
+  display: block;
+  width: 120px;
+  height: 120px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-lg);
+  background: var(--hdp-alias-bg-layer-2);
+  box-shadow: var(--hd-hairline-soft);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+.images:has(.imageTile:only-child) .imageTile {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 280px;
+}
+
+.imageThumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.images:has(.imageTile:only-child) .imageThumb {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  height: var(--hd-chip-h);
+  padding: 0 var(--hd-space-2);
+  border-radius: var(--hd-radius-full); /* desk: 11 → the pill rung, so it follows the corners dial */
+  background: var(--hd-accent-dim);
+  color: var(--hd-primary-ink); /* desk: the raw accent → the ink solved for reading on this tint */
+  font-size: var(--hd-text-xs);
+}
+
+/* --- assistant ---------------------------------------------------------- */
+
+.assistant {
+  padding: var(--hd-space-1-5) 0;
+}
+
+.commentary {
+  color: var(--hdp-alias-label-secondary);
+}
+
+/*
+ * The streaming caret.
+ *
+ * A text caret, not a terminal one: 2px on the prose's own line. A 7px block
+ * blinking at the end of a sentence is a cursor from a different kind of
+ * program, and at the end of an answer somebody is reading it is the loudest
+ * thing in the column.
+ *
+ * The blink needs no reduced-motion guard of its own — app.css collapses every
+ * animation in the app to a single 0.01ms iteration, and this keyframe has no
+ * fill mode, so under `reduce` the caret simply stands still and visible.
+ */
+.caret {
+  display: inline-block;
+  width: 2px; /* desk: 7 → 2, a caret rather than a block */
+  height: 1.15em; /* desk: 16 → the line it sits on, so it follows the register */
+  margin-left: var(--hd-space-0-5);
+  vertical-align: text-bottom;
+  border-radius: var(--hd-radius-full); /* desk: 1 → the pill rung */
+  background: var(--hd-accent);
+  animation: blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* --- generic collapsible row ------------------------------------------- */
+
+.row {
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: var(--hd-hairline);
+  overflow: hidden;
+}
+
+.rowHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  width: 100%;
+  min-height: var(--hd-row-h); /* desk: 34 → 30, the app's rung for a one-line row */
+  padding: var(--hd-space-1) var(--hd-space-2-5); /* desk: 6px 10px → 4px 10px, so 21px of line lands on the rung */
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.rowHeader:hover {
+  background: var(--hd-hover);
+}
+
+.rowIcon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.rowTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  color: var(--hdp-alias-label-primary);
+}
+
+.rowTitlePlain {
+  font-family: var(--hdp-font-family);
+  font-size: var(--hd-text);
+}
+
+.rowMeta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chevron {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+}
+
+.chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.rowBody {
+  border-top: 1px solid var(--hd-border);
+}
+
+.output {
+  max-height: 380px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--hd-space-2-5) var(--hd-space-3);
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm); /* desk: 19 → 18 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.json {
+  margin: 0;
+  padding: var(--hd-space-2-5) var(--hd-space-3);
+  max-height: 300px;
+  overflow: auto;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm); /* desk: 19 → 18 */
+  white-space: pre-wrap;
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* A verdict on a step, in the smallest type the app has. It stands on the icon
+   rung rather than 18px, because uppercase 12px inside an 18px box is the one
+   place in this sheet type was taller than its own container allowed for. */
+.badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: var(--hd-icon-target-sm); /* desk: 18 → 20 */
+  padding: 0 var(--hd-space-1-5);
+  border-radius: var(--hd-radius-full); /* desk: 9 → the pill rung */
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-medium);
+  text-transform: uppercase;
+  background: var(--hd-muted);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.badge[data-status='failed'] {
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger-ink); /* desk: the raw red → the ink solved for reading on this tint */
+}
+
+.badge[data-status='declined'] {
+  background: var(--hd-muted);
+  color: var(--hdp-alias-label-tertiary);
+  text-decoration: line-through;
+}
+
+.spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hdp-alias-border-l3);
+  border-top-color: var(--hd-accent);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- reasoning ---------------------------------------------------------- */
+
+.reasoningBody {
+  padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3);
+  font-size: var(--hd-text);
+  line-height: var(--hd-line); /* desk: 22 → 21, the line the 14px step is set on */
+  color: var(--hdp-alias-label-secondary);
+}
+
+.reasoningSummary {
+  margin: 0 0 var(--hd-space-1-5);
+  white-space: pre-wrap;
+}
+
+/* --- file change -------------------------------------------------------- */
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+}
+
+.fileEntry {
+  border-top: 1px solid var(--hd-border);
+}
+
+.fileEntry:first-child {
+  border-top: none;
+}
+
+.fileHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  width: 100%;
+  padding: var(--hd-space-1-5) var(--hd-space-2-5); /* desk: 7 → 6 */
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fileHeader:hover {
+  background: var(--hd-hover);
+}
+
+.filePath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-sm);
+}
+
+/* `+11 −1`, in the inks solved for reading rather than in the state colours.
+   The raw green measures 2.3:1 on the light face at this size; `design/ui`'s
+   own diff stat had already reached for these two names. */
+.stat {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.statAdd {
+  color: var(--hd-success-ink); /* desk: the raw green → the ink that can be read at 12px */
+}
+
+.statRemove {
+  color: var(--hd-danger-ink); /* desk: the raw red → the ink that can be read at 12px */
+}
+
+.fileBody {
+  padding: 0 var(--hd-space-2-5) var(--hd-space-2-5);
+}
+
+/* --- compaction and review markers -------------------------------------- */
+
+.marker {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+  padding: var(--hd-space-2-5) 0;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+}
+
+.markerLine {
+  flex: 1;
+  height: 1px;
+  background: var(--hd-border-strong);
+}
+
+/* --- notice ------------------------------------------------------------- */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-1-5);
+  min-height: var(--hd-chip-h);
+  padding: var(--hd-space-0-5) 0;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+}
+
+/* Optical, not spacing: a 12px glyph centred on an 18px line is (18 - 12) / 2.
+   There is no step of the scale at 3px because there is no gap at 3px. */
+.noticeIcon {
+  flex: none;
+  margin-top: 3px;
+}
+
+/* --- error -------------------------------------------------------------- */
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-2-5) var(--hd-space-3);
+  border-radius: var(--hd-radius);
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger-ink); /* desk: the raw red → the ink solved against this fill */
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
+}
+
+.errorIcon {
+  flex: none;
+}
+
+/* --- plan --------------------------------------------------------------- */
+
+.planList {
+  margin: 0;
+  padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3); /* desk: 8px 12px 12px 12px, unchanged — the shorthand's fourth value repeated its second */
+  list-style: none;
+}
+
+.planStep {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-0-5) 0; /* desk: 3 → 2 */
+  font-size: var(--hd-text);
+  line-height: var(--hd-line); /* desk: 20 → 21 */
+}
+
+.planStep[data-status='completed'] {
+  color: var(--hdp-alias-label-tertiary);
+  text-decoration: line-through;
+}
+
+.planStep[data-status='inProgress'] {
+  color: var(--hdp-alias-label-primary);
+  font-weight: var(--hd-weight-medium);
+}
+
+/* Optical: a 14px mark centred on a 21px line. */
+.planBullet {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hdp-alias-border-l4);
+  display: inline-grid;
+  place-items: center;
+}
+
+.planStep[data-status='completed'] .planBullet {
+  background: var(--hd-success);
+  border-color: var(--hd-success);
+  color: var(--hd-success-foreground);
+}
+
+.planStep[data-status='inProgress'] .planBullet {
+  border-color: var(--hd-accent);
+  border-style: dashed;
+}
+
+/* --- message actions ---------------------------------------------------- */
+
+/* Revealed on hover so a long transcript is not a wall of buttons, but kept in
+   the layout so nothing shifts when they appear. One resting value, here: the
+   user's footer and the assistant's row are the same idea and had two. */
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-0-5);
+  height: var(--hd-icon-target);
+  white-space: nowrap;
+  opacity: 0.55; /* desk: .6 → .55, one resting value for both rows */
+  transition: opacity var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+}
+
+.actions:hover,
+.actions:focus-within,
+.actions[data-sticky] {
+  opacity: 1;
+}
+
+.action {
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-icon-target);
+  height: var(--hd-icon-target);
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--hd-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.action[data-on] {
+  color: var(--hd-accent);
+}
+
+.actionLabel {
+  margin-left: var(--hd-space-1);
+  font-size: var(--hd-text-sm);
+  white-space: nowrap;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- context injection -------------------------------------------------- */
+
+/* What was added to the turn, which the reader should be able to see without
+   it competing with the conversation. Closed: one quiet row. Open: the
+   step-group frame, so what the model was given reads with the same polish as
+   what the agent did. */
+.injectionWrap {
+  border-radius: var(--hd-radius);
+}
+
+.injectionWrap[data-open] {
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: var(--hd-hairline);
+  overflow: hidden;
+}
+
+.injection {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5); /* desk: 7 → 6 */
+  width: 100%;
+  min-height: var(--hd-control-h);
+  padding: var(--hd-space-0-5) var(--hd-space-2); /* desk: 3 → 2 */
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--hd-radius);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.injectionWrap[data-open] .injection {
+  border-radius: 0;
+}
+
+.injection:hover {
+  background: var(--hd-hover);
+}
+
+.injectionLabel {
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-medium);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* Another conversation's words: marked at the row, not only inside it. A
+   peer's message must never scan as the user's, so its row keeps a visible
+   edge even closed, in the primary tint the Team surface already uses. */
+.injectionWrap[data-peer] {
+  box-shadow: inset 2px 0 0 0 var(--hd-primary);
+  background: var(--hd-primary-muted);
+}
+
+.injectionWrap[data-peer] .injection {
+  color: var(--hd-secondary-foreground);
+}
+
+.injectionBody {
+  padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-2-5);
+  border-top: 1px solid var(--hd-border);
+  max-height: 380px;
+  overflow: auto;
+}
+
+/* The prose scale of an aside, not of the answer: the markdown root sets its
+   own size, so it is stepped down here — headings included, because a hand-off
+   packet arrives with `##` sections. */
+.injectionBody > div {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.injectionBody h1,
+.injectionBody h2 {
+  font-size: var(--hd-text);
+}
+
+.injectionBody h3,
+.injectionBody h4 {
+  font-size: var(--hd-text-sm);
+}
+
+/* --- step group --------------------------------------------------------- */
+
+.group {
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: var(--hd-hairline);
+  overflow: hidden;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  width: 100%;
+  min-height: var(--hd-row-h); /* desk: 32 → 30, the app's rung for a one-line row */
+  padding: var(--hd-space-1) var(--hd-space-2-5); /* desk: 5 → 4 */
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--hdp-alias-label-secondary);
+  font-size: var(--hd-text);
+}
+
+.groupHeader:hover {
+  background: var(--hd-hover);
+}
+
+.groupSummary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: var(--hd-line);
+}
+
+/* Members sit inside the group's frame, so nesting is visible without
+   indenting the whole transcript. */
+.groupBody {
+  padding: var(--hd-space-0-5) var(--hd-space-2) var(--hd-space-2);
+  border-top: 1px solid var(--hd-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.groupBody .item {
+  max-width: none;
+  padding: 0;
+}
+
+/* ---------------------------------------------------- tool call arguments */
+
+/* A fixed key column is a guess, and it was wrong for every key longer than
+   "command" — `description` overran its 72px and started a second value
+   column beside the first. The keys size themselves; the values line up. */
+.argList {
+  margin: 0;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--hd-space-0-5) var(--hd-space-2-5); /* desk: 3px 10px → 2px 10px */
+  align-items: baseline;
+  border-bottom: 1px solid var(--hd-border);
+}
+
+.argRow {
+  display: contents;
+}
+
+.argKey {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-family: var(--hdp-font-family-code);
+}
+
+.argValue {
+  margin: 0;
+  min-width: 0;
+  max-height: 132px;
+  overflow: auto;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.rowSubtitle {
+  margin-left: var(--hd-space-2);
+  font-size: var(--hd-text-sm);
+  font-family: var(--hdp-font-family-code);
+  color: var(--hdp-alias-label-tertiary);
+  font-weight: var(--hd-weight-normal);
+}
+
+.todoList {
+  margin: 0;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-0-5); /* desk: 3 → 2 */
+}
+
+.todoRow {
+  display: flex;
+  gap: var(--hd-space-2);
+  align-items: flex-start;
+  font-size: var(--hd-text);
+  line-height: var(--hd-line); /* desk: 18 → 21, the line the 14px step is set on */
+}
+
+.todoRow[data-done] {
+  color: var(--hdp-alias-label-tertiary);
+  text-decoration: line-through;
+}
+
+/* The mark says where the list stands: the item being worked on carries the
+   accent, the rest wait in the quiet colour. */
+.todoMark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  height: var(--hd-line); /* desk: 18 → 21, so the mark centres on the row's line */
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.todoRow[data-active] .todoMark {
+  color: var(--hd-accent);
+}
+
+/* --- the light register ------------------------------------------------- */
+
+/* Inside a turn's work fold every step is a line, not a card. The fold itself
+   says "this is the work"; the cards were saying it again, once per step. An
+   opened step still gets a box — for its output, which is a document — and
+   nothing else draws one. */
+
+[data-register='light'] .item {
+  padding: var(--hd-space-px) 0;
+}
+
+[data-register='light'] .row,
+[data-register='light'] .group {
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  box-shadow: none;
+}
+
+[data-register='light'] .rowHeader,
+[data-register='light'] .groupHeader {
+  min-height: var(--hd-control-h);
+  padding: var(--hd-space-0-5) var(--hd-space-1-5) var(--hd-space-0-5) var(--hd-space-0-5); /* desk: 3 → 2 */
+  border-radius: var(--hd-radius-sm);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+[data-register='light'] .rowTitle {
+  font-size: var(--hd-text);
+  color: var(--hdp-alias-label-secondary);
+}
+
+[data-register='light'] .rowTitlePlain,
+[data-register='light'] .groupSummary {
+  font-size: var(--hd-text);
+  color: var(--hdp-alias-label-secondary);
+}
+
+[data-register='light'] .rowHeader:hover .rowTitle,
+[data-register='light'] .rowHeader:hover .rowTitlePlain,
+[data-register='light'] .groupHeader:hover .groupSummary {
+  color: var(--hdp-alias-label-primary);
+}
+
+/* Indented to the row's own title rather than to a number: the header's
+   2px of padding, its 16px icon and the 8px gap after it. */
+[data-register='light'] .rowBody {
+  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6); /* desk: 22 → 24, the step that lands on the title */
+  border-top: none;
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: var(--hd-hairline);
+  overflow: hidden;
+}
+
+[data-register='light'] .groupBody {
+  padding: 0 0 var(--hd-space-0-5) var(--hd-space-5); /* desk: 18 → 20 */
+  border-top: none;
+  gap: var(--hd-space-px);
+}
+
+/* Narration reads as the agent talking, not as a footnote. */
+[data-register='light'] .assistant {
+  padding: var(--hd-space-2) 0;
+}
+
+[data-register='light'] .commentary {
+  color: var(--hdp-alias-label-primary);
+}
+
+/* The name an agent called this tool by. It is here, inside the opened step,
+   because this is one of the two places it is the answer — the other being the
+   Permissions page, where you write rules against it.
+
+   Every other child of an opened step is inset from the box — the output, the
+   arguments, the diff. This one was not, so the first line of an opened step
+   sat hard against the border it had just crossed. The hairline is what stops
+   it reading as an argument key whose value went missing: name, then
+   arguments, then output — three zones, each closed off. */
+.wireName {
+  padding: var(--hd-space-2) var(--hd-space-3); /* desk: 9 → 8 */
+  border-bottom: 1px solid var(--hd-border);
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm); /* desk: 17 → 18 */
+  overflow-wrap: anywhere;
+  color: var(--hdp-alias-label-tertiary);
+}

@@ -1,0 +1,83 @@
+/* The branch level: a search box, the branches as menu rows, and the create
+   form the "+" row opens. The rows themselves are Menu's, so this file only
+   dresses what a menu has no vocabulary for. */
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 2px 6px 4px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--hdp-alias-label-tertiary);
+  pointer-events: none;
+}
+
+.filter {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px 0 30px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l1);
+  color: inherit;
+  font: inherit;
+  font-size: var(--hd-text);
+  outline: none;
+}
+
+.filter:focus {
+  box-shadow: inset 0 0 0 1px var(--hd-accent);
+}
+
+.list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.note,
+.error {
+  padding: 6px 10px 8px;
+  font-size: var(--hd-text-sm);
+  line-height: 17px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.error {
+  color: var(--hd-danger);
+}
+
+.create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 6px 4px;
+}
+
+/* The create form's field carries no search glyph, so it keeps its own gutter. */
+.create .filter {
+  flex: 1;
+  padding-left: 10px;
+}
+
+.createButton {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
+  font: inherit;
+  font-size: var(--hd-text);
+  cursor: pointer;
+}
+
+.createButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

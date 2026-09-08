@@ -1,0 +1,420 @@
+/*
+ * Assistant prose.
+ *
+ * The one column in the app a person READS rather than scans, and the only
+ * place a type scale larger than the interface's belongs (see
+ * docs/design.md, "The sizes").
+ *
+ * ## The scale
+ *
+ * Four heading steps, as RATIOS of the body, on a ladder that starts above it:
+ *
+ *     h1   x1.5     24px
+ *     h2   x1.25    20px   (= --hd-heading, the interface's own top step)
+ *     h3   x1.125   18px
+ *     h4   x1       16px   a run-in head, held by weight and by having no gap
+ *
+ * **Every level is at or above the body size.** A ladder anchored so that its
+ * top rung meets `--hd-heading` keeps prose inside the interface's four steps
+ * and puts three of its own four at or below the body, which flattens the
+ * document: `##` — the step an agent actually writes — lands 1.125 above the
+ * body, and 1.125 is the threshold of being seen at all. Here `##` is 1.25.
+ *
+ * Prose may exceed the interface's top step. It is the one column a person
+ * reads rather than scans, and `docs/design.md` grants it that
+ * latitude for exactly this.
+ *
+ * ## The rhythm
+ *
+ * One gap, `--hd-space-4`, and space belongs to what FOLLOWS it: the gap above
+ * a heading and a quarter of it below, so a heading sits with its own
+ * paragraph instead of floating between two. Every other block gets the gap
+ * itself.
+ *
+ * 16px against a 26px line is 0.62 of a line between blocks. A block gap under
+ * half a line reads as cramped whatever the type is doing, which is what makes
+ * this a measurement rather than a preference.
+ *
+ * ## Why these are custom properties
+ *
+ * Because `.chat` at the foot of this file is the same prose at a message's
+ * size, and it should say so by moving the four values, not by restating
+ * twelve rules in a second scale that can drift from the first.
+ *
+ * Each read carries the property's own value as a `var()` fallback, which is
+ * what lets check-interface-drift resolve a declaration whose ancestor it
+ * cannot see. **The fallback is the value this renders, never the value it
+ * replaced.** Seven of them said `12px` — the predecessor — while the property
+ * resolves to 16px in the browser, so the gate was being shown a number the
+ * app does not use and reported those declarations unchanged. Found by the
+ * three-model review of this change; one reviewer read the same fallbacks as
+ * deliberate, which is how easy it is to mistake a silenced gate for a
+ * satisfied one.
+ */
+
+.markdown {
+  /* The ladder, as ratios of the body. Each is a step of the same 1.125
+     family; the ladder simply starts a rung and a half above the body rather
+     than at it. Multiplying rather than naming pixels is what keeps the whole
+     thing true if the body size ever moves. */
+  --prose-h1: calc(var(--hd-text-lg) * 1.5); /* 24 */
+  --prose-h2: calc(var(--hd-text-lg) * 1.25); /* 20, and --hd-heading exactly */
+  --prose-h3: calc(var(--hd-text-lg) * 1.125); /* 18 */
+  --prose-h4: var(--hd-text-lg); /* 16: a run-in head, held by weight */
+
+  /* A ratio, not a pixel count, so it follows the size. 1.625 is the reading
+     ratio the transcript was set at, against 1.5 for the interface: prose
+     wraps and a row does not. */
+  --prose-line: 1.625;
+  /* Headings set tighter than body, which is what larger type wants. One
+     ratio rather than four grid multiples: a multiple of a fixed 4px step
+     cannot follow `.chat`'s em-based sizes, and a 32px line on a 15px chat
+     heading is what that mistake looks like. At 1.4 the 20px `##` — the step
+     an agent actually writes — lands exactly on the 28px the grid asks for,
+     and every other step is within a pixel of its own multiple. */
+  --prose-heading-line: 1.4;
+  --prose-gap: var(--hd-space-4); /* desk: 12 → 16, see the rhythm note above */
+
+  font-size: var(--hd-text-lg);
+  line-height: var(--prose-line, 1.625); /* desk: 26px → 1.625, the same 26px spelled as the ratio it is */
+  color: var(--hdp-alias-label-primary);
+  /* `anywhere` rather than `break-word`, and the difference is not what it
+     looks like: the two break a too-long word IDENTICALLY, and `anywhere`
+     additionally lets the box shrink below its longest word when a min-content
+     size is being computed. A transcript is full of paths that are longer than
+     any column, so that second half is the half that matters. */
+  overflow-wrap: anywhere;
+}
+
+.markdown > *:first-child {
+  margin-top: 0;
+}
+
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, see the rhythm note at the head of this file */
+  /* Chromium's line-breaker looks at the last few lines and avoids leaving one
+     word alone on them. It costs a declaration and it is the difference
+     between a paragraph and a paragraph with a widow. */
+  text-wrap: pretty;
+}
+
+/* --- headings ------------------------------------------------------------ */
+
+/*
+ * A heading sits with the paragraph it introduces: the gap above it is the
+ * block gap, and the gap below is a quarter of it. Space belongs to what
+ * follows, and at this scale that is worth being exact about rather than
+ * symmetrical about.
+ *
+ * The line comes from one ratio, `--prose-heading-line`, so it follows the
+ * register the way the sizes do.
+ */
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: var(--prose-gap, 16px) 0 calc(var(--prose-gap, 16px) / 4); /* desk: 20/8 → 16/4, the block gap above and a quarter of it below */
+  line-height: var(--prose-heading-line, 1.4); /* desk: 1.35 → 1.4, so the 20px step lands on 28 */
+  font-weight: var(--hd-weight-semibold);
+  /* A heading is short enough that the breaker can even the lines out, and
+     short enough that one word left on a second line is the whole effect. */
+  text-wrap: balance;
+}
+
+.markdown h1 {
+  font-size: var(--prose-h1, 24px); /* desk: 21 → 24, the ladder's top rung */
+}
+
+.markdown h2 {
+  font-size: var(--prose-h2, 20px); /* desk: 18 → 20, one rung up */
+}
+
+.markdown h3 {
+  font-size: var(--prose-h3, 18px); /* desk: 16 → 18, one rung up */
+}
+
+/*
+ * The run-in head, and the one step that is not a size.
+ *
+ * h4 is the body's own size in semibold with NO gap under it, so it reads as
+ * the first line of its paragraph rather than as a small heading floating
+ * above one. It is not *smaller* than the body it introduces: a heading below
+ * its own paragraph's size is a real editorial device and the wrong one at a
+ * fourth level, where it reads as a caption on the third.
+ */
+.markdown h4 {
+  font-size: var(--prose-h4, 16px);
+  margin-bottom: 0; /* desk: 8 → 0, so it sits on its own paragraph */
+}
+
+/* --- lists ---------------------------------------------------------------
+ *
+ * Markers, said explicitly.
+ *
+ * shadcn.css resets `list-style: none` on every `ul`/`ol` under a
+ * `[data-slot]` ancestor, which is right for the component lists it was
+ * written for — a menu is not prose and its items must not wear bullets. But
+ * `Markdown` renders prose, and it renders inside those components all over
+ * the app, so every numbered list in an agent's output was silently losing its
+ * numbers: `1. 2. 3.` came out as three indented sentences with no way to tell
+ * they were a sequence. Found by rendering a real `SKILL.md` whose procedure
+ * is numbered.
+ *
+ * The reset is left alone — it is doing a real job — and the answer is that
+ * this module asserts what prose needs. `:where()` contributes no specificity,
+ * so `.markdown ol` at (0,1,1) outranks it without `!important`.
+ */
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
+  padding-left: var(--hd-space-6);
+}
+
+.markdown ul {
+  list-style: disc;
+}
+
+.markdown ol {
+  list-style: decimal;
+}
+
+/* Nested levels change shape rather than repeating, the way a document does. */
+.markdown li > ul {
+  list-style: circle;
+}
+
+.markdown li > ul ul {
+  list-style: square;
+}
+
+.markdown ::marker {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.markdown li {
+  margin: var(--hd-space-0-5) 0; /* desk: 3 → 2, on the space scale */
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: var(--hd-space-0-5) 0; /* desk: 3 → 2, on the space scale */
+}
+
+/* --- quotes and rules ---------------------------------------------------- */
+
+/* The rule carries the quote; the line-height carries the air. The 2px rule
+   plus the gap is the whole inset, so there is no flat padding to keep in step
+   with it. */
+.markdown blockquote {
+  margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
+  padding: 0 0 0 var(--prose-gap, 16px); /* desk: 2px 0 2px 14px → the gap, with the rule making up the inset */
+  border-left: 2px solid var(--hdp-alias-border-l3);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.markdown hr {
+  margin: calc(var(--prose-gap, 16px) * 2) 0; /* desk: 20 → 24, twice the gap */
+  border: none;
+  border-top: 1px solid var(--hdp-alias-border-l2);
+}
+
+/* --- code ----------------------------------------------------------------
+ *
+ * A code span is a WORD in a sentence, so it takes a tint and nothing else.
+ * The tint alone says "this is literal"; a hairline around it says the same
+ * thing again in a heavier voice, and a line like "`listWorktrees` in
+ * `packages/server/src/git/worktrees.ts` returned the porcelain parse" carries
+ * three of them.
+ *
+ * It names its face. `<code>` inherits whatever the engine calls `monospace`
+ * unless told otherwise, and `docs/design.md` names
+ * `--hdp-font-family-code` for exactly this job.
+ *
+ * `design/ui/turn.tsx` spells the same answer in utilities — the semantic
+ * surface, the small radius, four pixels of padding, the code face, no border.
+ * Two idioms, one answer.
+ */
+.markdown code {
+  padding: 1px var(--hd-space-1); /* desk: 5 → 4 */
+  border-radius: var(--hd-radius-sm); /* desk: 5 → 6, the ladder's mark rung */
+  background: var(--hd-muted);
+  font-family: var(--hdp-font-family-code);
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A block is a document: it takes the container rung, and it keeps the
+ * hairline a span gives up, because at this size the plate is a region of the
+ * column rather than a word in it.
+ *
+ * One plate, whichever renderer drew the block. Both are a `pre` in the prose:
+ * `marked` emits ours, and once the grammars land `Markdown.tsx` REPLACES it
+ * with shiki's — `block.parentElement?.replaceWith(shiki)`, and shiki's root
+ * element is itself a `<pre class="shiki github-light">`.
+ */
+.markdown pre {
+  margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
+  padding: 0;
+  border-radius: var(--hd-radius);
+  overflow: hidden;
+  background: var(--hd-muted);
+  box-shadow: var(--hd-hairline);
+}
+
+/*
+ * Shiki's own background, taken back.
+ *
+ * `codeToHtml` writes the theme's page colour onto that element as an INLINE
+ * style — `style="background-color:#fff;color:#24292e"` — and an inline style
+ * is the one thing a class cannot outrank on specificity, so `!important` is
+ * the mechanism and not a preference. Without it a block wears GitHub's white
+ * (or #24292e at night) when the grammar has loaded and the app's plate when
+ * it has not, so the colour reports load timing.
+ *
+ * The selector is on the element, not a descendant of it: shiki replaces our
+ * `pre` rather than nesting inside it, so `pre :global(.shiki)` matches
+ * nothing.
+ */
+.markdown pre:global(.shiki) {
+  background: var(--hd-muted) !important;
+}
+
+/* The text inside, from either renderer: shiki's `<code>` is a child of its
+   own `pre`, ours is a child of ours, and this reaches both. */
+.markdown pre code {
+  display: block;
+  padding: var(--prose-gap, 16px); /* desk: 12px 14px → the gap, on all four sides */
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
+  overflow-x: auto;
+}
+
+/* --- tables --------------------------------------------------------------
+ *
+ * Horizontal rules only. A box around every cell is the heaviest table CSS
+ * can draw and it was drawing it around three columns of prose: 1px on four
+ * sides of every cell, plus a filled header, is a grid competing with the
+ * words inside it. The head is separated by one stronger rule, the rows by the
+ * app's own hairline, and the first column runs flush with the paragraph above
+ * it so the table starts where the prose starts.
+ */
+.markdown table {
+  width: 100%;
+  margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
+  border-collapse: collapse;
+  font-size: var(--hd-text-sm);
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  padding: var(--hd-space-1-5) var(--hd-space-3) var(--hd-space-1-5) 0; /* desk: 6px 10px → the scale, and the last column pays no right padding it does not need */
+  border: none; /* desk: a box round every cell → one rule under each row */
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.markdown th {
+  border-bottom: 1px solid var(--hdp-alias-border-l3);
+  font-weight: var(--hd-weight-semibold);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.markdown tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- links and emphasis -------------------------------------------------- */
+
+/*
+ * A link inside a paragraph needs more than a colour: colour alone is not a
+ * distinction anyone who cannot see this one can use, and the app's global
+ * `a` rule underlines on hover only, which is a hover away from invisible in
+ * a wall of prose. The ink is the accent solved for reading at this size —
+ * the raw accent measures under AA on the light face — and it is the same one
+ * `turn.tsx` reaches for.
+ */
+.markdown a {
+  color: var(--hd-primary-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* The UA's `bold` is 700; the app's heaviest documented weight is 600. Prose
+   emphasis stays inside the system. */
+.markdown strong {
+  font-weight: var(--hd-weight-semibold);
+}
+
+.markdown img {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--hd-radius-sm);
+}
+
+/* --- the same prose, at a message's size --------------------------------
+ *
+ * A channel line is read in a column of other people's lines, so it takes its
+ * size from the row it is in rather than setting a document's. Everything
+ * below is the four properties at the head of this file, moved: the sizes go
+ * relative so they follow the row, the line goes with it, and the gap halves,
+ * because the space that reads as generous in a transcript reads as a hole in
+ * a chat.
+ *
+ * Two levels of heading rather than four. A room message is a paragraph or
+ * two, and an agent that opens with `## Findings` should not shout across the
+ * room, so h3 and h4 sit at the row's own size and are held apart from the
+ * body by their weight alone.
+ *
+ * **What moving the gap moves, since three rules used to say it here.** The
+ * register sets `--prose-gap` and the blocks above read it, so a quote's
+ * inset becomes 8px, a rule's margin twice that, and a code block's padding
+ * the gap on all four sides. Written out, those were 10px, 10px and
+ * `8px 10px`; a 2px inset and a 6px margin move with the gap now rather than
+ * being kept in step with it by hand.
+ *
+ * `check-interface-drift` cannot see any of that, and the reason is worth
+ * knowing: it pairs a removed declaration with an added one and skips when
+ * there is no counterpart, so a rule DELETED because a mechanism subsumes it
+ * is invisible to the gate in both directions. Found by the three-model
+ * review of this PR, not by the gate. A `desk:` marker has nothing to sit on
+ * when the declaration is gone, so it is written here instead.
+ */
+.chat {
+  font-size: inherit;
+  line-height: inherit;
+
+  /* The document ladder at half pitch: 1.125 per rung becomes its square root,
+     so h1 lands one full rung above the row and h2 half of one. A message is
+     not a document, and two levels compressed is the whole of what a room line
+     needs. */
+  --prose-h1: 1.125em; /* desk: 1.15 → 1.125, the ladder's rung */
+  --prose-h2: 1.06em; /* desk: 1.08 → 1.06, half a rung */
+  --prose-h3: 1em;
+  --prose-h4: 1em;
+  --prose-gap: var(--hd-space-2);
+}
+
+/* A list in a message is tighter than a list in a document; everything else
+   above follows the gap. */
+.chat ul,
+.chat ol {
+  padding-left: var(--hd-space-5);
+}
+
+.chat li {
+  margin: var(--hd-space-px) 0;
+}

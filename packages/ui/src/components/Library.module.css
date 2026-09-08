@@ -1,0 +1,619 @@
+/*
+ * The library page.
+ *
+ * A grid rather than a list, because the question is a comparison: one entry
+ * across four agents. Everything here is about making the *problem* states
+ * legible at a glance — the healthy state is deliberately the quietest thing
+ * on the page, so a hundred working skills never bury the four that are not.
+ */
+
+/* --- the summary strip, which is also the filter ------------------------- */
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
+  margin: 0 0 var(--hd-space-4);
+}
+
+/* Each number is a button: reading "44 empty on disk" and then hunting for
+   them in a list of 110 is the failure mode this avoids. */
+.count {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 96px;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border: 0;
+  border-radius: var(--hd-radius);
+  background: var(--hd-surface-fill);
+  box-shadow: var(--hd-hairline);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--hd-duration-fast) var(--hd-ease);
+}
+
+.count:hover:not(:disabled) {
+  background: var(--hd-hover);
+}
+
+.count:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.count[data-active] {
+  box-shadow: inset 0 0 0 1px var(--hd-accent);
+}
+
+.countValue {
+  font-size: var(--hd-text-lg);
+  font-weight: var(--hd-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* Amber on the count, not the label: the number is the alarming part, and
+   colouring the whole tile turns a summary into a warning banner. */
+.count[data-tone='warn'] .countValue {
+  color: var(--hd-warning-ink);
+}
+
+.countLabel {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- toolbar ------------------------------------------------------------- */
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+  margin-bottom: var(--hd-space-3);
+}
+
+/* Kit's own input, only told how much of the toolbar to take. Wrapping it in
+   a bordered box with an inset magnifier would draw a second input over the
+   first and put a magic number where the icon sits. */
+.search {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.only {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* --- the grid ------------------------------------------------------------ */
+
+/* The table scrolls inside its own box so a machine with eight agents widens
+   this and never the page. */
+.scroll {
+  overflow-x: auto;
+  border-radius: var(--hd-radius);
+  box-shadow: var(--hd-hairline);
+  /* Names its own width for the drawer below. */
+  container-type: inline-size;
+}
+
+/*
+ * Fixed layout, because the agent columns are the point of the page and the
+ * description is not. Left to size themselves, the descriptions win — they are
+ * the longest text in the table — and push the last agent off the right edge,
+ * which is precisely the column a person opened this page to read.
+ */
+.grid {
+  /*
+   * Ten agents must widen the table into its scroll container, not squeeze
+   * eleven columns into four columns' space — fixed layout did the
+   * squeezing. Content sets the width, the container sets the floor, and
+   * the name column is bounded below so a long description cannot claim
+   * the room the agent columns need.
+   */
+  width: 100%;
+  min-width: max-content;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: var(--hd-text-sm);
+}
+
+/* Said for screen readers; the grid says it visually by being a grid. */
+.caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--hd-z-sticky);
+  padding: var(--hd-space-2) var(--hd-space-2-5);
+  background: var(--hd-background);
+  box-shadow: inset 0 -1px 0 var(--hd-border);
+  font-weight: var(--hd-weight-medium);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Whatever the agents have not taken. */
+.nameHead {
+  width: auto;
+}
+
+/* The grid is `table-layout: fixed` — that is what truncates a long
+   description instead of letting it push the agent columns off the page —
+   so these cannot shrink-to-fit and the width is a decision. 150px was
+   measured against "DeepSeek Harness", the longest name any agent shipped
+   with; the shipped names are short now, but the width still has to seat
+   whatever a user registers, and a longer one ellipsises with the full name
+   on the heading's title. Four columns spend ~630px and the name column
+   keeps the rest. (150px looked right and measured 5px short: the head's own
+   padding eats into the cell, and the span clipped at 130 of the 135 it
+   needed.) */
+.agentHead {
+  width: 158px;
+  text-align: center;
+}
+
+.agentHead .agentName {
+  white-space: nowrap;
+}
+
+/* The full name is on the heading's `title`; the column shows as much as fits.
+   A machine with eight agents narrows these rather than scrolling the grid. */
+.agentName {
+  display: inline-flex;
+  overflow: hidden;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  max-width: 100%;
+  color: var(--hdp-alias-label-secondary);
+  text-overflow: ellipsis;
+}
+
+/* The mark is the identity; the text beside it is only what the mark cannot
+   say. Left to flex it is the part that shrinks, and the second account of one
+   agent loses the very glyph that told you which agent it was. */
+.agentName svg {
+  flex: none;
+}
+
+.row:hover {
+  background: var(--hd-hover);
+}
+
+.row[data-open] {
+  background: var(--hd-hover);
+}
+
+.name {
+  width: 250px;
+  padding: 0;
+  font-weight: var(--hd-weight-normal);
+  text-align: left;
+  /* Ten columns scroll sideways; the row must not scroll away from its name. */
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--hd-background);
+}
+
+.grid thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: calc(var(--hd-z-sticky) + 1);
+}
+
+/* The whole name cell is the disclosure, so the hit target is the row's own
+   width rather than a chevron nobody aims at. */
+.nameButton {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* The hard bound that keeps a nowrap description from stretching the column. */
+  width: 250px;
+  padding: var(--hd-space-1-5) var(--hd-space-2-5);
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.title {
+  color: var(--hd-foreground);
+}
+
+.desc {
+  overflow: hidden;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell {
+  padding: 0;
+  text-align: center;
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--hd-control-h);
+  padding: 0 var(--hd-space-2);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* Every row above the first draws its own hairline, so the grid has lines
+   between rows and none around the edge it already has a border for. */
+.grid tbody tr + tr .name,
+.grid tbody tr + tr .cell {
+  box-shadow: inset 0 1px 0 var(--hd-border);
+}
+
+/* --- the six states ------------------------------------------------------ */
+
+/*
+ * `reaches` is a 5px dot and nothing else. This is the state most cells are
+ * in, and a tick in every one of them is a page of ticks — the eye stops
+ * separating them from the four marks that mean something.
+ */
+.here {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-success);
+}
+
+/* `absent` is a rule, not a glyph: nothing is wrong with a skill an agent
+   never asked for, and a symbol would claim otherwise. */
+.none {
+  width: 7px;
+  height: 1px;
+  background: var(--hd-border-strong);
+}
+
+/*
+ * `stale` — the agent has it, in a directory it reads, and has not read that
+ * directory since it arrived. The dot of `reaches`, in the ink `off` uses:
+ * those two are a family, both meaning *this agent holds it and is not
+ * loading it*, and they differ by the one thing that separates them — whether
+ * somebody threw a switch. Deliberately not a ring: `unscanned` is a ring and
+ * means the opposite (a copy this agent will never see), and two rings a hue
+ * apart is a legend, not a distinction.
+ */
+.soon {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--hd-radius-full);
+  background: var(--hdp-alias-label-tertiary);
+}
+
+/* `off` — the agent has it and its switch is down. The filled dot of
+   `reaches`, struck through: present, and not loading. Neutral rather than
+   amber, because somebody chose this and a warning colour would argue with
+   them. */
+.off {
+  position: relative;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--hd-radius-full);
+  background: var(--hdp-alias-label-tertiary);
+}
+
+.off::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: -3px;
+  width: 11px;
+  height: 1px;
+  background: var(--hdp-alias-label-tertiary);
+}
+
+/* `unscanned` — present on disk, in a directory this agent does not read. An
+   outline of the dot it would be if the agent could see it. */
+.ring {
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--hd-warning-ink);
+  border-radius: var(--hd-radius-full);
+}
+
+.cell[data-problem] .mark {
+  color: var(--hd-warning-ink);
+}
+
+.cell[data-state='unhostable'] .mark {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- the detail ---------------------------------------------------------- */
+
+.detail {
+  padding: 0;
+  background: var(--hd-background);
+  box-shadow: inset 0 1px 0 var(--hd-border);
+}
+
+.detailBody {
+  padding: var(--hd-space-2-5) var(--hd-space-3) var(--hd-space-3);
+  /*
+   * The cell spans all eleven columns of a table that scrolls sideways; the
+   * drawer's content pins itself to the visible width instead, so opening a
+   * row while scrolled to the far columns never shows the middle of a
+   * sentence. 100cqw is the scroll container's own width.
+   */
+  position: sticky;
+  left: 0;
+  width: 100cqw;
+  box-sizing: border-box;
+}
+
+.detailHead {
+  margin: 0 0 var(--hd-space-1-5);
+  color: var(--hdp-alias-label-secondary);
+  font-size: var(--hd-text-xs);
+}
+
+.copies,
+.notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--hd-space-1) 0;
+}
+
+.copy code {
+  font-size: var(--hd-text-xs);
+  word-break: break-all;
+}
+
+.copyNote {
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+}
+
+.notes {
+  margin-top: var(--hd-space-2);
+  padding-top: var(--hd-space-2);
+  box-shadow: inset 0 1px 0 var(--hd-border);
+  color: var(--hdp-alias-label-secondary);
+  font-size: var(--hd-text-xs);
+}
+
+.notes li + li {
+  margin-top: var(--hd-space-1);
+}
+
+.basis {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- the page's own asides ----------------------------------------------- */
+
+.empty,
+.failed {
+  margin: 0;
+  padding: var(--hd-space-5) 0;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-sm);
+}
+
+.failed {
+  color: var(--hd-danger);
+}
+
+/*
+ * What the report could not establish. A footnote rather than a banner: a
+ * column read from disk is weaker than one the agent answered for, and that is
+ * worth saying — but it is a caveat on the table above, not an alarm.
+ */
+.gaps {
+  margin-top: var(--hd-space-3);
+}
+
+.gap {
+  margin: 0 0 var(--hd-space-1);
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+}
+
+/* Three or more caveats fold; the count stays on the page. */
+.gapsFold {
+  margin: 0 0 var(--hd-space-1);
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+  cursor: pointer;
+  width: fit-content;
+}
+
+details[open] > .gapsFold {
+  margin-bottom: var(--hd-space-2);
+}
+
+/* The cost footer: quiet, grid-aligned, and visibly not a data row. */
+.foot .footHead {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--hdp-alias-label-tertiary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.footCell {
+  padding: 8px 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hdp-alias-label-tertiary);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.foot {
+  border-top: 1px solid var(--hd-border);
+}
+
+/* The drawer's economics: separate facts, separated visibly — a stat row,
+   not a paragraph. The numbers align because they are numbers. */
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.fact:not(:first-child)::before {
+  content: '·';
+  margin-inline: 8px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- what the page detects on its own, with the action beside it --------- */
+
+.attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  margin: 0 0 var(--hd-space-4);
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border-radius: var(--hd-radius);
+  background: var(--hd-surface-fill);
+  box-shadow: var(--hd-hairline);
+}
+
+.attentionLine {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.attentionLine > svg {
+  flex: none;
+  color: var(--hd-warning-ink);
+}
+
+.attentionLine > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.attentionLine > button {
+  flex: none;
+}
+
+/* --- the drawer's verbs and order chips ----------------------------------- */
+
+.copyLine {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.orderChip {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  border: 1px solid var(--hd-border);
+  border-radius: var(--hd-radius-full);
+  padding: 0 var(--hd-space-1-5);
+  white-space: nowrap;
+}
+
+.orderChip[data-wins] {
+  color: var(--hdp-alias-label-secondary);
+  border-color: currentcolor;
+}
+
+/* The remove affordance stays quiet until the row is under the pointer:
+   a column of bins beside every path reads as a threat, not a control. */
+.copyRemove {
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--hd-duration-fast) var(--hd-ease);
+}
+
+.copy:hover .copyRemove,
+.copyRemove:focus-visible {
+  opacity: 1;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-1);
+  margin-top: var(--hd-space-2);
+}
+
+/* --- the legend ---------------------------------------------------------- */
+
+/*
+ * The key to the marks, under the table it explains. Small, quiet, and only
+ * as long as the states actually on screen — see `Legend`.
+ */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-1) var(--hd-space-4);
+  margin: 0 0 var(--hd-space-2);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}
+
+/* The same 14px box the cells centre their marks in, so a dot in the key sits
+   at the size and weight it has in the table rather than at a second one. */
+.legendMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.legendMark[data-state='hollow'],
+.legendMark[data-state='rejected'],
+.legendMark[data-state='differs'] {
+  color: var(--hd-warning-ink);
+}

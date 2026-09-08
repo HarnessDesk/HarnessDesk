@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.1.1)"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and verify, but do not publish"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, sign, and publish
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Everything the pre-commit gate runs, minus the Codex protocol drift
+      # check, which needs a Codex installation the runner does not have.
+      - name: Build
+        run: pnpm run build
+
+      - name: Tests
+        run: |
+          node --test "packages/*/dist/test/**/*.test.js"
+          pnpm --filter @harnessdesk/ui run test
+          pnpm --filter @harnessdesk/desktop run test
+
+      - name: Layering rules
+        run: pnpm run layering
+
+      - name: Set version
+        run: |
+          node -e '
+            const fs = require("node:fs")
+            for (const path of ["package.json", "packages/desktop/package.json"]) {
+              const pkg = JSON.parse(fs.readFileSync(path, "utf8"))
+              pkg.version = process.env.VERSION
+              fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n")
+            }
+          '
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Build signed app
+        working-directory: packages/desktop
+        run: pnpm run dist
+        env:
+          # Absent on forks and in dry runs; electron-builder then produces an
+          # unsigned bundle rather than failing, which is what we want for a
+          # build that is never published.
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Checksums
+        working-directory: packages/desktop/release
+        run: shasum -a 256 *.dmg *.zip > SHA256SUMS.txt || true
+
+      - name: Report signature status
+        working-directory: packages/desktop/release
+        run: |
+          for app in mac*/HarnessDesk.app; do
+            [ -d "$app" ] || continue
+            echo "== $app"
+            # Reported rather than enforced: an unsigned dry-run build is a
+            # legitimate outcome, and failing here would hide the real result.
+            codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | tail -5 || true
+            spctl --assess --type execute --verbose "$app" 2>&1 | tail -3 || true
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: HarnessDesk-${{ inputs.version }}
+          path: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+            packages/desktop/release/SHA256SUMS.txt
+          retention-days: 14
+
+      - name: Publish release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ inputs.version }}
+          name: HarnessDesk ${{ inputs.version }}
+          generate_release_notes: true
+          files: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.zip
+            packages/desktop/release/SHA256SUMS.txt

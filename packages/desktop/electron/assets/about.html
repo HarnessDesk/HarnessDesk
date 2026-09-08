@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; script-src 'unsafe-inline'" />
+<title>About HarnessDesk</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    color: #1d1d1f; background: #ffffff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; user-select: none; cursor: default;
+    -webkit-app-region: drag;
+  }
+  /* The tile macOS draws behind icons, so the window reads as native. */
+  .tile {
+    width: 104px; height: 104px; border-radius: 24px;
+    background: linear-gradient(180deg, #f2f2f4, #d9d9de);
+    box-shadow: 0 1px 0 rgba(255,255,255,.8) inset, 0 6px 14px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.08);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px;
+  }
+  .mark {
+    width: 80px; height: 80px; background-color: #111113;
+    -webkit-mask: url(mark.svg) center / contain no-repeat; mask: url(mark.svg) center / contain no-repeat;
+  }
+  h1 { font-size: 17px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .version { color: #6e6e73; margin: 0 0 14px; }
+  .runtime { color: #6e6e73; font-size: 11px; margin: 0; }
+  .legal { color: #8e8e93; font-size: 10.5px; margin: 18px 0 0; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #f5f5f7; background: #1e1e20; }
+    .tile { background: linear-gradient(180deg, #3a3a3e, #242427); box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px rgba(0,0,0,.5), 0 0 0 .5px rgba(255,255,255,.06); }
+    .mark { background-color: #f5f5f7; }
+    .version, .runtime { color: #98989d; }
+    .legal { color: #7c7c80; }
+  }
+</style>
+</head>
+<body>
+  <div class="tile"><div class="mark" role="img" aria-label="HarnessDesk"></div></div>
+  <h1>HarnessDesk</h1>
+  <p class="version" id="version">Version</p>
+  <p class="runtime" id="runtime"></p>
+  <p class="legal">MIT License · © 2026 HarnessDesk contributors</p>
+  <script>
+    const q = new URLSearchParams(location.search)
+    const v = q.get('version') ?? ''
+    document.getElementById('version').textContent = `Version ${v}`
+    const bits = []
+    if (q.get('electron')) bits.push(`Electron ${q.get('electron')}`)
+    if (q.get('chrome')) bits.push(`Chromium ${q.get('chrome')}`)
+    document.getElementById('runtime').textContent = bits.join(' · ')
+    addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close() })
+  </script>
+</body>
+</html>

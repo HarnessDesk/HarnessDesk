@@ -1,0 +1,126 @@
+/*
+ * "Ask an agent to fix this": the dialog, and the refusal block that raises
+ * it. The red block rhymes with the `.error` in the other git stylesheets
+ * rather than importing one of them — a screen's stylesheet is not a library.
+ */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.headline {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--hdp-alias-label-primary);
+}
+
+.note {
+  font-size: var(--hd-text-sm);
+  line-height: 1.5;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.error {
+  padding: 8px 10px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger);
+  font-size: var(--hd-text-sm);
+}
+
+/* --- who to ask ---------------------------------------------------------- */
+
+.agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: none;
+  cursor: pointer;
+}
+
+.agent[data-on] {
+  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
+}
+
+.agentName {
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-primary);
+}
+
+.agentTick {
+  display: inline-flex;
+  color: var(--hd-accent);
+}
+
+/* --- the prompt ---------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* Monospaced because it is half git's output: a path that wraps mid-segment
+   is a path nobody can check against the repository. */
+.prompt {
+  resize: vertical;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: none;
+  outline: none;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+  line-height: 1.6;
+  color: var(--hdp-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.prompt:focus {
+  box-shadow: inset 0 0 0 1px var(--hd-ring);
+}
+
+/* --- the refusal block --------------------------------------------------- */
+
+.trouble {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-danger-dim);
+}
+
+.troubleWhat {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: var(--hd-text-sm);
+  line-height: 1.45;
+  color: var(--hd-danger);
+  overflow-wrap: anywhere;
+}
+
+.troubleDo {
+  flex: none;
+}

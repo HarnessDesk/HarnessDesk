@@ -1,0 +1,429 @@
+/*
+ * The library's verbs — one preview surface, and the flows that feed it.
+ *
+ * The plan list borrows the page's own discipline: the runnable operations
+ * are quiet, and only refusals wear a glyph. A preview is evidence, so the
+ * diff is the biggest thing in the dialog once opened, not a footnote.
+ */
+
+/* --- the plan dialog ------------------------------------------------------ */
+
+.summary {
+  margin: 0;
+  padding: var(--hd-space-2) 0;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.loading,
+.failed,
+.blurb {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  line-height: var(--hd-line);
+}
+
+.failed {
+  color: var(--hd-warning-ink);
+}
+
+.ops {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* A floor for the list alone, so a one-line plan still reads as a composed
+     surface rather than a label floating in a dialog — and a long one scrolls
+     against the dialog's own ceiling instead of a second, lower one. */
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+}
+
+.op {
+  border-bottom: 1px solid var(--hd-border);
+}
+
+.op:last-child {
+  border-bottom: 0;
+}
+
+.opHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  width: 100%;
+  padding: var(--hd-space-2) 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opHead:disabled {
+  cursor: default;
+}
+
+.opMark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  align-self: center;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.opMark[data-state='refuse'] {
+  color: var(--hd-warning-ink);
+}
+
+.opMark[data-state='done'] {
+  color: var(--hd-success);
+}
+
+.opMark[data-state='failed'] {
+  color: var(--hd-warning-ink);
+}
+
+.planned {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--hd-radius-full);
+  background: currentcolor;
+  opacity: 0.7;
+}
+
+.skipMark {
+  opacity: 0.6;
+}
+
+.opName {
+  flex: none;
+  font-weight: var(--hd-weight-medium);
+  font-size: var(--hd-text-sm);
+}
+
+.opVerb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/*
+ * Where it lands, on the line you read before pressing Apply.
+ *
+ * The destination used to live only in the `+++` line of the diff, behind a
+ * chevron and clipped at the right-hand edge — so the one fact a person owes
+ * themselves before letting an app write into another program's configuration
+ * was the one fact the row did not carry. Clipped from the *left* (`rtl`),
+ * because the end of a path is the part that identifies it.
+ */
+.opPath {
+  flex: none;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: right;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/*
+ * `direction: rtl` is what clips a path from the *left*, and on its own it
+ * also reorders the string's outermost neutral characters — so a path that
+ * fits entirely rendered as `cursor/skills/code-review./~`, with its leading
+ * `~/` pushed round to the far end. A left-to-right mark on each side pins
+ * the run down without putting an invisible character into the DOM, where it
+ * would follow the path into `title` and into anything copied.
+ */
+.opPath::before,
+.opPath::after,
+.historyPath::before,
+.historyPath::after {
+  content: '\200E';
+}
+
+.op[data-action='refuse'] .opVerb {
+  color: var(--hd-warning-ink);
+}
+
+.opChev {
+  flex: none;
+  align-self: center;
+  color: var(--hdp-alias-label-tertiary);
+  transition: transform var(--hd-duration-fast) var(--hd-ease);
+}
+
+.opChev[data-open] {
+  transform: rotate(90deg);
+}
+
+.opBody {
+  padding: 0 0 var(--hd-space-3) calc(var(--hd-space-4) + var(--hd-space-2));
+}
+
+.opFiles {
+  margin: var(--hd-space-2) 0 0;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* --- picking agents ------------------------------------------------------- */
+
+.pickPair {
+  display: flex;
+  gap: var(--hd-space-4);
+  flex-wrap: wrap;
+  padding: var(--hd-space-2) 0;
+}
+
+.pickCol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.pickLabel {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- the import candidate list -------------------------------------------- */
+
+.bulk {
+  display: flex;
+  gap: var(--hd-space-1);
+  padding: 0 0 var(--hd-space-2);
+}
+
+.candidates {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-1) 0;
+  border-bottom: 1px solid var(--hd-border);
+}
+
+.candidate:last-child {
+  border-bottom: 0;
+}
+
+.candidateName {
+  flex: none;
+  font-size: var(--hd-text-sm);
+}
+
+.candidateKind {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  border: 1px solid var(--hd-border);
+  border-radius: var(--hd-radius-full);
+  padding: 0 var(--hd-space-1-5);
+}
+
+.candidateDesc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- resolving copies ------------------------------------------------------ */
+
+.choices {
+  margin: var(--hd-space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.choice {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  width: 100%;
+  padding: var(--hd-space-2);
+  border: 1px solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice[data-on] {
+  border-color: var(--hd-foreground);
+}
+
+.choiceDot {
+  flex: none;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--hdp-alias-label-tertiary);
+  border-radius: var(--hd-radius-full);
+}
+
+.choice[data-on] .choiceDot {
+  background: var(--hd-foreground);
+  border-color: var(--hd-foreground);
+}
+
+.choiceNote {
+  flex: none;
+  margin-left: auto;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.hollowLine {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  margin-top: var(--hd-space-3);
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* --- authoring ------------------------------------------------------------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+/*
+ * A field brings its own label when it is scrolled to.
+ *
+ * The first control here is autofocused, the dialog's body scrolls, and the
+ * browser scrolls the *input* into view — so the dialog opened with "Name"
+ * already above the fold and an unlabelled box at the top of the form.
+ */
+.form input,
+.form textarea {
+  scroll-margin-block-start: var(--hd-space-8);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.fieldLabel {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.fieldNote {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  line-height: var(--hd-line-sm);
+}
+
+.textarea {
+  padding: var(--hd-space-2);
+  border: 1px solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-background);
+  color: inherit;
+  font: inherit;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line);
+  resize: vertical;
+}
+
+.textarea:focus-visible {
+  outline: none;
+  border-color: var(--hd-ring);
+  box-shadow: 0 0 0 1px var(--hd-ring);
+}
+
+/* A refusal's sentence is the row's content, not its decoration. */
+.opVerb[data-wrap] {
+  white-space: normal;
+  overflow: visible;
+}
+
+/* --- what changed from here ------------------------------------------------ */
+
+.history {
+  margin-top: var(--hd-space-5);
+}
+
+.historyHead {
+  margin: 0 0 var(--hd-space-2);
+  font-size: var(--hd-text-sm);
+  font-weight: var(--hd-weight-semibold);
+}
+
+.historyRows {
+  margin: 0 0 var(--hd-space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.historyRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-1) 0;
+  border-bottom: 1px solid var(--hd-border);
+  font-size: var(--hd-text-xs);
+}
+
+.historyRow:last-child {
+  border-bottom: 0;
+}
+
+.historyRow[data-status='failed'] .historyWhat {
+  color: var(--hd-warning-ink);
+}
+
+.historyWhen {
+  flex: none;
+  width: 132px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.historyWhat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.historyPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--hdp-alias-label-tertiary);
+}

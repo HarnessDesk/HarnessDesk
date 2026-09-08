@@ -1,0 +1,7 @@
+{
+  "id": "editorish",
+  "name": "Plugin that annotates and edits files",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": { "editor": true, "workspace": { "read": true, "write": true } }
+}

@@ -1,0 +1,14 @@
+{
+  "wrongVariant": 0,
+  "missingClass": 0,
+  "forkedToken": 0,
+  "handRolledOverlay": 4,
+  "looseTarget": 12,
+  "looseIcon": 3,
+  "danglingToken": 1,
+  "crossImport": 11,
+  "rawRadius": 56,
+  "offGrid": 209,
+  "rawColour": 47,
+  "arbitraryUtility": 6
+}

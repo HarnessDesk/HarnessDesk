@@ -1,0 +1,7 @@
+{
+  "id": "exit",
+  "name": "Plugin that exits the process",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": {}
+}

@@ -1,0 +1,25 @@
+# Dependency updates, batched so a week's worth of bumps is one review rather
+# than twenty. Anything that changes a major version gets its own pull request,
+# because a major is a decision and a patch is a chore.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Electron majors track a Chromium release and are taken deliberately,
+      # with the packaged-app smoke run, not from a bot.
+      - dependency-name: electron
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday

@@ -1,0 +1,14 @@
+/* A plugin's own settings: rows like any other, sized fields, one action. */
+.text {
+  width: 220px;
+}
+
+.number {
+  width: 110px;
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--hd-space-2);
+}

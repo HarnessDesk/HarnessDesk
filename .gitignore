@@ -1,0 +1,28 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+packages/desktop/release/
+packages/desktop/vendor/
+packages/ui/dist/
+coverage/
+*.log
+script/probe/out/
+
+# Working notes that are not the product: the plan, the idea list, and the
+# research sittings behind them. They stay on the machine that wrote them.
+internal/
+
+# Whatever an agent leaves in the checkout — worktrees, local commands, agent
+# configuration, and per-tool state: a port, a pid, and the key to a localhost
+# server that stopped existing when the process did. None of it is the product.
+# The repository's own review tooling is not an exception to this — it lives in
+# script/review, where the rest of the project's tooling is.
+.claude/
+.agents/
+.codex/
+.cursor/
+.superpowers/
+packages/ui/dist-site-demo/

@@ -1,0 +1,403 @@
+/*
+ * Shadcn — the stock shadcn/ui look, carried into the app as a third palette,
+ * plus the two smaller dials shadcn's own theme customizer offers: an accent
+ * and a corner radius. Together with the palette row these are Settings ›
+ * Appearance; `useTheme` writes `body[data-hd-palette='shadcn']`,
+ * `body[data-hd-accent=…]` and `body[data-hd-corners=…]`, and the sheets
+ * below re-ground the token layer everything downstream reads.
+ *
+ * The palette is shadcn's "neutral" base drawn from Tailwind's neutral ramp:
+ * white pages with a near-black primary in the light face, near-black pages
+ * with a near-white primary in the dark one, and no colour anywhere that is
+ * not a state. Like editorial.css, each face must override every alias the
+ * platform defines, or a cool blue leaks through — shadcn-themes.test.ts
+ * holds both faces to the platform's alias list, so keep the two big blocks
+ * first: the coverage test indexes them as blocks 0 and 1.
+ *
+ * The accent blocks sit after the palettes on purpose: an accent the user
+ * picked must beat the accent a palette ships with, and at equal specificity
+ * the later rule wins.
+ */
+
+body[data-hd-palette='shadcn'] {
+  /* HarnessDesk's own brand layer: the brand is ink, not a hue. */
+  --hd-accent: #171717;
+  --hd-accent-hover: #404040;
+  --hd-accent-dim: rgba(23, 23, 23, 0.08);
+  --hd-danger: #dc2626;
+  --hd-danger-dim: rgba(220, 38, 38, 0.1);
+  --hd-success: #16a34a;
+  --hd-warning: #d97706;
+  --hd-warning-ink: #a16207;
+  --hd-sidebar-plate: #fafafa;
+  --hdp-alias-bg-base: #ffffff;
+  --hdp-alias-bg-layer-1: #ffffff;
+  --hdp-alias-bg-layer-2: #fafafa;
+  --hdp-alias-bg-layer-3: #fafafa;
+  --hdp-alias-bg-mask-1: rgba(0, 0, 0, 0.24);
+  --hdp-alias-bg-mask-2: rgba(0, 0, 0, 0.12);
+  --hdp-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
+  --hdp-alias-bg-mask-photo: rgba(0, 0, 0, 0.88);
+  --hdp-alias-bg-mask-drop: rgba(255, 255, 255, 0.7);
+  --hdp-alias-bg-module-platform: #f5f5f5;
+  --hdp-alias-bg-multi-select: #f5f5f5;
+  --hdp-alias-bg-overlay: #e5e5e5;
+  --hdp-alias-bg-skeleton: rgba(0, 0, 0, 0.05);
+  --hdp-alias-border-inverted2: rgba(0, 0, 0, 0);
+  --hdp-alias-border-inverted: rgba(0, 0, 0, 0);
+  --hdp-alias-border-l1: rgba(0, 0, 0, 0.06);
+  --hdp-alias-border-l2-darkmode-thin: rgba(0, 0, 0, 0.1);
+  --hdp-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --hdp-alias-border-l3: rgba(0, 0, 0, 0.14);
+  --hdp-alias-border-l4: rgba(0, 0, 0, 0.18);
+  --hdp-alias-brand-primary-invert: #fafafa;
+  --hdp-alias-brand-primary-new-colorprimary-new-color: #171717;
+  --hdp-alias-brand-primary: #171717;
+  --hdp-alias-brand-text: #171717;
+  --hdp-alias-button-contrast-fill: #525252;
+  --hdp-alias-button-elevated-fill: #ffffff;
+  --hdp-alias-button-floating-fill: #ffffff;
+  --hdp-alias-button-floating-hover: #f5f5f5;
+  --hdp-alias-button-ghost-active-border: #a3a3a3;
+  --hdp-alias-button-ghost-active-fill: #e5e5e5;
+  --hdp-alias-button-ghost-active-hover: #d4d4d4;
+  --hdp-alias-button-info-fill: #171717;
+  --hdp-alias-button-info-hover: #404040;
+  --hdp-alias-button-primary-dimmed: #e5e5e5;
+  --hdp-alias-button-primary-fill: var(--hdp-alias-brand-primary);
+  --hdp-alias-button-primary-hover: #404040;
+  --hdp-alias-button-tool-bar-fill-invisible: rgba(38, 38, 38, 0.36);
+  --hdp-alias-button-tool-bar-fill: rgba(115, 115, 115, 0.5);
+  --hdp-alias-button-tool-bar-hover: rgba(115, 115, 115, 0.6);
+  --hdp-alias-interactive-bg-active: rgba(0, 0, 0, 0.1);
+  --hdp-alias-interactive-bg-hover-accent: rgba(23, 23, 23, 0.1);
+  --hdp-alias-interactive-bg-hover-danger: rgba(220, 38, 38, 0.07);
+  --hdp-alias-interactive-bg-hover-solid: #f5f5f5;
+  --hdp-alias-interactive-bg-hover: rgba(0, 0, 0, 0.06);
+  --hdp-alias-label-caption: #a3a3a3;
+  --hdp-alias-label-dimmed: #d4d4d4;
+  --hdp-alias-label-primary-bluish: #0a0a0a;
+  --hdp-alias-label-primary-dimmed: #262626;
+  --hdp-alias-label-primary-foreground: #fafafa;
+  --hdp-alias-label-primary-inverted: #ffffff;
+  --hdp-alias-label-primary: #0a0a0a;
+  --hdp-alias-label-secondary: #525252;
+  --hdp-alias-label-tertiary: #737373;
+  --hdp-alias-markdown-citation: #e5e5e5;
+  --hdp-alias-markdown-code-block-banner: #e5e5e5;
+  --hdp-alias-markdown-code-block: #f5f5f5;
+  --hdp-alias-markdown-code-segment-selected: #ffffff;
+  --hdp-alias-markdown-code-segment-unselected: #f5f5f5;
+  --hdp-alias-markdown-inline-code: #e5e5e5;
+  --hdp-alias-markdown-placeholder: #f5f5f5;
+  --hdp-alias-markdown-tag: #e5e5e5;
+  --hdp-alias-scrollbar-bg-l1: #d4d4d4;
+  --hdp-alias-scrollbar-bg-l2: #d4d4d4;
+  --hdp-alias-scrollbar-hover-l1: #a3a3a3;
+  --hdp-alias-scrollbar-hover-l2: #a3a3a3;
+  --hdp-alias-state-business-primary: #171717;
+  --hdp-alias-state-business-tertiary: #e5e5e5;
+  --hdp-alias-state-error-primary: #dc2626;
+  --hdp-alias-state-error-secondary: #ef4444;
+  --hdp-alias-state-success-primary: #16a34a;
+  --hdp-alias-state-success-secondary: #22c55e;
+  --hdp-alias-state-success-tertiary: #dcfce7;
+  --hdp-alias-state-warn-label: #854d0e;
+  --hdp-alias-state-warn-primary: #a16207;
+  --hdp-alias-state-warn-secondary: #ca8a04;
+  --hdp-alias-state-warn-tertiary: #fef9c3;
+  --hdp-alias-toast-bg: #171717;
+  --hdp-alias-tooltip-bg: #262626;
+  --hdp-specific-bubble-highlight: #e5e5e5;
+  --hdp-specific-bubble: #f5f5f5;
+  --hdp-specific-input-major: #ffffff;
+  --hdp-specific-login-input: #f5f5f5;
+  --hdp-specific-menu: var(--hdp-alias-bg-layer-3);
+  --hdp-specific-selector: #f5f5f5;
+  --hdp-specific-sidebar-fill: #fafafa;
+  --hdp-specific-sidebar-nav-item-active-accent: #e5e5e5;
+  --hdp-specific-sidebar-nav-item-active: #e5e5e5;
+  --hdp-specific-sidebar-nav-item-hover: #efefef;
+  --hdp-specific-tip: #f5f5f5;
+
+  /* --- shadcn's measures, not just its colours -------------------------
+     Added 2026-08-30 as an experiment, and it is the half of "their tokens"
+     the palette was missing. Until now this palette swapped the colour and the
+     corner and kept the desk's own density &mdash; which is a fair way to try a
+     look, and a poor way to answer "what would the app be if we took their
+     system". Their controls are a third taller than ours and their small text
+     is a step larger, and those two facts do more to the feel of a screen than
+     any hue.
+
+     Values counted from the registry's own components rather than invented:
+     `Button` is `h-8` with `h-7` small, `SidebarMenuButton` is `h-8`, `Badge`
+     is `h-5`, and `text-sm` is 14px on a 20px line where the desk's is 13 on
+     18. The type scale is where this bites hardest &mdash; every row in the
+     app is set in `--hd-text-sm`.
+
+     Reversible in one block: delete this and the palette is a palette again. */
+  --hd-control-h: 32px;
+  --hd-control-h-sm: 28px;
+  --hd-row-h: 32px;
+  --hd-chip-h: 20px;
+  --hd-btn-padding: 0 10px;
+  --hd-btn-padding-sm: 0 10px;
+  --hd-btn-weight: 500;
+
+  --hd-text-xs: 12px;
+  --hd-text-sm: 14px;
+  --hd-text: 14px;
+  --hd-text-lg: 16px;
+  --hd-heading: 18px;
+  --hd-line: 20px;
+  --hd-line-sm: 20px;
+}
+
+body[data-hd-palette='shadcn'][data-hd-dark-theme] {
+  --hd-accent: #e5e5e5;
+  --hd-accent-hover: #ffffff;
+  --hd-accent-dim: rgba(229, 229, 229, 0.12);
+  /* A light primary needs dark ink on it; the default palette never does. */
+  --hd-primary-foreground: #171717;
+  --hd-danger: #f87171;
+  --hd-danger-dim: rgba(248, 113, 113, 0.14);
+  --hd-success: #4ade80;
+  --hd-warning: #fbbf24;
+  --hd-warning-ink: #fbbf24;
+  --hd-sidebar-plate: #0a0a0a;
+  --hdp-alias-bg-base: #0a0a0a;
+  --hdp-alias-bg-layer-1: #171717;
+  --hdp-alias-bg-layer-2: #1f1f1f;
+  --hdp-alias-bg-layer-3: #262626;
+  --hdp-alias-bg-mask-1: rgba(0, 0, 0, 0.5);
+  --hdp-alias-bg-mask-2: rgba(0, 0, 0, 0.2);
+  --hdp-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
+  --hdp-alias-bg-mask-photo: rgba(0, 0, 0, 0.88);
+  --hdp-alias-bg-mask-drop: rgba(10, 10, 10, 0.7);
+  --hdp-alias-bg-module-platform: #262626;
+  --hdp-alias-bg-multi-select: #262626;
+  --hdp-alias-bg-overlay: #404040;
+  --hdp-alias-bg-skeleton: rgba(255, 255, 255, 0.07);
+  --hdp-alias-border-inverted2: rgba(255, 255, 255, 0.08);
+  --hdp-alias-border-inverted: rgba(255, 255, 255, 0.07);
+  --hdp-alias-border-l1: rgba(255, 255, 255, 0.07);
+  --hdp-alias-border-l2-darkmode-thin: rgba(255, 255, 255, 0.07);
+  --hdp-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --hdp-alias-border-l3: rgba(255, 255, 255, 0.16);
+  --hdp-alias-border-l4: rgba(255, 255, 255, 0.2);
+  --hdp-alias-brand-primary-invert: #171717;
+  --hdp-alias-brand-primary-new-colorprimary-new-color: #e5e5e5;
+  --hdp-alias-brand-primary: #e5e5e5;
+  --hdp-alias-brand-text: #fafafa;
+  --hdp-alias-button-contrast-fill: #e5e5e5;
+  --hdp-alias-button-elevated-fill: #262626;
+  --hdp-alias-button-floating-fill: #171717;
+  --hdp-alias-button-floating-hover: #262626;
+  --hdp-alias-button-ghost-active-border: #737373;
+  --hdp-alias-button-ghost-active-fill: #404040;
+  --hdp-alias-button-ghost-active-hover: #4a4a4a;
+  --hdp-alias-button-info-fill: #e5e5e5;
+  --hdp-alias-button-info-hover: #ffffff;
+  --hdp-alias-button-primary-dimmed: #404040;
+  --hdp-alias-button-primary-fill: var(--hdp-alias-brand-primary);
+  --hdp-alias-button-primary-hover: #d4d4d4;
+  --hdp-alias-button-tool-bar-fill-invisible: rgba(23, 23, 23, 0.36);
+  --hdp-alias-button-tool-bar-fill: rgba(163, 163, 163, 0.5);
+  --hdp-alias-button-tool-bar-hover: rgba(163, 163, 163, 0.6);
+  --hdp-alias-interactive-bg-active: rgba(255, 255, 255, 0.12);
+  --hdp-alias-interactive-bg-hover-accent: rgba(229, 229, 229, 0.14);
+  --hdp-alias-interactive-bg-hover-danger: rgba(248, 113, 113, 0.14);
+  --hdp-alias-interactive-bg-hover-solid: #262626;
+  --hdp-alias-interactive-bg-hover: rgba(255, 255, 255, 0.07);
+  --hdp-alias-label-caption: #737373;
+  --hdp-alias-label-dimmed: #404040;
+  --hdp-alias-label-primary-bluish: #fafafa;
+  --hdp-alias-label-primary-dimmed: #e5e5e5;
+  --hdp-alias-label-primary-foreground: #171717;
+  --hdp-alias-label-primary-inverted: #262626;
+  --hdp-alias-label-primary: #fafafa;
+  --hdp-alias-label-secondary: #d4d4d4;
+  /* Brighter than a system default for the same reason app.css gives:
+     tertiary carries counts and keyboard hints here. */
+  --hdp-alias-label-tertiary: #a3a3a3;
+  --hdp-alias-markdown-citation: #262626;
+  --hdp-alias-markdown-code-block-banner: #1f1f1f;
+  --hdp-alias-markdown-code-block: #171717;
+  --hdp-alias-markdown-code-segment-selected: #262626;
+  --hdp-alias-markdown-code-segment-unselected: #171717;
+  --hdp-alias-markdown-inline-code: #262626;
+  --hdp-alias-markdown-placeholder: #1f1f1f;
+  --hdp-alias-markdown-tag: #262626;
+  --hdp-alias-scrollbar-bg-l1: #404040;
+  --hdp-alias-scrollbar-bg-l2: #4a4a4a;
+  --hdp-alias-scrollbar-hover-l1: #525252;
+  --hdp-alias-scrollbar-hover-l2: #5c5c5c;
+  --hdp-alias-state-business-primary: #e5e5e5;
+  --hdp-alias-state-business-tertiary: #333333;
+  --hdp-alias-state-error-primary: #f87171;
+  --hdp-alias-state-error-secondary: #f87171;
+  --hdp-alias-state-success-primary: #4ade80;
+  --hdp-alias-state-success-secondary: #4ade80;
+  --hdp-alias-state-success-tertiary: #1e2f24;
+  --hdp-alias-state-warn-label: #fbbf24;
+  --hdp-alias-state-warn-primary: #fbbf24;
+  --hdp-alias-state-warn-secondary: #fcd34d;
+  --hdp-alias-state-warn-tertiary: #322a18;
+  --hdp-alias-toast-bg: #262626;
+  --hdp-alias-tooltip-bg: #262626;
+  --hdp-specific-bubble-highlight: #262626;
+  --hdp-specific-bubble: #1f1f1f;
+  --hdp-specific-input-major: #171717;
+  --hdp-specific-login-input: #1f1f1f;
+  --hdp-specific-menu: var(--hdp-alias-bg-layer-3);
+  --hdp-specific-selector: #262626;
+  --hdp-specific-sidebar-fill: #101010;
+  --hdp-specific-sidebar-nav-item-active-accent: #404040;
+  --hdp-specific-sidebar-nav-item-active: #363636;
+  --hdp-specific-sidebar-nav-item-hover: #1c1c1c;
+  --hdp-specific-tip: #1f1f1f;
+}
+
+/* ---------------------------------------------------------------------------
+ * Accent — the brand hue alone, over whichever palette is dressed. Absent
+ * attribute means the palette's own accent stands; these sit after the
+ * palette blocks so a picked accent wins the tie.
+ *
+ * Each block carries the platform's primary-button aliases too, because one
+ * primary action does not read the semantic layer: the banner's pill draws
+ * `--hdp-alias-button-primary-fill` directly (a recorded, deliberate
+ * disagreement — see tokens.css). An accent that recolours every primary
+ * but that one would make "the desk-wide brand hue" a lie on the surface
+ * most likely to be showing when the user goes looking for it.
+ */
+
+body[data-hd-accent='violet'] {
+  --hd-accent: #7c3aed;
+  --hd-accent-hover: #8b5cf6;
+  --hd-accent-dim: rgba(139, 92, 246, 0.14);
+  --hd-primary-foreground: rgb(255, 255, 255);
+  --hdp-alias-button-primary-fill: #7c3aed;
+  --hdp-alias-button-primary-hover: #8b5cf6;
+  --hdp-alias-label-primary-foreground: rgb(255, 255, 255);
+}
+body[data-hd-accent='violet'][data-hd-dark-theme] {
+  --hd-accent: #8b5cf6;
+  --hd-accent-hover: #a78bfa;
+  --hd-accent-dim: rgba(139, 92, 246, 0.2);
+  --hdp-alias-button-primary-fill: #8b5cf6;
+  --hdp-alias-button-primary-hover: #a78bfa;
+}
+
+body[data-hd-accent='green'] {
+  --hd-accent: #16a34a;
+  --hd-accent-hover: #22c55e;
+  --hd-accent-dim: rgba(34, 197, 94, 0.14);
+  /* Dark ink, not white. Measured: white on this accent is 3.30:1 in the
+     light face and 2.28:1 in the dark one, and the muted step used inside a
+     brand-filled row lands at 2.82 and 2.02 — under the 3:1 WCAG asks of any
+     text. Green and orange are simply too light to carry white, and the
+     defect reaches every brand-filled surface: the primary button, the chips,
+     and Studio's selected navigation row. Dark ink takes the same pairings to
+     5.44 / 7.87. */
+  --hd-primary-foreground: #171717;
+  --hdp-alias-button-primary-fill: #16a34a;
+  --hdp-alias-button-primary-hover: #22c55e;
+  --hdp-alias-label-primary-foreground: #171717;
+}
+body[data-hd-accent='green'][data-hd-dark-theme] {
+  --hd-accent: #22c55e;
+  --hd-accent-hover: #4ade80;
+  --hd-accent-dim: rgba(34, 197, 94, 0.2);
+  --hdp-alias-button-primary-fill: #22c55e;
+  --hdp-alias-button-primary-hover: #4ade80;
+  --hd-primary-foreground: #171717;
+  --hdp-alias-label-primary-foreground: #171717;
+}
+
+body[data-hd-accent='rose'] {
+  --hd-accent: #e11d48;
+  --hd-accent-hover: #f43f5e;
+  --hd-accent-dim: rgba(244, 63, 94, 0.14);
+  --hd-primary-foreground: rgb(255, 255, 255);
+  --hdp-alias-button-primary-fill: #e11d48;
+  --hdp-alias-button-primary-hover: #f43f5e;
+  --hdp-alias-label-primary-foreground: rgb(255, 255, 255);
+}
+body[data-hd-accent='rose'][data-hd-dark-theme] {
+  --hd-accent: #f43f5e;
+  --hd-accent-hover: #fb7185;
+  --hd-accent-dim: rgba(244, 63, 94, 0.2);
+  --hdp-alias-button-primary-fill: #f43f5e;
+  --hdp-alias-button-primary-hover: #fb7185;
+  /* The light face carries white at 4.70:1; the dark one is a lighter rose
+     and does not, so only this face changes ink. */
+  --hd-primary-foreground: #171717;
+  --hdp-alias-label-primary-foreground: #171717;
+}
+
+body[data-hd-accent='orange'] {
+  --hd-accent: #ea580c;
+  --hd-accent-hover: #f97316;
+  --hd-accent-dim: rgba(249, 115, 22, 0.15);
+  /* Dark ink, for the reason spelled out under green: white on this accent
+     measures 3.56:1 light and 2.80:1 dark, and its muted step 3.00 and 2.42. */
+  --hd-primary-foreground: #171717;
+  --hdp-alias-button-primary-fill: #ea580c;
+  --hdp-alias-button-primary-hover: #f97316;
+  --hdp-alias-label-primary-foreground: #171717;
+}
+body[data-hd-accent='orange'][data-hd-dark-theme] {
+  --hd-accent: #f97316;
+  --hd-accent-hover: #fb923c;
+  --hd-accent-dim: rgba(249, 115, 22, 0.2);
+  --hdp-alias-button-primary-fill: #f97316;
+  --hdp-alias-button-primary-hover: #fb923c;
+  --hd-primary-foreground: #171717;
+  --hdp-alias-label-primary-foreground: #171717;
+}
+
+body[data-hd-accent='mono'] {
+  --hd-accent: #171717;
+  --hd-accent-hover: #404040;
+  --hd-accent-dim: rgba(23, 23, 23, 0.08);
+  --hd-primary-foreground: rgb(255, 255, 255);
+  --hdp-alias-button-primary-fill: #171717;
+  --hdp-alias-button-primary-hover: #404040;
+  --hdp-alias-label-primary-foreground: #fafafa;
+}
+body[data-hd-accent='mono'][data-hd-dark-theme] {
+  --hd-accent: #e5e5e5;
+  --hd-accent-hover: #ffffff;
+  --hd-accent-dim: rgba(229, 229, 229, 0.12);
+  /* Ink on a light primary, as in the shadcn palette's dark face. */
+  --hd-primary-foreground: #171717;
+  --hdp-alias-button-primary-fill: #e5e5e5;
+  --hdp-alias-button-primary-hover: #ffffff;
+  --hdp-alias-label-primary-foreground: #171717;
+}
+
+/* ---------------------------------------------------------------------------
+ * Corners — the radius scale alone. `square` is the flatter, tighter shape a
+ * shadcn dashboard pulls toward; `round` is one step softer than the default.
+ *
+ * Every rung of the ladder has to be here, including `md`. A dial that moves
+ * all but one leaves that one at its default: `md` is the button's rung, so
+ * Square and Round were both shipping an 8px button among 4px and 12px
+ * everything-else until it was added. `shadcn-themes.test.ts` reads the ladder
+ * out of `tokens.css` rather than listing it, so both a new rung and a
+ * departing one land here — which is how `bubble` left.
+ */
+
+body[data-hd-corners='square'] {
+  --hd-radius-sm: 4px;
+  --hd-radius-md: 5px;
+  --hd-radius: 6px;
+  --hd-radius-lg: 8px;
+}
+
+body[data-hd-corners='round'] {
+  --hd-radius-sm: 8px;
+  --hd-radius-md: 10px;
+  --hd-radius: 12px;
+  --hd-radius-lg: 16px;
+}

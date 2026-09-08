@@ -1,0 +1,27 @@
+{
+  "id": "browser-example",
+  "name": "Browser (example)",
+  "description": "Read a page as text, list its links, search inside it — the worked plugin example. Driving a real browser is built in; this is how a plugin is written.",
+  "version": "2.0.0",
+  "main": "./index.js",
+  "permissions": {
+    "network": {
+      "hosts": [
+        "*"
+      ]
+    },
+    "ui": {
+      "contribute": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "snippetLength": {
+        "type": "number",
+        "title": "Snippet length",
+        "description": "How many characters of a page to return to the agent."
+      }
+    }
+  }
+}

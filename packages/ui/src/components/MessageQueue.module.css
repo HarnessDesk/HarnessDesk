@@ -1,0 +1,227 @@
+/* The message queue — what the user has waiting, above the composer. */
+
+.queue {
+  max-width: var(--hd-column);
+  margin: 0 auto 8px;
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  overflow: hidden;
+}
+
+/* Paused is amber, not red: nothing has failed here — the messages are still
+   safe, they are simply not going out until the user says so. */
+.queue[data-paused] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hd-warning) 45%, transparent); /* desk: a forked literal → the token it was a copy of */
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.queue[data-paused] .header {
+  background: color-mix(in srgb, var(--hd-warning) 10%, transparent); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hdp-alias-label-primary);
+}
+
+.headerIcon {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.queue[data-paused] .headerIcon {
+  color: var(--hd-warning);
+}
+
+.headerText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action {
+  flex: none;
+  height: 22px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 11px;
+  background: var(--hdp-alias-interactive-bg-hover-solid);
+  color: var(--hdp-alias-label-secondary);
+  cursor: pointer;
+  font-size: var(--hd-text-xs);
+}
+
+.action:hover {
+  color: var(--hdp-alias-label-primary);
+}
+
+.list {
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  font-size: var(--hd-text-sm);
+}
+
+.row:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+/* The handle only appears under the pointer. A queue of three is usually read,
+   not rearranged, and a column of grips on every row is furniture for a thing
+   most people never do. */
+.grip {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  opacity: 0;
+  cursor: grab;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.row:hover .grip {
+  opacity: 1;
+}
+
+.grip:active {
+  cursor: grabbing;
+}
+
+/* The row being carried fades; the row it would land on shows the seam it
+   would land at. Neither moves until the host says so. */
+.row[data-dragging] {
+  opacity: 0.4;
+}
+
+.row[data-drop]::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 8px;
+  top: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--hd-accent);
+}
+
+.row[data-sending] {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.position {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.carried {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* When this one goes. "next" is worth the accent because it is the only row
+   the next keystroke can still change, and the strip around it is neutral
+   there. "held" is not: the paused header already carries the amber for
+   "nothing is moving", and repeating it down every row says one fact three
+   times in one card until the header's tint reads as decoration. One tinted
+   surface per stack; rows inside it stay quiet. */
+.when {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+  color: var(--hdp-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.when[data-tone='next'] {
+  color: var(--hd-accent);
+}
+
+/* No rule for data-tone="held" on purpose — it keeps the quiet default above.
+   The attribute stays as the semantic hook; the colour is the header's job. */
+
+/* The controls stay out of the way until the row is under the pointer; four
+   buttons on every row would read as more chrome than the message. */
+.controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+}
+
+.row:hover .controls,
+.controls:focus-within {
+  opacity: 1;
+}
+
+.control {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.control:hover:not(:disabled) {
+  background: var(--hdp-alias-interactive-bg-hover-solid);
+  color: var(--hdp-alias-label-primary);
+}
+
+.control:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hdp-alias-border-l3);
+  border-top-color: var(--hd-accent);
+  animation: queue-spin 0.7s linear infinite;
+}
+
+@keyframes queue-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

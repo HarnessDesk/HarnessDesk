@@ -1,0 +1,73 @@
+/*
+ * This screen's own styles.
+ *
+ * It used to draw itself out of `Settings.module.css` — the surface, the
+ * header, the footer, the buttons — which meant rebuilding the settings sheet
+ * would have quietly restyled the install flow. The chrome is `Dialog`'s now;
+ * what is left here is the two steps this screen actually has.
+ */
+
+.blurb {
+  margin: 0 0 var(--hd-space-3);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+/* The specifier and the button that reads it: one line, because the button is
+   only meaningful for what is typed beside it. */
+.ask {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-1);
+  margin: var(--hd-space-2) 0 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-muted-foreground);
+}
+
+.error {
+  color: var(--hd-destructive);
+}
+
+.name {
+  font-size: var(--hd-text-lg);
+  font-weight: var(--hd-weight-medium);
+}
+
+/* What the plugin will be able to do. It is the point of the second step, so
+   it gets a frame rather than being another paragraph. */
+.grant {
+  margin-top: var(--hd-space-3);
+  padding: var(--hd-space-3);
+  border-radius: var(--hd-radius);
+  background: var(--hd-muted);
+}
+
+.grantLabel {
+  margin-bottom: var(--hd-space-2);
+  font-size: var(--hd-text-sm);
+  font-weight: var(--hd-weight-medium);
+}
+
+.permissions {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+.permissions li {
+  margin-bottom: 2px;
+}
+
+.mono {
+  font-family: var(--hd-font-code);
+}

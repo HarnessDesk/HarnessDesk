@@ -1,0 +1,1591 @@
+/*
+ * The sidebar.
+ *
+ * Design language: quiet rows on a flat platform background — no boxed cards,
+ * no inset borders. Hierarchy comes from type size and colour, selection from
+ * a soft filled pill, the way the session lists in Codex Desktop and Claude
+ * Desktop read.
+ *
+ * Two rails hold the column together, and every row is built to reach both.
+ *
+ *   Left, 14px    where a row's first mark starts — the chevron, the nav
+ *                 icon, the section's word, the account avatar. Sessions sit
+ *                 one level in from their project and start at 24.
+ *
+ *   Right, 14px   where a row's last mark *ends*. A count, the worktree
+ *                 glyph, the status dot, the buttons that appear on hover:
+ *                 all of them stop on one line, so the column has an edge
+ *                 rather than a fringe.
+ *
+ * Text reaches the right rail by padding. An icon button cannot: its box is
+ * wider than its glyph, and padding the box to the rail leaves the ink short
+ * of it by half the difference — which is exactly the raggedness the rail
+ * exists to prevent. So a row that ends in an icon button stops its padding
+ * early and lets the button hang over: the ink lands on the rail and the hit
+ * target keeps its full size.
+ */
+
+.sidebar {
+  /* Both rails, named once. Most rows reach it by composition — the list's
+     own 6 plus a row's 8 — and the two that state it outright say it here
+     rather than spelling a number twice. */
+  --rail: 14px;
+  /*
+   * What a panel below the list may take before it scrolls inside itself.
+   * This column belongs to the session list; a panel — the Tasks plan, a
+   * plugin's own — is a guest in it, and a guest with nine tasks in it took
+   * half the column with no scrollbar of its own and no way to put it down.
+   * Read by `.section` in `slots/PanelBlocks.module.css`, which caps nothing
+   * on its own: a docked panel has a whole pane and needs no budget. A
+   * private property rather than a `--hd-` token, because it is one column's
+   * budget for its guests and not a value the design system has an opinion
+   * about — the same reason `--rail` above is one.
+   */
+  --panel-max: 320px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* The traffic lights live in an inset title bar, so the top of the sidebar is
+   reserved for them and doubles as a window drag region. The room itself is
+   whatever the shell says this box needs — with the sidebar up it is the
+   window's corner, and in the browser build there is nothing to clear. See
+   `--titlebar-inset` in `app.css`. */
+.titlebar {
+  height: var(--hd-titlebar-height);
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 max(8px, var(--titlebar-inset, 0px)); /* desk: unchanged at 8, the inset is 0 unless this row is the corner */
+}
+
+.header {
+  flex: none;
+  height: 38px;
+  /* The wordmark starts on the left rail, with the nav icons under it. The
+     right stops at 8 rather than 14 so the search button can hang its box
+     over the rail and land the magnifier on it — see the note at the top. */
+  padding: 0 8px 0 var(--rail);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The workspace switcher reads as a title, not a form control. */
+.workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  margin: 0 -2px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+/* The app's name is the sidebar's title — Codex's heading step over its own
+   list, which is 20px to the list's 14. */
+.workspaceName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: var(--hd-heading);
+  letter-spacing: -0.01em;
+}
+
+.workspaceChevron {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+  transform: rotate(90deg);
+}
+
+/* --- navigation --------------------------------------------------------- */
+
+.nav {
+  flex: none;
+  padding: 0 6px 4px;
+}
+
+/* New session, Plugins: the same size as the list they sit above — one
+   column, one reading size, the way Codex's "New chat" matches its projects.
+
+   Every number here is `--hd-nav-*`, which is what lets Studio stand the
+   column's rows taller without editing a rule. It also settled an argument
+   the file was having with itself: this row was 31px with an 8px radius, the
+   group row under it 30px, and the session row neither — three rows in one
+   column, none agreeing, all drawn to look like the same row. */
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-nav-gap);
+  width: 100%;
+  height: var(--hd-nav-h);
+  padding: var(--hd-nav-padding);
+  border: none;
+  border-radius: var(--hd-nav-radius);
+  background: none;
+  color: var(--hd-sidebar-foreground);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--hd-text);
+}
+
+.navItem:hover:not(:disabled) {
+  background: var(--hd-sidebar-hover);
+}
+
+.navItem:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.navIcon {
+  flex: none;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.navCount {
+  margin-left: auto;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- session list ------------------------------------------------------- */
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 6px 12px;
+}
+
+/*
+ * The word over the list.
+ *
+ * Five properties, all of them tokens, because this is where the two
+ * interfaces disagree most visibly. Desk sets it at 13px sentence case — the
+ * same size and weight as the rows beneath, told apart only by being grey.
+ * Studio steps it down to 12px uppercase medium with tracking, which is what
+ * makes a group read as a group with no rule under it.
+ *
+ * The air above comes from `--hd-label-space` rather than from a number here,
+ * so the gap between two groups is one value rather than the sum of two —
+ * and so Studio can open it up without touching this rule.
+ */
+.sectionLabel {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* The row ends in an icon button, so it stops at 8 and lets the button
+     overhang — the + lands on the rail, the counts below it already do. */
+  padding: var(--hd-label-space, var(--hd-space-1-5)) 8px var(--hd-space-1) var(--rail);
+  font-size: var(--hd-label-size, var(--hd-text-sm));
+  font-weight: var(--hd-label-weight, var(--hd-weight-normal));
+  letter-spacing: var(--hd-label-tracking, 0);
+  text-transform: var(--hd-label-transform, none);
+  color: var(--hd-label-ink, var(--hdp-alias-label-secondary));
+}
+
+.sectionTitle {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The filter shares the Workspaces row with the label and the two buttons —
+   it narrows what is directly under it, which is the only place it ever
+   belonged. At rest it is the funnel and nothing else, the size and quiet of
+   the two icon buttons it sits beside; focused or holding a query it takes
+   the row and the label steps aside. It stays one <input> throughout, so the
+   click that opens it is the click that starts typing. */
+.filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  width: 24px;
+  margin-left: auto;
+  container-type: inline-size;
+}
+
+.sectionLabel[data-filtering] .filter {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 24px;
+}
+
+.filterIcon {
+  position: absolute;
+  left: 6px;
+  color: var(--hdp-alias-label-tertiary);
+  pointer-events: none;
+}
+
+.filter:hover .filterIcon,
+.sectionLabel[data-filtering] .filterIcon {
+  color: var(--hdp-alias-label-primary);
+}
+
+.filterInput {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--hd-text);
+  cursor: pointer;
+}
+
+.filterInput:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.sectionLabel[data-filtering] .filterInput {
+  padding: 0 6px 0 21px;
+  background: var(--hdp-alias-interactive-bg-hover);
+  cursor: text;
+}
+
+.filterInput:focus {
+  outline: none;
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.filterInput::placeholder {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* Narrower than the word, the placeholder would read as a clipped letter or
+   two — "F" — which looks like a bug. Nothing but the funnel, then. */
+@container (max-width: 66px) {
+  .filterInput::placeholder {
+    color: transparent;
+  }
+}
+
+.sectionLabel[data-filtering] .sectionTitle {
+  display: none;
+}
+
+.groupRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: var(--hd-nav-h-group);
+  padding: var(--hd-nav-padding);
+  border: none;
+  border-radius: var(--hd-nav-radius);
+  background: none;
+  color: var(--hd-sidebar-foreground);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--hd-text);
+}
+
+.groupRow:hover {
+  background: var(--hd-sidebar-hover);
+  color: var(--hd-sidebar-foreground);
+}
+
+.groupChevron {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+}
+
+.groupChevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.groupIcon {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/*
+ * The folder the app is working in.
+ *
+ * Marked twice and quietly: an open folder glyph in the accent, and the name
+ * at full weight while the others sit at the list's ordinary one. No fill
+ * behind it — that reads as "selected", and this row is not a selection: it
+ * is a fact about the window that stays true while you click other rows.
+ */
+.groupRow[data-current] .groupIcon {
+  color: var(--hd-primary);
+}
+
+.groupRow[data-current] .groupName {
+  font-weight: var(--hd-weight-medium);
+}
+
+.groupName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A claimed job is a state, so it wears the glyph the board gives that
+   column. Without it the row read "1 0" — two counts a gap apart in one
+   grey, and nothing on either saying what it counted. */
+.roomClaimed {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.groupCount {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sessions sit one level in from their workspace. */
+.nested {
+  padding-left: 10px;
+}
+
+.rowWrap {
+  position: relative;
+}
+
+/* A list of conversations is a list of separate things, not a paragraph.
+   Codex and Claude Code both leave a couple of pixels between rows even at
+   their tightest, which is what makes a hover or selection pill read as one
+   row rather than as a band across the column. */
+.rowWrap + .rowWrap {
+  margin-top: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px var(--hd-nav-inset);
+  border: none;
+  border-radius: var(--hd-nav-radius);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--hd-sidebar-hover);
+}
+
+/*
+ * The conversation on screen, and the only row in the column that is filled.
+ *
+ * Desk holds it the way Codex and Claude Code do: a grey wash a step above
+ * hover. The measurement that prompted Studio is worth keeping here — those
+ * two states are `rgba(38,49,72,0.10)` and `rgba(38,49,72,0.06)`, four points
+ * of alpha apart, which is a difference you can measure and cannot see. Under
+ * the pointer, the row you are reading and the row you happen to be over look
+ * identical.
+ *
+ * Studio fills it with the brand instead, which is how every shadcn sidebar
+ * answers this: hover is a wash, selection is a colour. They stop being two
+ * intensities of one idea that have to be told apart, and the row you are on
+ * can be found without reading a word of the column.
+ */
+.row[data-active],
+.row[data-open],
+.row[data-active]:hover,
+.row[data-open]:hover {
+  background: var(--hd-sidebar-selected, var(--hdp-alias-interactive-bg-active));
+}
+
+.row[data-active] .rowTitle,
+.row[data-open] .rowTitle {
+  color: var(--hd-sidebar-selected-foreground, var(--hdp-alias-label-primary));
+  font-weight: var(--hd-nav-weight-selected, var(--hd-weight-normal));
+}
+
+/* Everything else in a filled row goes with it. A grey wash lets the metadata
+   keep its own quiet colours; a saturated fill does not — tertiary ink on the
+   brand blue is unreadable, and the worktree glyph beside it vanished. One
+   token answers for both interfaces, so this is a single ruleset rather than
+   a rule and its exception. */
+.row[data-active] .rowMeta,
+.row[data-open] .rowMeta,
+.row[data-active] .rowMetaItem,
+.row[data-open] .rowMetaItem,
+.row[data-active] .statusGlyph,
+.row[data-open] .statusGlyph,
+.row[data-active] .dot,
+.row[data-open] .dot {
+  color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
+}
+
+/* The title line: the name, and — for a conversation that ran in a worktree
+   of the project — the glyph that says so.
+
+   The glyph is pinned to the right rail rather than set after the title,
+   because the question it answers is asked of the whole list at once: "which
+   of these ran in a worktree" is one glance down a straight column, and the
+   glyph following a title of whatever length it happens to be is five marks
+   in five places. The title truncates against it.
+
+   It shares its cell with the ⋯ button, which takes it on hover — the same
+   trade every other row makes with the end of its title. */
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+.rowTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text);
+  color: var(--hdp-alias-label-primary);
+  line-height: var(--hd-line);
+}
+
+.rowWorktree {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.row[data-active] .rowWorktree,
+.row[data-open] .rowWorktree {
+  color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
+}
+
+.rowMeta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  min-width: 0;
+  line-height: 15px;
+}
+
+/* The agent and the time are short and always shown whole; only the branch —
+   the one fragment that can run long — gives way, so a narrow row reads
+   "OpenAI Codex · 23m ago · feat/codex-ru…" rather than three stubs. */
+.rowMetaItem {
+  flex: none;
+  white-space: nowrap;
+}
+
+.rowMetaBranch {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emptyGroup {
+  padding: 4px 8px 8px 28px;
+  font-size: var(--hd-text-sm);
+  line-height: 16px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.dot {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.activeDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hd-success);
+}
+
+.empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+  line-height: 18px;
+}
+
+/* The row's menu sits at the right edge, centred on a compact row and on
+   the title line of a comfortable one; it shows on hover and while open. */
+.rowMenu {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: none;
+}
+
+/* `:focus-within` and not only `:hover` — `display: none` cannot take focus,
+   so without it the ⋯ is not merely invisible to a keyboard, it is
+   unreachable: Tab steps straight from one conversation to the next. */
+.rowWrap:hover .rowMenu,
+.rowWrap:focus-within .rowMenu,
+.rowMenu[data-open] {
+  display: inline-flex;
+}
+
+.row[data-density='comfortable'] + .rowMenu {
+  top: 4px;
+  transform: none;
+}
+
+.rowMenuButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  /* Sits over a hovered row, so it takes the plate it covers. */
+  background: var(--hd-sidebar-plate);
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.rowMenuButton:hover {
+  color: var(--hdp-alias-label-primary);
+}
+
+.menuItemDanger {
+  color: var(--hd-danger);
+}
+
+.renameInput {
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-base);
+  box-shadow: inset 0 0 0 1px var(--hd-accent);
+  color: inherit;
+  font: inherit;
+  font-size: var(--hd-text);
+}
+
+.showMore {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--hd-text-sm);
+}
+
+.showMore:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* --- account footer ----------------------------------------------------- */
+
+/* The sidebar's own bottom edge row, level with a panel's status line across
+   the border they share. See `--hd-bar-h`. */
+.account {
+  height: var(--hd-bar-h);
+  position: relative;
+  flex: none;
+  padding: 4px;
+  border-top: 1px solid var(--hdp-alias-border-l1);
+}
+
+.accountRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.accountRow:hover,
+.accountRow[data-open] {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--hd-accent), var(--hd-tint-violet-ink)); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
+  font-size: var(--hd-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.avatar[data-off] {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* A vendor's mark: on a quiet disc in the text colour, not the accent gradient. */
+.avatar[data-brand] {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.avatar[data-brand][data-off] {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.accountMenuMark {
+  flex: none;
+}
+
+.accountName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agentBadge {
+  flex: none;
+  display: inline-block;
+  padding: 0 5px;
+  height: 14px;
+  line-height: 14px;
+  border-radius: 3px;
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.accountMeta {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.accountMeta[data-tone='bad'] {
+  color: var(--hd-danger);
+}
+
+.accountMeta[data-tone='warn'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.statusDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hdp-alias-label-tertiary);
+}
+
+.statusDot[data-state='ready'] {
+  background: var(--hd-success);
+}
+.statusDot[data-state='starting'] {
+  background: var(--hd-warning);
+}
+.statusDot[data-state='unavailable'] {
+  background: var(--hd-danger);
+}
+
+/* --- the account menu --------------------------------------------------- */
+
+.accountMenu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 6px;
+  right: 6px;
+  z-index: 30;
+  padding: 4px;
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.22),
+    inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.accountMenuHeader {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 8px 6px;
+}
+
+.accountMenuIdentity {
+  flex: 1;
+  min-width: 0;
+}
+
+.accountMenuName {
+  font-size: var(--hd-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountMenuPlan {
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  text-transform: capitalize;
+}
+
+.accountMenuRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: var(--hd-text);
+  cursor: pointer;
+}
+
+.accountMenuRow[data-static] {
+  cursor: default;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.accountMenuRow:not([data-static]):hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+/* An action row's label, with its icon in the quiet colour until hovered. */
+.accountMenuAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accountMenuAction > svg {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.accountMenuRow:hover .accountMenuAction > svg {
+  color: inherit;
+}
+
+.accountMenuDanger:not([data-static]):hover {
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger);
+}
+
+.accountMenuRuntime {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.accountMenuMeta {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.accountMenuMeta[data-tone='bad'] {
+  color: var(--hd-danger);
+}
+.accountMenuMeta[data-tone='good'] {
+  color: var(--hd-success);
+}
+.accountMenuMeta[data-tone='warn'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.accountMenuDivider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hdp-alias-border-l1);
+}
+
+.accountMenuConfirm {
+  padding: 6px 8px 8px;
+}
+
+.accountMenuConfirmText {
+  font-size: var(--hd-text-sm);
+  line-height: 16px;
+  color: var(--hdp-alias-label-secondary);
+  margin-bottom: 8px;
+}
+
+.accountMenuConfirmActions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.accountMenuButton {
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: inherit;
+  font-size: var(--hd-text-sm);
+  cursor: pointer;
+}
+
+.accountMenuButton:hover:not(:disabled) {
+  background: var(--hdp-alias-interactive-bg-active, var(--hdp-alias-interactive-bg-hover));
+}
+
+.accountMenuButtonDanger {
+  background: var(--hd-danger);
+  color: var(--hd-destructive-foreground); /* desk: #fff → the ink named for this fill */
+}
+
+.accountMenuButtonDanger:hover:not(:disabled) {
+  background: var(--hd-danger);
+  opacity: 0.9;
+}
+
+.accountMenuButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ------------------------------------------------- list display controls */
+
+/* The filter carries the row's auto margin now, so these sit tight against
+   it rather than splitting the free space with it. */
+.listControls {
+  position: relative;
+  display: inline-flex;
+}
+
+.listControls button {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 5px;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.listControls button:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.listControls[data-filtered]::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hd-accent);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------ session row glyphs */
+
+/* The dot is 7px across, which is not something a pointer can be asked to
+   rest on for the best part of half a second. The trigger that carries the
+   session's name card wraps it and pads the hit area out to a comfortable
+   size, with an equal negative margin so the dot itself does not move a
+   pixel — the row's spacing is unchanged and only the target grew. */
+.statusTarget {
+  flex: none;
+  display: flex;
+  align-self: stretch;
+  align-items: flex-start;
+  padding: 0 6px;
+  margin: 0 -6px;
+}
+
+.statusGlyph {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  /* Centred on the title's line, not on the row: a comfortable row is two
+     lines tall and the glyph belongs to the first. */
+  margin-top: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hdp-alias-label-tertiary);
+  opacity: 0.55;
+}
+
+/* Work still running in the background after the turn ended. Green, for a
+   process that is up — the colour the header chip and the task card's mark
+   wear — and declared before the turn states below, so a conversation that is
+   also mid-turn shows the turn. */
+.statusGlyph[data-tasks] {
+  border: none;
+  background: var(--hd-success);
+  opacity: 1;
+}
+
+.statusGlyph[data-live] {
+  border: none;
+  background: var(--hd-accent);
+  opacity: 1;
+}
+
+.rowBody {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Compact is one line — the title — in a 28px row: the height Codex and
+   Claude Code give theirs. Tighter than this and the titles run together. */
+.row[data-density='compact'] {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.iconButton:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/*
+ * A project's hover buttons, over the row rather than in it.
+ *
+ * They used to be laid out beside the row, which meant appearing on hover
+ * cost the row 40px: the folder's count jumped left every time the pointer
+ * crossed it, and the hover pill stopped short of the row's own end. Sessions
+ * had already settled this — their ⋯ floats over the title's tail — so the
+ * projects follow, on the same rail and with the same plate.
+ */
+.groupTools {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  border-radius: var(--hd-radius-sm);
+  /* Sits over a hovered row, so it takes the plate it covers. */
+  background: var(--hd-sidebar-plate);
+}
+
+.groupHead:hover .groupTools,
+.groupHead:focus-within .groupTools,
+.groupHead[data-menu-open] .groupTools {
+  display: inline-flex;
+}
+
+.groupAdd {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.groupAdd:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+/* A little air between one folder and the next, so the list reads as
+   folders with sessions in them rather than one run of rows. */
+.groupHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.groupHead .groupRow {
+  flex: 1;
+  min-width: 0;
+}
+
+.accountMenuHint {
+  display: block;
+  font-size: var(--hd-text-sm);
+  line-height: 14px;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* A nav row with a secondary action at its end: the option, not a second verb. */
+.navRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.navRow .navItem {
+  flex: 1;
+  min-width: 0;
+}
+
+.navSecondary {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  /* The nav's own padding is 6 and this box overhangs it by 6, which would
+     put the branch glyph 2px outside the rail the counts below it sit on. */
+  margin-right: var(--hd-space-0-5);
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.navSecondary:hover:not(:disabled) {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-primary);
+}
+
+.navSecondary:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* The live trace: the glyph and the meta word agree on colour. */
+.statusGlyph[data-trace='waiting'] {
+  border: none;
+  background: var(--hd-warning); /* desk: the platform ramp → the app’s own semantic ink */
+  opacity: 1;
+}
+
+.statusGlyph[data-trace='failed'] {
+  border: none;
+  background: var(--hd-danger);
+  opacity: 1;
+}
+
+.statusGlyph[data-trace='planning'],
+.statusGlyph[data-trace='editing'],
+.statusGlyph[data-trace='testing'],
+.statusGlyph[data-trace='running'],
+.statusGlyph[data-trace='thinking'] {
+  border: none;
+  background: var(--hd-accent);
+  opacity: 1;
+  animation: tracePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tracePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.rowMetaItem[data-trace='waiting'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+  font-weight: 500;
+}
+
+.rowMetaItem[data-trace='failed'] {
+  color: var(--hd-danger);
+}
+
+.rowMetaItem[data-trace='planning'],
+.rowMetaItem[data-trace='editing'],
+.rowMetaItem[data-trace='testing'],
+.rowMetaItem[data-trace='running'],
+.rowMetaItem[data-trace='thinking'] {
+  color: var(--hd-accent);
+}
+
+/* Triage: what needs the developer, then what is working, above the projects. */
+.triage {
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+}
+
+.triageLabel {
+  padding: 2px 8px 4px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.triage[data-tone='waiting'] .triageLabel {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.otherProjects {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 4px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-secondary);
+  font: inherit;
+  font-size: var(--hd-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.otherProjects:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.otherProjects .groupCount {
+  margin-left: auto;
+}
+
+/* A pinned project wears its pin; a project whose menu is open keeps its
+   hover buttons showing, so the menu does not appear to float from nothing. */
+.groupPin {
+  flex: none;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* --- arranging projects by hand ------------------------------------------ */
+
+/*
+ * `data-insert`, not `data-drop`: the Popover already spends `data-drop` on
+ * which way a panel opens, and one attribute name meaning two things in one
+ * sidebar is how a stylesheet starts lying.
+ *
+ * A drop lands *between* two rows, so the mark for it is a line on an edge
+ * rather than a highlight on a row: a filled row would say "into this
+ * project", which is not a thing you can do. The line is drawn on the head
+ * itself with an inset shadow rather than a pseudo-element, so it cannot add
+ * height and make the list jump under the pointer mid-drag.
+ */
+.groupHead[data-insert='before'] {
+  box-shadow: inset 0 2px 0 0 var(--hd-primary);
+}
+
+.groupHead[data-insert='after'] {
+  box-shadow: inset 0 -2px 0 0 var(--hd-primary);
+}
+
+/* The row you are carrying: still in place, visibly lifted out of the list. */
+.groupHead[data-dragging] {
+  opacity: 0.4;
+}
+
+.groupHead[draggable='true'] .groupRow {
+  cursor: grab;
+}
+
+/* Dropping onto the fold hands a project back to the sort, so the fold says
+   it will take one while a drag is in the air. */
+.otherProjects[data-insert='into'] {
+  box-shadow: inset 0 0 0 1px var(--hd-primary);
+  background: var(--hd-primary-muted);
+}
+
+/* Said to a screen reader, drawn to nobody. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- the account menu, in sections --------------------------------------- */
+
+.menuSection {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+}
+
+.menuSection:last-child {
+  border-bottom: none;
+}
+
+.menuLabel {
+  padding: 5px 9px 4px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* The seat a HarnessDesk account would take. There is no such account yet,
+   and this says so rather than offering a sign-in that goes nowhere. */
+.you {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+}
+
+/* Ours, and drawn as ours: every other seat in this menu wears its agent's
+   mark, and a stock robot glyph in the top slot made the app look like one
+   more agent in its own roster. */
+.you .youAvatar {
+  color: var(--hdp-alias-label-primary);
+}
+
+.youAvatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.youText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.youName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--hd-text);
+  font-weight: 500;
+}
+
+/* "Local" is a chip because it is one word, and one word does not need a
+   sentence under it. The line here used to read "Local only — nothing syncs
+   between machines", set nowrap in a fixed-width menu, so it arrived as
+   "nothing syncs betwe…" — paying a full row of height to say half a thing.
+   The chip says it at a glance and cannot be cut; the whole sentence is on
+   the row's title, and in full on Settings › Account. Same metrics as the
+   tag beside an agent's name in Settings, because it is the same idea. */
+.youTag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* One account you could run the next session as. The tick is the answer to
+   "which one am I on"; the figure is the same one the header strip shows. */
+.seat {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.seat:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.seat[data-current] {
+  background: var(--hd-accent-dim);
+}
+
+/* The wrapper that carries the account's name card. It exists only to be a
+   box Radix can anchor to — the tint, the ring and the size stay on
+   `.seatAvatar` inside it, which is where every `[data-tint]` rule below
+   looks for them. */
+.seatTrigger {
+  flex: none;
+  display: flex;
+}
+
+.seatAvatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.seatAvatar[data-tint='blue'] {
+  background: var(--hd-tint-blue-fill); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-tint-blue-ink); /* desk: a forked literal → the token it was a copy of */
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-blue-edge); /* desk: a forked literal → the token it was a copy of */
+}
+.seatAvatar[data-tint='green'] {
+  background: var(--hd-tint-green-fill); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-tint-green-ink); /* desk: a forked literal → the token it was a copy of */
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-green-edge); /* desk: a forked literal → the token it was a copy of */
+}
+.seatAvatar[data-tint='amber'] {
+  background: var(--hd-tint-amber-fill); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-tint-amber-ink); /* desk: a forked literal → the token it was a copy of */
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-amber-edge); /* desk: a forked literal → the token it was a copy of */
+}
+.seatAvatar[data-tint='violet'] {
+  background: var(--hd-tint-violet-fill); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-tint-violet-ink); /* desk: a forked literal → the token it was a copy of */
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-violet-edge); /* desk: a forked literal → the token it was a copy of */
+}
+.seatAvatar[data-tint='rose'] {
+  background: var(--hd-tint-rose-fill); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-tint-rose-ink); /* desk: a forked literal → the token it was a copy of */
+  box-shadow: inset 0 0 0 1.5px var(--hd-tint-rose-edge); /* desk: a forked literal → the token it was a copy of */
+}
+
+.seatText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.seatName {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seatSub {
+  font-size: var(--hd-text-xs);
+  line-height: 16px;
+  color: var(--hdp-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seatSub[data-state='signin'] {
+  color: var(--hd-accent);
+}
+
+.seatSub[data-state='limit'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.seatSub[data-state='broken'] {
+  color: var(--hd-danger);
+}
+
+.seatFigure {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.seatFigure[data-tone='warn'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.seatFigure[data-tone='bad'] {
+  color: var(--hd-danger);
+}
+
+.seatTick {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  color: var(--hd-accent);
+}
+
+/* The chip's dot speaks the one readiness vocabulary, not a health enum of
+   its own — so the sidebar, the strip and settings cannot disagree. */
+.statusDot[data-state='ready'] {
+  background: var(--hd-success);
+}
+.statusDot[data-state='signin'] {
+  background: var(--hd-accent);
+}
+.statusDot[data-state='limit'] {
+  background: var(--hd-warning);
+}
+.statusDot[data-state='broken'] {
+  background: var(--hd-danger);
+}
+.statusDot[data-state='available'] {
+  background: var(--hdp-alias-border-l3);
+}
+
+/* The app's mark beside its name. Sized to the wordmark's cap height rather
+   than to a control, so the two read as one lockup and not as an icon with a
+   label next to it. */
+.brandMark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  /* The row's own gap is 2px, which is the spacing between two buttons, not
+     between a mark and the word it belongs to. */
+  margin-right: 7px;
+  color: var(--hdp-alias-label-primary);
+}
+
+/* --- rooms in the tree --------------------------------------------------- */
+
+/*
+ * A room sits at the same level as a conversation working on its own, because
+ * that is what it is: another thing this project holds. It reads as a
+ * container rather than a leaf through the twisty and the group glyph, not
+ * through a band or a fill — the row is still a destination you press.
+ */
+.roomRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: var(--hd-row-h);
+  padding: 0 8px 0 2px;
+  border-radius: 8px;
+  color: var(--hdp-alias-label-primary);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--hd-text);
+}
+
+.roomRow:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+
+/* A held message is the team's "needs you": it goes nowhere until somebody
+   releases it, so the row that leads to it is warm rather than quiet. */
+.roomRow[data-held] .roomIcon,
+.roomRow[data-held] .groupName {
+  color: var(--hd-tint-amber-ink);
+}
+
+.roomTwisty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.roomTwisty:hover {
+  background: var(--hdp-alias-interactive-bg-active);
+}
+
+.roomIcon {
+  flex: none;
+  color: var(--hd-tint-violet-ink);
+}

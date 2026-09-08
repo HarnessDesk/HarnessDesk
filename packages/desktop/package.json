@@ -1,0 +1,116 @@
+{
+  "name": "@harnessdesk/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HarnessDesk for macOS.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HarnessDesk/HarnessDesk.git",
+    "directory": "packages/desktop"
+  },
+  "homepage": "https://github.com/HarnessDesk/HarnessDesk#readme",
+  "author": "HarnessDesk contributors",
+  "license": "MIT",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "start": "node ../../script/brand-dev-electron.mjs && electron .",
+    "dev": "node ../../script/brand-dev-electron.mjs && HARNESSDESK_LOG_LEVEL=debug electron .",
+    "test": "node --test \"electron/*.test.mjs\" \"script/*.test.mjs\"",
+    "pack": "electron-builder --mac dir --publish never -c.mac.identity=- -c.mac.notarize=false -c.mac.hardenedRuntime=false",
+    "smoke": "node script/smoke-packaged.mjs",
+    "dist": "electron-builder --mac --publish never -c.mac.notarize=false",
+    "dist:notarized": "node script/preflight-notarize.mjs && electron-builder --mac --publish never -c.mac.notarize=true"
+  },
+  "devDependencies": {
+    "electron": "^42.11.1",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "@harnessdesk/claude-acp": "workspace:*",
+    "@harnessdesk/cursor-acp": "workspace:*",
+    "@harnessdesk/server": "workspace:*",
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "app.harnessdesk.desktop",
+    "productName": "HarnessDesk",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "publish": {
+      "provider": "generic",
+      "url": "https://updates.harnessdesk.app/mac"
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*.mjs",
+      "electron/**/*.cjs",
+      "electron/assets/**",
+      "!electron/**/*.test.mjs",
+      "package.json",
+      "!**/node_modules/@harnessdesk/*/dist/**/*.map",
+      "!**/node_modules/@harnessdesk/*/dist/**/*.d.ts",
+      "!**/node_modules/@harnessdesk/*/dist/.tsbuildinfo",
+      "!**/node_modules/@harnessdesk/*/dist/test/**",
+      "!**/node_modules/@harnessdesk/codex/dist/src/generated/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../ui/dist",
+        "to": "ui"
+      }
+    ],
+    "asarUnpack": [
+      "**/node_modules/**"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": false,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "HarnessDesk",
+            "CFBundleURLSchemes": [
+              "harnessdesk"
+            ]
+          }
+        ]
+      }
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 140,
+          "y": 200
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}

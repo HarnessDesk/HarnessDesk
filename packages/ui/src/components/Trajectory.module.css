@@ -1,0 +1,117 @@
+.overview {
+  flex: none;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+}
+
+.overviewLabel {
+  margin-bottom: 6px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* A proportional bar: each segment's width is its share of the turn's time. */
+.bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--hdp-alias-bg-module-platform);
+}
+
+.segment {
+  height: 100%;
+  min-width: 2px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px 20px;
+}
+
+.turnLabel {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 6px 4px;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  background: var(--hdp-alias-bg-base);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--hd-radius-sm);
+  font-size: var(--hd-text-sm);
+}
+
+.row:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.rowDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMono {
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+}
+
+.rowTime {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Role tag, so a glance says who produced each entry. */
+.role {
+  flex: none;
+  width: 62px;
+  font-size: var(--hd-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--hdp-alias-label-tertiary);
+  text-align: right;
+}

@@ -1,0 +1,227 @@
+/*
+ * HarnessDesk global styles.
+ *
+ * The raw palette comes from the DeepSeek Harness design platform (see
+ * design-platform.css) and wears the `--hdp-` prefix; the design system's own
+ * foundation — space, shape, type, motion and the semantic colour vocabulary,
+ * all `--hd-` — is ../design/tokens.css, imported after it so it wins over
+ * both vendored files. The palette overlays come after that again, because
+ * varying the foundation is their entire job: editorial.css repaints it and
+ * editor.css adds the code-face tokens on top.
+ *
+ * What is left here is the shell: the reset, the typography applied to the
+ * document, the two values that belong to this window rather than to the
+ * system, and the drag/layout utility classes. No value is decided here that
+ * a component could reasonably want; those live in the token file.
+ */
+
+@import '../assets/fonts/fonts.css';
+@import './base.css';
+@import './design-platform.css';
+@import '../design/tokens.css';
+@import './editorial.css';
+@import './editor.css';
+@import './scrollbar.css';
+/* Last on purpose: a Tailwind utility must win a tie against a module rule,
+   and these sheets are unlayered, so order is the tiebreak. See shadcn.css. */
+@import './shadcn.css';
+@import './shadcn-themes.css';
+
+body {
+  /* Tertiary carries more here than a design system usually gives it —
+     counts, times, keyboard hints — so it sits a step darker than the
+     platform default in both themes; a label nobody can read is not quiet,
+     it is missing. */
+  --hdp-alias-label-tertiary: rgb(112, 117, 125);
+
+  /* macOS window chrome: the traffic lights sit in an inset title bar, so
+     whichever row lands in the window's top-left reserves room for them. */
+  /* 44: room for a 20px title line with 12px above and below, the band the
+     macOS traffic lights sit in the middle of (see trafficLightPosition). */
+  --hd-titlebar-height: var(--hd-bar-h);
+
+  /* 78: three 12px buttons from x=14 with 8px between them, plus breathing
+     room — the band the window's own buttons occupy. */
+  --hd-titlebar-lights: 78px;
+
+  /*
+   * How much room *this* box must leave at its left for those buttons.
+   *
+   * Zero everywhere by default, including the whole browser build, which has
+   * no window buttons at all. `Workbench` names the area holding the window's
+   * top-left corner and its stylesheet raises this on that area alone; every
+   * box between there and the header inherits it, and the ones that are *not*
+   * in the corner — the second half of a split, the views under a tab strip —
+   * put it back to zero. A row that can be in the corner then spends it with
+   * `padding-left: max(<its own>, var(--titlebar-inset, 0px))`, which is why
+   * the sidebar, a conversation, a repository and a shell all clear the
+   * buttons without any of them knowing where they are.
+   *
+   * Not `--hd-`: that prefix names the design system's vocabulary, and this is
+   * plumbing — where the window's corner happens to be right now, which is a
+   * fact about the layout rather than a value anything would theme. The width
+   * above is the value, and keeps the prefix.
+   */
+  --titlebar-inset: 0px;
+}
+
+body[data-hd-dark-theme] {
+  --hdp-alias-label-tertiary: rgb(186, 190, 197);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--hd-font-family);
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  color: var(--hdp-alias-label-primary);
+  background: var(--hdp-alias-bg-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--hdp-font-family-code);
+  font-variant-ligatures: none;
+}
+
+a {
+  color: var(--hd-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* The ring, and only the ring. A `border-radius` here would reshape the
+   element itself — and because this sheet is bundled after every module, it
+   won a tie against any single-class rule, so a Tab turned every circle into
+   a rounded square. Chromium already follows the element's own radius when it
+   draws the outline, so the shape is the element's to state.
+
+   Both the mark's weight and its distance are tokens, because the two
+   interfaces answer differently: Desk draws the app's own hard 2px line
+   floating 2px clear of the control, and Studio draws the reference's 3px
+   wash lying against it. The offset is the part that changes the character —
+   at 2px clear, on a row sitting 2px from its neighbour, the ring reads as a
+   marquee drawn around the control rather than as the control being live. */
+:focus-visible {
+  outline: var(--hd-ring-width) solid var(--hd-ring-muted);
+  outline-offset: var(--hd-ring-offset);
+}
+
+/* Dragging the window by its chrome; interactive children opt back out. */
+.hd-drag {
+  -webkit-app-region: drag;
+}
+
+.hd-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The status strip sits above the frame and must not overlay it, so the shell
+   is a column and the frame takes the remaining height. */
+.hd-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hd-shellBody {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Banners hover over the panes, below the 38px header strip, so they never
+   fight the traffic lights or shift the layout under a reader. */
+.hd-paneArea {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.hd-floatingNotices {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  right: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.hd-floatingNotices > * {
+  pointer-events: auto;
+}
+
+/*
+ * A seam is being dragged. See lib/resizing.ts for why each of these has to
+ * stop, and why the flag is an attribute on the root rather than React state.
+ *
+ * The universal selectors are deliberate and are the cheapest thing that
+ * works. `cursor` and `transition` are both set by the very things a drag
+ * passes over — a button's pointer, the sidebar's width animation — so
+ * suppressing them anywhere but on every element leaves the cursor flickering
+ * between shapes and the column lagging behind the pointer. Two whole-document
+ * style recalculations, at the start and end of a gesture, buy a drag that
+ * tracks the pointer exactly.
+ */
+[data-hd-resizing] * {
+  transition: none !important;
+}
+
+[data-hd-resizing],
+[data-hd-resizing] body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+[data-hd-resizing='vertical'] * {
+  cursor: col-resize !important;
+}
+
+[data-hd-resizing='horizontal'] * {
+  cursor: row-resize !important;
+}
+
+/* A guest frame hit-tests in its own process, where pointer capture does not
+   reach. Making it inert for the length of the drag is what keeps a seam
+   dragged across the browser pane receiving its own moves. */
+[data-hd-resizing] iframe,
+[data-hd-resizing] webview {
+  pointer-events: none !important;
+}

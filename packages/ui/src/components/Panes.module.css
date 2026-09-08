@@ -1,0 +1,190 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.root {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--hdp-alias-bg-layer-0, var(--hdp-alias-bg-layer-1));
+}
+
+/* Under this pane's own strip, the view is no longer the corner row — the
+   strip is, and it has already spent the room. */
+.pane[data-strip] > *:not(:first-child) {
+  --titlebar-inset: 0px;
+}
+
+/* The name of a view that brought no header of its own. */
+.paneTitle {
+  flex: 1;
+  min-width: 0;
+  padding-left: var(--hd-space-1);
+  overflow: hidden;
+  font-size: var(--hd-text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The split's ratio, and where a drag of it lives.
+ *
+ * `--split-ratio` is the committed ratio, written inline by `SplitView` from
+ * the layout store. `--split-drag` is set straight on the element for the
+ * length of a drag and never through React, so the panes track the pointer at
+ * the browser's frame rate and the store only hears the number they land on.
+ *
+ * Neither wears the `--hd-` prefix: that names the design system's own
+ * vocabulary, and where a seam happens to be sitting is no part of it.
+ */
+.split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  --split-ratio: 0.5;
+  --split-at: var(--split-drag, var(--split-ratio));
+
+  /* The room the window buttons need, as it stood *above* this split — held
+     here because the halves below are about to set it to zero, and the one
+     that turns out to be in the corner has to be able to ask for it back.
+
+     What makes that safe rather than circular: a custom property's own value
+     is substituted at computed-value time on the element that *declares* it,
+     and what inherits is the result. So this holds the number as it reached
+     the split, and the second half below inherits that number — not a
+     reference that would resolve against its own, zeroed, `--titlebar-inset`
+     and make the pair a cycle. Measured in the engine, not reasoned about: a
+     hidden first half hands the room to the second, and the same markup in a
+     split nowhere near the corner hands over nothing. */
+  --split-lights: var(--titlebar-inset, 0px);
+}
+
+.split[data-direction='row'] {
+  flex-direction: row;
+}
+
+.split[data-direction='column'] {
+  flex-direction: column;
+}
+
+.split[data-dragging] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.split[data-direction='column'][data-dragging] {
+  cursor: row-resize;
+}
+
+.child {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* An expansion overrides these from the component, inline — it is the one
+   thing that sizes a side without going through the ratio. */
+.child[data-side='first'] {
+  flex-basis: calc(var(--split-at) * 100%);
+}
+
+.child[data-side='second'] {
+  flex-basis: calc((1 - var(--split-at)) * 100%);
+}
+
+/*
+ * The side an expansion hides. Kept mounted — a diff mid-read, a browser's
+ * pages and a terminal's scrollback all survive the zoom — but with no box
+ * and no paint. `visibility`, not `display`: a webview under `display: none`
+ * tears down its rendering surface and comes back blank.
+ */
+.child[data-hidden] {
+  visibility: hidden;
+  overflow: hidden;
+}
+
+/*
+ * Room for the macOS window buttons, along the split tree.
+ *
+ * The corner of the window is the *first* half of every split, whichever way
+ * the split runs — so the second gives the room back… unless an expansion has
+ * taken the first half off the screen, and the second is now the whole area
+ * and the corner with it. See `--titlebar-inset` in `app.css`.
+ */
+.child[data-side='second'] {
+  --titlebar-inset: 0px;
+}
+
+.child[data-side='first'][data-hidden] ~ .child[data-side='second'] {
+  --titlebar-inset: var(--split-lights);
+}
+
+.handle[data-hidden] {
+  display: none;
+}
+
+.child > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.handle {
+  flex: none;
+  background: var(--hdp-alias-border-l1);
+  transition: background 120ms ease;
+}
+
+.split[data-direction='row'] > .handle {
+  width: 1px;
+  cursor: col-resize;
+  /* A wider hit target than the visible line. */
+  box-shadow: 0 0 0 3px transparent;
+}
+
+.split[data-direction='column'] > .handle {
+  height: 1px;
+  cursor: row-resize;
+}
+
+.split[data-direction='row'] > .handle::after,
+.split[data-direction='column'] > .handle::after {
+  content: '';
+  position: relative;
+  display: block;
+}
+
+.split[data-direction='row'] > .handle::after {
+  width: 7px;
+  height: 100%;
+  left: -3px;
+}
+
+.split[data-direction='column'] > .handle::after {
+  height: 7px;
+  width: 100%;
+  top: -3px;
+}
+
+.handle:hover,
+.split[data-dragging] > .handle {
+  background: var(--hd-accent);
+}

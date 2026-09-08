@@ -1,0 +1,395 @@
+/*
+ * The plan strip in the conversation header.
+ *
+ * The strip costs the same at forty agents as at two: one bar for the
+ * conversation's own agent, up to two chips for agents that are out, and one
+ * token for the rest. Growth is absorbed by the token, so the widths below are
+ * about the header being narrow — not about how many agents are installed.
+ *
+ * Two widths, decided by the header itself rather than by the window: the
+ * header is the container, so the strip gives way to the session's name in a
+ * narrow column even on a wide screen. Each step *folds* rather than trims —
+ * the chips go because the token already carries their count, so no width
+ * knows less than the widest one does. Sizes come from the app's scale; the
+ * only new number here is the 34px track, which is the smallest bar whose fill
+ * is still readable at a glance.
+ */
+
+/* Bars at 2px apart read as one smear of chrome. The gap is what tells the eye
+   these are separate instruments, not one long one. */
+.strip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The anchor is the header's subject; the chips and the token are the rest of
+   the roster. Grouping them by proximity is what says so — without it the
+   whole strip read as one row of equals, which is the reading the old strip
+   had and the one this replaces. */
+.strip[data-anchored] > *:first-child {
+  margin-right: 4px;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 5px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger[data-open] {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--hdp-alias-label-secondary);
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.track {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--hdp-alias-bg-module-platform);
+  overflow: hidden;
+}
+
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--hdp-alias-label-tertiary);
+  transition: width 240ms ease;
+}
+
+.meter[data-tone='warn'] .fill {
+  background: var(--hd-warning);
+}
+
+.meter[data-tone='bad'] .fill {
+  background: var(--hd-danger);
+}
+
+/* Spent is the one state a bar filled with what is *left* cannot draw: there
+   is nothing to fill, and an empty track reads as "no reading" rather than as
+   "none left". So the track carries it. */
+.meter[data-tone='bad'] .track,
+.laneRow[data-tone='bad'] .laneTrack,
+.rosterRow[data-tone='bad'] .laneTrack {
+  background: var(--hd-danger-dim);
+}
+
+.figure {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--hd-text-xs);
+}
+
+.meter[data-tone='warn'] .figure {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.meter[data-tone='bad'] .figure {
+  color: var(--hd-danger);
+}
+
+/* A promoted chip: an agent that is out and is not the one in front of you.
+   It is the only member of the strip that is news rather than ambience, so it
+   is the only one that wears a background of its own. */
+.meter[data-promoted] {
+  gap: 5px;
+  /* The system's chip height, not a number. It sat at 20px beside a panel tab
+     at 24 in the same aligned row, and two backgrounds of different heights an
+     inch apart is the kind of thing you see before you can say what it is. */
+  height: var(--hd-chip-h);
+  padding: 0 7px 0 6px;
+  border-radius: 10px;
+  background: var(--hd-danger-dim);
+}
+
+/* --- every other agent, in the space of a word -------------------------- */
+
+.rest {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rest[data-tone='warn'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.rest[data-tone='bad'] {
+  color: var(--hd-danger);
+}
+
+/* The widths below are the header's *content* box, which is what a container
+   query measures — about 28px inside the header's own width.
+
+   Medium: the chips fold into the token, which was already counting them. The
+   anchor keeps its figure: it is the agent the next Send goes to, and the one
+   number in the header worth a fixed 26px. Measured — the strip is 279px with
+   two chips and 154px without, so this is the width where the chips start
+   costing the title more than they are worth. */
+@container hd-header (max-width: 760px) {
+  /* The popover wraps each trigger in an anchor, so the whole child goes —
+     hiding the chip alone would leave its button holding the space open. */
+  .strip > *:has([data-promoted]) {
+    display: none;
+  }
+}
+
+/* Narrow: the session's name needs the room. The anchor's bar and the token's
+   tone survive; the anchor's figure stays only where it is the whole point.
+   This is a floor for a header in a three-way split, not an ordinary width. */
+@container hd-header (max-width: 520px) {
+  .meter:not([data-low]) .figure {
+    display: none;
+  }
+}
+
+/* --- the hover panel: the card's own view, smaller ---------------------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+  min-width: 300px;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.panelHead:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.panelName {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--hd-text);
+  font-weight: 500;
+  color: var(--hdp-alias-label-primary);
+}
+
+.panelOpen {
+  font-size: var(--hd-text);
+  color: var(--hd-accent);
+}
+
+.identity {
+  margin: -4px 0 0;
+  padding: 0 6px;
+  font-size: var(--hd-text);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 6px;
+}
+
+.laneRow {
+  /* The panel is the card in miniature, and takes the card's steps. */
+  display: grid;
+  /* Wide enough for "Weekly · Fable" and for "blocked 2d": a lane row that
+     clips is a lane row that has to be hovered to be read. */
+  grid-template-columns: 88px minmax(0, 1fr) 60px 72px;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--hd-text);
+}
+
+.laneName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hdp-alias-label-secondary);
+}
+
+.laneTrack {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--hdp-alias-bg-module-platform);
+  overflow: hidden;
+}
+
+.laneFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--hdp-alias-label-tertiary);
+}
+
+.laneRow[data-tone='warn'] .laneFill,
+.rosterRow[data-tone='warn'] .laneFill {
+  background: var(--hd-warning);
+}
+
+.laneRow[data-tone='bad'] .laneFill,
+.rosterRow[data-tone='bad'] .laneFill {
+  background: var(--hd-danger);
+}
+
+.laneValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--hdp-alias-label-primary);
+}
+
+.laneRow[data-tone='bad'] .laneValue,
+.rosterRow[data-tone='bad'] .laneValue {
+  color: var(--hd-danger);
+}
+
+.laneWhen {
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 6px 6px 0;
+  border-top: 1px solid var(--hdp-alias-border-l1);
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.dot {
+  opacity: 0.55;
+}
+
+/* --- the token's panel: the roster the token stands for ------------------ */
+
+.rosterHead {
+  margin: 0;
+  padding: 2px 6px 0;
+  font-size: var(--hd-text);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.roster {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Same four steps as a lane row, with the mark and the name in the first
+   column: the panel is a table of accounts where the card is a table of lanes,
+   and a reader who has learned one has learned the other. */
+.rosterRow {
+  display: grid;
+  grid-template-columns: 14px minmax(96px, 1fr) minmax(0, 1fr) 60px 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  font: inherit;
+  font-size: var(--hd-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rosterRow:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.rosterName {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--hdp-alias-label-primary);
+}
+
+.rosterAccount {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* An agent with no bar says its state in words, in the columns the bar would
+   have used. */
+.rosterDetail {
+  grid-column: 3 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.rosterRow[data-quiet] .rosterName {
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* The agent this conversation uses, with no account.
+   It has no bar to draw, so it says the state in words and offers the press
+   that fixes it. The strip's other members are ambient; this one is not, and
+   the accent is what says so. It is never hidden at any width: it is the one
+   fact that stops the next Send. */
+.signInChip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 140px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  border: none;
+  border-radius: 11px;
+  background: var(--hd-accent-dim);
+  color: var(--hd-accent);
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.signInChip:hover {
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
+}

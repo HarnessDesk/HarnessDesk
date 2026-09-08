@@ -1,0 +1,461 @@
+/* One agent as one card: the header names the runtime, the body holds the
+   accounts under it, and the caret decides whether the body is on screen.
+   Two clicks, two different pages — the name opens the agent, a row opens
+   the account. */
+
+/* Same card as Kit's `.rows`, on the same tokens — see the note there. */
+.agent {
+  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
+  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
+  background: var(--hd-card-fill, var(--hd-card));
+  overflow: hidden;
+  margin-bottom: var(--hd-space-2-5);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 8px;
+}
+
+/* The name half of the header. It is a button because it opens a page — the
+   runtime's own — and it takes the free width so the hover target is the
+   whole line rather than the words. */
+.headOpen {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.headOpen:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.headName {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--hd-text-lg);
+  font-weight: 500;
+}
+
+.headBuild {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  font-weight: 400;
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One line, always. The taglines run to a sentence and a list of ten agents
+   has to stay a list of rows the same height. */
+.headMeta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headCount {
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.headToggle {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hdp-alias-label-tertiary);
+  cursor: pointer;
+  transition: transform var(--hd-duration-fast) var(--hd-ease);
+}
+
+.headToggle:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.agent[data-open] .headToggle {
+  transform: rotate(180deg);
+}
+
+.body {
+  border-top: 1px solid var(--hdp-alias-border-l1);
+}
+
+/* The account rows. Not a `Rows` card — the card is the agent, and a second
+   border inside it would draw a box around a box. */
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* What the agent connects with, in the header beside its version. This page's
+   whole claim is that a credential arrives one of two ways; this is where an
+   agent says which. */
+.tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--hdp-alias-border-l1);
+}
+
+/* --- why it will not start ------------------------------------------------ */
+
+/* Our sentence, the agent's own words, the repair. Laid out as three things
+   because that is what it is: the wall it replaced was a `desc` string with
+   the message and the remediation concatenated, so every line break the agent
+   had written was collapsed and the one actionable line was the tail of a
+   paragraph. */
+.problem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  padding: 14px var(--hd-card-padding);
+}
+
+.problemLead {
+  margin: 0;
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  color: var(--hdp-alias-label-primary);
+}
+
+/* The agent speaking. Line breaks kept, because a validator writes one
+   finding per line; scrolled rather than grown, because an agent having a bad
+   day must not push the nine below it off the page. Long lines scroll
+   sideways inside the box instead of wrapping mid-path. */
+.problemDetail {
+  margin: 0;
+  max-height: 170px;
+  overflow: auto;
+  padding: var(--hd-space-2) var(--hd-space-2-5);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+  white-space: pre;
+}
+
+.problemFix {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+/* --- narrowing the list -------------------------------------------------- */
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  margin-bottom: var(--hd-space-3);
+}
+
+.pageSearch {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A section named after an agent wears its mark before the name. */
+.sectionMark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}
+
+/* A name is a short thing; the field is sized for one rather than the row. */
+.nameField {
+  width: 220px;
+}
+
+.rowName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+}
+
+/* The plan, in the account's own colour. The ring already says which account
+   a row is; wearing the same colour, so does the thing you are paying for. */
+.plan {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--hd-radius-full);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-secondary);
+  font-size: var(--hd-text-xs);
+  white-space: nowrap;
+}
+
+.plan[data-tint='blue'] {
+  background: var(--hd-tint-blue-fill);
+  color: var(--hd-tint-blue-ink);
+}
+
+.plan[data-tint='green'] {
+  background: var(--hd-tint-green-fill);
+  color: var(--hd-tint-green-ink);
+}
+
+.plan[data-tint='amber'] {
+  background: var(--hd-tint-amber-fill);
+  color: var(--hd-tint-amber-ink);
+}
+
+.plan[data-tint='violet'] {
+  background: var(--hd-tint-violet-fill);
+  color: var(--hd-tint-violet-ink);
+}
+
+.plan[data-tint='rose'] {
+  background: var(--hd-tint-rose-fill);
+  color: var(--hd-tint-rose-ink);
+}
+
+.rowAvatar {
+  width: 30px;
+  height: 30px;
+}
+
+.figure {
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The five rings, as the account's own colour worn by the agent's mark. */
+.rings {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ring {
+  width: 26px;
+  height: 26px;
+  border: none;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ring:hover {
+  opacity: 0.85;
+}
+
+.ring[data-on] {
+  opacity: 1;
+}
+
+/* --- usage --------------------------------------------------------------- */
+
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.meterHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.meterLabel {
+  flex: 1;
+  font-size: var(--hd-text);
+}
+
+.meterValue {
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.meterReset {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.meterTrack {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hdp-alias-bg-module-platform);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--hd-success);
+}
+
+.meter[data-tone='warn'] .meterFill {
+  background: var(--hd-warning);
+}
+
+.meter[data-tone='bad'] .meterFill {
+  background: var(--hd-danger);
+}
+
+.note {
+  margin: 0 0 8px;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.note[data-tone='bad'] {
+  color: var(--hd-danger);
+}
+
+
+
+/* The ACP registry, as a grid of compact cells: forty agents belong side by
+   side, not stacked as forty full rows — that page measured 3,500px. Each
+   cell is the mark, the name, the sentence (description, or the reason an
+   entry cannot run here), and the one control.
+
+   The two numbers the cell's height is built from live here, so the line box
+   and the room made for it cannot drift apart. */
+.registryGrid {
+  --registry-line-h: 16px;
+  --registry-lines: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+}
+
+/* One height for every cell, whatever its sentence runs to.
+
+   Registry descriptions are their authors' own prose and run from four words
+   to a paragraph: left to wrap, forty of them made six different cell heights
+   down one page, and a catalogue that is read by scanning cannot afford that.
+   The height is the name's line plus two of the sentence's, plus the padding
+   — which is what the majority of these cells already measured.
+
+   Every read of the grid's two numbers carries its value as a fallback. Not
+   ceremony: an undefined custom property makes the whole `calc()` invalid at
+   computed-value time, and an invalid `min-height` is not a smaller cell, it
+   is no `min-height` at all — a cell rendered anywhere but inside the grid
+   would go quietly back to being sized by its own text. */
+.registryCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: calc(
+    var(--hd-line-sm) + var(--registry-line-h, 16px) * var(--registry-lines, 2) +
+      var(--hd-space-2) * 2
+  );
+  padding: 8px 10px;
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+.registryCellText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.registryCellName {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A sentence, so it wraps — the second-line rule truncates names and paths,
+   never the words that say why. Two of them, and the cell's height is drawn
+   around that: every reason an entry can be blocked for fits in two lines
+   whole, so "a reason you cannot read without a mouse" never happens, and
+   what a third line would have carried is always a registry author's own
+   description of their own agent.
+
+   The line box keeps its literal as the var's fallback, as the cell's height
+   does: the interface-drift check resolves it to see that Desk did not move,
+   and a mark rendered outside the grid still clamps to two. */
+.registryCellLine {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--registry-lines, 2);
+  overflow: hidden;
+  font-size: var(--hd-text-xs);
+  line-height: var(--registry-line-h, 16px);
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* Blocked is quiet, never silent: the line above is the reason. */
+.registryCell[data-blocked] .registryCellName {
+  color: var(--hdp-alias-label-tertiary);
+  font-weight: 400;
+}

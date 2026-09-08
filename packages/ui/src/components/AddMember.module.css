@@ -1,0 +1,127 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  font-size: var(--hd-text-sm);
+  font-weight: 600;
+  color: var(--hdp-alias-label-primary);
+}
+
+/* A greyed control is an explanation, so the reason sits beside the name
+   rather than in a tooltip nobody opens. */
+.why {
+  font-weight: 400;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hdp-alias-label-secondary);
+}
+
+.problem {
+  margin: 0;
+  font-size: var(--hd-text-sm);
+  color: var(--hd-danger-ink);
+}
+
+/* --- which agent -------------------------------------------------------- */
+
+/* Two situations, not two features: start something, or take something that
+   is already running. Side by side because they are alternatives. */
+.modes {
+  display: flex;
+  gap: var(--hd-space-1);
+}
+
+.mode {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  flex: 1;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border: 1px solid var(--hdp-alias-border-l1);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-base);
+  /* Both read as choices. At secondary the unselected one looked disabled
+     beside its neighbour, next to a third button that genuinely is. Selection
+     is carried by the border and the weight. */
+  color: var(--hdp-alias-label-primary);
+  font: inherit;
+  font-size: var(--hd-text-sm);
+  cursor: pointer;
+}
+
+.mode:hover:not(:disabled) {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.mode[aria-checked='true'] {
+  border-color: var(--hd-accent);
+  font-weight: 600;
+}
+
+.mode:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--hdp-alias-label-tertiary);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-2);
+  border-radius: var(--hd-radius-sm);
+  cursor: pointer;
+}
+
+.candidate:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.candidateName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hdp-alias-label-primary);
+}
+
+.candidateAgent {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-tertiary);
+}

@@ -1,0 +1,14 @@
+{
+  "family": "Geist",
+  "version": "v5",
+  "variable": true,
+  "weightRange": [
+    400,
+    600
+  ],
+  "ranges": [
+    "latin",
+    "latin-ext"
+  ],
+  "license": "OFL-1.1"
+}

@@ -1,0 +1,307 @@
+/*
+ * The playground's own frame.
+ *
+ * Only the parts that make a window out of the page: the panels themselves are
+ * `design/patterns/DockPanel.tsx`, and the geometry rules here are the same
+ * ones `panels/Workbench.module.css` uses in the app. Two files rather than one
+ * because this page draws a window inside a page and the app draws the window
+ * itself; what they must agree about — hidden means invisible, never unmounted
+ * — they agree about because it is written the same way in both.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+  min-width: 0;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  flex-wrap: wrap;
+}
+
+.hint {
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* A window, drawn at a window's proportions: a rail alone on a white page
+   always looks fine, and so does a panel. */
+.window {
+  position: relative;
+  display: flex;
+  height: 560px;
+  min-height: 0;
+  overflow: hidden;
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hdp-alias-bg-base);
+}
+
+.sidebar {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--hd-sidebar-plate);
+  border-right: var(--hd-border-width) solid var(--hdp-alias-border-l1);
+  transition: width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+}
+
+.sidebar[data-hidden] {
+  border-right: none;
+}
+
+.window[data-dragging] .sidebar {
+  transition: none;
+}
+
+.tree {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  min-height: 0;
+  padding: var(--hd-space-2);
+  overflow: hidden;
+}
+
+.treeTitle {
+  padding: 0 var(--hd-space-1);
+  font-size: var(--hd-text-xs);
+  font-weight: 500;
+  color: var(--hd-muted-foreground);
+}
+
+.treeRow {
+  padding: var(--hd-space-1) var(--hd-space-2);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+  font-size: var(--hd-text-sm);
+  color: var(--hd-secondary-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.content {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.middle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.middle[data-hidden] {
+  flex: 0 0 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.panes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border-right: var(--hd-border-width) solid var(--hd-border);
+}
+
+.pane:last-child {
+  border-right: none;
+}
+
+.main[data-hidden] {
+  flex: 0 0 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+
+.right,
+.bottom {
+  display: flex;
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+.window:has([data-zoom]) .right,
+.window:has([data-zoom]) .bottom {
+  flex: 1;
+}
+
+.panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.layers {
+  position: relative;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.layer > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.layer[data-hidden] {
+  /*
+   * Hidden, three ways, because one is not enough.
+   *
+   * `visibility` takes it out of the accessibility tree and off the focus
+   * order. It does *not* hide an Electron `<webview>`: the guest is composited
+   * on its own surface and computes `visibility: visible` however its
+   * ancestors are set, so a browser behind another tab went on painting
+   * full-size over whatever was in front — the Changes panel showed the
+   * browser's page.
+   *
+   * So the layer is also moved out of the box its parent clips to. It keeps
+   * its size, which is the whole reason this is not `display: none`: a
+   * terminal measures zero columns and reflows its entire screen when it comes
+   * back, and a webview under `display: none` tears down its surface and
+   * returns blank.
+   */
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-101%);
+}
+
+/* ----------------------------------------------------------------- stubs */
+
+.stub {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--hd-space-1);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--hd-space-3);
+}
+
+.stubName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  font-size: var(--hd-text);
+  font-weight: 500;
+  color: var(--hd-foreground);
+}
+
+.stubNote {
+  max-width: 34ch;
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-muted-foreground);
+}
+
+/* --------------------------------------------------------------- actions */
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hd-muted-foreground);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
+}
+
+.caret {
+  display: inline-flex;
+  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+}
+
+.caret[data-collapsed] {
+  transform: rotate(180deg);
+}
+
+/* --------------------------------------------------------------- docking */
+
+.drop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  border: 2px dashed transparent;
+  border-radius: var(--hd-radius);
+  transition:
+    background var(--hdp-transition-duration-fast) var(--hdp-ease-in-out),
+    border-color var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+}
+
+.drop[data-over] {
+  border-color: var(--hd-accent);
+  background: var(--hd-accent-dim);
+}
+
+.dropLabel {
+  /* The label must not be a drag target of its own: the pointer crossing onto
+     it fired `dragleave` on the zone underneath, and the highlight flickered
+     as you moved toward the middle of the very area you were aiming at. */
+  pointer-events: none;
+  padding: var(--hd-space-1) var(--hd-space-2);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground);
+  font-size: var(--hd-text-xs);
+  font-weight: 500;
+  opacity: 0;
+}
+
+.drop[data-over] .dropLabel {
+  opacity: 1;
+}

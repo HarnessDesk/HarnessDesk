@@ -1,0 +1,258 @@
+/* The history's frame: the two-pane split, and the graph geometry.
+ *
+ * The lane column is fixed-width on purpose — every commit's subject starts at
+ * the same x however many branches are open at that row, because a ragged left
+ * edge makes a history unscannable and the width of the widest merge is not
+ * information.
+ */
+
+.gitLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--hd-space-4);
+  align-items: start;
+}
+
+.graph {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Frames for the surface mock pages.
+ *
+ * Only geometry — the column a transcript is read in, the height a pane stands
+ * at, the grid a set of panes sits on. Everything with a colour or an edge on
+ * these pages is a component.
+ */
+
+/* The reading column. `--hd-column` is the app's own measure, and a transcript
+   shown at explorer width would be judged at a width it never gets. */
+.column {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--hd-column);
+  padding: var(--hd-space-4);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--hd-space-1);
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius-sm);
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
+  margin-top: var(--hd-space-2);
+}
+
+/* --- the composer board --------------------------------------------------- */
+
+.composerCases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+  max-width: var(--hd-column);
+}
+
+.caseLabel {
+  margin-bottom: var(--hd-space-1-5);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+/* --- the rail board ------------------------------------------------------- */
+
+.railCase {
+  display: flex;
+  height: 520px;
+  overflow: hidden;
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+}
+
+.railBeside {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  padding: var(--hd-space-6);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-sm);
+  text-align: center;
+}
+
+/* --- the tool panes ------------------------------------------------------- */
+
+.paneGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--hd-space-4);
+}
+
+.pane {
+  height: 320px;
+}
+
+.paneTall {
+  height: 460px;
+}
+
+/* A browser viewport: a stand-in page, not a screenshot. It has to look like a
+   web page and obviously not be one, or the board starts being read as a bug
+   report about somebody's website. */
+.viewport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  height: 100%;
+  padding: var(--hd-space-4);
+  background: var(--hd-background);
+}
+
+.viewportBar {
+  height: var(--hd-space-3);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+}
+
+.viewportBlock {
+  flex: 1;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+}
+
+.terminal {
+  height: 100%;
+  padding: var(--hd-space-2-5);
+  overflow: auto;
+  background: var(--hd-muted);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+
+.terminalPrompt {
+  color: var(--hd-success-ink);
+}
+
+.terminalDim {
+  color: var(--hd-muted-foreground);
+}
+
+/* --- git history ---------------------------------------------------------- */
+
+.gitLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--hd-space-4);
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .gitLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.graph {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The lane column: fixed width so every commit's message starts on the same
+   x, however many branches are open at that row. */
+.lane {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  align-self: stretch;
+}
+
+.laneLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+}
+
+.laneDot {
+  position: absolute;
+  top: 50%;
+  width: var(--hd-space-2-5);
+  height: var(--hd-space-2-5);
+  margin-top: calc(var(--hd-space-2-5) / -2);
+  margin-left: calc(var(--hd-space-2-5) / -2);
+  border-radius: var(--hd-radius-full);
+  box-shadow: 0 0 0 2px var(--hd-card);
+}
+
+.commitRow {
+  display: flex;
+  align-items: stretch;
+  gap: var(--hd-space-2);
+  min-height: 44px;
+  padding-right: var(--hd-space-3);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  cursor: pointer;
+}
+
+.commitBody {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--hd-space-2) 0;
+}
+
+.commitSubject {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+.commitText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commitMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.sha {
+  flex-shrink: 0;
+  align-self: center;
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.paneTall {
+  height: 460px;
+}
+
+@media (max-width: 980px) {
+  .gitLayout {
+    grid-template-columns: 1fr;
+  }
+}
