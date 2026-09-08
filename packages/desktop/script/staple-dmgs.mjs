@@ -35,6 +35,28 @@
  * into a keychain of its own and destroys it when the build finishes
  * (`app-builder-lib` does `disposeOnBuildFinish(() => removeKeychain(...))`),
  * so nothing it imported is still there by the time this runs.
+ *
+ * What this pass does to a DMG was reasoning until 2026-09-08, when
+ * `dist:notarized` was run end to end against Apple's real notary service on a
+ * development machine. Both DMGs were signed here, submitted, and came back
+ * Accepted; `stapler validate` then found a ticket on each file, `spctl`
+ * answered `source=Notarized Developer ID`, and `latest-mac.yml` matched the
+ * sha512 and the byte count of the stapled images afterwards. Ten minutes for
+ * the whole chain.
+ *
+ * Three things that run did not touch, which are therefore still argument:
+ *
+ * The keychain in the paragraph above. That was a login keychain on somebody's
+ * Mac, which is the case that already worked; the job-scoped one `release.yml`
+ * builds — the thing issue #2 was actually about — has never run against
+ * Apple, because that workflow is `workflow_dispatch` only.
+ *
+ * The App Store Connect key. Those credentials were the Apple ID pair, so the
+ * `--key` route reached `notarytool` in a test and never in a release.
+ *
+ * An offline launch. A ticket on the file is what one needs, and `stapler
+ * validate` says the ticket is there — but the machine that asked had a
+ * network, so what is proved is the ticket, not the launch.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
