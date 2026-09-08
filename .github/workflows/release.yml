@@ -86,6 +86,9 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       # electron-builder staples the .app and then builds a fresh DMG around
       # it, so the DMG Apple never saw carries no ticket. Stapling them is a
@@ -96,9 +99,15 @@ jobs:
         working-directory: packages/desktop
         run: node script/staple-dmgs.mjs
         env:
+          # Both shapes, because the script takes either and prefers the API
+          # key: notarytool reads the password from argv, so an app-specific
+          # password is visible in `ps` for as long as the build runs.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       # After stapling, so the sums describe the bytes that ship.
       - name: Checksums

@@ -30,6 +30,8 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { notarizationCredentials } from './preflight-notarize.mjs'
+
 const RELEASE = 'release'
 
 // stderr is merged rather than piped separately: `codesign` and `spctl` say
@@ -96,21 +98,19 @@ const main = () => {
     console.log('- signing')
     runShowingStderr('codesign', ['--force', '--sign', 'Developer ID Application', '--timestamp', path])
 
-    console.log('- notarizing')
-    run('xcrun', [
-      'notarytool',
-      'submit',
-      path,
-      '--apple-id',
-      process.env['APPLE_ID'] ?? '',
-      '--password',
-      process.env['APPLE_APP_SPECIFIC_PASSWORD'] ?? '',
-      '--team-id',
-      process.env['APPLE_TEAM_ID'] ?? '',
-      '--wait',
-      '--timeout',
-      '30m',
-    ])
+    // Whichever credential the environment carries — the same resolver
+    // `preflight-notarize.mjs` checks with, so a build that passed preflight
+    // cannot fail here for want of a flag this script did not know about.
+    const credentials = notarizationCredentials(process.env)
+    if (credentials.kind === null) {
+      console.error('\nNo notarization credentials in the environment.')
+      console.error('Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID,')
+      console.error('or APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER.')
+      process.exit(1)
+    }
+
+    console.log(`- notarizing (${credentials.kind})`)
+    run('xcrun', ['notarytool', 'submit', path, ...credentials.args, '--wait', '--timeout', '30m'])
 
     console.log('- stapling')
     run('xcrun', ['stapler', 'staple', path])
