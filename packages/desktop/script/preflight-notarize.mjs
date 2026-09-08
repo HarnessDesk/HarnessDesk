@@ -15,13 +15,37 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 /**
- * The problems, from names alone. `identities` is the output of
- * `security find-identity -v -p codesigning`; null means the keychain could
- * not be asked (not macOS, or `security` failed) and the check is skipped
- * with a note rather than failed.
+ * The keychain's codesigning identities as `security` prints them, or null
+ * where the keychain could not be asked at all — not macOS, or `security`
+ * refused. Null is "unknown", never "none".
  */
+export const keychainIdentities = () => {
+  try {
+    return execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+      encoding: 'utf8',
+    })
+  } catch {
+    // Not macOS, or `security` refused — electron-builder will say its piece.
+    return null
+  }
+}
+
+/**
+ * Whether a Developer ID Application identity is there to sign with, over the
+ * output above. Three answers rather than two, because "the keychain could not
+ * be read" is not "the certificate is missing": one is a check to skip, the
+ * other is a release that cannot be signed. `staple-dmgs.mjs` asks the same
+ * question of the same output, so a build electron-builder can sign is one
+ * stapling can sign too.
+ */
+export const developerIdIdentity = (identities) => {
+  if (identities === null) return 'unknown'
+  return identities.includes('Developer ID Application') ? 'present' : 'absent'
+}
+
 /**
  * Which notarization credentials the environment actually carries, and the
  * `notarytool` arguments that use them.
@@ -73,7 +97,7 @@ export const preflightProblems = ({ env, identities }) => {
   if (linked && !env['CSC_KEY_PASSWORD']) {
     problems.push('CSC_LINK is set but CSC_KEY_PASSWORD is not; the certificate cannot be opened.')
   }
-  if (!linked && identities !== null && !identities.includes('Developer ID Application')) {
+  if (!linked && developerIdIdentity(identities) === 'absent') {
     problems.push(
       'No "Developer ID Application" identity in the keychain, and no CSC_LINK. Signing would fall back to ad-hoc, which notarization rejects.',
     )
@@ -83,16 +107,7 @@ export const preflightProblems = ({ env, identities }) => {
 }
 
 const main = () => {
-  let identities = null
-  try {
-    identities = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
-      encoding: 'utf8',
-    })
-  } catch {
-    // Not macOS, or `security` refused — electron-builder will say its piece.
-  }
-
-  const problems = preflightProblems({ env: process.env, identities })
+  const problems = preflightProblems({ env: process.env, identities: keychainIdentities() })
   if (problems.length === 0) {
     console.log('Notarization preflight: credentials and signing identity look present.')
     return
@@ -119,5 +134,6 @@ const main = () => {
 }
 
 // Runnable and importable: the test imports `preflightProblems`, the script
-// entry runs the checks.
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop())) main()
+// entry runs the checks. Compared as full URLs — matching on the basename
+// alone would also fire for any other file of the same name.
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main()

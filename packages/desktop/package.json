@@ -19,7 +19,7 @@
     "pack": "electron-builder --mac dir --publish never -c.mac.identity=- -c.mac.notarize=false -c.mac.hardenedRuntime=false",
     "smoke": "node script/smoke-packaged.mjs",
     "dist": "electron-builder --mac --publish never -c.mac.notarize=false",
-    "dist:notarized": "node script/preflight-notarize.mjs && electron-builder --mac --publish never -c.mac.notarize=true"
+    "dist:notarized": "node script/preflight-notarize.mjs && electron-builder --mac --publish never -c.mac.notarize=true && node script/staple-dmgs.mjs"
   },
   "devDependencies": {
     "electron": "^42.11.1",

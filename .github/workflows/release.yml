@@ -63,12 +63,93 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
 
+      # electron-builder imports CSC_LINK into a keychain of its own and
+      # destroys it the moment the build finishes — `app-builder-lib` does
+      # `disposeOnBuildFinish(() => removeKeychain(keychainFile))`. Stapling
+      # the DMGs runs after that and signs with a plain `codesign`, so on a
+      # clean runner it found no identity at all and the release failed there.
+      # It passed on the machine v0.1.0 was cut from only because that machine
+      # keeps the identity in its login keychain.
+      #
+      # So the certificate also goes into a keychain of ours, which lasts as
+      # long as the job. Purely additive: the build below still gets CSC_LINK
+      # and still signs out of the keychain electron-builder makes for itself,
+      # scoped with `--keychain`, so nothing about the signing path changes.
+      #
+      # `secrets` is not a context a step-level `if:` can read, so the skip is
+      # inside the script — a fork's dry run has no certificate, and an
+      # unsigned build is exactly what that run is for.
+      - name: Import signing certificate
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CSC_LINK" ]; then
+            echo "No MAC_CERTIFICATE_P12 configured. This build will be unsigned."
+            exit 0
+          fi
+
+          KEYCHAIN="$RUNNER_TEMP/harnessdesk-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          CERTIFICATE="$RUNNER_TEMP/signing-certificate.p12"
+
+          # The secret holds the .p12 base64-encoded, which is also one of the
+          # forms electron-builder takes in CSC_LINK.
+          echo "$CSC_LINK" | base64 --decode > "$CERTIFICATE"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERTIFICATE" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          rm -f "$CERTIFICATE"
+
+          # Without a partition list every `codesign` run stops at a UI prompt
+          # that a runner has nobody to answer.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+
+          # Added to the search list rather than made the default, and with the
+          # existing list kept: `codesign --sign` searches the list, and
+          # electron-builder puts its own keychain in front of ours for the
+          # build and takes it back out when the build ends.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          # Said here rather than discovered ten minutes into a build, and
+          # asked twice, because "no valid identity" has two causes that want
+          # two different fixes: the wrong certificate in the secret, or the
+          # right one exported without the intermediate that chains it to an
+          # Apple root. Only the second prints CSSMERR_TP_NOT_TRUSTED, and only
+          # without `-v` — with it the identity simply is not listed at all.
+          VALID="$(security find-identity -v -p codesigning "$KEYCHAIN")"
+          echo "$VALID"
+          case "$VALID" in
+            *"Developer ID Application"*) exit 0 ;;
+          esac
+
+          PRESENT="$(security find-identity -p codesigning "$KEYCHAIN")"
+          echo "$PRESENT"
+          case "$PRESENT" in
+            *"Developer ID Application"*)
+              echo "::error::The Developer ID Application certificate imported but does not chain to a trusted root. Re-export the .p12 with its intermediate — Keychain Access includes the chain when the certificate is exported together with its private key." ;;
+            *)
+              echo "::error::MAC_CERTIFICATE_P12 carries no Developer ID Application certificate." ;;
+          esac
+          exit 1
+
       # A dry run has no secrets on a fork, and `dist:notarized` refuses
       # without them by design — so the two runs take different scripts.
       # They used to share `dist`, which passes `-c.mac.notarize=false`: the
       # job set every Apple credential and then explicitly switched off the
       # step that used them, and would have published a signed-but-not-
       # notarized build that Gatekeeper stops on first launch.
+      #
+      # `dist:notarized` also staples the DMGs and repairs `latest-mac.yml`.
+      # electron-builder staples the .app and then builds a fresh DMG around
+      # it, so the DMG Apple never saw carries no ticket of its own; that used
+      # to be a step here, which meant a release cut by hand got it only if
+      # somebody remembered the extra command.
       - name: Build signed app
         working-directory: packages/desktop
         run: |
@@ -83,25 +164,6 @@ jobs:
           # build that is never published.
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-
-      # electron-builder staples the .app and then builds a fresh DMG around
-      # it, so the DMG Apple never saw carries no ticket. Stapling them is a
-      # separate pass, and it rewrites the DMG rows of `latest-mac.yml`,
-      # which the build wrote before these bytes changed.
-      - name: Staple the DMGs
-        if: ${{ !inputs.dry_run }}
-        working-directory: packages/desktop
-        run: node script/staple-dmgs.mjs
-        env:
-          # Both shapes, because the script takes either and prefers the API
-          # key: notarytool reads the password from argv, so an app-specific
-          # password is visible in `ps` for as long as the build runs.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -124,6 +186,19 @@ jobs:
             # legitimate outcome, and failing here would hide the real result.
             codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | tail -5 || true
             spctl --assess --type execute --verbose "$app" 2>&1 | tail -3 || true
+          done
+          # The .app inside the build directory is not what anyone downloads.
+          # The DMG is, and nothing here used to look at one: no signature, no
+          # ticket, no Gatekeeper verdict on the container. `stapler validate`
+          # is the offline question — whether a first launch works on a machine
+          # that cannot reach Apple, which is the whole reason DMGs are stapled
+          # at all. A dry run has none of this, and says so rather than failing.
+          for dmg in *.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "== $dmg"
+            codesign --verify --strict --verbose=2 "$dmg" 2>&1 | tail -3 || true
+            xcrun stapler validate "$dmg" 2>&1 | tail -3 || true
+            spctl --assess --type open --context context:primary-signature -v "$dmg" 2>&1 | tail -3 || true
           done
 
       - uses: actions/upload-artifact@v7
@@ -160,3 +235,9 @@ jobs:
             packages/desktop/release/*.zip.blockmap
             packages/desktop/release/latest-mac.yml
             packages/desktop/release/SHA256SUMS.txt
+
+      # It outlives the build by design; it should not outlive the job. A
+      # hosted runner forgets it either way — a self-hosted one would not.
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/harnessdesk-signing.keychain-db" || true
