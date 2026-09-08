@@ -41,6 +41,8 @@ export {
   BrowserService,
   browserSettings,
   installedBrowsers,
+  KEY_NAMES,
+  namedKey,
   setBrowserEngine,
   setBrowserSettings,
   type BrowserEngine,

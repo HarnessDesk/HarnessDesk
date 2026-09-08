@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { KEY_NAMES, namedKey } from '@harnessdesk/cordis-host'
+
 import { browserPlugin } from '../src/browser.js'
 
 /**
@@ -98,4 +100,23 @@ test('the tool surface redacts where a page is read for you, and not where you a
     /unredacted/,
     'and the description says so, so it is a choice the caller makes knowingly',
   )
+})
+
+test('browser_key offers the agent exactly the keys the browser will take', () => {
+  // A description is what an agent reads before the first press and an error
+  // message is what it reads after the first failure, so the two are one
+  // promise made twice. Both used to name `space` and neither could press
+  // it, which left the retry — read the message, use the name it gives —
+  // looping on the same word. The description is still written by hand —
+  // this is what holds it to the keys `ctx.browser` has.
+  const description = withBrowser({}).get('browser_key')!.description ?? ''
+  const offered = /use (.+), or a single character\./.exec(description)?.[1]?.split(', ') ?? []
+  assert.ok(
+    offered.length >= 10 && offered.includes('Enter'),
+    `no key list parsed out of ${JSON.stringify(description)}`,
+  )
+  for (const name of offered) {
+    assert.ok(namedKey(name), `browser_key offers ${JSON.stringify(name)} and ctx.browser has no such key`)
+  }
+  assert.deepEqual([...offered].sort(), [...KEY_NAMES].sort(), 'a key the tool never mentions is a key nobody presses')
 })
