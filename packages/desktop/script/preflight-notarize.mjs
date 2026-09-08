@@ -22,14 +22,48 @@ import { execFileSync } from 'node:child_process'
  * not be asked (not macOS, or `security` failed) and the check is skipped
  * with a note rather than failed.
  */
+/**
+ * Which notarization credentials the environment actually carries, and the
+ * `notarytool` arguments that use them.
+ *
+ * One definition, because two were a trap: this script accepted an App Store
+ * Connect API key while `staple-dmgs.mjs` passed `--apple-id` unconditionally,
+ * so a maintainer who took the advice printed below got a green preflight, a
+ * notarized `.app`, and a failure at the DMG a minute later. Whatever passes
+ * here is what stapling is handed.
+ *
+ * The API key is preferred where both are set: `notarytool` takes the password
+ * as a command-line argument, so an app-specific password is readable from
+ * `ps` for the length of the build.
+ */
+export const notarizationCredentials = (env) => {
+  if (env['APPLE_API_KEY'] && env['APPLE_API_KEY_ID'] && env['APPLE_API_ISSUER']) {
+    return {
+      kind: 'api-key',
+      args: [
+        '--key', env['APPLE_API_KEY'],
+        '--key-id', env['APPLE_API_KEY_ID'],
+        '--issuer', env['APPLE_API_ISSUER'],
+      ],
+    }
+  }
+  if (env['APPLE_ID'] && env['APPLE_APP_SPECIFIC_PASSWORD'] && env['APPLE_TEAM_ID']) {
+    return {
+      kind: 'apple-id',
+      args: [
+        '--apple-id', env['APPLE_ID'],
+        '--password', env['APPLE_APP_SPECIFIC_PASSWORD'],
+        '--team-id', env['APPLE_TEAM_ID'],
+      ],
+    }
+  }
+  return { kind: null, args: [] }
+}
+
 export const preflightProblems = ({ env, identities }) => {
   const problems = []
 
-  const hasApiKey = Boolean(env['APPLE_API_KEY'] && env['APPLE_API_KEY_ID'] && env['APPLE_API_ISSUER'])
-  const hasAppleId = Boolean(
-    env['APPLE_ID'] && env['APPLE_APP_SPECIFIC_PASSWORD'] && env['APPLE_TEAM_ID'],
-  )
-  if (!hasApiKey && !hasAppleId) {
+  if (notarizationCredentials(env).kind === null) {
     problems.push(
       'No notarization credentials. Set either APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, or APPLE_API_KEY + APPLE_API_KEY_ID + APPLE_API_ISSUER.',
     )
@@ -65,7 +99,22 @@ const main = () => {
   }
   console.error('A notarized release cannot be built yet:\n')
   for (const problem of problems) console.error(`  - ${problem}`)
-  console.error('\ninternal/docs/releasing.md walks through every value.')
+
+  // Only when there is no credential at all. Printed against a certificate
+  // problem it reads as "your credentials were not recognised" to someone
+  // whose credentials are fine, and sends them to regenerate a working one.
+  if (notarizationCredentials(process.env).kind === null) {
+    console.error(
+      '\nApp-specific passwords are made at appleid.apple.com under Sign-In and Security;',
+    )
+    console.error(
+      'App Store Connect API keys at appstoreconnect.apple.com under Users and Access →',
+    )
+    console.error(
+      'Integrations. Prefer the API key: notarytool takes the password as an argument, so',
+    )
+    console.error('an app-specific password is readable from `ps` for the length of the build.')
+  }
   process.exit(1)
 }
 
