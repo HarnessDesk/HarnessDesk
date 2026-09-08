@@ -30,7 +30,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
-import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../review/lib/desk.mjs'
+import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../lib/desk.mjs'
 import { REPOS } from './cast.mjs'
 import { HOME, WORK } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'

@@ -28,7 +28,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
-import { Cdp } from './review/lib/desk.mjs'
+import { Cdp } from './lib/desk.mjs'
 
 const run = promisify(execFile)
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..')

@@ -109,12 +109,8 @@ step('node tests', () =>
 /* The gates' own parsers. `script/` had no test runner, so the two functions
    that decide what the layering check and the doc generator *see* were the
    only code in the repo that nothing could hold — and both were silently
-   wrong. Beside their subject, the way packages/desktop already does it.
-
-   The shipped skills are here for the same reason: `hd-multi-agent-review`
-   decides which reviewers actually posted, said 3/3 with one comment on the
-   pull request, and had nothing that could tell it otherwise. */
-step('gate tests', () => run('node', ['--test', 'script/*.test.mjs', 'script/review/lib/*.test.mjs']))
+   wrong. Beside their subject, the way packages/desktop already does it. */
+step('gate tests', () => run('node', ['--test', 'script/*.test.mjs']))
 step('ui typecheck', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'typecheck']))
 step('ui tests', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'test']))
 step('desktop tests', () => run('pnpm', ['--filter', '@harnessdesk/desktop', 'run', 'test']))

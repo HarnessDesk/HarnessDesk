@@ -18,8 +18,6 @@ internal/
 # Whatever an agent leaves in the checkout — worktrees, local commands, agent
 # configuration, and per-tool state: a port, a pid, and the key to a localhost
 # server that stopped existing when the process did. None of it is the product.
-# The repository's own review tooling is not an exception to this — it lives in
-# script/review, where the rest of the project's tooling is.
 .claude/
 .agents/
 .codex/

@@ -64,30 +64,15 @@ doc lands "later" is a feature the docs now lie about.
 **Nothing here is asked of you.** Open the pull request; the rest is the
 maintainers' side.
 
-Review is done by three agents from three vendors at once, using HarnessDesk
-itself — [script/review](script/review/SKILL.md) opens the app on the checkout,
-seats Claude Code, Codex and Cursor in one room, hands each the same brief, and
-each leaves one comment signed with its own name and version, so a month later
-the reviews can still be told apart.
+Review is done by three agents from three vendors at once, in HarnessDesk
+itself. A skill opens the app on the checkout, seats Claude Code, Codex and
+Cursor in one room, and hands all three the same brief. Each leaves one comment
+signed with its own name and model version.
 
-It is here because it is the product's own claim, executable: several agents at
-one piece of work, each one attributable. If you have those agents signed in
-and want a read before you open the PR, it is yours to run:
-
-```bash
-node script/review/review.mjs --dry-run 56
-```
-
-`--dry-run` resolves the targets, prints the plan and the exact brief, and
-launches nothing; drop it to run it, name several pull requests, or say `all`.
-With no target, it inspects the pull request open on the current branch.
-It needs the agents signed in, `gh`, and — if HarnessDesk is already open — a
-desk of its own (`--home`), because two hosts on one state directory is two
-writers on one set of rooms. `SKILL.md` in that folder is the reference.
-
-Its `lib/` is also where the repository's shared "drive the real app" code
-lives — the screenshots in the README, the GIF, the architecture diagram and
-the social card are all shot through it.
+So expect three reviews on your pull request, sometimes disagreeing with each
+other — that is the point rather than a malfunction, and the signature is what
+lets a reader tell a month later which agent said what. A human reads them and
+decides. Three agents agreeing is three opinions, not a merge.
 
 ## Writing documentation
 

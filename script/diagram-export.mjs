@@ -22,7 +22,7 @@ import { writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
-import { Cdp } from './review/lib/desk.mjs'
+import { Cdp } from './lib/desk.mjs'
 
 const run = promisify(execFile)
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -58,7 +58,7 @@ try {
   const page = list?.find((tab) => tab.type === 'page')
   if (!page) throw new Error('headless Chrome never offered a page target')
 
-  /* The repository already has a CDP client — `script/review/lib/desk.mjs` —
+  /* The repository already has a CDP client — `script/lib/desk.mjs` —
      with the timeouts and the event hook worked out. A second hand-rolled one
      here would be a second place for the same bugs. */
   cdp = await Cdp.open(page.webSocketDebuggerUrl)

@@ -46,7 +46,7 @@
     "clean": "tsc -b --clean && rm -rf packages/ui/dist",
     "typecheck": "tsc -b --noEmit && pnpm --filter @harnessdesk/ui run typecheck",
     "test": "pnpm run build:node && node --test --test-reporter=spec \"packages/*/dist/test/**/*.test.js\" && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
-    "test:gates": "node --test \"script/*.test.mjs\" \"script/review/lib/*.test.mjs\"",
+    "test:gates": "node --test \"script/*.test.mjs\"",
     "dev": "pnpm run build && pnpm --filter @harnessdesk/desktop run dev",
     "serve": "pnpm run build && node packages/server/dist/src/bin.js",
     "app": "pnpm run build && pnpm --filter @harnessdesk/desktop run start",

@@ -85,7 +85,7 @@ jobs:
       # regression in the checks themselves could merge while the local gate
       # stayed green.
       - name: Gate tests
-        run: node --test "script/*.test.mjs" "script/review/lib/*.test.mjs"
+        run: node --test "script/*.test.mjs"
 
       # Everything below this line was run by `pnpm verify` and not by CI, which
       # is the direction that fails silently: a check nobody runs on a pull

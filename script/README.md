@@ -54,17 +54,22 @@ These launch the real app against real agents and cost real tokens. Each opens
 its own throwaway desk rather than borrowing yours — none of them will touch
 the desk you work in.
 
+[`lib/desk.mjs`](lib/desk.mjs) is what they are all built on: launching a desk
+of its own, seating agents, driving rooms, and a CDP client. It is a library,
+not a command. Everything that has to talk to a running HarnessDesk imports it
+rather than growing a second copy — the screenshots, the README's GIF, the
+architecture diagram and the social card all go through it.
+
 | | |
 | --- | --- |
 | [`dsh-compare.mjs`](dsh-compare.mjs) | The same task twice — DeepSeek Harness over its own ACP server, and through HarnessDesk. |
 | [`shots/`](shots) | Screenshots and the README's GIF, off the real app against a seeded desk that is nobody's. |
-| [`review/`](review) | The multi-agent review skill: several agents at one diff, and the evidence rules that decide when a seat is finished. |
 | [`probe/`](probe) | One-off probes kept because reproducing them was the expensive part. |
 
 ## Tests
 
-`gates.test.mjs` and `review/lib/*.test.mjs` — run by `pnpm verify` and by CI
-under `node --test "script/*.test.mjs" "script/review/lib/*.test.mjs"`.
+`gates.test.mjs` — run by `pnpm verify` and by CI under
+`node --test "script/*.test.mjs"`.
 
 They test the **parsers**, which is where these scripts go wrong: a check that
 reads its input incorrectly passes loudly and proves nothing. Two of them have
