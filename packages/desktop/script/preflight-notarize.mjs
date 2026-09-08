@@ -65,7 +65,16 @@ const main = () => {
   }
   console.error('A notarized release cannot be built yet:\n')
   for (const problem of problems) console.error(`  - ${problem}`)
-  console.error('\ninternal/docs/releasing.md walks through every value.')
+  console.error(
+    '\nApp-specific passwords are made at appleid.apple.com under Sign-In and Security;',
+  )
+  console.error(
+    'App Store Connect API keys at appstoreconnect.apple.com under Users and Access →',
+  )
+  console.error(
+    'Integrations. Prefer the API key: notarytool takes the password as an argument, so',
+  )
+  console.error('an app-specific password is readable from `ps` for the length of the build.')
   process.exit(1)
 }
 

@@ -1,15 +1,17 @@
 # Working in this repository
 
 Read `docs/architecture.md` first — `docs/interface.md` if the work is
-user-facing — and `internal/docs/built.md` for what already shipped and why, which is
-the fastest way to find the reasoning behind a surface before changing it.
+user-facing — and `docs/decisions.md` for why a surface is the way it is, which
+is the fastest way to find the reasoning behind one before changing it.
+`CHANGELOG.md` says what has already shipped.
 Then take the work from the issue or the request that brought you here.
 
-Maintainers also keep a private `internal/PLAN.md` in the root checkout
-(gitignored, and a worktree does not carry one). It is a working file, not a
-contract you need: nothing in this repository depends on it, and a contributor
-never has to find it. Where it matters, its conclusions are written down in
-`docs/`, and the choices behind them in `docs/decisions.md`.
+Maintainers also keep private working files in the root checkout — `PLAN.md` and
+`docs/built.md` under `internal/` (gitignored, and a worktree does not carry
+them). They are working files, not a contract you need: nothing in this
+repository depends on them, and a contributor never has to find them. Where it
+matters, their conclusions are written down in `docs/`, and the choices behind
+them in `docs/decisions.md`.
 
 ## The rules that matter
 
