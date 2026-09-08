@@ -197,7 +197,9 @@ extend it, or understand it.
 
 ## Credits and licence
 
-MIT. Not affiliated with, endorsed by, or sponsored by OpenAI or DeepSeek.
+MIT. HarnessDesk is an independent project, not affiliated with, endorsed
+by, or sponsored by any of the vendors whose agents it drives. Their names
+and logos appear here to identify their software, and nothing more.
 
 Contributions start at [CONTRIBUTING.md](CONTRIBUTING.md); security reports
 take a private door, [SECURITY.md](SECURITY.md).
