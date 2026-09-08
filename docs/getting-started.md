@@ -321,8 +321,13 @@ pnpm dist
 `packages/desktop/release`. `notarize` is off, so the result is signed but
 Gatekeeper rejects it anywhere but the machine that built it — `pnpm --filter
 @harnessdesk/desktop run dist:notarized` is the same build with Apple credentials
-in the environment. For a local `.app` and nothing else, `pnpm --filter
-@harnessdesk/desktop run pack` skips the disk images and the second architecture.
+in the environment. That one goes further than electron-builder does: it also
+notarizes and staples the disk images themselves and repairs `latest-mac.yml` to
+match. electron-builder notarizes the `.app` and then builds a fresh DMG around
+it, so until that pass runs the DMG carries no ticket of its own and a first
+launch needs Apple to be reachable. For a local `.app` and nothing else, `pnpm
+--filter @harnessdesk/desktop run pack` skips the disk images and the second
+architecture.
 
 Root `pnpm dist` rebuilds every Node package and the production UI before
 packaging. `release/` is gitignored and `pnpm clean` does not touch it, so a
