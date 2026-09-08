@@ -123,7 +123,7 @@ jobs:
           path: |
             packages/desktop/release/*.dmg
             packages/desktop/release/*.zip
-            packages/desktop/release/*.blockmap
+            packages/desktop/release/*.zip.blockmap
             packages/desktop/release/latest-mac.yml
             packages/desktop/release/SHA256SUMS.txt
           retention-days: 14
@@ -136,12 +136,18 @@ jobs:
           name: HarnessDesk ${{ inputs.version }}
           generate_release_notes: true
           # `latest-mac.yml` is the file electron-updater actually fetches,
-          # and the blockmaps are what let it download a delta instead of
+          # and the zip blockmaps are what let it download a delta instead of
           # 150MB. Uploading the DMGs and zips without them publishes a
           # release the updater cannot read.
+          #
+          # Only the *zip* blockmaps: stapling rewrites each DMG after
+          # packaging has already measured it, so the DMG blockmaps describe
+          # bytes that no longer exist. `staple-dmgs.mjs` deletes them rather
+          # than leave a file that lies; this glob is the second guard, for a
+          # run where stapling did not happen.
           files: |
             packages/desktop/release/*.dmg
             packages/desktop/release/*.zip
-            packages/desktop/release/*.blockmap
+            packages/desktop/release/*.zip.blockmap
             packages/desktop/release/latest-mac.yml
             packages/desktop/release/SHA256SUMS.txt

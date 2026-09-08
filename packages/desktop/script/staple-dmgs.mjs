@@ -27,7 +27,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const RELEASE = 'release'
@@ -127,8 +127,12 @@ const main = () => {
   try {
     manifest = readFileSync(manifestPath, 'utf8')
   } catch {
-    console.log('\nNo latest-mac.yml to repair.')
-    return
+    // Fail closed. `latest-mac.yml` is the file electron-updater fetches and
+    // the workflow publishes it; a release without it is one the updater
+    // cannot read. Returning success here would ship exactly that, quietly.
+    console.error('\nrelease/latest-mac.yml is missing. The DMGs are stapled, but')
+    console.error('the manifest that describes them is not there to repair.')
+    process.exit(1)
   }
 
   console.log('\n=== repairing latest-mac.yml DMG hashes')
@@ -141,14 +145,41 @@ const main = () => {
       `(- url: ${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n\\s+sha512: )[^\\n]+(\\n\\s+size: )\\d+`,
     )
     if (!row.test(manifest)) {
-      console.log(`  ${name}: no row in manifest, skipped`)
-      continue
+      // Also fail closed: a DMG whose row cannot be found keeps the hash it
+      // had before stapling, and a green exit publishes a manifest that
+      // disagrees with the bytes. Regex drift shows up here first.
+      console.error(`  ${name}: no url/sha512/size row in latest-mac.yml.`)
+      console.error('  The manifest cannot be repaired, so the release would carry stale hashes.')
+      process.exit(1)
     }
     manifest = manifest.replace(row, `$1${hash}$2${size}`)
     console.log(`  ${name}: size ${size}`)
   }
   writeFileSync(manifestPath, manifest)
   console.log('\nlatest-mac.yml now matches the stapled DMGs.')
+
+  /*
+   * The DMG blockmaps describe the file as it was before any of this. They are
+   * written during packaging, and stapling adds roughly 11KB to each DMG, so
+   * every chunk boundary and the total size in them are now wrong. There is no
+   * way to repair one from here — the blockmap is electron-builder's own
+   * format, produced by its packaging step — so the choice is to ship a file
+   * that lies or to ship no file at all.
+   *
+   * Nothing loses a feature by their absence: electron-updater takes the
+   * `.zip` on macOS, and those are untouched by this script, so their
+   * blockmaps stay valid and differential updates keep working. A DMG is a
+   * thing a person downloads once, by hand.
+   */
+  for (const name of dmgs) {
+    const blockmap = join(RELEASE, `${name}.blockmap`)
+    try {
+      rmSync(blockmap)
+      console.log(`removed ${name}.blockmap — stapling invalidated it`)
+    } catch {
+      // Never written, or already gone. Either way there is nothing stale.
+    }
+  }
 }
 
 main()
