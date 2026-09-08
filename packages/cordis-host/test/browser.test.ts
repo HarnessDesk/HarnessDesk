@@ -593,3 +593,27 @@ test('a name the browser really has not got is refused with the names it has', a
   assert.match(said, /Unknown key "Spacebar"/)
   assert.match(said, /, space, or a single character\.$/)
 })
+
+test('a modifier turns a named key into a shortcut, and folding its case does not', async (t) => {
+  const { engine, calls } = eventingEngine()
+  const { result } = await runProbe(t, engine, async (browser) => {
+    await browser.key('enter')
+    await browser.key('space', 1, ['Shift'])
+    return null
+  })
+  assert.equal(result.ok, true)
+  const keys = calls.filter((call) => call.method === 'Input.dispatchKeyEvent')
+
+  // Case folding must not cost the `char` event, which is the half of Enter
+  // that a form submits on. The guard reads the key the table holds now
+  // rather than the word the caller typed, and `enter` is that word.
+  assert.deepEqual(keys.slice(0, 3).map((call) => call.params?.['type']), ['rawKeyDown', 'char', 'keyUp'])
+  assert.equal(keys[0]?.params?.['key'], 'Enter')
+  assert.equal(keys[1]?.params?.['text'], '\r')
+
+  // Held with a modifier the same key is a shortcut, and a shortcut inserts
+  // nothing: ⇧Space scrolls a page, it does not type into it.
+  assert.deepEqual(keys.slice(3).map((call) => call.params?.['type']), ['rawKeyDown', 'keyUp'])
+  assert.equal(keys[3]?.params?.['key'], ' ')
+  assert.equal(keys[3]?.params?.['modifiers'], 8)
+})

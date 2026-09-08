@@ -107,7 +107,8 @@ test('browser_key offers the agent exactly the keys the browser will take', () =
   // message is what it reads after the first failure, so the two are one
   // promise made twice. Both used to name `space` and neither could press
   // it, which left the retry — read the message, use the name it gives —
-  // looping on the same word. The names come from `ctx.browser` now.
+  // looping on the same word. The description is still written by hand —
+  // this is what holds it to the keys `ctx.browser` has.
   const description = withBrowser({}).get('browser_key')!.description ?? ''
   const offered = /use (.+), or a single character\./.exec(description)?.[1]?.split(', ') ?? []
   assert.ok(
