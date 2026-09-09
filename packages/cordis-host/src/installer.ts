@@ -8,9 +8,11 @@ import { promisify } from 'node:util'
 import type { PluginSource } from '@harnessdesk/protocol'
 
 import type { HarnessPlugin } from './kernel.js'
+import { pathWithin } from './permissions.js'
 import {
   MANIFEST_FILENAME,
   ManifestError,
+  isPluginId,
   parseManifest,
   type PluginPackage,
 } from './manifest.js'
@@ -158,10 +160,28 @@ export const install = async (specifier: string): Promise<InstalledPlugin> => {
 }
 
 export const uninstall = async (id: string): Promise<void> => {
-  const target = join(pluginsRoot(), id)
-  // Guard against an id that escapes the plugins directory.
-  if (!target.startsWith(pluginsRoot())) {
+  const root = pluginsRoot()
+  const target = resolve(join(root, id))
+  /* Two ways an id takes more than the plugin it names, and the old guard —
+     a bare `startsWith` with no separator between the two — admitted both.
+     An id of "", "." or "demo/.." resolves to the plugins directory itself,
+     and `rm` with `recursive` on that removes every installed plugin; an id
+     of "../plugins-backup/x" lands beside it, which is a prefix of the root
+     as a string and outside it as a path. */
+  if (target === resolve(root)) {
+    throw new InstallError(
+      `Refusing to remove ${target}: that is the plugins directory itself, not an installed plugin`,
+    )
+  }
+  if (!pathWithin(root, target)) {
     throw new InstallError(`Refusing to remove ${target}: outside the plugins directory`)
+  }
+  /* Containment is necessary and not sufficient: `sample/../other` stays inside
+     the plugins root and still removes a plugin the caller did not name. An id
+     is a single directory name — the manifest has always said so — so the
+     traversal is refused on that ground. */
+  if (!isPluginId(id)) {
+    throw new InstallError(`Refusing to remove ${target}: "${id}" is not a plugin id`)
   }
   await rm(target, { recursive: true, force: true })
 }
@@ -184,7 +204,7 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
   }
   const pkg = await readManifestAt(directory, source)
   const entry = resolve(directory, pkg.entry)
-  if (!entry.startsWith(resolve(directory))) {
+  if (!pathWithin(directory, entry)) {
     throw new InstallError(`${pkg.manifest.id} points outside its own directory`)
   }
 

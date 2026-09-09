@@ -73,6 +73,15 @@ export const readPermissions = (value: unknown): PluginPermissions => {
 /** A plugin id has to be safe as a directory name and as a tool namespace. */
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
 
+/**
+ * Whether a string is a plugin id.
+ *
+ * Exported because `uninstall` needs the same answer: an id is a single
+ * directory name, so anything carrying a separator or a dot segment is not one,
+ * however the path it builds happens to resolve.
+ */
+export const isPluginId = (value: string): boolean => ID_PATTERN.test(value)
+
 export const parseManifest = (
   raw: unknown,
   context: { path: string; directory: string; source: PluginSource },

@@ -32,6 +32,20 @@ test('path containment rejects lookalike siblings and escapes', () => {
   assert.equal(pathWithin('/work', '/etc/passwd'), false)
 })
 
+test('path containment resolves before comparing, so `..` cannot walk out', () => {
+  // The doc comment on `pathWithin` promises this: "Resolution happens before
+  // comparison so `..` cannot walk out". A bare prefix test cannot keep that
+  // promise, because the escape is spelled inside the prefix.
+  assert.equal(pathWithin('/work', '/work/../etc/passwd'), false)
+  assert.equal(pathWithin('/work', '/work/sub/../../etc/passwd'), false)
+  assert.equal(pathWithin('/work', '/work/./../work-other/a.ts'), false)
+  // A `..` that stays inside is still inside.
+  assert.equal(pathWithin('/work', '/work/sub/../ok.ts'), true)
+  // A root given with a trailing separator means the same root.
+  assert.equal(pathWithin('/work/', '/work/a.ts'), true)
+  assert.equal(pathWithin('/work/', '/workspace/a.ts'), false)
+})
+
 test('a plugin without workspace permission cannot read the workspace', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

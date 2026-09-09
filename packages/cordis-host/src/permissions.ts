@@ -1,3 +1,5 @@
+import { resolve, sep } from 'node:path'
+
 import type { PluginPermissions } from '@harnessdesk/protocol'
 
 /**
@@ -44,8 +46,14 @@ export const hostAllowed = (allowed: readonly string[], host: string): boolean =
  * separator check stops `/work` from matching `/workspace`.
  */
 export const pathWithin = (root: string, path: string): boolean => {
-  const base = root.endsWith('/') ? root : `${root}/`
-  return path === root || path.startsWith(base)
+  /* Resolution is the half that was missing, and it is the half that matters:
+     `/work/../etc/passwd` carries the prefix `/work/` and is not in `/work`.
+     A string test cannot see that, because the escape is spelled *inside* the
+     prefix it is being tested against. */
+  const base = resolve(root)
+  const target = resolve(path)
+  if (target === base) return true
+  return target.startsWith(base.endsWith(sep) ? base : `${base}${sep}`)
 }
 
 export class PermissionGate {

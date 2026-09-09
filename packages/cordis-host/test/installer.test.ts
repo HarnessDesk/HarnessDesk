@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import {
   ExtensionKernel,
+  MANIFEST_FILENAME,
   ManifestError,
   describePermissions,
   install,
@@ -247,3 +248,73 @@ test('the installed copy remembers where it came from, and updates reload fresh 
   await assert.rejects(install(installed.directory), /already the installed copy/)
   await kernel.dispose()
 })
+
+// ------------------------------------------------------- uninstall's guard
+
+test('uninstall refuses an id that resolves to the plugins directory itself', async (t) => {
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  assert.equal((await listInstalled()).length, 1, 'installed to begin with')
+
+  // Each of these makes `join(pluginsRoot(), id)` equal the plugins root, which
+  // the old guard admitted — and `rm(recursive)` on the root takes every
+  // installed plugin, not the one asked for.
+  for (const id of ['', '.', './', 'demo/..']) {
+    await assert.rejects(() => uninstall(id), /not an installed plugin/i, `uninstall(${JSON.stringify(id)})`)
+  }
+  assert.equal((await listInstalled()).length, 1, 'nothing was removed')
+  await rm(join(root, 'unused'), { recursive: true, force: true })
+})
+
+test('uninstall refuses an id that escapes the plugins directory', async (t) => {
+  const root = await withPluginsRoot(t)
+  // A sibling whose path merely *starts with* the plugins root: the old guard
+  // compared strings with no separator between them, so `<root>-backup` passed.
+  const sibling = `${root}-backup`
+  const witness = join(sibling, 'victim', 'keep.txt')
+  await mkdir(dirname(witness), { recursive: true })
+  await writeFile(witness, 'untouched', 'utf8')
+  t.after(() => rm(sibling, { recursive: true, force: true }))
+
+  await assert.rejects(() => uninstall(`../${basename(sibling)}/victim`), /outside the plugins directory/i)
+  await assert.rejects(() => uninstall('../..'), /outside the plugins directory/i)
+
+  // Read the witness back rather than asking whether the directory exists:
+  // `mkdir(recursive)` succeeds either way, so it can never fail and proves
+  // nothing. The file's *contents* only survive if nothing removed the tree.
+  assert.equal(await readFile(witness, 'utf8'), 'untouched', 'the sibling survived intact')
+})
+
+test('uninstall refuses an id that traverses to another plugin', async (t) => {
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  await mkdir(join(root, 'other'), { recursive: true })
+  await writeFile(join(root, 'other', 'keep.txt'), 'untouched', 'utf8')
+
+  /* `sample/../other` stays inside the plugins root, so containment admits it —
+     and it removes a plugin the caller did not name. An id is a directory name,
+     not a path, so the traversal is refused on that ground rather than on
+     containment. */
+  await assert.rejects(() => uninstall('sample/../other'), /plugin id|not an installed plugin|separator/i)
+  assert.equal(await readFile(join(root, 'other', 'keep.txt'), 'utf8'), 'untouched', 'the other plugin survived')
+})
+
+test('an installed plugin cannot point its entry at a lookalike sibling directory', async (t) => {
+  const root = await withPluginsRoot(t)
+  // `<root>/demo-ext` starts with `<root>/demo` as a string and is a different
+  // directory as a path — the same mistake `uninstall` had, one function down.
+  await mkdir(join(root, 'demo-ext'), { recursive: true })
+  await writeFile(join(root, 'demo-ext', 'outside.js'), 'export const plugin = { name: "outside" }\n', 'utf8')
+  await mkdir(join(root, 'demo'), { recursive: true })
+  await writeFile(
+    join(root, 'demo', MANIFEST_FILENAME),
+    // Absolute, so it carries no `..` — the manifest's own escape check is a
+    // textual `entry.includes('..')` and passes this straight through to the
+    // containment guard below it, which is the one under test.
+    JSON.stringify({ id: 'demo', name: 'Demo', version: '1.0.0', main: join(root, 'demo-ext', 'outside.js') }),
+    'utf8',
+  )
+
+  await assert.rejects(() => loadInstalled(join(root, 'demo')), /points outside its own directory/)
+})
+

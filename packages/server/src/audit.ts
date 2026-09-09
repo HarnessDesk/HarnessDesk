@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { pathWithin } from '@harnessdesk/cordis-host'
 import type { AgentEvent, RuntimeId } from '@harnessdesk/protocol'
 
 /**
@@ -144,10 +145,14 @@ export class AuditLog {
         continue
       }
       if (entry.at < cutoff) continue
-      if (options.root && entry.cwd !== undefined) {
-        if (entry.cwd !== options.root && !entry.cwd.startsWith(`${options.root}/`)) continue
-      } else if (options.root && entry.cwd === undefined) {
-        continue
+      /* One containment test, shared with the plugin gate. Spelled out here as
+         string arithmetic it was wrong twice over: `${root}/` doubles the
+         separator when the caller passes a root that already ends in one, and
+         a cwd is not compared after resolution, so `/repo/../etc` counted as
+         inside `/repo`. */
+      if (options.root) {
+        if (entry.cwd === undefined) continue
+        if (!pathWithin(options.root, entry.cwd)) continue
       }
       out.push(entry)
     }
