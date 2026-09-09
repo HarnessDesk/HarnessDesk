@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 
-import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent, splitSessionKey } from '@harnessdesk/protocol'
 
 import { Btn, Dialog, Input } from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
@@ -514,13 +514,22 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     // Context chips resolve through their plugin now, with the workspace the
     // message is about. A chip that cannot resolve stops the send: a message
     // silently missing the context it promised would mislead the agent.
+    const addressed = snapshot.activeSessionKey ? splitSessionKey(snapshot.activeSessionKey) : null
     for (const chip of attachments.filter((entry) => entry.kind === 'context')) {
       try {
         const resolved = await store.transport.request('context/resolve', {
           id: chip.contextId ?? '',
           ...(chip.ref ? { ref: chip.ref } : {}),
-          ...(snapshot.activeRuntime ? { runtime: snapshot.activeRuntime } : {}),
-          ...(session?.id ? { sessionId: session.id } : {}),
+          // Runtime and conversation have to come from one place. `activeRuntime`
+          // is the app's idea of which agent a *new* conversation would run as;
+          // the focused pane may hold a conversation belonging to a different
+          // one, and pairing the two asks about a conversation that does not
+          // exist. `Sidebar.tsx` derives it from the key for the same reason.
+          ...(addressed
+            ? { runtime: addressed.runtime, sessionId: addressed.id }
+            : snapshot.activeRuntime
+              ? { runtime: snapshot.activeRuntime }
+              : {}),
           ...(snapshot.workspace?.path ? { workspaceRoot: snapshot.workspace.path } : {}),
         })
         // An image provider (a screenshot chip) resolves to a picture where

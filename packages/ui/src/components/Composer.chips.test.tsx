@@ -62,7 +62,7 @@ const queue = vi.fn(async (_content: unknown, _key?: unknown) => true)
 const notice = vi.fn()
 const request = vi.fn(async () => RESOLVED)
 
-const mount = (imageInput: boolean): void => {
+const mount = (imageInput: boolean, activeRuntime?: string): void => {
   const runtime = {
     id: 'alpha',
     name: 'Alpha Agent',
@@ -82,7 +82,7 @@ const mount = (imageInput: boolean): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime],
-    activeRuntime: runtime.id,
+    activeRuntime: (activeRuntime ?? runtime.id) as AppSnapshot['activeRuntime'],
     health: { state: 'ready' } as AppSnapshot['health'],
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
     sessions: new Map([[KEY, session]]),
@@ -170,3 +170,31 @@ describe('a chip that resolves to an image', () => {
     expect(content[0]?.text).toContain('A screenshot was taken, but Alpha does not accept images')
   })
 })
+
+describe('which conversation a chip is resolved for', () => {
+  it('pairs the runtime and the session id from the same conversation', async () => {
+    mount(true)
+    attachShot()
+    await send()
+    expect(request).toHaveBeenCalledWith(
+      'context/resolve',
+      expect.objectContaining({ id: 'ctx-shot', runtime: 'alpha', sessionId: 's1' }),
+    )
+  })
+
+  it("does not pair the app's active runtime with another agent's conversation", async () => {
+    // Opening a conversation from the sidebar does not change the app's active
+    // runtime, so the two genuinely disagree — `Sidebar.tsx` derives the agent
+    // from the focused key for exactly this reason. A provider that keys its
+    // state by runtime and session would be asked about a conversation that
+    // never existed: `beta\0s1` where the work was recorded under `alpha\0s1`.
+    mount(true, 'beta')
+    attachShot()
+    await send()
+    expect(request).toHaveBeenCalledWith(
+      'context/resolve',
+      expect.objectContaining({ runtime: 'alpha', sessionId: 's1' }),
+    )
+  })
+})
+
