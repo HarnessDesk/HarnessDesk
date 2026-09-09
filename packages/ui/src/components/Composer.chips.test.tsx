@@ -11,7 +11,7 @@ import {
   type Session,
 } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
 
@@ -62,7 +62,7 @@ const queue = vi.fn(async (_content: unknown, _key?: unknown) => true)
 const notice = vi.fn()
 const request = vi.fn(async () => RESOLVED)
 
-const mount = (imageInput: boolean): void => {
+const mount = (imageInput: boolean, activeRuntime?: string): void => {
   const runtime = {
     id: 'alpha',
     name: 'Alpha Agent',
@@ -82,7 +82,7 @@ const mount = (imageInput: boolean): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime],
-    activeRuntime: runtime.id,
+    activeRuntime: (activeRuntime ?? runtime.id) as AppSnapshot['activeRuntime'],
     health: { state: 'ready' } as AppSnapshot['health'],
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
     sessions: new Map([[KEY, session]]),
@@ -170,3 +170,104 @@ describe('a chip that resolves to an image', () => {
     expect(content[0]?.text).toContain('A screenshot was taken, but Alpha does not accept images')
   })
 })
+
+describe('which conversation a chip is resolved for', () => {
+  it('pairs the runtime and the session id from the same conversation', async () => {
+    mount(true)
+    attachShot()
+    await send()
+    expect(request).toHaveBeenCalledWith(
+      'context/resolve',
+      expect.objectContaining({ id: 'ctx-shot', runtime: 'alpha', sessionId: 's1' }),
+    )
+  })
+
+  it("does not pair the app's active runtime with another agent's conversation", async () => {
+    // Opening a conversation from the sidebar does not change the app's active
+    // runtime, so the two genuinely disagree — `Sidebar.tsx` derives the agent
+    // from the focused key for exactly this reason. A provider that keys its
+    // state by runtime and session would be asked about a conversation that
+    // never existed: `beta\0s1` where the work was recorded under `alpha\0s1`.
+    mount(true, 'beta')
+    attachShot()
+    await send()
+    expect(request).toHaveBeenCalledWith(
+      'context/resolve',
+      expect.objectContaining({ runtime: 'alpha', sessionId: 's1' }),
+    )
+  })
+})
+
+describe('a composer in a pane of its own', () => {
+  /**
+   * A split, a docked conversation, a room column: this composer belongs to one
+   * conversation and the app's focused one may be another. `activeSessionKey`
+   * even falls back to a *different* pane's key when this pane holds a draft,
+   * so a chip resolved against it describes a conversation the message is not
+   * going to — and its text would be baked into the first turn of a new one.
+   */
+  const mountInPane = (paneSessionKey: ReturnType<typeof sessionKey> | null): void => {
+    const runtimes = [
+      { id: 'alpha', name: 'Alpha Agent', capabilities: { steer: false, imageInput: true }, presentation: { name: 'Alpha Agent' } },
+      { id: 'beta', name: 'Beta Agent', capabilities: { steer: false, imageInput: true }, presentation: { name: 'Beta Agent' } },
+    ] as unknown as RuntimeInfo[]
+    const make = (id: string, runtime: string): Session =>
+      ({ id, runtime, cwd: '/w', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }) as unknown as Session
+    const other = sessionKey('beta', 's2')
+    const snapshot: AppSnapshot = {
+      ...emptySnapshot(),
+      runtimes,
+      activeRuntime: 'alpha' as AppSnapshot['activeRuntime'],
+      health: { state: 'ready' } as AppSnapshot['health'],
+      workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
+      sessions: new Map([
+        [KEY, make('s1', 'alpha')],
+        [other, make('s2', 'beta')],
+      ]),
+      activeSessionKey: KEY, // the app is focused on alpha/s1 …
+      contributions: [SHOT],
+    }
+    const store = {
+      subscribe: () => () => {},
+      getSnapshot: () => snapshot,
+      transport: { request },
+      queue,
+      steer: vi.fn(),
+      send: vi.fn(),
+      interrupt: vi.fn(),
+      notice,
+      runCommand: vi.fn(async () => true),
+    } as unknown as AppStore
+    act(() => {
+      root.render(
+        <StoreProvider store={store}>
+          {/* … while this composer's pane holds beta/s2 */}
+          <PaneProvider scope={{ paneId: 'p2', view: { kind: 'conversation' }, sessionKey: paneSessionKey } as never}>
+            <Composer onChooseProject={() => {}} />
+          </PaneProvider>
+        </StoreProvider>,
+      )
+    })
+  }
+
+  it("resolves a chip for its own pane's conversation, not the app's focused one", async () => {
+    mountInPane(sessionKey('beta', 's2'))
+    attachShot()
+    await send()
+    expect(request).toHaveBeenCalledWith(
+      'context/resolve',
+      expect.objectContaining({ runtime: 'beta', sessionId: 's2' }),
+    )
+  })
+
+  it('sends no conversation at all when its pane holds a draft', async () => {
+    // The dangerous case: `activeSessionKey` falls back to another pane's key,
+    // so a draft would otherwise resolve against a conversation it is not.
+    mountInPane(null)
+    attachShot()
+    await send()
+    const [, params] = request.mock.lastCall as unknown as [string, Record<string, unknown>]
+    expect(params['sessionId']).toBeUndefined()
+  })
+})
+

@@ -87,6 +87,7 @@ export const pluginMethods = {
     }
     const resolved = await ctx.extensions().resolveOne(params.id as ContributionId, params.ref, {
       ...(params.runtime ? { runtime: params.runtime } : {}),
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
       ...(params.workspaceRoot ? { workspaceRoot: params.workspaceRoot } : {}),
     })
     if (!resolved) throw new Error('That context provider is no longer available.')
