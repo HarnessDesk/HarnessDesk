@@ -438,22 +438,26 @@ test('two clients both see the same event stream', async (t) => {
   await a.until(() => a.events.some((event) => event.type === 'item/delta'))
   await b.until(() => b.events.some((event) => event.type === 'item/delta'))
 
-  /* "The same event stream" is not "each of them saw one event". Two `some`
+  /* Finish the turn rather than compare mid-flight. `FakeSession` emits its
+     four events synchronously and then waits — turns do not complete on their
+     own, which is why every other test in this file calls `finish()`. An
+     earlier version of this test guessed at a racing tail instead and compared
+     a prefix, which left the whole completion half unverified. */
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+  live.finish()
+  await a.until(() => a.events.some((event) => event.type === 'turn/completed'))
+  await b.until(() => b.events.some((event) => event.type === 'turn/completed'))
+
+  /* "The same event stream" is not "each of them saw one event": two `some`
      checks pass on a host that answers whoever asked and dribbles a single
-     delta to everyone else; what this test is named for is that a client which
-     sent nothing can rebuild the same conversation as the one that did. So the
-     sequences are compared in order.
-     Up to the first delta rather than whole: the tail is still arriving, and a
-     comparison of two live arrays is a race that would fail on a slow machine
-     for no reason. That prefix is the whole of what one turn broadcasts so
-     far — five events — which is enough to tell a fan-out from a dribble. */
-  const upToFirstDelta = (events: readonly AgentEvent[]): string[] => {
-    const at = events.findIndex((event) => event.type === 'item/delta')
-    return events.slice(0, at + 1).map((event) => event.type)
-  }
-  const seenByA = upToFirstDelta(a.events)
-  assert.deepEqual(upToFirstDelta(b.events), seenByA)
-  assert.deepEqual(seenByA, ['session/started', 'turn/started', 'item/started', 'item/started', 'item/delta'])
+     delta to everyone else. The streams are compared whole and by value — ids,
+     turn ids and delta text included — because a client that sent nothing has
+     to be able to rebuild the same conversation as the one that did. */
+  assert.deepEqual(b.events, a.events)
+  assert.deepEqual(
+    a.events.map((event) => event.type),
+    ['session/started', 'turn/started', 'item/started', 'item/started', 'item/delta', 'turn/completed'],
+  )
 })
 
 /**

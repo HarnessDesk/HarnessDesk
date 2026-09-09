@@ -453,10 +453,23 @@ test('declining an approval is carried through to the runtime', async (t) => {
   )
   assert.deepEqual(resolved?.resolution, { outcome: 'decided', decision: { type: 'option', optionId: deny!.id } })
 
+  /* Completion *and* output. A regression that streams the command's output
+     without ever completing its item would leave a "no completed command"
+     check green while the command had plainly run. */
+  const commandItems = new Set(
+    tape.events
+      .filter((event) => event.type === 'item/started' && event.item.type === 'command')
+      .map((event) => (event as Extract<AgentEvent, { type: 'item/started' }>).item.id),
+  )
   const ranTheCommand = tape.events.some(
-    (event) => event.type === 'item/completed' && event.item.type === 'command',
+    (event) =>
+      (event.type === 'item/completed' && event.item.type === 'command') ||
+      (event.type === 'item/delta' && commandItems.has(event.itemId)),
   )
   assert.equal(ranTheCommand, false, 'declining must not run the command it asked about')
+  // The command item *is* started — that is how the runtime says what it wants
+  // to run. Started is not run; output and completion are.
+  assert.ok(commandItems.size > 0, 'the command was proposed, so there is something to have declined')
 })
 
 test('answering an unknown approval fails loudly rather than silently', async (t) => {
