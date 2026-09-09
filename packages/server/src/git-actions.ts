@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { parsePorcelain } from './porcelain.js'
+
 /**
  * The verbs a git client owes its toolbar and its context menus — commit,
  * pull, push, fetch, merge, rebase, reset, revert, cherry-pick, tags,
@@ -98,14 +100,16 @@ const literal = (path: string): string => {
 /** The paths a merge-like verb left conflicted, straight from status. */
 const conflictedFiles = async (root: string): Promise<string[]> => {
   const out = await git(root, ['status', '--porcelain=v1', '-z'])
-  return out
-    .split('\0')
-    .filter((line) => line.length > 3)
-    .filter((line) => {
-      const xy = line.slice(0, 2)
+  /* Through the shared reader, so a copy's origin is never tested as a status
+     record. Split by hand it was: an origin named `Utils.ts` has `Ut` in its
+     first two characters, which `includes('U')` reads as a conflict, and the
+     path reported for it is `ls.ts`. */
+  return parsePorcelain(out)
+    .filter((entry) => {
+      const xy = `${entry.index}${entry.worktree}`
       return xy.includes('U') || xy === 'AA' || xy === 'DD'
     })
-    .map((line) => line.slice(3))
+    .map((entry) => entry.path)
 }
 
 const currentBranch = async (root: string): Promise<string | null> => {
@@ -153,19 +157,17 @@ const treeState = async (
   root: string,
 ): Promise<{ renames: Map<string, string>; untracked: Set<string> }> => {
   const out = await git(root, ['status', '--porcelain=v1', '-z'])
-  const fields = out.split('\0')
   const renames = new Map<string, string>()
   const untracked = new Set<string>()
-  for (let index = 0; index < fields.length; index += 1) {
-    const entry = fields[index]
-    if (!entry || entry.length < 4) continue
-    if (entry.startsWith('??')) untracked.add(entry.slice(3))
-    // `-z` rename records are `XY to`, then the origin as its own field.
-    if (entry[0] === 'R' || entry[0] === 'C') {
-      const from = fields[index + 1]
-      if (from && from.length > 0) renames.set(entry.slice(3), from)
-      index += 1
-    }
+  for (const entry of parsePorcelain(out)) {
+    if (entry.index === '?' && entry.worktree === '?') untracked.add(entry.path)
+    /* Renames only. `commitAll` widens a chosen path to include what it came
+       from, because committing a rename without its origin leaves the deletion
+       behind — and the comment there says why: intent-to-add refuses a path
+       that no longer exists, "which is exactly what a rename's origin is". A
+       copy's origin does still exist, so widening to it would commit changes
+       in a file the user did not choose. */
+    if (entry.index === 'R' && entry.origin) renames.set(entry.path, entry.origin)
   }
   return { renames, untracked }
 }
