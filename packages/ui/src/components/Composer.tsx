@@ -514,7 +514,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     // Context chips resolve through their plugin now, with the workspace the
     // message is about. A chip that cannot resolve stops the send: a message
     // silently missing the context it promised would mislead the agent.
-    const addressed = snapshot.activeSessionKey ? splitSessionKey(snapshot.activeSessionKey) : null
+    /* `key`, not `snapshot.activeSessionKey`: this composer belongs to a pane,
+       and in a split or a room column the app's focused conversation is a
+       different one — `activeSessionKey` even falls back to *another* pane's
+       when this pane holds a draft. Everything else here (`steer`, `queue`,
+       `interrupt`, `retirePlanEdits`) is addressed with `key`; a chip resolved
+       against anything else describes a conversation the message is not going
+       to. */
+    const addressed = key ? splitSessionKey(key) : null
     for (const chip of attachments.filter((entry) => entry.kind === 'context')) {
       try {
         const resolved = await store.transport.request('context/resolve', {
