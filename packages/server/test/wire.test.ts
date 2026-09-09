@@ -438,11 +438,14 @@ test('two clients both see the same event stream', async (t) => {
   await a.until(() => a.events.some((event) => event.type === 'item/delta'))
   await b.until(() => b.events.some((event) => event.type === 'item/delta'))
 
-  /* Finish the turn rather than compare mid-flight. `FakeSession` emits its
-     four events synchronously and then waits — turns do not complete on their
-     own, which is why every other test in this file calls `finish()`. An
-     earlier version of this test guessed at a racing tail instead and compared
-     a prefix, which left the whole completion half unverified. */
+  /* Finish the turn rather than compare mid-flight. `FakeSession.send` emits
+     its four events synchronously and then waits: a turn completes when
+     something completes it, and `finish()` is that something — six tests in
+     this file use it. (Not all of them: most never take a turn past its
+     delta, and one ends its turn with `turn/interrupt` instead.)
+
+     An earlier version of this test asserted a racing tail that does not
+     exist, and compared a prefix to work around it. */
   const live = harness.runtime.sessions.get(session.id) as FakeSession
   live.finish()
   await a.until(() => a.events.some((event) => event.type === 'turn/completed'))
@@ -454,6 +457,8 @@ test('two clients both see the same event stream', async (t) => {
      turn ids and delta text included — because a client that sent nothing has
      to be able to rebuild the same conversation as the one that did. */
   assert.deepEqual(b.events, a.events)
+  /* The exact sequence, which also pins that nothing follows the completion:
+     an equality against six named types fails if a seventh event arrives. */
   assert.deepEqual(
     a.events.map((event) => event.type),
     ['session/started', 'turn/started', 'item/started', 'item/started', 'item/delta', 'turn/completed'],
