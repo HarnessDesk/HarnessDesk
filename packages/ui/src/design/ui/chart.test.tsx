@@ -249,7 +249,19 @@ describe('tintsFor', () => {
 
   it('is stable for the same set, so a chart does not re-colour on a refresh', () => {
     const keys = ['claude', 'codex', 'cursor']
+    // Two calls compared to each other. This reads like a tautology and is not
+    // one: `tintsFor` is only pure by construction, and the assignment walks a
+    // shared `taken` set. Hoist that set out of the function and this line
+    // fails — which is the whole class of bug "does not re-colour" is about.
     expect(tintsFor(keys)).toEqual(tintsFor(keys))
+
+    // What two adjacent calls cannot see: state that survives *other* sets
+    // being drawn between them, which is what a refresh actually looks like
+    // when several charts share the module.
+    const first = tintsFor(keys)
+    tintsFor(['alpha', 'beta', 'gamma', 'delta', 'epsilon'])
+    tintsFor(['claude'])
+    expect(tintsFor(keys)).toEqual(first)
   })
 
   it('gives a member the same hue however the caller sorted the set', () => {

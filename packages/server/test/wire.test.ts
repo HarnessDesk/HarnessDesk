@@ -437,6 +437,41 @@ test('two clients both see the same event stream', async (t) => {
 
   await a.until(() => a.events.some((event) => event.type === 'item/delta'))
   await b.until(() => b.events.some((event) => event.type === 'item/delta'))
+
+  /* Finish the turn rather than compare mid-flight. `FakeSession.send` emits
+     its four events synchronously and then waits: a turn completes when
+     something completes it, and `live.finish()` is that something. Five tests
+     in this file call it, four of them before this one; of the other 36, most
+     never take a turn past its delta and one ends with `turn/interrupt`.
+
+     The five above was wrong twice before it was right, both times from
+     counting the bare string: a comment that mentions a call is counted as a
+     call, so the sentence changes the number it reports — and then the
+     sentence correcting it did the same. No unanchored count is quoted here
+     for that reason, including the wrong ones. The check that cannot count
+     itself matches a statement:
+
+         grep -cE '^\s*live\.finish\(\)\s*$' packages/server/test/wire.test.ts
+
+     An earlier version of this test asserted a racing tail that does not
+     exist, and compared a prefix to work around it. */
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+  live.finish()
+  await a.until(() => a.events.some((event) => event.type === 'turn/completed'))
+  await b.until(() => b.events.some((event) => event.type === 'turn/completed'))
+
+  /* "The same event stream" is not "each of them saw one event": two `some`
+     checks pass on a host that answers whoever asked and dribbles a single
+     delta to everyone else. The streams are compared whole and by value — ids,
+     turn ids and delta text included — because a client that sent nothing has
+     to be able to rebuild the same conversation as the one that did. */
+  assert.deepEqual(b.events, a.events)
+  /* The exact sequence, which also pins that nothing follows the completion:
+     an equality against six named types fails if a seventh event arrives. */
+  assert.deepEqual(
+    a.events.map((event) => event.type),
+    ['session/started', 'turn/started', 'item/started', 'item/started', 'item/delta', 'turn/completed'],
+  )
 })
 
 /**

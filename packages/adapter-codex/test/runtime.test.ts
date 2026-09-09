@@ -436,10 +436,44 @@ test('declining an approval is carried through to the runtime', async (t) => {
   )
   const approval = requested!.approval
   const deny = approval.type === 'command' ? approval.options.find((o) => o.intent === 'deny') : undefined
-  await session.respondToApproval(approval.id, { type: 'option', optionId: deny!.id })
+  // Asserted rather than `deny!`: if the fixture ever stops offering a deny
+  // option this should read as "there was nothing to decline", not as a
+  // TypeError on a line that looks unrelated.
+  assert.ok(deny, 'the command approval offers a way to decline')
+  await session.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
 
   await tape.until((events) => events.some((event) => event.type === 'approval/resolved'))
   await tape.until((events) => events.some((event) => event.type === 'turn/completed'))
+
+  /* Waiting for those two proves nothing on its own: an *approval* produces
+     both. What "carried through to the runtime" means is that the command did
+     not run — the fake answers an approval by streaming `ls -la` output and
+     completing the item, and a decline by completing the turn with nothing in
+     it. So the decision is checked where it landed, and the absence of the
+     work is checked beside it. */
+  const resolved = tape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/resolved' }> =>
+      event.type === 'approval/resolved',
+  )
+  assert.deepEqual(resolved?.resolution, { outcome: 'decided', decision: { type: 'option', optionId: deny.id } })
+
+  /* Completion *and* output. A regression that streams the command's output
+     without ever completing its item would leave a "no completed command"
+     check green while the command had plainly run. */
+  const commandItems = new Set(
+    tape.events
+      .filter((event) => event.type === 'item/started' && event.item.type === 'command')
+      .map((event) => (event as Extract<AgentEvent, { type: 'item/started' }>).item.id),
+  )
+  const ranTheCommand = tape.events.some(
+    (event) =>
+      (event.type === 'item/completed' && event.item.type === 'command') ||
+      (event.type === 'item/delta' && commandItems.has(event.itemId)),
+  )
+  assert.equal(ranTheCommand, false, 'declining must not run the command it asked about')
+  // The command item *is* started — that is how the runtime says what it wants
+  // to run. Started is not run; output and completion are.
+  assert.ok(commandItems.size > 0, 'the command was proposed, so there is something to have declined')
 })
 
 test('answering an unknown approval fails loudly rather than silently', async (t) => {
