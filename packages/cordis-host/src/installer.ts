@@ -12,6 +12,7 @@ import { pathWithin } from './permissions.js'
 import {
   MANIFEST_FILENAME,
   ManifestError,
+  isPluginId,
   parseManifest,
   type PluginPackage,
 } from './manifest.js'
@@ -175,6 +176,13 @@ export const uninstall = async (id: string): Promise<void> => {
   if (!pathWithin(root, target)) {
     throw new InstallError(`Refusing to remove ${target}: outside the plugins directory`)
   }
+  /* Containment is necessary and not sufficient: `sample/../other` stays inside
+     the plugins root and still removes a plugin the caller did not name. An id
+     is a single directory name — the manifest has always said so — so the
+     traversal is refused on that ground. */
+  if (!isPluginId(id)) {
+    throw new InstallError(`Refusing to remove ${target}: "${id}" is not a plugin id`)
+  }
   await rm(target, { recursive: true, force: true })
 }
 
@@ -196,7 +204,7 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
   }
   const pkg = await readManifestAt(directory, source)
   const entry = resolve(directory, pkg.entry)
-  if (!entry.startsWith(resolve(directory))) {
+  if (!pathWithin(directory, entry)) {
     throw new InstallError(`${pkg.manifest.id} points outside its own directory`)
   }
 
