@@ -8,6 +8,8 @@ import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 
 import { defaultStateDir } from './state.js'
 
+import { parsePorcelain } from './porcelain.js'
+
 /**
  * Git worktrees, one per conversation that asks for one.
  *
@@ -264,13 +266,9 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
   const files: string[] = []
   let modified = 0
   let untracked = 0
-  const entries = porcelain.split('\0')
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index]
-    if (!entry || entry.length < 4) continue
-    if (entry[0] === 'R' || entry[1] === 'R') index += 1
-    files.push(entry.slice(3))
-    if (entry.startsWith('??')) untracked += 1
+  for (const entry of parsePorcelain(porcelain)) {
+    files.push(entry.path)
+    if (entry.index === '?' && entry.worktree === '?') untracked += 1
     else modified += 1
   }
   // Commits on this branch that no other ref contains would vanish with the

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { parsePorcelain } from './porcelain.js'
 import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 /** Git status and diffs for the changes view. Read-only: nothing here mutates a repo. */
@@ -40,19 +41,11 @@ export const status = async (root: string): Promise<GitStatus | null> => {
   ])
 
   const files: GitFileStatus[] = []
-  // `-z` output is NUL-separated; renames add a second NUL-separated path that
-  // must be consumed or every subsequent entry shifts.
-  const entries = porcelain.split('\0')
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index]
-    if (!entry || entry.length < 4) continue
-    const staged = entry[0] ?? ' '
-    const unstaged = entry[1] ?? ' '
-    const path = entry.slice(3)
-    if (staged === 'R' || unstaged === 'R') index += 1
-    const code = staged !== ' ' && staged !== '?' ? staged : unstaged
+  for (const entry of parsePorcelain(porcelain)) {
+    const staged = entry.index
+    const code = staged !== ' ' && staged !== '?' ? staged : entry.worktree
     files.push({
-      path,
+      path: entry.path,
       status: STATUS_CODES[code] ?? 'modified',
       staged: staged !== ' ' && staged !== '?',
     })

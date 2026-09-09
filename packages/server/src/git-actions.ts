@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { parsePorcelain } from './porcelain.js'
+
 /**
  * The verbs a git client owes its toolbar and its context menus — commit,
  * pull, push, fetch, merge, rebase, reset, revert, cherry-pick, tags,
@@ -153,19 +155,11 @@ const treeState = async (
   root: string,
 ): Promise<{ renames: Map<string, string>; untracked: Set<string> }> => {
   const out = await git(root, ['status', '--porcelain=v1', '-z'])
-  const fields = out.split('\0')
   const renames = new Map<string, string>()
   const untracked = new Set<string>()
-  for (let index = 0; index < fields.length; index += 1) {
-    const entry = fields[index]
-    if (!entry || entry.length < 4) continue
-    if (entry.startsWith('??')) untracked.add(entry.slice(3))
-    // `-z` rename records are `XY to`, then the origin as its own field.
-    if (entry[0] === 'R' || entry[0] === 'C') {
-      const from = fields[index + 1]
-      if (from && from.length > 0) renames.set(entry.slice(3), from)
-      index += 1
-    }
+  for (const entry of parsePorcelain(out)) {
+    if (entry.index === '?' && entry.worktree === '?') untracked.add(entry.path)
+    if (entry.origin) renames.set(entry.path, entry.origin)
   }
   return { renames, untracked }
 }
