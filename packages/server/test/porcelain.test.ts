@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
+import { commitAll } from '../src/git-actions.js'
 import { status } from '../src/git.js'
 import { parsePorcelain } from '../src/porcelain.js'
 import { changes } from '../src/worktree.js'
@@ -95,3 +96,19 @@ test('worktree.changes does not count a copy record′s origin as a file', async
   const found = await changes(dir)
   assert.deepEqual([...found.files].sort(), ['dup.txt', 'src.txt'], `reported: ${JSON.stringify(found.files)}`)
 })
+
+test('committing a copy does not drag its source into the commit', async (t) => {
+  const dir = await repoWithACopy(t)
+  // Both are staged: `dup.txt` (the copy) and a change to `src.txt` (its
+  // source). Committing only the copy must leave the source's change alone.
+  await commitAll(dir, 'just the copy', ['dup.txt'])
+
+  const after = await status(dir)
+  const left = (after?.files ?? []).map((file) => file.path)
+  assert.deepEqual(
+    left,
+    ['src.txt'],
+    `the source's change must survive; still uncommitted: ${JSON.stringify(left)}`,
+  )
+})
+
