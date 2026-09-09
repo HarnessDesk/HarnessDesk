@@ -444,9 +444,12 @@ test('two clients both see the same event stream', async (t) => {
      in this file call it, four of them before this one; of the other 36, most
      never take a turn past its delta and one ends with `turn/interrupt`.
 
-     The previous version of this sentence said six, from `grep -c "finish()"`
-     — which counted this very comment as a call site. Count the call, not the
-     word.
+     The previous version said six, from `grep -c "finish()"` — which counted
+     this very comment as a call site. Correcting it to five and re-running the
+     obvious grep gives six again, for the same reason: prose mentioning a call
+     is not a call. The check that is immune to itself matches a statement:
+
+         grep -cE '^\s*live\.finish\(\)\s*$' packages/server/test/wire.test.ts
 
      An earlier version of this test asserted a racing tail that does not
      exist, and compared a prefix to work around it. */
