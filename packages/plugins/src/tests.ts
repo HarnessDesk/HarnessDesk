@@ -1,5 +1,9 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 
+import type { ScopeQuery } from '@harnessdesk/protocol'
+
+import { PerSession } from './session-state.js'
+
 /**
  * Structured test running, for every agent and every stack.
  *
@@ -100,8 +104,13 @@ export const testsPlugin: HarnessPlugin = {
       // The most recent verdict, for the "Last test run" chip. In-memory on
       // purpose: a report that survives a host restart would describe a tree
       // that may no longer exist.
-      let lastRun: { readonly report: string; readonly at: number } | null = null
-      const run = async (filter?: string): Promise<string> => {
+      /* Per conversation: the kernel is one instance for the whole
+         application, so a single `lastRun` meant the "Last test run" chip
+         served one conversation's report to another that had run nothing. */
+      const sessions = new PerSession<{ last: { readonly report: string; readonly at: number } | null }>(
+        () => ({ last: null }),
+      )
+      const run = async (scope: ScopeQuery | undefined, filter?: string): Promise<string> => {
         const framework = await detectFramework(
           (path) => ctx.fs.exists(path),
           (path) => ctx.fs.read(path),
@@ -124,7 +133,7 @@ export const testsPlugin: HarnessPlugin = {
             `\nOutput tail:\n${tail}`,
           ].join('\n')
         }
-        lastRun = { report, at: Date.now() }
+        sessions.get(scope).last = { report, at: Date.now() }
         return report
       }
 
@@ -138,7 +147,8 @@ export const testsPlugin: HarnessPlugin = {
             filter: { type: 'string', description: 'Only tests matching this pattern.' },
           },
         },
-        execute: (args: { filter?: string }) => run(args.filter ? String(args.filter) : undefined),
+        execute: (args: { filter?: string }, scope: ScopeQuery) =>
+          run(scope, args.filter ? String(args.filter) : undefined),
       })
 
       // "Failures in, fix out": the chip carries the verdict the suite
@@ -148,7 +158,8 @@ export const testsPlugin: HarnessPlugin = {
         label: 'Last test run',
         form: 'resource',
         chip: { description: 'The most recent verdict and its failing file:lines.' },
-        resolve: () => {
+        resolve: (scope: ScopeQuery) => {
+          const lastRun = sessions.get(scope).last
           if (!lastRun) {
             throw new Error('No test run recorded yet — run /test or the run_tests tool first.')
           }
@@ -162,8 +173,8 @@ export const testsPlugin: HarnessPlugin = {
         name: 'test',
         description: 'Run the workspace test suite',
         argumentHint: '[filter]',
-        run: async (argument: string) => {
-          const report = await run(argument.trim() || undefined)
+        run: async (argument: string, scope: ScopeQuery) => {
+          const report = await run(scope, argument.trim() || undefined)
           // A command has no return channel; a failure thrown here surfaces
           // to the user as `/test failed: …` with the verdict up front.
           if (!report.startsWith('PASS')) throw new Error(report.split('\n').slice(0, 8).join('\n'))

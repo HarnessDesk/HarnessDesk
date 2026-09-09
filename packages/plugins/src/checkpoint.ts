@@ -1,5 +1,9 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 
+import type { ScopeQuery } from '@harnessdesk/protocol'
+
+import { PerSession } from './session-state.js'
+
 /**
  * A safety net before the agent changes anything.
  *
@@ -39,8 +43,15 @@ export const checkpointPlugin: HarnessPlugin = {
     name: 'checkpoint',
     inject: ['tools', 'hooks', 'context', 'shell', 'workspace'],
     apply(ctx: HarnessContext) {
-      const checkpoints: Checkpoint[] = []
-      let takenThisTurn = false
+      /* Per conversation: the kernel is one instance for the whole
+         application, so a shared list meant `list_checkpoints` — documented as
+         "taken during this session" — answered with every session's, and one
+         conversation starting a turn cleared another's `takenThisTurn`,
+         suppressing the checkpoint it was about to take. */
+      const sessions = new PerSession(() => ({
+        checkpoints: [] as Checkpoint[],
+        takenThisTurn: false,
+      }))
 
       const git = async (args: readonly string[]): Promise<string | null> => {
         if (!ctx.workspace.root) return null
@@ -48,17 +59,20 @@ export const checkpointPlugin: HarnessPlugin = {
         return result.exitCode === 0 ? result.stdout.trim() : null
       }
 
-      const take = async (note: string): Promise<Checkpoint | null> => {
+      const take = async (scope: ScopeQuery | undefined, note: string): Promise<Checkpoint | null> => {
         // `stash create` returns empty on a clean tree — there is nothing to
         // recover to that HEAD does not already describe.
         const sha = (await git(['stash', 'create'])) || (await git(['rev-parse', 'HEAD']))
         if (!sha) return null
         const checkpoint = { sha: sha.slice(0, 12), at: Date.now(), note }
-        checkpoints.push(checkpoint)
+        sessions.get(scope).checkpoints.push(checkpoint)
         return checkpoint
       }
 
-      ctx.hooks.register({ event: 'preTurn', handle: () => void (takenThisTurn = false) })
+      ctx.hooks.register({
+        event: 'preTurn',
+        handle: (invocation) => void (sessions.get(invocation.scope).takenThisTurn = false),
+      })
 
       ctx.hooks.register({
         event: 'preToolUse',
@@ -66,12 +80,13 @@ export const checkpointPlugin: HarnessPlugin = {
         // an operation the user goes on to refuse.
         priority: 10,
         handle: async (invocation) => {
-          if (takenThisTurn) return
+          const state = sessions.get(invocation.scope)
+          if (state.takenThisTurn) return
           const name = invocation.toolName ?? ''
           // Only for tools that can change the tree; a search does not need one.
           if (!/write|edit|patch|apply|replace|delete|move|shell|bash|exec/i.test(name)) return
-          takenThisTurn = true
-          await take(`before ${name}`)
+          state.takenThisTurn = true
+          await take(invocation.scope, `before ${name}`)
           return
         },
       })
@@ -84,8 +99,8 @@ export const checkpointPlugin: HarnessPlugin = {
           type: 'object',
           properties: { note: { type: 'string', description: 'What you are about to do.' } },
         },
-        execute: async (args: { note?: string }) => {
-          const checkpoint = await take(args?.note?.trim() || 'manual')
+        execute: async (args: { note?: string }, scope: ScopeQuery) => {
+          const checkpoint = await take(scope, args?.note?.trim() || 'manual')
           if (!checkpoint) return 'This workspace is not a git repository, so no checkpoint was taken.'
           return `Checkpoint ${checkpoint.sha} recorded. ${recoveryHint(checkpoint.sha)}`
         },
@@ -95,20 +110,23 @@ export const checkpointPlugin: HarnessPlugin = {
         name: 'list_checkpoints',
         description: 'List the recoverable snapshots taken during this session.',
         inputSchema: { type: 'object', properties: {} },
-        execute: () =>
-          checkpoints.length === 0
+        execute: (_args: unknown, scope: ScopeQuery) => {
+          const { checkpoints } = sessions.get(scope)
+          return checkpoints.length === 0
             ? 'No checkpoints have been taken.'
             : checkpoints
                 .map(
                   (entry) =>
                     `${entry.sha}  ${new Date(entry.at).toLocaleTimeString()}  ${entry.note}`,
                 )
-                .join('\n'),
+                .join('\n')
+        },
       })
 
       ctx.context.register({
         label: 'Checkpoints',
-        resolve: () => {
+        resolve: (scope: ScopeQuery) => {
+          const { checkpoints } = sessions.get(scope)
           const latest = checkpoints[checkpoints.length - 1]
           return latest
             ? `A recoverable snapshot of the working tree was taken at ${latest.sha}. If a change goes wrong, tell the user: ${recoveryHint(latest.sha)}`

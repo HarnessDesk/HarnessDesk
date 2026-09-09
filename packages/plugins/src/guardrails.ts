@@ -1,5 +1,7 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 
+import { PerSession } from './session-state.js'
+
 /**
  * Policies that catch an agent going in circles.
  *
@@ -61,18 +63,22 @@ export const guardrailsPlugin: HarnessPlugin = {
       const repeatThreshold = Math.max(config?.repeatThreshold ?? 3, 2)
       const warnAfter = Math.max(config?.warnAfterCalls ?? 60, 5)
 
-      const counts = new Map<string, number>()
-      let callsThisTurn = 0
-      let warnedAboutLength = false
+      /* Per conversation, not per process: the kernel is one instance for the
+         whole application, so a shared counter meant one turn starting anywhere
+         cleared everyone's, and concurrent calls from different conversations
+         all incremented the same total. */
+      const sessions = new PerSession(() => ({
+        counts: new Map<string, number>(),
+        callsThisTurn: 0,
+        warnedAboutLength: false,
+      }))
 
       ctx.hooks.register({
         event: 'preTurn',
-        handle: () => {
+        handle: (invocation) => {
           // Counters are per turn: a repeat across turns is the user asking
           // again, which is not a loop.
-          counts.clear()
-          callsThisTurn = 0
-          warnedAboutLength = false
+          sessions.reset(invocation.scope)
         },
       })
 
@@ -80,10 +86,11 @@ export const guardrailsPlugin: HarnessPlugin = {
         event: 'preToolUse',
         priority: 50,
         handle: (invocation) => {
-          callsThisTurn += 1
+          const state = sessions.get(invocation.scope)
+          state.callsThisTurn += 1
 
-          if (callsThisTurn === warnAfter && !warnedAboutLength) {
-            warnedAboutLength = true
+          if (state.callsThisTurn === warnAfter && !state.warnedAboutLength) {
+            state.warnedAboutLength = true
             return {
               decision: 'ask',
               reason: `This turn has made ${warnAfter} tool calls. Continue?`,
@@ -92,8 +99,8 @@ export const guardrailsPlugin: HarnessPlugin = {
 
           if (!invocation.toolName) return
           const key = callSignature(invocation.toolName, invocation.arguments)
-          const seen = (counts.get(key) ?? 0) + 1
-          counts.set(key, seen)
+          const seen = (state.counts.get(key) ?? 0) + 1
+          state.counts.set(key, seen)
 
           // Only on the threshold itself: asking on every subsequent repeat
           // would turn one loop into a stream of prompts.
