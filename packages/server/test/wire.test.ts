@@ -444,10 +444,12 @@ test('two clients both see the same event stream', async (t) => {
      in this file call it, four of them before this one; of the other 36, most
      never take a turn past its delta and one ends with `turn/interrupt`.
 
-     The previous version said six, from `grep -c "finish()"` — which counted
-     this very comment as a call site. Correcting it to five and re-running the
-     obvious grep gives six again, for the same reason: prose mentioning a call
-     is not a call. The check that is immune to itself matches a statement:
+     The five above was wrong twice before it was right, both times from
+     counting the bare string: a comment that mentions a call is counted as a
+     call, so the sentence changes the number it reports — and then the
+     sentence correcting it did the same. No unanchored count is quoted here
+     for that reason, including the wrong ones. The check that cannot count
+     itself matches a statement:
 
          grep -cE '^\s*live\.finish\(\)\s*$' packages/server/test/wire.test.ts
 
