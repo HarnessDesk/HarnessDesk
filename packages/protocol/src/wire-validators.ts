@@ -522,7 +522,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     runtime: optional(isString),
     sessionId: optional(isString),
   }),
-  'context/resolve': shape({ id: isString, ref: optional(isString), runtime: optional(isString), workspaceRoot: optional(isString) }),
+  'context/resolve': shape({
+    id: isString,
+    ref: optional(isString),
+    runtime: optional(isString),
+    sessionId: optional(isString),
+    workspaceRoot: optional(isString),
+  }),
 
   'runtime/catalog': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/apps/search': shape({ runtime: isString, query: isString, cursor: optional(isString) }),

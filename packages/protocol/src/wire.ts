@@ -1619,6 +1619,11 @@ export interface HostMethods {
       readonly id: string
       readonly ref?: string
       readonly runtime?: RuntimeId
+      /* Which conversation is asking. A provider that remembers anything
+         remembers it per conversation, so a chip resolved without this is
+         asking a question about nobody: `Last test run` looked up a session
+         that had never run anything and refused the send. */
+      readonly sessionId?: SessionId
       readonly workspaceRoot?: string
     }
     /** `image` when the provider took a picture — a screenshot chip. */

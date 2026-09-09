@@ -520,6 +520,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           id: chip.contextId ?? '',
           ...(chip.ref ? { ref: chip.ref } : {}),
           ...(snapshot.activeRuntime ? { runtime: snapshot.activeRuntime } : {}),
+          ...(session?.id ? { sessionId: session.id } : {}),
           ...(snapshot.workspace?.path ? { workspaceRoot: snapshot.workspace.path } : {}),
         })
         // An image provider (a screenshot chip) resolves to a picture where

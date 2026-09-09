@@ -70,9 +70,19 @@ export class PerSession<T> {
     return made
   }
 
-  /** Puts this conversation back to its starting state. */
+  /**
+   * Puts this conversation back to its starting state.
+   *
+   * Deletes before re-creating rather than overwriting in place: `Map.set` on
+   * an existing key leaves it where it was in iteration order, so an
+   * overwrite would neither count as a use for the eviction order nor run the
+   * cap at all. `guardrails` calls this on every `preTurn`, before any `get`,
+   * so an overwrite here meant a desk that touched many conversations grew a
+   * map with no lid on it.
+   */
   reset(scope: ScopeQuery | undefined): void {
-    this.#values.set(scopeKey(scope), this.#initial())
+    this.#values.delete(scopeKey(scope))
+    this.get(scope)
   }
 
   /** How many conversations are being held. For tests. */

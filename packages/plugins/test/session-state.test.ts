@@ -10,6 +10,7 @@ import { ExtensionKernel } from '@harnessdesk/cordis-host'
 import { runtimeId, type ContributionId, type ScopeQuery, type SessionId, type ToolResult } from '@harnessdesk/protocol'
 
 import { checkpointPlugin, guardrailsPlugin, testsPlugin } from '../src/index.js'
+import { PerSession, scopeKey } from '../src/session-state.js'
 
 /**
  * Plugin state belongs to a conversation, not to the process.
@@ -139,3 +140,66 @@ test('checkpoints are listed to the conversation that took them', async (t) => {
     'the tool says "taken during this session"; B took none',
   )
 })
+
+// ------------------------------------------------------------ the lid itself
+
+test('the map has a lid, and reset does not lift it', () => {
+  // `reset` overwrote in place, and `Map.set` on an existing key neither moves
+  // it in iteration order nor runs any cap. guardrails calls reset on every
+  // preTurn *before* any get, so that path grew without bound.
+  const held = new PerSession(() => ({ n: 0 }), 10)
+  for (let i = 0; i < 40; i += 1) {
+    held.reset({ runtime: runtimeId('codex'), sessionId: `s-${i}` as SessionId })
+  }
+  assert.equal(held.size, 10, 'reset must evict like get does')
+})
+
+test('the least recently used conversation is the one dropped', () => {
+  const held = new PerSession(() => ({ n: 0 }), 3)
+  const at = (id: string): ScopeQuery => ({ runtime: runtimeId('codex'), sessionId: id as SessionId })
+  held.get(at('a')).n = 1
+  held.get(at('b')).n = 2
+  held.get(at('c')).n = 3
+  held.get(at('a')).n = 9 // touching `a` makes `b` the coldest
+  held.get(at('d'))
+  assert.equal(held.get(at('a')).n, 9, 'a was used most recently and survived')
+  assert.equal(held.get(at('b')).n, 0, 'b was coldest and was dropped')
+})
+
+test('a scope with no session is one entry, not a new one each time', () => {
+  assert.equal(scopeKey(undefined), scopeKey({}))
+  const held = new PerSession(() => ({ n: 0 }))
+  held.get(undefined).n = 5
+  assert.equal(held.get({}).n, 5, 'an unresolvable caller shares the old single-slot behaviour')
+})
+
+// -------------------------------------------- the automatic checkpoint path
+
+test('the automatic pre-write checkpoint is taken per conversation', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-auto-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await run('git', ['init', '-q'], { cwd: dir })
+  await run('git', ['config', 'user.email', 't@example.com'], { cwd: dir })
+  await run('git', ['config', 'user.name', 'T'], { cwd: dir })
+  await writeFile(join(dir, 'a.txt'), 'one', 'utf8')
+  await run('git', ['add', '-A'], { cwd: dir })
+  await run('git', ['commit', '-qm', 'first'], { cwd: dir })
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(checkpointPlugin)
+  await settle()
+
+  // A writes: it gets an automatic checkpoint and is marked as having one.
+  await kernel.runHooks({ event: 'preToolUse', toolName: 'write_file', arguments: {}, scope: A })
+  // B begins a turn. Shared, this cleared A's `takenThisTurn`.
+  await kernel.runHooks({ event: 'preTurn', scope: B })
+  // A writes again in the same turn — it must not take a second checkpoint.
+  await kernel.runHooks({ event: 'preToolUse', toolName: 'write_file', arguments: {}, scope: A })
+
+  const listed = text(await kernel.invokeTool(toolNamed(kernel, 'list_checkpoints'), {}, A))
+  assert.equal(listed.split('\n').length, 1, `one checkpoint for one turn, got:\n${listed}`)
+  assert.match(text(await kernel.invokeTool(toolNamed(kernel, 'list_checkpoints'), {}, B)), /No checkpoints/)
+})
+
