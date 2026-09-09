@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import { commitAll } from '../src/git-actions.js'
 import { status } from '../src/git.js'
 import { parsePorcelain } from '../src/porcelain.js'
-import { inventory } from '../src/git-worktree.js'
+import { inventory, list } from '../src/git-worktree.js'
 import { changes } from '../src/worktree.js'
 
 /**
@@ -136,5 +136,16 @@ test('the ignored pass does not read a copy′s origin as an ignored path', asyn
 
   const found = await inventory(dir)
   assert.deepEqual([...found.ignored], [], `nothing is ignored here; reported: ${JSON.stringify(found.ignored)}`)
+})
+
+test('the worktree dirty count does not count a copy′s origin', async (t) => {
+  const dir = await repoWithACopy(t)
+  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-wt-state-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  // `dirtyCount` is reached through `list`, which is the only way in.
+  const found = await list(dir, stateDir)
+  const here = found.find((entry) => entry.path === dir) ?? found[0]
+  assert.equal(here?.dirty, 2, `two real files are dirty, not three; got ${here?.dirty}`)
 })
 

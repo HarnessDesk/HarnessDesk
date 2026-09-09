@@ -12,13 +12,16 @@
  * record; three kept a worktree-column check that no git output produces; one
  * was correct. Every one of them is a caller now.
  *
- * Arriving at seven took two rounds of review and two wrong counts, both from
- * the same error: grepping for where the new reader was *called* rather than
- * for where the old pattern remained. The check that answers the question is
- * `grep -rn "split('\0')" packages/server/src` — and then reading each hit,
- * because three of them are other formats and must stay as they are:
- * `parseList` (`git worktree list --porcelain`), and the `--numstat` and
- * `--name-status` readers in `git-history.ts`.
+ * Arriving at seven took three rounds of review and three wrong counts, every
+ * one from asserting a number instead of reading the list. The check is
+ * `grep -rn "split('\0')" packages/server/src`; the hits that are *not* this
+ * format, and must stay as they are, are named rather than counted:
+ *
+ * - `git-worktree.ts` `parseList` — `git worktree list --porcelain`
+ * - `git-history.ts`, twice — `--numstat` and `--name-status`
+ * - `git-ops.ts` — `for-each-ref --format=…%00…`
+ *
+ * If that list and the grep ever disagree, the list is what is wrong.
  *
  * Two things about the format are measured against git 2.50.1 rather than
  * assumed, because the plausible belief is wrong in both directions:
