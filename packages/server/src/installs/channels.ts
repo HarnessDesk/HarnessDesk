@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, relative, sep } from 'node:path'
 
 /**
  * How a binary got onto this machine, read off where it sits.
@@ -96,7 +96,11 @@ export const readChannel = (path: string, options: ChannelOptions = {}): Channel
   const either = (dir: string): boolean => under(realPath, dir) || under(path, dir)
 
   if (options.managedDir && either(options.managedDir)) {
-    const inside = (under(realPath, options.managedDir) ? realPath : path).slice(options.managedDir.length + 1)
+    /* `relative`, not `.slice(managedDir.length + 1)`: a managed directory
+       configured with a trailing separator made the arithmetic take the first
+       character of the package name with it. */
+    const chosen = under(realPath, options.managedDir) ? realPath : path
+    const inside = relative(options.managedDir, chosen)
     return { channel: 'harnessdesk', realPath, packageName: inside.split(sep)[0] || null }
   }
 

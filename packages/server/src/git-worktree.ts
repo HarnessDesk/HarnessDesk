@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { realpath, rm } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
@@ -298,7 +298,7 @@ export const inventoryOf = async (
  * ancestor walks straight out of it: with `beside/link -> /elsewhere`,
  * `link/added` passes the test and materialises in `/elsewhere/added`.
  */
-const canonicalDestination = async (path: string): Promise<string> => {
+export const canonicalDestination = async (path: string): Promise<string> => {
   const target = resolve(path)
   const missing: string[] = []
   let walk = target
@@ -309,7 +309,13 @@ const canonicalDestination = async (path: string): Promise<string> => {
       const up = dirname(walk)
       // The root exists on any sane filesystem; this is the belt to that brace.
       if (up === walk) return target
-      missing.push(walk.slice(up.length + 1))
+      /* `basename`, not `walk.slice(up.length + 1)`: the arithmetic assumes the
+         parent does not already end in a separator, and at the filesystem root
+         it does — `dirname('/app')` is `'/'`, so the slice started one
+         character late and `/app` resolved to `/pp`. A repository checked out
+         at `/app` or `/workspace` has the root as its parent, so every worktree
+         it makes walked through this. */
+      missing.push(basename(walk))
       walk = up
     }
   }
