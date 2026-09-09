@@ -8,6 +8,8 @@ import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@ha
 
 import { changes, worktreeHome, WorktreeDirtyError } from './worktree.js'
 
+import { parsePorcelain } from './porcelain.js'
+
 /**
  * Worktrees, as a git client manages them.
  *
@@ -176,21 +178,18 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   const ignored: string[] = []
 
   const out = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
-  const fields = out.split('\0')
-  for (let index = 0; index < fields.length; index += 1) {
-    const entry = fields[index]
-    if (!entry || entry.length < 4) continue
-    const status = entry.slice(0, 2)
-    // A rename record is followed by its origin as its own field; one file.
-    if (entry[0] === 'R' || entry[1] === 'R' || entry[0] === 'C') index += 1
-    changes.push({ path: entry.slice(3), status })
+  for (const entry of parsePorcelain(out)) {
+    changes.push({ path: entry.path, status: `${entry.index}${entry.worktree}` })
   }
 
   // Ignored contents are their own call, without `--untracked-files=all`:
   // with it, git expands every file inside an ignored directory.
   const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored']).catch(() => '')
-  for (const entry of dirty.split('\0')) {
-    if (entry.startsWith('!! ')) ignored.push(entry.slice(3))
+  /* Through the reader, not `startsWith('!! ')` over every field: an origin is
+     a bare path, so a source *named* `!! something` was read as an ignored
+     record and reported as ignored having never been. */
+  for (const entry of parsePorcelain(dirty)) {
+    if (entry.index === '!' && entry.worktree === '!') ignored.push(entry.path)
   }
 
   // Over the whole inventory, not the shown slice: a change beyond the cap
@@ -216,16 +215,7 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
 const dirtyCount = async (path: string): Promise<number | null> => {
   try {
     const out = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
-    const fields = out.split('\0')
-    let count = 0
-    for (let index = 0; index < fields.length; index += 1) {
-      const entry = fields[index]
-      if (!entry || entry.length < 4) continue
-      // A rename record is followed by its origin as its own field; one file.
-      if (entry[0] === 'R' || entry[1] === 'R' || entry[0] === 'C') index += 1
-      count += 1
-    }
-    return count
+    return parsePorcelain(out).length
   } catch {
     return null
   }

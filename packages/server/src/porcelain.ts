@@ -7,8 +7,18 @@
  * the stream, and the next turn of the loop reads it as a status record: three
  * characters come off the front and a file that does not exist is reported.
  *
- * This existed three times in this package and was wrong in two of them, each
- * skipping renames and forgetting copies. Once, here, is the fix.
+ * `git status --porcelain` was read by hand in **seven** places in this package.
+ * Two were wrong about copies outright; one read an origin as an ignored
+ * record; three kept a worktree-column check that no git output produces; one
+ * was correct. Every one of them is a caller now.
+ *
+ * Arriving at seven took two rounds of review and two wrong counts, both from
+ * the same error: grepping for where the new reader was *called* rather than
+ * for where the old pattern remained. The check that answers the question is
+ * `grep -rn "split('\0')" packages/server/src` — and then reading each hit,
+ * because three of them are other formats and must stay as they are:
+ * `parseList` (`git worktree list --porcelain`), and the `--numstat` and
+ * `--name-status` readers in `git-history.ts`.
  *
  * Two things about the format are measured against git 2.50.1 rather than
  * assumed, because the plausible belief is wrong in both directions:

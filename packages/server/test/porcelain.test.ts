@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { commitAll } from '../src/git-actions.js'
 import { status } from '../src/git.js'
 import { parsePorcelain } from '../src/porcelain.js'
+import { inventory } from '../src/git-worktree.js'
 import { changes } from '../src/worktree.js'
 
 /**
@@ -110,5 +111,30 @@ test('committing a copy does not drag its source into the commit', async (t) => 
     ['src.txt'],
     `the source's change must survive; still uncommitted: ${JSON.stringify(left)}`,
   )
+})
+
+test('the ignored pass does not read a copy′s origin as an ignored path', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-ignored-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const git = (...args: string[]): Promise<unknown> => run('git', args, { cwd: dir })
+  await git('init', '-q')
+  await git('config', 'user.email', 't@example.com')
+  await git('config', 'user.name', 'T')
+  await git('config', 'status.renames', 'copies')
+
+  /* A source whose *name* begins with the ignored marker. The ignored pass
+     tested `entry.startsWith('!! ')` against every field, and an origin is a
+     bare path — so this name made the origin look like an ignored record and
+     `src.txt` appeared in `ignored` having never been ignored. */
+  const source = '!! src.txt'
+  await writeFile(join(dir, source), 'alpha beta gamma delta epsilon zeta eta theta iota kappa\n', 'utf8')
+  await git('add', '-A')
+  await git('commit', '-qm', 'first')
+  await writeFile(join(dir, 'dup.txt'), 'alpha beta gamma delta epsilon zeta eta theta iota kappa\n', 'utf8')
+  await writeFile(join(dir, source), 'alpha beta gamma delta epsilon zeta eta theta iota kappa\nchanged\n', 'utf8')
+  await git('add', '-A')
+
+  const found = await inventory(dir)
+  assert.deepEqual([...found.ignored], [], `nothing is ignored here; reported: ${JSON.stringify(found.ignored)}`)
 })
 
