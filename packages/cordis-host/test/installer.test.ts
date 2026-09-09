@@ -247,3 +247,35 @@ test('the installed copy remembers where it came from, and updates reload fresh 
   await assert.rejects(install(installed.directory), /already the installed copy/)
   await kernel.dispose()
 })
+
+// ------------------------------------------------------- uninstall's guard
+
+test('uninstall refuses an id that resolves to the plugins directory itself', async (t) => {
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  assert.equal((await listInstalled()).length, 1, 'installed to begin with')
+
+  // Each of these makes `join(pluginsRoot(), id)` equal the plugins root, which
+  // the old guard admitted — and `rm(recursive)` on the root takes every
+  // installed plugin, not the one asked for.
+  for (const id of ['', '.', './', 'demo/..']) {
+    await assert.rejects(() => uninstall(id), /not an installed plugin/i, `uninstall(${JSON.stringify(id)})`)
+  }
+  assert.equal((await listInstalled()).length, 1, 'nothing was removed')
+  await rm(join(root, 'unused'), { recursive: true, force: true })
+})
+
+test('uninstall refuses an id that escapes the plugins directory', async (t) => {
+  const root = await withPluginsRoot(t)
+  // A sibling whose path merely *starts with* the plugins root: the old guard
+  // compared strings with no separator between them, so `<root>-backup` passed.
+  const sibling = `${root}-backup`
+  await mkdir(join(sibling, 'victim'), { recursive: true })
+  t.after(() => rm(sibling, { recursive: true, force: true }))
+
+  await assert.rejects(() => uninstall('../' + sibling.split('/').pop() + '/victim'), /outside|not an installed plugin/i)
+  await assert.rejects(() => uninstall('../..'), /outside|not an installed plugin/i)
+  await readFile(join(sibling, 'victim', '.keep'), 'utf8').catch(() => null)
+  assert.ok(await mkdir(join(sibling, 'victim'), { recursive: true }).then(() => true).catch(() => false), 'the sibling survived')
+})
+

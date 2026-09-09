@@ -16,6 +16,7 @@ import { attachAppUpdates } from './app-updates.mjs'
 import { decide, relevant } from './notifications.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
+import { isAppNavigation } from './navigation.mjs'
 
 /**
  * The macOS shell.
@@ -174,7 +175,9 @@ const createWindow = async (url) => {
   })
 
   window.webContents.on('will-navigate', (event, target) => {
-    if (!target.startsWith(url.split('/?')[0])) {
+    // Origin, not prefix: `http://127.0.0.1:<port>@evil.com/` carries the app's
+    // own prefix and goes to evil.com. See navigation.test.mjs.
+    if (!isAppNavigation(url, target)) {
       event.preventDefault()
       if (/^https?:\/\//i.test(target)) void shell.openExternal(target)
     }
