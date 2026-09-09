@@ -440,6 +440,23 @@ test('declining an approval is carried through to the runtime', async (t) => {
 
   await tape.until((events) => events.some((event) => event.type === 'approval/resolved'))
   await tape.until((events) => events.some((event) => event.type === 'turn/completed'))
+
+  /* Waiting for those two proves nothing on its own: an *approval* produces
+     both. What "carried through to the runtime" means is that the command did
+     not run — the fake answers an approval by streaming `ls -la` output and
+     completing the item, and a decline by completing the turn with nothing in
+     it. So the decision is checked where it landed, and the absence of the
+     work is checked beside it. */
+  const resolved = tape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/resolved' }> =>
+      event.type === 'approval/resolved',
+  )
+  assert.deepEqual(resolved?.resolution, { outcome: 'decided', decision: { type: 'option', optionId: deny!.id } })
+
+  const ranTheCommand = tape.events.some(
+    (event) => event.type === 'item/completed' && event.item.type === 'command',
+  )
+  assert.equal(ranTheCommand, false, 'declining must not run the command it asked about')
 })
 
 test('answering an unknown approval fails loudly rather than silently', async (t) => {
