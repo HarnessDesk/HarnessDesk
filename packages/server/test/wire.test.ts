@@ -440,9 +440,13 @@ test('two clients both see the same event stream', async (t) => {
 
   /* Finish the turn rather than compare mid-flight. `FakeSession.send` emits
      its four events synchronously and then waits: a turn completes when
-     something completes it, and `finish()` is that something — six tests in
-     this file use it. (Not all of them: most never take a turn past its
-     delta, and one ends its turn with `turn/interrupt` instead.)
+     something completes it, and `live.finish()` is that something. Five tests
+     in this file call it, four of them before this one; of the other 36, most
+     never take a turn past its delta and one ends with `turn/interrupt`.
+
+     The previous version of this sentence said six, from `grep -c "finish()"`
+     — which counted this very comment as a call site. Count the call, not the
+     word.
 
      An earlier version of this test asserted a racing tail that does not
      exist, and compared a prefix to work around it. */

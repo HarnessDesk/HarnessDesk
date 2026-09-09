@@ -436,7 +436,11 @@ test('declining an approval is carried through to the runtime', async (t) => {
   )
   const approval = requested!.approval
   const deny = approval.type === 'command' ? approval.options.find((o) => o.intent === 'deny') : undefined
-  await session.respondToApproval(approval.id, { type: 'option', optionId: deny!.id })
+  // Asserted rather than `deny!`: if the fixture ever stops offering a deny
+  // option this should read as "there was nothing to decline", not as a
+  // TypeError on a line that looks unrelated.
+  assert.ok(deny, 'the command approval offers a way to decline')
+  await session.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
 
   await tape.until((events) => events.some((event) => event.type === 'approval/resolved'))
   await tape.until((events) => events.some((event) => event.type === 'turn/completed'))
@@ -451,7 +455,7 @@ test('declining an approval is carried through to the runtime', async (t) => {
     (event): event is Extract<AgentEvent, { type: 'approval/resolved' }> =>
       event.type === 'approval/resolved',
   )
-  assert.deepEqual(resolved?.resolution, { outcome: 'decided', decision: { type: 'option', optionId: deny!.id } })
+  assert.deepEqual(resolved?.resolution, { outcome: 'decided', decision: { type: 'option', optionId: deny.id } })
 
   /* Completion *and* output. A regression that streams the command's output
      without ever completing its item would leave a "no completed command"
