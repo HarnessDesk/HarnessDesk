@@ -17,7 +17,7 @@ import type {
 
 import type { AcpRegistry } from './acp-registry.js'
 import { channelLabel } from './installs/channels.js'
-import { knownAgent } from './installs/known-agents.js'
+import { currentNameOf, knownAgent } from './installs/known-agents.js'
 import type { JudgedInstall } from './installs/locate.js'
 import type { InstallService } from './installs/service.js'
 
@@ -497,7 +497,13 @@ export class AgentDirectory {
     if (!registry) {
       return { agents: [], fetchedAt: null, unavailable: 'This host reads no ACP registry.' }
     }
-    const catalog = await registry.catalog((id) => live.has(id) || this.options.store.has(id))
+    const listed = await registry.catalog((id) => live.has(id) || this.options.store.has(id))
+    // Where the desk has retired the registry's name for an agent, the
+    // listing says the name the added row will be shown under.
+    const catalog = {
+      ...listed,
+      agents: listed.agents.map((agent) => ({ ...agent, name: currentNameOf(knownAgent(agent.id), agent.name) })),
+    }
     if (!this.options.installs) return catalog
     const agents = await Promise.all(
       catalog.agents.map(async (agent) => {
@@ -615,7 +621,13 @@ export class AgentDirectory {
       }
       // Resolving may download: a binary entry is fetched and unpacked here,
       // before anything is written, so a failed download leaves no row.
-      return registry.resolve(request.registry.id)
+      const resolved = await registry.resolve(request.registry.id)
+      // Written under the desk's name where it has retired the registry's,
+      // so the row says in the file what it says on screen.
+      const name = currentNameOf(known, resolved.config.name)
+      return name === resolved.config.name
+        ? resolved
+        : { entry: { ...resolved.entry, name }, config: { ...resolved.config, name } }
     }
     if (request.template) {
       const template = templateByKey(request.template)

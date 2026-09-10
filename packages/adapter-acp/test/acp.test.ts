@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
 import { sessionId, type AgentEvent } from '@harnessdesk/protocol'
 
-import { AcpRuntime } from '../src/index.js'
+import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
 
 /**
  * The ACP adapter against a scripted agent that is a real child process.
@@ -175,6 +175,136 @@ test('the unstable usage shapes become the session usage: fill from the update, 
     assert.equal(again?.last.totalTokens, 900, 'last is one turn')
   } finally {
     await runtime.dispose()
+  }
+})
+
+test('a turn counted in `_meta.quota` is the turn usage, with no window and no cache figure claimed', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'quota for me' }])
+    await tape.until((event) => event.type === 'turn/completed')
+    const usage = (await runtime.readSession(session.id)).usage
+    // Gemini CLI sends no `usage` and no `usage_update`; before this was
+    // read, its sessions had no usage at all and the composer no ring.
+    assert.ok(usage)
+    assert.deepEqual(usage.last, {
+      totalTokens: 12780,
+      inputTokens: 12400,
+      cachedInputTokens: 0,
+      outputTokens: 380,
+      reasoningOutputTokens: 0,
+    })
+    assert.equal(usage.contextUsed ?? null, null, 'nothing in the block says what is in the window')
+    assert.equal(usage.contextWindow ?? null, null)
+    const types = tape.events.map((event) => event.type)
+    assert.ok(types.lastIndexOf('usage/updated') < types.indexOf('turn/completed'), 'in before the turn closes')
+
+    await session.send([{ type: 'text', text: 'quota again' }])
+    await tape.until((event) => event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === 2)
+    const again = (await runtime.readSession(session.id)).usage
+    assert.equal(again?.total.totalTokens, 25560, 'turns add up')
+    assert.equal(again?.last.totalTokens, 12780, 'last is one turn')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/** The fake agent, with a usage record of its own — the way Antigravity keeps one. */
+const withRecord = (usageRecord: AcpUsageRecord): AcpRuntime =>
+  new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE], usageRecord })
+
+test('an agent that says nothing about usage has its turn read from its own record', async () => {
+  const asked: unknown[] = []
+  const runtime = withRecord({
+    mark(id) {
+      asked.push(['mark', id])
+      return 7
+    },
+    since(id, mark) {
+      asked.push(['since', id, mark])
+      return { totalTokens: 1000, inputTokens: 900, outputTokens: 100, cachedReadTokens: 600, thoughtTokens: 40 }
+    },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'hello there' }])
+    await tape.until((event) => event.type === 'turn/completed')
+    const usage = (await runtime.readSession(session.id)).usage
+    assert.deepEqual(usage?.last, {
+      totalTokens: 1000,
+      inputTokens: 900,
+      cachedInputTokens: 600,
+      outputTokens: 100,
+      reasoningOutputTokens: 40,
+    })
+    assert.deepEqual(
+      asked,
+      [
+        ['mark', String(session.id)],
+        ['since', String(session.id), 7],
+      ],
+      'marked before the turn and read after it, for this session',
+    )
+    const types = tape.events.map((event) => event.type)
+    assert.ok(types.lastIndexOf('usage/updated') < types.indexOf('turn/completed'), 'in before the turn closes')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('usage the agent put on the wire outranks its record, which is then not read', async () => {
+  let reads = 0
+  const runtime = withRecord({
+    mark: () => 3,
+    since: () => {
+      reads += 1
+      return { totalTokens: 1, inputTokens: 1, outputTokens: 0 }
+    },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const completed = (count: number) => (event: AgentEvent) =>
+    event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === count
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'count for me' }])
+    await tape.until(completed(1))
+    assert.equal((await runtime.readSession(session.id)).usage?.last.totalTokens, 900)
+    await session.send([{ type: 'text', text: 'quota for me' }])
+    await tape.until(completed(2))
+    assert.equal((await runtime.readSession(session.id)).usage?.last.totalTokens, 12780)
+    assert.equal(reads, 0)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a record that cannot be read leaves the turn without usage rather than a guess', async () => {
+  for (const mark of [() => null, () => { throw new Error('locked') }]) {
+    let reads = 0
+    const runtime = withRecord({
+      mark,
+      since: () => {
+        reads += 1
+        return { totalTokens: 1, inputTokens: 1, outputTokens: 0 }
+      },
+    })
+    await runtime.start()
+    const tape = record(runtime)
+    try {
+      const session = await runtime.createSession({ cwd: '/tmp/w' })
+      await session.send([{ type: 'text', text: 'hello there' }])
+      await tape.until((event) => event.type === 'turn/completed')
+      assert.equal((await runtime.readSession(session.id)).usage, null)
+      assert.equal(reads, 0, 'no mark, no read: the turn cannot be told from the ones before it')
+    } finally {
+      await runtime.dispose()
+    }
   }
 })
 

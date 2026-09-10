@@ -454,6 +454,35 @@ export interface AcpPromptResponse {
   readonly stopReason: AcpStopReason
   /** This turn's tokens, when the agent counts them. */
   readonly usage?: AcpUsage | null
+  /**
+   * ACP's extension slot. Gemini CLI counts a turn's tokens here, under
+   * `quota`, and not in `usage` — see `AcpQuota`.
+   */
+  readonly _meta?: AcpPromptMeta | null
+}
+
+/** The `_meta` a prompt response may carry, read structurally; the rest of it is ignored. */
+export interface AcpPromptMeta {
+  readonly quota?: AcpQuota | null
+}
+
+/**
+ * A turn's tokens as Gemini CLI reports them — measured on 0.59.0, which
+ * sends no `usage` and no `usage_update`: input and output summed over every
+ * model call the turn made, then the same split per model. There is no cache
+ * or thinking figure in it, and nothing about the context window.
+ */
+export interface AcpQuota {
+  readonly token_count?: AcpQuotaCount | null
+  readonly model_usage?: readonly {
+    readonly model?: string | null
+    readonly token_count?: AcpQuotaCount | null
+  }[] | null
+}
+
+export interface AcpQuotaCount {
+  readonly input_tokens?: number | null
+  readonly output_tokens?: number | null
 }
 
 export interface AcpPermissionOption {

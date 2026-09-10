@@ -16,10 +16,13 @@ import { builtinPlugins } from '@harnessdesk/plugins'
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
+import { identityReaderFor } from './installs/identity.js'
+import { currentNameOf } from './installs/known-agents.js'
 import { InstallService } from './installs/service.js'
 import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } from './agent-registry.js'
 import { CredentialBroker } from './credentials.js'
 import { Host, type AccountFactory, type HostOptions } from './host.js'
+import { usageRecordFor } from './usage/antigravity-store.js'
 import { ClaudeFileMeter } from './usage/claude-file.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
@@ -342,8 +345,19 @@ export const createDefaultHost = (
   })
   const buildAcpRuntime = (agent: AcpAgentConfig): AcpRuntime => {
     const executable = installs.executableSpecFor(agent)
+    const known = installs.knowledgeFor(agent)
+    const env = { ...process.env, ...agent.env }
+    // Who the agent is signed in as, from its own files, for the agents that
+    // write it down and cannot be asked. See `installs/identity.ts`.
+    const resolveIdentity = identityReaderFor(known, { ...(agent.args ? { args: agent.args } : {}), env })
+    // Usage an agent counts in its own store and puts none of on the wire.
+    // See `usage/antigravity-store.ts`.
+    const usageRecord = usageRecordFor(known, { env })
     return new AcpRuntime({
       ...agent,
+      // A row written under a name the desk has since retired is shown under
+      // today's; a name someone chose stays. See `KnownAgent.formerNames`.
+      name: currentNameOf(known, agent.name),
       // Entries written before templates carried brands have none; the
       // template's is what they would say today. See `templateBrandFor`.
       ...(agent.brand ? {} : templateBrandFor(agent.id) ? { brand: templateBrandFor(agent.id) } : {}),
@@ -354,6 +368,8 @@ export const createDefaultHost = (
       resolveSecret: (env) => host.credentials.peek(CredentialBroker.secretName(agent.id, env)),
       resolveLaunch: (occasion) => installs.launchFor(agent, occasion),
       resolveExecutable: (spec) => installs.executableFor(agent, spec),
+      ...(resolveIdentity ? { resolveIdentity } : {}),
+      ...(usageRecord ? { usageRecord } : {}),
     })
   }
   const agents = new AgentDirectory({
