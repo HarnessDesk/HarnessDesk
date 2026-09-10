@@ -578,3 +578,87 @@ describe('whole-file changes at their edges', () => {
   })
 })
 
+describe("a merge's combined diff, which is what git writes for a conflicted file", () => {
+  // Review, round five: `@@@` was no hunk header, so everything after `diff --cc` was drawn as header.
+  // Both are `git diff` of a conflicted f.txt, byte for byte.
+  const header = ['diff --cc f.txt', 'index e788115,42b8e7a..0000000', '--- a/f.txt', '+++ b/f.txt']
+  const conflicted = [
+    ...header,
+    '@@@ -1,3 -1,3 +1,7 @@@',
+    '  one',
+    '++<<<<<<< HEAD',
+    ' +ours',
+    '++=======',
+    '+ theirs',
+    '++>>>>>>> theirs',
+    '  three',
+    '',
+  ].join('\n')
+  // Resolved into a line neither side had: a line gone from each parent.
+  const resolvedApart = [...header, '@@@ -1,3 -1,3 +1,3 @@@', '  one', '- ours', ' -theirs', '++merged', '  three', ''].join('\n')
+  const drawn = (diff: string) =>
+    parseDiff(diff)
+      .filter((line) => line.kind !== 'meta')
+      .map((line) => [line.kind, line.text, line.oldNumber, line.newNumber])
+
+  test('draws the conflict as the additions it is, numbered by the first parent and the result', () => {
+    expect(drawn(conflicted)).toEqual([
+      ['hunk', '@@@ -1,3 -1,3 +1,7 @@@', null, null],
+      ['context', 'one', 1, 1],
+      ['add', '<<<<<<< HEAD', null, 2],
+      ['add', 'ours', null, 3],
+      ['add', '=======', null, 4],
+      ['add', 'theirs', null, 5],
+      ['add', '>>>>>>> theirs', null, 6],
+      ['context', 'three', 3, 7],
+    ])
+    expect(countChanges(conflicted)).toEqual({ added: 5, removed: 0 })
+  })
+
+  test('a line gone from the result is a removal, numbered only where the first parent had it', () => {
+    expect(drawn(resolvedApart)).toEqual([
+      ['hunk', '@@@ -1,3 -1,3 +1,3 @@@', null, null],
+      ['context', 'one', 1, 1],
+      ['remove', 'ours', 2, null],
+      ['remove', 'theirs', null, null],
+      ['add', 'merged', null, 2],
+      ['context', 'three', 3, 3],
+    ])
+    expect(countChanges(resolvedApart)).toEqual({ added: 1, removed: 2 })
+  })
+
+  test('a conflicted file in a diff of the whole tree is a file of its own', () => {
+    const tree = ['diff --git a/a.txt b/a.txt', 'index 1111111..2222222 100644', '--- a/a.txt', '+++ b/a.txt', '@@ -1 +1 @@', '-a', '+b', conflicted].join('\n')
+    const files = splitByFile(tree)
+    expect(files.map((file) => file.path)).toEqual(['a.txt', 'f.txt'])
+    expect(countChanges(files[0]!.diff)).toEqual({ added: 1, removed: 1 })
+    expect(countChanges(files[1]!.diff)).toEqual({ added: 5, removed: 0 })
+  })
+})
+
+describe('what comes before the first file', () => {
+  // Review, round five: blank lines, or a commit's own header, came back as a file with no name.
+  const one = ['diff --git a/x.txt b/x.txt', '--- a/x.txt', '+++ b/x.txt', '@@ -1 +1 @@', '-a', '+b'].join('\n')
+
+  test('is no file', () => {
+    expect(splitByFile(`\n\n${one}`).map((file) => file.path)).toEqual(['x.txt'])
+    expect(splitByFile(`commit 0123abc\n\n    Change x\n\n${one}`).map((file) => file.path)).toEqual(['x.txt'])
+  })
+
+  test('and a diff with no file header at all is still one', () => {
+    expect(splitByFile('@@ -1 +1 @@\n-a\n+b')).toEqual([{ path: '', diff: '@@ -1 +1 @@\n-a\n+b' }])
+  })
+})
+
+describe('an added or deleted file of blank lines only', () => {
+  // Review, round five: blank lines mixed with text were pinned, blank lines alone were not.
+  test('is drawn and counted line for line', () => {
+    expect(countDrawn('\n\n', 'added')).toEqual({ added: 2, removed: 0 })
+    expect(countDrawn('\n\n', 'removed')).toEqual({ added: 0, removed: 2 })
+    expect(asAdditions('\n\n').map((line) => [line.kind, line.text, line.newNumber])).toEqual([
+      ['add', '', 1],
+      ['add', '', 2],
+    ])
+  })
+})
+

@@ -20,11 +20,18 @@ export interface DiffLine {
  * space before the section it sits in (`@@ -1 +1 @@ function retry()`), and a
  * CRLF diff leaves a `\r` there; `@@ -1 +1 @@not-a-hunk` is text, and was read
  * as a hunk until review's fourth round.
+ *
+ * A merge's combined diff, which is what `git diff` writes for a conflicted
+ * file (`diff --cc`), opens its hunks with one `@` more per parent and one `-`
+ * range for each: `@@@ -1,3 -1,3 +1,7 @@@`. Its lines carry one mark per
+ * parent, so the opening's width is the width of every mark after it. Read as
+ * text, that header never ended a file's introduction, and a conflicted file
+ * was drawn and counted as nothing but header (review, round five).
  */
-const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(?:[ \r]|$)/
+const HUNK = /^(@@+) -(\d+)(?:,\d+)? (?:-\d+(?:,\d+)? )*\+(\d+)(?:,\d+)? \1(?:[ \r]|$)/
 const HEADER = /^(?:diff |index |--- |\+\+\+ |new file|deleted file|similarity|rename )/
 /** A hunk header on a line of its own, anywhere in a text. */
-const HUNK_LINE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:[ \r]|$)/m
+const HUNK_LINE = /^(@@+) -\d+(?:,\d+)? (?:-\d+(?:,\d+)? )*\+\d+(?:,\d+)? \1(?:[ \r]|$)/m
 
 /**
  * Which raw line is a header and which is content — the one rule `parseDiff`
@@ -49,27 +56,36 @@ const HUNK_LINE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:[ \r]|$)/m
  * with gutter numbers (review, round 2). There, every line is metadata now,
  * whatever it says; the list is left for a diff that has no `diff ` line.
  */
-const classifier = (): ((raw: string) => LineKind) => {
+const classifier = (): { readonly kind: (raw: string) => LineKind; readonly width: () => number } => {
   let sawHunk = false
   let introducing = false
-  return (raw) => {
-    if (HUNK.test(raw)) {
-      sawHunk = true
-      introducing = false
-      return 'hunk'
-    }
-    if (raw.startsWith('diff ')) {
-      sawHunk = false
-      introducing = true
-      return 'meta'
-    }
-    if (introducing) return 'meta'
-    if (!sawHunk && HEADER.test(raw)) return 'meta'
-    if (raw.startsWith('+')) return 'add'
-    if (raw.startsWith('-')) return 'remove'
-    // "\ No newline at end of file"
-    if (raw.startsWith('\\')) return 'meta'
-    return 'context'
+  // The marks before a line's text: one in a plain diff, one per parent in a merge's.
+  let width = 1
+  return {
+    width: () => width,
+    kind: (raw) => {
+      const hunk = HUNK.exec(raw)
+      if (hunk) {
+        sawHunk = true
+        introducing = false
+        width = hunk[1]!.length - 1
+        return 'hunk'
+      }
+      if (raw.startsWith('diff ')) {
+        sawHunk = false
+        introducing = true
+        width = 1
+        return 'meta'
+      }
+      if (introducing) return 'meta'
+      if (!sawHunk && HEADER.test(raw)) return 'meta'
+      // "\ No newline at end of file"
+      if (raw.startsWith('\\')) return 'meta'
+      const marks = raw.slice(0, width)
+      if (marks.includes('-')) return 'remove'
+      if (marks.includes('+')) return 'add'
+      return 'context'
+    },
   }
 }
 
@@ -87,21 +103,29 @@ export const parseDiff = (diff: string): DiffLine[] => {
   const raws = diff.split('\n')
   if (raws[raws.length - 1] === '') raws.pop()
   for (const raw of raws) {
-    const kind = classify(raw)
+    const kind = classify.kind(raw)
     if (kind === 'hunk') {
       const hunk = HUNK.exec(raw)
-      oldNumber = Number(hunk?.[1])
-      newNumber = Number(hunk?.[2])
+      oldNumber = Number(hunk?.[2])
+      newNumber = Number(hunk?.[3])
       lines.push({ kind, text: raw, oldNumber: null, newNumber: null })
     } else if (kind === 'meta') {
       lines.push({ kind, text: raw, oldNumber: null, newNumber: null })
-    } else if (kind === 'add') {
-      lines.push({ kind, text: raw.slice(1), oldNumber: null, newNumber: newNumber++ })
-    } else if (kind === 'remove') {
-      lines.push({ kind, text: raw.slice(1), oldNumber: oldNumber++, newNumber: null })
     } else {
-      const text = raw.startsWith(' ') ? raw.slice(1) : raw
-      lines.push({ kind, text, oldNumber: oldNumber++, newNumber: newNumber++ })
+      /* A line is its marks and then its text, one mark per parent. A line
+         with a `-` is not in the result, and is in each parent marked `-`;
+         any other is in the result, and in each parent not marked `+`. The
+         numbers are the first parent's and the result's, so with one parent
+         this is the plain reading: `+` is new, `-` is old, a space is both. */
+      const width = classify.width()
+      const marks = raw.slice(0, width)
+      // A bare line a tool trimmed has no marks to take off.
+      const text = /^[ +-]+$/.test(marks) ? raw.slice(width) : raw
+      const inResult = !marks.includes('-')
+      const inFirst = inResult ? marks[0] !== '+' : marks[0] === '-'
+      const old = inFirst ? oldNumber++ : null
+      const now = inResult ? newNumber++ : null
+      lines.push({ kind, text, oldNumber: kind === 'add' ? null : old, newNumber: now })
     }
   }
 
@@ -134,7 +158,7 @@ export const countChanges = (diff: string): { added: number; removed: number } =
   let added = 0
   let removed = 0
   for (const line of diff.split('\n')) {
-    const kind = classify(line)
+    const kind = classify.kind(line)
     if (kind === 'add') added += 1
     else if (kind === 'remove') removed += 1
   }
@@ -234,6 +258,8 @@ export const splitHunks = (diff: string): DiffHunk[] => {
 }
 
 const GIT_HEADER = 'diff --git '
+/** The lines that open a file: git's own, and a merge's combined one for a conflicted file. */
+const FILE_HEADERS = [GIT_HEADER, 'diff --cc ', 'diff --combined '] as const
 
 /** The escapes git writes inside a quoted path, and the byte each stands for. */
 const C_ESCAPES: Readonly<Record<string, number>> = {
@@ -389,6 +415,12 @@ export interface FileDiff {
   readonly diff: string
 }
 
+/** A combined header names one path, `diff --cc <path>`, quoted the way git quotes one. */
+const combinedPath = (line: string, header: string): string => {
+  const rest = line.slice(header.length).replace(/\r$/, '')
+  return rest.startsWith('"') ? (readQuoted(rest, 0)?.value ?? rest) : rest
+}
+
 /**
  * Splits a multi-file unified diff into one diff per file, keyed by the path
  * in its `diff --git` header. A diff without headers — a single file's, or
@@ -397,17 +429,24 @@ export interface FileDiff {
  */
 export const splitByFile = (diff: string): FileDiff[] => {
   const files: FileDiff[] = []
-  let current: { path: string; lines: string[]; introducing: boolean } | null = null
+  let current: { path: string; lines: string[]; introducing: boolean; opened: boolean } | null = null
   for (const line of diff.split('\n')) {
-    /* Every `diff --git` line is a boundary, whether or not its path can be
-       read. One the old pattern could not match was taken as content, so a
-       quoted file's whole diff was filed under the previous file's path. */
-    if (line.startsWith(GIT_HEADER)) {
-      if (current) files.push({ path: current.path, diff: current.lines.join('\n') })
-      current = { path: headerPath(line), lines: [line], introducing: true }
+    /* Every file header is a boundary, whether or not its path can be read.
+       One the old pattern could not match was taken as content, so a quoted
+       file's whole diff was filed under the previous file's path; and a
+       conflicted file's `diff --cc` was no boundary at all (review, round
+       five). */
+    const header = FILE_HEADERS.find((opening) => line.startsWith(opening))
+    if (header) {
+      /* What came before the first file is no file: blank lines, or a
+         commit's own header above its diff, came back as one with no name
+         (review, round five). A diff with no file header at all is still one. */
+      if (current?.opened) files.push({ path: current.path, diff: current.lines.join('\n') })
+      const path = header === GIT_HEADER ? headerPath(line) : combinedPath(line, header)
+      current = { path, lines: [line], introducing: true, opened: true }
       continue
     }
-    if (!current) current = { path: '', lines: [], introducing: false }
+    if (!current) current = { path: '', lines: [], introducing: false, opened: false }
     /* Until its first hunk a file is still being introduced, and what git
        writes there names it better than its `diff --git` line can — see
        `namedBelow`. From the first hunk on, a `+++` line is content. */
