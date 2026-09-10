@@ -46,6 +46,15 @@ describe('describeLimits', () => {
     expect(describeLimits({ hasCredits: true, balance: 1200, windows: [] })?.credits).toEqual({ label: '1,200 credits', tone: 'good' })
   })
 
+  it('reads a balance only where there is a number to read', () => {
+    // Round 1 of #177: NaN is a number to typeof, and read as one it was "NaN credits".
+    expect(describeLimits({ hasCredits: true, balance: Number.NaN, windows: [] })?.credits).toBeNull()
+    expect(describeLimits({ hasCredits: true, balance: null, windows: [] })?.credits).toBeNull()
+    expect(describeLimits({ hasCredits: true, windows: [] })?.credits).toBeNull()
+    expect(describeLimits({ hasCredits: false, balance: 0, windows: [] })?.credits).toBeNull()
+    expect(describeLimits({ hasCredits: true, balance: -5, windows: [] })?.credits).toEqual({ label: '-5 credits', tone: 'bad' })
+  })
+
   it('returns nothing for an unmetered runtime', () => {
     expect(describeLimits(null)).toBeNull()
   })
