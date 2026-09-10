@@ -305,3 +305,75 @@
 .drop[data-over] .dropLabel {
   opacity: 1;
 }
+
+/* ---------------------------------------------------------------- splits */
+
+/*
+ * Two panels sharing one dock, as the workbench draws them (#80): these four
+ * classes were used and never defined, so a split was two unstyled boxes. The
+ * rules are the workbench's own, except that each half here carries its
+ * `flex-basis` inline rather than reading a ratio variable.
+ */
+.split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.split[data-direction='row'] {
+  flex-direction: row;
+}
+
+.split[data-direction='column'] {
+  flex-direction: column;
+}
+
+.half {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.half > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.splitSeam {
+  flex: none;
+  background: var(--hd-border);
+}
+
+.split[data-direction='row'] > .splitSeam {
+  width: var(--hd-border-width);
+  cursor: col-resize;
+}
+
+.split[data-direction='column'] > .splitSeam {
+  height: var(--hd-border-width);
+  cursor: row-resize;
+}
+
+.splitSeam:hover,
+.splitSeam[data-dragging] {
+  background: var(--hd-accent);
+}
+
+/* Collapsed, a split area is just its strips — two half-width tab bars side
+   by side would be a puzzle, and a strip's only job here is to be the way
+   back. */
+.strips {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.strips:has([data-collapsed]) {
+  flex: none;
+}
+

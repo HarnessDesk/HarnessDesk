@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
+import { ownsStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -325,15 +326,6 @@ for (const file of tsxFiles()) {
 for (const file of tsxFiles()) {
   const name = label(file)
   const dir = path.dirname(file)
-  // A file may draw from its own stylesheet, or from the one named after the
-  // folder it lives in. The second case is a screen that outgrew one file —
-  // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
-  // `explorer.module.css`, which is the right arrangement, not drift. The rule
-  // being enforced is that a screen may not reach into a DIFFERENT screen.
-  const own = new Set([
-    `${path.basename(file, '.tsx')}.module.css`.toLowerCase(),
-    `${path.basename(dir)}.module.css`.toLowerCase(),
-  ])
   const source = read(file)
 
   // An overlay built beside the system rather than out of it.
@@ -364,10 +356,15 @@ for (const file of tsxFiles()) {
 
   /** Local binding → the classes that stylesheet declares. */
   const sheets = new Map()
-  for (const match of source.matchAll(/import (\w+) from '\.\/([A-Za-z]+\.module\.css)'/g)) {
-    if (!own.has(match[2].toLowerCase())) findings.crossImport.push(`${name} imports ${match[2]}`)
-    const target = path.join(dir, match[2])
-    if (fs.existsSync(target)) sheets.set(match[1], { file: match[2], classes: classesOf(target) })
+  // A file may draw from its own stylesheet, or from the one named after the
+  // folder it lives in. The second case is a screen that outgrew one file —
+  // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
+  // `explorer.module.css`, which is the right arrangement, not drift. The rule
+  // being enforced is that a screen may not reach into a DIFFERENT screen.
+  for (const { binding, file: sheet } of stylesheetImports(source)) {
+    if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${sheet}`)
+    const target = path.join(dir, sheet)
+    if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
   }
 
   // A glyph control drawn smaller than a finger.

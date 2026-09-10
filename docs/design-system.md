@@ -752,7 +752,7 @@ list can only go down.
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |
 | `forkedToken` | 0 | Forks the source of truth: the generated doc and the token snapshot both miss it. |
 | `handRolledOverlay` | 4 | Five decisions — buttons, Escape, focus, click-outside, surface — made again, usually one by omission. |
-| `looseTarget` | 12 | A 20px close button is a miss on a trackpad, and WCAG 2.2 asks for 24 unless it has clearance. |
+| `looseTarget` | 15 | A 20px close button is a miss on a trackpad, and WCAG 2.2 asks for 24 unless it has clearance. |
 | `looseIcon` | 3 | Makes "change the icon set" a search across the app instead of one edit. |
 | `danglingToken` | 0 | A silent no-op: the declaration does nothing. |
 | `crossImport` | 11 | Rebuilding one screen changes another. |
