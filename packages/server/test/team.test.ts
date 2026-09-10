@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -3373,4 +3374,72 @@ test('the roster says what each member does with a message, board default includ
 
   team.setInbound('codex', 'c1', 'refuse')
   assert.equal(await modeOf('c1'), 'refuse')
+})
+
+/**
+ * #73 — a blocked card marked done, or abandoned, stayed blocked.
+ *
+ * `release` and `reopen` clear `blockedReason` and `blockedBy`; `done` and
+ * `abandon` did not, so a card could read done and blocked at once — and the
+ * board draws `blockedReason` ahead of the card's own note, so the Done column
+ * showed why the work had once been stopped instead of how it finished.
+ */
+test('a blocked card marked done or abandoned is no longer blocked', async (t) => {
+  const { team, room } = await rig(t)
+  for (const action of ['done', 'abandon'] as const) {
+    const intent = team.addIntentAsUser(room, { title: `stuck, then ${action}` })
+    team.intentAction(room, intent.id, 'block', 'waiting on legal')
+    const blocked = team.stateFor(room).intents.find((entry) => entry.id === intent.id)
+    // The control: it really was blocked, by hand, with the reason given.
+    assert.equal(blocked?.blockedReason, 'waiting on legal')
+    assert.equal(blocked?.blockedBy, 'hand')
+
+    team.intentAction(room, intent.id, action)
+    const after = team.stateFor(room).intents.find((entry) => entry.id === intent.id)
+    assert.equal(after?.state, action === 'done' ? 'done' : 'abandoned')
+    assert.equal(after?.blockedReason, null, `${action} leaves no block reason behind`)
+    assert.equal(after?.blockedBy, null, `${action} leaves nothing blocking it`)
+  }
+})
+
+/**
+ * #35 — a write coalesced into one pass, settled by another.
+ *
+ * `#write` coalesces a write into the pass already queued for its file. The
+ * waiters were drained at the *end* of a pass from a list the whole file
+ * shared, so a caller could join it after the pass had started writing: the
+ * file no longer read as queued, the next write opened a new pass, and a
+ * write after that coalesced into the new pass while sitting in the old
+ * list. The old pass then settled it — reporting a delete done while the file
+ * was still there.
+ *
+ * Deterministic rather than timed. Pass A is queued on an idle chain, so it
+ * runs before the `await` below returns and parks in `mkdir`; C and D are
+ * issued while it is on disk; and removing the file needs a threadpool round
+ * trip that cannot finish inside a microtask checkpoint. So when D is wrongly
+ * settled, the file is still there by construction, not by luck.
+ */
+test('a delete that joins a later pass is not reported done by the earlier one', async (t) => {
+  const { team, dir, room } = await rig(t)
+  const file = join(dir, `${encodeURIComponent(room)}.json`)
+  await team.flush()
+  assert.equal(existsSync(file), true, 'the room is on disk to begin with')
+
+  team.renameRoom(room, 'first') // A: opens a pass
+  await Promise.resolve() // A starts, stops taking callers, and parks on disk
+  team.renameRoom(room, 'second') // C: the file is no longer queued, so a new pass
+  await team.deleteRoom(room) // D: coalesces into C, and is awaited
+
+  // Told the room is gone, it has to be gone.
+  assert.equal(existsSync(file), false, 'the file is gone when the delete says it is')
+})
+
+test('a delete coalesced before its pass starts is still settled by that pass', async (t) => {
+  // The control: ordinary coalescing, which worked before and must keep working.
+  const { team, dir, room } = await rig(t)
+  const file = join(dir, `${encodeURIComponent(room)}.json`)
+  await team.flush()
+  team.renameRoom(room, 'renamed')
+  await team.deleteRoom(room)
+  assert.equal(existsSync(file), false)
 })
