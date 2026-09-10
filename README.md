@@ -7,4 +7,4 @@ endpoint is browser drag-and-drop only and is not exposed to a token.
 
 Reference them as:
 
-    https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/assets/screenshots/<path>
+    https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/<path>
