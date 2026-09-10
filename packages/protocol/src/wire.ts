@@ -177,6 +177,12 @@ export interface GitBranchRef {
   readonly upstream: string | null
   readonly ahead: number
   readonly behind: number
+  /**
+   * The upstream it tracks no longer exists: deleted on its remote and pruned
+   * here — for-each-ref's `[gone]`. `ahead` and `behind` are 0 then, and say
+   * nothing about it.
+   */
+  readonly gone: boolean
 }
 
 export interface GitRemoteRef {
