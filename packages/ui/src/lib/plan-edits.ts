@@ -103,7 +103,14 @@ export const livePlanEdits = (
      next duplicate the agent wrote (#86). */
   const counts = new Map<string, number>()
   for (const todo of todos) counts.set(todo.label, (counts.get(todo.label) ?? 0) + 1)
-  return edits.filter((edit) => (counts.get(edit.from) ?? 0) > (edit.at ?? 0)).slice(-MAX_EDITS)
+  return edits
+    .filter((edit) => {
+      const at = edit.at ?? 0
+      // An occurrence is a count from zero; a stored one that is not was
+      // never written by an edit, and names no row (review, round 1).
+      return Number.isInteger(at) && at >= 0 && (counts.get(edit.from) ?? 0) > at
+    })
+    .slice(-MAX_EDITS)
 }
 
 /** Records one edit, replacing any the same task already had. */

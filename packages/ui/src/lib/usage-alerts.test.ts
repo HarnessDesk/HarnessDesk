@@ -201,3 +201,12 @@ describe('two accounts on one agent', () => {
     expect(alerts[0]?.key).toContain('codex@personal:')
   })
 })
+
+describe('a report that names no account', () => {
+  it('a report without the account field keys as one that names none', () => {
+    // Round 1 of #170: tested against null alone, a payload that left the field out keyed as `codex@undefined`.
+    const before = [report('codex', [lane({ usedPercent: 50 })])]
+    const after = [{ ...report('codex', [lane({ usedPercent: 85 })]), account: undefined as unknown as null }]
+    expect(crossings(before, after, nameFor, NOON)).toHaveLength(1)
+  })
+})

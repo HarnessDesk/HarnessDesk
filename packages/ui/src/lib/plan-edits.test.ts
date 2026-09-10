@@ -149,3 +149,19 @@ describe('an edit to a duplicate task', () => {
     expect(livePlanEdits(todos('Run the tests', 'Ship'), edits)).toEqual([])
   })
 })
+
+describe('a stored edit that names no row', () => {
+  it('drops a stored edit whose occurrence is not a count from zero', () => {
+    // Round 1 of #170: a malformed occurrence was compared as a number, and 0 > -1 kept it alive.
+    expect(livePlanEdits(todos('Ship'), [{ from: 'Gone', to: 'x', at: -1 }])).toEqual([])
+    expect(livePlanEdits(todos('Ship'), [{ from: 'Ship', to: 'Ship it', at: 0.5 }])).toEqual([])
+    expect(livePlanEdits(todos('Ship'), [{ from: 'Ship', to: 'Ship it' }])).toEqual([{ from: 'Ship', to: 'Ship it' }])
+  })
+
+  it('the note names an edit to a duplicate while its row is there, and not after', () => {
+    // Round 1 of #170: planEditNote with an `at` edit was not pinned.
+    const edits = [{ from: 'Run the tests', to: 'Run the tests again', at: 1 }]
+    expect(planEditNote(todos('Run the tests', 'Ship', 'Run the tests'), edits)).toContain('Run the tests again')
+    expect(planEditNote(todos('Run the tests', 'Ship'), edits) ?? '').not.toContain('Run the tests again')
+  })
+})

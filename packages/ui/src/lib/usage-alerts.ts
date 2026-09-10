@@ -40,9 +40,10 @@ const cycleOf = (resetsAt: number | null): string => (resetsAt === null ? 'none'
 /* The account is part of it, when a report names one: one agent can report
    for two, a personal and a work Codex, and keyed without it the two readings
    overwrote each other, so one account's reading was compared with the
-   other's (#88). A report that names none keys as it always did. */
+   other's (#88). A report that names none, whether null, left out or empty,
+   keys as it always did (review, round 1). */
 const laneKey = (report: UsageReport, laneId: string, resetsAt: number | null): string =>
-  `${report.runtime}${report.account === null ? '' : `@${report.account}`}:${laneId}:${cycleOf(resetsAt)}`
+  `${report.runtime}${report.account ? `@${report.account}` : ''}:${laneId}:${cycleOf(resetsAt)}`
 
 /** Every known lane in a set of reports, by agent, account, lane and reset cycle. */
 const index = (reports: readonly UsageReport[]): Map<string, { report: UsageReport; usedPercent: number }> => {
