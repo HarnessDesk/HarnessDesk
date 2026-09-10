@@ -40,6 +40,34 @@ test('escape sequences strip and a carriage return keeps only what it left behin
   assert.equal(plainTerminalText(raw), 'green line\ndone\n\ntail')
 })
 
+/**
+ * A carriage return with nothing after it has overwritten nothing.
+ *
+ * The overwrite rule keeps what follows the last `\r` on a line, which is
+ * right for a bar that redrew itself and wrong for one that has not been
+ * redrawn yet: a line *ending* in `\r` has its last carriage return at the
+ * final index, the slice takes nothing, and a whole line of real output
+ * disappears. The cursor moved; the line stayed. Progress bars and status
+ * messages are the commonest shape, and they are exactly the output somebody
+ * opens a terminal to watch.
+ */
+test('a line ending in a carriage return keeps its text, because nothing overwrote it', () => {
+  assert.equal(plainTerminalText('Building… 40%\r'), 'Building… 40%')
+  // The cursor came back twice and still typed nothing.
+  assert.equal(plainTerminalText('Building… 40%\r\r'), 'Building… 40%')
+  // Mid-line returns still overwrite, and a trailing one still does not.
+  assert.equal(plainTerminalText('10%\r90%\r'), '90%')
+  // A line that is only a carriage return is an empty line, as it was.
+  assert.equal(plainTerminalText('\r'), '')
+})
+
+test('a trailing carriage return on one line does not eat the lines around it', () => {
+  /* The `\r\n` fold runs first, so the last line is the only one that can
+     end in a bare `\r` — but a file written by something that is not a PTY
+     can carry them anywhere, and none of those lines should vanish either. */
+  assert.equal(plainTerminalText('first\rsecond\nthird\r\nfourth\r'), 'second\nthird\nfourth')
+})
+
 test('lastOutput is the most recently printing terminal, and null before any prints', async () => {
   const { processes, print } = fakeProcesses()
   const terminals = new Terminals(() => {})
