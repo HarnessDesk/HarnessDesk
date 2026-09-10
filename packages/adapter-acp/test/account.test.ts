@@ -410,7 +410,14 @@ test("an exit before any URL is login()'s to report, once", async () => {
   assert.equal(events.filter((event) => event.type === 'account/changed').length, 1, 'but the account is looked at again')
 })
 
-test('no URL in time is login()\'s to report, and the exit its kill causes adds nothing', async () => {
+test('no URL in time is login()\'s to report, and the exit its kill causes adds nothing', async (t) => {
+  /* The timeout is unref'd on purpose, so that a stuck sign-in never holds
+     the host open. A real child's pipes keep the loop alive while it waits;
+     this fake holds nothing, so on Node 22 the loop emptied before the timer
+     fired and the test was cancelled (CI did exactly that). The test holds
+     the loop open itself, as a real child would. */
+  const hold = setInterval(() => {}, 1_000)
+  t.after(() => clearInterval(hold))
   const child = fakeChild()
   let killed: string | undefined
   child.kill = ((signal?: string) => {
