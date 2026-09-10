@@ -271,6 +271,7 @@ const statusObject = (text: string): Record<string, unknown> | null => {
      every object nested in another a candidate, so a field of something else
      — `{"payload":{"email":…}}`, a log line's context — read as a signed-in
      status. Round two's review caught it. */
+  let byEmail: Record<string, unknown> | null = null
   for (let at = text.indexOf('{'); at !== -1; ) {
     const candidate = firstObject(text, at)
     at = text.indexOf('{', candidate === null ? at + 1 : at + candidate.length)
@@ -283,9 +284,16 @@ const statusObject = (text: string): Record<string, unknown> | null => {
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
     const record = parsed as Record<string, unknown>
-    if ('loggedIn' in record || 'logged_in' in record || 'email' in record) return record
+    /* A record that says whether the account is signed in is the status. One
+       that only names an email may be the status of a CLI that answers that
+       way — or a log line that happens to carry one, ahead of the status:
+       round three found `{"level":"info","email":…}` then `{"loggedIn":false}`
+       read as signed in. So an email-only record is the answer of last
+       resort, taken only when nothing in the output says signed in or out. */
+    if ('loggedIn' in record || 'logged_in' in record) return record
+    if (byEmail === null && 'email' in record) byEmail = record
   }
-  return null
+  return byEmail
 }
 
 /** One account from whatever the status command printed, or null for signed out. */

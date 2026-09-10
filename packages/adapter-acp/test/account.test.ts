@@ -433,3 +433,46 @@ test('no URL in time is login()\'s to report, and the exit its kill causes adds 
   assert.equal(completions(events), 0)
 })
 
+test('a record that says signed in or out outranks one that only names an email', () => {
+  // Round three: a log line with a top-level email, ahead of the status, read as signed in.
+  assert.equal(parseStatus('{"level":"info","email":"ops@example.com"}\n{"loggedIn":false}'), null)
+  assert.deepEqual(parseStatus('{"type":"log","email":"ops@example.com"}\n{"loggedIn":true,"email":"a@b.c"}'), {
+    kind: 'cli',
+    label: 'a@b.c',
+    email: 'a@b.c',
+  })
+  // A CLI whose whole status is an email is still read.
+  assert.deepEqual(parseStatus('{"email":"a@b.c"}'), { kind: 'cli', label: 'a@b.c', email: 'a@b.c' })
+})
+
+test('logged_in, in snake case, reads like loggedIn', () => {
+  assert.deepEqual(parseStatus('{"logged_in":true,"email":"a@b.c"}'), { kind: 'cli', label: 'a@b.c', email: 'a@b.c' })
+  // Signed out says so, even beside an email.
+  assert.equal(parseStatus('{"logged_in":false,"email":"a@b.c"}'), null)
+})
+
+test('a cancelled flow ends once, as a failure, and its child is stopped', async () => {
+  const child = fakeChild()
+  let killed: string | undefined
+  child.kill = ((signal?: string) => {
+    killed = signal
+    setImmediate(() => child.emit('exit', null))
+    return true
+  }) as typeof child.kill
+  const events: AgentEvent[] = []
+  const account = accountWith(child, events)
+  const login = account.login()
+  child.stdout.emit('data', Buffer.from('Open https://auth.example.com/flow/xyz to sign in\n'))
+  const start = (await login) as { loginId: string }
+  await account.cancel(start.loginId)
+  await tick()
+  await tick()
+  assert.equal(killed, 'SIGTERM')
+  const ended = events.filter((event) => event.type === 'account/loginCompleted') as Extract<
+    AgentEvent,
+    { type: 'account/loginCompleted' }
+  >[]
+  assert.equal(ended.length, 1)
+  assert.equal(ended[0]?.success, false)
+})
+
