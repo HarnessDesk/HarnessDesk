@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Your name and face on the desk** — the seat at the foot of the sidebar is
+  you, and now it can look like you: pick one of twenty-three HarnessDesk
+  whales and give yourself a name in Settings → Profile, which heads the
+  settings rail and is one press from the seat's menu. The same face marks
+  what you say in a room. “HarnessDesk” and the house mark stay the default,
+  and Reset to default puts them back. Kept on this Mac; nothing syncs.
 - **Pull requests say which seat wrote them** — an agent asked to open or
   update a pull request from a conversation ends its description with
   “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent model ·

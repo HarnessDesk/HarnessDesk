@@ -651,23 +651,6 @@
   background: var(--hdp-alias-interactive-bg-hover);
 }
 
-/* You: the desk's own mark on the same quiet disc the menu's top row draws
-   it on, at the row's size. It used to be the account's initials on the
-   accent gradient, or the agent's mark — which made an account read as the
-   person, and changed every time the default agent did. The agent now sits
-   at the row's other end, in `.seatAvatar`, where the menu's seats wear it. */
-.avatar {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--hdp-alias-bg-module-platform); /* desk: the account's accent gradient → the menu's own quiet disc; the seat is you, not an account */
-  color: var(--hdp-alias-label-primary); /* desk: ink on a brand fill → the label ink the menu's mark already wears */
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-}
-
 .accountMenuMark {
   flex: none;
 }
@@ -683,6 +666,20 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* The name itself, cut with an ellipsis. It was always "HarnessDesk" and
+   never needed one; a name you choose can run past the badge. `.accountName`
+   is a flex row, and `text-overflow` does nothing to the anonymous box a
+   bare string becomes inside one. You are drawn by `ProfileFace`, which is
+   the same tile everywhere you appear — the account's initials on the accent
+   gradient, and later the agent's mark, both made an account read as the
+   person; the agent sits at the row's other end, in `.seatAvatar`. */
+.accountLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .accountMeta {
@@ -1276,32 +1273,30 @@
   color: var(--hdp-alias-label-tertiary);
 }
 
-/* The seat a HarnessDesk account would take. There is no such account yet,
-   and this says so rather than offering a sign-in that goes nowhere. */
+/* You: the seat a HarnessDesk account will take. There is no such account
+   yet, and this says so rather than offering a sign-in that goes nowhere —
+   what it opens is yours to change instead: your name and picture. Drawn as
+   yours, too: every other seat in this menu wears its agent's mark, and a
+   stock glyph in the top slot made the app look like one more agent in its
+   own roster. A row of this menu like the seats under it, so it takes
+   `.seat`'s button resets and its hover. */
 .you {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 7px 9px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-/* Ours, and drawn as ours: every other seat in this menu wears its agent's
-   mark, and a stock robot glyph in the top slot made the app look like one
-   more agent in its own roster. */
-.you .youAvatar {
-  color: var(--hdp-alias-label-primary);
-}
-
-.youAvatar {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+.you:hover {
+  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .youText {
@@ -1327,6 +1322,14 @@
    The chip says it at a glance and cannot be cut; the whole sentence is on
    the row's title, and in full on Settings › Account. Same metrics as the
    tag beside an agent's name in Settings, because it is the same idea. */
+/* A chosen name can be longer than the menu is wide: cut, never wrapped. */
+.youLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .youTag {
   flex: none;
   display: inline-flex;

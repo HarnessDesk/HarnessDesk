@@ -1,0 +1,48 @@
+/*
+ * The tile. The plate is the quiet one the seat's disc always wore — the
+ * platform's module fill inside one hairline — so a desk nobody has
+ * personalised looks as it did, only squared to the avatars' shape.
+ *
+ * The corner is a step of the radius scale per size rather than a fixed 6px:
+ * 6 of 24 and 14 of 56 are near enough the same proportion, and one object
+ * should not look sharper the larger it is drawn.
+ */
+.face {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hdp-alias-bg-module-platform);
+  color: var(--hdp-alias-label-primary);
+  box-shadow: var(--hd-hairline);
+}
+
+.face[data-size='m'] {
+  border-radius: var(--hd-radius);
+}
+
+.face[data-size='l'] {
+  border-radius: var(--hd-radius-lg);
+}
+
+/* In a box someone else drew: its size, and its corner. */
+.face[data-fill] {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.face[data-fill] > svg {
+  width: auto;
+  height: 44%;
+}
+
+/* The sticker, whole. It brings its own margin (10px of its 384), so it fills
+   the plate and nothing of it is cropped — not a crown, not a cloud. */
+.picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

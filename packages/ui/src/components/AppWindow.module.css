@@ -224,6 +224,14 @@
   margin-left: 0;
 }
 
+/* You, first: set off from the pages under it by the gap a group takes,
+   because it is not one of them — it is whose settings they are. Your name
+   is a name, so it carries the weight a selected row does, always. */
+.winIdentity {
+  margin-bottom: var(--hd-page-group-gap, 14px);
+  font-weight: var(--hd-weight-medium);
+}
+
 .winNavEmpty {
   padding: 10px 9px;
   font-size: var(--hd-text-sm);

@@ -21,6 +21,7 @@ import {
   WindowGroup,
   WindowNav,
   WindowNavEmpty,
+  WindowNavIdentity,
   WindowNavItem,
   WindowPage,
 } from './AppWindow'
@@ -96,7 +97,9 @@ import {
 import { Dialog } from '../design/primitives/Dialog'
 import { ConfirmDialog } from '../design/patterns/ConfirmDialog'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
-import { GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
+import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
+import { ProfileFace } from './ProfileFace'
+import { profileName } from '../lib/profile'
 import { NewSessionDefaults } from './SettingsAgents'
 import styles from './Settings.module.css'
 
@@ -110,6 +113,7 @@ import styles from './Settings.module.css'
  */
 
 export type Section =
+  | 'profile'
   | 'general'
   | 'appearance'
   | 'notifications'
@@ -138,7 +142,7 @@ const MOVED: Readonly<Record<string, Section>> = {
   presets: 'models',
 }
 const SECTIONS: readonly Section[] = [
-  'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive',
+  'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive',
   'agents', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
 export const resolveSection = (name: string | null | undefined, fallback: Section = 'agents'): Section =>
@@ -1949,6 +1953,14 @@ export const Settings = ({
     },
   ]
 
+  // You, first — found by the page's name, the words someone looking for it
+  // would type, or your own name.
+  const yourName = profileName(snapshot.profile)
+  const showYou = [yourName, 'profile you me name picture avatar photo face identity account reset']
+    .join(' ')
+    .toLowerCase()
+    .includes(query.trim().toLowerCase())
+
   const filtered = groups
     .map((group) => ({ ...group, entries: group.entries.filter((entry) => matches(entry, query)) }))
     .filter((group) => group.entries.length > 0)
@@ -1964,6 +1976,14 @@ export const Settings = ({
           onChange: setQuery,
         }}
       >
+        {showYou && (
+          <WindowNavIdentity
+            face={<ProfileFace size={28} />}
+            name={yourName}
+            selected={section === 'profile'}
+            onClick={() => onSection('profile')}
+          />
+        )}
         {filtered.map((group) => (
           <WindowGroup key={group.label} label={group.label}>
             {group.entries.map((entry) => (
@@ -1983,7 +2003,7 @@ export const Settings = ({
             ))}
           </WindowGroup>
         ))}
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !showYou && (
           <WindowNavEmpty>Nothing in settings matches “{query.trim()}”.</WindowNavEmpty>
         )}
       </WindowNav>
@@ -1991,6 +2011,7 @@ export const Settings = ({
       {/* The library is a grid of agent columns, not a column of sentences, so
           it takes the wide measure the usage dashboard uses. */}
       <WindowPage key={section} wide={section === 'library'}>
+            {section === 'profile' && <ProfileSection />}
             {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
             {section === 'appearance' && <AppearanceSection />}
             {section === 'notifications' && <NotificationsSection />}

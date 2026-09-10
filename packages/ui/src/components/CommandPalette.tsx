@@ -24,6 +24,7 @@ import {
   SlashIcon,
   SlidersIcon,
   UsageIcon,
+  UserIcon,
 } from './Icons'
 import { RuntimeMark } from './BrandIcons'
 import { summonable } from '../panels/views'
@@ -37,6 +38,7 @@ import type { Section } from './Settings'
  */
 const SETTINGS_PAGES: readonly { section: Section; label: string; icon: React.ReactNode; keywords: string }[] = [
   { section: 'agents', label: 'Agents', icon: <AgentIcon size={14} />, keywords: 'agents accounts sign in' },
+  { section: 'profile', label: 'Profile', icon: <UserIcon size={14} />, keywords: 'profile you name picture avatar photo face identity' },
   { section: 'general', label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
   { section: 'appearance', label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
   { section: 'notifications', label: 'Notifications', icon: <SlidersIcon size={14} />, keywords: 'notifications banners alerts mute' },

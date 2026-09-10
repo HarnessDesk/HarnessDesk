@@ -293,7 +293,7 @@ export const App = () => {
           <Workbench
             sidebar={
               <Sidebar
-                onOpenSettings={() => setSettingsOpen('agents')}
+                onOpenSettings={(section) => setSettingsOpen(section ?? 'agents')}
                 onOpenPlugins={() => setSettingsOpen('plugins')}
                 onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
                 onBrowseFolders={chooseFolder}

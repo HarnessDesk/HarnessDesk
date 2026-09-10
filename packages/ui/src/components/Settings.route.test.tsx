@@ -254,3 +254,37 @@ it('the import banner opens the Library with its import flow, window already ope
   expect(page()).toBe('Library')
   expect(container.textContent).toContain('Import between agents')
 })
+
+it('starts the rail with you, and your row opens your profile', async () => {
+  const drive = await mount()
+  const you = navRow('HarnessDesk')
+  const general = navRow('General')
+  if (!you || !general) throw new Error('no identity row, or no General row')
+  // First: above every group, the way a Mac's own settings open on their owner.
+  expect(you.compareDocumentPosition(general) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(you.hasAttribute('data-selected')).toBe(false)
+
+  act(() => you.click())
+  expect(drive.held()).toBe('profile')
+  expect(navRow('HarnessDesk')?.hasAttribute('data-selected')).toBe(true)
+  expect(container.querySelector('input[aria-label="Your name"]')).not.toBeNull()
+})
+
+it('keeps you in the rail while a search could mean you, and only then', async () => {
+  await mount()
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
+  if (!search) throw new Error('no rail search')
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  const find = (value: string): void =>
+    act(() => {
+      setValue?.call(search, value)
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+  find('picture')
+  expect(navRow('HarnessDesk')).toBeDefined()
+  expect(container.textContent).not.toContain('Nothing in settings matches')
+  find('permissions')
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(navRow('Permissions')).toBeDefined()
+})

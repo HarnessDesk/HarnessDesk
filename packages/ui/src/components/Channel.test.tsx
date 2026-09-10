@@ -593,3 +593,24 @@ it('a fan-out to many names three and counts the rest', () => {
     'Gemini, Gemini 2, Gemini 3 and 135 more',
   )
 })
+
+it('draws you in the face the seat wears — the one you chose, or the house mark', async () => {
+  const you = (profile: AppSnapshot['profile']): AppStore => {
+    const snapshot = { ...emptySnapshot(), status: 'open', profile } as AppSnapshot
+    return { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  }
+  const said = [
+    { id: 'u1', at: 20, kind: 'message', from: { kind: 'user' }, text: 'ship it', state: 'delivered', reason: null },
+  ] as unknown as TeamEntry[]
+
+  await render(you({ name: 'Jane', avatar: 'astronaut' }), said)
+  const face = container.querySelector('[data-slot="avatar"]')
+  expect(face?.querySelector('img')?.getAttribute('src')).toMatch(/\/astronaut\.png$/)
+  // Still "You" in words: the face is decoration, and the header says who spoke.
+  expect(container.textContent).toContain('You')
+
+  await render(you({}), said)
+  const mark = container.querySelector('[data-slot="avatar"]')
+  expect(mark?.querySelector('img')).toBeNull()
+  expect(mark?.querySelector('.brand-harnessdesk')).not.toBeNull()
+})

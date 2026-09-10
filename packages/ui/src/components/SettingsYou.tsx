@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordOf, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
@@ -6,9 +6,20 @@ import { NOTICE_KINDS } from '../lib/notice-policy'
 import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-notifications'
 import { FONT_SIZES, installedFaces, TAB_SIZES } from '../lib/editor-prefs'
 import { formatAge } from '../lib/usage'
+import { AVATARS, type AvatarId } from '../lib/avatars'
+import {
+  applyProfile,
+  DEFAULT_PROFILE_NAME,
+  isDefaultProfile,
+  PROFILE_NAME_MAX,
+  profileName,
+} from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
+import { Face } from './ProfileFace'
 import {
   Btn,
+  DetailHead,
+  Input,
   kit,
   PageHead,
   Row,
@@ -21,12 +32,196 @@ import {
 import styles from './SettingsYou.module.css'
 
 /**
- * The four pages about the person rather than the agents.
+ * The pages about the person rather than the agents.
  *
  * They sit at the top of the nav because that is the order a new window is
  * read in: who am I, what does this look like, what does it say to me, how do
  * I drive it — and only then, what can it do.
  */
+
+/**
+ * You: the name and the face the desk shows for you.
+ *
+ * The page the seat's menu opens and the settings rail starts with. Its head
+ * is your face at a size you can see and your name as you type it, so the
+ * page is its own preview, the way Appearance is — nothing on it needs a
+ * sentence saying what it would change.
+ *
+ * Nothing here signs in and nothing here syncs: there is no HarnessDesk
+ * account, and the page does not pretend to one. When there is, this is the
+ * page it arrives on — the account brings the same two things, and the head
+ * is where it will say whose they are.
+ *
+ * Three ways back, each where you would look for it: clear the field for the
+ * name, the first face for the picture, and "Reset to default" for both —
+ * shown only while there is something to reset.
+ */
+export const ProfileSection = () => {
+  const store = useStore()
+  const { profile } = useSnapshot()
+  const stored = profile.name ?? ''
+  /* The field keeps its own text until it is let go — Enter, a click
+     elsewhere, the window closing. The store tidies a name (trims it, folds
+     its runs of spaces), and tidying under the caret would eat the space
+     between two words as it was typed; the account nickname field makes the
+     same choice for the same reason. `latest` is the draft as of this
+     instant, because a blur fires before the render that would carry it. */
+  const [draft, setDraft] = useState(stored)
+  const latest = useRef(draft)
+  latest.current = draft
+  const kept = useRef(stored)
+  kept.current = stored
+  const commit = (): void => {
+    store.setProfile({ name: latest.current })
+    setDraft(applyProfile({}, { name: latest.current }).name ?? '')
+  }
+  // A reset, or any change from outside the field, puts the field back.
+  useEffect(() => setDraft(stored), [stored])
+  // Closing the window, or leaving for another page, is letting go — of an
+  // edit, if there is one. A page opened and closed again writes nothing.
+  useEffect(
+    () => () => {
+      if (latest.current !== kept.current) store.setProfile({ name: latest.current })
+    },
+    [store],
+  )
+
+  // The head previews what is typed, before it is let go.
+  const live = applyProfile(profile, { name: draft })
+
+  return (
+    <>
+      <DetailHead
+        mark={<Face avatar={profile.avatar} size={56} />}
+        name={profileName(live)}
+        blurb="Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."
+        actions={
+          isDefaultProfile(live) ? undefined : (
+            <Btn variant="outline" onClick={() => store.setProfile({ name: null, avatar: null })}>
+              Reset to default
+            </Btn>
+          )
+        }
+      />
+
+      <Rows>
+        <Row
+          title="Name"
+          desc={`Leave it empty to use ${DEFAULT_PROFILE_NAME}.`}
+          control={
+            <Input
+              className={styles.nameField}
+              value={draft}
+              placeholder={DEFAULT_PROFILE_NAME}
+              maxLength={PROFILE_NAME_MAX}
+              aria-label="Your name"
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+                if (event.key === 'Escape' && draft !== stored) {
+                  // The first Escape takes the edit back; the next is the window's.
+                  event.stopPropagation()
+                  latest.current = stored
+                  setDraft(stored)
+                  event.currentTarget.blur()
+                }
+              }}
+            />
+          }
+        />
+      </Rows>
+
+      <SectionHead name="Picture" />
+      <FacePicker value={profile.avatar ?? null} onChange={(avatar) => store.setProfile({ avatar })} />
+    </>
+  )
+}
+
+/** Eight to a row: Default and the twenty-three faces make three even rows. */
+const FACE_COLUMNS = 8
+
+const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: string; readonly about: string }[] = [
+  { id: null, label: 'Default', about: 'The HarnessDesk mark' },
+  ...AVATARS,
+]
+
+/**
+ * Every face you could wear, as one radio group.
+ *
+ * One stop on the tab order, not twenty-four: Tab lands on the face you wear,
+ * and the arrow keys walk the grid — across, and down a row of eight — the
+ * way a radio group has always moved, choosing as they go. A face's name is
+ * its label and its description the hover, because twenty-four captions
+ * under twenty-four pictures would turn a glance into a read.
+ */
+const FacePicker = ({
+  value,
+  onChange,
+}: {
+  value: AvatarId | null
+  onChange: (next: AvatarId | null) => void
+}) => {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([])
+  const current = Math.max(
+    0,
+    FACE_CHOICES.findIndex((choice) => choice.id === value),
+  )
+  const last = FACE_CHOICES.length - 1
+  const step = (from: number, key: string): number | null => {
+    switch (key) {
+      case 'ArrowRight':
+        return Math.min(last, from + 1)
+      case 'ArrowLeft':
+        return Math.max(0, from - 1)
+      case 'ArrowDown':
+        return from + FACE_COLUMNS <= last ? from + FACE_COLUMNS : null
+      case 'ArrowUp':
+        return from - FACE_COLUMNS >= 0 ? from - FACE_COLUMNS : null
+      case 'Home':
+        return 0
+      case 'End':
+        return last
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div className={styles.faces} role="radiogroup" aria-label="Picture">
+      {FACE_CHOICES.map((choice, index) => {
+        const on = index === current
+        return (
+          <button
+            key={choice.id ?? 'default'}
+            ref={(node) => {
+              buttons.current[index] = node
+            }}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            aria-label={choice.label}
+            title={`${choice.label} — ${choice.about}`}
+            tabIndex={on ? 0 : -1}
+            className={styles.faceChoice}
+            {...(on ? { 'data-on': '' } : {})}
+            onClick={() => onChange(choice.id)}
+            onKeyDown={(event) => {
+              const next = step(index, event.key)
+              const target = next === null ? undefined : FACE_CHOICES[next]
+              if (next === null || !target) return
+              event.preventDefault()
+              onChange(target.id)
+              buttons.current[next]?.focus()
+            }}
+          >
+            <Face avatar={choice.id} size={44} className={styles.faceTile} />
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 /**
  * This copy of HarnessDesk.

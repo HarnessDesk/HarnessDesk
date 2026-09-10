@@ -62,6 +62,7 @@ const signedOut: AccountStatus = {
 
 const mount = (overrides: Partial<AppSnapshot> = {}) => {
   const selectRuntime = vi.fn(async () => {})
+  const onOpenSettings = vi.fn()
   const claudeAccount = signedIn('olivia@acme.dev')
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -84,11 +85,11 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
+        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={() => {}} onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
-  return { selectRuntime }
+  return { selectRuntime, onOpenSettings }
 }
 
 const row = (): HTMLButtonElement => {
@@ -243,4 +244,34 @@ it('the badge card’s Usage verb opens the dashboard on that agent', () => {
   if (!usage) throw new Error('no Usage verb on the card')
   click(usage)
   expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
+})
+
+it('is you once you have chosen: your name and your face, with the pen still beside them', () => {
+  mount({ profile: { name: 'Jane', avatar: 'wizard' } })
+  const seat = row()
+  expect(seat.textContent).toContain('Jane')
+  expect(seat.textContent).not.toContain('HarnessDesk')
+  expect(seat.querySelector('img')?.getAttribute('src')).toMatch(/\/wizard\.png$/)
+  expect(seat.querySelector('.brand-harnessdesk')).toBeNull()
+  // The default agent's badge is untouched: you are beside the pen, not it.
+  expect(seat.querySelector('.brand-claude')).not.toBeNull()
+})
+
+it('draws the house mark until a face is chosen', () => {
+  mount({ profile: { name: 'Jane' } })
+  const seat = row()
+  expect(seat.querySelector('img')).toBeNull()
+  expect(seat.querySelector('.brand-harnessdesk')).not.toBeNull()
+})
+
+it('opens your profile from the top of the menu', () => {
+  const { onOpenSettings } = mount({ profile: { name: 'Jane' } })
+  click(row())
+  const you = container.querySelector('[role="menu"] [role="menuitem"]')
+  if (!you) throw new Error('no menu')
+  expect(you.textContent).toContain('Jane')
+  expect(you.textContent).toContain('Local')
+  click(you)
+  expect(onOpenSettings).toHaveBeenCalledWith('profile')
+  expect(container.querySelector('[role="menu"]')).toBeNull()
 })
