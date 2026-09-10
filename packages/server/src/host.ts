@@ -1363,6 +1363,12 @@ export class Host {
     }
   }
 
+  /** What the host knows about a runtime, by id — null for one it does not hold. */
+  runtimeInfo(id: string): RuntimeInfo | null {
+    const runtime = this.#runtimes.get(id)
+    return runtime ? this.#infoOf(runtime) : null
+  }
+
   /**
    * The forge plane, for the extension host to hand to `ctx.forge`. Exposed
    * for the reason the team plane is: the seat is read off the host's own

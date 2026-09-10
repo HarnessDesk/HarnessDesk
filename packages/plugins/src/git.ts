@@ -160,6 +160,7 @@ export const gitPlugin: HarnessPlugin = {
           type: 'boolean',
           title: 'Tell the agent the current branch',
           description: 'Adds the branch name to every turn as context.',
+          default: true,
         },
         logLimit: {
           type: 'number',

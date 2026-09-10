@@ -800,7 +800,9 @@ agent reaches it through the agent's own instruction layer — Codex takes it as
 `instructions` in its `initialize` `_meta.harnessdesk` reads it from
 `session/new`'s and `session/load`'s `_meta.harnessdesk.instructions`. The desk
 never puts the sentence in the person's message; an agent with no such layer
-hears it only as the tool server's own `instructions`, if it accepted one.
+hears it only as the tool server's own `instructions`, if it accepted one — and
+an agent that declares the capability is answered nothing there, so it never
+hears the sentence twice.
 
 ### Conformance
 

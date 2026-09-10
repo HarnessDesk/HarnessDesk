@@ -158,7 +158,9 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         case 'initialize': {
           let instructions = ''
           try {
-            instructions = (await call<{ instructions?: unknown }>('server/info')).instructions as string
+            instructions = (
+              await call<{ instructions?: unknown }>('server/info', CALLER ? { caller: CALLER } : {})
+            ).instructions as string
           } catch {
             // An older host without the verb: the tools still work, unbriefed.
           }

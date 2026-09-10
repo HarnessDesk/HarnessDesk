@@ -100,8 +100,8 @@ test('a non-string caller is treated as absent, not passed through', async () =>
  * Read through the backend at the moment of asking, and nothing at all —
  * not a failure — from a backend with no sentence to give.
  */
-test('server/info carries the backend’s instruction, and an empty one when it has none', async () => {
-  const ask = async (instructions?: () => string): Promise<unknown> => {
+test('server/info carries the backend’s instruction, told who is asking, and an empty one when it has none', async () => {
+  const ask = async (instructions?: (caller?: string) => string, caller?: string): Promise<unknown> => {
     const dir = await mkdtemp(join(socketHome(), 'hd-gateway-'))
     const socketPath = join(dir, 'tools.sock')
     const gateway = new ToolGateway(socketPath, {
@@ -113,7 +113,7 @@ test('server/info carries the backend’s instruction, and an empty one when it 
     try {
       return await new Promise<unknown>((resolve, reject) => {
         const socket = connect(socketPath, () => {
-          socket.write(`${JSON.stringify({ id: 1, method: 'server/info', params: {} })}\n`)
+          socket.write(`${JSON.stringify({ id: 1, method: 'server/info', params: caller ? { caller } : {} })}\n`)
         })
         let buffer = ''
         socket.on('data', (chunk) => {
@@ -133,4 +133,10 @@ test('server/info carries the backend’s instruction, and an empty one when it 
   }
   assert.deepEqual(await ask(() => 'Use the pr_create tool.'), { id: 1, result: { instructions: 'Use the pr_create tool.' } })
   assert.deepEqual(await ask(), { id: 1, result: { instructions: '' } })
+  // The bridge's token reaches the backend, which is how an agent whose own
+  // bridge carries the sentence is answered nothing here.
+  assert.deepEqual(
+    await ask((caller) => (caller === 'briefed-already' ? '' : 'Use the pr_create tool.'), 'briefed-already'),
+    { id: 1, result: { instructions: '' } },
+  )
 })

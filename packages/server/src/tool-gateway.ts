@@ -26,9 +26,11 @@ export interface ToolGatewayBackend {
    * The standing instruction for the agent behind a bridge, or nothing. MCP
    * lets a server say a sentence about itself at `initialize`, and the
    * bridge relays this one — it is how an agent with no other instruction
-   * channel hears what the desk's tools are for.
+   * channel hears what the desk's tools are for. `caller` is the bridge's
+   * token, as on `tools/invoke`: the backend answers nothing for an agent
+   * whose own bridge already carries the sentence, so nobody hears it twice.
    */
-  instructions?(): string
+  instructions?(caller?: string): string
 }
 
 interface Request {
@@ -106,7 +108,9 @@ export class ToolGateway {
           return
         }
         case 'server/info': {
-          reply({ result: { instructions: this.backend.instructions?.() ?? '' } })
+          const params = request.params ?? {}
+          const caller = typeof params['caller'] === 'string' ? params['caller'] : undefined
+          reply({ result: { instructions: this.backend.instructions?.(caller) ?? '' } })
           return
         }
         case 'tools/invoke': {

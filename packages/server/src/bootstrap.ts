@@ -265,7 +265,14 @@ export const createDefaultHost = (
     listTools: () => extensions.list('tool', {}),
     // Read at each bridge's handshake rather than fixed at start: whether
     // the sentence applies depends on which plugins are enabled right now.
-    instructions: () => host.forgePlane.instructions(),
+    // Nothing for a bridge whose agent's runtime carries the sentence in an
+    // instruction layer of its own — Claude Code heard it twice otherwise,
+    // once appended to its system prompt and once as the server's own.
+    instructions: (caller) => {
+      const scope = caller !== undefined ? callers.get(caller) : undefined
+      if (scope && host.runtimeInfo(scope.runtime)?.capabilities.instructions) return ''
+      return host.forgePlane.instructions()
+    },
     invokeByName: async (namespace, name, args, caller) => {
       const tools = extensions.list('tool', {})
       const tool =
