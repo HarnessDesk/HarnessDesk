@@ -63,4 +63,4 @@ export {
 export { EditorService, setEditorEngine, type EditorEngine } from './editor.js'
 export { TeamService, setTeamEngine, type TeamEngine, type TeamScope } from './team.js'
 export { IosService, type SimDevice } from './ios.js'
-export { AndroidService } from './android.js'
+export { AndroidService, type AndroidDevice } from './android.js'

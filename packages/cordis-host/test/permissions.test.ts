@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -294,4 +296,57 @@ test('trusted plugins bypass the manifest, third-party ones never do', async (t)
 
   assert.equal(kernel.list('ui').length, 1)
   assert.equal(kernel.plugins()[0]?.permissions.shell, true)
+})
+
+test('a port in the address is compared only where a pattern names one', () => {
+  // #21: the gate compared `host`, which carries the port, so `localhost` never matched localhost:3000.
+  assert.equal(hostAllowed(['localhost'], 'localhost:3000'), true)
+  assert.equal(hostAllowed(['*.internal.net'], 'api.internal.net:8443'), true)
+  assert.equal(hostAllowed(['localhost:3000'], 'localhost:3000'), true)
+  assert.equal(hostAllowed(['localhost:3000'], 'localhost:4000'), false, 'a pattern with a port allows that port alone')
+  assert.equal(hostAllowed(['localhost:3000'], 'localhost'), false)
+  assert.equal(hostAllowed(['[::1]'], '[::1]:8080'), true, "an IPv6 address's own colons are not a port")
+  assert.equal(hostAllowed(['::1'], '[::1]:8080'), true, 'nor are they where the pattern leaves the brackets out')
+  assert.equal(hostAllowed(['[::1]:8080'], '[::1]:9090'), false)
+  assert.equal(hostAllowed(['example.com'], 'example.com.evil.net:443'), false)
+})
+
+test('a plugin allowed a host reaches it on the port in the address, and one allowed a port reaches that port alone', async (t) => {
+  // #21, through the gate every plugin request passes.
+  const server = createServer((_request, response) => response.end('ok'))
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const { port } = server.address() as AddressInfo
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  const fetcher = (id: string, tool: string, hosts: string[], url: string) =>
+    kernel.load({
+      manifest: { id, name: id, permissions: { network: { hosts } } },
+      plugin: {
+        name: id,
+        inject: ['tools', 'http'],
+        apply(ctx: any) {
+          ctx.tools.register({ name: tool, description: '', inputSchema: {}, execute: async () => (await ctx.http.fetch(url)).body })
+        },
+      },
+    })
+  const here = `http://127.0.0.1:${port}/`
+  await fetcher('any-port', 'fetch_any', ['127.0.0.1'], here)
+  await fetcher('this-port', 'fetch_this', [`127.0.0.1:${port}`], here)
+  await fetcher('other-port', 'fetch_other', [`127.0.0.1:${port + 1}`], here)
+  // A URL leaves its scheme's own port out; a pattern naming that port still matches it.
+  await fetcher('scheme-port', 'fetch_scheme', ['127.0.0.1:80'], 'http://127.0.0.1/')
+  await fetcher('wrong-port', 'fetch_wrong', ['127.0.0.1:443'], 'http://127.0.0.1/')
+  await settle()
+
+  const call = (tool: string) => kernel.invokeTool(kernel.list('tool').find((entry) => entry.name === tool)!.id, {}, {})
+  const text = (result: Awaited<ReturnType<typeof call>>): string =>
+    result.ok ? result.content.map((part) => (part.type === 'text' ? part.text : '')).join('') : result.error
+  const denied = /is not in this plugin's allowed hosts/
+  assert.equal(text(await call('fetch_any')), 'ok')
+  assert.equal(text(await call('fetch_this')), 'ok')
+  assert.match(text(await call('fetch_other')), denied)
+  // Past the gate, whatever port 80 on this machine does with the request.
+  assert.doesNotMatch(text(await call('fetch_scheme')), denied)
+  assert.match(text(await call('fetch_wrong')), denied)
 })

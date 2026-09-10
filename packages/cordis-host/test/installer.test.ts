@@ -318,3 +318,15 @@ test('an installed plugin cannot point its entry at a lookalike sibling director
   await assert.rejects(() => loadInstalled(join(root, 'demo')), /points outside its own directory/)
 })
 
+test('the listing says where each plugin was installed from, as loading does', async (t) => {
+  // #45: listInstalled called every plugin a local one, at its own installed copy.
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  assert.deepEqual((await listInstalled())[0]?.source, { kind: 'local', path: FIXTURE })
+  const record = join(root, 'sample', '.harnessdesk-source.json')
+  await writeFile(record, JSON.stringify({ kind: 'npm', specifier: '@acme/sample@1.2.0' }))
+  assert.deepEqual((await listInstalled())[0]?.source, { kind: 'npm', specifier: '@acme/sample@1.2.0' })
+  // A record that is not one knows only the copy, as one from before records did.
+  await writeFile(record, 'null')
+  assert.deepEqual((await listInstalled())[0]?.source, { kind: 'local', path: join(root, 'sample') })
+})

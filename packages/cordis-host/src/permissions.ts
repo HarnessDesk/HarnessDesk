@@ -23,19 +23,43 @@ export class PermissionDenied extends Error {
 const normaliseHost = (value: string): string => value.trim().toLowerCase()
 
 /**
+ * A host, and the port written after it if there is one. An IPv6 address is
+ * bracketed the way a URL writes it, so its own colons are never a port.
+ */
+const splitHost = (value: string): { readonly name: string; readonly port: string | null } => {
+  const host = normaliseHost(value)
+  const close = host.startsWith('[') ? host.indexOf(']') : -1
+  if (close > 0) {
+    const rest = host.slice(close + 1)
+    return { name: host.slice(0, close + 1), port: rest.startsWith(':') && rest.length > 1 ? rest.slice(1) : null }
+  }
+  const colon = host.indexOf(':')
+  if (colon < 0) return { name: host, port: null }
+  // One colon is a port; more is an IPv6 address written without its brackets.
+  if (colon === host.lastIndexOf(':')) return { name: host.slice(0, colon), port: host.slice(colon + 1) || null }
+  return { name: `[${host}]`, port: null }
+}
+
+/** The port a URL leaves out because its scheme implies it. */
+const DEFAULT_PORTS: Readonly<Record<string, string>> = { 'http:': '80', 'https:': '443', 'ws:': '80', 'wss:': '443' }
+
+/**
  * Host matching supports a single leading wildcard label (`*.example.com`),
  * which covers the common case without inviting the ambiguity of full globs.
+ * A pattern with no port allows every port on its host, and one with a port
+ * (`localhost:3000`) allows that port alone.
  */
 export const hostAllowed = (allowed: readonly string[], host: string): boolean => {
-  const target = normaliseHost(host)
+  const target = splitHost(host)
   return allowed.some((pattern) => {
-    const candidate = normaliseHost(pattern)
-    if (candidate === '*') return true
-    if (candidate.startsWith('*.')) {
-      const suffix = candidate.slice(1)
-      return target.endsWith(suffix) && target.length > suffix.length
+    const candidate = splitHost(pattern)
+    if (candidate.port !== null && candidate.port !== target.port) return false
+    if (candidate.name === '*') return true
+    if (candidate.name.startsWith('*.')) {
+      const suffix = candidate.name.slice(1)
+      return target.name.endsWith(suffix) && target.name.length > suffix.length
     }
-    return candidate === target
+    return candidate.name === target.name
   })
 }
 
@@ -125,14 +149,19 @@ export class PermissionGate {
   }
 
   assertNetwork(url: string): void {
-    let host: string
+    let parsed: URL
     try {
-      host = new URL(url).host
+      parsed = new URL(url)
     } catch {
       throw new PermissionDenied('network', `not a valid URL: ${url.slice(0, 80)}`)
     }
-    if (!hostAllowed(this.permissions.network.hosts, host)) {
-      throw new PermissionDenied('network', `${host} is not in this plugin's allowed hosts`)
+    /* `host` carries the port and a manifest names hosts, so `localhost` never
+       matched http://localhost:3000 (#21). The port is compared only where a
+       pattern names one, and a URL leaves its scheme's own port out, so that
+       is put back for the comparison. */
+    const port = parsed.port || DEFAULT_PORTS[parsed.protocol] || ''
+    if (!hostAllowed(this.permissions.network.hosts, port ? `${parsed.hostname}:${port}` : parsed.hostname)) {
+      throw new PermissionDenied('network', `${parsed.host} is not in this plugin's allowed hosts`)
     }
   }
 
