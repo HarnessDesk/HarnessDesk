@@ -494,6 +494,56 @@ test('a contribution added after load announces itself — the live-panel regres
   assert.ok(last.contributions.some((entry) => entry.kind === 'ui'))
 })
 
+test('todo_write reads the list under the key an agent uses, and a call with no list changes nothing', async (t) => {
+  // #57: Claude Code and Cursor send `todos`. Read from `tasks` alone, that
+  // arrived as nothing, which is how a plan is put down, and the plan was wiped.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-keys' as SessionId }
+  const list = async (): Promise<string> => text(await kernel.invokeTool(read, {}, scope))
+
+  await kernel.invokeTool(write, { tasks: ['design', 'build'] }, scope)
+  await kernel.invokeTool(write, { todos: [{ task: 'design', status: 'done' }, { task: 'build', status: 'inProgress' }] }, scope)
+  assert.match(await list(), /\[x\] 1\. design/)
+  assert.match(await list(), /\[~\] 2\. build/)
+  await kernel.invokeTool(write, { plan: [{ task: 'ship' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. ship$/)
+
+  // No list named at all is a malformed call, not a plan put down.
+  assert.match(text(await kernel.invokeTool(write, {}, scope)), /takes the whole list/)
+  assert.match(await list(), /^\[ \] 1\. ship$/)
+  // Putting it down on purpose still works.
+  await kernel.invokeTool(write, { tasks: [] }, scope)
+  assert.match(await list(), /empty/)
+})
+
+test('cancelling every task puts the plan down, rather than being refused as unreadable', async (t) => {
+  // #58: cancelled tasks leave the list, and the readable-text check ran after they had.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-cancel' as SessionId }
+
+  await kernel.invokeTool(write, { tasks: ['design', 'build'] }, scope)
+  const answer = text(
+    await kernel.invokeTool(write, { tasks: [{ task: 'design', status: 'cancelled' }, { task: 'build', status: 'cancelled' }] }, scope),
+  )
+  assert.doesNotMatch(answer, /readable text/)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /empty/)
+
+  // Entries with nothing readable are still refused, and still leave the list alone.
+  await kernel.invokeTool(write, { tasks: ['ship'] }, scope)
+  assert.match(text(await kernel.invokeTool(write, { tasks: [{}, 42] }, scope)), /None of those 2 entries had readable text/)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /^\[ \] 1\. ship$/)
+})
+
 // ---------------------------------------------------------------- context chips
 
 test('git contributes chips that stay out of every turn and resolve on demand', async (t) => {
