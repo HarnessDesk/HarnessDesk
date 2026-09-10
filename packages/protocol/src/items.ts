@@ -301,6 +301,8 @@ export interface ForgeReference {
 
 const FORGE_KINDS = new Set(['pullRequest', 'issue', 'review', 'comment'])
 const FORGE_STATES = new Set(['open', 'draft', 'merged', 'closed'])
+const FORGE_ACTIONS = new Set(['opened', 'updated', 'posted'])
+const FORGE_SUBJECTS = new Set(['pullRequest', 'issue'])
 
 /**
  * Whether a value is a forge reference in its required parts and types.
@@ -324,6 +326,8 @@ export const isForgeReference = (value: unknown): value is ForgeReference => {
     /^https?:\/\//.test(ref['url']) &&
     (ref['via'] === 'gh' || ref['via'] === 'app') &&
     (ref['state'] === null || ref['state'] === undefined || (typeof ref['state'] === 'string' && FORGE_STATES.has(ref['state']))) &&
+    (ref['action'] === undefined || (typeof ref['action'] === 'string' && FORGE_ACTIONS.has(ref['action']))) &&
+    (ref['subject'] === undefined || (typeof ref['subject'] === 'string' && FORGE_SUBJECTS.has(ref['subject']))) &&
     optionalString(ref['title']) &&
     optionalString(ref['author']) &&
     optionalString(ref['excerpt']) &&

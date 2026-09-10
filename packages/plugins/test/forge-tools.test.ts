@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeSeat } from '@harnessdesk/cordis-host'
 import type { ContributionId, ForgeReference, ToolResult } from '@harnessdesk/protocol'
 
-import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, gitPlugin, renderSignature, signBody, signatureMatcher } from '../src/index.js'
+import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, renderSignature, signBody, unmarked } from '../src/index.js'
 
 /**
  * The Git plugin's forge tools, driven through the real kernel against a
@@ -162,8 +162,8 @@ test('pr_create signs the description for the seat and records the pull request 
 
   assert.equal(
     bodySentTo(forge.calls(), 'create'),
-    'Widgets, as discussed.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)',
-    'the signature is the last line, after a blank one, as GitHub renders it',
+    `Widgets, as discussed.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High) ${SIGNATURE_MARK}`,
+    'the signature is the last line, after a blank one, marked as the desk’s own; GitHub renders the mark as nothing',
   )
   const create = forge.calls().find((args) => args[1] === 'create')!
   assert.ok(create.includes('--head') && create[create.indexOf('--head') + 1] === 'main', 'the head is the current branch')
@@ -180,6 +180,8 @@ test('pr_create signs the description for the seat and records the pull request 
   assert.equal(reference.via, 'gh')
   assert.equal(reference.signature, '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)')
   assert.ok(reference.excerpt?.startsWith('Widgets, as discussed.'), 'the card gets the body as the forge holds it')
+  assert.ok(!reference.excerpt?.includes('<!--'), 'without the mark, which is the desk’s and not text')
+  assert.ok(!(await forge.run('pr_view', {})).includes('<!--'), 'nor does a read show it')
 })
 
 test('pr_create never pushes: an unpushed branch is refused with the command to run', async (t) => {
@@ -218,8 +220,8 @@ test('pr_update re-signs a new description, replacing the earlier line, and reco
   assert.match(said, /Updated pull request #7/)
   assert.equal(
     bodySentTo(forge.calls(), 'edit'),
-    'Rewritten.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 Mini · High)',
-    'one signature, the current seat’s',
+    `Rewritten.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 Mini · High) ${SIGNATURE_MARK}`,
+    'one signature, the current seat’s — the unmarked default-shaped line from before the mark existed is gone',
   )
   assert.equal(forge.published.at(-1)?.action, 'updated')
 
@@ -278,42 +280,63 @@ test('a person’s own template is rendered from the seat’s parts, and an empt
   assert.equal(renderSignature('   ', SEAT), '')
 })
 
-test('signing a body replaces an earlier HarnessDesk line and never doubles a blank', () => {
+test('signing a body marks the desk’s line, replaces a marked or a legacy one, and never doubles a blank', () => {
   const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
-  assert.equal(signBody('Body.\n\n', line), `Body.\n\n${line}`)
-  assert.equal(signBody(`Body.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Old Seat)\n`, line), `Body.\n\n${line}`)
-  assert.equal(signBody('', line), line)
+  const marked = `${line} ${SIGNATURE_MARK}`
+  assert.equal(signBody('Body.\n\n', line), `Body.\n\n${marked}`)
+  // The desk's own earlier line, wherever the agent left it in the body it passes back.
+  assert.equal(signBody(`Body.\n\nOld seat's line ${SIGNATURE_MARK}\n`, line), `Body.\n\n${marked}`)
+  assert.equal(signBody(`Body.\n\nWhatever ${SIGNATURE_MARK}\n\nA line the agent added after it.`, line), `Body.\n\nA line the agent added after it.\n\n${marked}`)
+  // A description signed before the mark existed: the default's shape, as the last line only.
+  assert.equal(signBody(`Body.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Old Seat)\n`, line), `Body.\n\n${marked}`)
+  assert.equal(signBody('', line), marked)
+  assert.equal(signBody(`Body.\n\n${marked}`, null), 'Body.')
   assert.equal(signBody(`Body.\n\n${line}`, null), 'Body.')
   // A line the author quoted stays; only the desk's own trailing line is replaced.
   const quoted = `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Old Seat)`
-  assert.equal(signBody(quoted, line), `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n${line}`)
+  assert.equal(signBody(quoted, line), `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n${marked}`)
+  assert.equal(unmarked(`Text ${SIGNATURE_MARK}\nmore`), 'Text\nmore')
 })
 
-test('a person’s own template is replaced on update, whatever it says, and a bare placeholder replaces only its own rendering', async (t) => {
+test('a person’s own template is replaced on update, whatever it says, because the desk marked its own line', async (t) => {
   const own = await rig(t, { signature: 'Written by {agent} · {model}' })
   await own.run('pr_create', { title: 'Add widgets', body: 'first' })
-  assert.equal(bodySentTo(own.calls(), 'create'), 'first\n\nWritten by Codex · GPT-5.4')
+  assert.equal(bodySentTo(own.calls(), 'create'), `first\n\nWritten by Codex · GPT-5.4 ${SIGNATURE_MARK}`)
   own.seat.current = { ...SEAT, model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
-  await own.run('pr_update', { body: 'Rewritten.\n\nWritten by Codex · GPT-5.4' })
-  assert.equal(bodySentTo(own.calls(), 'edit'), 'Rewritten.\n\nWritten by Codex · GPT-5.4 Mini', 'one line, the current seat’s, whatever the template says')
-  // A description signed before the template was changed still loses its default-shaped line.
+  // The agent passes the description back as GitHub holds it, mark and all.
+  await own.run('pr_update', { body: `Rewritten.\n\nWritten by Codex · GPT-5.4 ${SIGNATURE_MARK}` })
+  assert.equal(bodySentTo(own.calls(), 'edit'), `Rewritten.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`, 'one line, the current seat’s, whatever the template says')
+  // A description signed before the mark existed still loses its default-shaped line.
   await own.run('pr_update', { body: 'Older.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)' })
-  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), 'Older.\n\nWritten by Codex · GPT-5.4 Mini')
-  // A part that went with its separator still matches: the template's line for a bare seat.
+  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), `Older.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`)
   own.seat.current = { agent: 'Gemini CLI', version: null, model: null, effort: null, thinking: false, label: 'Gemini CLI' }
-  await own.run('pr_update', { body: 'Bare.\n\nWritten by Codex · GPT-5.4 Mini' })
-  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), 'Bare.\n\nWritten by Gemini CLI')
+  await own.run('pr_update', { body: `Bare.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}` })
+  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), `Bare.\n\nWritten by Gemini CLI ${SIGNATURE_MARK}`)
 })
 
-test('a template with no words of its own matches only its exact rendering, never the author’s last line', async (t) => {
+test('an author’s last line that resembles a signature is the author’s, and stays', async (t) => {
+  // Every shape the round-2 reviewers named: a template's skeleton, a bullet, brackets.
+  const skeleton = await rig(t, { signature: 'Written by {agent} · {model}' })
+  await skeleton.run('pr_create', { title: 'Add widgets', body: 'first' })
+  await skeleton.run('pr_update', { body: 'Prose.\n\nWritten by humans · mostly' })
+  assert.equal(
+    bodySentTo(skeleton.calls(), 'edit'),
+    `Prose.\n\nWritten by humans · mostly\n\nWritten by Codex · GPT-5.4 ${SIGNATURE_MARK}`,
+    'a line that fits the template’s shape is not the desk’s: it stays, and the signature follows it',
+  )
+  const bullet = await rig(t, { signature: '- {seat}' })
+  await bullet.run('pr_create', { title: 'Add widgets', body: 'first' })
+  await bullet.run('pr_update', { body: 'Changes:\n- Fixed race condition in worker' })
+  assert.equal(bodySentTo(bullet.calls(), 'edit'), `Changes:\n- Fixed race condition in worker\n\n- Codex GPT-5.4 · High ${SIGNATURE_MARK}`)
+  const brackets = await rig(t, { signature: '({seat})' })
+  await brackets.run('pr_create', { title: 'Add widgets', body: 'first' })
+  await brackets.run('pr_update', { body: 'Done.\n\n(closes #456)' })
+  assert.equal(bodySentTo(brackets.calls(), 'edit'), `Done.\n\n(closes #456)\n\n(Codex GPT-5.4 · High) ${SIGNATURE_MARK}`)
+  // A bare placeholder, the same seat: the exact rendering, unmarked, is still the desk's and is replaced once.
   const bare = await rig(t, { signature: '{seat}' })
   await bare.run('pr_create', { title: 'Add widgets', body: 'first' })
-  assert.equal(bodySentTo(bare.calls(), 'create'), 'first\n\nCodex GPT-5.4 · High')
   await bare.run('pr_update', { body: 'Prose ends here.\n\nCodex GPT-5.4 · High' })
-  assert.equal(bare.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), 'Prose ends here.\n\nCodex GPT-5.4 · High', 'the same seat: replaced once, the prose kept')
-  assert.equal(signatureMatcher('{seat}'), null)
-  assert.equal(signatureMatcher('  {agent} {model} '), null)
-  assert.ok(signatureMatcher('Written by {agent}') instanceof RegExp)
+  assert.equal(bodySentTo(bare.calls(), 'edit'), `Prose ends here.\n\nCodex GPT-5.4 · High ${SIGNATURE_MARK}`)
 })
 
 test('checks, issues and their comments are read and posted, and the record says the subject', async (t) => {

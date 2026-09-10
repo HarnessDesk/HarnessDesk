@@ -45,34 +45,29 @@ export const DEFAULT_SIGNATURE = '🤖 Generated with [HarnessDesk](https://harn
 export const DEFAULT_REVIEW_SIGNATURE = '**Review by {seat} · via HarnessDesk**'
 
 /**
- * The default's shape as a body's last line — and only there. A body that
- * quotes the line somewhere in its prose keeps it: the desk replaces what it
- * wrote, never what the author wrote about it. Kept beside the template's
- * own matcher for a description signed before the template was changed.
+ * The mark the desk leaves on the line it wrote, so that what it replaces
+ * on the next update is exactly that line and never the author's. An HTML
+ * comment: GitHub renders it as nothing, and the visible text is only the
+ * signature. Guessing the line from the template's shape was tried and
+ * fails on every short template — "Written by {agent} · {model}" fits an
+ * author's "Written by humans · mostly", and "- {seat}" fits any bullet.
+ */
+export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
+
+/** A line the desk marked, wherever it stands; there is at most one. */
+const MARKED_LINE = /(?:^|\n)[^\n]*<!-- harnessdesk:signature -->[^\n]*/g
+
+/**
+ * The default's shape as a body's last line, from before the mark existed —
+ * and only there. A body that quotes the line somewhere in its prose keeps
+ * it: the desk replaces what it wrote, never what the author wrote about it.
  */
 const DEFAULT_SHAPE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]*$/
 
-const PLACEHOLDER = /\{(?:seat|agent|model|effort|version|thinking)\}/g
-
 const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/**
- * A matcher for the line a template renders to, whatever the seat put in
- * it: each placeholder may be anything, a " · " may have gone with an empty
- * part, and runs of spaces may have collapsed. Anchored to the end of the
- * body, because only the desk's own trailing line is ever replaced. Null for
- * a template with no words of its own — bare `{seat}` — which would match any
- * last line at all; such a template is matched by its exact rendering.
- */
-export const signatureMatcher = (template: string): RegExp | null => {
-  const trimmed = template.trim()
-  if (trimmed === '' || trimmed.replace(PLACEHOLDER, '').trim() === '') return null
-  const pattern = trimmed
-    .split(PLACEHOLDER)
-    .map((chunk) => escapeRegex(chunk).replace(/ · /g, '(?: · )?').replace(/\s+/g, '\\s*'))
-    .join('[^\\n]*?')
-  return new RegExp(`(?:^|\\n)${pattern}\\s*$`)
-}
+/** GitHub's text without the desk's mark, for a card and for an excerpt. */
+export const unmarked = (text: string): string => text.replace(/ ?<!-- harnessdesk:signature -->/g, '')
 
 /** How much of a body the transcript card is given: the opening, as the forge holds it. */
 const EXCERPT_LIMIT = 600
@@ -109,22 +104,31 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
 }
 
 /**
- * The body with the signature as its last line, and the earlier one gone —
- * whichever of three it was: a line the current template rendered for some
- * seat, the current rendering exactly, or the default's shape from before
- * the template was changed. One line is replaced, never two.
+ * The body with the signature as its last line, marked, and the earlier one
+ * gone — the line the desk marked, or, for a description signed before the
+ * mark existed, the current rendering exactly or the default's shape as the
+ * last line. An unmarked line that merely resembles a signature is the
+ * author's and stays.
  */
-export const signBody = (body: string, signature: string | null, template: string = DEFAULT_SIGNATURE): string => {
+export const signBody = (body: string, signature: string | null): string => {
   let stripped = body.replace(/\s+$/, '')
-  const exact = signature ? new RegExp(`(?:^|\\n)${escapeRegex(signature)}\\s*$`) : null
-  for (const matcher of [signatureMatcher(template), exact, DEFAULT_SHAPE]) {
-    if (matcher && matcher.test(stripped)) {
-      stripped = stripped.replace(matcher, '').replace(/\s+$/, '')
-      break
+  const marked = new RegExp(MARKED_LINE.source, 'g')
+  if (marked.test(stripped)) {
+    // The line goes with the newline before it; a blank it stood between
+    // would otherwise be left doubled.
+    stripped = stripped.replace(new RegExp(MARKED_LINE.source, 'g'), '').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')
+  } else {
+    const exact = signature ? new RegExp(`(?:^|\\n)${escapeRegex(signature)}\\s*$`) : null
+    for (const matcher of [exact, DEFAULT_SHAPE]) {
+      if (matcher && matcher.test(stripped)) {
+        stripped = stripped.replace(matcher, '').replace(/\s+$/, '')
+        break
+      }
     }
   }
   if (signature === null || signature === '') return stripped
-  return stripped === '' ? signature : `${stripped}\n\n${signature}`
+  const line = `${signature} ${SIGNATURE_MARK}`
+  return stripped === '' ? line : `${stripped}\n\n${line}`
 }
 
 /** GitHub's own JSON for a pull request, in the fields the tools read. */
@@ -167,7 +171,7 @@ const repoOf = (url: string): string => {
 }
 
 const excerptOf = (body: string | null | undefined): string | null => {
-  const text = (body ?? '').trim()
+  const text = unmarked(body ?? '').trim()
   if (text === '') return null
   return text.length > EXCERPT_LIMIT ? `${text.slice(0, EXCERPT_LIMIT).trimEnd()}…` : text
 }
@@ -375,7 +379,7 @@ export const gitPlugin: HarnessPlugin = {
             .join(' '),
           pr.url,
         ].join('\n')
-        const body = (pr.body ?? '').trim()
+        const body = unmarked(pr.body ?? '').trim()
         return body === '' ? head : `${head}\n\n${body}`
       }
 
@@ -470,7 +474,7 @@ export const gitPlugin: HarnessPlugin = {
           }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line, signed.template)]
+          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line)]
           if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
           if (args.draft === true) argv.push('--draft')
           const created = await gh(argv)
@@ -510,7 +514,7 @@ export const gitPlugin: HarnessPlugin = {
             changed += 1
           }
           if (typeof args.body === 'string') {
-            argv.push('--body', signBody(args.body, signed.line, signed.template))
+            argv.push('--body', signBody(args.body, signed.line))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {
