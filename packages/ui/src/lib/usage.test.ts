@@ -358,6 +358,9 @@ describe('formatting', () => {
     expect(formatCountdown(3 * HOUR + 20 * MINUTE)).toBe('3h 20m')
     expect(formatCountdown(45 * MINUTE)).toBe('45m')
     expect(formatCountdown(-1)).toBeNull()
+    // Regression tests for Issue #107:
+    expect(formatCountdown(23 * HOUR + 59 * MINUTE + 40 * 1000)).toBe('1d')
+    expect(formatCountdown(23 * HOUR + 29 * MINUTE)).toBe('23h 29m')
   })
 
   it('spends cents only where they carry information', () => {

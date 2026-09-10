@@ -133,7 +133,10 @@ export const formatCountdown = (ms: number): string | null => {
   if (ms < DAY) {
     const hours = Math.floor(ms / HOUR)
     const minutes = Math.round((ms % HOUR) / MINUTE)
-    if (minutes === 60) return `${hours + 1}h`
+    if (minutes === 60) {
+      const nextHours = hours + 1
+      return nextHours === 24 ? '1d' : `${nextHours}h`
+    }
     return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
   }
   const days = Math.floor(ms / DAY)
