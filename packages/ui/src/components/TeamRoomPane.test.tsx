@@ -1395,3 +1395,20 @@ it('a refused member outranks what it is holding, because it explains the silenc
   expect(row('Codex').textContent).toContain('messages refused')
   expect(row('Codex').textContent).not.toContain('Migrate auth callers')
 })
+
+it('the room’s top row carries the window’s own controls when the sidebar is not beside it', async () => {
+  /* A room is the other thing the middle can show, and in a window too narrow
+     for the sidebar's column this row is the only way back to the sidebar —
+     without the controls a room was somewhere to arrive and not leave but by
+     ⌘B, which a phone does not have. */
+  const { store } = rig()
+  const bar = (): Element | null => container.querySelector('header')
+  const toggle = (): Element | null => bar()?.querySelector('button[aria-label="Show sidebar"]') ?? null
+
+  await render(store)
+  expect(toggle()).toBeNull()
+
+  const snapshot = { ...store.getSnapshot(), narrowWindow: true }
+  await render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
+  expect(toggle()).not.toBeNull()
+})

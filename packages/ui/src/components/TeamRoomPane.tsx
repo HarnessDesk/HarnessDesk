@@ -17,6 +17,7 @@ import {
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
 import { PanelActions } from '../panels/PanelActions'
 import { BrandMark } from './BrandIcons'
@@ -37,6 +38,7 @@ import { Conversation } from './Conversation'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
+import { WindowControls } from './WindowControls'
 import {
   Button,
   EmptyState,
@@ -636,6 +638,12 @@ export const TeamRoomPane = ({
         * it.
         */}
       <header className={`${styles.bar} hd-drag`}>
+        {/* The window's own controls, as a conversation's header carries them
+            whenever the sidebar is not standing beside it. A room is the other
+            thing the middle can show, and a narrow window's sidebar is only
+            ever reached from here — without them a room was a place with no
+            way back out but ⌘B. */}
+        {sidebarPlacement(snapshot) !== 'column' && <WindowControls />}
         <IconTile tint="violet" size="sm">
           <TeamIcon />
         </IconTile>

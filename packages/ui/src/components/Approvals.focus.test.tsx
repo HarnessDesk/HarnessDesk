@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { sessionKey, type Approval, type RuntimeId, type RuntimeInfo } from '@harnessdesk/protocol'
 
@@ -70,7 +70,7 @@ const approval = {
 const PANE = 'pane-1' as never
 
 /** Render the card in `pane-1`, with the layout focused wherever the test says. */
-const mount = (focusedPane: string): void => {
+const mount = (focusedPane: string) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -87,7 +87,8 @@ const mount = (focusedPane: string): void => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
-  } as unknown as AppStore
+    respondToApproval: vi.fn(async () => undefined),
+  } as unknown as AppStore & { respondToApproval: ReturnType<typeof vi.fn> }
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -99,6 +100,7 @@ const mount = (focusedPane: string): void => {
       </StoreProvider>,
     )
   })
+  return store
 }
 
 const card = (): HTMLElement | null =>
@@ -115,6 +117,30 @@ it('takes focus when the approval is in the pane you are looking at', () => {
   expect(card()).not.toBeNull()
   expect(document.activeElement).toBe(card())
   elsewhere.remove()
+})
+
+it('leaves the keys alone while something covers the card', () => {
+  /* A sidebar floating over a narrow window makes the pane under it inert.
+     The keys are the sidebar's then: Escape is how it is put away, and denying
+     a command nobody can see with the same press would be the worst answer
+     that key could give. A digit typed into its filter is only a digit. */
+  const store = mount('pane-1')
+  container.setAttribute('inert', '')
+  for (const key of ['1', 'Escape']) {
+    const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    act(() => {
+      document.dispatchEvent(press)
+    })
+    expect(press.defaultPrevented).toBe(false)
+  }
+  expect(store.respondToApproval).not.toHaveBeenCalled()
+
+  // Uncovered, the fastest safe answer is one key away again.
+  container.removeAttribute('inert')
+  act(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  expect(store.respondToApproval).toHaveBeenCalledWith(KEY, 'ask-1', { type: 'option', optionId: 'no' })
 })
 
 it('leaves the caret alone when the approval is in a pane you are not', () => {

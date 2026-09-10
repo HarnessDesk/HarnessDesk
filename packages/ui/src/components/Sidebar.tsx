@@ -187,6 +187,9 @@ export const Sidebar = ({
             onBlur={() => setFilterFocused(false)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
+                // Spent on the filter: a sidebar floating over a narrow window
+                // stays open for the list the filter just gave back.
+                event.preventDefault()
                 setQuery('')
                 event.currentTarget.blur()
               }
@@ -396,6 +399,8 @@ export const AccountFooter = ({
     }
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        // Spent on the menu, so a sidebar floating over a narrow window stays.
+        event.preventDefault()
         setOpen(false)
         setConfirmingSignOut(false)
       }

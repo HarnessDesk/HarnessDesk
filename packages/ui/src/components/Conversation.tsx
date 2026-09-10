@@ -12,7 +12,8 @@ import {
   useSnapshot,
   useStore,
 } from '../state/context'
-import { shownView, terminals } from '../state/workbench'
+import { findPane } from '../state/layout'
+import { shownView, sidebarPlacement, terminals } from '../state/workbench'
 import { summonable } from '../panels/views'
 import { Slot } from '../slots/registry'
 import { Composer } from './Composer'
@@ -394,7 +395,7 @@ const TasksChip = () => {
       onClick={() => store.showView('tasks')}
     >
       {live ? <span className={styles.tasksSpinner} aria-hidden="true" /> : <CheckIcon size={11} />}
-      {tasksChipLabel(split)}
+      <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
     </button>
   )
 }
@@ -416,7 +417,7 @@ export const TerminalToggle = () => {
   return (
     <button
       type="button"
-      className={`${styles.headerButton} hd-no-drag`}
+      className={`${styles.headerButton} ${styles.viewButton} hd-no-drag`}
       {...(on ? { 'data-active': '' } : {})}
       onClick={() => {
         if (on) {
@@ -523,12 +524,19 @@ export const Conversation = ({
           a tool pane was in the corner instead, and it left every other header
           in the app printing its title under the buttons. */}
       <header className={`${styles.header} hd-drag`}>
-        {snapshot.sidebarCollapsed && <WindowControls />}
+        {/* The window's own controls, whenever the sidebar is not standing
+            beside this header to carry them: put away, or floating over the
+            conversation in a narrow window. Only the middle's own header takes
+            them — a conversation docked beside it, or a member's column in a
+            room, drew a second set a few inches from the first. */}
+        {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
+          <WindowControls />
+        )}
         <span className={styles.title}>{titleOf(session)}</span>
         {session && (
           <span className={`${styles.status} hd-no-drag`} data-status={status} title={STATUS_LABEL[status]}>
             <span className={styles.statusDot} />
-            {status !== 'idle' && STATUS_LABEL[status]}
+            {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
           </span>
         )}
         {session && <TasksChip />}
@@ -551,7 +559,7 @@ export const Conversation = ({
         {pane && (
           <button
             type="button"
-            className={`${styles.headerButton} hd-no-drag`}
+            className={`${styles.headerButton} ${styles.viewButton} hd-no-drag`}
             onClick={() => store.openBrowser()}
             title="Open the browser beside this conversation — the page agents' browser tools drive"
             aria-label="Open browser"

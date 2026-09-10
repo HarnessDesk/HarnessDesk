@@ -156,6 +156,46 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
   expect(container.textContent).not.toContain('restore')
 })
 
+it('carries the window’s own controls whenever the sidebar is not standing beside it', () => {
+  const { store } = rig(session())
+  const base = store.getSnapshot()
+  const toggle = (): Element | null => container.querySelector('header button[aria-label="Show sidebar"]')
+  const draw = (snapshot: AppSnapshot, paneId: string): void => {
+    act(() => {
+      root.render(
+        <StoreProvider store={{ ...store, getSnapshot: () => snapshot } as unknown as AppStore}>
+          <PaneProvider
+            scope={{ paneId: paneId as never, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}
+          >
+            <Conversation
+              onChooseProject={() => undefined}
+              onSignIn={() => undefined}
+              onOpenUsage={() => undefined}
+              onOpenAgents={() => undefined}
+            />
+          </PaneProvider>
+        </StoreProvider>,
+      )
+    })
+  }
+  const middle = base.layout.focused
+
+  // A column beside the header carries them itself.
+  draw(base, middle)
+  expect(toggle()).toBeNull()
+
+  /* A narrow window never gives the sidebar a column: it floats, and closed it
+     is reached from here or not at all — however the column was last left. */
+  const narrow = { ...base, narrowWindow: true }
+  draw(narrow, middle)
+  expect(toggle()).not.toBeNull()
+
+  // The middle's own header only: a member's column in a room, or a
+  // conversation docked beside the middle, is not the window's top row.
+  draw(narrow, `${middle}:${KEY}`)
+  expect(toggle()).toBeNull()
+})
+
 it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
   // A member column for an agent that needs a sign-in, while the desk's
   // default is a different, signed-in agent: the button must open the

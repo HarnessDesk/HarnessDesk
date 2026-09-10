@@ -132,6 +132,10 @@ export const Popover = ({
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // Spent here, and said so: whatever this menu opened over — a sidebar
+      // floating over a narrow window — hears that the key was taken, and one
+      // press closes one thing.
+      event.preventDefault()
       setOpen(false)
       trigger.current?.focus()
     }

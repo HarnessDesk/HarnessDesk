@@ -86,9 +86,15 @@
   transition: width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
 }
 
-/* A zero-width column must not paint a 1px seam of its own. */
+/* A zero-width column must not paint a 1px seam of its own — nor keep controls
+   you can Tab to and cannot see. Hidden once the slide has finished, shown the
+   moment the next one starts. */
 .sidebar[data-hidden] {
   border-right: none;
+  visibility: hidden;
+  transition:
+    width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
+    visibility 0s linear var(--hdp-transition-duration-slow);
 }
 
 .shell[data-dragging] .sidebar {
@@ -393,4 +399,80 @@
 
 .drop[data-over] .dropLabel {
   opacity: 1;
+}
+
+/* -------------------------------------------------------- narrow windows
+ *
+ * Below `NARROW_WINDOW` (state/workbench.ts) a column beside the conversation
+ * costs more than the conversation can spare, so the sidebar floats instead:
+ * out of the row, over the conversation, at the width it had, sliding in from
+ * the edge it lives on. What it covers is dimmed and cannot be reached until
+ * it goes — `Workbench` marks it inert — and pressing the dim puts it away.
+ *
+ * A panel docked on the right does the same on its own side: while it is open
+ * it takes the conversation's width, since a column beside a conversation this
+ * narrow would leave a column of nothing on both sides of the seam.
+ */
+
+.shell[data-narrow] .sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--hd-z-drawer);
+  /* Never the whole window: a strip of the conversation stays in view, which
+     says what is underneath and is somewhere to press to get back to it. */
+  max-width: calc(100% - var(--hd-space-10));
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition:
+    transform var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
+    visibility 0s linear var(--hdp-transition-duration-slow);
+}
+
+.shell[data-narrow] .sidebar[data-floating] {
+  transform: none;
+  visibility: visible;
+  box-shadow: var(--hd-shadow-lg);
+  transition: transform var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+}
+
+/* Sliding rather than growing, its contents have no narrower width to be held
+   clear of. */
+.shell[data-narrow] .sidebar > * {
+  width: 100%;
+}
+
+/* Focus is put on the surface from code, so there is somewhere to start from;
+   a ring round the whole column would be the app talking to itself. */
+.sidebar[data-floating]:focus,
+.sidebar[data-floating]:focus-visible {
+  outline: none;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: var(--hd-z-drawer);
+  background: var(--hd-scrim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+}
+
+.scrim[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.shell[data-narrow] .middle {
+  position: relative;
+}
+
+/* Over the conversation's own raised layers — its composer dock — and under
+   the notices, which belong on top of whatever is being read. */
+.shell[data-narrow] .right {
+  position: absolute;
+  inset: 0;
+  z-index: var(--hd-z-sticky);
 }

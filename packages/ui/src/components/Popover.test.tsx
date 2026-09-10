@@ -193,3 +193,26 @@ describe('the trigger’s accessible name', () => {
     expect(nameOf('Menu').aria).toBeNull()
   })
 })
+
+/**
+ * One Escape, one thing closed.
+ *
+ * A menu can be open over something that also answers Escape — a sidebar
+ * floating over a narrow window is the case that made it matter — and the
+ * surface underneath can only stand aside if the menu says it took the key.
+ */
+describe('Escape', () => {
+  it('closes the menu and marks the key as spent', () => {
+    render()
+    click(trigger())
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull()
+
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => {
+      document.dispatchEvent(escape)
+    })
+
+    expect(escape.defaultPrevented).toBe(true)
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
+  })
+})

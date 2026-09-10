@@ -242,6 +242,11 @@ export const Approvals = () => {
     if (!approval || !focused) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      // Not while something covers the card: a sidebar floating over a narrow
+      // window makes the pane inert, and the keys are the sidebar's then —
+      // Escape puts it away rather than denying a command nobody can see, and
+      // a digit typed into its filter is a digit, not an answer.
+      if (surface.current?.closest('[inert]')) return
       if (event.key === 'Escape') {
         event.preventDefault()
         const deny = options.find((option) => option.intent === 'deny') ?? options[options.length - 1]
