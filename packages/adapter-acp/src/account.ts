@@ -164,14 +164,18 @@ export class CliAccount {
       if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
     })
 
+    let urlTimer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
       sawUrl.then((found) => ({ kind: 'url' as const, found })),
       exited.then((code) => ({ kind: 'exit' as const, code })),
       failed.then((error) => ({ kind: 'error' as const, error })),
-      new Promise<{ kind: 'timeout' }>((resolve) =>
-        setTimeout(() => resolve({ kind: 'timeout' }), this.seams.urlTimeoutMs ?? URL_TIMEOUT_MS).unref(),
-      ),
+      new Promise<{ kind: 'timeout' }>((resolve) => {
+        urlTimer = setTimeout(() => resolve({ kind: 'timeout' }), this.seams.urlTimeoutMs ?? URL_TIMEOUT_MS)
+        urlTimer.unref()
+      }),
     ])
+    // Over, whichever way it went: a flow that has ended keeps no timer (review, round six).
+    clearTimeout(urlTimer)
     if (outcome.kind === 'url') {
       /* The URL won the race, but the flow can have ended in the same tick:
          an error or an exit emitted with it, whose handler ran before this
@@ -269,21 +273,38 @@ const firstObject = (text: string, from: number): string | null => {
  * that closes but is not JSON, or is JSON about something else, is passed
  * over rather than ending the search.
  */
+/** A brace that opens a JSON record: the brace, then its first key. */
+const RECORD_OPENING = /\{\s*"/y
+
 const statusRecords = (
   text: string,
-): { status: Record<string, unknown> | null; emailOnly: Record<string, unknown> | null } => {
+): { status: Record<string, unknown> | null; emailOnly: Record<string, unknown> | null; prose: string } => {
   let emailOnly: Record<string, unknown> | null = null
+  // Where each object was, so that what is left is the prose a sentence is read from.
+  const objects: (readonly [number, number])[] = []
+  let end = text.length
   /* Objects at the top level only: after a whole object the search goes on
      from its end, not from the brace after its start, so no object nested in
      another is ever a candidate (round two). */
   for (let at = text.indexOf('{'); at !== -1; ) {
     const candidate = firstObject(text, at)
-    /* An object that never closes holds everything after it, so nothing after
-       it is at the top level, and the scan stops. Resuming at the next brace
-       walked into it: truncated output such as `{"wrap":{"loggedIn":true,…}`
-       read as signed in (review, round four), where malformed output had
-       always read as nothing. */
-    if (candidate === null) break
+    if (candidate === null) {
+      /* An object that never closes holds everything after it, so nothing
+         after it is at the top level, and the scan stops. Resuming at the next
+         brace walked into it: truncated output such as
+         `{"wrap":{"loggedIn":true,…}` read as signed in (review, round four).
+         That holds for a record's opening, a brace and then a key. A brace in
+         a line of prose is only a character: `[INFO] {cache-init` ahead of the
+         status took the status down with it (review, round six). */
+      RECORD_OPENING.lastIndex = at
+      if (RECORD_OPENING.test(text)) {
+        end = at
+        break
+      }
+      at = text.indexOf('{', at + 1)
+      continue
+    }
+    objects.push([at, at + candidate.length])
     at = text.indexOf('{', at + candidate.length)
     let parsed: unknown
     try {
@@ -293,14 +314,25 @@ const statusRecords = (
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
     const record = parsed as Record<string, unknown>
-    /* A record that says whether the account is signed in is the status. One
-       that only names an email may be the status of a CLI that answers that
-       way, or a log line that happens to carry one (round three), so it is
-       kept as the answer of last resort. */
-    if ('loggedIn' in record || 'logged_in' in record) return { status: record, emailOnly }
-    if (emailOnly === null && 'email' in record) emailOnly = record
+    /* A record that says, in a boolean, whether the account is signed in is
+       the status. A log line's field that is there with nothing in it
+       (`"loggedIn": null`) is not, and must not stand in for the status after
+       it (review, round six). One that only names an email may be the status
+       of a CLI that answers that way, or a log line that happens to carry one
+       (round three), so it is kept as the answer of last resort. */
+    if (typeof record['loggedIn'] === 'boolean' || typeof record['logged_in'] === 'boolean') {
+      return { status: record, emailOnly, prose: '' }
+    }
+    if (emailOnly === null && typeof record['email'] === 'string' && record['email'] !== '') emailOnly = record
   }
-  return { status: null, emailOnly }
+  // The text around the objects, each object a line break, and nothing after a record cut short.
+  let prose = ''
+  let from = 0
+  for (const [start, stop] of objects) {
+    prose += `${text.slice(from, start)}\n`
+    from = stop
+  }
+  return { status: null, emailOnly, prose: prose + text.slice(from, end) }
 }
 
 /** One account from whatever the status command printed, or null for signed out. */
@@ -308,18 +340,22 @@ export const parseStatus = (
   stdout: string,
 ): { kind: string; label: string; email?: string; planType?: string } | null => {
   const text = stdout.trim()
-  const { status, emailOnly } = statusRecords(text)
+  const { status, emailOnly, prose } = statusRecords(text)
   if (status !== null) return fromRecord(status)
-  /* A sentence that says who is signed in outranks a record that only names an
-     email, which may be a log line's (review, round four). */
-  const sentence = /logged in(?: as[: ]+)(\S+)/i.exec(text)
+  /* Sentences are read from the prose alone: a JSON log line's text is not the
+     CLI saying who is signed in, and `{"msg":"logged in as warmup"}` read as
+     the account `warmup"}` (review, round six). A sentence that says who is
+     signed in outranks a record that only names an email, which may be a log
+     line's (review, round four); and "Not logged in as …" names someone to say
+     the opposite (review, round six). */
+  const sentence = /(?<!\bnot\s+)\blogged in as[: ]+(\S+)/i.exec(prose)
   if (sentence) {
-    const identity = sentence[1]!.replace(/[.,]$/, '')
+    const identity = sentence[1]!.replace(/^["'`]+|["'`.,]+$/g, '')
     return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
   }
   /* A sentence that says the account is signed out is an answer as well, and
      outranks a record that only names an email (review, round five). */
-  if (/\b(?:not (?:logged|signed) in|logged out|signed out)\b/i.test(text)) return null
+  if (/\b(?:not (?:logged|signed) in|logged out|signed out)\b/i.test(prose)) return null
   return emailOnly !== null ? fromRecord(emailOnly) : null
 }
 

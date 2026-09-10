@@ -569,3 +569,39 @@ test('an error after the first from the sign-in child is heard, not thrown', asy
   assert.doesNotThrow(() => child.emit('error', new Error('and again, in teardown')))
 })
 
+test('a JSON log line that says "logged in as" is not the CLI saying so', () => {
+  // Round 6 of #134: sentences were read from the whole output, JSON included, and this was the account `warmup"}`.
+  assert.equal(parseStatus('{"level":"info","msg":"logged in as warmup"}'), null)
+  assert.deepEqual(parseStatus('{"level":"info","msg":"logged in as warmup"}\nLogged in as dev@example.com'), {
+    kind: 'cli',
+    label: 'dev@example.com',
+    email: 'dev@example.com',
+  })
+})
+
+test('a sentence that says nobody is signed in is signed out, whoever it names', () => {
+  // Round 6 of #134: "Not logged in as …" matched "logged in as" and read as signed in.
+  assert.equal(parseStatus('Not logged in as user@example.com'), null)
+  assert.equal(parseStatus('not logged in as anyone'), null)
+  assert.deepEqual(parseStatus('Logged in as user@example.com.'), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+})
+
+test('a log record whose loggedIn or email holds nothing does not stand in for the status', () => {
+  // Round 6 of #134: the key being there was enough, whatever it held.
+  const signedIn = { kind: 'cli', label: 'a@b.c', email: 'a@b.c' }
+  assert.deepEqual(parseStatus('{"level":"info","loggedIn":null}\n{"loggedIn":true,"email":"a@b.c"}'), signedIn)
+  assert.deepEqual(parseStatus('{"level":"info","email":null}\n{"email":"a@b.c"}'), signedIn)
+})
+
+test('a stray brace in a line of prose does not hide the status after it', () => {
+  // Round 6 of #134: an object that never closed stopped the scan, wherever it was.
+  assert.deepEqual(parseStatus('[INFO] {cache-init starting\n{"loggedIn":true,"email":"a@b.c"}'), {
+    kind: 'cli',
+    label: 'a@b.c',
+    email: 'a@b.c',
+  })
+  // The control: a record cut short still reads as nothing, as round four made it, wherever it starts.
+  assert.equal(parseStatus('{"wrap":{"loggedIn":true,"email":"a@b.c"}'), null)
+  assert.equal(parseStatus('status: {"wrap":{"loggedIn":true,"email":"a@b.c"}'), null)
+})
+
