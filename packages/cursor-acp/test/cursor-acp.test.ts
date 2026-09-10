@@ -624,6 +624,13 @@ test('a stored preview that says nothing gives way to the next turn\'s title', (
   assert.equal(previewFor('Earlier name', 'Fix the bug'), 'Earlier name')
 })
 
+test('a preview an older bridge stored as the envelope’s first line reads as its label', () => {
+  // Round 4 of #167: rows written before #47's fix kept `<context source="…">` as their name for good.
+  assert.equal(previewFor('<context source="Handed off from Claude Code — \\"x\\"">', 'Fix the bug'), 'Handed off from Claude Code — "x"')
+  assert.equal(previewFor('<context>', 'Fix the bug'), 'Fix the bug', 'an envelope with no label is no name')
+  assert.equal(previewFor('<context source="Handed off', 'Fix the bug'), 'Fix the bug', 'nor is a label cut short')
+})
+
 test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {
   // Round 3 of #167: titleOf and previewFor were tested alone, never through a turn into sessions.json.
   const dir = tempDir('cursor-acp-preview-')
@@ -646,20 +653,41 @@ test('a conversation is named through a turn: by its block\'s label, or by the n
     (JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8')) as { sessions: { sessionId: string; preview: string | null }[] }).sessions.find(
       (row) => row.sessionId === String(id),
     )?.preview
+  const ids: string[] = []
   try {
     const labelled = await runtime.createSession({ cwd: WORKDIR })
+    ids.push(String(labelled.id))
     await say(labelled, wrapContext('Handed off from Claude Code', '## Goal\nstuff'))
     assert.equal(preview(labelled.id), 'Handed off from Claude Code', 'named by the label, not the markup')
     await say(labelled, 'Fix the bug')
     assert.equal(preview(labelled.id), 'Handed off from Claude Code', 'and the name stays')
 
     const unlabelled = await runtime.createSession({ cwd: WORKDIR })
+    ids.push(String(unlabelled.id))
     await say(unlabelled, '<context>only context</context>')
     assert.equal(preview(unlabelled.id), null, 'nothing to be named by yet')
     await say(unlabelled, 'Fix the bug')
     assert.equal(preview(unlabelled.id), 'Fix the bug', 'so the next turn names it')
   } finally {
     await runtime.dispose()
+  }
+  // The list a desk reads after a restart: conversations not open in this
+  // process are the bridge's own session/list, where the name is read.
+  const later = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir },
+  })
+  await later.start()
+  try {
+    const listed = await later.listSessions({ cwd: WORKDIR })
+    const named = (id: string | undefined) => listed.data.find((row) => String(row.id) === id)?.preview
+    assert.equal(named(ids[0]), 'Handed off from Claude Code', 'the list names it by its label')
+    assert.equal(named(ids[1]), 'Fix the bug', 'and the unlabelled one by its next turn')
+  } finally {
+    await later.dispose()
   }
 })
 
@@ -829,6 +857,28 @@ test('Cursor’s store lists the workspace’s chats, newest first, and skips th
     ],
   )
   assert.equal(readWorkspaceChats('/tmp/a-workspace-cursor-never-saw', home).length, 0)
+})
+
+test('a chat that opened with only a context block is named by its label, in Cursor’s transcript too', () => {
+  // Round 4 of #167: the transcript skipped a context-only opening, so the list named the chat by its second message.
+  const home = tempDir('cursor-store-')
+  const cwd = '/tmp/preview-workspace'
+  writeChat(home, cwd, 'labelled', {
+    messages: [
+      { role: 'user', text: `<user_query>\n${wrapContext('Handed off from Claude Code', '## Goal\nstuff')}\n</user_query>` },
+      { role: 'assistant', text: 'Read it.' },
+      { role: 'user', text: '<user_query>\nFix the bug\n</user_query>' },
+    ],
+  })
+  assert.equal(readChatPreview('labelled', cwd, home), 'Handed off from Claude Code')
+  // A block with no label names nothing, and the next message names the chat.
+  writeChat(home, cwd, 'unlabelled', {
+    messages: [
+      { role: 'user', text: '<user_query>\n<context>only context</context>\n</user_query>' },
+      { role: 'user', text: '<user_query>\nFix the bug\n</user_query>' },
+    ],
+  })
+  assert.equal(readChatPreview('unlabelled', cwd, home), 'Fix the bug')
 })
 
 /**

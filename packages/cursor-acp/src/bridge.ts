@@ -18,11 +18,12 @@ import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
-import { splitContext } from '@harnessdesk/protocol'
 import {
   chatPath,
   cursorMeta,
+  contextLabel,
   findChatWorkspace,
+  firstLine,
   readAllChats,
   readChatMode,
   readChatPreview,
@@ -441,13 +442,6 @@ const withContext = (known: Parameterised, context: string): Parameterised | nul
 }
 
 /**
- * The first line of `text` that says anything, cut to a row's width. A label
- * is read the same way as the user's text: one with a line break in it put
- * the rest of it in the row (review, round 3).
- */
-const firstLine = (text: string): string => (text.split('\n').find((entry) => entry.trim() !== '') ?? '').trim().slice(0, 80)
-
-/**
  * A conversation's name from its first prompt: the first line of what the
  * user wrote, after any context block HarnessDesk prepended (a hand-off
  * packet, a referenced conversation) — the block is for the model.
@@ -461,7 +455,26 @@ export const titleOf = (text: string): string => {
      one, there is no title. The label is read by the protocol's own reader:
      `wrapContext` writes it with JSON.stringify, and a pattern of this
      file's own stopped at the first `\"` (review, round 1). */
-  return firstLine(stripped || (splitContext(text).injections[0]?.label ?? ''))
+  return stripped ? firstLine(stripped) : contextLabel(text)
+}
+
+/**
+ * A stored name, read. Before #47's fix, a conversation that opened with only
+ * a context block was stored under the envelope's first line,
+ * `<context source="…">`, for good. That line is read as its label now, and an
+ * envelope whose label can't be read as no name at all, so the next turn names
+ * it (review, round 4).
+ */
+const storedName = (stored: string | null | undefined): string | null => {
+  if (!stored) return null
+  if (!/^<context\b/.test(stored)) return stored
+  const quoted = /^<context\s+source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
+  if (quoted === undefined) return null
+  try {
+    return firstLine(JSON.parse(quoted) as string) || null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -471,7 +484,7 @@ export const titleOf = (text: string): string => {
  * the conversation nothing for good (review, round 1).
  */
 export const previewFor = (stored: string | null | undefined, text: string): string | null =>
-  stored || titleOf(text) || null
+  storedName(stored) || titleOf(text) || null
 
 export { cursorMeta } from './store.js'
 
@@ -1337,7 +1350,7 @@ export class CursorAcpBridge {
         // Cursor's own transcript first: it holds the ask the conversation
         // opened with, where this bridge's index holds whatever was last
         // sent through it — and a conversation is named by how it began.
-        preview: this.#preview(chat.chatId, chat.cwd, chat.updatedAt) ?? ours?.preview ?? null,
+        preview: this.#preview(chat.chatId, chat.cwd, chat.updatedAt) ?? storedName(ours?.preview),
         updatedAt: new Date(Math.max(chat.updatedAt, seen)).toISOString(),
       })
     }
@@ -1348,7 +1361,7 @@ export class CursorAcpBridge {
         sessionId: row.sessionId,
         cwd: row.cwd,
         title: cursorMeta(row.sessionId, row.cwd).title,
-        preview: row.preview,
+        preview: storedName(row.preview),
         updatedAt: row.updatedAt,
       })
     }
