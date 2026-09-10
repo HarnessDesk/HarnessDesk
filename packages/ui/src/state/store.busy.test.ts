@@ -64,7 +64,7 @@ describe('opening a conversation another writer holds', () => {
   beforeEach(() => {
     answers['session/read'] = session()
     refusals['session/resume'] = busy(
-      'This conversation is already open in your Shane-OL account, which is the only one that can continue it.',
+      'This conversation is already open in your Jane-Work account, which is the only one that can continue it.',
     )
   })
 
@@ -78,7 +78,7 @@ describe('opening a conversation another writer holds', () => {
 
     const notice = store.getSnapshot().notices.at(-1)
     expect(notice?.level).toBe('error')
-    expect(notice?.message).toContain('Shane-OL')
+    expect(notice?.message).toContain('Jane-Work')
   })
 
   it('offers the copy the agent will actually make', async () => {
@@ -99,7 +99,7 @@ describe('opening a conversation another writer holds', () => {
     await store.openSession(ID, { runtime: RUNTIME, restoring: true })
 
     const notice = store.getSnapshot().notices.at(-1)
-    expect(notice?.message).toContain('Shane-OL')
+    expect(notice?.message).toContain('Jane-Work')
     expect(notice?.action?.label).toBe('Open a copy')
   })
 })

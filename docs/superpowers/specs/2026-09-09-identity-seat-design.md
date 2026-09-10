@@ -14,7 +14,7 @@ row itself changes its name. Both come from one place: `selectRuntime` in
 - It calls `newDraft()` whenever the focused pane is a conversation, so the
   conversation on screen is replaced by an empty draft. That is the
   main-pane flash — and a conversation the reader did not ask to leave.
-- The seat prints the account's name (`Shane-VT`) and the agent's mark of the
+- The seat prints the account's name (`Jane-Work`) and the agent's mark of the
   *focused* conversation, so it re-renders on every switch and every pane
   focus, and it says the account is who you are.
 
