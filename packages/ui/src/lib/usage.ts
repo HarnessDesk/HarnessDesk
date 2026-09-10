@@ -129,7 +129,13 @@ export const remainingOf = (lane: UsageLane): number | null =>
  */
 export const formatCountdown = (ms: number): string | null => {
   if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < HOUR) return `${Math.max(1, Math.round(ms / MINUTE))}m`
+  if (ms < HOUR) {
+    // Rounding can carry into the next unit at every boundary — 59½ minutes
+    // is 60, 23 hours and 59½ minutes is 24 — and each carry is said in the
+    // unit above it, never as "60m" or "24h".
+    const minutes = Math.max(1, Math.round(ms / MINUTE))
+    return minutes === 60 ? '1h' : `${minutes}m`
+  }
   if (ms < DAY) {
     const hours = Math.floor(ms / HOUR)
     const minutes = Math.round((ms % HOUR) / MINUTE)
@@ -148,7 +154,10 @@ export const formatCountdown = (ms: number): string | null => {
 /** One unit only, for a row that has no space for two. */
 export const formatCountdownShort = (ms: number): string | null => {
   if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < HOUR) return `${Math.max(1, Math.round(ms / MINUTE))}m`
+  if (ms < HOUR) {
+    const minutes = Math.max(1, Math.round(ms / MINUTE))
+    return minutes === 60 ? '1h' : `${minutes}m`
+  }
   if (ms < DAY) {
     const hours = Math.round(ms / HOUR)
     return hours >= 24 ? '1d' : `${Math.max(1, hours)}h`

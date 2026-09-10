@@ -8,6 +8,7 @@ import {
   describeReport,
   formatAge,
   formatCountdown,
+  formatCountdownShort,
   formatMoney,
   gatedUntil,
   pace,
@@ -358,9 +359,36 @@ describe('formatting', () => {
     expect(formatCountdown(3 * HOUR + 20 * MINUTE)).toBe('3h 20m')
     expect(formatCountdown(45 * MINUTE)).toBe('45m')
     expect(formatCountdown(-1)).toBeNull()
-    // Regression tests for Issue #107:
+  })
+
+  it('rolls a rounded unit over into the next one at every boundary (#107)', () => {
+    // Just under a day: 59.5 minutes rounds to 60, which carries into a
+    // twenty-fourth hour — a count only the day branch has a word for.
     expect(formatCountdown(23 * HOUR + 59 * MINUTE + 40 * 1000)).toBe('1d')
+    expect(formatCountdown(23 * HOUR + 59 * MINUTE + 30 * 1000)).toBe('1d')
+    expect(formatCountdown(23 * HOUR + 59 * MINUTE + 29 * 1000)).toBe('23h 59m')
     expect(formatCountdown(23 * HOUR + 29 * MINUTE)).toBe('23h 29m')
+    // The same carry below that boundary stays in hours.
+    expect(formatCountdown(HOUR + 59 * MINUTE + 40 * 1000)).toBe('2h')
+    // Just under an hour — the one boundary left where a rounded unit did not
+    // roll over, so a reset 59½ minutes away read "60m".
+    expect(formatCountdown(59 * MINUTE + 30 * 1000)).toBe('1h')
+    expect(formatCountdown(59 * MINUTE + 29 * 1000)).toBe('59m')
+    // The short form has the same boundaries.
+    expect(formatCountdownShort(23 * HOUR + 59 * MINUTE + 40 * 1000)).toBe('1d')
+    expect(formatCountdownShort(23 * HOUR + 29 * MINUTE)).toBe('23h')
+    expect(formatCountdownShort(59 * MINUTE + 30 * 1000)).toBe('1h')
+    expect(formatCountdownShort(59 * MINUTE + 29 * 1000)).toBe('59m')
+  })
+
+  it('carries the rollover to the card, not just the helper', () => {
+    const near = NOON + 23 * HOUR + 59 * MINUTE + 40 * 1000
+    const view = describeReport(
+      report({ lanes: [lane({ id: 'weekly', label: 'Weekly', usedPercent: 72, resetsAt: near })] }),
+      { now: NOON, maxLanes: 2 },
+    )
+    expect(view.hero?.countdown).toBe('1d')
+    expect(view.hero?.shortCountdown).toBe('1d')
   })
 
   it('spends cents only where they carry information', () => {

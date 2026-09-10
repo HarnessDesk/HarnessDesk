@@ -13,7 +13,8 @@ import { conditionFor, crossings } from './usage-alerts'
  */
 
 const NOON = new Date('2026-08-22T12:00:00').getTime()
-const HOUR = 3_600_000
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
 const id = (value: string): RuntimeId => value as RuntimeId
@@ -51,6 +52,14 @@ describe('crossings', () => {
     const alerts = crossings(before, after, nameFor, NOON)
     expect(alerts).toHaveLength(1)
     expect(alerts[0]?.message).toBe('Claude Code — Weekly is 80% used, 18% left, back in 2d.')
+  })
+
+  it('says a reset a minute short of a day away is back in 1d, never 24h', () => {
+    const near = NOON + 23 * HOUR + 59 * MINUTE + 40_000
+    const before = [report('claude', [lane({ usedPercent: 70, resetsAt: near })])]
+    const after = [report('claude', [lane({ usedPercent: 82, resetsAt: near })])]
+    const alerts = crossings(before, after, nameFor, NOON)
+    expect(alerts[0]?.message).toBe('Claude Code — Weekly is 80% used, 18% left, back in 1d.')
   })
 
   it('says nothing about a lane it is seeing for the first time', () => {
