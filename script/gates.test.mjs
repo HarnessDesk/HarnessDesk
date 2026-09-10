@@ -508,3 +508,22 @@ test('the method list stops at the validator table, not at the end of the file',
   ].join('\n')
   assert.deepEqual(methodsIn(source), ['session/list'])
 })
+
+test('a method name held in a variable is not a caller either', () => {
+  /* The half stripping comments did not reach, found in review round 2 with
+     its own reproduction: `const marker = 'team/inbound'` counted. A method
+     name has to be an argument to something — measured first, because a rule
+     that narrows can only be worth having if nothing real is written the
+     other way, and all 169 reachable methods are calls today. */
+  const methods = ['team/inbound']
+  assert.deepEqual([...reachedBy(methods, ["const marker = 'team/inbound'"])], [])
+  assert.deepEqual([...reachedBy(methods, ["const list = ['team/inbound']"])], [])
+  assert.deepEqual([...reachedBy(methods, ["export const NAME = 'team/inbound' as const"])], [])
+
+  // The controls: both shapes a real call is written in.
+  assert.deepEqual([...reachedBy(methods, ["await request('team/inbound', { mode })"])], ['team/inbound'])
+  assert.deepEqual(
+    [...reachedBy(methods, ["await this.transport.request(\n  'team/inbound',\n  { mode },\n)"])],
+    ['team/inbound'],
+  )
+})

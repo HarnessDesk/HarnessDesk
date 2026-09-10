@@ -102,16 +102,37 @@ const filesUnder = (dir) => {
  * validated by anything anyway. Tests are excluded by the caller: a test
  * calling a method is not a person being able to.
  *
+ * Two things had to be true of it before it meant anything, and review found
+ * both:
+ *
  * **Comments are stripped first.** Without that, `// 'team/state' has no
  * caller` was itself a caller, and the gate could be made green by writing
  * its own excuse — which is the one failure that turns a check into
- * decoration. Review found it, with the reproduction. `withoutComments` is
- * the layering gate's parser, tested in `gates.test.mjs` against the glob
- * that once opened a three-hundred-line comment.
+ * decoration. `withoutComments` is the layering gate's parser, tested in
+ * `gates.test.mjs` against the glob that once opened a three-hundred-line
+ * comment.
+ *
+ * **And the literal has to be in a call position** — first argument of
+ * something, `(` and then the string. `const marker = 'team/inbound'` is not
+ * a caller, and stripping comments did nothing about it. Measured before
+ * narrowing: all 169 reachable methods are written this way today, so the
+ * rule costs no false negatives. The ones it would still miss — a
+ * double-quoted or concatenated name — fail loudly and are fixed by looking,
+ * which is the direction to err in.
  */
+const CALL_BEFORE = /[(,]\s*$/
+
 export const reachedBy = (methods, sources) => {
   const text = sources.map((source) => withoutComments(source)).join('\n')
-  return new Set(methods.filter((method) => text.includes(`'${method}'`)))
+  return new Set(
+    methods.filter((method) => {
+      const needle = `'${method}'`
+      for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
+        if (CALL_BEFORE.test(text.slice(Math.max(0, at - 40), at))) return true
+      }
+      return false
+    }),
+  )
 }
 
 /* Imported by `gates.test.mjs`, which tests the two parsers above, so the run

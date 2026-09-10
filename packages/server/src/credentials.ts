@@ -56,6 +56,12 @@ export interface CredentialInfo {
 interface StoredEntry {
   readonly name: string
   readonly createdAt: number
+  /**
+   * The agent this secret signs in, when it was written through the agent
+   * door. Absent on everything else, and on everything written before this
+   * field existed — see `describe`.
+   */
+  readonly agent?: string
   readonly blob: string
   /**
    * The cipher that wrote this blob, by its own name. The same file is read
@@ -89,12 +95,26 @@ export class CredentialBroker {
         ref,
         name: entry.name,
         createdAt: entry.createdAt,
-        agent: CredentialBroker.agentOf(entry.name),
+        /* What was recorded, and only then what the name looks like. The
+           fallback is for entries written before the field existed: without
+           it, every key already in a user's store would read as a route's on
+           the first launch after this change, which is the reading that puts
+           a Remove beside an agent's credentials. */
+        agent: entry.agent ?? CredentialBroker.agentOf(entry.name),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  async store(name: string, value: string): Promise<string> {
+  /**
+   * `agent` names the runtime a secret signs in, and is what tells the two
+   * kinds of thing in this store apart: a key a *route* refers to, and a key
+   * an *agent* authenticates with. Recorded at the moment of writing, because
+   * that is the moment it is known for certain — the first attempt read it
+   * back out of the name instead, and a route a user called
+   * `agent:codex:OPENAI_API_KEY` was stored as `agent:codex:OPENAI_API_KEY
+   * key` and classified as the agent's own. Review found it.
+   */
+  async store(name: string, value: string, agent?: string): Promise<string> {
     const trimmed = name.trim()
     if (trimmed.length === 0) throw new Error('A credential needs a name.')
     if (value.length === 0) throw new Error('An empty credential protects nothing; not stored.')
@@ -105,6 +125,7 @@ export class CredentialBroker {
       createdAt: Date.now(),
       blob: this.#cipher.encrypt(value).toString('base64'),
       protection: this.#cipher.protection,
+      ...(agent ? { agent } : {}),
     })
     await this.#persist(entries)
     return ref
@@ -139,8 +160,13 @@ export class CredentialBroker {
    * not match.
    */
   static agentOf(name: string): string | null {
-    const parts = name.split(':')
-    return parts.length === 3 && parts[0] === 'agent' && parts[1] ? parts[1] : null
+    /* Only for entries written before `store` recorded it. Strict about the
+       whole shape rather than the first two parts: a route key's name is the
+       user's own with ` key` appended, so the environment half of a real
+       agent secret never contains whitespace and a mis-shaped route key
+       never matches. */
+    const found = /^agent:([^\s:]+):[^\s:]+$/.exec(name)
+    return found?.[1] ?? null
   }
 
   /** Loads the file so `peek` can answer without awaiting. */
@@ -194,9 +220,9 @@ export class CredentialBroker {
   }
 
   /** Stores under a fixed name, replacing whatever was there. */
-  async put(name: string, value: string): Promise<void> {
+  async put(name: string, value: string, agent?: string): Promise<void> {
     await this.forget(name)
-    await this.store(name, value)
+    await this.store(name, value, agent)
   }
 
   /** Removes every entry with this name; absent is success. */
