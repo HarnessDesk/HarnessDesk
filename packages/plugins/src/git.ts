@@ -17,6 +17,12 @@ const cap = (text: string): string =>
     ? `${text.slice(0, CONTEXT_LIMIT)}\n\n[… ${text.length - CONTEXT_LIMIT} more characters; use the git tools for the rest]`
     : text
 
+/** A number from a tool argument or a setting: a finite number, or a string that reads as one. */
+const count = (value: unknown): number | null => {
+  const read = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+  return Number.isFinite(read) ? read : null
+}
+
 export const gitPlugin: HarnessPlugin = {
   manifest: {
     id: 'git',
@@ -83,8 +89,14 @@ export const gitPlugin: HarnessPlugin = {
           type: 'object',
           properties: { limit: { type: 'number', description: 'How many commits (default 20).' } },
         },
-        execute: async (args: { limit?: number }) => {
-          const limit = Math.min(Math.max(args?.limit ?? config?.logLimit ?? 20, 1), 200)
+        execute: async (args: { limit?: unknown }) => {
+          /* A limit that is not a number survived `??`, which stops only null
+             and undefined, and Math.max and Math.min both answer NaN for it —
+             so git was asked for `-NaN` commits and refused. The schema says
+             number; an agent is free to send a string anyway. So the first of
+             the asked limit, the configured one and 20 that reads as a number
+             wins, and a fraction is cut to the whole commits under it. #97. */
+          const limit = Math.min(Math.max(Math.trunc(count(args?.limit) ?? count(config?.logLimit) ?? 20), 1), 200)
           return git(['log', `-${limit}`, '--oneline', '--no-color'])
         },
       })
@@ -115,6 +127,13 @@ export const gitPlugin: HarnessPlugin = {
         chip: {
           description: 'Title, body and discussion of an issue or pull request, through gh.',
           prompt: 'Issue or PR URL, or #123',
+          /* The URL only, on purpose. `match` is what turns a *paste* into
+             this chip, and a bare `#123` pasted on its own is as often a colour
+             — a grey such as `#333333` copied from a design tool, pasted into
+             a sentence — as an issue: it would leave the message and become a
+             chip that cannot resolve. The shorthand belongs to the prompt,
+             which says so: typed there, `#123` is the reference and resolves
+             below. #52 asked for it here; this is why it is not. */
           match: String.raw`https?://github\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+`,
         },
         resolve: async (_scope, ref) => {

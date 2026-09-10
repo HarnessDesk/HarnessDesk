@@ -521,6 +521,12 @@ test('git contributes chips that stay out of every turn and resolve on demand', 
   assert.ok(github?.chip?.match, 'the GitHub chip matches pasted URLs')
   assert.match('https://github.com/owner/repo/issues/42', new RegExp(github!.chip!.match!))
   assert.doesNotMatch('https://github.com/owner/repo', new RegExp(github!.chip!.match!))
+  // Anchored as the composer reads it: a paste of `#123` alone, or of a grey
+  // copied from a design tool, stays text. The shorthand is the prompt's (#52).
+  const pasted = new RegExp(`^(?:${github!.chip!.match!})$`)
+  assert.match('https://github.com/owner/repo/pull/7', pasted)
+  assert.doesNotMatch('#123', pasted)
+  assert.doesNotMatch('#333333', pasted)
 
   // Automatic context is the branch only; the chips wait to be attached.
   const automatic = await kernel.resolveContext({})
@@ -533,6 +539,77 @@ test('git contributes chips that stay out of every turn and resolve on demand', 
   assert.match(resolved?.text ?? '', /a\.txt/)
 
   await assert.rejects(kernel.resolveOne(github!.id, '', {}), /Which issue/)
+})
+
+test('the #123 shorthand resolves where the prompt offers it', { skip: process.platform === 'win32' }, async (t) => {
+  /* #52 read the paste pattern as the shorthand's gate. It is not: a typed
+     reference goes from the prompt straight to `resolve`, which takes `#123`.
+     A `gh` on PATH that writes down what it was asked stands in for GitHub. */
+  const { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join, delimiter } = await import('node:path')
+  const bin = mkdtempSync(join(tmpdir(), 'hd-gh-'))
+  const log = join(bin, 'calls.log')
+  writeFileSync(
+    join(bin, 'gh'),
+    [
+      '#!/bin/sh',
+      `printf '%s\n' "$*" >> '${log}'`,
+      'case "$*" in *--comments*) exit 0 ;; esac',
+      `printf 'title:\tRetry the checkout call on a 502\nstate:\tOPEN\n'`,
+      '',
+    ].join('\n'),
+  )
+  chmodSync(join(bin, 'gh'), 0o755)
+  const path = process.env['PATH']
+  process.env['PATH'] = `${bin}${delimiter}${path ?? ''}`
+  t.after(() => {
+    process.env['PATH'] = path
+    rmSync(bin, { recursive: true, force: true })
+  })
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(gitPlugin)
+  await settle()
+  kernel.setWorkspace({ root: bin, branch: null })
+  const github = kernel.list('context').find((entry) => entry.label === 'GitHub issue or PR')!
+  const resolved = await kernel.resolveOne(github.id, '#123', {})
+  assert.match(resolved?.text ?? '', /Retry the checkout call on a 502/)
+  assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['issue view 123', 'issue view 123 --comments'])
+})
+
+test('git_log takes a limit that is not a number as no limit, and never asks git for -NaN', async (t) => {
+  // #97: a string limit survived `??`, and Math.max and Math.min made it NaN.
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { execFileSync } = await import('node:child_process')
+  const dir = mkdtempSync(join(tmpdir(), 'hd-git-log-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir })
+  git('init', '-q', '-b', 'main')
+  for (const n of [1, 2, 3]) git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', `c${n}`)
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(gitPlugin)
+  await settle()
+  kernel.setWorkspace({ root: dir, branch: 'main' })
+  const commits = async (args: Record<string, unknown>): Promise<number> => {
+    const out = text(await kernel.invokeTool(toolNamed(kernel, 'git_log'), args, {}))
+    assert.doesNotMatch(out, /NaN|fatal/, `git_log ${JSON.stringify(args)} answered: ${out}`)
+    return out.split('\n').filter((line) => /^[0-9a-f]{7,} c\d$/.test(line)).length
+  }
+  // Not a number, or nothing at all: the default, which is more than three.
+  assert.equal(await commits({ limit: 'abc' }), 3)
+  assert.equal(await commits({ limit: '' }), 3)
+  assert.equal(await commits({ limit: null }), 3)
+  assert.equal(await commits({}), 3)
+  // A number, including one sent as a string, cut to whole commits and clamped.
+  assert.equal(await commits({ limit: '2' }), 2)
+  assert.equal(await commits({ limit: 2.7 }), 2)
+  assert.equal(await commits({ limit: 0 }), 1)
 })
 
 test('the last test run becomes a chip: nothing before a run, the verdict after', async (t) => {
