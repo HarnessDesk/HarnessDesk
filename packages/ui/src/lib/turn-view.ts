@@ -1,7 +1,7 @@
 import type { AgentItem, FileChange, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
-import { countDrawn } from './diff'
+import { countFileChange } from './diff'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'
 
 /**
@@ -88,13 +88,11 @@ export interface FileTotal {
 export const totalsByFile = (changes: readonly FileChange[]): FileTotal[] => {
   const byPath = new Map<string, FileTotal & { readonly first: FileChange['kind']['type'] }>()
   for (const change of changes) {
-    /* By the rule the file view draws with, so these totals and the badge on
-       the change itself agree. This counted an added or deleted file's
-       non-empty lines, so a blank line in one was drawn and not counted
-       (review, round 2). A deletion's whole-file content is its removals. */
-    const drawn = countDrawn(change.diff, change.kind.type !== 'update')
-    const added = change.kind.type === 'delete' ? 0 : drawn.added
-    const removed = change.kind.type === 'delete' ? drawn.added + drawn.removed : drawn.removed
+    /* By the rule the file view draws with (`countFileChange`), so these
+       totals and the badge on the change itself agree. This counted an added
+       or deleted file's non-empty lines, so a blank line in one was drawn
+       and not counted (review, round 2). */
+    const { added, removed } = countFileChange(change)
     const previous = byPath.get(change.path)
     byPath.set(change.path, {
       path: change.path,

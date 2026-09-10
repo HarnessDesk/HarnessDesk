@@ -77,6 +77,15 @@ describe('the counts beside a changed file', () => {
     expect(texts('statRemove')).toEqual(['−0', '−0'])
   })
 
+  it('a deleted file that arrives as its content counts its lines as removed', () => {
+    show([{ path: '/w/old.md', kind: { type: 'delete' }, diff: '# Old\n\n- gone\n' }])
+    expect(texts('statAdd')).toEqual(['+0', '+0'])
+    expect(texts('statRemove')).toEqual(['−3', '−3'])
+    // And drawn as what it counts: three removal rows, no additions.
+    expect(container.querySelectorAll('tr[class*="_remove_"]')).toHaveLength(3)
+    expect(container.querySelectorAll('tr[class*="_add_"]')).toHaveLength(0)
+  })
+
   it('a modified file is counted by the diff rule, a removed --- included', () => {
     show([{ path: '/w/b.md', kind: { type: 'update' }, diff: '@@ -1,2 +1,2 @@\n----\n+title\n same\n' }])
     expect(texts('statAdd')).toEqual(['+1', '+1'])

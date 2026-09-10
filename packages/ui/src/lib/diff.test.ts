@@ -1,6 +1,17 @@
 import { describe, expect, test } from 'vitest'
 
-import { asAdditions, countChanges, countDrawn, drawnWhole, linesIn, parseDiff, splitByFile, splitHunks } from './diff'
+import {
+  asAdditions,
+  asRemovals,
+  countChanges,
+  countDrawn,
+  countFileChange,
+  drawnWhole,
+  linesIn,
+  parseDiff,
+  splitByFile,
+  splitHunks,
+} from './diff'
 
 describe('parseDiff', () => {
   test('numbers both gutters from the hunk header', () => {
@@ -507,6 +518,29 @@ describe("git's extended header, every line of it", () => {
   test('a copy is keyed by the name git wrote beneath, as a rename is', () => {
     const copy = ['diff --git a/Plan b/x.md b/Plan b/copy.md', 'similarity index 100%', 'copy from Plan b/x.md', 'copy to Plan b/copy.md']
     expect(splitByFile(copy.join('\n')).map((file) => file.path)).toEqual(['Plan b/copy.md'])
+  })
+})
+
+describe('one file change, counted the way it is drawn', () => {
+  test('an added file is its lines added, and a deleted one its lines removed', () => {
+    expect(countFileChange({ kind: { type: 'add' }, diff: 'a\n\nb\n' })).toEqual({ added: 3, removed: 0 })
+    expect(countFileChange({ kind: { type: 'delete' }, diff: 'a\n\nb\n' })).toEqual({ added: 0, removed: 3 })
+  })
+
+  test('a whole-file change that arrives as a real diff is counted as one', () => {
+    expect(countFileChange({ kind: { type: 'delete' }, diff: '@@ -1,2 +0,0 @@\n-a\n-b\n' })).toEqual({ added: 0, removed: 2 })
+    expect(countFileChange({ kind: { type: 'add' }, diff: '@@ -0,0 +1 @@\n+a\n' })).toEqual({ added: 1, removed: 0 })
+  })
+
+  test('a modified file is its diff', () => {
+    expect(countFileChange({ kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b\n' })).toEqual({ added: 1, removed: 1 })
+  })
+
+  test('a deleted file is drawn as its removals, numbered on the old side', () => {
+    expect(asRemovals('a\nb\n').map((line) => [line.kind, line.text, line.oldNumber, line.newNumber])).toEqual([
+      ['remove', 'a', 1, null],
+      ['remove', 'b', 2, null],
+    ])
   })
 })
 

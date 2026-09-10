@@ -114,6 +114,10 @@ export const asAdditions = (content: string): DiffLine[] => {
   }))
 }
 
+/** Whole-file content of a deleted file, shown as all removals, numbered on the old side. */
+export const asRemovals = (content: string): DiffLine[] =>
+  asAdditions(content).map((line) => ({ ...line, kind: 'remove' as const, oldNumber: line.newNumber, newNumber: null }))
+
 /**
  * Additions and removals, by the same rule `parseDiff` draws them with. A
  * counter of its own is what let the two disagree; this allocates nothing per
@@ -148,14 +152,15 @@ export const countDrawn = (diff: string, wholeFile: boolean): { added: number; r
   drawnWhole(diff, wholeFile) ? { added: linesIn(diff), removed: 0 } : countChanges(diff)
 
 /**
- * Whether an added file's payload is drawn as its content rather than as a
- * diff — `DiffView` and `countDrawn` both ask this, so they cannot disagree.
+ * Whether an added or deleted file's payload is drawn as its content rather
+ * than as a diff — `DiffView` and `countDrawn` both ask this, so they cannot
+ * disagree.
  * It is content unless it carries a hunk header: a line of its own reading
  * `@@ -a,b +c,d @@`. The test was `@@` anywhere, so an added file whose text
  * merely held `@@` — `@@mention`, `a@@b`, a template's `@@var@@` — was drawn
  * and counted by the diff rule, and its `- ` list items read as removals
  * (review, round 2). A file whose content holds a real hunk header line — a
- * patch file, added — is the one case this cannot tell apart.
+ * patch file, added or deleted — is the one case this cannot tell apart.
  */
 export const drawnWhole = (diff: string, wholeFile: boolean): boolean => wholeFile && !HUNK_LINE.test(diff)
 
@@ -168,6 +173,30 @@ export const linesIn = (content: string): number => {
   let count = 0
   for (let at = content.indexOf('\n'); at !== -1; at = content.indexOf('\n', at + 1)) count += 1
   return content.length > 0 && !content.endsWith('\n') ? count + 1 : count
+}
+
+/**
+ * How a file change's payload may be drawn whole: an added file as its
+ * additions, a deleted one as its removals; a modified file is always a diff.
+ */
+export type WholeFile = 'added' | 'removed' | false
+
+export const wholeFileOf = (kind: string): WholeFile => (kind === 'add' ? 'added' : kind === 'delete' ? 'removed' : false)
+
+/**
+ * The `+N −M` of one file change, by the rule its view draws it with. The
+ * change's row, the turn's totals and an approval all ask this one question.
+ * A deleted file whose payload is its content counts as its removals, the
+ * way it is drawn: round three found the row drawing it as context while the
+ * turn's totals counted it as removed.
+ */
+export const countFileChange = (change: {
+  readonly kind: { readonly type: string }
+  readonly diff: string
+}): { added: number; removed: number } => {
+  const whole = wholeFileOf(change.kind.type)
+  const drawn = countDrawn(change.diff, whole !== false)
+  return whole === 'removed' && drawnWhole(change.diff, true) ? { added: 0, removed: drawn.added } : drawn
 }
 
 export interface DiffHunk {
