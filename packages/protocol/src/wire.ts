@@ -1647,10 +1647,6 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly pluginId: string }
     result: null
   }
-  'runtime/plugin/setEnabled': {
-    params: { readonly runtime: RuntimeId; readonly pluginId: string; readonly enabled: boolean }
-    result: null
-  }
   'runtime/mcp/list': {
     params: { readonly runtime: RuntimeId; readonly cwd?: string }
     result: readonly McpServer[]

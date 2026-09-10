@@ -61,11 +61,22 @@ const plugin = (id: string, name: string, contributions: CapabilityContribution[
     enabled: true,
   }) as unknown as PluginInstance
 
-const tool = (owner: string, name: string, description: string): CapabilityContribution =>
+/* `scope` is on every contribution the host sends — `ContributionBase`
+   requires it — and these fixtures omitted it behind a cast, so the list
+   rendered here was a list the wire never produces. It cost a crash the
+   moment a row read the field. Global unless a test says otherwise, which is
+   what every contribution in this repository is today. */
+const tool = (
+  owner: string,
+  name: string,
+  description: string,
+  scope: CapabilityContribution['scope'] = { kind: 'global' },
+): CapabilityContribution =>
   ({
     id: `${owner}/${name}`,
     owner,
     revision: 1,
+    scope,
     kind: 'tool',
     namespace: owner,
     name,
@@ -78,15 +89,24 @@ const hook = (owner: string, name: string): CapabilityContribution =>
     id: `${owner}/${name}`,
     owner,
     revision: 1,
+    scope: { kind: 'global' },
     kind: 'hook',
     event: 'preToolUse',
     description: name,
   }) as unknown as CapabilityContribution
 
-const makeStore = (info: RuntimeInfo): AppStore => {
+/** What the host was asked, so a test can say the question was put to it. */
+type Asked = { readonly kind: string; readonly scope: object }
+
+const makeStore = (
+  info: RuntimeInfo,
+  here?: { readonly answers: CapabilityContribution[]; readonly asked: Asked[]; readonly webScope?: CapabilityContribution['scope'] },
+): AppStore => {
   const git = plugin('git', 'Git', [tool('git', 'git_status', 'Show the working tree status.')])
   const guard = plugin('guardrails', 'Guardrails', [hook('guardrails', 'Checks every tool call')])
-  const web = plugin('web', 'Web', [tool('web', 'web_fetch', 'Fetch a page from an allowed host.')])
+  const web = plugin('web', 'Web', [
+    tool('web', 'web_fetch', 'Fetch a page from an allowed host.', here?.webScope),
+  ])
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -98,6 +118,10 @@ const makeStore = (info: RuntimeInfo): AppStore => {
   return {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    listCapabilities: async (kind: string, scope: object) => {
+      here?.asked.push({ kind, scope })
+      return (here?.answers ?? []).filter((one) => one.kind === kind)
+    },
   } as unknown as AppStore
 }
 
@@ -168,4 +192,46 @@ it('an agent that refuses the server is not told the tools are lost', () => {
   expect(container.textContent).not.toContain('no reach')
   expect(container.textContent).toContain('does not take them in the session request')
   expect(container.textContent).not.toContain('cannot receive plugin tools')
+})
+
+it('a contribution that applies to one workspace says so; a global one says nothing', () => {
+  /* The scope has been on every contribution since the capability plane
+     landed and on no row: a tool a plugin offered to one checkout read here
+     exactly like one offered to every agent in the app. */
+  mount(
+    makeStore(runtime('codex', 'Codex', true), {
+      answers: [],
+      asked: [],
+      webScope: { kind: 'workspace', root: '/repo/api' },
+    }),
+  )
+  openCapabilities()
+  expect(container.textContent).toContain('only in /repo/api')
+  // The control: the other two are global, and a row saying "everywhere"
+  // under every entry is a word nobody reads.
+  expect(container.textContent).not.toContain('everywhere')
+})
+
+it('“applies here” is the host’s answer, not the pushed list filtered again', async () => {
+  /* The whole reason `capability/list` exists. The renderer is pushed every
+     contribution regardless of scope and filters by kind alone, so it cannot
+     answer this question at all — only the host evaluates a scope. */
+  const asked: Asked[] = []
+  const only = tool('git', 'git_status', 'Show the working tree status.')
+  mount(makeStore(runtime('codex', 'Codex', true), { answers: [only], asked }))
+  openCapabilities()
+
+  expect(container.textContent).toContain('Fetch a page from an allowed host.')
+
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
+  expect(where, 'the scope filter exists').toBeTruthy()
+  setValue(where as HTMLSelectElement, 'here')
+  await act(async () => {})
+
+  // Every kind was asked, and the answer replaced the list rather than
+  // narrowing it: `web_fetch` is in the pushed set and not in the host's.
+  expect(asked.map((one) => one.kind)).toContain('tool')
+  expect(asked.map((one) => one.kind)).toContain('hook')
+  expect(container.textContent).toContain('Show the working tree status.')
+  expect(container.textContent).not.toContain('Fetch a page from an allowed host.')
 })

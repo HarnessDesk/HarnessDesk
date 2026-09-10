@@ -74,6 +74,12 @@ jobs:
       - name: Tracked secrets
         run: node script/check-secrets.mjs
 
+      # Also pure source analysis: every method the host answers has to be
+      # callable from the renderer or the desktop's main process, or be pinned
+      # as deliberately unreachable with the reason.
+      - name: Reachable methods
+        run: node script/check-reachable.mjs
+
       # Pure source analysis, like layering: it reads the ledger of what live
       # recordings proved and checks each claim still names a test that exists.
       # The recordings themselves need signed-in vendor agents and cannot run

@@ -72,23 +72,6 @@ export class CodexExtensions implements RuntimeExtensions {
   }
 
   /**
-   * Codex has no "disable" call; enabling is installing and disabling is
-   * uninstalling from the on-disk set. Modelled as one method so the interface
-   * shows a single toggle.
-   */
-  async setEnabled(pluginId: string, enabled: boolean): Promise<void> {
-    if (enabled) {
-      const [marketplace, name] = splitId(pluginId)
-      await this.server.request('plugin/install', {
-        ...(marketplace ? { remoteMarketplaceName: marketplace } : {}),
-        pluginName: name,
-      })
-    } else {
-      await this.uninstall(pluginId)
-    }
-  }
-
-  /**
    * What Codex offers to bring over from another agent — configuration:
    * AGENTS.md, skills, subagents, hooks, commands, MCP servers.
    *
@@ -156,9 +139,22 @@ export class CodexExtensions implements RuntimeExtensions {
 }
 
 /** A plugin id is `name@marketplace`; the marketplace half is needed to reinstall. */
-const splitId = (id: string): [string | null, string] => {
-  const at = id.lastIndexOf('@')
-  return at === -1 ? [null, id] : [id.slice(at + 1), id.slice(0, at)]
+/** Codex's reason an installed plugin will not run, in words. */
+const disabledBecause = (reason: CodexProtocol.v2.PluginDisabledReason | null): string | null => {
+  switch (reason) {
+    case 'disabled_by_admin':
+      return 'turned off by an administrator'
+    case 'plan_not_eligible':
+      return 'not included in this plan'
+    case 'required_app_unavailable':
+      return 'an app it needs is unavailable'
+    /* `unknown` is Codex saying it does not know, and so a sentence claiming
+       a cause would be inventing one. `null` is Codex saying nothing at all.
+       Both come back as no reason, which the row already has words for. */
+    case 'unknown':
+    case null:
+      return null
+  }
 }
 
 const mapPlugin = (plugin: CodexProtocol.v2.PluginSummary, marketplace: string): RuntimePlugin => ({
@@ -183,6 +179,10 @@ const mapPlugin = (plugin: CodexProtocol.v2.PluginSummary, marketplace: string):
   marketplace,
   installed: plugin.installed,
   enabled: plugin.enabled,
+  /* Codex's own reason, in its own words, as a sentence rather than the
+     enum: every one of them is something an administrator or a plan did, so
+     the row is telling somebody why they cannot use a plugin they can see. */
+  disabledReason: plugin.enabled ? null : disabledBecause(plugin.disabledReason),
 })
 
 const mapApp = (app: CodexProtocol.v2.AppInfo): RuntimePlugin => ({

@@ -865,6 +865,7 @@ class PreviewStore {
       model: 'alpha-max',
       busy: true,
       here: true,
+      inbound: 'accept',
     },
     {
       runtime: runtimeId('claude'),
@@ -879,6 +880,7 @@ class PreviewStore {
          fixture where everybody is warm cannot show what the rail does with
          it. */
       here: false,
+      inbound: 'accept',
     },
   ]
 

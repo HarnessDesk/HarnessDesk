@@ -7,6 +7,7 @@ import * as usage from './design-usage.mjs'
 import { squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands } from './check-verify-drift.mjs'
+import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { leadComment } from './design-doc.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -440,4 +441,40 @@ test('quoting style does not change what CI is seen to run', () => {
   // The comparison strips quotes on both sides; a formatter must not be able
   // to make a step disappear by rewriting them.
   assert.match(ciCommands(yaml), /node --test script\/\*\.test\.mjs/)
+})
+
+/**
+ * `check-reachable` decides which host methods a surface can call, and both of
+ * its halves fail silently in the same direction: a parser that finds fewer
+ * methods, or a matcher that finds more callers, makes the gate green. It
+ * would then be a check that cannot fail, which is the shape of thing this
+ * file exists for.
+ */
+
+test('the method list is the validator table\u2019s own keys, not the fields inside them', () => {
+  /* The trap this parser is written around. A params table nests its fields at
+     four spaces, and several of them are named with a slash in the value — so
+     a looser pattern reads `readonly runtime` or a nested `'a/b'` as a method
+     and the list grows entries no host answers. Two spaces and a slash is the
+     shape of a key. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  'team/room/join': shape({",
+    "    'not/a/method': isString,",
+    "    runtime: isString,",
+    "  }),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'team/room/join'])
+})
+
+test('a longer method name does not make a shorter one look called', () => {
+  /* `plugin/install` is a suffix of `runtime/plugin/install`, and both are
+     real methods on this wire. A substring match on the bare name reads the
+     one as the other — so the whole quoted literal is matched, quote
+     included. Without the quotes this assertion is the control: it fails. */
+  const methods = ['plugin/install', 'runtime/plugin/install']
+  const reached = reachedBy(methods, ["await request('runtime/plugin/install', { runtime })"])
+  assert.deepEqual([...reached], ['runtime/plugin/install'])
 })

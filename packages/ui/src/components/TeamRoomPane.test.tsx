@@ -112,6 +112,7 @@ const CODEX: TeamPeerInfo = {
   busy: false,
   nickname: 'Codex',
   here: true,
+  inbound: 'accept',
 }
 
 /** A conversation nobody has named: the row is titled by its nickname, which
@@ -124,6 +125,7 @@ const CLAUDE: TeamPeerInfo = {
   busy: false,
   nickname: 'Opus',
   here: true,
+  inbound: 'accept',
 }
 
 const rig = (
@@ -179,6 +181,7 @@ const rig = (
     openSession: vi.fn().mockResolvedValue(undefined),
     setRoomWatching: vi.fn(),
     leaveRoom: vi.fn().mockResolvedValue(undefined),
+    setTeamInbound: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   /** Something new is said in the room, from outside this surface. */
   const says = async (text: string): Promise<void> => {
@@ -1318,4 +1321,77 @@ it('asks again for a member whose conversation failed to open', async () => {
   act(() => row('Opus').click())
   await act(async () => {})
   expect(store.openSession).toHaveBeenCalledTimes(2)
+})
+
+/**
+ * One member set to hold, in a room where the others may talk.
+ *
+ * Board-only is this decision taken for everybody at once, and it was the
+ * only one on offer: `team/inbound` carried the per-conversation setting the
+ * whole time with nothing anywhere to press. A room is rarely uniform — one
+ * member is mid-refactor and the other nine may be interrupted — and saying
+ * so used to mean silencing the room.
+ */
+it('sets one member’s inbound from its card, leaving the room’s own switch alone', async () => {
+  vi.useFakeTimers()
+  const { store } = rig()
+  await render(store)
+
+  const mark = row('Codex').querySelector('[data-slot="hover-card-trigger"]')
+  act(() => {
+    ;(mark as Element).dispatchEvent(
+      new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
+    )
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+
+  /* A setting with three states, shown as one — not three verbs beside Open
+     and Watch beside. The card shows which state it is in, which a list of
+     verbs cannot, and the verbs row stops overflowing the card. */
+  const group = document.body.querySelector('[aria-label="Messages"]')
+  expect(group, 'the inbound band is on the card').toBeTruthy()
+  const modes = [...(group?.querySelectorAll('button') ?? [])].map((one) => one.textContent?.trim())
+  expect(modes).toEqual(['Accept', 'Hold', 'Refuse'])
+
+  const hold = [...(group?.querySelectorAll('button') ?? [])].find(
+    (one) => one.textContent?.trim() === 'Hold',
+  )
+  act(() => (hold as HTMLButtonElement).click())
+  await act(async () => {})
+
+  expect(store.setTeamInbound).toHaveBeenCalledWith('codex', 'c1', 'hold')
+  // Not the room-wide switch, which is the whole distinction being drawn.
+  expect(store.teamMessaging).not.toHaveBeenCalled()
+  /* And the room is still the room. A React portal's events bubble through
+     the React *tree*, so a press on the card also reached the row it hangs
+     off, and picking an inbound mode navigated away to that member's own
+     conversation — the chat replaced by a transcript. Photographed on the
+     real app; the same press with `stopPropagation` removed fails here. */
+  expect(container.textContent).toContain('Nothing said yet')
+  vi.useRealTimers()
+})
+
+it('a held member says so on its row, and an accepting one says nothing', async () => {
+  const { store } = rig([{ ...CODEX, inbound: 'hold' }, CLAUDE])
+  await render(store)
+
+  expect(row('Codex').textContent).toContain('messages held')
+  /* The control, and the reason `accept` has no words: it is the default on
+     every member of every room, and a row that announced it would announce it
+     forever. */
+  expect(row('Opus').textContent).not.toContain('messages')
+})
+
+it('a refused member outranks what it is holding, because it explains the silence', async () => {
+  /* The one second line somebody chose. A member set to refuse that is also
+     on a task used to show the task and hide the reason its messages were
+     going nowhere — which is the state this control exists to make visible. */
+  const { store } = rig([{ ...CODEX, inbound: 'refuse' }, CLAUDE])
+  await render(store)
+  // Codex holds intent #1 in this fixture, so the row has two things it
+  // could say and this asserts which one wins.
+  expect(row('Codex').textContent).toContain('messages refused')
+  expect(row('Codex').textContent).not.toContain('Migrate auth callers')
 })

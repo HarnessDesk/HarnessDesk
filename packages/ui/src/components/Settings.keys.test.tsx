@@ -1,0 +1,170 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+import type { RuntimeInfo } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES } from '@harnessdesk/protocol'
+
+import { StoreProvider } from '../state/context'
+import { emptySnapshot, type AppSnapshot, type AppStore, type RouteInfo } from '../state/store'
+import { Settings } from './Settings'
+
+/**
+ * The keys behind the custom endpoints, and a way to forget one.
+ *
+ * A secret was stored by one flow and released by another, and the two could
+ * come apart: `routes/delete` drops the credential its route was the last
+ * owner of, so a save that failed *after* the key went into the keychain, or
+ * an endpoint removed while a second one still named the same key, left a
+ * secret on the machine that nothing on screen mentioned and nothing could
+ * remove. `credentials/delete` was on the wire the whole time, answered by the
+ * host, covered by a server test, and called by nobody.
+ *
+ * The section only exists when there is something in it: an empty "Stored
+ * keys" heading under an empty endpoint list is a permanent reminder of a
+ * state that is fine.
+ */
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let container: HTMLDivElement
+let root: Root
+
+beforeEach(() => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+})
+
+const runtime = {
+  id: 'codex',
+  name: 'OpenAI Codex',
+  capabilities: { ...NO_CAPABILITIES },
+  presentation: { name: 'OpenAI Codex' },
+} as unknown as RuntimeInfo
+
+const KEY = { ref: 'cred_a', name: 'Proxy key', createdAt: Date.UTC(2026, 0, 9) }
+const ORPHAN = { ref: 'cred_b', name: 'Old gateway key', createdAt: Date.UTC(2025, 10, 2) }
+
+const route: RouteInfo = {
+  id: 'route_1',
+  name: 'Acme proxy',
+  endpoint: 'https://proxy.acme.dev/v1',
+  wireProtocol: 'responses',
+  credentialRef: 'cred_a',
+}
+
+const mount = (keys: readonly (typeof KEY)[], routes: readonly RouteInfo[] = [route]) => {
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    runtimes: [runtime],
+    routes: [...routes],
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request: vi.fn(async () => null) },
+    listCredentials: vi.fn(async () => keys),
+    deleteCredential: vi.fn(async () => true),
+    loadAccounts: vi.fn(async () => {}),
+    agentCatalog: vi.fn(async () => []),
+    acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <Settings section="models" onSection={() => {}} onClose={() => {}} onSignIn={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  return store
+}
+
+const button = (label: string): HTMLButtonElement | undefined =>
+  [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === label)
+
+/**
+ * The Remove on *this* row.
+ *
+ * The endpoint above has one too, and it is first in the document — so a
+ * lookup by label alone opened the endpoint's dialog and the assertion about
+ * the key's could not pass. Found by the row whose title is the key's name.
+ */
+const removeOn = (name: string): HTMLButtonElement | undefined => {
+  const row = [...container.querySelectorAll<HTMLElement>('div[class*="_row_"]')].find((one) =>
+    one.querySelector('[class*="_rowTitle_"]')?.textContent?.includes(name),
+  )
+  expect(row, `a row for ${name}`).toBeTruthy()
+  return [...(row?.querySelectorAll('button') ?? [])].find(
+    (one) => one.textContent?.trim() === 'Remove…',
+  )
+}
+
+it('names each key by the endpoint that uses it, and the one nothing uses', async () => {
+  mount([KEY, ORPHAN])
+  await act(async () => {})
+
+  expect(container.textContent).toContain('Stored keys · 2')
+  expect(container.textContent).toContain('Used by Acme proxy')
+  /* The leak, said out loud. This is the row that could not be reached at
+     all: a key with no owner, and until now no way to remove it. */
+  expect(container.textContent).toContain('No endpoint uses it')
+})
+
+it('there is no section at all when no key is stored', async () => {
+  mount([])
+  await act(async () => {})
+  // The control for the assertion above: the heading is absent, not empty.
+  expect(container.textContent).not.toContain('Stored keys')
+  // And the endpoints above it are still drawn, so this is the keys section
+  // being withheld rather than the page failing to render.
+  expect(container.textContent).toContain('Custom endpoints')
+})
+
+it('forgetting a key confirms first, says what breaks, and drops the row', async () => {
+  const store = mount([KEY])
+  await act(async () => {})
+
+  act(() => removeOn('Proxy key')?.click())
+  /* The consequence differs by whether anything still names it, and this key
+     is named: an endpoint is about to stop working. */
+  expect(document.body.textContent).toContain('Acme proxy will stop working')
+
+  act(() => button('Forget key')?.click())
+  await act(async () => {})
+
+  expect(store.deleteCredential).toHaveBeenCalledWith('cred_a')
+  expect(container.textContent).not.toContain('Proxy key')
+})
+
+it('a key nothing names is housekeeping, and says so instead', async () => {
+  mount([ORPHAN], [])
+  await act(async () => {})
+
+  act(() => removeOn('Old gateway key')?.click())
+  expect(document.body.textContent).toContain('cannot be recovered')
+  expect(document.body.textContent).not.toContain('will stop working')
+})
+
+it('a refused delete leaves the row where it is', async () => {
+  /* The secret is still on the machine, so the list must still say so — the
+     row going away on a failed request is the one outcome that lies. */
+  const store = mount([KEY])
+  await act(async () => {})
+  ;(store.deleteCredential as unknown as { mockResolvedValue: (v: boolean) => void }).mockResolvedValue(
+    false,
+  )
+
+  act(() => removeOn('Proxy key')?.click())
+  act(() => button('Forget key')?.click())
+  await act(async () => {})
+
+  expect(container.textContent).toContain('Proxy key')
+})

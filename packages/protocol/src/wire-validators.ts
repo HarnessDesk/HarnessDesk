@@ -534,7 +534,6 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/apps/search': shape({ runtime: isString, query: isString, cursor: optional(isString) }),
   'runtime/plugin/install': shape({ runtime: isString, marketplace: isString, pluginName: isString }),
   'runtime/plugin/uninstall': shape({ runtime: isString, pluginId: isString }),
-  'runtime/plugin/setEnabled': shape({ runtime: isString, pluginId: isString, enabled: isBoolean }),
   'runtime/mcp/list': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/mcp/login': shape({ runtime: isString, name: isString }),
   'runtime/mcp/reload': shape({ runtime: isString }),

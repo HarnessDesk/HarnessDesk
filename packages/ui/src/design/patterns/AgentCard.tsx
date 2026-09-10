@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
+import { Segmented } from '../primitives/Kit'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { Progress } from '../ui/progress'
@@ -146,6 +147,24 @@ export type AgentCardSubject = {
     readonly where?: string | null
   } | null
   readonly cautions?: readonly AgentCardCaution[]
+  /**
+   * A setting with a small closed set of values — not a verb.
+   *
+   * The distinction earns its own band. The room's inbound mode arrived as
+   * three more entries in `actions`, which pushed that row to five buttons: it
+   * does not wrap, so "Turn messages away" and "Take out of the room" were off
+   * the card's edge and "Hold messages for me" was cut mid-word. Photographed,
+   * which is how it was found. A thing with three states belongs in a
+   * segmented control that shows which one it is in, beside the other
+   * instruments — and the verbs go back to being verbs.
+   */
+  readonly choice?: {
+    /** The band's heading, and the control's accessible name: "Messages". */
+    readonly label: string
+    readonly value: string
+    readonly options: readonly { readonly value: string; readonly label: string }[]
+    readonly onChange: (next: string) => void
+  } | null
   readonly actions?: readonly AgentCardAction[]
 }
 
@@ -178,7 +197,7 @@ const Band = ({ label, children }: { label?: string; children: ReactNode }) => (
 )
 
 export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
-  const { running, meter, on, cautions = [], actions = [] } = subject
+  const { running, meter, on, cautions = [], choice = null, actions = [] } = subject
   /* Earned, band by band. `running` can arrive as an object with every field
      empty — a session the renderer has never opened knows the harness and
      nothing else — and an empty object must not draw a divider. */
@@ -302,10 +321,30 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
         )
       })}
 
+      {choice && (
+        <Band label={choice.label}>
+          {/* Named so the card can tell a setting from a verb: every other
+              control here acts on something behind the card and dismisses it,
+              and a picker that vanished the instant you chose would never show
+              you what you had chosen. */}
+          <span data-slot="agent-card-choice">
+          <Segmented
+            label={choice.label}
+            value={choice.value}
+            options={choice.options}
+            onChange={choice.onChange}
+          />
+          </span>
+        </Band>
+      )}
+
       {actions.length > 0 && (
+        /* Wrapping, because a row of verbs is not a fixed width: the labels are
+           sentences in some subjects and one word in others, and the row that
+           overflowed had three of them. */
         <div
           data-slot="agent-card-band"
-          className="flex gap-1.5 border-t border-(--hd-border-strong) px-3 py-2.5"
+          className="flex flex-wrap gap-1.5 border-t border-(--hd-border-strong) px-3 py-2.5"
         >
           {actions.map((action) => (
             <Button

@@ -50,6 +50,7 @@ const PEER: TeamPeerInfo = {
   nickname: 'Alpha',
   busy: false,
   here: true,
+  inbound: 'accept',
 }
 
 const rig = (intents: readonly Intent[] = []) => {

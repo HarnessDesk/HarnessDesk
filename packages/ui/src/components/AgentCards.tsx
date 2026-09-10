@@ -202,7 +202,21 @@ export const AgentHoverCard = ({
            press that selects a path or a task title does not close the thing
            being read from. */
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest('button')) setOpen(false)
+          /* The card is a portal, and a React portal's events bubble through
+             the React *tree* — so every press inside it also reached the row
+             this card hangs off. Open was harmless (the row opens too), and
+             the rest were not: Watch beside opened the member as well as
+             putting it in a column, Take out of the room opened the
+             conversation it had just removed, and picking an inbound mode
+             navigated away from the room. Found by photographing the real app.
+             The card acts on its own behalf; the row is not part of it. */
+          event.stopPropagation()
+          const target = event.target as HTMLElement
+          /* A setting is not a verb. The band that holds one says which value
+             is current, which is the whole reason to look at it, so it does
+             not dismiss the card the way an action does. */
+          if (target.closest('[data-slot="agent-card-choice"]')) return
+          if (target.closest('button')) setOpen(false)
         }}
       >
         {body()}
@@ -350,9 +364,12 @@ export type MemberCardFacts = {
 const MemberCardBody = ({
   member,
   actions,
+  choice,
 }: {
   readonly member: MemberCardFacts
   readonly actions?: readonly AgentCardAction[]
+  /** A setting with three states — the room's inbound mode. See `AgentCard`. */
+  readonly choice?: AgentCardSubject['choice']
 }) => {
   const snapshot = useSnapshot()
   const now = useTick()
@@ -424,9 +441,10 @@ const MemberCardBody = ({
           }
         : { where: groundOf(live?.cwd, live?.git?.branch) },
       cautions,
+      ...(choice ? { choice } : {}),
       ...(actions ? { actions } : {}),
     }
-  }, [snapshot, member, actions, now])
+  }, [snapshot, member, actions, choice, now])
 
   return <AgentCard subject={subject} />
 }
@@ -434,18 +452,26 @@ const MemberCardBody = ({
 export const MemberHoverCard = ({
   member,
   actions,
+  choice,
   children,
   className,
   side,
 }: {
   readonly member: MemberCardFacts
   readonly actions?: readonly AgentCardAction[]
+  readonly choice?: AgentCardSubject['choice']
   readonly children: ReactNode
   readonly className?: string
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
 }) => (
   <AgentHoverCard
-    body={() => <MemberCardBody member={member} {...(actions ? { actions } : {})} />}
+    body={() => (
+      <MemberCardBody
+        member={member}
+        {...(actions ? { actions } : {})}
+        {...(choice ? { choice } : {})}
+      />
+    )}
     className={className}
     {...(side ? { side } : {})}
   >

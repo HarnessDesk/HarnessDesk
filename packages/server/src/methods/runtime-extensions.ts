@@ -36,11 +36,6 @@ export const runtimeExtensionMethods = {
     return null
   },
 
-  'runtime/plugin/setEnabled': async (ctx, params) => {
-    await ctx.runtimes.extensionsOf(params).setEnabled(params.pluginId, params.enabled)
-    return null
-  },
-
   'runtime/mcp/list': (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     return runtime.extensions ? runtime.extensions.mcpServers(params.cwd) : []

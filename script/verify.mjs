@@ -117,6 +117,9 @@ step('desktop tests', () => run('pnpm', ['--filter', '@harnessdesk/desktop', 'ru
 
 step('layering rule', () => run('node', ['script/check-layering.mjs']))
 step('tracked secrets', () => run('node', ['script/check-secrets.mjs']))
+// A host method with no surface that calls it. The compiler holds the other
+// direction; this one rots, and ten agents reading the repo found four of them.
+step('reachable methods', () => run('node', ['script/check-reachable.mjs']))
 step('third-party notices', () => run('node', ['script/check-notices.mjs']))
 
 // A token edit is the one change that repaints every screen at once and shows

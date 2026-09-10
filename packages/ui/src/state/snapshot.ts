@@ -89,6 +89,17 @@ export interface AuditRow {
   readonly backupPath?: string
 }
 
+/**
+ * One row of `credentials/list`. The value is never among the fields: the
+ * broker returns references, and the renderer has only ever been able to
+ * name a secret, not read one.
+ */
+export interface StoredCredential {
+  readonly ref: string
+  readonly name: string
+  readonly createdAt: number
+}
+
 /** One row of `routes/list`, as the wire returns it. */
 export interface RouteInfo {
   readonly id: string

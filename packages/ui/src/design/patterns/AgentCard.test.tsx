@@ -123,3 +123,56 @@ it('keeps the second name only when it is a name of its own', () => {
   render(BARE)
   expect(text()).toBe('Opus')
 })
+
+/**
+ * A setting with three states is a band, not three more verbs.
+ *
+ * The room's inbound mode went in as three entries in `actions`, and the verbs
+ * row does not wrap: with Open, Watch beside and Take out of the room already
+ * there, the card drew five buttons, two of them past its own edge and one cut
+ * mid-word. It was found by photographing the real app, and it is the reason
+ * this band exists.
+ */
+it('a choice is its own band, showing which of the values is current', () => {
+  const picked: string[] = []
+  render({
+    ...BARE,
+    choice: {
+      label: 'Messages',
+      value: 'hold',
+      options: [
+        { value: 'accept', label: 'Accept' },
+        { value: 'hold', label: 'Hold' },
+        { value: 'refuse', label: 'Refuse' },
+      ],
+      onChange: (next) => picked.push(next),
+    },
+    actions: [{ label: 'Open', onSelect: () => {}, primary: true }],
+  })
+
+  // Two bands: the choice and the verbs. They are separate rows, which is the
+  // whole of what this change is.
+  expect(bands()).toBe(2)
+  const group = container.querySelector('[aria-label="Messages"]')
+  expect(group).toBeTruthy()
+  expect(group?.querySelectorAll('button').length).toBe(3)
+  // Which one it is in — a list of verbs cannot say this at all.
+  const current = [...(group?.querySelectorAll('button') ?? [])].find(
+    (one) => one.getAttribute('aria-checked') === 'true' || one.getAttribute('data-checked') !== null,
+  )
+  expect(current?.textContent?.trim()).toBe('Hold')
+
+  const accept = [...(group?.querySelectorAll('button') ?? [])].find(
+    (one) => one.textContent?.trim() === 'Accept',
+  )
+  act(() => (accept as HTMLButtonElement).click())
+  expect(picked).toEqual(['accept'])
+})
+
+it('the verbs row wraps, so a long label cannot leave the card', () => {
+  /* Not decoration. Three sentence-length verbs is what a member card in a
+     room carries, and the row was `flex` with no wrap and no shrink. */
+  render({ ...BARE, actions: [{ label: 'Open', onSelect: () => {} }] })
+  const row = [...container.querySelectorAll('[data-slot="agent-card-band"]')].at(-1)
+  expect(row?.className).toContain('flex-wrap')
+})
