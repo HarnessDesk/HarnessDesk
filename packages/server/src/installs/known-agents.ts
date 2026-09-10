@@ -30,6 +30,14 @@ export interface KnownAgent {
   /** Our key: the public registry's id where one exists, the template key otherwise. */
   readonly id: string
   readonly name: string
+  /**
+   * Names this agent's rows were written under that the desk no longer uses
+   * — the registry's own, or an older table's. A row still carrying one is
+   * shown under `name`, and the registry's listing says `name` too; a name
+   * someone chose for themselves is left alone. Applied where the name is
+   * read, not migrated on disk: `agents.json` stays the user's file.
+   */
+  readonly formerNames?: readonly string[]
   /** A lobe-icons key, for the mark. */
   readonly brand?: string
   readonly tagline: string
@@ -141,7 +149,10 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       path: '~/.gemini',
       credentials: ['oauth_creds.json', 'google_accounts.json'],
       config: ['settings.json'],
-      note: 'GEMINI_API_KEY or GOOGLE_API_KEY in the environment stands in for the browser sign-in.',
+      // Measured on 0.59.0: `getAuthTypeFromEnv` chooses the key method from
+      // GEMINI_API_KEY and never from GOOGLE_API_KEY, which Gemini reads only
+      // inside a method already chosen (Vertex AI's express mode).
+      note: 'GEMINI_API_KEY in the environment stands in for the browser sign-in; GOOGLE_API_KEY does only once Vertex AI is chosen.',
     },
     auth: {
       kind: 'browser',
@@ -439,7 +450,9 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
   },
   {
     id: 'antigravity-acp',
-    name: 'Google Antigravity',
+    name: 'Antigravity',
+    // The registry's name for it, which every download row carries.
+    formerNames: ['Google Antigravity'],
     brand: 'antigravity',
     tagline: "Google's Antigravity agent, through its own ACP server.",
     cli: {
@@ -455,7 +468,11 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       // Measured 2026-09-09: the server writes `settings.json` (`auth.type`)
       // and `conversations/` here, beside — not inside — the IDE's folder.
       path: '~/.gemini/antigravity-acp',
-      credentials: ['~/.gemini/google_accounts.json'],
+      // `GEMINI_HOME` is the `.gemini` folder itself, measured 2026-09-09.
+      env: 'GEMINI_HOME',
+      // Where there is no keychain. On macOS the token is in the keychain,
+      // and the server never reads Gemini CLI's `google_accounts.json`.
+      credentials: ['acp_token.json'],
       config: ['settings.json'],
       note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own — neither the IDE’s nor the agy CLI’s keychain session counts.',
     },
@@ -526,6 +543,14 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
 
 export const knownAgent = (id: string): KnownAgent | undefined =>
   KNOWN_AGENTS.find((agent) => agent.id === id)
+
+/**
+ * The name to show for a row or a listing: the desk's own where the one
+ * given is a name it has retired for this agent, the one given otherwise.
+ * See `KnownAgent.formerNames`.
+ */
+export const currentNameOf = (known: Pick<KnownAgent, 'name' | 'formerNames'> | undefined, name: string): string =>
+  known?.formerNames?.includes(name) ? known.name : name
 
 /** The known agent a CLI name belongs to, for rows that name only a command. */
 export const knownAgentByCommand = (command: string): KnownAgent | undefined =>

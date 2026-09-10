@@ -195,7 +195,7 @@ Measured across agent CLIs, installer packages, and help outputs on
 
 | Agent | Launch / Bridge | Floor | Roads & Update | Home & State | Authentication |
 | --- | --- | --- | --- | --- | --- |
-| Gemini CLI | `gemini --acp` | 0.58.0 | npm `@google/gemini-cli`, brew `gemini-cli`, npx | `~/.gemini` | `/auth` browser sign-in; accepts `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| Gemini CLI | `gemini --acp` | 0.58.0 | npm `@google/gemini-cli`, brew `gemini-cli`, npx | `~/.gemini` | `/auth` browser sign-in; accepts `GEMINI_API_KEY` (`GOOGLE_API_KEY` only once Vertex AI is chosen) |
 | OpenClaw | `openclaw acp` + Gateway | — | npm `openclaw` | `~/.openclaw` (`OPENCLAW_STATE_DIR`, `--profile`) | Gateway token (`gateway.auth.token`, `OPENCLAW_GATEWAY_TOKEN`) |
 | OpenCode | `opencode acp` | — | `~/.opencode/bin`, brew `opencode`, npm `opencode-ai`; `opencode upgrade` | `~/.local/share/opencode` (`XDG_DATA_HOME`, `OPENCODE_CONFIG`) | `opencode auth login` in terminal |
 | Cline | `cline --acp` | — | npm `cline`; `cline --update` | `~/.cline` (`--config`, `--data-dir`) | `cline auth` in terminal; accepts `CLINE_API_KEY` |
@@ -204,7 +204,7 @@ Measured across agent CLIs, installer packages, and help outputs on
 | Kimi CLI | `kimi acp` | — | `uv tool` → `~/.local/bin`, Kimi Code → `~/.kimi-code` | `~/.kimi` | `/login` browser flow; accepts `KIMI_API_KEY` |
 | pi | `pi-acp` adapter over `pi --mode rpc` | pi 0.80.4 | npm `@earendil-works/pi-coding-agent` | `~/.pi/agent` (`PI_CODING_AGENT_DIR`) | `/login` in UI; `pi-acp --terminal-login` |
 | Grok Build | `grok agent stdio` | — | npm `@xai-official/grok` (trampoline to `~/.grok/bin`); `grok update` | `~/.grok` (`GROK_HOME`) | `grok login --device-auth`; accepts `XAI_API_KEY` |
-| Google Antigravity | `agy_acp_server` | — | Registry download from dl.google.com | `~/.gemini/antigravity-acp` | Google browser authentication, its own — not the IDE's, not `agy`'s |
+| Antigravity | `agy_acp_server` | — | Registry download from dl.google.com | `~/.gemini/antigravity-acp` (`GEMINI_HOME`) | Google browser authentication, its own — not the IDE's, not `agy`'s |
 | Claude Code | `claude-acp` bridge | — | npm `@anthropic-ai/claude-code`, `~/.local/bin/claude`; `claude update` | `~/.claude` (`CLAUDE_CONFIG_DIR`) | `claude auth login` in browser |
 | Cursor | `cursor-acp` bridge | — | `~/.local/bin/cursor-agent`; `cursor-agent update` | `~/.cursor` | `cursor-agent login` (with `NO_OPEN_BROWSER=1`) |
 | Codex | `codex app-server` | 0.145.0 | brew `codex`, npm `@openai/codex`, `~/.local/bin/codex` | `~/.codex` (`CODEX_HOME`) | Browser sign-in, device code, or `codex login --with-api-key` |

@@ -16,6 +16,7 @@ import { builtinPlugins } from '@harnessdesk/plugins'
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
+import { knowledgeOverlay } from './installs/overlay.js'
 import { InstallService } from './installs/service.js'
 import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } from './agent-registry.js'
 import { CredentialBroker } from './credentials.js'
@@ -342,15 +343,22 @@ export const createDefaultHost = (
   })
   const buildAcpRuntime = (agent: AcpAgentConfig): AcpRuntime => {
     const executable = installs.executableSpecFor(agent)
+    const log = logger.child(agent.id)
     return new AcpRuntime({
       ...agent,
+      // Today's name for a row still carrying a retired one, who the agent is
+      // signed in as, and where it keeps usage it puts none of on the wire.
+      // See `installs/overlay.ts`.
+      ...knowledgeOverlay(agent, installs.knowledgeFor(agent), {
+        warn: (message, details) => log.warn(message, details),
+      }),
       // Entries written before templates carried brands have none; the
       // template's is what they would say today. See `templateBrandFor`.
       ...(agent.brand ? {} : templateBrandFor(agent.id) ? { brand: templateBrandFor(agent.id) } : {}),
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env),
       ...(toolServer ? { toolServer: { ...toolServer, onSession: claimCaller(agent.id) } } : {}),
-      logger: logger.child(agent.id),
+      logger: log,
       resolveSecret: (env) => host.credentials.peek(CredentialBroker.secretName(agent.id, env)),
       resolveLaunch: (occasion) => installs.launchFor(agent, occasion),
       resolveExecutable: (spec) => installs.executableFor(agent, spec),
