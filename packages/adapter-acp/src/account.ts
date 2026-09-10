@@ -160,14 +160,21 @@ export class CliAccount {
       child.once('exit', (code, signal) => resolve({ code, signal })),
     )
     void exited.then(({ code, signal }) => {
-      if (settled) return
+      if (settled) {
+        /* A flow that already ended, cancelled or failed, whose command went
+           on to sign in: the account changed although nobody is waiting on
+           the flow, and the desk should look again (review, round eleven). */
+        if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
+        return
+      }
       settled = true
       this.#logins.delete(loginId)
       this.#cancels.delete(loginId)
       /* Its last words, but not the prompt it printed its URL in: after the
          hand-out the tail always holds that line, and a flow killed by a
          signal reported "Open https://… to sign in" as its error (review,
-         round seven). */
+         round seven). Everything up to the URL is the prompt: one over two
+         lines left its first line as the error (round eleven). */
       const said = code === 0 ? null : lastWords(tail, url) || stoppedBy(code, signal)
       if (handedOut) {
         this.emit({
@@ -182,7 +189,7 @@ export class CliAccount {
            URL printed — is `login()`'s to report. It used to be reported here
            as well, as a completion for an id nobody held: two endings for one
            flow. */
-        ending = said ?? (lastWords(tail) || 'The sign-in command finished before its URL could be opened.')
+        ending = said ?? (lastWords(tail, url) || 'The sign-in command finished before its URL could be opened.')
       }
       // Signed in or not, the account may have changed under the desk.
       if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
@@ -377,13 +384,14 @@ const statusRecords = (
  * before the verb, or signed out. A negation is `not`, `no longer`, `never`,
  * or a contraction of one, `aren't` or `isn't`, in either apostrophe
  * (review, round eight). A clause ends at a full stop, `!`, `?`, `;`, `:`,
- * a comma or a line break of either kind: "Not cached, logged in as …" is
- * two clauses, and a spinner's overwritten frame is a line of its own
- * (review, rounds nine and ten). A sign-out said to be in the past ("last
- * logged out") is not the state now, where "you were logged out" still is
- * (round nine).
+ * a comma, a parenthesis, an en or em dash, a hyphen with a space either
+ * side, or a line break of either kind: "Not cached, logged in as …" is two
+ * clauses, and a spinner's overwritten frame is a line of its own (review,
+ * rounds nine to eleven). A sign-out said to be in the past ("last logged
+ * out") or denied ("not logged out") is not the state now, where "you were
+ * logged out" still is (rounds nine and eleven).
  */
-const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)[^.!?;:,\r\n]*?\b(?:logged|signed) in\b|(?<!\b(?:last|previously|formerly)\s+)\b(?:logged|signed) out\b/i
+const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?\b(?:logged|signed) in\b|(?<!\b(?:last|previously|formerly|not|never)\s+|n['’]t\s+)\b(?:logged|signed) out\b/i
 
 /** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
 const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
@@ -409,7 +417,8 @@ export const parseStatus = (
      round seven). Signed out is the safer mistake: it asks for a sign-in,
      where a wrong signed-in fails every request after it. */
   if (SIGNED_OUT.test(prose)) return null
-  const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`]+|["'`.,]+$/g, '') ?? ''
+  // The name without the quotes or punctuation around it: "…; you haven't logged out" named `user@example.com;` (review, round eleven).
+  const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`(]+|["'`.,;:!?)]+$/g, '') ?? ''
   // One that names nobody is no answer: `Logged in as ""` was an account with no name (review, round seven).
   if (identity !== '') return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
   return emailOnly !== null ? fromRecord(emailOnly) : null
@@ -437,11 +446,18 @@ const fromRecord = (record: Record<string, unknown>): { kind: string; label: str
 const stoppedBy = (code: number | null, signal: NodeJS.Signals | null): string =>
   code !== null ? `The sign-in command exited with code ${code}.` : `The sign-in command was stopped${signal ? ` (${signal})` : ''}.`
 
-const lastWords = (tail: readonly string[], skip: string | null = null): string =>
-  tail
-    .join('')
+/**
+ * What a sign-in command said last: its last two lines, after the prompt it
+ * printed its URL in, when it printed one.
+ */
+const lastWords = (tail: readonly string[], url: string | null = null): string => {
+  const text = tail.join('')
+  const at = url === null ? -1 : text.lastIndexOf(url)
+  const after = at === -1 ? text : text.slice(text.indexOf('\n', at) + 1 || text.length)
+  return after
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line !== '' && (skip === null || !line.includes(skip)))
+    .filter((line) => line !== '')
     .slice(-2)
     .join(' · ')
+}

@@ -817,3 +817,56 @@ test('a cancelled sign-in with a real child ends once, and the kill it causes ad
     await runtime.dispose()
   }
 })
+
+test('a prompt over two lines is not a killed flow’s last words', async () => {
+  // Round 11 of #134: only the URL's own line was skipped, so the line above it was the error.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.stdout.emit('data', Buffer.from('Open the link to sign in:\n  https://example.com/device\n'))
+  await login
+  child.emit('exit', null, 'SIGKILL')
+  await tick()
+  const ended = events.find((event) => event.type === 'account/loginCompleted') as { error?: string } | undefined
+  assert.equal(ended?.error, 'The sign-in command was stopped (SIGKILL).')
+})
+
+test('a command that prints its URL and exits in the same breath is not reported by its prompt', async () => {
+  // Round 11 of #134: the flow ended before the hand-out, and login() rejected with "Open … to sign in".
+  const child = fakeChild()
+  const login = accountWith(child, []).login()
+  child.stdout.emit('data', Buffer.from('Open https://example.com/device to sign in\n'))
+  child.emit('exit', 0, null)
+  await assert.rejects(login, { message: 'The sign-in command finished before its URL could be opened.' })
+})
+
+test('a parenthesis or a dash ends a clause too, and a sign-out that is denied is none', () => {
+  // Round 11 of #134: "(not using the cache) logged in as …" read as signed out, and so did "(not logged out)".
+  const signedIn = { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }
+  for (const text of [
+    '(not using the cache) logged in as user@example.com',
+    'Warning: do not share your token - logged in as user@example.com',
+    'Token not refreshed — logged in as user@example.com',
+    'Logged in as user@example.com (not logged out)',
+    "Logged in as user@example.com; you haven't logged out",
+  ]) {
+    assert.deepEqual(parseStatus(text), signedIn, text)
+  }
+  // A hyphen inside a word is no dash: the negation still reaches the verb.
+  assert.equal(parseStatus('Not re-authenticated or logged in as user@example.com'), null)
+})
+
+test('a cancelled flow whose command signs in anyway still tells the desk to look again', async () => {
+  // Round 11 of #134: the exit after a cancel was ignored whole, the account's change with it.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const account = accountWith(child, events)
+  const login = account.login()
+  child.stdout.emit('data', Buffer.from('Open https://example.com/device to sign in\n'))
+  const started = (await login) as { loginId: string }
+  await account.cancel(started.loginId)
+  child.emit('exit', 0, null)
+  await tick()
+  assert.equal(completions(events), 1, 'the cancel is the ending')
+  assert.equal(events.filter((event) => event.type === 'account/changed').length, 1)
+})
