@@ -49,11 +49,11 @@ export class CliAccount {
     private readonly runtime: RuntimeId,
     private readonly emit: (event: AgentEvent) => void,
     private readonly log?: (message: string, details?: unknown) => void,
-    /* How the sign-in command is started. Injected only by tests: the ways a
-       child can end in an `'error'` — before its URL is handed out, and after
-       — cannot be provoked through a real CLI on every Node version, and the
-       code that handles them was otherwise untested. */
-    private readonly spawnChild: typeof spawn = spawn,
+    /* Seams for tests only. The ways a flow can end that a real CLI cannot
+       stage on demand — an `'error'` after its URL, two events in one tick, a
+       URL that never comes — are driven through a child the test controls,
+       with a timeout the test does not wait thirty seconds for. */
+    private readonly seams: { readonly spawn?: typeof spawn; readonly urlTimeoutMs?: number } = {},
   ) {}
 
   async status(): Promise<AccountStatus> {
@@ -77,7 +77,7 @@ export class CliAccount {
     const spec = this.commands.login
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
-    const child = this.spawnChild(spec.command, [...(spec.args ?? [])], {
+    const child = (this.seams.spawn ?? spawn)(spec.command, [...(spec.args ?? [])], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, ...spec.env },
     })
@@ -91,30 +91,27 @@ export class CliAccount {
        not installed yet, so it has to be a sentence rather than a crash.
        Node may or may not emit `'exit'` after an error, so the race below
        learns about it from here rather than waiting out its timeout. */
+    /* One ending per flow, whichever way it ends: an error, an exit, or no
+       URL in time. Before the URL is handed out nobody holds the flow's id, so
+       the ending is `login()`'s to report, by rejecting, and `ending` keeps it
+       for the one case the race below cannot see. After, it is the completion
+       event the caller is waiting for. Every handler claims `settled` *first*:
+       an `'exit'` can be queued in the same tick behind an error, and its
+       handler runs before `login()`'s race hands back control. */
     let handedOut = false
     let settled = false
+    let ending: string | null = null
     const failed = new Promise<Error>((resolve) => child.once('error', resolve))
     void failed.then((error) => {
-      /* One ending per flow, and an error is one — so `settled` is claimed
-         *first*. An `'exit'` can be queued in the same tick behind the error,
-         and its handler runs before `login()`'s race hands back control: set
-         the flag only after the race, as round one did, and the exit handler
-         still found the flow unsettled and reported a completion for a login
-         id no caller was ever given. The test emits both events in one tick
-         to prove the order matters. */
       if (settled) return
       settled = true
       this.#logins.delete(loginId)
-      // Before the URL is handed out there is no one holding the id to tell:
-      // `login()` reports this error itself, by rejecting.
-      if (!handedOut) return
-      this.emit({
-        type: 'account/loginCompleted',
-        runtime: this.runtime,
-        loginId,
-        success: false,
-        error: `The sign-in command stopped: ${error.message}`,
-      })
+      const said = `The sign-in command stopped: ${error.message}`
+      if (!handedOut) {
+        ending = said
+        return
+      }
+      this.emit({ type: 'account/loginCompleted', runtime: this.runtime, loginId, success: false, error: said })
     })
 
     let url: string | null = null
@@ -140,17 +137,26 @@ export class CliAccount {
 
     const exited = new Promise<number | null>((resolve) => child.once('exit', resolve))
     void exited.then((code) => {
-      // An error may already have closed this flow; one ending is enough.
       if (settled) return
       settled = true
       this.#logins.delete(loginId)
-      this.emit({
-        type: 'account/loginCompleted',
-        runtime: this.runtime,
-        loginId,
-        success: code === 0,
-        ...(code === 0 ? {} : { error: lastWords(tail) || `The sign-in command exited with code ${String(code)}.` }),
-      })
+      const said = code === 0 ? null : lastWords(tail) || `The sign-in command exited with code ${String(code)}.`
+      if (handedOut) {
+        this.emit({
+          type: 'account/loginCompleted',
+          runtime: this.runtime,
+          loginId,
+          success: code === 0,
+          ...(said ? { error: said } : {}),
+        })
+      } else {
+        /* An exit before the URL was handed out — "already signed in", or no
+           URL printed — is `login()`'s to report. It used to be reported here
+           as well, as a completion for an id nobody held: two endings for one
+           flow. */
+        ending = said ?? (lastWords(tail) || 'The sign-in command finished before its URL could be opened.')
+      }
+      // Signed in or not, the account may have changed under the desk.
       if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
     })
 
@@ -159,19 +165,25 @@ export class CliAccount {
       exited.then((code) => ({ kind: 'exit' as const, code })),
       failed.then((error) => ({ kind: 'error' as const, error })),
       new Promise<{ kind: 'timeout' }>((resolve) =>
-        setTimeout(() => resolve({ kind: 'timeout' }), URL_TIMEOUT_MS).unref(),
+        setTimeout(() => resolve({ kind: 'timeout' }), this.seams.urlTimeoutMs ?? URL_TIMEOUT_MS).unref(),
       ),
     ])
     if (outcome.kind === 'url') {
+      /* The URL won the race, but the flow can have ended in the same tick:
+         an error or an exit emitted with it, whose handler ran before this
+         line. Handing out its id would name a finished flow whose ending
+         nobody will report, so the ending is reported here instead. A real
+         child's events arrive in separate turns and cannot do this; a flow's
+         state should not rest on that. Review asked. */
+      if (settled) throw new Error(ending ?? 'The sign-in command stopped before its URL could be opened.')
       handedOut = true
       return { type: 'browser', loginId, url: outcome.found }
     }
     this.#logins.delete(loginId)
     if (outcome.kind === 'error') {
-      // Already settled by the error handler above; see there for why it
-      // cannot be left until here.
       throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
     }
+    // The exit this causes finds the flow never handed out, and reports nothing.
     if (outcome.kind === 'timeout') child.kill('SIGTERM')
     throw new Error(
       outcome.kind === 'exit' && outcome.code === 0
@@ -254,8 +266,14 @@ const firstObject = (text: string, from: number): string | null => {
  * over rather than ending the search.
  */
 const statusObject = (text: string): Record<string, unknown> | null => {
-  for (let at = text.indexOf('{'); at !== -1; at = text.indexOf('{', at + 1)) {
+  /* Objects at the top level only: after a whole object the search goes on
+     from its end, not from the brace after its start. Resuming inside it made
+     every object nested in another a candidate, so a field of something else
+     — `{"payload":{"email":…}}`, a log line's context — read as a signed-in
+     status. Round two's review caught it. */
+  for (let at = text.indexOf('{'); at !== -1; ) {
     const candidate = firstObject(text, at)
+    at = text.indexOf('{', candidate === null ? at + 1 : at + candidate.length)
     if (candidate === null) continue
     let parsed: unknown
     try {

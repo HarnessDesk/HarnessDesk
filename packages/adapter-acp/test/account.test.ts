@@ -326,13 +326,13 @@ test('a " in a value is a character to the scanner, as it is to JSON', () => {
 const fakeChild = () =>
   Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true })
 
-const accountWith = (child: ReturnType<typeof fakeChild>, events: AgentEvent[]) =>
+const accountWith = (child: ReturnType<typeof fakeChild>, events: AgentEvent[], urlTimeoutMs?: number) =>
   new CliAccount(
     { status: { command: 'unused' }, login: { command: 'hd-missing' } },
     'fake-acp' as never,
     (event) => events.push(event),
     undefined,
-    (() => child) as never,
+    { spawn: (() => child) as never, ...(urlTimeoutMs === undefined ? {} : { urlTimeoutMs }) },
   )
 
 const completions = (events: readonly AgentEvent[]) =>
@@ -372,3 +372,57 @@ test('an error after the URL was handed out ends the flow once, even with an exi
   assert.equal(ended[0]?.success, false)
   assert.match(ended[0]?.error ?? '', /stopped: the pipe went away/)
 })
+
+test('an object nested in another is not a status, alone or ahead of the real one', () => {
+  // Round two scanned every brace, so a field of some other object read as a status.
+  assert.equal(parseStatus('{"payload":{"email":"ops@example.com"}}'), null)
+  assert.equal(parseStatus('{"level":"info","payload":{"email":"ops@example.com"}}\n{"loggedIn":false}'), null)
+  assert.deepEqual(parseStatus('{"level":"info","payload":{"email":"ops@example.com"}}\n{"loggedIn":true,"email":"a@b.c"}'), {
+    kind: 'cli',
+    label: 'a@b.c',
+    email: 'a@b.c',
+  })
+})
+
+const tick = () => new Promise((resolve) => setImmediate(resolve))
+
+test('a URL and an error in the same tick hand out nothing', async () => {
+  // The flow ended before login() could return its id, so login() reports it.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.stdout.emit('data', Buffer.from('Open https://auth.example.com/flow/xyz to sign in\n'))
+  child.emit('error', new Error('the pipe went away'))
+  await assert.rejects(login, /stopped: the pipe went away/)
+  await tick()
+  assert.equal(completions(events), 0)
+})
+
+test("an exit before any URL is login()'s to report, once", async () => {
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.stdout.emit('data', Buffer.from('You are already signed in.\n'))
+  child.emit('exit', 0)
+  await assert.rejects(login, /already signed in/i)
+  await tick()
+  assert.equal(completions(events), 0, 'no completion for an id nobody was given')
+  assert.equal(events.filter((event) => event.type === 'account/changed').length, 1, 'but the account is looked at again')
+})
+
+test('no URL in time is login()\'s to report, and the exit its kill causes adds nothing', async () => {
+  const child = fakeChild()
+  let killed: string | undefined
+  child.kill = ((signal?: string) => {
+    killed = signal
+    setImmediate(() => child.emit('exit', null))
+    return true
+  }) as typeof child.kill
+  const events: AgentEvent[] = []
+  await assert.rejects(accountWith(child, events, 20).login(), /printed no URL/)
+  await tick()
+  await tick()
+  assert.equal(killed, 'SIGTERM')
+  assert.equal(completions(events), 0)
+})
+
