@@ -149,3 +149,43 @@ test('the worktree dirty count does not count a copy′s origin', async (t) => {
   assert.equal(here?.dirty, 2, `two real files are dirty, not three; got ${here?.dirty}`)
 })
 
+test('a file changed on both sides is listed in each, and a conflict once, in the working tree', async (t) => {
+  // #31: read as one entry, the index letter won, and the working tree's change was in no view.
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-status-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const git = (...args: string[]): Promise<unknown> =>
+    run('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd: dir })
+  await git('init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'both.txt'), 'one\n')
+  await writeFile(join(dir, 'conflict.txt'), 'base\n')
+  await git('add', '.')
+  await git('commit', '-qm', 'base')
+  // A merge that stops on a conflict: both sides changed the same line.
+  await git('checkout', '-qb', 'theirs')
+  await writeFile(join(dir, 'conflict.txt'), 'theirs\n')
+  await git('commit', '-qam', 'theirs')
+  await git('checkout', '-q', 'main')
+  await writeFile(join(dir, 'conflict.txt'), 'ours\n')
+  await git('commit', '-qam', 'ours')
+  await git('merge', '-q', 'theirs').catch(() => {})
+  // MM: staged, then changed again. AM: added, then changed again. And a file git does not track.
+  await writeFile(join(dir, 'both.txt'), 'one\ntwo\n')
+  await git('add', 'both.txt')
+  await writeFile(join(dir, 'both.txt'), 'one\ntwo\nthree\n')
+  await writeFile(join(dir, 'new.txt'), 'a\n')
+  await git('add', 'new.txt')
+  await writeFile(join(dir, 'new.txt'), 'a\nb\n')
+  await writeFile(join(dir, 'loose.txt'), 'x\n')
+
+  const found = await status(dir)
+  const entries = (found?.files ?? []).map((file) => `${file.staged ? 'staged' : 'worktree'} ${file.status} ${file.path}`).sort()
+  assert.deepEqual(entries, [
+    'staged added new.txt',
+    'staged modified both.txt',
+    'worktree conflicted conflict.txt',
+    'worktree modified both.txt',
+    'worktree modified new.txt',
+    'worktree untracked loose.txt',
+  ])
+})
+

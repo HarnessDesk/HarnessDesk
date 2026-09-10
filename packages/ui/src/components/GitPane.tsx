@@ -230,7 +230,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       setHasMore(page.hasMore)
       setRefsSummary(refsResult)
       setIsRepo(refsResult !== null)
-      setDirtyCount(status?.files.length ?? 0)
+      setDirtyCount(distinctPaths(status?.files))
       setWorktrees(checkouts)
       // The banner is a claim about the tree, so every re-read is allowed to
       // withdraw it: a terminal or another agent can settle the conflicts we
@@ -1483,6 +1483,10 @@ const HeadCell = ({
     </span>
   )
 }
+
+/** Files with anything uncommitted, each once: status lists a file staged and changed again twice, one entry a column (#31). */
+const distinctPaths = (files: readonly { readonly path: string }[] | undefined): number =>
+  new Set((files ?? []).map((file) => file.path)).size
 
 /**
  * Why Pull cannot run for this branch, or false when it can. A branch whose

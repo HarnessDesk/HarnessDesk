@@ -130,6 +130,11 @@ export interface BackupReport {
   readonly transcripts: { readonly restored: number; readonly skipped: number }
 }
 
+/**
+ * One column of one file's state. A file with a change staged and another made
+ * on top of it is two entries, one staged and one not, so each view finds it;
+ * an unmerged file is one entry, `conflicted`, in the working tree (#31).
+ */
 export interface GitFileStatus {
   readonly path: string
   readonly status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'

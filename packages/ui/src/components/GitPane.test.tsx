@@ -986,3 +986,22 @@ it("the branch menu's Pull says the upstream is gone, and Push stays", async () 
   expect(push?.disabled || push?.getAttribute('aria-disabled') === 'true').toBe(false)
 })
 
+it('a file staged and then changed again is one file to commit, not two', async () => {
+  // #31: status lists such a file once a column; the badge, the banner and the dialog count files.
+  const TWICE: typeof DIRTY = {
+    ...DIRTY,
+    files: [
+      { path: 'src/a.ts', status: 'modified', staged: true },
+      { path: 'src/a.ts', status: 'modified', staged: false },
+    ],
+  }
+  await mount({ log: [commit('aaaa1111111', 'tip')], status: TWICE })
+  const bar = container.querySelector('[role="toolbar"]')!
+  const commitBtn = [...bar.querySelectorAll('button')].find((node) => node.textContent?.includes('Commit'))!
+  expect(commitBtn.textContent).toContain('1')
+  expect(commitBtn.textContent).not.toContain('2')
+  await act(async () => button('Commit').click())
+  const rows = [...document.querySelectorAll('[role="checkbox"]')].filter((node) => node.textContent?.includes('src/a.ts'))
+  expect(rows).toHaveLength(1)
+})
+
