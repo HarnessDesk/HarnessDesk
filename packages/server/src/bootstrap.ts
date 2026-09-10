@@ -193,6 +193,7 @@ export const createDefaultHost = (
       codexHome: home,
       logger: logger.child(id),
       capabilities: extensions,
+      instructions: () => host.forgePlane.instructions(),
     })
 
   const accounts: AccountFactory = {
@@ -262,6 +263,9 @@ export const createDefaultHost = (
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
     listTools: () => extensions.list('tool', {}),
+    // Read at each bridge's handshake rather than fixed at start: whether
+    // the sentence applies depends on which plugins are enabled right now.
+    instructions: () => host.forgePlane.instructions(),
     invokeByName: async (namespace, name, args, caller) => {
       const tools = extensions.list('tool', {})
       const tool =
@@ -358,6 +362,7 @@ export const createDefaultHost = (
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env),
       ...(toolServer ? { toolServer: { ...toolServer, onSession: claimCaller(agent.id) } } : {}),
+      instructions: () => host.forgePlane.instructions(),
       logger: log,
       resolveSecret: (env) => host.credentials.peek(CredentialBroker.secretName(agent.id, env)),
       resolveLaunch: (occasion) => installs.launchFor(agent, occasion),
@@ -400,6 +405,9 @@ export const createDefaultHost = (
   // The team plane rides the same wiring: built-ins reach it through the
   // module-level engine, installed plugins by forwarding from the child.
   extensions.setTeamEngine(host.teamPlane)
+  // And the forge plane: the seat a publication is signed as, the record of
+  // it in the transcript, and the one sentence that tells an agent so.
+  extensions.setForgeEngine(host.forgePlane)
 
   // Codex writes its rollouts where the ledger can read them, and meters
   // itself over its own API — so it needs a corpus and no meter.
@@ -415,6 +423,7 @@ export const createDefaultHost = (
       codexHome: options.codexHome ?? null,
       logger: logger.child('codex'),
       capabilities: extensions,
+      instructions: () => host.forgePlane.instructions(),
     }),
   )
 

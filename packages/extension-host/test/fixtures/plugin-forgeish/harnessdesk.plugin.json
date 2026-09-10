@@ -1,0 +1,7 @@
+{
+  "id": "forgeish",
+  "name": "Forge-permitted plugin",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": { "forge": true }
+}

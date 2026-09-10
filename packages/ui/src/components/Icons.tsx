@@ -14,6 +14,8 @@ import {
   FolderInput,
   GitMerge,
   GitPullRequestArrow,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
   RotateCcw,
   AtSign,
   Bell,
@@ -271,8 +273,14 @@ export const PushIcon = icon(ArrowUpFromLine, 'PushIcon')
 export const FetchIcon = icon(CloudDownload, 'FetchIcon')
 /** Two histories joined. */
 export const MergeIcon = icon(GitMerge, 'MergeIcon')
-/** The forge's compare page for a branch. */
+/** The forge's compare page for a branch, and a pull request itself. */
 export const PullRequestIcon = icon(GitPullRequestArrow, 'PullRequestIcon')
+export const PullRequestDraftIcon = icon(GitPullRequestDraft, 'PullRequestDraftIcon')
+export const PullRequestClosedIcon = icon(GitPullRequestClosed, 'PullRequestClosedIcon')
+/** An issue on the forge — the open dot GitHub itself draws. */
+export const IssueIcon = icon(CircleDot, 'IssueIcon')
+/** A comment on the forge. */
+export const CommentIcon = icon(MessageSquare, 'CommentIcon')
 /** A branch wound back to an earlier commit. */
 export const ResetIcon = icon(RotateCcw, 'ResetIcon')
 /** One checkout of the repository — a folder the repository is open in. */

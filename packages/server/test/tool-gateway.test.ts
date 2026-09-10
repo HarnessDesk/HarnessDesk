@@ -94,3 +94,43 @@ test('a non-string caller is treated as absent, not passed through', async () =>
   const { caller } = await invokeOver({ namespace: 'test', name: 'ping', args: {}, caller: 42 })
   assert.equal(caller, undefined)
 })
+
+/**
+ * The third verb: the standing instruction, for a bridge's `initialize`.
+ * Read through the backend at the moment of asking, and nothing at all —
+ * not a failure — from a backend with no sentence to give.
+ */
+test('server/info carries the backend’s instruction, and an empty one when it has none', async () => {
+  const ask = async (instructions?: () => string): Promise<unknown> => {
+    const dir = await mkdtemp(join(socketHome(), 'hd-gateway-'))
+    const socketPath = join(dir, 'tools.sock')
+    const gateway = new ToolGateway(socketPath, {
+      listTools: () => [],
+      invokeByName: async (): Promise<ToolResult> => ({ ok: true, content: [] }),
+      ...(instructions ? { instructions } : {}),
+    })
+    gateway.start()
+    try {
+      return await new Promise<unknown>((resolve, reject) => {
+        const socket = connect(socketPath, () => {
+          socket.write(`${JSON.stringify({ id: 1, method: 'server/info', params: {} })}\n`)
+        })
+        let buffer = ''
+        socket.on('data', (chunk) => {
+          buffer += chunk.toString()
+          const line = buffer.indexOf('\n')
+          if (line === -1) return
+          socket.end()
+          resolve(JSON.parse(buffer.slice(0, line)))
+        })
+        socket.on('error', reject)
+        setTimeout(() => reject(new Error('gateway did not answer')), 5000).unref()
+      })
+    } finally {
+      await gateway.stop()
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+  assert.deepEqual(await ask(() => 'Use the pr_create tool.'), { id: 1, result: { instructions: 'Use the pr_create tool.' } })
+  assert.deepEqual(await ask(), { id: 1, result: { instructions: '' } })
+})

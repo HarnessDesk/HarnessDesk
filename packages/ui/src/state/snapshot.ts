@@ -491,12 +491,6 @@ export interface AppSnapshot {
    * workspace's layout; whether this app keeps cookies is a standing
    * answer, so it lives here beside the theme.
    */
-  /**
-   * Whether an agent asked to open a pull request from here signs it as this
-   * desk — "Generated with HarnessDesk (agent model · effort)". The host
-   * writes the line; this is the switch.
-   */
-  readonly attribution: { readonly pullRequests: boolean }
   readonly browserPrefs: {
     /** Guests use a persistent partition, so logins survive a restart. */
     readonly persistSession: boolean
@@ -598,7 +592,6 @@ const EMPTY: AppSnapshot = {
   preferencesLoaded: false,
   // Cookies kept and links staying in the pane are what a person expects of
   // a browser; both are one row away in the pane's own menu.
-  attribution: { pullRequests: true },
   browserPrefs: {
     persistSession: true,
     linksInPane: true,

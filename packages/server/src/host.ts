@@ -50,6 +50,8 @@ import {
   type ContributionId,
   type ScopeQuery,
   type SecretReload,
+  type PublicationItem,
+  runtimeId,
 } from '@harnessdesk/protocol'
 
 import type { AgentDirectory } from './agent-registry.js'
@@ -71,7 +73,7 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
-import { attributionLine, lastAttributionIn, seatLabel, withAttribution } from './attribution.js'
+import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { SessionNames } from './names.js'
 import { redactorFor } from './diagnostics.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
@@ -169,6 +171,8 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
  * `Terminals.lastOutput()`. See docs/extending.md.
  */
 export interface HostOptions {
+  /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
+  readonly forge?: ForgePlaneOptions
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -312,6 +316,13 @@ export class Host {
    * verbs, and gets it through `teamPlane`.
    */
   readonly #team: Team
+  /**
+   * The forge plane: the seat a publication is signed as, and the record of
+   * it in the transcript. Held here for the reason the team plane is. The
+   * extension host only needs something that answers the three verbs, and
+   * gets it through `forgePlane`.
+   */
+  readonly #forge: ForgePlane
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -397,6 +408,28 @@ export class Host {
     )
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
+    this.#forge = new ForgePlane(
+      {
+        agentOf: (runtime) => {
+          const info = this.#runtimes.get(runtime)?.info
+          return info ? { name: info.presentation.name, version: info.version ?? null } : null
+        },
+        optionsOf: (runtime, sessionId) => {
+          const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+          if (!record) return null
+          try {
+            return record.live?.options() ?? record.session.options ?? []
+          } catch {
+            /* an adapter with nothing to declare signs with the agent's name alone */
+            return record.session.options ?? []
+          }
+        },
+        record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
+        toolsOffered: () =>
+          this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
+      },
+      options.forge ?? {},
+    )
     this.#team = new Team(join(this.#state.directory, 'team'), {
       peers: () => this.#teamPeers(),
       rootOf: (cwd) => this.#boardRootOf(cwd),
@@ -407,7 +440,7 @@ export class Host {
       // word, which made a room's members vanish on every catalogue refresh.
       send: async (runtime, id, text) => {
         const live = await this.#teamLive(runtime, id)
-        await this.#sendAttributed(runtime, makeSessionId(id), live, [{ type: 'text', text }])
+        await live.send([{ type: 'text', text }])
       },
       steer: async (runtime, id, text) => {
         const live = await this.#teamLive(runtime, id)
@@ -864,8 +897,6 @@ export class Host {
       },
       sessions: {
         live: (params) => this.#live(params),
-        sendAttributed: (params, live, input) =>
-          this.#sendAttributed(params.runtime, makeSessionId(params.sessionId), live, input),
         record: (params) => this.#record(params),
         read: (runtime, id) => this.#read(runtime, id),
         attach: (runtime, id, live) => this.#attach(runtime, id, live),
@@ -1332,78 +1363,33 @@ export class Host {
     }
   }
 
+  /**
+   * The forge plane, for the extension host to hand to `ctx.forge`. Exposed
+   * for the reason the team plane is: the seat is read off the host's own
+   * runtimes and records, and a publication lands in a transcript only the
+   * host holds.
+   */
+  get forgePlane(): ForgePlane {
+    return this.#forge
+  }
+
+  /**
+   * A publication, into the turn that is running — or, when the tool call
+   * outlived its turn by a beat, the last one. The event goes through the
+   * host's own door so the audit log, the registry, the transcript store and
+   * every window all learn of it the way they learn of the agent's items.
+   */
+  #recordPublication(runtime: string, sessionId: string, item: PublicationItem): boolean {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const running = [...record.running].at(-1)
+    const turnId = running ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
+  }
+
   /** The live handle a `(runtime, sessionId)` pair names, reconnecting if it must. */
-  /**
-   * The attribution line each conversation was last told, for the ones this
-   * host has sent to. A seat that has not changed is not told twice; one
-   * that has is told again, because the line names the model. Bounded, and
-   * not the only record: a conversation this host has not sent to yet — one
-   * resumed after a restart — is read from its own transcript, which is what
-   * the agent was actually told. See `attribution.ts`.
-   */
-  readonly #attributed = new Map<string, string>()
-
-  /**
-   * Sends a turn with the desk's attribution riding beside it — when the
-   * person has it on, and this conversation has not yet been told this
-   * seat's line. Every path that hands a person's or a room's words to an
-   * agent goes through here, so an agent asked by a room-mate to open a pull
-   * request signs it the same way as one asked by the person.
-   *
-   * The seat is recorded only once the agent has accepted the turn. A send
-   * that fails is a turn the agent never saw, and recording it first left
-   * the retry without the envelope — a conversation told nothing, and a
-   * pull request signed by nobody.
-   */
-  async #sendAttributed(
-    runtime: RuntimeId,
-    id: SessionId,
-    live: AgentSession,
-    input: readonly UserContent[],
-  ): Promise<TurnId> {
-    const line = this.#attributionOn() ? this.#attributionLine(runtime, live) : null
-    const key = sessionKey(runtime, id)
-    const told =
-      line === null
-        ? null
-        : (this.#attributed.get(key) ?? lastAttributionIn(this.registry.get(runtime, id)?.session.turns ?? []))
-    const carries = line !== null && told !== line
-    const turn = await live.send(carries ? withAttribution(input, line) : input)
-    if (line !== null) this.#rememberAttribution(key, line)
-    return turn
-  }
-
-  /** The line this seat signs with, from the agent's name and its own labels. */
-  #attributionLine(runtime: RuntimeId, live: AgentSession): string {
-    const agent = this.#runtimes.get(runtime)?.info.presentation.name ?? runtime
-    let options: readonly ConfigOption[] = []
-    try {
-      options = live.options()
-    } catch {
-      /* an adapter with nothing to declare signs with the agent's name alone */
-    }
-    return attributionLine(seatLabel(agent, options))
-  }
-
-  /** Bounded the way the tool gateway bounds its callers: past the cap the oldest entry goes, and the transcript still answers for it. */
-  #rememberAttribution(key: string, line: string): void {
-    if (this.#attributed.size >= 2000 && !this.#attributed.has(key)) {
-      const oldest = this.#attributed.keys().next().value
-      if (oldest !== undefined) this.#attributed.delete(oldest)
-    }
-    this.#attributed.set(key, line)
-  }
-
-  /**
-   * On unless the person switched it off. The preference is the renderer's,
-   * kept with the rest of them; it is read here, on every send, because the
-   * host is what writes the envelope and a switch must not need a restart.
-   */
-  #attributionOn(): boolean {
-    const raw = this.#state.state.preferences['attribution']
-    return !(typeof raw === 'object' && raw !== null && (raw as { pullRequests?: unknown }).pullRequests === false)
-  }
-
   async #live(params: {
     readonly runtime: RuntimeId
     readonly sessionId: SessionId
@@ -1770,7 +1756,7 @@ export class Host {
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
     try {
       const live = await this.#live({ runtime: record.runtime, sessionId: record.session.id })
-      await this.#sendAttributed(record.runtime, record.session.id, live, input)
+      await live.send(input)
     } finally {
       clearTimeout(deadline)
       release()
@@ -1817,7 +1803,7 @@ export class Host {
       if (!sending) return
       this.#pushQueue(record)
       try {
-        await this.#sendAttributed(record.runtime, record.session.id, live, sending.input)
+        await live.send(sending.input)
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
       } catch (error) {
@@ -1950,7 +1936,34 @@ export class Host {
     this.#audit.record(runtime, event, (sessionId) =>
       this.registry.get(runtime, makeSessionId(sessionId))?.session.cwd,
     )
+    // What the host itself put in the turn, before the runtime's own account
+    // of it replaces the list: a runtime that streamed less than it stored
+    // hands back a longer list that has never heard of a publication, and
+    // `reduceSession` rightly prefers the longer one.
+    const published =
+      event.type === 'turn/completed'
+        ? (this.registry
+            .get(runtime, event.sessionId)
+            ?.session.turns.find((turn) => turn.id === event.turn.id)
+            ?.items.filter((item): item is PublicationItem => item.type === 'publication') ?? [])
+        : []
     const record = this.registry.apply(runtime, event)
+    if (record && event.type === 'turn/completed' && published.length > 0) {
+      record.session = {
+        ...record.session,
+        turns: record.session.turns.map((turn) =>
+          turn.id === event.turn.id
+            ? {
+                ...turn,
+                items: [
+                  ...turn.items,
+                  ...published.filter((item) => !turn.items.some((entry) => entry.id === item.id)),
+                ],
+              }
+            : turn,
+        ),
+      }
+    }
     // The runtime's own list, held so a reloading client gets it back. Kept
     // here and not folded into the session: the runtime owns it, and a second
     // registry would only give the two a way to disagree.

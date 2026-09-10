@@ -262,6 +262,43 @@ export interface ErrorItem extends ItemBase {
   readonly code?: string
 }
 
+/**
+ * Something on a git forge that a conversation published or touched through
+ * the desk — a pull request opened or updated, a review or a comment posted.
+ * Recorded by the host at the moment the desk's own tool did it, so the
+ * transcript can draw the object rather than a line of shell output, and the
+ * same shape the branch bar and the repository pane read for a pull request
+ * they found on their own.
+ */
+export interface ForgeReference {
+  readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'
+  /** What the conversation did to it; absent for something merely looked up. */
+  readonly action?: 'opened' | 'updated' | 'posted'
+  /** `owner/name`, as the forge spells it. */
+  readonly repo: string
+  readonly number: number
+  readonly url: string
+  readonly title: string | null
+  readonly state: 'open' | 'draft' | 'merged' | 'closed' | null
+  /** The forge login of whoever it is authored as. */
+  readonly author: string | null
+  readonly additions: number | null
+  readonly deletions: number | null
+  readonly files: number | null
+  /** The opening of the body, as the forge holds it, for the card. */
+  readonly excerpt: string | null
+  /** How the desk reached the forge: the person's own `gh`, or the desk's app. */
+  readonly via: 'gh' | 'app'
+  /** The line the desk signed it with, when it signed. */
+  readonly signature: string | null
+}
+
+/** A publication: what a conversation put on the forge, through the desk. */
+export interface PublicationItem extends ItemBase {
+  readonly type: 'publication'
+  readonly reference: ForgeReference
+}
+
 export type AgentItem =
   | UserMessageItem
   | AssistantMessageItem
@@ -276,6 +313,7 @@ export type AgentItem =
   | CompactionItem
   | NoticeItem
   | ReviewItem
+  | PublicationItem
   | ErrorItem
 
 export type AgentItemType = AgentItem['type']

@@ -5,7 +5,9 @@ import type { Session, Turn } from '@harnessdesk/protocol'
 import { cacheHealthOf } from '../lib/cache-health'
 import { formatTokens } from '../lib/context-usage'
 import { delegatedIn, summariseTurn } from '../lib/turn-summary'
+import { openExternal } from '../lib/desktop'
 import { useStore } from '../state/context'
+import { KindGlyph } from '../design/patterns/PublicationCard'
 import { AlertIcon, CheckIcon, DiffIcon, QuestionIcon, TerminalIcon } from './Icons'
 import { MessageActions } from './MessageActions'
 import styles from './Conversation.module.css'
@@ -173,6 +175,28 @@ export const TurnTail = ({
               </span>
             </span>
           )}
+          {/* What the turn put on the forge, each a door to the page. The
+              verb is the transcript row's; here the number is enough. */}
+          {summary.published.map((reference, index) => (
+            <button
+              key={`${reference.url}-${index}`}
+              type="button"
+              className={styles.turnSummaryItem}
+              onClick={() => openExternal(reference.url)}
+              title={reference.title ?? reference.url}
+            >
+              <KindGlyph kind={reference.kind} size={12} />
+              <span className={styles.turnSummaryLabel}>
+                {reference.kind === 'review'
+                  ? `reviewed #${reference.number}`
+                  : reference.kind === 'comment'
+                    ? `commented on #${reference.number}`
+                    : reference.action === 'updated'
+                      ? `updated #${reference.number}`
+                      : `opened #${reference.number}`}
+              </span>
+            </button>
+          ))}
           {summary.question && (
             <span className={styles.turnSummaryItem} data-static="" data-tone="ask">
               <QuestionIcon size={12} />

@@ -4,11 +4,14 @@ import { fileURLToPath } from 'node:url'
 
 import {
   setEditorEngine,
+  setForgeEngine,
   setTeamEngine,
   type BrowserEngine,
   type BrowserSettings,
   type EditorEngine,
   type ExtensionKernel,
+  type ForgeEngine,
+  type ForgeScope,
   type TeamEngine,
   type TeamScope,
   type HarnessPlugin,
@@ -34,6 +37,7 @@ import {
   type ContributionKind,
   type EditorEdit,
   type ExtensionEvent,
+  type ForgeReference,
   type HookInvocation,
   type HookVerdict,
   type PluginInstance,
@@ -95,6 +99,12 @@ export interface PluginHostOptions {
    * decide a claim against, and no routing guards of its own.
    */
   readonly teamEngine?: TeamEngine | null
+  /**
+   * The forge plane — the calling conversation's seat and the record of what
+   * it published. Host-owned for the reason the team plane is: a child knows
+   * no conversation, no model and no transcript.
+   */
+  readonly forgeEngine?: ForgeEngine | null
 }
 
 export class PluginHostProcess {
@@ -147,6 +157,11 @@ export class PluginHostProcess {
   /** Points `ctx.team` at a plane that exists — a setter for the reason the editor's is. */
   setTeamEngine(engine: TeamEngine | null): void {
     this.#options = { ...this.#options, teamEngine: engine }
+  }
+
+  /** Points `ctx.forge` at a plane that exists — the team plane's reasoning, verbatim. */
+  setForgeEngine(engine: ForgeEngine | null): void {
+    this.#options = { ...this.#options, forgeEngine: engine }
   }
 
   /** The child's last-pushed truth; empty while it is down. */
@@ -367,6 +382,48 @@ export class PluginHostProcess {
           case 'editor/events': {
             const { pluginId } = request.params as { pluginId: string }
             reply({ response: request.request, result: await plane.drain(pluginId) })
+            return
+          }
+          default:
+            refuse(`Unknown request ${String(request.method)}.`)
+            return
+        }
+      }
+
+      if (request.method.startsWith('forge/')) {
+        const plane = this.#options.forgeEngine
+        if (!plane) {
+          refuse('The host has no forge plane.')
+          return
+        }
+        const params = request.params as Record<string, unknown>
+        if (request.method === 'forge/identity') {
+          reply({ response: request.request, result: await plane.identity() })
+          return
+        }
+        // The seat and the record are attributed to a conversation, so they
+        // ride a live invocation the parent dispatched — the same arming the
+        // team verbs use, for the same reason.
+        const scope = (params['scope'] ?? {}) as ForgeScope
+        const armed =
+          typeof scope.runtime === 'string' &&
+          typeof scope.sessionId === 'string' &&
+          typeof scope.plugin === 'string' &&
+          (this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) > 0
+        if (!armed) {
+          refuse(
+            'Refused: this forge call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed to a seat.',
+          )
+          return
+        }
+        switch (request.method) {
+          case 'forge/seat': {
+            reply({ response: request.request, result: await plane.seat(scope) })
+            return
+          }
+          case 'forge/publish': {
+            await plane.publish(params['reference'] as ForgeReference, scope)
+            reply({ response: request.request, result: null })
             return
           }
           default:
@@ -634,8 +691,11 @@ export class PluginHostProcess {
       .map((plugin) => String(plugin.instanceId))
   }
 
+  /** The plugins whose scoped engine calls — team or forge — a live invocation arms. */
   #teamPlugins(): readonly PluginInstance[] {
-    return this.#plugins.filter((plugin) => plugin.enabled && plugin.permissions.team)
+    return this.#plugins.filter(
+      (plugin) => plugin.enabled && (plugin.permissions.team || plugin.permissions.forge),
+    )
   }
 
   async #dispatch<M extends PluginHostMethodName>(
@@ -707,6 +767,12 @@ export interface SupervisedExtensionHostOptions {
    * decide a claim against, and no routing guards of its own.
    */
   readonly teamEngine?: TeamEngine | null
+  /**
+   * The forge plane — the calling conversation's seat and the record of what
+   * it published. Host-owned for the reason the team plane is: a child knows
+   * no conversation, no model and no transcript.
+   */
+  readonly forgeEngine?: ForgeEngine | null
 }
 
 /**
@@ -741,6 +807,7 @@ export class SupervisedExtensionHost {
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
       ...(options.editorEngine ? { editorEngine: options.editorEngine } : {}),
       ...(options.teamEngine ? { teamEngine: options.teamEngine } : {}),
+      ...(options.forgeEngine ? { forgeEngine: options.forgeEngine } : {}),
       onEvent: (event) => this.#emit(event),
       onSnapshot: () => {
         // The child (re)announced itself; replay what it cannot know.
@@ -755,6 +822,7 @@ export class SupervisedExtensionHost {
     // setter does; an option accepted but half-honoured is a builtin plugin
     // whose `ctx.team` quietly points at nothing.
     if (options.teamEngine !== undefined) setTeamEngine(options.teamEngine)
+    if (options.forgeEngine !== undefined) setForgeEngine(options.forgeEngine)
   }
 
   /** Loads one of the repository's own plugins, in-process. Not for third-party code. */
@@ -937,6 +1005,12 @@ export class SupervisedExtensionHost {
   setTeamEngine(engine: TeamEngine | null): void {
     setTeamEngine(engine)
     this.#child.setTeamEngine(engine)
+  }
+
+  /** The forge plane, to both halves, for the same reason. */
+  setForgeEngine(engine: ForgeEngine | null): void {
+    setForgeEngine(engine)
+    this.#child.setForgeEngine(engine)
   }
 
   setWorkspace(state: { root: string | null; branch: string | null }): void {

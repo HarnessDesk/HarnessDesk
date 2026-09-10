@@ -116,6 +116,13 @@ export interface CodexRuntimeOptions {
    * independent.
    */
   readonly capabilities?: CapabilityRegistry
+  /**
+   * The desk's standing instruction for the agent, read when a thread is
+   * started, resumed or forked and handed to Codex as its developer
+   * instructions — the layer Codex keeps for exactly this, beneath the
+   * person's own words. Nothing is sent for an empty answer.
+   */
+  readonly instructions?: () => string
 }
 
 /**
@@ -154,6 +161,9 @@ const CAPABILITIES = {
   hooks: true,
   pluginTools: true,
   backgroundTasks: true,
+  // `developerInstructions` on every thread verb: Codex has had an
+  // instruction layer of its own since before this desk existed.
+  instructions: true,
 } as const
 
 /**
@@ -217,6 +227,7 @@ export class CodexRuntime implements AgentRuntime {
   #disposeServer: Unsubscribe[] = []
 
   readonly #capabilities: CapabilityRegistry | null
+  readonly #instructions: (() => string) | null
   readonly #id: RuntimeId
   readonly #name: string
   readonly #sharesHistory: boolean
@@ -234,6 +245,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#binaryPath = options.binaryPath ?? null
     this.#logger = options.logger
     this.#capabilities = options.capabilities ?? null
+    this.#instructions = options.instructions ?? null
     const serverOptions: CodexAppServerOptions = {
       clientInfo: {
         name: options.clientName ?? 'harnessdesk',
@@ -817,6 +829,7 @@ export class CodexRuntime implements AgentRuntime {
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
       ...(options.workspaceRoots ? { runtimeWorkspaceRoots: [...options.workspaceRoots] } : {}),
       ...(options.ephemeral ? { ephemeral: true } : {}),
+      ...this.#developerInstructions(),
       ...start,
     })
     const session = await this.#register(response.thread, stateFromStartResponse(response), projection, true)
@@ -832,6 +845,7 @@ export class CodexRuntime implements AgentRuntime {
       response = await this.#server.request('thread/resume', {
         threadId: id,
         ...(options.cwd ? { cwd: options.cwd } : {}),
+        ...this.#developerInstructions(),
         ...start,
         excludeTurns: true,
       })
@@ -843,6 +857,12 @@ export class CodexRuntime implements AgentRuntime {
     // rather than pretending newly loaded plugins are available.
     const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
     return this.#applyAfterStart(session, after)
+  }
+
+  /** The desk's standing instruction as a thread verb's field, or nothing when there is none. */
+  #developerInstructions(): { developerInstructions?: string } {
+    const text = this.#instructions?.().trim() ?? ''
+    return text === '' ? {} : { developerInstructions: text }
   }
 
   /**
@@ -873,6 +893,7 @@ export class CodexRuntime implements AgentRuntime {
     const response = await this.#server.request('thread/fork', {
       threadId: id,
       ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...this.#developerInstructions(),
       ...start,
     })
     const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())

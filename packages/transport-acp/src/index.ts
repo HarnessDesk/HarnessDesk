@@ -116,6 +116,14 @@ export const ACP_SESSION_DELETE = '_harnessdesk/session/delete'
 export const ACP_SESSION_DELETE_CAPABILITY = 'deleteSession'
 
 /**
+ * Declared in `initialize`'s `_meta.harnessdesk` by a bridge that carries a
+ * standing instruction — handed on `session/new` under the same key in
+ * `_meta.harnessdesk` — into the agent's own instruction layer rather than
+ * into the conversation. Duplicated in the bridges for the reason above.
+ */
+export const ACP_INSTRUCTIONS_CAPABILITY = 'instructions'
+
+/**
  * What a bridge reports having removed, so the app can say so honestly.
  * `removed` is the paths that are now gone; an empty list with no error means
  * the agent had nothing stored for that session, which is not a failure.

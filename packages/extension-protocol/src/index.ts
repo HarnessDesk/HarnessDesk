@@ -10,6 +10,7 @@ import type {
   ScopeQuery,
   ToolResult,
   UiDecoration,
+  ForgeReference,
 } from '@harnessdesk/protocol'
 
 /**
@@ -42,7 +43,10 @@ import type {
 // to turn into a refusal at `host/hello`.
 // 4 adds the team plane's `team/*` child requests — the shared board and
 // inter-agent messages.
-export const EXTENSION_PROTOCOL_VERSION = 4
+// 5 adds the forge plane's `forge/*` child requests — the calling
+// conversation's seat, the desk's forge identity, and the record of a
+// publication.
+export const EXTENSION_PROTOCOL_VERSION = 5
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -243,6 +247,12 @@ export interface ChildToHostMethods {
    * someone else got first, a conflict — come back as sentences; only
    * transport and programming errors throw.
    */
+  'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
+  'forge/identity': { params: Record<string, never>; result: ForgeIdentityInfo }
+  'forge/publish': {
+    params: { readonly scope: TeamCallScope; readonly reference: ForgeReference }
+    result: null
+  }
   'team/board': { params: { readonly scope: TeamCallScope }; result: string }
   'team/addIntent': {
     params: {
@@ -314,6 +324,23 @@ export interface ChildToHostMethods {
 export interface TeamCallScope {
   readonly runtime?: string
   readonly sessionId?: string
+}
+
+/** The forge plane's answers, as they cross the child boundary. */
+export interface ForgeSeatInfo {
+  readonly agent: string
+  readonly version: string | null
+  readonly model: string | null
+  readonly effort: string | null
+  readonly thinking: boolean
+  readonly label: string
+}
+
+export interface ForgeIdentityInfo {
+  readonly via: 'gh' | 'app'
+  readonly login: string | null
+  readonly available: boolean
+  readonly reason: string | null
 }
 
 export type ChildToHostMethodName = keyof ChildToHostMethods

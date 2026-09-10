@@ -1056,6 +1056,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
           [TASKS_CAPABILITY]: true,
           [SESSION_DELETE_CAPABILITY]: true,
           [DELEGATION_CAPABILITY]: true,
+          [INSTRUCTIONS_CAPABILITY]: true,
         },
       },
     }
@@ -1102,7 +1103,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
   }
 
-  override async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+  override async newSession(request: NewSessionRequest): Promise<NewSessionResponse> {
+    const params = withInstructions(request)
     // A client may say what the session should start at; HarnessDesk does,
     // so the first turn already runs at the chosen effort.
     const wanted = optionsIn(params._meta)
@@ -1144,7 +1146,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
   }
 
-  override async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+  override async loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse> {
+    const params = withInstructions(request)
     // A session coming back after a bridge restart resumes where it was
     // left — the one thing a restart would otherwise lose.
     const remembered = this.#recall(params.sessionId)
@@ -1858,6 +1861,40 @@ const turnFromTotals = (
 }
 
 type Meta = Record<string, unknown> | null | undefined
+
+/**
+ * The `_meta.harnessdesk` key under which a client hands a standing
+ * instruction, and the capability this bridge declares for carrying it.
+ * Duplicated in `@harnessdesk/transport-acp` for the reason every other
+ * key here is: this bridge carries no HarnessDesk dependency.
+ */
+const INSTRUCTIONS_CAPABILITY = 'instructions'
+
+/**
+ * The open's params with the desk's standing instruction folded into the
+ * system prompt — appended to Claude Code's own preset, or to whatever the
+ * client already asked to append, never in place of a custom prompt a
+ * client supplied whole. The SDK's `append` is the one instruction layer
+ * the CLI keeps beneath the person's words, so this is where the sentence
+ * belongs; putting it in the prompt would make it look like theirs.
+ */
+export const withInstructions = <T extends { _meta?: Meta }>(params: T): T => {
+  const ours = params._meta?.['harnessdesk']
+  const text =
+    typeof ours === 'object' && ours !== null
+      ? (ours as Record<string, unknown>)[INSTRUCTIONS_CAPABILITY]
+      : undefined
+  if (typeof text !== 'string' || text.trim() === '') return params
+  const existing = params._meta?.['systemPrompt']
+  if (typeof existing === 'string') return params
+  const appended =
+    typeof existing === 'object' &&
+    existing !== null &&
+    typeof (existing as { append?: unknown }).append === 'string'
+      ? `${(existing as { append: string }).append}\n\n${text.trim()}`
+      : text.trim()
+  return { ...params, _meta: { ...(params._meta ?? {}), systemPrompt: { append: appended } } }
+}
 
 /** A control's value for this session, or `default` when it has none. */
 export const valueOf = (state: { values: Record<string, string> }, id: string): string =>
