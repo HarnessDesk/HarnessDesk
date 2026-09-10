@@ -15,6 +15,9 @@ interface Config {
 
 const DEFAULT_MAX = 40_000
 
+/** The entities markup escapes text with, and the space. Decoded in one pass: `&amp;` first uncovered a `&lt;` that was then decoded too (#59). */
+const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
+
 /**
  * HTML to readable text.
  *
@@ -22,9 +25,6 @@ const DEFAULT_MAX = 40_000
  * stripped and entities decoded. Handing a model raw markup wastes most of the
  * context window on attributes nobody reads.
  */
-/** The entities markup escapes text with, and the space. Decoded in one pass: `&amp;` first uncovered a `&lt;` that was then decoded too (#59). */
-const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
-
 export const htmlToText = (html: string): string =>
   html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
