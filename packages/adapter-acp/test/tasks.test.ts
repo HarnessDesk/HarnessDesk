@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent, BackgroundTask } from '@harnessdesk/protocol'
+import type { AgentEvent, BackgroundTask, SessionId } from '@harnessdesk/protocol'
+import type { AcpConnection } from '@harnessdesk/transport-acp'
 
 import { AcpRuntime } from '../src/index.js'
+import { AcpTasks } from '../src/tasks.js'
 
 /**
  * Background tasks over ACP's extension channel, and — just as important —
@@ -122,3 +124,20 @@ test('a list pushed without the declaration is still believed', async (t) => {
   // that matters is that the capability is true either way.
   assert.ok(infoChanged >= 0)
 })
+
+test('clearing the finished tasks is announced, not only held', async () => {
+  // #40: clear() rewrote its own copy and told nobody, so the panel kept the rows it had removed.
+  // The fake agent above pushes a fresh list after every clear, which hid this; an agent need not.
+  const published: (readonly BackgroundTask[])[] = []
+  const quiet = { request: async () => ({}) } as unknown as AcpConnection
+  const tasks = new AcpTasks(quiet, (_session, list) => published.push(list))
+  tasks.accept('s-1', [
+    { id: 'a', label: 'Run pnpm dev', state: 'running' },
+    { id: 'b', label: 'Run the tests', state: 'completed' },
+  ])
+  assert.deepEqual(published.at(-1)?.map((task) => task.id).sort(), ['a', 'b'], 'the control: both were announced')
+  await tasks.clear('s-1' as SessionId)
+  assert.deepEqual(published.at(-1)?.map((task) => task.id), ['a'])
+  assert.deepEqual((await tasks.list('s-1' as SessionId)).map((task) => task.id), ['a'])
+})
+

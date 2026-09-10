@@ -99,7 +99,12 @@ export class AcpTasks implements RuntimeTasks {
       // which is the truth about that agent rather than a failure here.
     }
     const held = this.#lists.get(session)
-    if (held) this.#lists.set(session, held.filter((task) => task.state === 'running'))
+    if (!held) return
+    // Announced as well as held: rewriting the copy alone left every
+    // subscriber with the rows the clear had removed (#40).
+    const kept = held.filter((task) => task.state === 'running')
+    this.#lists.set(session, kept)
+    this.publish(session, kept)
   }
 
   /** One `_harnessdesk/tasks/changed` notification, straight from the agent. */
