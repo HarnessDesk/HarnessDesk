@@ -54,8 +54,38 @@ export const DEFAULT_REVIEW_SIGNATURE = '**Review by {seat} · via HarnessDesk**
  */
 export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
 
-/** A line the desk marked, wherever it stands; there is at most one. */
-const MARKED_LINE = /(?:^|\n)[^\n]*<!-- harnessdesk:signature -->[^\n]*/g
+/**
+ * The desk's marked line in a body: the last line, outside a fenced code
+ * block, that *ends* in the mark. A sample of the mark in a code fence, or
+ * a mention of it in a code span, is the author's and is not the line —
+ * the desk's own line is the one it wrote, and it wrote the mark last.
+ */
+const markedLineIn = (lines: readonly string[]): number | null => {
+  let fenced = false
+  let found: number | null = null
+  lines.forEach((line, index) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      fenced = !fenced
+      return
+    }
+    if (!fenced && /<!-- harnessdesk:signature -->\s*$/.test(line)) found = index
+  })
+  return found
+}
+
+/**
+ * What the desk signed a description with last time, read off the body as
+ * GitHub holds it: the marked line's visible text. Handed to `signBody` so
+ * that a body an agent passed back with the mark gone — copied out of a
+ * read, edited by hand — still loses exactly that line and no other.
+ */
+export const previousSignature = (body: string | null | undefined): string | null => {
+  const lines = (body ?? '').split('\n')
+  const at = markedLineIn(lines)
+  if (at === null) return null
+  const text = unmarked(lines[at] ?? '').trim()
+  return text === '' ? null : text
+}
 
 /**
  * The default's shape as a body's last line, from before the mark existed —
@@ -105,21 +135,26 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
 
 /**
  * The body with the signature as its last line, marked, and the earlier one
- * gone — the line the desk marked, or, for a description signed before the
- * mark existed, the current rendering exactly or the default's shape as the
- * last line. An unmarked line that merely resembles a signature is the
- * author's and stays.
+ * gone — the line the desk marked, wherever the agent left it; failing that,
+ * as the last line only: what the desk signed with last time as GitHub holds
+ * it (`previous`), the current rendering exactly, or the default's shape from
+ * before the mark existed. An unmarked line that merely resembles a
+ * signature is the author's and stays.
  */
-export const signBody = (body: string, signature: string | null): string => {
-  let stripped = body.replace(/\s+$/, '')
-  const marked = new RegExp(MARKED_LINE.source, 'g')
-  if (marked.test(stripped)) {
-    // The line goes with the newline before it; a blank it stood between
-    // would otherwise be left doubled.
-    stripped = stripped.replace(new RegExp(MARKED_LINE.source, 'g'), '').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')
+export const signBody = (body: string, signature: string | null, previous: string | null = null): string => {
+  const lines = body.replace(/\s+$/, '').split('\n')
+  const at = markedLineIn(lines)
+  let stripped: string
+  if (at !== null) {
+    lines.splice(at, 1)
+    // A blank the line stood between would otherwise be left doubled, and a
+    // line that opened the body leaves a blank at the top.
+    stripped = lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\s+$/, '')
   } else {
-    const exact = signature ? new RegExp(`(?:^|\\n)${escapeRegex(signature)}\\s*$`) : null
-    for (const matcher of [exact, DEFAULT_SHAPE]) {
+    stripped = lines.join('\n')
+    const trailing = (text: string | null): RegExp | null =>
+      text ? new RegExp(`(?:^|\\n)${escapeRegex(text)}\\s*$`) : null
+    for (const matcher of [trailing(previous), trailing(signature), DEFAULT_SHAPE]) {
       if (matcher && matcher.test(stripped)) {
         stripped = stripped.replace(matcher, '').replace(/\s+$/, '')
         break
@@ -514,7 +549,9 @@ export const gitPlugin: HarnessPlugin = {
             changed += 1
           }
           if (typeof args.body === 'string') {
-            argv.push('--body', signBody(args.body, signed.line))
+            // What the desk signed with last time is read off GitHub's own
+            // copy, so a body passed back without the mark still loses it.
+            argv.push('--body', signBody(args.body, signed.line, previousSignature(current.body)))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {

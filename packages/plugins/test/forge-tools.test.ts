@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeSeat } from '@harnessdesk/cordis-host'
 import type { ContributionId, ForgeReference, ToolResult } from '@harnessdesk/protocol'
 
-import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, renderSignature, signBody, unmarked } from '../src/index.js'
+import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from '../src/index.js'
 
 /**
  * The Git plugin's forge tools, driven through the real kernel against a
@@ -381,4 +381,51 @@ test('a thinking seat can say so in a template, and a seat that is not says noth
   assert.equal(renderSignature('{agent} {thinking}', { ...SEAT, thinking: true }), 'Codex Thinking')
   assert.equal(renderSignature('{agent} {thinking}', SEAT), 'Codex')
   assert.equal(renderSignature('{agent} · {thinking} · via HarnessDesk', { ...SEAT, thinking: true }), 'Codex · Thinking · via HarnessDesk')
+})
+
+test('a mark quoted in a code fence or a code span is the author’s, and only the desk’s own line goes', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const body = [
+    'The desk marks its line like this:',
+    '```',
+    `Signature ${SIGNATURE_MARK}`,
+    '```',
+    `and in prose as \`${SIGNATURE_MARK}\` too.`,
+    '',
+    `Old seat's line ${SIGNATURE_MARK}`,
+  ].join('\n')
+  assert.equal(
+    signBody(body, line),
+    [
+      'The desk marks its line like this:',
+      '```',
+      `Signature ${SIGNATURE_MARK}`,
+      '```',
+      `and in prose as \`${SIGNATURE_MARK}\` too.`,
+      '',
+      `${line} ${SIGNATURE_MARK}`,
+    ].join('\n'),
+  )
+  // The last marked line outside a fence is the desk's, wherever it stands.
+  assert.equal(
+    signBody(`First ${SIGNATURE_MARK}\n\n\`\`\`\nsample ${SIGNATURE_MARK}\n\`\`\``, line),
+    `\`\`\`\nsample ${SIGNATURE_MARK}\n\`\`\`\n\n${line} ${SIGNATURE_MARK}`,
+  )
+  assert.equal(previousSignature(body), "Old seat's line")
+  assert.equal(previousSignature('```\nsample <!-- harnessdesk:signature -->\n```'), null)
+})
+
+test('a body copied out of a read and passed back without the mark still loses exactly the earlier line', async (t) => {
+  const forge = await rig(t, { signature: 'Written by {agent} · {model}' })
+  await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
+  // The agent reads the description — the mark is not text and is not shown — edits it, and passes it back.
+  const read = await forge.run('pr_view', {})
+  assert.ok(read.endsWith('first\n\nWritten by Codex · GPT-5.4'), read)
+  forge.seat.current = { ...SEAT, model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
+  await forge.run('pr_update', { body: 'first, edited.\n\nWritten by Codex · GPT-5.4' })
+  assert.equal(
+    bodySentTo(forge.calls(), 'edit'),
+    `first, edited.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`,
+    'the line the desk signed with last time, read off GitHub’s copy, is the one replaced',
+  )
 })
