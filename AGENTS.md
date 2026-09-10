@@ -145,30 +145,29 @@ them in `docs/decisions.md`.
     Where this table and the audit disagree, the audit is right — it reads the
     code and this is prose. Its failure messages name the file to edit.
 
-13. **Nothing that leaves the machine carries a real identity.** A pull
+13. **Nothing that leaves the machine carries a real account.** A pull
     request body, a review or issue comment, the `screenshots` branch, a video
     and every fixture committed here are public the moment they are pushed,
     and GitHub keeps what was pushed for a while after it is deleted, so a
-    leak is never fully undone. The running app shows its user's identity by
-    design — the seat, its menu, the header strip and the name cards carry
+    leak is never fully undone. The running app shows its user's accounts by
+    design — the seat's menu, the header strip and the name cards carry
     account names and emails — so any frame of a real desk is a frame of
-    somebody's accounts, and a placeholder name in a test is as public as a
+    somebody's accounts, and an address typed into a test is as public as a
     screenshot.
-    - **Public frames come from the fake-agent rig**: an isolated
-      `HARNESSDESK_HOME` and the scripted fake agents
-      (`packages/adapter-codex/test/fixtures/fake-codex.mjs` signs in as
-      `dev@example.com`). Never a real desk — and not the preview harness
-      either, whose fixture accounts have realistic names: a frame of its
-      seat or menu is not public material.
-    - **Placeholder people are obviously fictional** — `Jane Doe`,
-      `dev@example.com` — in screenshots, tests, fixtures, docs and commit
-      messages alike. Never a name, handle or address that belongs to a real
-      person or account, the user's own included.
+    - **Public frames come from a rig, never a real desk**: the fake-agent rig
+      (an isolated `HARNESSDESK_HOME` and the scripted fake agents —
+      `packages/adapter-codex/test/fixtures/fake-codex.mjs` signs in as
+      `dev@example.com`) or the preview harness (`preview.html`).
+    - **Identities are placeholders or the project's public demo persona** —
+      `Jane Doe`, `dev@example.com`, or the `@harnessdesk.app` persona the
+      website's demo and the preview fixture already use — in screenshots,
+      tests, fixtures, docs and commit messages alike. Never a real account's
+      address or handle, and no real person's name beyond that persona.
     - **Check before anything is pushed or posted**: grep the text *and your
-      own added lines* for `@`, personal names, handles and `/Users/` paths,
-      and read every image yourself — the seat, the menu, the strip, the name
-      cards. A frame taken on a real desk is for measuring; it stays on the
-      machine and is deleted after.
+      own added lines* for `@`, names, handles and `/Users/` paths, and read
+      every image yourself — the seat, the menu, the strip, the name cards. A
+      frame taken on a real desk is for measuring; it stays on the machine and
+      is deleted after.
 
 ## Before you commit
 
@@ -209,4 +208,5 @@ from rotting.
 - Fixtures are synthesised from observed shapes. Do not record real user sessions
   into the repository — they contain the user's source code.
 - Identities in tests and fixtures are placeholders — `Jane Doe`,
-  `dev@example.com` — never a real person's or account's (rule 13).
+  `dev@example.com` — or the project's public demo persona; never a real
+  account's (rule 13).
