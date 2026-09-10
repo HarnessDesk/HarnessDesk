@@ -175,6 +175,14 @@ export const AgentHoverCard = ({
     return () => window.removeEventListener('scroll', close, true)
   }, [open])
 
+  /* Disabling the card must also close it. The state outlives the Radix
+     tree below, which unmounts while `disabled` holds — so a card that was
+     open when a menu took the seat came straight back, unhovered, the moment
+     the menu closed. */
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+
   if (disabled) return <>{children}</>
 
   return (

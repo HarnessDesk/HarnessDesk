@@ -155,3 +155,42 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
   expect(container.textContent).not.toContain('Nothing to show')
   expect(container.textContent).not.toContain('restore')
 })
+
+it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
+  // A member column for an agent that needs a sign-in, while the desk's
+  // default is a different, signed-in agent: the button must open the
+  // sign-in for *this* pane's agent.
+  const onSignIn = vi.fn()
+  const { store } = rig(session())
+  const base = store.getSnapshot()
+  const snapshot = {
+    ...base,
+    runtimes: [
+      { ...(base.runtimes[0] as object), capabilities: { account: true } },
+      { id: 'claude-code', name: 'Claude Code', presentation: { name: 'Claude' }, capabilities: { account: true } },
+    ],
+    activeRuntime: 'claude-code',
+    accountsByRuntime: {
+      codex: { accounts: [], signInMethods: [{ id: 'chatgpt', label: 'Sign in with ChatGPT', flow: 'browser' }] },
+      'claude-code': { accounts: [{ kind: 'oauth', label: 'olivia@acme.dev' }], signInMethods: [] },
+    },
+    healthByRuntime: { codex: { state: 'ready' }, 'claude-code': { state: 'ready' } },
+  } as unknown as AppSnapshot
+  const scoped = { ...store, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={scoped}>
+        <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
+          <Conversation onChooseProject={() => undefined} onSignIn={onSignIn} onOpenUsage={() => undefined} onOpenAgents={() => undefined} />
+        </PaneProvider>
+      </StoreProvider>,
+    )
+  })
+  expect(container.textContent).toContain('Sign in to Codex')
+  const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Sign in')
+  if (!button) throw new Error('no Sign in button')
+  act(() => {
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  expect(onSignIn).toHaveBeenCalledWith('codex')
+})

@@ -162,3 +162,85 @@ it('opens the account’s card from the badge, and the card offers no switch to 
   expect(card?.textContent).toContain('olivia@acme.dev')
   expect(card?.textContent).not.toContain('Run new sessions as this')
 })
+
+const keeper = runtime(runtimeId('cline'), 'Cline', 'cline')
+;(keeper as { capabilities: { account: boolean } }).capabilities = { account: false }
+
+it('an agent that keeps its own credential wears no ring and is not dimmed for it, in the row and in the menu', () => {
+  mount({
+    runtimes: [codex, claude, keeper],
+    activeRuntime: keeper.id,
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedIn('olivia@acme.dev'), [keeper.id]: { accounts: [], signInMethods: [] } },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [keeper.id]: { state: 'ready' } },
+  })
+  const seat = row()
+  expect(seat.querySelector('[role="img"]')?.getAttribute('data-state')).toBe('ready')
+  const badge = seat.querySelector('[data-slot="hover-card-trigger"] > span')
+  expect(badge?.hasAttribute('data-off')).toBe(false)
+  expect(badge?.hasAttribute('data-tint')).toBe(false)
+  click(seat)
+  const item = [...container.querySelectorAll('[role="menuitem"]')].find((el) => /^Cline/.test(el.textContent?.trim() ?? ''))
+  expect(item?.textContent).toContain('Ready')
+  const disc = item?.querySelector('[data-slot="hover-card-trigger"] > span')
+  expect(disc?.hasAttribute('data-off')).toBe(false)
+  expect(disc?.hasAttribute('data-tint')).toBe(false)
+  // and an account that is signed in still wears its ring
+  const claudeItem = [...container.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent?.includes('Shane-Claude'))
+  expect(claudeItem?.querySelector('[data-slot="hover-card-trigger"] > span')?.getAttribute('data-tint')).toBeTruthy()
+})
+
+it('a card that was open when the menu took the seat does not come back when the menu closes', () => {
+  vi.useFakeTimers()
+  mount()
+  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')
+  if (!trigger) throw new Error('the badge is not a card trigger')
+  act(() => {
+    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(document.querySelector('[data-slot="agent-card"]')).not.toBeNull()
+  click(row())
+  expect(container.querySelector('[role="menu"]')).not.toBeNull()
+  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
+  click(row())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
+})
+
+it('the badge card’s Usage verb opens the dashboard on that agent', () => {
+  vi.useFakeTimers()
+  const onOpenUsage = vi.fn()
+  const claudeAccount = signedIn('olivia@acme.dev')
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [codex, claude],
+    activeRuntime: CLAUDE,
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: claudeAccount },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, selectRuntime: vi.fn(async () => {}) } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AccountFooter onOpenSettings={() => {}} onOpenUsage={onOpenUsage} onSignIn={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')
+  act(() => {
+    trigger?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  const usage = [...document.querySelectorAll('[data-slot="agent-card"] button')].find((b) => b.textContent?.trim() === 'Usage')
+  if (!usage) throw new Error('no Usage verb on the card')
+  click(usage)
+  expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
+})

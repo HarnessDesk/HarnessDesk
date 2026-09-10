@@ -286,3 +286,68 @@ describe('picking the agent already picked', () => {
     expect(calls.map((call) => call.method)).toContain('runtime/refreshCatalog')
   })
 })
+
+describe('what round one of the review found', () => {
+  it('a late failure from the previous agent does not clear the next agent’s skills', async () => {
+    await seat()
+    let failCodex: () => void = () => {}
+    const gate = new Promise<never>((_, reject) => {
+      failCodex = () => reject(new Error('codex went away'))
+    })
+    // Observed here so the rejection is never "unhandled" between the switch
+    // and the moment `loadSkills` catches it.
+    gate.catch(() => undefined)
+    answers['runtime/skills'] = (params: unknown) =>
+      (params as { runtime: string }).runtime === CODEX ? gate : [{ name: 'claude-only' }]
+
+    const codexRefresh = store.refreshRuntime()
+    await store.selectRuntime(CLAUDE)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
+    failCodex()
+    await codexRefresh
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
+  })
+
+  it('a refresh’s health and account land in the per-runtime maps, not only the singular slots', async () => {
+    await seat()
+    answers['runtime/health'] = { state: 'unavailable', reason: 'crashed', message: 'Codex exited.' }
+    answers['runtime/account'] = { accounts: [], signInMethods: [] }
+    await store.refreshRuntime({ history: false })
+    const now = store.getSnapshot()
+    expect(now.healthByRuntime[CODEX]?.state).toBe('unavailable')
+    expect(now.accountsByRuntime[CODEX]?.accounts).toEqual([])
+    // and the seat can now restart what only the poll had seen crash
+    answers['runtime/refreshCatalog'] = { installation: null }
+    calls.length = 0
+    await store.selectRuntime(CODEX)
+    expect(calls.map((call) => call.method)).toContain('runtime/refreshCatalog')
+  })
+
+  it('only a crash is restartable: another kind of unavailable is not asked to refresh', async () => {
+    await seat()
+    push({
+      method: 'runtime/healthChanged',
+      params: { runtime: CODEX, health: { state: 'unavailable', reason: 'unknown', message: 'stopped while starting' } },
+    })
+    calls.length = 0
+    await store.selectRuntime(CODEX)
+    expect(calls).toEqual([])
+  })
+
+  it('a hand-off with a conversation open lands its chip on exactly one draft, on the target', async () => {
+    await seat()
+    answers['session/read'] = conversation()
+    answers['session/resume'] = conversation()
+    await store.openSession(ID, { runtime: CODEX })
+    await store.handOff(CLAUDE)
+    const now = store.getSnapshot()
+    expect(now.activeRuntime).toBe(CLAUDE)
+    expect(now.activeSessionKey).toBeNull()
+    expect(now.draftHandoff?.runtime).toBe(CODEX)
+    expect(now.draftHandoff?.sessionId).toBe(ID)
+    // One pane, a conversation pane with no conversation yet: the draft.
+    expect(panes(now.layout.root).map((pane) => pane.view)).toEqual([{ kind: 'conversation', session: null }])
+  })
+})

@@ -400,12 +400,16 @@ export class AppStore {
    * request took.
    */
   async selectRuntime(runtime: RuntimeId): Promise<void> {
-    // An agent that is down says "select the runtime again to restart it",
+    // An agent that crashed says "select the runtime again to restart it",
     // and this is the selecting. The catalogue refresh is the verb that
-    // restarts it; picking the agent already picked is otherwise a no-op.
-    const down = this.#snapshot.healthByRuntime[runtime]?.state === 'unavailable'
+    // restarts it — and only a crash is restartable that way: an agent that
+    // is still starting, or that its launch check blocked, is refused by the
+    // refresher and would only cost a round trip. Picking the agent already
+    // picked is otherwise a no-op.
+    const health = this.#snapshot.healthByRuntime[runtime]
+    const crashed = health?.state === 'unavailable' && health.reason === 'crashed'
     if (runtime === this.#snapshot.activeRuntime) {
-      if (down) await this.refreshCatalog()
+      if (crashed) await this.refreshCatalog()
       return
     }
     this.#patch({
@@ -425,9 +429,9 @@ export class AppStore {
     // Remembered across launches; losing the user's runtime pick on every
     // restart made the shell feel like it had a favourite vendor.
     void this.transport.request('app/state/set', { patch: { activeRuntime: runtime } }).catch(() => {})
-    // Choosing a down agent is also "selecting it again": it comes back up,
-    // and its health change re-reads the surface once it is ready.
-    if (down) void this.refreshCatalog()
+    // Choosing a crashed agent is also "selecting it again": it comes back
+    // up, and its health change re-reads the surface once it is ready.
+    if (crashed) void this.refreshCatalog()
     await this.refreshRuntime({ history: false })
   }
 
@@ -452,7 +456,18 @@ export class AppStore {
     // The user may have switched runtime while these were in flight; stale
     // results for the previous one must not stomp the current surface.
     if (this.#snapshot.activeRuntime !== runtime) return
-    this.#patch({ health, account, limits, models, runtimeOptions })
+    // The per-runtime maps are what every seat, card and pane reads; a
+    // poll that answered only the singular slots left them one step behind,
+    // and a crash seen here alone was one the seat could not restart.
+    this.#patch({
+      health,
+      account,
+      limits,
+      models,
+      runtimeOptions,
+      ...(health ? { healthByRuntime: { ...this.#snapshot.healthByRuntime, [runtime]: health } } : {}),
+      ...(account ? { accountsByRuntime: { ...this.#snapshot.accountsByRuntime, [runtime]: account } } : {}),
+    })
     if (health?.state === 'ready') {
       if (options.history !== false) void this.loadHistory({ reset: true })
       void this.loadSkills()
@@ -478,6 +493,7 @@ export class AppStore {
         this.#patch({ draftRouteId: null })
       }
     } catch {
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ routes: [] })
     }
   }
@@ -1775,7 +1791,10 @@ export class AppStore {
       // returning []. Keeping the previous list here would strand another
       // workspace's or runtime's skills on screen — and, after a toggle whose
       // reload failed, show a row in a state the disk does not hold. Clear it:
-      // an unanswerable request is not evidence of any particular skill.
+      // an unanswerable request is not evidence of any particular skill —
+      // and a failure that arrives after the default moved on is not
+      // evidence about the *next* agent's skills either.
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ skills: [] })
     }
   }

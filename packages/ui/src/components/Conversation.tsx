@@ -112,7 +112,9 @@ const EmptyState = ({
           credentials.
         </p>
         {driveable ? (
-          <button type="button" className={styles.emptyAction} onClick={() => onSignIn()}>
+          /* This pane's agent, by name: an empty member column on another
+             agent must not open the default's sign-in. */
+          <button type="button" className={styles.emptyAction} onClick={() => onSignIn(runtime.id)}>
             Sign in
           </button>
         ) : (

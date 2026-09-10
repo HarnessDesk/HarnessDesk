@@ -44,7 +44,8 @@ export const Sidebar = ({
 }: {
   onOpenSettings: () => void
   onOpenPlugins: () => void
-  onOpenUsage: () => void
+  /** Opens the dashboard, scoped to one agent when the caller names it. */
+  onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
@@ -145,7 +146,10 @@ export const Sidebar = ({
           </button>
           <WorktreeMenu />
         </div>
-        <button type="button" className={styles.navItem} onClick={onOpenUsage}>
+        {/* Called with nothing, on purpose: the handler takes an agent id
+            now, and a click event in its place would open the dashboard
+            scoped to an object. */}
+        <button type="button" className={styles.navItem} onClick={() => onOpenUsage()}>
           <UsageIcon size={15} className={styles.navIcon} />
           Dashboard
           {/* The count is the number of agents that need attention, not the
@@ -367,7 +371,8 @@ export const AccountFooter = ({
   onSignIn,
 }: {
   onOpenSettings: () => void
-  onOpenUsage: () => void
+  /** Opens the dashboard, scoped to one agent when the caller names it. */
+  onOpenUsage: (runtime?: RuntimeId) => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
 }) => {
@@ -527,7 +532,11 @@ export const AccountFooter = ({
                 >
                   <span
                     className={styles.seatAvatar}
-                    data-tint={tintOf(seat.key, snapshot.accountPrefs)}
+                    {...(seat.account
+                      ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
+                      : seat.state === 'signin'
+                        ? { 'data-off': '' }
+                        : {})}
                   >
                     <RuntimeMark runtime={seat.info} size={13} />
                   </span>
@@ -667,8 +676,10 @@ export const AccountFooter = ({
         )}
         {/* The pen: the default agent's mark in its account's ring — the
             same disc the menu's seats wear — and the name card on it says
-            which account, on what plan, with how much left. The ring goes
-            dark for a seat nobody has signed in to. */}
+            which account, on what plan, with how much left. The ring is the
+            account's, so an agent that keeps its own credential wears none
+            and is not dimmed for it; only a seat that needs a sign-in goes
+            dark. */}
         {here && (
           <AccountHoverCard
             info={here.info}
@@ -676,7 +687,7 @@ export const AccountFooter = ({
             side="right"
             align="end"
             className={styles.seatTrigger}
-            onOpenUsage={() => onOpenUsage()}
+            onOpenUsage={onOpenUsage}
             /* Pressing the badge opens the menu, and the card the hover had
                opened stayed beside it — two surfaces answering one seat. With
                the menu up, the card has nothing to add: every seat in it
@@ -685,9 +696,11 @@ export const AccountFooter = ({
           >
             <span
               className={styles.seatAvatar}
-              {...(signedIn
+              {...(here.account
                 ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
-                : { 'data-off': '' })}
+                : here.state === 'signin'
+                  ? { 'data-off': '' }
+                  : {})}
             >
               <RuntimeMark runtime={here.info} size={13} />
             </span>

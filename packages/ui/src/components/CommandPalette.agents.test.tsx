@@ -93,12 +93,18 @@ it('starting with another agent chooses it and opens a draft', async () => {
   expect(newDraft).toHaveBeenCalledOnce()
 })
 
-it('starting with the agent already chosen opens the draft and chooses nothing', async () => {
+it('starting with the agent already chosen opens the draft, and still puts the pick through the store', async () => {
+  // The store makes a same-agent pick a no-op — unless that agent has
+  // crashed, in which case the pick is the restart its health asks for. The
+  // palette therefore never decides for itself that the pick is redundant.
   const { selectRuntime, newDraft } = await mount()
   type('start with codex')
   const current = row('Start with OpenAI Codex')
   expect(current.textContent).toContain('current')
   act(() => current.click())
-  expect(selectRuntime).not.toHaveBeenCalled()
+  expect(selectRuntime).toHaveBeenCalledWith(CODEX)
   expect(newDraft).toHaveBeenCalledOnce()
+  // The draft is opened after the pick, in the same tick: `selectRuntime`
+  // patches the default before its first await, so the draft reads it.
+  expect(selectRuntime.mock.invocationCallOrder[0]).toBeLessThan(newDraft.mock.invocationCallOrder[0]!)
 })

@@ -412,7 +412,9 @@ const AgentBlock = ({
               the state — as a chip that names itself, never as a bare dot the
               reader has to decode. A healthy agent shows none of the three. */}
           <span className={styles.headMeta}>
-            {snapshot.activeRuntime === info.id && <Chip state="ready" label="Default" />}
+            {/* The default's chip wears the agent's own state: a default that
+                has crashed is not a green one. */}
+            {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
             {count !== null && <span className={styles.headCount}>{count}</span>}
             {state !== 'ready' && <Chip state={state} />}
           </span>
@@ -1220,7 +1222,10 @@ const AccountDetail = ({
           desc="The composer starts on this account."
           control={
             snapshot.activeRuntime === info.id ? (
-              <Chip state="ready" label="Default" />
+              <Chip
+                state={snapshot.healthByRuntime[info.id]?.state === 'unavailable' ? 'broken' : 'ready'}
+                label="Default"
+              />
             ) : (
               <Btn small onClick={() => void store.selectRuntime(info.id)}>
                 Make default
@@ -1592,13 +1597,11 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
         blurb={info.presentation.tagline}
         actions={
           active ? (
-            <Chip state="ready" label="Default" />
+            <Chip state={health?.state === 'unavailable' ? 'broken' : 'ready'} label="Default" />
           ) : (
-            <Btn
-              variant="outline"
-              disabled={health?.state === 'unavailable'}
-              onClick={() => void store.selectRuntime(info.id)}
-            >
+            /* Never disabled for a down agent: choosing one is how it is
+               restarted, which is what its own health advises. */
+            <Btn variant="outline" onClick={() => void store.selectRuntime(info.id)}>
               <CheckIcon size={14} />
               Use for new sessions
             </Btn>
