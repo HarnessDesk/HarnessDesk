@@ -544,3 +544,37 @@ describe('one file change, counted the way it is drawn', () => {
   })
 })
 
+describe('a hunk header, and text that only starts like one', () => {
+  test('git closes a hunk header with @@ and then the end of the line or a space', () => {
+    expect(drawnWhole('@@ -1 +1 @@not-a-hunk\n- item\n', true)).toBe(true)
+    expect(countDrawn('@@ -1 +1 @@not-a-hunk\n- item\n', true)).toEqual({ added: 2, removed: 0 })
+    expect(drawnWhole('--- /dev/null\n+++ b/a\n@@ -0,0 +1 @@\n+a\n', true)).toBe(false)
+  })
+
+  test('a hunk header with its section heading, or with a CRLF, is still one', () => {
+    expect(parseDiff('@@ -1 +1 @@ function retry()\n-a\n+b\n')[0]?.kind).toBe('hunk')
+    expect(parseDiff('@@ -1 +1 @@\r\n-a\r\n+b\r\n').map((line) => line.kind)).toEqual(['hunk', 'remove', 'add'])
+  })
+})
+
+describe('whole-file changes at their edges', () => {
+  test('a deleted file that arrives with nothing, as Codex sends one, counts nothing', () => {
+    expect(countFileChange({ kind: { type: 'delete' }, diff: '' })).toEqual({ added: 0, removed: 0 })
+  })
+
+  test('countDrawn asked about a removed file counts removals, not additions', () => {
+    expect(countDrawn('a\nb\n', 'removed')).toEqual({ added: 0, removed: 2 })
+  })
+
+  test('a file with only a mode change, or a binary, is keyed by its header', () => {
+    expect(splitByFile(['diff --git a/run.sh b/run.sh', 'old mode 100644', 'new mode 100755'].join('\n')).map((file) => file.path)).toEqual([
+      'run.sh',
+    ])
+    expect(
+      splitByFile(
+        ['diff --git a/pic.bin b/pic.bin', 'new file mode 100644', 'index 0000000..8352675', 'Binary files /dev/null and b/pic.bin differ'].join('\n'),
+      ).map((file) => file.path),
+    ).toEqual(['pic.bin'])
+  })
+})
+

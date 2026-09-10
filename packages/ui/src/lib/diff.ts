@@ -15,10 +15,16 @@ export interface DiffLine {
   readonly newNumber: number | null
 }
 
-const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+/**
+ * A hunk header. Git closes one with `@@` and then either the line's end or a
+ * space before the section it sits in (`@@ -1 +1 @@ function retry()`), and a
+ * CRLF diff leaves a `\r` there; `@@ -1 +1 @@not-a-hunk` is text, and was read
+ * as a hunk until review's fourth round.
+ */
+const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(?:[ \r]|$)/
 const HEADER = /^(?:diff |index |--- |\+\+\+ |new file|deleted file|similarity|rename )/
 /** A hunk header on a line of its own, anywhere in a text. */
-const HUNK_LINE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m
+const HUNK_LINE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:[ \r]|$)/m
 
 /**
  * Which raw line is a header and which is content — the one rule `parseDiff`
@@ -33,7 +39,7 @@ const HUNK_LINE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m
  * never restarted there: every file after the first had its `diff --git`,
  * `---` and `+++` drawn as context, a removal and an addition, each with a
  * gutter number it had no right to. A raw line can only begin with `diff ` if
- * it is a header — content always carries a ` `, `+`, `-` or `\` prefix — so
+ * it is a header — content always carries a ` `, `+`, `-` or `` prefix — so
  * restarting on it is exact rather than a guess.
  *
  * And a header is more than `---` and `+++`. Between a `diff ` line and its
@@ -148,8 +154,16 @@ export const countChanges = (diff: string): { added: number; removed: number } =
  * `split('\n').length` counts the artefact after a final newline, which the
  * view drops.
  */
-export const countDrawn = (diff: string, wholeFile: boolean): { added: number; removed: number } =>
-  drawnWhole(diff, wholeFile) ? { added: linesIn(diff), removed: 0 } : countChanges(diff)
+export const countDrawn = (diff: string, wholeFile: boolean | WholeFile): { added: number; removed: number } => {
+  /* The same question `DiffView` asks, in the same words: `true` is an added
+     file. Taking only a boolean, this counted a deleted file's content as
+     additions for any caller but `countFileChange`, which had to swap them
+     back (review, round four). */
+  const whole: WholeFile = wholeFile === true ? 'added' : wholeFile || false
+  if (!drawnWhole(diff, whole !== false)) return countChanges(diff)
+  const lines = linesIn(diff)
+  return whole === 'removed' ? { added: 0, removed: lines } : { added: lines, removed: 0 }
+}
 
 /**
  * Whether an added or deleted file's payload is drawn as its content rather
@@ -193,11 +207,7 @@ export const wholeFileOf = (kind: string): WholeFile => (kind === 'add' ? 'added
 export const countFileChange = (change: {
   readonly kind: { readonly type: string }
   readonly diff: string
-}): { added: number; removed: number } => {
-  const whole = wholeFileOf(change.kind.type)
-  const drawn = countDrawn(change.diff, whole !== false)
-  return whole === 'removed' && drawnWhole(change.diff, true) ? { added: 0, removed: drawn.added } : drawn
-}
+}): { added: number; removed: number } => countDrawn(change.diff, wholeFileOf(change.kind.type))
 
 export interface DiffHunk {
   /** The `@@ …` line, verbatim. */
