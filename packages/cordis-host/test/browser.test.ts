@@ -675,3 +675,18 @@ test('a shortcut on a digit or a punctuation key goes out as that key', async (t
     ['é', undefined, undefined],
   ])
 })
+
+test('the shifted digits and the rest of the punctuation keys', () => {
+  // Round 1 of #160: the map's other entries, unasserted.
+  const cases: [string, string, number][] = [
+    ['!', 'Digit1', 49],
+    [')', 'Digit0', 48],
+    ['+', 'Equal', 187],
+    ['[', 'BracketLeft', 219],
+    [';', 'Semicolon', 186],
+    ["'", 'Quote', 222],
+    ['`', 'Backquote', 192],
+    ['~', 'Backquote', 192],
+  ]
+  for (const [character, code, keyCode] of cases) assert.deepEqual(characterKey(character), { code, keyCode }, character)
+})

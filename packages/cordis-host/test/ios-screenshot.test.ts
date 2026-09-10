@@ -17,7 +17,7 @@ import { ExtensionKernel, type HarnessPlugin } from '../src/index.js'
 const SH = '/bin/sh'
 const posixShell = existsSync(SH)
 
-const fakeXcrun = (t: TestContext) => {
+const fakeXcrun = (t: TestContext, options: { readonly failShot?: boolean } = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'hd-xcrun-'))
   const scratch = mkdtempSync(join(tmpdir(), 'hd-xcrun-tmp-'))
   const listing = join(dir, 'devices.json')
@@ -36,7 +36,9 @@ const fakeXcrun = (t: TestContext) => {
     [
       `#!${SH}`,
       `if [ "$1 $2" = 'simctl list' ]; then cat '${listing}'; exit 0; fi`,
-      `if [ "$1 $2" = 'simctl io' ] && [ "$4" = screenshot ]; then printf PNG > "$5"; exit 0; fi`,
+      options.failShot
+        ? `if [ "$1 $2" = 'simctl io' ]; then echo 'simctl: the screenshot failed' >&2; exit 1; fi`
+        : `if [ "$1 $2" = 'simctl io' ] && [ "$4" = screenshot ]; then printf PNG > "$5"; exit 0; fi`,
       'exit 1',
       '',
     ].join('\n'),
@@ -86,5 +88,18 @@ test('a simulator screenshot leaves nothing behind in the temporary directory', 
     const { shot } = JSON.parse(text) as { shot: string }
     assert.equal(shot, `data:image/png;base64,${Buffer.from('PNG').toString('base64')}`, 'the control: a screenshot was taken')
   }
+  assert.deepEqual(xcrun.left(), [])
+})
+
+test('a screenshot that fails leaves nothing behind either', { skip: !posixShell }, async (t) => {
+  // Round 1 of #160: the directory goes in `finally`, and only the successful path was pinned.
+  const xcrun = fakeXcrun(t, { failShot: true })
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(driver)
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const tool = kernel.list('tool').find((entry) => entry.name === 'ios_shot')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  assert.equal(result.ok, false, 'the control: the screenshot failed')
   assert.deepEqual(xcrun.left(), [])
 })

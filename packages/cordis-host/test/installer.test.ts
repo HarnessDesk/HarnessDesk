@@ -330,3 +330,17 @@ test('the listing says where each plugin was installed from, as loading does', a
   await writeFile(record, 'null')
   assert.deepEqual((await listInstalled())[0]?.source, { kind: 'local', path: join(root, 'sample') })
 })
+
+test('a record is taken only whole, and loading reads the same one the listing does', async (t) => {
+  // Round 1 of #160: a record of the right kind with nothing in it was taken as it stood.
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  const record = join(root, 'sample', '.harnessdesk-source.json')
+  const copy = { kind: 'local', path: join(root, 'sample') }
+  for (const partial of [{ kind: 'local' }, { kind: 'npm' }, { kind: 'npm', specifier: '' }, { kind: 'git', url: 'x' }]) {
+    await writeFile(record, JSON.stringify(partial))
+    assert.deepEqual((await listInstalled())[0]?.source, copy, JSON.stringify(partial))
+  }
+  await writeFile(record, JSON.stringify({ kind: 'npm', specifier: '@acme/sample@1.2.0' }))
+  assert.deepEqual((await loadInstalled(join(root, 'sample'))).manifest.source, { kind: 'npm', specifier: '@acme/sample@1.2.0' })
+})

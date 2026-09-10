@@ -350,3 +350,48 @@ test('a plugin allowed a host reaches it on the port in the address, and one all
   assert.doesNotMatch(text(await call('fetch_scheme')), denied)
   assert.match(text(await call('fetch_wrong')), denied)
 })
+
+test('a pattern that is not a host allows nothing, rather than more than it says', () => {
+  // Round 1 of #160: read loosely, `[::1]evil` was `[::1]` and `localhost:` was `localhost`, each on every port.
+  for (const pattern of ['[::1]evil', 'localhost:', 'localhost:abc', '[::1]:', '[::1', ':3000', 'a:b:c:zz']) {
+    assert.equal(hostAllowed([pattern], 'localhost:3000'), false, pattern)
+    assert.equal(hostAllowed([pattern], '[::1]:80'), false, pattern)
+  }
+  assert.equal(hostAllowed(['[::ffff:7f00:1]'], '[::ffff:7f00:1]:80'), true, 'the control: a well-formed IPv6 pattern still matches')
+})
+
+test('an IPv6 address is reached by its bracketed name, through the gate', async (t) => {
+  // Round 1 of #160: the IPv6 reading was pinned on `hostAllowed` alone.
+  const server = createServer((_request, response) => response.end('ok'))
+  const listening = await new Promise<boolean>((resolve) => {
+    server.once('error', () => resolve(false))
+    server.listen(0, '::1', () => resolve(true))
+  })
+  if (!listening) return t.skip('this machine has no IPv6 loopback')
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const { port } = server.address() as AddressInfo
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  const here = `http://[::1]:${port}/`
+  const fetcher = (id: string, tool: string, hosts: string[]) =>
+    kernel.load({
+      manifest: { id, name: id, permissions: { network: { hosts } } },
+      plugin: {
+        name: id,
+        inject: ['tools', 'http'],
+        apply(ctx: any) {
+          ctx.tools.register({ name: tool, description: '', inputSchema: {}, execute: async () => (await ctx.http.fetch(here)).body })
+        },
+      },
+    })
+  await fetcher('bracketed', 'fetch_bracketed', ['[::1]'])
+  await fetcher('bare', 'fetch_bare', ['::1'])
+  await fetcher('other-port', 'fetch_other', [`[::1]:${port + 1}`])
+  await settle()
+  const call = (tool: string) => kernel.invokeTool(kernel.list('tool').find((entry) => entry.name === tool)!.id, {}, {})
+  const text = (result: Awaited<ReturnType<typeof call>>): string =>
+    result.ok ? result.content.map((part) => (part.type === 'text' ? part.text : '')).join('') : result.error
+  assert.equal(text(await call('fetch_bracketed')), 'ok')
+  assert.equal(text(await call('fetch_bare')), 'ok')
+  assert.match(text(await call('fetch_other')), /is not in this plugin's allowed hosts/)
+})

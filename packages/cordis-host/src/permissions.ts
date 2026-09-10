@@ -23,21 +23,26 @@ export class PermissionDenied extends Error {
 const normaliseHost = (value: string): string => value.trim().toLowerCase()
 
 /**
- * A host, and the port written after it if there is one. An IPv6 address is
- * bracketed the way a URL writes it, so its own colons are never a port.
+ * A host, and the port written after it if there is one; null for a pattern
+ * that is not one. An IPv6 address is bracketed the way a URL writes it, so
+ * its own colons are never a port. Anything malformed matches nothing: read
+ * loosely, `[::1]evil` and `localhost:` were `[::1]` and `localhost` on every
+ * port, wider than anything the manifest said (review, round 1).
  */
-const splitHost = (value: string): { readonly name: string; readonly port: string | null } => {
+const splitHost = (value: string): { readonly name: string; readonly port: string | null } | null => {
   const host = normaliseHost(value)
-  const close = host.startsWith('[') ? host.indexOf(']') : -1
-  if (close > 0) {
-    const rest = host.slice(close + 1)
-    return { name: host.slice(0, close + 1), port: rest.startsWith(':') && rest.length > 1 ? rest.slice(1) : null }
+  if (host.startsWith('[')) {
+    const bracketed = /^(\[[0-9a-f:.]+\])(?::(\d+))?$/.exec(host)
+    return bracketed ? { name: bracketed[1]!, port: bracketed[2] ?? null } : null
   }
-  const colon = host.indexOf(':')
-  if (colon < 0) return { name: host, port: null }
-  // One colon is a port; more is an IPv6 address written without its brackets.
-  if (colon === host.lastIndexOf(':')) return { name: host.slice(0, colon), port: host.slice(colon + 1) || null }
-  return { name: `[${host}]`, port: null }
+  const parts = host.split(':')
+  if (parts.length === 1) return host === '' ? null : { name: host, port: null }
+  if (parts.length === 2) {
+    const [name, port] = parts as [string, string]
+    return name !== '' && /^\d+$/.test(port) ? { name, port } : null
+  }
+  // More than one colon is an IPv6 address written without its brackets.
+  return /^[0-9a-f:.]+$/.test(host) ? { name: `[${host}]`, port: null } : null
 }
 
 /** The port a URL leaves out because its scheme implies it. */
@@ -51,8 +56,10 @@ const DEFAULT_PORTS: Readonly<Record<string, string>> = { 'http:': '80', 'https:
  */
 export const hostAllowed = (allowed: readonly string[], host: string): boolean => {
   const target = splitHost(host)
+  if (!target) return false
   return allowed.some((pattern) => {
     const candidate = splitHost(pattern)
+    if (!candidate) return false
     if (candidate.port !== null && candidate.port !== target.port) return false
     if (candidate.name === '*') return true
     if (candidate.name.startsWith('*.')) {

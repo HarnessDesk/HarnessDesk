@@ -226,6 +226,16 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
   return { manifest: pkg.manifest, plugin }
 }
 
+/** One of the three origins whole: a record of the right kind with nothing in it is not one (review, round 1). */
+const isPluginSource = (value: unknown): value is PluginSource => {
+  if (typeof value !== 'object' || value === null) return false
+  const source = value as { kind?: unknown; path?: unknown; specifier?: unknown }
+  if (source.kind === 'builtin') return true
+  if (source.kind === 'local') return typeof source.path === 'string' && source.path !== ''
+  if (source.kind === 'npm') return typeof source.specifier === 'string' && source.specifier !== ''
+  return false
+}
+
 /**
  * Where an installed copy came from, as `install()` wrote it down. One
  * installed before origins were recorded, or whose record is not one, knows
@@ -234,9 +244,7 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
 const recordedSource = async (directory: string): Promise<PluginSource> => {
   try {
     const recorded: unknown = JSON.parse(await readFile(join(directory, SOURCE_FILENAME), 'utf8'))
-    if (typeof recorded === 'object' && recorded !== null && typeof (recorded as { kind?: unknown }).kind === 'string') {
-      return recorded as PluginSource
-    }
+    if (isPluginSource(recorded)) return recorded
   } catch {
     // Installed before origins were recorded.
   }
