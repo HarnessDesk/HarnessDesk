@@ -594,7 +594,17 @@ test('a title is the first line the user wrote, not the context block prepended 
     titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>\n\nAdd a New game button'),
     'Add a New game button',
   )
-  assert.equal(titleOf('<context source="x">only context</context>'), '<context source="x">only context</context>'.slice(0, 80))
+  assert.equal(titleOf('<context source="x">only context</context>'), 'x')
+})
+
+test('a message that is only a context block is named by what the block says it is, never by its markup', () => {
+  // #47: with nothing of the user's left, the title fell back to the raw envelope.
+  assert.equal(
+    titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>'),
+    'Handed off from Claude Code — “x”',
+  )
+  assert.equal(titleOf("<context source='single'>x</context>"), 'single')
+  assert.equal(titleOf('<context>only context</context>'), '')
 })
 
 test('the model list ages out, so a long-lived bridge sees models Cursor adds later', async () => {
