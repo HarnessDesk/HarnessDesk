@@ -159,12 +159,10 @@ protocol drift check.
 
 CI deliberately excludes the Codex protocol drift check, which needs a real
 `codex` binary the runner lacks. The local gate and CI are held to the same
-commands by `script/check-verify-drift.mjs`, though seven checks are currently
-queued in `PENDING_IN_CI` waiting on a workflow update, and GitHub Actions runs
-have been blocked by account payment failures since 2026-08-30 — making
-`pnpm verify` the only active barrier protecting `main`. Run it **unpiped**:
-`pnpm verify | tail` reports the exit status of `tail`, which has hidden a red
-run before now.
+commands by `script/check-verify-drift.mjs`: every other command `pnpm verify`
+runs must also be in the workflow, and the one exception is recorded, with its
+reason, in that script's `NOT_IN_CI`. Run it **unpiped**: `pnpm verify | tail`
+reports the exit status of `tail`, which has hidden a red run before now.
 
 ## Writing plugins
 
