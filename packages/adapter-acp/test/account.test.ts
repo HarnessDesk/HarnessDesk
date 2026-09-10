@@ -648,3 +648,16 @@ test('a cancelled sign-in says so at once, and a killed one says it was stopped,
   assert.equal(stopped?.error, 'The sign-in command was stopped (SIGKILL).')
 })
 
+test('a contracted negation is a signed-out sentence too', () => {
+  // Round 8 of #134: "aren't" is no `not`, and it matched the signed-in sentence instead.
+  for (const text of [
+    "You aren't logged in as user@example.com",
+    "This desk isn't signed in as user@example.com.",
+    'You weren’t logged in as user@example.com',
+    "Haven't logged in as anyone yet",
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
+  assert.deepEqual(parseStatus('Logged in as user@example.com'), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }, 'the control')
+})
+

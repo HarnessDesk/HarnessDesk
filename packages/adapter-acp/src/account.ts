@@ -362,8 +362,13 @@ const statusRecords = (
   return { status: null, emailOnly, prose: prose + text.slice(from, end) }
 }
 
-/** A sentence saying nobody is signed in: a negation anywhere in the clause before the verb, or signed out. */
-const SIGNED_OUT = /\b(?:not|no longer)\b[^.\n]*?\b(?:logged|signed) in\b|\b(?:logged|signed) out\b/i
+/**
+ * A sentence saying nobody is signed in: a negation anywhere in the clause
+ * before the verb, or signed out. A negation is `not`, `no longer`, `never`,
+ * or a contraction of one, `aren't` or `isn't`, in either apostrophe
+ * (review, round eight).
+ */
+const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)[^.\n]*?\b(?:logged|signed) in\b|\b(?:logged|signed) out\b/i
 
 /** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
 const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
