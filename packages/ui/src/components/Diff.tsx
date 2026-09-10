@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { asAdditions, parseDiff } from '../lib/diff'
+import { asAdditions, asRemovals, drawnWhole, parseDiff, type WholeFile } from '../lib/diff'
 import { ChevronIcon } from './Icons'
 import styles from './Diff.module.css'
 
@@ -16,8 +16,13 @@ const COLLAPSE_AFTER = 400
 
 export interface DiffViewProps {
   readonly diff: string
-  /** Set for `add` changes, where the payload is file content rather than a diff. */
-  readonly wholeFile?: boolean
+  /**
+   * Set where the payload may be a whole file rather than a diff: `'added'`
+   * (or `true`) for an added file, drawn as its additions; `'removed'` for a
+   * deleted one, drawn as its removals. A payload that carries a hunk header
+   * is drawn as the diff it is either way.
+   */
+  readonly wholeFile?: boolean | WholeFile
   /**
    * Wrap long lines instead of scrolling them.
    *
@@ -37,7 +42,11 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
   const rows = useRef<Map<number, HTMLTableRowElement>>(new Map())
 
   const lines = useMemo(
-    () => (wholeFile && !diff.includes('@@') ? asAdditions(diff) : parseDiff(diff)),
+    () => {
+      const whole: WholeFile = wholeFile === true ? 'added' : wholeFile || false
+      if (!drawnWhole(diff, whole !== false)) return parseDiff(diff)
+      return whole === 'removed' ? asRemovals(diff) : asAdditions(diff)
+    },
     [diff, wholeFile],
   )
   const hunkRows = useMemo(
