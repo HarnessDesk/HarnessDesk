@@ -7,7 +7,23 @@ import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
  * ARE Android's input coordinate space, so the see-then-act contract is
  * exact: tap what the screenshot showed. A machine without adb gets a
  * sentence naming the install.
+ *
+ * Every tool that acts on a device takes an optional `serial` — the column
+ * `android_devices` prints. With one device attached it is never needed and
+ * adb picks it, as it always has; with several, adb refuses anything that
+ * does not name one, and that refusal comes back listing the devices to
+ * choose from. There was no way to name one before, so a second emulator
+ * broke every tool here at once (#42).
  */
+
+/** The device a tool call names, if it names one. */
+const serialOf = (args: { readonly serial?: unknown }): string | undefined =>
+  typeof args.serial === 'string' && args.serial.trim().length > 0 ? args.serial.trim() : undefined
+
+const SERIAL = {
+  type: 'string',
+  description: 'Which device, by the serial android_devices prints. Needed only when more than one is connected.',
+} as const
 
 export const androidPlugin: HarnessPlugin = {
   manifest: {
@@ -21,8 +37,8 @@ export const androidPlugin: HarnessPlugin = {
     name: 'android',
     inject: ['tools', 'android'],
     apply(ctx: HarnessContext) {
-      const look = async (note: string) => {
-        const shot = await ctx.android.screenshot()
+      const look = async (note: string, serial: string | undefined) => {
+        const shot = await ctx.android.screenshot(serial)
         return [
           { type: 'text' as const, text: note || 'Screen' },
           { type: 'image' as const, url: shot, mimeType: 'image/png' },
@@ -31,7 +47,7 @@ export const androidPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'android_devices',
-        description: 'List connected Android devices and running emulators.',
+        description: 'List connected Android devices and running emulators, each with the serial the other Android tools take.',
         inputSchema: { type: 'object', properties: {} },
         execute: async () => {
           const devices = await ctx.android.devices()
@@ -45,11 +61,11 @@ export const androidPlugin: HarnessPlugin = {
         description: 'Install an APK onto the connected device or emulator.',
         inputSchema: {
           type: 'object',
-          properties: { path: { type: 'string', description: 'Path to the .apk.' } },
+          properties: { path: { type: 'string', description: 'Path to the .apk.' }, serial: SERIAL },
           required: ['path'],
         },
-        execute: async (args: { path: string }) => {
-          await ctx.android.install(String(args.path))
+        execute: async (args: { path: string; serial?: string }) => {
+          await ctx.android.install(String(args.path), serialOf(args))
           return `Installed ${String(args.path)}.`
         },
       })
@@ -60,21 +76,21 @@ export const androidPlugin: HarnessPlugin = {
           'Launch an app: a package name (com.example.app) or a full component (com.example.app/.MainActivity). Returns a screenshot.',
         inputSchema: {
           type: 'object',
-          properties: { target: { type: 'string' } },
+          properties: { target: { type: 'string' }, serial: SERIAL },
           required: ['target'],
         },
-        execute: async (args: { target: string }) => {
-          await ctx.android.launch(String(args.target))
+        execute: async (args: { target: string; serial?: string }) => {
+          await ctx.android.launch(String(args.target), serialOf(args))
           await new Promise((resolve) => setTimeout(resolve, 1_500))
-          return look(`Launched ${String(args.target)}`)
+          return look(`Launched ${String(args.target)}`, serialOf(args))
         },
       })
 
       ctx.tools.register({
         name: 'android_screenshot',
         description: 'Screenshot the device. Tap coordinates use these exact pixels.',
-        inputSchema: { type: 'object', properties: {} },
-        execute: () => look(''),
+        inputSchema: { type: 'object', properties: { serial: SERIAL } },
+        execute: (args: { serial?: string }) => look('', serialOf(args)),
       })
 
       ctx.tools.register({
@@ -86,13 +102,14 @@ export const androidPlugin: HarnessPlugin = {
           properties: {
             x: { type: 'number', description: 'Pixels from the left.' },
             y: { type: 'number', description: 'Pixels from the top.' },
+            serial: SERIAL,
           },
           required: ['x', 'y'],
         },
-        execute: async (args: { x: number; y: number }) => {
-          await ctx.android.tap(Number(args.x), Number(args.y))
+        execute: async (args: { x: number; y: number; serial?: string }) => {
+          await ctx.android.tap(Number(args.x), Number(args.y), serialOf(args))
           await new Promise((resolve) => setTimeout(resolve, 500))
-          return look(`Tapped (${Number(args.x)}, ${Number(args.y)})`)
+          return look(`Tapped (${Number(args.x)}, ${Number(args.y)})`, serialOf(args))
         },
       })
 
@@ -101,13 +118,13 @@ export const androidPlugin: HarnessPlugin = {
         description: 'Press a key: ENTER, BACK, HOME, TAB, or any KEYCODE_* name. Returns a screenshot.',
         inputSchema: {
           type: 'object',
-          properties: { key: { type: 'string' } },
+          properties: { key: { type: 'string' }, serial: SERIAL },
           required: ['key'],
         },
-        execute: async (args: { key: string }) => {
-          await ctx.android.key(String(args.key))
+        execute: async (args: { key: string; serial?: string }) => {
+          await ctx.android.key(String(args.key), serialOf(args))
           await new Promise((resolve) => setTimeout(resolve, 400))
-          return look(`Pressed ${String(args.key)}`)
+          return look(`Pressed ${String(args.key)}`, serialOf(args))
         },
       })
 
@@ -116,13 +133,13 @@ export const androidPlugin: HarnessPlugin = {
         description: 'Type text into the focused field, then return a screenshot.',
         inputSchema: {
           type: 'object',
-          properties: { text: { type: 'string' } },
+          properties: { text: { type: 'string' }, serial: SERIAL },
           required: ['text'],
         },
-        execute: async (args: { text: string }) => {
-          await ctx.android.text(String(args.text))
+        execute: async (args: { text: string; serial?: string }) => {
+          await ctx.android.text(String(args.text), serialOf(args))
           await new Promise((resolve) => setTimeout(resolve, 400))
-          return look('Typed')
+          return look('Typed', serialOf(args))
         },
       })
 
@@ -134,10 +151,11 @@ export const androidPlugin: HarnessPlugin = {
           properties: {
             lines: { type: 'number', description: 'How many lines (default 100, max 1000).' },
             tag: { type: 'string', description: 'Only this tag.' },
+            serial: SERIAL,
           },
         },
-        execute: async (args: { lines?: number; tag?: string }) =>
-          ctx.android.logcat(Number(args.lines) || 100, args.tag ? String(args.tag) : undefined),
+        execute: async (args: { lines?: number; tag?: string; serial?: string }) =>
+          ctx.android.logcat(Number(args.lines) || 100, args.tag ? String(args.tag) : undefined, serialOf(args)),
       })
     },
   },
