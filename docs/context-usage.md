@@ -279,10 +279,16 @@ wire carried nothing. Measured on a real 40-call store: output was thinking
 plus response on every call, and input *plus cache reads* grew call on call
 where input alone did not, so the store's input excludes the cached part and
 ACP's `inputTokens` adds it back. Live, a one-word reply was 11,650 in and 38
-out, 37 of them thinking. The store is opened read-only and only while the
-server holds it open: without the server's `-shm`, a read-only open would
-create one in the agent's folder, so such a store is left unread and the turn
-shows nothing rather than a guess.
+out, 37 of them thinking; and on a three-call, tool-using turn the desk
+recorded exactly what the store held when the prompt resolved, nothing arrived
+in the eight seconds after, and after a restart and a resume the store was open
+and readable before the next turn. A row that did land late would fall before
+the next turn's mark — missing from the total, never counted twice or under
+another turn. A turn with no model call is a turn of zero tokens, and a store
+the server holds that is not the shape measured is said once in the log. The
+store is opened read-only and only while the server holds it open: without the
+server's `-shm`, a read-only open would create one in the agent's folder, so
+such a store is left unread and the turn shows nothing rather than a guess.
 
 Neither agent says how big its window is. A model table could fill the ring,
 and the rule this document keeps is why it does not.

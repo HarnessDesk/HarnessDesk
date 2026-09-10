@@ -195,7 +195,7 @@ Measured across agent CLIs, installer packages, and help outputs on
 
 | Agent | Launch / Bridge | Floor | Roads & Update | Home & State | Authentication |
 | --- | --- | --- | --- | --- | --- |
-| Gemini CLI | `gemini --acp` | 0.58.0 | npm `@google/gemini-cli`, brew `gemini-cli`, npx | `~/.gemini` | `/auth` browser sign-in; accepts `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| Gemini CLI | `gemini --acp` | 0.58.0 | npm `@google/gemini-cli`, brew `gemini-cli`, npx | `~/.gemini` | `/auth` browser sign-in; accepts `GEMINI_API_KEY` (`GOOGLE_API_KEY` only once Vertex AI is chosen) |
 | OpenClaw | `openclaw acp` + Gateway | — | npm `openclaw` | `~/.openclaw` (`OPENCLAW_STATE_DIR`, `--profile`) | Gateway token (`gateway.auth.token`, `OPENCLAW_GATEWAY_TOKEN`) |
 | OpenCode | `opencode acp` | — | `~/.opencode/bin`, brew `opencode`, npm `opencode-ai`; `opencode upgrade` | `~/.local/share/opencode` (`XDG_DATA_HOME`, `OPENCODE_CONFIG`) | `opencode auth login` in terminal |
 | Cline | `cline --acp` | — | npm `cline`; `cline --update` | `~/.cline` (`--config`, `--data-dir`) | `cline auth` in terminal; accepts `CLINE_API_KEY` |

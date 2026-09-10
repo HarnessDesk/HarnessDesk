@@ -54,17 +54,25 @@ const blob = (call: Call): Uint8Array => {
   return Uint8Array.from([...message(2, [0x08, 0x01]), ...text(4, SESSION), ...int(10, 1), ...message(1, metadata)])
 }
 
-/** A `.gemini` folder holding one conversation store, open on the server's side as a live one is. */
-const store = (t: TestContext) => {
+/**
+ * A `.gemini` folder holding one conversation store, open on the server's
+ * side as a live one is. `table: false` is a store caught between its file
+ * and its schema — another of the server's tables is written, so the WAL and
+ * its `-shm` exist, but not the one the usage lives in.
+ */
+const store = (t: TestContext, { table = true }: { table?: boolean } = {}) => {
   const gemini = mkdtempSync(join(tmpdir(), 'hd-agy-'))
   const folder = join(gemini, 'antigravity-acp', 'conversations')
   mkdirSync(folder, { recursive: true })
   const path = join(folder, `${SESSION}.db`)
   const server = new DatabaseSync(path)
   server.exec('PRAGMA journal_mode=WAL')
-  server.exec(
-    'CREATE TABLE `gen_metadata` (`idx` integer,`data` blob,`size` integer NOT NULL DEFAULT 0,PRIMARY KEY (`idx`))',
-  )
+  server.exec('CREATE TABLE `trajectory_meta` (`trajectory_id` text, PRIMARY KEY (`trajectory_id`))')
+  const createTable = (): void =>
+    server.exec(
+      'CREATE TABLE `gen_metadata` (`idx` integer,`data` blob,`size` integer NOT NULL DEFAULT 0,PRIMARY KEY (`idx`))',
+    )
+  if (table) createTable()
   let open = true
   const close = (): void => {
     if (open) server.close()
@@ -74,11 +82,11 @@ const store = (t: TestContext) => {
   t.after(close)
   t.after(() => rmSync(gemini, { recursive: true, force: true }))
   let next = 0
-  const add = (call: Call): void => {
-    const data = blob(call)
+  const addRaw = (data: Uint8Array): void => {
     server.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)').run(next++, data, data.length)
   }
-  return { gemini, path, add, close }
+  const add = (call: Call): void => addRaw(blob(call))
+  return { gemini, path, add, addRaw, createTable, close }
 }
 
 test('a turn is the calls it added to the store, counted the way the agent counted them', (t) => {
@@ -98,7 +106,11 @@ test('a turn is the calls it added to the store, counted the way the agent count
     cachedReadTokens: 4078,
     thoughtTokens: 112 + 224,
   })
-  assert.equal(record.since(SESSION, 3), null, 'a turn that called no model has nothing to say')
+  assert.deepEqual(
+    record.since(SESSION, 3),
+    { totalTokens: 0, inputTokens: 0, outputTokens: 0 },
+    'a turn that called no model is a turn of nothing, and says so — or the one before it reads as the last',
+  )
 })
 
 test('a store with no calls yet, or none at all, marks the start of the conversation', (t) => {
@@ -151,4 +163,75 @@ test('only Antigravity keeps a record this way', () => {
   assert.ok(usageRecordFor({ id: 'antigravity-acp' }))
   assert.equal(usageRecordFor({ id: 'gemini' }), undefined)
   assert.equal(usageRecordFor(undefined), undefined)
+})
+
+test('a row that lands after its turn was read is in no turn: never counted twice, never under the next', (t) => {
+  const { gemini, add } = store(t)
+  const record = antigravityUsageRecord({ env: { GEMINI_HOME: gemini } })
+  const first = record.mark(SESSION) ?? -1
+  add({ input: 100, output: 10, thinking: 0, response: 10 })
+  assert.equal(record.since(SESSION, first)?.inputTokens, 100)
+  // Committed after the turn above was read and before the next was marked.
+  add({ input: 5000, output: 50, thinking: 0, response: 50 })
+  const second = record.mark(SESSION) ?? -1
+  add({ input: 200, output: 20, thinking: 0, response: 20 })
+  assert.equal(record.since(SESSION, second)?.inputTokens, 200)
+})
+
+test('a store opened before its table exists is empty, not unreadable, and its calls count once the table arrives', (t) => {
+  const { gemini, path, add, createTable } = store(t, { table: false })
+  const record = antigravityUsageRecord({ env: { GEMINI_HOME: gemini } })
+  assert.equal(existsSync(`${path}-shm`), true, 'the server has it open, so this is the table and not the -shm')
+  assert.equal(record.mark(SESSION), 0)
+  createTable()
+  add({ input: 100, output: 12, read: 30, thinking: 2, response: 10 })
+  assert.equal(record.since(SESSION, 0)?.inputTokens, 130)
+})
+
+test('a store not of the shape measured says so once, in the log, and shows nothing', (t) => {
+  const { gemini, addRaw } = store(t)
+  const said: unknown[][] = []
+  const record = antigravityUsageRecord({
+    env: { GEMINI_HOME: gemini },
+    warn: (message, details) => said.push([message, details]),
+  })
+  addRaw(Uint8Array.from(text(4, SESSION)))
+  assert.equal(record.since(SESSION, 0), null)
+  assert.equal(record.since(SESSION, 0), null)
+  assert.equal(said.length, 1, 'once for the session, not once a turn')
+  assert.match(String(said[0]?.[0]), /not the shape/)
+  assert.deepEqual(said[0]?.[1], { sessionId: SESSION, rows: 1 })
+})
+
+test('after a turn, a store still without its table is not the format either, and says so', (t) => {
+  const { gemini } = store(t, { table: false })
+  const said: unknown[] = []
+  const record = antigravityUsageRecord({ env: { GEMINI_HOME: gemini }, warn: (_message, details) => said.push(details) })
+  assert.equal(record.since(SESSION, 0), null)
+  assert.deepEqual(said, [{ sessionId: SESSION, missing: 'gen_metadata' }])
+})
+
+test("the wire format's own rules: a field given twice is its last value, a message given twice is merged, and order is free", () => {
+  const counts = [...int(3, 558), ...int(9, 462), ...int(10, 96)]
+  const twice = Uint8Array.from(message(1, message(4, [...int(2, 1), ...int(2, 7404), ...counts])))
+  assert.equal(usageOfCalls([twice])?.inputTokens, 7404)
+  const split = Uint8Array.from([
+    ...message(1, int(3, 326)),
+    ...message(2, [0x08, 0x01]),
+    ...message(1, message(4, [...int(2, 7404), ...counts])),
+  ])
+  assert.equal(usageOfCalls([split])?.inputTokens, 7404)
+  const reversed = Uint8Array.from([
+    ...int(10, 1),
+    ...message(1, [
+      ...text(19, 'gemini-3.8-flash'),
+      ...message(4, [...int(10, 96), ...int(9, 462), ...int(5, 4057), ...int(3, 558), ...int(2, 7404)]),
+      ...int(3, 326),
+    ]),
+    ...text(4, SESSION),
+  ])
+  assert.deepEqual(
+    usageOfCalls([reversed]),
+    usageOfCalls([blob({ input: 7404, output: 558, read: 4057, thinking: 462, response: 96 })]),
+  )
 })

@@ -149,7 +149,10 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       path: '~/.gemini',
       credentials: ['oauth_creds.json', 'google_accounts.json'],
       config: ['settings.json'],
-      note: 'GEMINI_API_KEY or GOOGLE_API_KEY in the environment stands in for the browser sign-in.',
+      // Measured on 0.59.0: `getAuthTypeFromEnv` chooses the key method from
+      // GEMINI_API_KEY and never from GOOGLE_API_KEY, which Gemini reads only
+      // inside a method already chosen (Vertex AI's express mode).
+      note: 'GEMINI_API_KEY in the environment stands in for the browser sign-in; GOOGLE_API_KEY does only once Vertex AI is chosen.',
     },
     auth: {
       kind: 'browser',
@@ -546,7 +549,7 @@ export const knownAgent = (id: string): KnownAgent | undefined =>
  * given is a name it has retired for this agent, the one given otherwise.
  * See `KnownAgent.formerNames`.
  */
-export const currentNameOf = (known: KnownAgent | undefined, name: string): string =>
+export const currentNameOf = (known: Pick<KnownAgent, 'name' | 'formerNames'> | undefined, name: string): string =>
   known?.formerNames?.includes(name) ? known.name : name
 
 /** The known agent a CLI name belongs to, for rows that name only a command. */

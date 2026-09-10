@@ -212,6 +212,32 @@ test('a turn counted in `_meta.quota` is the turn usage, with no window and no c
   }
 })
 
+test('FAKE_ACP_USAGE=quota makes an ordinary turn answer as Gemini CLI does — the screenshot rig’s knob, held', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_USAGE: 'quota' },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'hello there' }])
+    await tape.until((event) => event.type === 'turn/completed')
+    assert.deepEqual((await runtime.readSession(session.id)).usage?.last, {
+      totalTokens: 15230,
+      inputTokens: 14900,
+      cachedInputTokens: 0,
+      outputTokens: 330,
+      reasoningOutputTokens: 0,
+    })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 /** The fake agent, with a usage record of its own — the way Antigravity keeps one. */
 const withRecord = (usageRecord: AcpUsageRecord): AcpRuntime =>
   new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE], usageRecord })

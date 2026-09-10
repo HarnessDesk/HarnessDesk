@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import type { Account } from '@harnessdesk/protocol'
 
@@ -25,6 +25,8 @@ import type { KnownAgent } from './known-agents.js'
 export interface IdentityContext {
   /** The row's arguments, for an agent whose folder moves with a flag. */
   readonly args?: readonly string[]
+  /** Where the agent is started; a relative folder in its arguments is relative to this. */
+  readonly cwd?: string
   /** The environment the agent is started with. Defaults to the host's own. */
   readonly env?: Readonly<Record<string, string | undefined>>
   /** The home directory. Tests point it somewhere else. */
@@ -95,12 +97,20 @@ const geminiIdentity = (context: IdentityContext): Account | null => {
   }
 }
 
-/** Gemini CLI's own fallback when no method is chosen (`getAuthTypeFromEnv`). */
+/**
+ * Gemini CLI's own fallback when no method is chosen — `getAuthTypeFromEnv`
+ * in 0.59.0, branch for branch and in its order. `GOOGLE_API_KEY` is not in
+ * it, and not by omission: Gemini reads that key only inside a method already
+ * chosen (Vertex AI's express mode, or preferred over `GEMINI_API_KEY` once
+ * the key method is), and on its own it chooses nothing — so no session opens
+ * for there to be anyone to name.
+ */
 const geminiMethodFromEnv = (env: Readonly<Record<string, string | undefined>>): string | null => {
   if (env['GOOGLE_GENAI_USE_GCA'] === 'true') return 'oauth-personal'
   if (env['GOOGLE_GENAI_USE_VERTEXAI'] === 'true') return 'vertex-ai'
   if (nonEmpty(env['GOOGLE_GEMINI_BASE_URL'])) return 'gateway'
   if (nonEmpty(env['GEMINI_API_KEY'])) return 'gemini-api-key'
+  if (env['CLOUD_SHELL'] === 'true' || env['GEMINI_CLI_USE_COMPUTE_ADC'] === 'true') return 'compute-default-credentials'
   return null
 }
 
@@ -146,7 +156,12 @@ const clineIdentity = (context: IdentityContext): Account | null => {
   const dataDir = flagValue(args, '--data-dir')
   if (dataDir === null && flagValue(args, '--config') !== null) return null
   const home = context.home ?? homedir()
-  const folder = dataDir === null ? join(home, '.cline', 'data') : dataDir.replace(/^~(?=$|\/)/, home)
+  // A relative folder is relative to where Cline runs: the row's `cwd`, or
+  // the desk's own directory, which an agent started without one inherits.
+  const folder =
+    dataDir === null
+      ? join(home, '.cline', 'data')
+      : resolve(context.cwd ?? process.cwd(), dataDir.replace(/^~(?=$|\/)/, home))
   const settings = readJson(join(folder, 'settings', 'providers.json'))
   const provider =
     flagValue(args, '--provider') ?? flagValue(args, '-P') ?? nonEmpty(at(settings, 'lastUsedProvider')) ?? 'cline'

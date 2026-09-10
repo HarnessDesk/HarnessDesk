@@ -27,6 +27,11 @@ import type { KnownAgent } from '../installs/known-agents.js'
  * cache writes together. The field numbers are the descriptor's own
  * (`exa.codeium_common_pb.ModelUsageStats`, compiled into the server).
  *
+ * The turn's boundary is the server's own answer. Rows are read the moment
+ * `session/prompt` resolves; a row committed after that read, and the rows of
+ * a turn whose read failed, fall before the next turn's mark — missing from
+ * the session's total, never counted twice and never under another turn.
+ *
  * Nothing here writes. A WAL database opened read-only maps the `-shm` the
  * server made; where there is none, opening it would create one in the
  * agent's folder, so a store the server does not have open is left unread,
@@ -47,11 +52,25 @@ const CALL_USAGE = 4
 /** A session id names a file here, so only a plain one is ever joined to a path. */
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 
+/**
+ * A turn the store shows no model call for — a command the agent answered
+ * itself, a turn stopped before it asked anything. That is news, not silence:
+ * the last turn is this one, and it spent nothing.
+ */
+const NO_CALLS: AcpUsage = { totalTokens: 0, inputTokens: 0, outputTokens: 0 }
+
 export interface AntigravityStoreOptions {
   /** The environment the server runs in; `GEMINI_HOME`, when set, is its `.gemini` folder. */
   readonly env?: Readonly<Record<string, string | undefined>>
   /** The home directory. Tests point it somewhere else. */
   readonly home?: string
+  /**
+   * Told when a store the server has open is not the shape measured — the
+   * one sign that the vendor changed its format, which would otherwise read
+   * exactly like a conversation with no usage. Once per session, so a changed
+   * format is a line in the log rather than silence, and not a line a turn.
+   */
+  readonly warn?: (message: string, details?: unknown) => void
 }
 
 /** The record for the agent a row drives, when it is one that counts only in its own store. */
@@ -61,6 +80,17 @@ export const usageRecordFor = (
 ): AcpUsageRecord | undefined => (known?.id === 'antigravity-acp' ? antigravityUsageRecord(options) : undefined)
 
 export const antigravityUsageRecord = (options: AntigravityStoreOptions = {}): AcpUsageRecord => {
+  const warned = new Set<string>()
+  const unreadable = (sessionId: string, details: Readonly<Record<string, unknown>>): null => {
+    if (!warned.has(sessionId)) {
+      warned.add(sessionId)
+      options.warn?.("Antigravity's conversation store is not the shape this desk reads; its usage is not shown", {
+        sessionId,
+        ...details,
+      })
+    }
+    return null
+  }
   const storeOf = (sessionId: string): string | null => {
     if (!SESSION_ID.test(sessionId)) return null
     const env = options.env ?? process.env
@@ -74,6 +104,9 @@ export const antigravityUsageRecord = (options: AntigravityStoreOptions = {}): A
       // No store yet: everything it comes to hold is this turn's or later.
       if (!existsSync(path)) return 0
       return readStore(path, (database) => {
+        // A store opened before its tables were written is as empty as one
+        // that does not exist yet.
+        if (!hasCallTable(database)) return 0
         const row = database.prepare('SELECT COALESCE(MAX(idx), -1) + 1 AS next FROM gen_metadata').get() as
           | { next?: unknown }
           | undefined
@@ -84,16 +117,29 @@ export const antigravityUsageRecord = (options: AntigravityStoreOptions = {}): A
       const path = storeOf(sessionId)
       if (path === null || !existsSync(path)) return null
       return readStore(path, (database) => {
+        // After a turn, a store still without its table is not a young one:
+        // whatever it is, it is not the format this reads.
+        if (!hasCallTable(database)) return unreadable(sessionId, { missing: 'gen_metadata' })
         const rows = database.prepare('SELECT data FROM gen_metadata WHERE idx >= ? ORDER BY idx').all(mark) as {
           data?: unknown
         }[]
-        return usageOfCalls(rows.flatMap((row) => (row.data instanceof Uint8Array ? [row.data] : [])))
+        if (rows.length === 0) return NO_CALLS
+        const blobs = rows.flatMap((row) => (row.data instanceof Uint8Array ? [row.data] : []))
+        return usageOfCalls(blobs) ?? unreadable(sessionId, { rows: rows.length })
       })
     },
   }
 }
 
-/** One query against a store the server has open, and nothing else; null on any failure. */
+const hasCallTable = (database: DatabaseSync): boolean =>
+  database.prepare("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'gen_metadata'").get() !==
+  undefined
+
+/**
+ * One query against a store the server has open, and nothing else; null on
+ * any failure. Nothing retries it: the turn it was for shows no usage, and
+ * its rows fall before the next turn's mark (see above).
+ */
 const readStore = <T>(path: string, query: (database: DatabaseSync) => T | null): T | null => {
   // See above: without the server's `-shm`, a read-only open would make one.
   if (!existsSync(`${path}-shm`)) return null
@@ -101,7 +147,7 @@ const readStore = <T>(path: string, query: (database: DatabaseSync) => T | null)
   try {
     database = new DatabaseSync(path, { readOnly: true })
   } catch {
-    // Locked, or mid-checkpoint. The next turn reads it.
+    // Locked, or mid-checkpoint: this read answers nothing.
     return null
   }
   try {
@@ -154,8 +200,8 @@ export const usageOfCalls = (blobs: readonly Uint8Array[]): AcpUsage | null => {
 /** One call's usage out of a `gen_metadata` row, or null for a row not of the measured shape. */
 const callUsageOf = (blob: Uint8Array): CallUsage | null => {
   try {
-    const metadata = firstMessage(blob, CALL_METADATA)
-    const usage = metadata ? firstMessage(metadata, CALL_USAGE) : null
+    const metadata = messageAt(blob, CALL_METADATA)
+    const usage = metadata ? messageAt(metadata, CALL_USAGE) : null
     if (!usage) return null
     const counts = varints(usage)
     if (!counts.has(INPUT) && !counts.has(OUTPUT)) return null
@@ -213,6 +259,10 @@ function* fieldsOf(message: Uint8Array): Generator<Field> {
   }
 }
 
+/**
+ * A varint, as a JavaScript number. Exact to 2^53, which no token count, tag
+ * or length in these rows comes near; the ten-byte bound is the format's own.
+ */
 const varint = (bytes: Uint8Array, start: number): [number, number] => {
   let value = 0
   let scale = 1
@@ -225,15 +275,23 @@ const varint = (bytes: Uint8Array, start: number): [number, number] => {
   throw new Error('truncated varint')
 }
 
-const firstMessage = (message: Uint8Array, number: number): Uint8Array | null => {
-  for (const field of fieldsOf(message)) if (field.number === number && field.bytes) return field.bytes
-  return null
+/**
+ * An embedded message, every occurrence of the field concatenated. The wire
+ * format's rule is that a message field given twice is the two merged, and
+ * concatenating their bytes is that merge — so a writer that splits one reads
+ * the same as one that does not. Null when the field never occurs.
+ */
+const messageAt = (message: Uint8Array, number: number): Uint8Array | null => {
+  const parts: Uint8Array[] = []
+  for (const field of fieldsOf(message)) if (field.number === number && field.bytes) parts.push(field.bytes)
+  if (parts.length === 0) return null
+  return parts.length === 1 ? parts[0]! : Buffer.concat(parts)
 }
 
-/** Every varint field of a message, the first occurrence of each. */
+/** Every varint field of a message; a field given twice is its last value, as the wire format says. */
 const varints = (message: Uint8Array): Map<number, number> => {
   const out = new Map<number, number>()
-  for (const field of fieldsOf(message)) if (field.wire === 0 && !out.has(field.number)) out.set(field.number, field.value)
+  for (const field of fieldsOf(message)) if (field.wire === 0) out.set(field.number, field.value)
   return out
 }
 

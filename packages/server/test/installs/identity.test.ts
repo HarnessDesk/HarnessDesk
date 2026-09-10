@@ -132,6 +132,27 @@ test('Cline is named by the account its provider in use signed in to', (t) => {
   assert.equal(read('cline', { home: signedIn, args: ['--acp', '--config', '/elsewhere'] }), null, '--config alone is not guessed at')
 })
 
+test("Gemini CLI's environment fallback is its own, branch for branch — and GOOGLE_API_KEY alone chooses nothing", (t) => {
+  const empty = home(t, {})
+  assert.equal(read('gemini', { home: empty, env: { CLOUD_SHELL: 'true' } })?.label, 'Google Cloud credentials')
+  assert.equal(read('gemini', { home: empty, env: { GEMINI_CLI_USE_COMPUTE_ADC: 'true' } })?.label, 'Google Cloud credentials')
+  // Gemini reads GOOGLE_API_KEY only inside a method already chosen; on its
+  // own it chooses none, and no session opens (getAuthTypeFromEnv, 0.59.0).
+  assert.equal(read('gemini', { home: empty, env: { GOOGLE_API_KEY: 'k' } }), null)
+})
+
+test('a relative --data-dir is relative to where Cline runs, not to the desk', (t) => {
+  const moved = home(t, {
+    'state/settings/providers.json': {
+      version: 1,
+      lastUsedProvider: 'cline',
+      modes: {},
+      providers: { cline: { settings: { auth: { metadata: { userInfo: { email: 'dev@example.com' } } } } } },
+    },
+  })
+  assert.equal(read('cline', { home: home(t, {}), cwd: moved, args: ['--acp', '--data-dir', 'state'] })?.email, 'dev@example.com')
+})
+
 test('an agent the desk keeps no reader for gets none, and the observation stands', () => {
   assert.equal(identityReaderFor({ id: 'claude-code' }), undefined)
   assert.equal(identityReaderFor(undefined), undefined)
