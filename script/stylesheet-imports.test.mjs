@@ -11,6 +11,9 @@ test('a stylesheet import is read whatever its file is called', () => {
     "import plain from './Composer.module.css'",
     // Either quote, the same one at both ends (review of #183).
     'import quoted from "./double-quoted.module.css"',
+    // Any whitespace between the words, and a dot in the name (round 2 of #183's review).
+    "import   spaced   from   './spaced.module.css'",
+    "import dotted from './name.sub.module.css'",
     `import odd from './mismatched.module.css"`,
     "import other from '../elsewhere.module.css'",
     "import data from './data.json'",
@@ -20,6 +23,8 @@ test('a stylesheet import is read whatever its file is called', () => {
     { binding: 'board', file: 'rail_board2.module.css' },
     { binding: 'plain', file: 'Composer.module.css' },
     { binding: 'quoted', file: 'double-quoted.module.css' },
+    { binding: 'spaced', file: 'spaced.module.css' },
+    { binding: 'dotted', file: 'name.sub.module.css' },
   ])
 })
 
@@ -41,6 +46,8 @@ test('a commented-out import is not an import', () => {
   const source = [
     "// import gone from './line-comment.module.css'",
     "/* import also from './block-comment.module.css' */",
+    // Round 2: a line comment after code, which bareSource leaves in.
+    "const x = 1 // import trailing from './trailing-comment.module.css'",
     "import kept from './kept.module.css'",
   ].join('\n')
   assert.deepEqual(stylesheetImports(source), [{ binding: 'kept', file: 'kept.module.css' }])

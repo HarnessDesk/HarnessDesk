@@ -21,10 +21,12 @@ export const bareSource = (source) =>
  * skipped `panel-playground.module.css` and six more with a hyphen in them, so
  * the design audit never read them, and four classes that one does not define
  * went unreported (#91, #80). The source is read without its comments: a
- * commented-out import is not an import (review of #183).
+ * commented-out import is not an import (review of #183). And an import is a
+ * statement at the start of a line, so one quoted in a trailing comment is
+ * not read either (round 2).
  */
 export const stylesheetImports = (source) =>
-  [...bareSource(source).matchAll(/import (\w+) from (['"])\.\/([\w-]+\.module\.css)\2/g)].map((match) => ({
+  [...bareSource(source).matchAll(/^\s*import\s+(\w+)\s+from\s+(['"])\.\/([\w.-]+\.module\.css)\2/gm)].map((match) => ({
     binding: match[1],
     file: match[3],
   }))
