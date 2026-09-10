@@ -661,3 +661,61 @@ test('a contracted negation is a signed-out sentence too', () => {
   assert.deepEqual(parseStatus('Logged in as user@example.com'), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }, 'the control')
 })
 
+
+test('a negation in another clause, or a sign-out in the past, does not sign out the account a sentence names', () => {
+  // Round 9 of #134: a negation reached across `!`, `?` and `;`, and "logged out" counted wherever it stood.
+  const signedIn = { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }
+  for (const text of [
+    'Could not check for updates! Logged in as user@example.com',
+    'Not sure which account? Logged in as user@example.com',
+    'Do not share your token; logged in as user@example.com',
+    'Logged in as user@example.com\nLast logged out 2 days ago',
+    'Logged in as user@example.com (previously logged out)',
+  ]) {
+    assert.deepEqual(parseStatus(text), signedIn, text)
+  }
+  // A sign-out that is the state now still is one.
+  for (const text of ['Logged out.', 'You were logged out. Sign in again to continue.', 'Your session was signed out']) {
+    assert.equal(parseStatus(text), null, text)
+  }
+})
+
+test('an object inside a sentence is cut from it, not made a break in it', () => {
+  // Round 9 of #134: a braced chunk became a line break, which ended the clause its negation was in.
+  assert.equal(parseStatus('Not {cache} logged in as user@example.com'), null)
+  assert.equal(parseStatus('Not {"level":"debug"} logged in as user@example.com'), null)
+})
+
+test('a status record names its plan as planType, plan or subscriptionType', () => {
+  // Round 9 of #134: only planType was read in any test.
+  for (const key of ['planType', 'plan', 'subscriptionType']) {
+    assert.deepEqual(
+      parseStatus(JSON.stringify({ loggedIn: true, email: 'dev@example.com', [key]: 'pro' })),
+      { kind: 'cli', label: 'dev@example.com', email: 'dev@example.com', planType: 'pro' },
+      key,
+    )
+  }
+})
+
+test('a URL the CLI prints on stderr is handed out like one on stdout', async () => {
+  // Round 9 of #134: both streams are scanned, and every test printed its URL on stdout.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events, 1_000).login()
+  child.stderr.emit('data', Buffer.from('Open https://auth.example.com/flow/err to sign in\n'))
+  const started = (await login) as { url: string }
+  assert.equal(started.url, 'https://auth.example.com/flow/err')
+})
+
+test('a flow that printed nothing but its URL says how it ended', async () => {
+  // Round 9 of #134: the URL is left out of an ending's last words, and with nothing else printed the exit is the ending.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.stdout.emit('data', Buffer.from('https://auth.example.com/flow/only\n'))
+  await login
+  child.emit('exit', 1, null)
+  await tick()
+  const ended = events.find((event) => event.type === 'account/loginCompleted') as { error?: string } | undefined
+  assert.equal(ended?.error, 'The sign-in command exited with code 1.')
+})

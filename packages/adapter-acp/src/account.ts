@@ -352,11 +352,14 @@ const statusRecords = (
     }
     if (emailOnly === null && typeof record['email'] === 'string' && record['email'] !== '') emailOnly = record
   }
-  // The text around the objects, each object a line break, and nothing after a record cut short.
+  /* The text around the objects, and nothing after a record cut short. An
+     object is cut out of the sentence it sits in, not made a break in it: a
+     break ends a clause, and `Not {cache} logged in as …` read as signed in
+     (review, round nine). */
   let prose = ''
   let from = 0
   for (const [start, stop] of objects) {
-    prose += `${text.slice(from, start)}\n`
+    prose += `${text.slice(from, start)} `
     from = stop
   }
   return { status: null, emailOnly, prose: prose + text.slice(from, end) }
@@ -366,9 +369,12 @@ const statusRecords = (
  * A sentence saying nobody is signed in: a negation anywhere in the clause
  * before the verb, or signed out. A negation is `not`, `no longer`, `never`,
  * or a contraction of one, `aren't` or `isn't`, in either apostrophe
- * (review, round eight).
+ * (review, round eight). A clause ends at `!`, `?` and `;` as it does at a
+ * full stop, and a sign-out said to be in the past ("last logged out") is
+ * not the state now, where "you were logged out" still is (review, round
+ * nine).
  */
-const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)[^.\n]*?\b(?:logged|signed) in\b|\b(?:logged|signed) out\b/i
+const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)[^.!?;\n]*?\b(?:logged|signed) in\b|(?<!\b(?:last|previously|formerly)\s+)\b(?:logged|signed) out\b/i
 
 /** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
 const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
