@@ -176,3 +176,69 @@ test('no double-check while one is running', () => {
   assert.equal(updater.calls.checks, 1)
   flow.dispose()
 })
+
+test('a check once the update is downloaded keeps it, and an asked-for one offers the restart', async () => {
+  // #48: the four-hourly check ran with an update ready, and the menu went back to Check for Updates.
+  const { updater, dialogs, flow } = rig({ answer: 1 })
+  flow.check(false)
+  updater.emit('checking-for-update')
+  updater.emit('update-available', { version: '0.2.0' })
+  updater.emit('update-downloaded', { version: '0.2.0' })
+  const checks = updater.calls.checks
+  flow.check(false)
+  assert.equal(updater.calls.checks, checks, 'the background check did not run')
+  assert.equal(flow.menu().label, 'Restart to Update (0.2.0)')
+  flow.check(true)
+  assert.equal(updater.calls.checks, checks, 'nor the asked-for one')
+  assert.equal(dialogs.at(-1)?.message, 'HarnessDesk 0.2.0 is ready')
+  await Promise.resolve()
+  assert.equal(updater.calls.installs, 0, 'Later leaves it for the next quit')
+  flow.dispose()
+})
+
+test('the restart offer answers Escape with Later, and Restart Now from it installs', async () => {
+  // Round 1 of #165: with no cancel button named, Electron answers 0 for Escape, and 0 was Restart Now.
+  const later = rig({ answer: 1 })
+  later.updater.emit('update-downloaded', { version: '0.2.0' })
+  later.flow.check(true)
+  const offer = later.dialogs.at(-1)
+  assert.equal(offer?.buttons[offer.cancelId], 'Later')
+  later.flow.dispose()
+
+  const now = rig({ answer: 0 })
+  now.updater.emit('update-downloaded', { version: '0.2.0' })
+  now.flow.check(true)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(now.updater.calls.installs, 1)
+  now.flow.dispose()
+})
+
+test('a dialog that fails is logged, not left to crash the shell', async () => {
+  // Round 1 of #165: the shell reads an unhandled rejection as a crash and relaunches.
+  const updater = fakeUpdater()
+  const logged = []
+  const unhandled = []
+  const onUnhandled = (reason) => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const flow = attachAppUpdates({
+      updater,
+      env: {},
+      packaged: true,
+      version: '0.1.0',
+      onMenu: () => {},
+      showDialog: () => Promise.reject(new Error('the window closed')),
+      log: (message) => logged.push(message),
+    })
+    updater.emit('update-downloaded', { version: '0.2.0' })
+    flow.check(true)
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(unhandled, [])
+    assert.ok(logged.includes('app update dialog failed'))
+    assert.equal(updater.calls.installs, 0)
+    flow.dispose()
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})
