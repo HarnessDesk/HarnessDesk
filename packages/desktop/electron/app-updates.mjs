@@ -111,8 +111,28 @@ export const attachAppUpdates = ({
         }
   const publish = () => onMenu(menu())
 
+  /** What a downloaded update offers: restart now, or let it install at the next quit. */
+  const offerRestart = () => {
+    void showDialog({
+      message: `HarnessDesk ${readyVersion} is ready`,
+      detail: 'Restart to finish updating, or keep working — it installs when you next quit.',
+      buttons: ['Restart Now', 'Later'],
+    }).then((choice) => {
+      if (choice === 0) updater.quitAndInstall()
+    })
+  }
+
   const check = (wanted = false) => {
     if (phase === 'checking' || phase === 'downloading') return
+    /* A downloaded update is the newest there is to find, and checking again
+       only loses it: the updater's `checking-for-update` takes the phase off
+       ready, and the four-hourly check turned "Restart to Update" back into
+       "Check for Updates" with the build still on disk (#48). Asked for, the
+       answer is the restart that check would have led to. */
+    if (phase === 'ready') {
+      if (wanted) offerRestart()
+      return
+    }
     interactive = Boolean(wanted)
     updater.checkForUpdates()?.catch?.(() => {})
   }
@@ -148,13 +168,7 @@ export const attachAppUpdates = ({
     publish()
     if (interactive) {
       interactive = false
-      void showDialog({
-        message: `HarnessDesk ${readyVersion} is ready`,
-        detail: 'Restart to finish updating, or keep working — it installs when you next quit.',
-        buttons: ['Restart Now', 'Later'],
-      }).then((choice) => {
-        if (choice === 0) updater.quitAndInstall()
-      })
+      offerRestart()
     }
   })
 

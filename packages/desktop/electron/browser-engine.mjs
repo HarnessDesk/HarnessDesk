@@ -2,6 +2,7 @@ import { ipcMain, webContents } from 'electron'
 
 import { answered } from './deadline.mjs'
 import { printOptions, printResult } from './pdf.mjs'
+import { createWaiters } from './waiters.mjs'
 
 /**
  * The browser engine for the desktop shell: the browser pane inside the
@@ -34,8 +35,8 @@ const EVENT_CAP = 3_000
 export const createInlineBrowserEngine = ({ window: currentWindow, show }) => {
   /** @type {import('electron').WebContents | null} */
   let guest = null
-  /** @type {((wc: import('electron').WebContents) => void)[]} */
-  let waiting = []
+  /** Callers of `ensure` waiting for the pane to name its guest. */
+  const waiters = createWaiters()
   /**
    * Every guest the pane has ever named, so a request to photograph one can
    * be checked against the pane's own tabs rather than against any
@@ -58,9 +59,7 @@ export const createInlineBrowserEngine = ({ window: currentWindow, show }) => {
         if (guest === found) guest = null
       })
     }
-    const resolvers = waiting
-    waiting = []
-    for (const resolve of resolvers) resolve(found)
+    waiters.settle(found)
   })
   ipcMain.on('harnessdesk:browser-gone', () => {
     guest = null
@@ -149,16 +148,7 @@ export const createInlineBrowserEngine = ({ window: currentWindow, show }) => {
       }
       const window = (await show()) ?? currentWindow()
       if (!window) throw new Error('HarnessDesk has no window to show a browser in.')
-      const ready = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          waiting = waiting.filter((entry) => entry !== resolve)
-          reject(new Error('The browser pane did not open in time.'))
-        }, READY_TIMEOUT_MS)
-        waiting.push((wc) => {
-          clearTimeout(timer)
-          resolve(wc)
-        })
-      })
+      const ready = waiters.wait(READY_TIMEOUT_MS, 'The browser pane did not open in time.')
       window.webContents.send('harnessdesk:browser-show', { url: 'about:blank' })
       return attached(await ready)
     },
