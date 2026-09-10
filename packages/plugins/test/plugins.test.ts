@@ -620,6 +620,131 @@ test('a contribution added after load announces itself — the live-panel regres
   assert.ok(last.contributions.some((entry) => entry.kind === 'ui'))
 })
 
+test('todo_write reads the list under the key an agent uses, and a call with no list changes nothing', async (t) => {
+  // #57: Claude Code and Cursor send `todos`. Read from `tasks` alone, that
+  // arrived as nothing, which is how a plan is put down, and the plan was wiped.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-keys' as SessionId }
+  const list = async (): Promise<string> => text(await kernel.invokeTool(read, {}, scope))
+
+  await kernel.invokeTool(write, { tasks: ['design', 'build'] }, scope)
+  await kernel.invokeTool(write, { todos: [{ task: 'design', status: 'done' }, { task: 'build', status: 'inProgress' }] }, scope)
+  assert.match(await list(), /\[x\] 1\. design/)
+  assert.match(await list(), /\[~\] 2\. build/)
+  await kernel.invokeTool(write, { plan: [{ task: 'ship' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. ship$/)
+
+  // No list named at all is a malformed call, not a plan put down.
+  assert.match(text(await kernel.invokeTool(write, {}, scope)), /takes the whole list/)
+  assert.match(await list(), /^\[ \] 1\. ship$/)
+  // Putting it down on purpose still works.
+  await kernel.invokeTool(write, { tasks: [] }, scope)
+  assert.match(await list(), /empty/)
+})
+
+test('todo_write takes the list with entries, as the Tasks panel does, and refuses one that is not a list', async (t) => {
+  // Round one: an empty `tasks` beside a full `todos` put the plan down here
+  // while the panel, which prefers a list with entries, showed the todos.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-precedence' as SessionId }
+  const list = async (): Promise<string> => text(await kernel.invokeTool(read, {}, scope))
+
+  await kernel.invokeTool(write, { tasks: [], todos: [{ task: 'build' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. build$/)
+  assert.match(text(await kernel.invokeTool(write, { todos: 'nope' }, scope)), /"todos" has to be a list/)
+  assert.match(await list(), /^\[ \] 1\. build$/, 'refused, and unchanged')
+  // Every list empty is the clear.
+  await kernel.invokeTool(write, { tasks: [], plan: [] }, scope)
+  assert.match(await list(), /empty/)
+})
+
+test('todo_write reads the list the Tasks panel reads, in the order it reads them', async (t) => {
+  // Round two: an unreadable `tasks` refused a call whose `todos` the panel read.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-parity' as SessionId }
+  const list = async (): Promise<string> => text(await kernel.invokeTool(read, {}, scope))
+
+  await kernel.invokeTool(write, { tasks: [{}], todos: [{ task: 'ship' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. ship$/)
+  // Two readable lists: the call's own first, as the panel reads it.
+  await kernel.invokeTool(write, { todos: [{ task: 'b' }], tasks: [{ task: 'a' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. b$/)
+  // Claude Code's and Cursor's own shape: content, and their words for done.
+  await kernel.invokeTool(write, { todos: [{ content: 'design', status: 'completed' }] }, scope)
+  assert.match(await list(), /^\[x\] 1\. design$/)
+})
+
+test('cancelling every task puts the plan down, rather than being refused as unreadable', async (t) => {
+  // #58: cancelled tasks leave the list, and the readable-text check ran after they had.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-cancel' as SessionId }
+
+  await kernel.invokeTool(write, { tasks: ['design', 'build'] }, scope)
+  const answer = text(
+    await kernel.invokeTool(write, { tasks: [{ task: 'design', status: 'cancelled' }, { task: 'build', status: 'cancelled' }] }, scope),
+  )
+  assert.doesNotMatch(answer, /readable text/)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /empty/)
+
+  // Entries with nothing readable are still refused, and still leave the list alone.
+  await kernel.invokeTool(write, { tasks: ['ship'] }, scope)
+  assert.match(text(await kernel.invokeTool(write, { tasks: [{}, 42] }, scope)), /None of those 2 entries had readable text/)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /^\[ \] 1\. ship$/)
+})
+
+test('cancelling every task under todos puts the plan down too, whatever spelling cancels it', async (t) => {
+  // Round 3 of #151: the cancel-all case was pinned under `tasks` alone.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-cancel-todos' as SessionId }
+  await kernel.invokeTool(write, { todos: [{ content: 'design' }, { content: 'build' }] }, scope)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /design/, 'the control: the list was set')
+  await kernel.invokeTool(
+    write,
+    { todos: [{ content: 'design', status: 'TODO_STATUS_CANCELLED' }, { content: 'build', status: 'cancelled' }] },
+    scope,
+  )
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /empty/)
+})
+
+test('a list with an unreadable entry and a cancelled one is put down, as the Tasks panel reads it', async (t) => {
+  // Round 3 of #151: the one task that can be read was cancelled, and the entry beside it says nothing.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-cancel-mixed' as SessionId }
+  await kernel.invokeTool(write, { tasks: ['ship'] }, scope)
+  assert.doesNotMatch(text(await kernel.invokeTool(write, { tasks: [{}, { task: 'design', status: 'cancelled' }] }, scope)), /readable text/)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /empty/)
+})
+
 // ---------------------------------------------------------------- context chips
 
 test('git contributes chips that stay out of every turn and resolve on demand', async (t) => {

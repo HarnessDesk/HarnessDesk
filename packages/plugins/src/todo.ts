@@ -1,5 +1,5 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
-import { planLabel, planStatus, type PlanStatus, type ScopeQuery } from '@harnessdesk/protocol'
+import { PLAN_ARRAY_KEYS, planLabel, planStatus, type PlanStatus, type ScopeQuery } from '@harnessdesk/protocol'
 
 /**
  * A task list, for an agent whose own runtime gives it none.
@@ -31,6 +31,14 @@ export interface TodoItem {
   readonly task: string
   readonly status: Exclude<TodoStatus, 'cancelled'>
 }
+
+/**
+ * Where a call's list can be. The schema names `tasks`, but an agent sends the
+ * list under whatever key its own plan tool uses — Claude Code and Cursor say
+ * `todos` (`PLAN_ARRAY_KEYS`). Which of them holds the list is settled the way
+ * the Tasks panel settles it, in the call's own order: see `execute`.
+ */
+const LIST_KEYS = ['tasks', ...PLAN_ARRAY_KEYS.filter((name) => name !== 'tasks')]
 
 /** Renders the list the way it will be shown to the model and to the user. */
 export const renderTodos = (items: readonly TodoItem[]): string => {
@@ -152,22 +160,60 @@ export const todoPlugin: HarnessPlugin = {
         // the statuses here and nowhere else, so the transcript — the thing
         // the panel and every hand-off read — held a list that had stopped
         // being true after the first status change.
-        execute: (args: { tasks: unknown[] }, scope: ScopeQuery) => {
+        execute: (args: Readonly<Record<string, unknown>>, scope: ScopeQuery) => {
           const key = listKey(scope)
           // Statuses an entry does not state are carried over by task text, so
           // re-sending the list to append one item does not silently reopen
           // everything already finished.
           const previous = new Map(listFor(key).map((item) => [item.task, item.status]))
-          const sent = args.tasks ?? []
+          /* The list, under any key an agent uses for one. Read from `tasks`
+             alone, a list sent as `todos` arrived as nothing — and nothing is
+             how a plan is put down, so the plan was wiped (#57). A call that
+             names no list at all is refused rather than read as an empty one:
+             putting a plan down is `tasks: []`, said on purpose. */
+          // In the call's own order, the order `planOf` walks it in.
+          const present = Object.keys(args ?? {}).filter(
+            (name) => (LIST_KEYS as readonly string[]).includes(name) && args[name] !== undefined,
+          )
+          if (present.length === 0) {
+            return `todo_write takes the whole list, as "tasks". The list is unchanged:\n${renderTodos(listFor(key))}`
+          }
           // The schema says an array; a model that sends a bare string would
           // otherwise take `.map` with it and come back a runtime TypeError
           // instead of something it can act on.
-          if (!Array.isArray(sent)) {
-            return `"tasks" has to be a list. The list is unchanged:\n${renderTodos(listFor(key))}`
+          const arrays = present.filter((name) => Array.isArray(args[name]))
+          if (arrays.length === 0) {
+            return `"${present[0]}" has to be a list. The list is unchanged:\n${renderTodos(listFor(key))}`
           }
-          const items = sent
-            .map(readItem)
-            .filter((entry): entry is { task: string; status: TodoStatus | null } => entry !== null)
+          /* The rule the Tasks panel reads the same call by (`planOf`): a list
+             with entries wins, and only when every list the call carries is
+             empty is it a clear. First-present-wins let an empty `tasks` beside
+             a full `todos` put the plan down here while the panel showed the
+             `todos` (review, round one). */
+          const readableIn = (name: string) =>
+            (args[name] as unknown[])
+              .map(readItem)
+              .filter((entry): entry is { task: string; status: TodoStatus | null } => entry !== null)
+          /* And the whole of that rule: the first list holding a task that can
+             be read wins, whatever it says of it. Taking the first list with
+             entries, readable or not, refused a call whose later list the
+             panel read as the plan (review, round two). */
+          const named =
+            arrays.find((name) => readableIn(name).length > 0) ??
+            arrays.find((name) => (args[name] as unknown[]).length > 0) ??
+            arrays[0]!
+          const sent = args[named] as unknown[]
+          const readable = readableIn(named)
+          // Sending nothing is how a plan is put down, and is honoured. Sending
+          // tasks that cannot be read is a malformed call, and emptying the
+          // list on one would look exactly like the agent having finished. So
+          // it is judged on what could be read, before cancelled tasks leave:
+          // judged after, cancelling every task — the other way a plan ends —
+          // was refused as unreadable (#58).
+          if (sent.length > 0 && readable.length === 0) {
+            return `None of those ${sent.length} entries had readable text. Each task is a string, or an object with a "task". The list is unchanged:\n${renderTodos(listFor(key))}`
+          }
+          const items = readable
             .map((entry) => ({
               task: entry.task,
               status: entry.status ?? previous.get(entry.task) ?? ('pending' as const),
@@ -176,12 +222,6 @@ export const todoPlugin: HarnessPlugin = {
             // pending — which is how it would otherwise reach the next agent
             // as work still to do.
             .filter((item): item is TodoItem => item.status !== 'cancelled')
-          // Sending nothing is how a plan is put down, and is honoured. Sending
-          // tasks that cannot be read is a malformed call, and emptying the
-          // list on one would look exactly like the agent having finished.
-          if (sent.length > 0 && items.length === 0) {
-            return `None of those ${sent.length} entries had readable text. Each task is a string, or an object with a "task". The list is unchanged:\n${renderTodos(listFor(key))}`
-          }
           store(key, items)
           return renderTodos(items)
         },

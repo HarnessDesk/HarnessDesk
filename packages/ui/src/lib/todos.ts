@@ -126,9 +126,19 @@ export const planOf = (args: unknown): Todo[] | null => {
     // before it.
     const todos = array.map(todoOf).filter((todo): todo is Todo => todo !== null)
     if (todos.length > 0) return todos
+    /* Every task it could read was cancelled: the agent put the plan down by
+       cancelling what was left, which is a clear, as an empty list is. Read
+       as a call that said nothing about the plan, it walked back to the plan
+       before, and the panel and every hand-off showed the cancelled tasks as
+       still to do (#58, found in review). */
+    if (array.some(isCancelled)) return []
   }
   return arrays.every((array) => array.length === 0) ? [] : null
 }
+
+/** A plan entry the agent cancelled — readable, and marked so. */
+const isCancelled = (entry: unknown): boolean =>
+  isRecord(entry) && planLabel(entry) !== null && planStatus(entry['status']) === 'cancelled'
 
 /**
  * The plan a conversation is working to: the last one it set, and nothing
