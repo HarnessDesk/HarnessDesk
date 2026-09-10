@@ -62,7 +62,11 @@ const npmPackageIn = (path: string): string | null => {
   if (at === -1) return null
   const parts = path.slice(at + marker.length).split(sep)
   const first = parts[0]
-  if (!first) return null
+  /* A `.bin` folder holds a package manager's launchers, not a package. pnpm's
+     are shell scripts, not links, so `realpath` leaves the path inside it, and
+     `.bin` was read as the package's name: `npm install -g .bin` (#69). No
+     package can be read off such a path. */
+  if (!first || first === '.bin') return null
   return first.startsWith('@') && parts[1] ? `${first}/${parts[1]}` : first
 }
 

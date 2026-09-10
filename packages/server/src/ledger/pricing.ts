@@ -33,6 +33,13 @@ export interface PricingOptions {
 }
 
 const CATALOGUE_URL = 'https://models.dev/api.json'
+
+/** What a dated id adds to its undated name: `-20251001`, `-2024-11-20`, `@20240620`, `-latest`. */
+const DATED = /^[-@](?:\d{8}|\d{4}-\d{2}-\d{2}|latest)$/
+
+/** Whether `long` is `short` with nothing added but a date. */
+const datedFormOf = (long: string, short: string): boolean =>
+  long.length > short.length && long.startsWith(short) && DATED.test(long.slice(short.length))
 const DAY = 86_400_000
 const PER_MILLION = 1_000_000
 
@@ -181,17 +188,30 @@ export class Pricing {
     if (!models) return null
     const exact = models[key] ?? models[model]
     if (exact) return ratesFrom(exact.cost)
-    // Providers date their ids (`claude-haiku-4-5-20251001`); the catalogue
-    // usually carries the undated one. Longest matching prefix wins so a
-    // shorter family name cannot capture a longer model's traffic.
+    /* A dated id and its undated name are one model, and nothing else is.
+       Providers date their ids (`claude-haiku-4-5-20251001`) where the
+       catalogue usually carries the undated one; the catalogue sometimes
+       carries only dated ids for a name a runtime reports undated. Either
+       way round, the longer must be the shorter plus a date. Prefix matches
+       priced a model the catalogue lacks as a variant of it — the other way
+       round as a longer variant (#32), this way round as the base (review,
+       round one) — and a wrong price is worse than none. */
     let best: RawModel | null = null
-    let bestLength = 0
+    let newest = ''
     for (const [id, entry] of Object.entries(models)) {
       const candidate = id.toLowerCase()
-      if (candidate.length <= bestLength) continue
-      if (key.startsWith(candidate) || candidate.startsWith(key)) {
-        best = entry
-        bestLength = candidate.length
+      // The asked id is a dated form of this one: its price, and only one can be.
+      if (datedFormOf(key, candidate)) return ratesFrom(entry.cost)
+      // This one is a dated form of the asked id: the newest, and `-latest` over any date.
+      if (datedFormOf(candidate, key)) {
+        // One with no price gives way to an older one that has one (review, round 2).
+        if (!ratesFrom(entry.cost)) continue
+        const suffix = candidate.slice(key.length)
+        const rank = suffix.endsWith('latest') ? '\uffff' : suffix.replace(/\D/g, '')
+        if (rank > newest) {
+          best = entry
+          newest = rank
+        }
       }
     }
     return best ? ratesFrom(best.cost) : null

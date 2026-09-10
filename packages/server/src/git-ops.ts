@@ -113,6 +113,24 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
     }
   }
 
+  /* A deletion is put back from what the agent recorded of the file, and an
+     agent may record nothing: Codex reports a deleted file with an empty diff.
+     Writing that back "restored" an empty file where the real one had been —
+     the loss an undo exists to prevent, reported as success (#29). Refused up
+     front, before anything is touched, so nothing is half put back. A file
+     that really was empty is refused too; it is the one that costs nothing to
+     make again. */
+  if (direction === 'undo') {
+    const blank = changes.filter((change) => change.kind.type === 'delete' && change.diff === '')
+    if (blank.length > 0) {
+      const names = [...new Set(await Promise.all(blank.map(async (change) => (await locate(root, top, change.path)).inRepo)))]
+      throw new RevertError(
+        `Cannot put back ${names.join(', ')}: the agent recorded no content for ${names.length === 1 ? 'it' : 'them'}. Nothing was changed.`,
+        [],
+      )
+    }
+  }
+
   const done: string[] = []
   for (const change of direction === 'undo' ? [...changes].reverse() : changes) {
     const { absolute, inRepo: path } = await locate(root, top, change.path)
