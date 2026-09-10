@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 
 import {
   currentTurn,
@@ -21,7 +28,13 @@ import { bindingLane, describeLane } from '../lib/usage'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design/patterns/AgentCard'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '../design/ui'
+import {
+  HOVER_CARD_SIDE_OFFSET,
+  HOVER_CARD_WIDTH_REM,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '../design/ui'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
 
@@ -102,20 +115,64 @@ const useDragging = (): void => {
   }, [])
 }
 
+type CardSide = 'top' | 'right' | 'bottom' | 'left'
+
 /**
- * A mark, and the card that opens when the pointer rests on it.
+ * The side a card opens on, settled as it opens.
  *
- * The trigger is the *mark*, never the row. Binding it to the row would fire
- * a card on every keyboard step through a sixty-row tree, and would take the
- * row's own click; binding it to the mark puts the affordance on the thing
- * that already means "identity" and leaves the row alone. This is what Slack
- * does, and for the same reasons.
+ * Beside the trigger wherever there is room beside it, and under it where
+ * there is not. The positioner already trades right for left when one edge is
+ * short, but it never tries a side at right angles to the one it was asked
+ * for — so a card asked to open beside a trigger as wide as the window has
+ * nowhere to go, and is drawn off the window's edge. A whole row is exactly
+ * that trigger once a narrow room makes its rail the whole pane. Measured as
+ * the card opens, because whether a row has room beside it is a fact about
+ * the window right now.
+ */
+const sideFor = (trigger: HTMLElement, wanted: CardSide): CardSide => {
+  if (wanted !== 'left' && wanted !== 'right') return wanted
+  const box = trigger.getBoundingClientRect()
+  const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+  const reach = HOVER_CARD_WIDTH_REM * rem + HOVER_CARD_SIDE_OFFSET
+  return window.innerWidth - box.right >= reach || box.left >= reach ? wanted : 'bottom'
+}
+
+/**
+ * Who an agent is, and the card that opens when the pointer rests on it.
  *
- * The trigger is always a `span`, and `asChild` is not offered to callers.
- * Radix's own default is an `<a>`, and these marks sit inside rows that are
- * already buttons — an anchor inside a button is invalid HTML, and browsers
- * resolve it by breaking one of the two. A span nests anywhere and lets the
- * row keep its click.
+ * The trigger is the whole of how the agent is drawn: its mark *and* its
+ * name, and in a rail the row the two sit on. It used to be the mark alone,
+ * which is the smaller half — in a room's rail the card answered to the tile
+ * and not to "Gemini" beside it, which is where a reader actually rests. So a
+ * rail row is a trigger from edge to edge, and a column's head, a claim's
+ * holder and a composer chip are each a mark and a name together.
+ *
+ * The session tree and the seat's menu keep the mark alone. Their rows are
+ * for picking — a conversation to open, an account to run as — and a pointer
+ * crosses them constantly on its way to the pick; a card at every rest there
+ * paints over the list being scanned, which is the same reason the composer's
+ * `@` list has no cards at all.
+ *
+ * "The mark, never the row" had two reasons, and both are dealt with here
+ * rather than avoided:
+ *
+ *   Focus never opens a card.  Radix opens one for focus as well as for the
+ *                              pointer, and a row holds things focus lands on.
+ *                              A card at every keyboard step down a list is a
+ *                              card nobody asked for; only a pointer at rest
+ *                              opens one.
+ *   A press is the row's.      Pressing the trigger takes its card away, and
+ *                              keeps it away until the pointer leaves. The
+ *                              press opened something, and a card that stayed
+ *                              — or arrived a beat later, off the timer the
+ *                              pointer started on its way in — would float
+ *                              over what it had just opened.
+ *
+ * The trigger is a `span`, or a `div` where it wraps a block, and `asChild` is
+ * not offered to callers. Radix's own default is an `<a>`, and these triggers
+ * sit inside rows that are already buttons — an anchor inside a button is
+ * invalid HTML, and browsers resolve it by breaking one of the two. A span
+ * nests anywhere and lets the row keep its click.
  *
  * ---------------------------------------------------------------------------
  * The card is a *function*, not a value
@@ -145,6 +202,7 @@ export const AgentHoverCard = ({
   side,
   align,
   className,
+  as: Trigger = 'span',
   disabled = false,
 }: {
   /**
@@ -156,13 +214,29 @@ export const AgentHoverCard = ({
    */
   readonly body: () => ReactNode
   readonly children: ReactNode
-  readonly side?: 'top' | 'right' | 'bottom' | 'left'
+  readonly side?: CardSide
   readonly align?: 'start' | 'center' | 'end'
   readonly className?: string
+  /**
+   * The trigger's own element: a `span`, which nests anywhere — inside a row
+   * that is already a button, above all — or a `div`, for a trigger that holds
+   * a block, such as a whole row of a rail.
+   */
+  readonly as?: 'span' | 'div'
   /** The surface has nothing worth a card; the mark renders bare. */
   readonly disabled?: boolean
 }) => {
   const [open, setOpen] = useState(false)
+  /* Where it opens, settled as it opens — see `sideFor`. */
+  const [placed, setPlaced] = useState<CardSide>(side ?? 'right')
+  /* The trigger a pointer is resting on, or null. Opening needs one, and that
+     is what keeps focus from opening a card: Radix asks to open for either,
+     and only a pointer puts an element here. The element rather than a flag,
+     because `sideFor` measures it. */
+  const resting = useRef<HTMLElement | null>(null)
+  /* The pointer has pressed the trigger since it arrived. Cleared when it
+     leaves, so the next rest opens the card as usual. */
+  const pressed = useRef(false)
   useDragging()
 
   /* A card anchored to a row that has scrolled away is pointing at somebody
@@ -178,29 +252,64 @@ export const AgentHoverCard = ({
   /* Disabling the card must also close it. The state outlives the Radix
      tree below, which unmounts while `disabled` holds — so a card that was
      open when a menu took the seat came straight back, unhovered, the moment
-     the menu closed. */
+     the menu closed. The pointer is forgotten with it: a trigger unmounted
+     from under the pointer sends no `pointerleave` to say it has gone. */
   useEffect(() => {
-    if (disabled) setOpen(false)
+    if (!disabled) return
+    setOpen(false)
+    resting.current = null
+    pressed.current = false
   }, [disabled])
 
   if (disabled) return <>{children}</>
 
   return (
-    <HoverCard open={open} onOpenChange={(next) => setOpen(next && !dragging)}>
+    <HoverCard
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setOpen(false)
+          return
+        }
+        /* Only for a pointer at rest on the trigger that has not pressed it.
+           Refusing is doing nothing: the card stays as it was. */
+        const trigger = resting.current
+        if (!trigger || pressed.current || dragging) return
+        setPlaced(sideFor(trigger, side ?? 'right'))
+        setOpen(true)
+      }}
+    >
       <HoverCardTrigger asChild>
         {/* The card is supplementary — every fact on it is reachable through
             the row's own action — so the trigger stays out of the tab order
             rather than adding a stop before every row in a list of sixty. */}
-        <span className={className} tabIndex={-1}>
+        <Trigger
+          className={className}
+          tabIndex={-1}
+          onPointerEnter={(event: ReactPointerEvent<HTMLElement>) => {
+            /* Radix opens for a mouse or a pen and never for a touch, and this
+               follows it — so a tap cannot open a card by way of the focus it
+               leaves behind. */
+            if (event.pointerType !== 'touch') resting.current = event.currentTarget
+          }}
+          onPointerLeave={() => {
+            resting.current = null
+            pressed.current = false
+          }}
+          onPointerDown={() => {
+            pressed.current = true
+            setOpen(false)
+          }}
+        >
           {children}
-        </span>
+        </Trigger>
       </HoverCardTrigger>
       {/* `body()` builds an element; Radix's portal keeps it unmounted until
           the card opens, so the hooks inside it — the store subscription and
           the clock — do not run before then, and stop when it closes. Creating
           an element is a couple of object allocations and no more. */}
       <HoverCardContent
-        {...(side ? { side } : {})}
+        side={placed}
         {...(align ? { align } : {})}
         className="p-0"
         /* A verb dismisses the card that offered it. Every action here opens,
@@ -464,6 +573,7 @@ export const MemberHoverCard = ({
   children,
   className,
   side,
+  as,
 }: {
   readonly member: MemberCardFacts
   readonly actions?: readonly AgentCardAction[]
@@ -471,6 +581,8 @@ export const MemberHoverCard = ({
   readonly children: ReactNode
   readonly className?: string
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
+  /** A `div` where the trigger wraps a whole row — see `AgentHoverCard`. */
+  readonly as?: 'span' | 'div'
 }) => (
   <AgentHoverCard
     body={() => (
@@ -482,6 +594,7 @@ export const MemberHoverCard = ({
     )}
     className={className}
     {...(side ? { side } : {})}
+    {...(as ? { as } : {})}
   >
     {children}
   </AgentHoverCard>

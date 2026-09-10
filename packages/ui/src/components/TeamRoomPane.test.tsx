@@ -1238,10 +1238,11 @@ it('takes a member out of the room from its card, and leaves the conversation al
   const { store } = rig()
   await render(store)
 
-  const mark = row('Codex').querySelector('[data-slot="hover-card-trigger"]')
-  expect(mark).not.toBeNull()
+  // The whole row is the trigger, so it holds the row rather than sitting in it.
+  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]')
+  expect(trigger).not.toBeNull()
   act(() => {
-    ;(mark as Element).dispatchEvent(
+    ;(trigger as Element).dispatchEvent(
       new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
     )
   })
@@ -1337,9 +1338,9 @@ it('sets one member’s inbound from its card, leaving the room’s own switch a
   const { store } = rig()
   await render(store)
 
-  const mark = row('Codex').querySelector('[data-slot="hover-card-trigger"]')
+  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]')
   act(() => {
-    ;(mark as Element).dispatchEvent(
+    ;(trigger as Element).dispatchEvent(
       new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
     )
   })
@@ -1365,11 +1366,117 @@ it('sets one member’s inbound from its card, leaving the room’s own switch a
   // Not the room-wide switch, which is the whole distinction being drawn.
   expect(store.teamMessaging).not.toHaveBeenCalled()
   /* And the room is still the room. A React portal's events bubble through
-     the React *tree*, so a press on the card also reached the row it hangs
+     the React *tree*, so a press on the card used to reach the row it hung
      off, and picking an inbound mode navigated away to that member's own
      conversation — the chat replaced by a transcript. Photographed on the
-     real app; the same press with `stopPropagation` removed fails here. */
+     real app. The card hangs off the whole row now, so its portal sits beside
+     the row rather than inside it; this keeps the press that went wrong. */
   expect(container.textContent).toContain('Nothing said yet')
+  vi.useRealTimers()
+})
+
+/* A pointer coming to rest on one spot, and leaving it — the way Radix hears
+   a hover, and the way the two tests above open a card. */
+const rest = (spot: Element): void => {
+  act(() => {
+    spot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+}
+
+const leave = (spot: Element): void => {
+  act(() => {
+    spot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+}
+
+/** The element holding these words: what a pointer is on when it rests on them. */
+const textAt = (within: Element, text: string): Element => {
+  const walker = document.createTreeWalker(within, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.textContent?.trim() === text && node.parentElement) return node.parentElement
+  }
+  throw new Error(`nothing here reads “${text}”`)
+}
+
+/**
+ * The words open the card, not only the tile.
+ *
+ * The rail's card hung off the member's mark alone, so resting on the nickname
+ * — or on the line under it, "has not used the board" — did nothing, while the
+ * icon a few pixels to the left opened it. The whole row is the trigger now.
+ */
+it('opens a member’s card from its name and the line under it, as from its mark', async () => {
+  vi.useFakeTimers()
+  // Not open, so the row is certain to have a second line to rest on.
+  const { store } = rig([CODEX, { ...CLAUDE, here: false }])
+  await render(store)
+
+  const opus = row('Opus')
+  const subtitle = opus.querySelector('[data-slot="list-row-subtitle"]')
+  const spots = [textAt(opus, 'Opus'), subtitle?.querySelector('span') ?? subtitle]
+  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
+  for (const spot of spots) {
+    expect(spot, 'a line to rest on').toBeTruthy()
+    rest(spot as Element)
+    expect(trigger?.getAttribute('data-state')).toBe('open')
+    expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
+    leave(spot as Element)
+    expect(trigger?.getAttribute('data-state')).toBe('closed')
+  }
+  vi.useRealTimers()
+})
+
+/**
+ * Pressing a member opens it, and takes the card away as it does.
+ *
+ * Bound to the whole row, the card is open under the very pointer that presses
+ * the row, so the press has to close it — or the conversation it opens arrives
+ * with a card floating over it.
+ */
+it('pressing a member opens it and takes its card away', async () => {
+  vi.useFakeTimers()
+  const { store } = rig()
+  await render(store)
+
+  const name = textAt(row('Opus'), 'Opus')
+  const trigger = row('Opus').closest('[data-slot="hover-card-trigger"]')
+  rest(name)
+  expect(trigger?.getAttribute('data-state')).toBe('open')
+
+  act(() => {
+    name.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
+    ;(name as HTMLElement).click()
+  })
+  await act(async () => {})
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+
+  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain('k1')
+  vi.useRealTimers()
+})
+
+it('opens a column’s card from the name at its head, as from its mark', async () => {
+  vi.useFakeTimers()
+  const { store } = rig()
+  await render(store)
+
+  act(() => row('Opus').click())
+  await act(async () => {})
+  const head = [...container.querySelectorAll('section header')].find((one) =>
+    one.textContent?.includes('Opus'),
+  )
+  if (!head) throw new Error('no column head for Opus')
+
+  rest(textAt(head, 'Opus'))
+  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
   vi.useRealTimers()
 })
 

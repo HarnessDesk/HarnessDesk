@@ -563,6 +563,37 @@ it('the claiming harness is pressable straight through to its conversation', asy
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })
 
+/**
+ * The holder answers to its name, as it does to its face.
+ *
+ * The face was the whole trigger, and the name beside it — the part a reader
+ * actually rests on — opened nothing.
+ */
+it('opens the holder’s card from its name as well as its face', async () => {
+  vi.useFakeTimers()
+  const { store } = rig(
+    [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    { nicknames: { [sessionKey('codex', 'c1')]: 'Gemini' } },
+  )
+  await render(store)
+
+  const holder = [...container.querySelectorAll('button')].find((one) =>
+    one.textContent?.includes('Gemini'),
+  )
+  const name = [...(holder?.querySelectorAll('span') ?? [])].find(
+    (one) => one.textContent === 'Gemini',
+  )
+  if (!name) throw new Error('no holder name to rest on')
+  act(() => {
+    name.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('API migration')
+  vi.useRealTimers()
+})
+
 it('separates work waiting on its dependencies from work somebody stopped', async () => {
   const waiting = {
     id: 1,

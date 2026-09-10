@@ -924,40 +924,45 @@ export const TeamRoomPane = ({
                         column and hands it straight back when the room is narrow
                         enough to have dropped the rail. */}
                     <header className={styles.columnHead}>
-                      {/* Whose transcript this is, in the mark the reader already
-                          knows from the sign-in screen and the model picker — and
-                          wearing the same light as its row in the rail, so a
-                          column and its row are visibly the same member. */}
+                      {/* The mark, the name and what it runs, as one trigger:
+                          resting on the name asks what resting on the mark
+                          does. The ✕ stays outside, so reaching for it never
+                          opens a card. */}
                       <MemberCard
                         entry={entry}
                         side="bottom"
+                        className={styles.columnWho}
                         /* The column is already up, so there is no Open to
                            offer; closing is the one verb this head has, and
                            only while there is another column to be left with. */
                         {...(columns.length > 1 ? { onClose: () => stopWatching(key) } : {})}
                       >
+                        {/* Whose transcript this is, in the mark the reader already
+                            knows from the sign-in screen and the model picker — and
+                            wearing the same light as its row in the rail, so a
+                            column and its row are visibly the same member. */}
                         <span className={styles.columnMark}>
                           <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
                             {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                           </IconTile>
                           {entry?.busy && <span className={styles.dotOn} aria-hidden />}
                         </span>
-                      </MemberCard>
-                      <span className={styles.columnName}>{member?.nickname ?? 'Member'}</span>
-                      {/* What it runs, beside what it is called — two Cursor
-                          conversations on two models are told apart here or
-                          nowhere.
+                        <span className={styles.columnName}>{member?.nickname ?? 'Member'}</span>
+                        {/* What it runs, beside what it is called — two Cursor
+                            conversations on two models are told apart here or
+                            nowhere.
 
-                          The harness is dropped when it *is* the name: a room
-                          names its members after the model, and the default for
-                          the first Codex conversation on a board is "Codex", so
-                          the head read "Codex — Codex · gpt-5.6". A word printed
-                          twice in four is not context, it is noise. */}
-                      <span className={styles.columnSub}>
-                        {[member?.agent === member?.nickname ? null : member?.agent, member?.model]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
+                            The harness is dropped when it *is* the name: a room
+                            names its members after the model, and the default for
+                            the first Codex conversation on a board is "Codex", so
+                            the head read "Codex — Codex · gpt-5.6". A word printed
+                            twice in four is not context, it is noise. */}
+                        <span className={styles.columnSub}>
+                          {[member?.agent === member?.nickname ? null : member?.agent, member?.model]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      </MemberCard>
                       {columns.length > 1 && (
                         <button
                           type="button"
@@ -1097,6 +1102,8 @@ const MemberCard = ({
   onInbound,
   children,
   side,
+  as,
+  className,
 }: {
   readonly entry: Member | null
   readonly onOpen?: () => void
@@ -1126,6 +1133,9 @@ const MemberCard = ({
   readonly onInbound?: (mode: TeamInbound) => void
   readonly children: ReactNode
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
+  /** The trigger's element and class, passed through — see `AgentHoverCard`. */
+  readonly as?: 'span' | 'div'
+  readonly className?: string
 }) => {
   if (!entry) return <>{children}</>
   const actions = [
@@ -1157,6 +1167,8 @@ const MemberCard = ({
           }
         : {})}
       {...(side ? { side } : {})}
+      {...(as ? { as } : {})}
+      {...(className ? { className } : {})}
     >
       {children}
     </MemberHoverCard>
@@ -1214,7 +1226,7 @@ const MemberRow = ({
 }) => {
   const { peer } = member
   const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null
-  return (
+  const row = (
     <ListRow
       size="sm"
       nav
@@ -1223,32 +1235,20 @@ const MemberRow = ({
       onClick={onOpen}
       className="group/member"
       lead={
-        /* The mark is the trigger, never the row: bound to the row, a card
-           would fire on every keyboard step down the rail and would fight the
-           row's own click. The mark already means "identity", which is what
-           the card is about. */
-        <MemberCard
-          entry={member}
-          onOpen={onOpen}
-          onWatch={onWatch}
-          onRemove={onRemove}
-          onInbound={onInbound}
-        >
-          {/* A member the desk does not have open is drawn quieter — the mark
-              loses its full weight, the way an unread row differs from a read
-              one. Quieter, never absent: it is a member of this room, it holds
-              its name and its job, and a message reaches it. Said in words on
-              the second line, and to a screen reader below; the dimming is the
-              glance. */}
-          <span className={styles.memberMark} {...(member.here ? {} : { 'data-away': '' })}>
-            <IconTile size="sm" tint={member.tint}>
-              {member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}
-            </IconTile>
-            {/* Working is a light, not a word. Announced to a screen reader on
-                the name below, where it is a sentence rather than a colour. */}
-            {member.busy && <span className={styles.dotOn} aria-hidden />}
-          </span>
-        </MemberCard>
+        /* A member the desk does not have open is drawn quieter — the mark
+           loses its full weight, the way an unread row differs from a read
+           one. Quieter, never absent: it is a member of this room, it holds
+           its name and its job, and a message reaches it. Said in words on
+           the second line, and to a screen reader below; the dimming is the
+           glance. */
+        <span className={styles.memberMark} {...(member.here ? {} : { 'data-away': '' })}>
+          <IconTile size="sm" tint={member.tint}>
+            {member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}
+          </IconTile>
+          {/* Working is a light, not a word. Announced to a screen reader on
+              the name below, where it is a sentence rather than a colour. */}
+          {member.busy && <span className={styles.dotOn} aria-hidden />}
+        </span>
       }
       /* One run of text, not a flex row of two. The row's own `truncate` then
          cuts from the right — which is the behaviour wanted, because the
@@ -1351,6 +1351,28 @@ const MemberRow = ({
         </button>
       }
     />
+  )
+
+  return (
+    /* The row is the card's trigger, edge to edge: the mark, the name and the
+       line under it. It was the tile alone, and the words beside a mark are
+       where a reader rests — resting on "Gemini" did nothing while the icon
+       beside it opened the card. What made a whole row unsafe to bind is
+       carried by `AgentHoverCard`: focus never opens a card, so the + at the
+       row's end can be tabbed to in peace, and a press takes the card away, so
+       the click that opens this member does not leave a card floating over
+       it. Anchored to the row, the card also opens beside the rail rather than
+       over the names in it. */
+    <MemberCard
+      as="div"
+      entry={member}
+      onOpen={onOpen}
+      onWatch={onWatch}
+      onRemove={onRemove}
+      onInbound={onInbound}
+    >
+      {row}
+    </MemberCard>
   )
 }
 

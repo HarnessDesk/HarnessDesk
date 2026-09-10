@@ -292,3 +292,138 @@ it('starts exactly one clock when a card opens, and stops it when it closes', ()
   expect(live.size).toBe(0)
   vi.useRealTimers()
 })
+
+/* ── What opens a card, and where ─────────────────────────────────────── */
+
+/**
+ * A trigger with a control inside it, the way a rail row holds its +.
+ *
+ * Triggers grew from a mark to the whole of an identity — a rail row, edge to
+ * edge — so they now hold things focus lands on, and Radix opens a card for
+ * focus as readily as for a pointer.
+ */
+const withAControl = (): React.ReactNode => (
+  <AgentHoverCard
+    body={() => (
+      <AgentCard
+        subject={{ kind: 'session', name: 'A chat about the limiter', tint: 'blue', mark: <svg /> }}
+      />
+    )}
+  >
+    <span>mark</span> <span>Codex</span>
+    <button type="button">Watch beside</button>
+  </AgentHoverCard>
+)
+
+const press = (target: Element): void => {
+  act(() => {
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
+  })
+}
+
+const leave = (target: Element): void => {
+  act(() => {
+    target.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+}
+
+it('never opens for focus — only for a pointer at rest', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
+  if (!control) throw new Error('no control inside the trigger')
+
+  // Tabbing down a rail lands on the + in every row. That is a keyboard step,
+  // and a card at each one is the cost the mark-only rule used to avoid.
+  act(() => control.focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(document.activeElement).toBe(control)
+  expect(openCard()).toBeNull()
+
+  // The same trigger still opens for the pointer, so the refusal above is the
+  // focus being refused and not the card being broken.
+  rest(trigger())
+  expect(openCard()).not.toBeNull()
+  vi.useRealTimers()
+})
+
+it('a press takes the card away, and it stays away until the pointer leaves', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  // The press is the row's: it opened something, and the card must not float
+  // over that — not now, and not a beat later off the focus the press gave the
+  // trigger, which is how Radix would bring it straight back.
+  press(trigger())
+  act(() => (trigger() as HTMLElement).focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+
+  // Leaving and coming back is a new rest, and a new rest opens it.
+  leave(trigger())
+  rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  vi.useRealTimers()
+})
+
+it('a press inside the open delay means the card never opens', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  // A pass and then a click, quicker than the delay: the timer Radix started
+  // on the way in must not open a card over whatever the click opened.
+  act(() => {
+    trigger().dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(200)
+  })
+  press(trigger())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(openCard()).toBeNull()
+  vi.useRealTimers()
+})
+
+it('opens beside a trigger with room beside it, and under one without', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  const spans = (left: number, right: number): void => {
+    vi.spyOn(trigger(), 'getBoundingClientRect').mockReturnValue({
+      left,
+      right,
+      top: 100,
+      bottom: 140,
+      width: right - left,
+      height: 40,
+      x: left,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect)
+  }
+  const side = (): string | null | undefined =>
+    document.querySelector('[data-slot="hover-card-content"]')?.getAttribute('data-side')
+
+  // A mark near the left of the window: beside it, where it asked to go.
+  spans(20, 60)
+  rest(trigger())
+  expect(side()).toBe('right')
+  leave(trigger())
+
+  // A row the whole window wide — the rail of a narrow room. Beside it is off
+  // the window on both sides, and the positioner only ever trades a side for
+  // its opposite, so the card goes under.
+  spans(0, window.innerWidth)
+  rest(trigger())
+  expect(side()).toBe('bottom')
+  vi.useRealTimers()
+})
