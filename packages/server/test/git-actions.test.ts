@@ -431,9 +431,14 @@ test('patch is mail-format text and diffRange compares two revisions', async () 
 test('pullRequestUrl knows the forges and says null for the rest', async () => {
   const dir = await seedRepo()
   await git(dir, 'remote', 'add', 'origin', 'git@github.com:openma/harnessdesk.git')
+  /* `feat/thing`, not `feat%2Fthing`. This assertion used to expect the
+     escaped form and so pinned the defect: GitHub's compare route does not
+     decode `%2F` back to a separator, and the page 404s or shows an empty
+     diff. The branch is a path segment here and the slash is part of the
+     path. */
   assert.equal(
     await pullRequestUrl(dir, 'feat/thing'),
-    'https://github.com/openma/harnessdesk/compare/feat%2Fthing?expand=1',
+    'https://github.com/openma/harnessdesk/compare/feat/thing?expand=1',
   )
 
   await git(dir, 'remote', 'set-url', 'origin', 'https://gitlab.com/openma/harnessdesk.git')
@@ -449,7 +454,7 @@ test('pullRequestUrl strips embedded credentials and matches forge hosts exactly
   await git(dir, 'remote', 'add', 'origin', 'https://review-user:fake-secret@github.com/openma/harnessdesk.git')
   assert.equal(
     await pullRequestUrl(dir, 'feat/thing'),
-    'https://github.com/openma/harnessdesk/compare/feat%2Fthing?expand=1',
+    'https://github.com/openma/harnessdesk/compare/feat/thing?expand=1',
   )
 
   // A hostname that merely contains a forge's name is not that forge.
@@ -457,4 +462,55 @@ test('pullRequestUrl strips embedded credentials and matches forge hosts exactly
   assert.equal(await pullRequestUrl(dir, 'feat/thing'), null)
   await git(dir, 'remote', 'set-url', 'origin', 'https://gitlab.internal.example/team/repo.git')
   assert.equal(await pullRequestUrl(dir, 'feat/thing'), null)
+})
+
+/**
+ * A remote whose colon is a port, and one whose colon is a path.
+ *
+ * `ssh://git@host:22/owner/repo` is a URL and its colon introduces a port;
+ * `git@host:owner/repo` is scp-like syntax and its colon separates the path.
+ * One regex read both, so a remote carrying an explicit port produced
+ * `https://github.com/22/owner/repo` — a pull-request link to a repository
+ * nobody owns.
+ */
+test('an ssh remote with a port does not put the port in the path', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'ssh://git@github.com:22/openma/harnessdesk.git')
+  assert.equal(
+    await pullRequestUrl(dir, 'main'),
+    'https://github.com/openma/harnessdesk/compare/main?expand=1',
+  )
+
+  // A non-standard port is the shape a self-hosted forge actually uses.
+  await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@gitlab.com:2222/openma/harnessdesk.git')
+  assert.match((await pullRequestUrl(dir, 'main')) ?? '', /^https:\/\/gitlab\.com\/openma\/harnessdesk\//)
+})
+
+test('the scp-like and portless ssh spellings still resolve the same way', async () => {
+  // The control: both of these worked before and must go on working, because
+  // they are what almost every remote actually looks like.
+  const dir = await seedRepo()
+  for (const remote of ['git@github.com:openma/harnessdesk.git', 'ssh://git@github.com/openma/harnessdesk.git']) {
+    await git(dir, 'remote', 'remove', 'origin').catch(() => {})
+    await git(dir, 'remote', 'add', 'origin', remote)
+    assert.equal(
+      await pullRequestUrl(dir, 'main'),
+      'https://github.com/openma/harnessdesk/compare/main?expand=1',
+      remote,
+    )
+  }
+})
+
+test('a branch segment is still escaped, even though the separator is not', async () => {
+  /* Keeping the slashes must not turn off escaping: a `#` inside a segment
+     would end the path and turn the rest into a fragment. A space would too,
+     but git refuses a branch name containing one, so `#` is the character
+     that is both legal to git and dangerous in a URL. */
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'git@github.com:openma/harnessdesk.git')
+  await git(dir, 'branch', 'feat/a#c')
+  assert.equal(
+    await pullRequestUrl(dir, 'feat/a#c'),
+    'https://github.com/openma/harnessdesk/compare/feat/a%23c?expand=1',
+  )
 })

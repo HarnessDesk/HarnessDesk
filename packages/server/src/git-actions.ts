@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { isRevisionName } from './git-revision.js'
 import { parsePorcelain } from './porcelain.js'
 
 /**
@@ -66,7 +67,7 @@ const isSha = (value: string): boolean => /^[0-9a-f]{4,40}$/i.test(value)
  * words rather than git's "unknown revision".
  */
 const resolveCommitish = async (root: string, ref: string): Promise<string> => {
-  if (!/^[\w][\w./@{}-]*$/.test(ref) || ref.includes('..')) {
+  if (!isRevisionName(ref)) {
     throw new Error(`"${ref}" is not a usable revision name.`)
   }
   try {
@@ -571,10 +572,34 @@ export const diffRange = async (root: string, from: string, to: string): Promise
  * stripped before anything leaves this process: the result is handed to the
  * system browser, and a secret in that URL would land in its history.
  */
+/** `ssh://[user@]host[:port]/path` → the https page, without the port. */
+const overSsh = (remote: string): string | null => {
+  try {
+    const url = new URL(remote)
+    return `https://${url.hostname}${url.pathname}`
+  } catch {
+    return null
+  }
+}
+
+/** `git@host:owner/repo` — scp-like, where the colon is not a port. */
+const scpLike = (remote: string): string | null => {
+  const found = /^git@([^:/@]+):(.+)$/.exec(remote)
+  return found ? `https://${found[1]}/${found[2]}` : null
+}
+
 const webUrl = (remote: string): URL | null => {
   const cleaned = remote.trim().replace(/\.git$/, '')
-  const ssh = /^(?:ssh:\/\/)?git@([^:/@]+)[:/](.+)$/.exec(cleaned)
-  const candidate = ssh ? `https://${ssh[1]}/${ssh[2]}` : cleaned
+  /* Two spellings that look alike and are not.
+     `ssh://git@host:22/owner/repo` is a real URL, and its colon introduces a
+     **port**. `git@host:owner/repo` is scp-like syntax, not a URL at all, and
+     its colon separates the path. One regex read both, so a remote carrying
+     an explicit port produced `https://github.com/22/owner/repo` — a link to
+     a repository nobody owns. Parsing the URL form as a URL is what tells
+     them apart; the port is then dropped rather than carried, because the web
+     page is not served on the ssh port. */
+  const candidate = /^ssh:\/\//i.test(cleaned) ? overSsh(cleaned) : scpLike(cleaned) ?? cleaned
+  if (candidate === null) return null
   if (!/^https?:\/\//.test(candidate)) return null
   try {
     const url = new URL(candidate)
@@ -606,7 +631,15 @@ export const pullRequestUrl = async (root: string, branch: string): Promise<stri
   if (!url) return null
   const base = `https://${url.hostname}${url.pathname.replace(/\/+$/, '')}`
   const name = encodeURIComponent(branch)
-  if (url.hostname === 'github.com') return `${base}/compare/${name}?expand=1`
+  /* A branch in a *path* keeps its slashes. `encodeURIComponent` turns
+     `feature/login` into `feature%2Flogin`, and GitHub's compare route does
+     not decode that back — the page 404s or shows an empty diff. Encoding
+     each segment and rejoining keeps `/` a separator while still escaping a
+     `#`, a `?` or a space inside a segment.
+     The other two forges take the branch as a *query parameter*, where
+     `encodeURIComponent` is exactly right and `%2F` is what they expect. */
+  const path = branch.split('/').map(encodeURIComponent).join('/')
+  if (url.hostname === 'github.com') return `${base}/compare/${path}?expand=1`
   if (url.hostname === 'gitlab.com') return `${base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${name}`
   if (url.hostname === 'bitbucket.org') return `${base}/pull-requests/new?source=${name}`
   return null
