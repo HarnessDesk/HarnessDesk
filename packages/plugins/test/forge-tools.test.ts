@@ -277,4 +277,7 @@ test('signing a body replaces an earlier HarnessDesk line and never doubles a bl
   assert.equal(signBody(`Body.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Old Seat)\n`, line), `Body.\n\n${line}`)
   assert.equal(signBody('', line), line)
   assert.equal(signBody(`Body.\n\n${line}`, null), 'Body.')
+  // A line the author quoted stays; only the desk's own trailing line is replaced.
+  const quoted = `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Old Seat)`
+  assert.equal(signBody(quoted, line), `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n${line}`)
 })

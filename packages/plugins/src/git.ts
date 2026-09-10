@@ -44,8 +44,12 @@ export const DEFAULT_SIGNATURE = '🤖 Generated with [HarnessDesk](https://harn
 /** The line a review opens with; same placeholders, same blank-means-none. */
 export const DEFAULT_REVIEW_SIGNATURE = '**Review by {seat} · via HarnessDesk**'
 
-/** The shape of any HarnessDesk signature, for finding one a body already carries. */
-const SIGNED_BEFORE = /^🤖 Generated with \[HarnessDesk\]\([^)]*\).*$/m
+/**
+ * A HarnessDesk signature as a body's last line — and only there. A body
+ * that quotes the line somewhere in its prose keeps it: the desk replaces
+ * what it wrote, never what the author wrote about it.
+ */
+const SIGNED_BEFORE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]*$/
 
 /** How much of a body the transcript card is given: the opening, as the forge holds it. */
 const EXCERPT_LIMIT = 600
@@ -82,7 +86,7 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
 
 /** The body with the signature as its last line, and any earlier HarnessDesk line gone. */
 export const signBody = (body: string, signature: string | null): string => {
-  const stripped = body.replace(SIGNED_BEFORE, '').replace(/\s+$/, '')
+  const stripped = body.replace(/\s+$/, '').replace(SIGNED_BEFORE, '').replace(/\s+$/, '')
   if (signature === null || signature === '') return stripped
   return stripped === '' ? signature : `${stripped}\n\n${signature}`
 }
