@@ -54,6 +54,7 @@ const agentOf = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string,
     registered: true,
     health: info.id === input.activeRuntime ? input.health : null,
     account: input.accountsByRuntime[info.id],
+    accounts: info.capabilities.account,
     usage: reports,
   })
   // The account that decides, by the strip's own rule, so the status item and

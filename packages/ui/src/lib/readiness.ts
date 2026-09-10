@@ -53,6 +53,19 @@ export interface ReadinessInput {
   readonly health: RuntimeHealth | null | undefined
   readonly account: AccountStatus | null | undefined
   /**
+   * Whether the agent does accounts through HarnessDesk at all —
+   * `capabilities.account`. `false` means a sign-in is never the answer: the
+   * agent keeps its own credential where the desk cannot see it, so an empty
+   * account list is "not ours to know", not "nobody has signed in". Absent
+   * means yes, which is what every caller assumed before the flag existed.
+   *
+   * Before this, the first-run screen answered the question for itself and
+   * the seat, the header strip, the menu bar and the dashboard did not, so
+   * one agent (Cline, which declares no account) read "Needs sign-in" in the
+   * seat while the screen beside it offered "Use this agent".
+   */
+  readonly accounts?: boolean
+  /**
    * Every usage report for this agent — one per account. Which of them
    * decides is `workingAccount`'s question, not the caller's.
    */
@@ -78,7 +91,7 @@ export interface ReadinessInput {
 export const readinessOf = (input: ReadinessInput): Readiness => {
   if (!input.registered) return 'available'
   if (input.health?.state === 'unavailable') return 'broken'
-  if (!input.account || input.account.accounts.length === 0) return 'signin'
+  if (input.accounts !== false && (!input.account || input.account.accounts.length === 0)) return 'signin'
   const decided = workingAccount(input.usage ?? [])
   if (decided !== null && isBlocked(decided)) return 'limit'
   return 'ready'

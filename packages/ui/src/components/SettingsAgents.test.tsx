@@ -426,7 +426,7 @@ it("each agent's header summarises the accounts under it, and stays quiet when i
   // where it is not the state everything is meant to be in.
   const chips = [...container.querySelectorAll('[class*=chip]')].map((node) => node.textContent)
   expect(chips).toContain('Needs sign-in')
-  expect(chips).toContain('Active')
+  expect(chips).toContain('Default')
   expect(chips).not.toContain('Ready')
 })
 

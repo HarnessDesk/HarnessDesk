@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Account, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
-import { splitSessionKey } from '@harnessdesk/protocol'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon, UserIcon } from './Icons'
+import { BranchIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -14,13 +13,12 @@ import './TaskPanel'
 import { Menu, MenuItem, MenuLabel } from './Menu'
 import { Popover } from './Popover'
 import { accountKey, accountName, accountIdentity, tintOf } from '../lib/accounts'
-import { brandForRuntime } from '../lib/brands'
 import { folderName } from '../lib/projects'
-import { brandOf, humanizeLabel } from '../lib/identity'
+import { brandOf } from '../lib/identity'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { livePlugins } from '../lib/plugins'
 import { AccountHoverCard } from './AgentCards'
-import { BrandMark, HarnessMark, RuntimeMark } from './BrandIcons'
+import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
 import styles from './Sidebar.module.css'
 
@@ -36,14 +34,6 @@ import styles from './Sidebar.module.css'
  * here because this is where people look for it: on their own name.
  */
 
-/** Two letters for the avatar, from an email or a display name. */
-const initials = (value: string): string => {
-  const local = value.split('@')[0] ?? value
-  const parts = local.split(/[.\s_-]+/).filter(Boolean)
-  if (parts.length >= 2) return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`
-  return local.slice(0, 2)
-}
-
 export const Sidebar = ({
   onOpenSettings,
   onOpenPlugins,
@@ -54,7 +44,8 @@ export const Sidebar = ({
 }: {
   onOpenSettings: () => void
   onOpenPlugins: () => void
-  onOpenUsage: () => void
+  /** Opens the dashboard, scoped to one agent when the caller names it. */
+  onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
@@ -155,7 +146,10 @@ export const Sidebar = ({
           </button>
           <WorktreeMenu />
         </div>
-        <button type="button" className={styles.navItem} onClick={onOpenUsage}>
+        {/* Called with nothing, on purpose: the handler takes an agent id
+            now, and a click event in its place would open the dashboard
+            scoped to an object. */}
+        <button type="button" className={styles.navItem} onClick={() => onOpenUsage()}>
           <UsageIcon size={15} className={styles.navIcon} />
           Dashboard
           {/* The count is the number of agents that need attention, not the
@@ -329,12 +323,28 @@ const WorktreeMenu = () => {
 }
 
 /**
- * The account chip, and the menu behind it.
+ * The seat: you, and the agent you will pick up next.
+ *
+ * The row is your identity — HarnessDesk today, your HarnessDesk account
+ * when there is one — and it never changes because an agent did. What does
+ * change is the badge at its end: the agent new sessions run as, wearing its
+ * account's ring, with its readiness beside it. The account's *name* is not
+ * on the row: an account is a pen, not a person, and the name card on the
+ * badge answers which pen in full.
  *
  * This is where switching happens. Settings is where accounts are *managed*
- * — renamed, signed out of, given a colour; the chip is where they are
+ * — renamed, signed out of, given a colour; the seat is where they are
  * *used*, because "run the next session as this one" is a thing people do
  * twenty times a day and settings is a place they visit twice a month.
+ *
+ * Switching is a preference, not a navigation: the conversation on screen
+ * stays, the list stays where it was scrolled to, and only a draft — which
+ * has no agent of its own — takes on the new one. The conversation's own
+ * composer already says who it is with, so this row answers the other
+ * question: who is next. That is also why the badge and the menu's tick read
+ * `activeRuntime` and never the focused pane's — the menu sets exactly what
+ * the badge shows, so the two cannot disagree. An earlier version followed
+ * the focused conversation, and ticked one agent while ⌘N started another.
  *
  * The list is every account of every agent, wearing the same dot and the same
  * figure the header strip shows, so a number learnt in one place reads the
@@ -355,18 +365,21 @@ interface Seat {
   readonly current: boolean
 }
 
-const AccountFooter = ({
+export const AccountFooter = ({
   onOpenSettings,
   onOpenUsage,
   onSignIn,
 }: {
   onOpenSettings: () => void
-  onOpenUsage: () => void
+  /** Opens the dashboard, scoped to one agent when the caller names it. */
+  onOpenUsage: (runtime?: RuntimeId) => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  // Outside every pane, so this is the default agent — the one ⌘N starts —
+  // and not the focused conversation's.
   const runtime = useRuntime()
   const [open, setOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
@@ -395,13 +408,6 @@ const AccountFooter = ({
     }
   }, [open])
 
-  // The chip names the agent a new session would run as, which is the focused
-  // pane's, not necessarily the app's idea of the active one.
-  const contextualRuntimeId = snapshot.activeSessionKey
-    ? splitSessionKey(snapshot.activeSessionKey).runtime
-    : snapshot.activeRuntime
-  const contextualRuntime = snapshot.runtimes.find((entry) => entry.id === contextualRuntimeId) ?? runtime
-
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
     const usage = snapshot.usage.filter((report) => report.runtime === info.id)
@@ -411,6 +417,7 @@ const AccountFooter = ({
       // normal unless it happened to be the active one.
       health: snapshot.healthByRuntime[info.id] ?? null,
       account: status,
+      accounts: info.capabilities.account,
       usage,
     })
     const report = usage[0] ?? null
@@ -420,7 +427,7 @@ const AccountFooter = ({
       lane && lane.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
     const tone = view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const))
     const accounts = status?.accounts ?? []
-    const current = info.id === contextualRuntimeId
+    const current = info.id === snapshot.activeRuntime
 
     if (accounts.length === 0) {
       return [
@@ -453,15 +460,18 @@ const AccountFooter = ({
     })
   })
 
-  const here = seats.find((seat) => seat.current) ?? seats[0] ?? null
-  const brand = brandForRuntime(contextualRuntime)
+  // The default agent's seat — its account, or its empty chair. Null only
+  // with no agents at all, when the row is just the desk.
+  const here = seats.find((seat) => seat.current) ?? null
   const signedIn = here?.account !== null && here?.account !== undefined
+  const agentName = brandOf(runtime.presentation.name)
+  const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
 
   const signOut = async (): Promise<void> => {
-    if (!contextualRuntimeId) return
+    if (!snapshot.activeRuntime) return
     setBusy(true)
     try {
-      await store.signOutAgent(contextualRuntimeId)
+      await store.signOutAgent(snapshot.activeRuntime)
       setOpen(false)
       setConfirmingSignOut(false)
     } finally {
@@ -522,7 +532,11 @@ const AccountFooter = ({
                 >
                   <span
                     className={styles.seatAvatar}
-                    data-tint={tintOf(seat.key, snapshot.accountPrefs)}
+                    {...(seat.account
+                      ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
+                      : seat.state === 'signin'
+                        ? { 'data-off': '' }
+                        : {})}
                   >
                     <RuntimeMark runtime={seat.info} size={13} />
                   </span>
@@ -605,15 +619,14 @@ const AccountFooter = ({
               >
                 <span className={styles.accountMenuAction}>
                   <SignOutIcon size={13} />
-                  Sign out of {brandOf(contextualRuntime.presentation.name)}…
+                  Sign out of {agentName}…
                 </span>
               </button>
             )}
             {confirmingSignOut && (
               <div className={styles.accountMenuConfirm}>
                 <div className={styles.accountMenuConfirmText}>
-                  Sign out of {brandOf(contextualRuntime.presentation.name)}? You'll need to sign in
-                  again before the next turn.
+                  Sign out of {agentName}? You'll need to sign in again before the next turn.
                 </div>
                 <div className={styles.accountMenuConfirmActions}>
                   <button
@@ -644,43 +657,60 @@ const AccountFooter = ({
         className={styles.accountRow}
         aria-haspopup="menu"
         aria-expanded={open}
+        {...(here ? { title: `New sessions run as ${nextAs}` } : {})}
         {...(open ? { 'data-open': '' } : {})}
         onClick={() => {
           setOpen((value) => !value)
           setConfirmingSignOut(false)
         }}
       >
-        <span
-          className={styles.avatar}
-          {...(signedIn ? {} : { 'data-off': '' })}
-          {...(brand ? { 'data-brand': '' } : {})}
-        >
-          {brand ? (
-            <BrandMark brand={brand} size={14} />
-          ) : here?.account ? (
-            initials(here.account.label)
-          ) : (
-            <UserIcon size={13} />
-          )}
+        {/* You. The same drawing as the menu's top row, at the row's size. */}
+        <span className={styles.avatar}>
+          <HarnessMark size={11} />
         </span>
-        <span className={styles.accountName} title={here?.sub}>
-          {here ? humanizeLabel(here.name) : contextualRuntime.presentation.name}
-          {!brand && contextualRuntime.presentation.name && (
-            <span className={styles.agentBadge}>{brandOf(contextualRuntime.presentation.name)}</span>
-          )}
-        </span>
+        <span className={styles.accountName}>HarnessDesk</span>
         {here?.figure && here.tone !== 'good' && (
           <span className={styles.accountMeta} data-tone={here.tone}>
             {here.figure}
           </span>
         )}
+        {/* The pen: the default agent's mark in its account's ring — the
+            same disc the menu's seats wear — and the name card on it says
+            which account, on what plan, with how much left. The ring is the
+            account's, so an agent that keeps its own credential wears none
+            and is not dimmed for it; only a seat that needs a sign-in goes
+            dark. */}
+        {here && (
+          <AccountHoverCard
+            info={here.info}
+            account={here.account}
+            side="right"
+            align="end"
+            className={styles.seatTrigger}
+            onOpenUsage={onOpenUsage}
+            /* Pressing the badge opens the menu, and the card the hover had
+               opened stayed beside it — two surfaces answering one seat. With
+               the menu up, the card has nothing to add: every seat in it
+               carries its own. */
+            disabled={open}
+          >
+            <span
+              className={styles.seatAvatar}
+              {...(here.account
+                ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
+                : here.state === 'signin'
+                  ? { 'data-off': '' }
+                  : {})}
+            >
+              <RuntimeMark runtime={here.info} size={13} />
+            </span>
+          </AccountHoverCard>
+        )}
         <span
           className={styles.statusDot}
           data-state={here?.state ?? 'unknown'}
           role="img"
-          aria-label={`${brandOf(contextualRuntime.presentation.name)}: ${
-            here ? READINESS_LABEL[here.state] : 'unknown'
-          }`}
+          aria-label={here ? `${agentName}: ${READINESS_LABEL[here.state]}` : 'No agent'}
         />
       </button>
     </div>

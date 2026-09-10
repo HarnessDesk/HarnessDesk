@@ -2,7 +2,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { allItems, currentTurn, isBusy, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
-import { useActiveSession, usePane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
+import {
+  useActiveSession,
+  usePane,
+  useRuntime,
+  useRuntimeAccount,
+  useRuntimeHealth,
+  useSessionKey,
+  useSnapshot,
+  useStore,
+} from '../state/context'
 import { shownView, terminals } from '../state/workbench'
 import { summonable } from '../panels/views'
 import { Slot } from '../slots/registry'
@@ -62,7 +71,11 @@ const EmptyState = ({
 }) => {
   const snapshot = useSnapshot()
   const runtime = useRuntime()
-  const health = snapshot.health
+  // This pane's agent's own health and account. The singular slots are the
+  // default agent's, and a member column on another agent read them under
+  // its own name once the default could differ from the pane's.
+  const health = useRuntimeHealth()
+  const account = useRuntimeAccount()
   const words = runtime.presentation
   /* A conversation that exists already has its folder. Telling its reader to
      pick one — which a room column did for a member with no turns yet — is a
@@ -88,9 +101,9 @@ const EmptyState = ({
 
   // Only meaningful for a runtime that has an account at all. A local model has
   // nothing to sign in to, and saying otherwise would be nonsense.
-  if (runtime.capabilities.account && snapshot.account && snapshot.account.accounts.length === 0) {
-    const driveable = snapshot.account.signInMethods.some((method) => method.flow !== 'external')
-    const external = snapshot.account.signInMethods.find((method) => method.flow === 'external')
+  if (runtime.capabilities.account && account && account.accounts.length === 0) {
+    const driveable = account.signInMethods.some((method) => method.flow !== 'external')
+    const external = account.signInMethods.find((method) => method.flow === 'external')
     return (
       <div className={styles.empty}>
         <div className={styles.emptyTitle}>Sign in to {words.name}</div>
@@ -99,7 +112,9 @@ const EmptyState = ({
           credentials.
         </p>
         {driveable ? (
-          <button type="button" className={styles.emptyAction} onClick={() => onSignIn()}>
+          /* This pane's agent, by name: an empty member column on another
+             agent must not open the default's sign-in. */
+          <button type="button" className={styles.emptyAction} onClick={() => onSignIn(runtime.id)}>
             Sign in
           </button>
         ) : (
@@ -114,7 +129,12 @@ const EmptyState = ({
     )
   }
 
-  const blocked = runtime.capabilities.metered ? describeLimits(snapshot.limits)?.blocked : null
+  // Plan windows are read for the default agent only, so a pane on another
+  // agent says nothing here rather than the wrong agent's allowance.
+  const blocked =
+    runtime.capabilities.metered && runtime.id === snapshot.activeRuntime
+      ? describeLimits(snapshot.limits)?.blocked
+      : null
   if (blocked) {
     return (
       <div className={styles.empty}>

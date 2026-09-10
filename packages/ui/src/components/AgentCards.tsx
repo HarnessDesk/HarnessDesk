@@ -175,6 +175,14 @@ export const AgentHoverCard = ({
     return () => window.removeEventListener('scroll', close, true)
   }, [open])
 
+  /* Disabling the card must also close it. The state outlives the Radix
+     tree below, which unmounts while `disabled` holds — so a card that was
+     open when a menu took the seat came straight back, unhovered, the moment
+     the menu closed. */
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+
   if (disabled) return <>{children}</>
 
   return (
@@ -591,12 +599,20 @@ const AccountCardBody = ({
     const sessions = [...snapshot.sessions.values()].filter((one) => one.runtime === info.id)
     const working = sessions.filter((one) => busyNow(one)).length
 
+    /* A verb that would do nothing is absent, not greyed: the agent that
+       already is the default gets no "run new sessions as this", which
+       `selectRuntime` would return from without a word. The seat's own row
+       and the menu's tick already say it is the default. */
     const actions: AgentCardAction[] = [
-      {
-        label: 'Run new sessions as this',
-        onSelect: () => void store.selectRuntime(info.id),
-        primary: true,
-      },
+      ...(info.id === snapshot.activeRuntime
+        ? []
+        : [
+            {
+              label: 'Run new sessions as this',
+              onSelect: () => void store.selectRuntime(info.id),
+              primary: true,
+            },
+          ]),
       ...(onOpenUsage ? [{ label: 'Usage', onSelect: () => onOpenUsage(info.id) }] : []),
     ]
 
@@ -655,6 +671,7 @@ export const AccountHoverCard = ({
   className,
   side,
   align,
+  disabled,
 }: {
   readonly info: RuntimeInfo
   /** Null for a seat that has not signed in; the card then says so. */
@@ -664,8 +681,11 @@ export const AccountHoverCard = ({
   readonly className?: string
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
   readonly align?: 'start' | 'center' | 'end'
+  /** The mark renders bare — while a menu is already open over the same seat, say. */
+  readonly disabled?: boolean
 }) => (
   <AgentHoverCard
+    {...(disabled !== undefined ? { disabled } : {})}
     body={() => (
       <AccountCardBody
         info={info}

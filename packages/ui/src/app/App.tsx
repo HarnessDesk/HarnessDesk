@@ -295,7 +295,7 @@ export const App = () => {
               <Sidebar
                 onOpenSettings={() => setSettingsOpen('agents')}
                 onOpenPlugins={() => setSettingsOpen('plugins')}
-                onOpenUsage={() => setUsageOpen(true)}
+                onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
                 onSearch={() => setPaletteOpen(true)}

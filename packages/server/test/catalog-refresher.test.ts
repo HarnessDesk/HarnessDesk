@@ -93,10 +93,11 @@ test('a change the runtime could not act on still gets the catalogue re-read', a
   assert.deepEqual(runtime.calls, ['check', 'refresh'])
 })
 
-test('a runtime that declares neither method is simply checked-at; one that is down is left alone', async () => {
+test('a runtime that declares neither method is simply checked-at; one that is not running is left alone', async () => {
   const bare = stub('bare')
+  // Down for a reason a re-read cannot mend: a stop overtook its start.
   const down = stub('down', {
-    health: { state: 'unavailable', reason: 'crashed', message: 'gone' },
+    health: { state: 'unavailable', reason: 'unknown', message: 'stopped while starting' },
     refresh: async () => ({ refreshed: true }),
   })
   const refresher = new CatalogRefresher({ now: () => 7 })
@@ -115,6 +116,21 @@ test('a runtime that declares neither method is simply checked-at; one that is d
   assert.equal(asked.refreshed, false)
   assert.match(asked.reason ?? '', /not running/)
   assert.deepEqual(down.calls, [])
+})
+
+test('a runtime that crashed is asked to refresh, because for it the refresh is the restart', async () => {
+  // Its own health says "select the runtime again to restart it", and a
+  // selection ends here. Answering "It is not running" here made that advice
+  // impossible to follow.
+  const crashed = stub('crashed', {
+    health: { state: 'unavailable', reason: 'crashed', message: 'gone', remediation: 'Select the runtime again to restart it.' },
+    refresh: async () => ({ refreshed: true }),
+  })
+  const refresher = new CatalogRefresher({ now: () => 7 })
+  refresher.watch(crashed)
+  const asked = await refresher.refresh('crashed' as never)
+  assert.equal(asked.refreshed, true)
+  assert.deepEqual(crashed.calls, ['refresh'])
 })
 
 test('one runtime failing never stops another from being asked', async () => {

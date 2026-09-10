@@ -102,6 +102,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
     health: snapshot.healthByRuntime[info.id] ?? (info.id === snapshot.activeRuntime ? snapshot.health : null),
     registered: true,
     account: status,
+    accounts: info.capabilities.account,
     usage: snapshot.usage.filter((report) => report.runtime === info.id),
   })
   if (account) {

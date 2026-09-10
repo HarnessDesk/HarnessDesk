@@ -350,10 +350,18 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       hint: runtime.id === snapshot.activeRuntime ? 'current' : runtime.presentation.tagline,
       icon: <RuntimeMark runtime={runtime} />,
       keywords: `switch agent ${brandOf(runtime.presentation.name)}`,
+      // "Start with" promises a conversation. Choosing the agent is a
+      // preference that leaves the screen alone, so the draft is opened
+      // here, on purpose, after the pick. The pick goes through even for the
+      // agent already chosen: the store makes that a no-op unless the agent
+      // has crashed, in which case it is the restart its health asks for.
+      // The draft can follow synchronously because `selectRuntime` patches
+      // the default before its first await — pinned by the store's
+      // "same frame" test.
       run: () => {
         close()
-        if (runtime.id !== snapshot.activeRuntime) void store.selectRuntime(runtime.id)
-        else store.newDraft()
+        void store.selectRuntime(runtime.id)
+        store.newDraft()
       },
     }))
 

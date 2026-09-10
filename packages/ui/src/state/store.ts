@@ -283,16 +283,20 @@ export class AppStore {
           delete accountsByRuntime[runtime]
           const healthByRuntime = { ...this.#snapshot.healthByRuntime }
           delete healthByRuntime[runtime]
+          // Nothing may stay pointed at a runtime that no longer resolves —
+          // the list's paging anchor and its cursor included.
+          const anchored = this.#historyAnchor === runtime
+          if (anchored) this.#historyAnchor = null
           this.#patch({
             runtimes,
             accountsByRuntime,
             healthByRuntime,
-            // Nothing may stay pointed at a runtime that no longer resolves.
             activeRuntime:
               this.#snapshot.activeRuntime === runtime
                 ? (runtimes[0]?.id ?? null)
                 : this.#snapshot.activeRuntime,
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
+            historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
         }
         if (notification.method === 'usage/updated') {
@@ -393,45 +397,68 @@ export class AppStore {
   }
 
   /**
-   * Switches runtime. The open session belongs to the previous one, so it is
-   * cleared rather than left pointing at a transcript the new runtime has never
-   * heard of.
+   * Chooses the agent new sessions run as.
+   *
+   * A preference, not a navigation. The conversation on screen belongs to its
+   * own agent and stays exactly where it is; the session list is every
+   * agent's and stays where it was scrolled to; only a draft — which has no
+   * agent of its own — takes on the new one, through `useRuntime()`. This
+   * used to blank the list and replace the focused conversation with an
+   * empty draft, and the whole window blinked for a pick that changes what
+   * ⌘N does next.
+   *
+   * What the window already knows about the agent is swapped in the same
+   * frame — its drafts, its health, its accounts — so nothing waits on the
+   * wire that does not have to. What only the agent can answer (its models,
+   * options, routes, skills, limits) is cleared and asked for, because a
+   * Codex model list under a Claude label would be a lie for as long as the
+   * request took.
    */
   async selectRuntime(runtime: RuntimeId): Promise<void> {
-    if (runtime === this.#snapshot.activeRuntime) return
+    // An agent that crashed says "select the runtime again to restart it",
+    // and this is the selecting. The catalogue refresh is the verb that
+    // restarts it — and only a crash is restartable that way: an agent that
+    // is still starting, or that its launch check blocked, is refused by the
+    // refresher and would only cost a round trip. Picking the agent already
+    // picked is otherwise a no-op.
+    const health = this.#snapshot.healthByRuntime[runtime]
+    const crashed = health?.state === 'unavailable' && health.reason === 'crashed'
+    if (runtime === this.#snapshot.activeRuntime) {
+      if (crashed) await this.refreshCatalog()
+      return
+    }
     this.#patch({
       activeRuntime: runtime,
-      history: [],
-      historyCursor: null,
+      health: this.#snapshot.healthByRuntime[runtime] ?? null,
+      account: this.#snapshot.accountsByRuntime[runtime] ?? null,
+      // The drafts a runtime was left with come back when it is selected again.
+      draftValues: this.#draftsByRuntime[runtime] ?? {},
       models: [],
       runtimeOptions: [],
       draftOptions: null,
-      // The drafts a runtime was left with come back when it is selected again.
-      draftValues: this.#draftsByRuntime[runtime] ?? {},
       routes: [],
       draftRouteId: null,
-      account: null,
       limits: null,
       skills: [],
     })
     // Remembered across launches; losing the user's runtime pick on every
     // restart made the shell feel like it had a favourite vendor.
     void this.transport.request('app/state/set', { patch: { activeRuntime: runtime } }).catch(() => {})
-    // The window has to show the agent just chosen. A pane still displaying
-    // the previous agent's conversation would leave the footer identity, the
-    // composer, and the title telling a different story from Settings.
-    const focused = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
-    const replacing = !focused || focused.view.kind === 'conversation'
-    // Changing which agent a draft starts with is not "throw this draft
-    // away": a hand-off already on it is the whole reason the draft exists,
-    // so it rides across the switch.
-    if (replacing && this.#snapshot.draftHandoff) this.#parkedHandoff = this.#snapshot.draftHandoff
-    if (replacing) this.newDraft()
-    await this.refreshRuntime()
+    // Choosing a crashed agent is also "selecting it again": it comes back
+    // up, and its health change re-reads the surface once it is ready.
+    if (crashed) void this.refreshCatalog()
+    await this.refreshRuntime({ history: false })
   }
 
-  /** Reloads everything that depends on which runtime is selected. */
-  async refreshRuntime(): Promise<void> {
+  /**
+   * Reloads everything that depends on which runtime is selected.
+   *
+   * `history: false` keeps the session list as it is. A switch of the default
+   * agent asks for this — the list is every agent's and a re-page would drop
+   * the reader back to the first page — while an agent coming up or signing
+   * in does not, since its history just became readable.
+   */
+  async refreshRuntime(options: { readonly history?: boolean } = {}): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const [health, account, limits, models, runtimeOptions] = await Promise.all([
@@ -444,9 +471,20 @@ export class AppStore {
     // The user may have switched runtime while these were in flight; stale
     // results for the previous one must not stomp the current surface.
     if (this.#snapshot.activeRuntime !== runtime) return
-    this.#patch({ health, account, limits, models, runtimeOptions })
+    // The per-runtime maps are what every seat, card and pane reads; a
+    // poll that answered only the singular slots left them one step behind,
+    // and a crash seen here alone was one the seat could not restart.
+    this.#patch({
+      health,
+      account,
+      limits,
+      models,
+      runtimeOptions,
+      ...(health ? { healthByRuntime: { ...this.#snapshot.healthByRuntime, [runtime]: health } } : {}),
+      ...(account ? { accountsByRuntime: { ...this.#snapshot.accountsByRuntime, [runtime]: account } } : {}),
+    })
     if (health?.state === 'ready') {
-      void this.loadHistory({ reset: true })
+      if (options.history !== false) void this.loadHistory({ reset: true })
       void this.loadSkills()
       void this.loadDraftOptions()
     }
@@ -470,6 +508,7 @@ export class AppStore {
         this.#patch({ draftRouteId: null })
       }
     } catch {
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ routes: [] })
     }
   }
@@ -618,12 +657,17 @@ export class AppStore {
       // next session starts with.
       const values = kept(asked, options)
       this.#draftsByRuntime[runtime] = values
+      // A switch is cheap now, so two can happen inside one slow answer: the
+      // first agent's defaults must not land on the second agent's draft.
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
     } catch {
       try {
         const options = await this.transport.request('runtime/sessionDefaults', params)
+        if (this.#snapshot.activeRuntime !== runtime) return
         this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: {} })
       } catch {
+        if (this.#snapshot.activeRuntime !== runtime) return
         this.#patch({ draftOptions: null })
       }
     }
@@ -1275,8 +1319,15 @@ export class AppStore {
    * row carries its runtime, so opening one opens it where it lives.
    */
   async loadHistory(options: { reset?: boolean } = {}): Promise<void> {
-    const runtime = this.#snapshot.activeRuntime
+    // A page continues the list it is a page of. The list is paged around
+    // one agent — the anchor — with a first page of every other; a reset
+    // rebuilds it around the default agent, and every page after continues
+    // along the same anchor even if the default has changed since, because a
+    // cursor handed to a different agent names nothing.
+    const runtime =
+      options.reset || !this.#historyAnchor ? this.#snapshot.activeRuntime : this.#historyAnchor
     if (!runtime || this.#snapshot.historyLoading) return
+    this.#historyAnchor = runtime
     this.#patch({ historyLoading: true })
     try {
       // Only agents that have their own history to give. An account sharing
@@ -1577,8 +1628,9 @@ export class AppStore {
     const title = shortLabel(sessionLabel(summary?.title ?? open?.title, summary?.preview || firstAsk), 120)
     this.#parkedHandoff = null
     await this.selectRuntime(target)
-    // selectRuntime opened the draft; if the target was already selected it
-    // did nothing, and the chip still needs an empty pane to land on.
+    // The switch leaves the conversation on screen — it is a preference, not
+    // a navigation — and the chip needs an empty pane on the target to land
+    // on, so the draft is opened here, by the one verb that means it.
     if (this.#snapshot.activeSessionKey) this.newDraft()
     this.#parkedHandoff = null
     this.#patch({
@@ -1789,6 +1841,9 @@ export class AppStore {
         runtime,
         ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
       })
+      // The default may have moved on while this agent was answering; its
+      // skills belong under its own name, not the next agent's.
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ skills })
     } catch {
       // `runtime/skills` now *throws* when the agent cannot answer (a
@@ -1796,7 +1851,10 @@ export class AppStore {
       // returning []. Keeping the previous list here would strand another
       // workspace's or runtime's skills on screen — and, after a toggle whose
       // reload failed, show a row in a state the disk does not hold. Clear it:
-      // an unanswerable request is not evidence of any particular skill.
+      // an unanswerable request is not evidence of any particular skill —
+      // and a failure that arrives after the default moved on is not
+      // evidence about the *next* agent's skills either.
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ skills: [] })
     }
   }
@@ -4354,6 +4412,8 @@ export class AppStore {
   #historyRefresh: ReturnType<typeof setTimeout> | null = null
   /** The sidebar's live filter, so a re-read keeps showing what was searched. */
   #historyQuery = ''
+  /** The agent the list is paged around; see `loadHistory`. */
+  #historyAnchor: RuntimeId | null = null
 
   /**
    * One re-read per burst of events, a beat after the last of them.
