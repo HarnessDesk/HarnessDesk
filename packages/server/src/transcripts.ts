@@ -151,6 +151,14 @@ const restorableUsage = (
   return pairs.get(last) === lastStored ? stored.usage : null
 }
 
+/**
+ * One session's key in the store's queues. Spelled once: `forget()` built it
+ * with a space where `record()` used a NUL, so the write still queued for a
+ * deleted conversation was never found, and it wrote the transcript back a
+ * moment after the delete (#36).
+ */
+const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
+
 export class TranscriptStore {
   readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session }>()
   readonly #writes = new Map<string, Promise<void>>()
@@ -171,7 +179,7 @@ export class TranscriptStore {
   record(session: Session, options: { readonly now?: boolean } = {}): void {
     if (!session.itemsLoaded) return
     if (!session.turns.some((turn) => turn.items.length > 0)) return
-    const key = `${session.runtime}\0${session.id}`
+    const key = keyOf(session.runtime, session.id)
     const pending = this.#pending.get(key)
     if (pending) clearTimeout(pending.timer)
     const timer = setTimeout(() => {
@@ -182,7 +190,7 @@ export class TranscriptStore {
   }
 
   async #write(session: Session): Promise<void> {
-    const key = `${session.runtime}\0${session.id}`
+    const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
       const stored: Stored = {
@@ -453,7 +461,7 @@ export class TranscriptStore {
    * later is worse than one that was never deleted.
    */
   async forget(runtime: RuntimeId, id: SessionId): Promise<void> {
-    const key = `${runtime} ${id}`
+    const key = keyOf(runtime, id)
     const pending = this.#pending.get(key)
     if (pending) {
       clearTimeout(pending.timer)

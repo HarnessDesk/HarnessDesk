@@ -173,10 +173,17 @@ export class SessionRegistry {
   forgetTurns(runtime: RuntimeId, id: SessionId, turns: number): void {
     const record = this.get(runtime, id)
     if (!record) return
-    for (const turn of record.session.turns.slice(-turns)) {
+    // By count kept rather than `slice(-turns)`, which for 0 is the whole list.
+    const kept = Math.max(0, record.session.turns.length - turns)
+    for (const turn of record.session.turns.slice(kept)) {
       record.watched.delete(turn.id)
       record.running.delete(turn.id)
     }
+    /* And the turns themselves. Only the host's claims on them went; the turns
+       stayed in its copy of the session until the next read replaced it, so a
+       revert could still find, and undo the files of, a turn the conversation
+       had dropped (#34). */
+    record.session = { ...record.session, turns: record.session.turns.slice(0, kept) }
   }
 
   get(runtime: RuntimeId, id: SessionId): SessionRecord | undefined {
