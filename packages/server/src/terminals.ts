@@ -122,6 +122,10 @@ export class Terminals {
     for (const record of this.#records.values()) {
       if (record.runtime !== runtime || record.exitCode !== null) continue
       record.exitCode = -1
+      /* Killed, not only marked. The exit code was set and nothing stopped the
+         shell, and a terminal marked exited is one `close()` no longer kills,
+         so every shell the agent had opened outlived it for good (#74). */
+      void record.process.kill().catch(() => {})
       this.push({ method: 'terminal/exited', params: { terminalId: record.id, exitCode: -1 } })
     }
   }

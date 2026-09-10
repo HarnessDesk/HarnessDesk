@@ -390,3 +390,14 @@ test('a conversation the backend refuses is recovered from the store alone', asy
     assert.equal(await store.recover(runtimeId('codex'), sessionId('never-seen')), null, 'nothing invents a transcript')
   })
 })
+
+test('forgetting a session cancels the write still queued for it', async () => {
+  // #36: the queue was keyed with a NUL and forget() looked for a space, so a
+  // deleted conversation's transcript was written back a moment later.
+  await withStore(async (store, dir) => {
+    store.record(session([turn('t1', [item('i1', 'assistantMessage')])]))
+    await store.forget(runtimeId('codex'), sessionId('s1'))
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    assert.deepEqual(await readdir(dir, { recursive: true }), [])
+  })
+})

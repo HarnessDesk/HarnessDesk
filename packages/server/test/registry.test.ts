@@ -124,3 +124,16 @@ test('a summary-shaped read never erases a transcript', (t) => {
   assert.equal(summary.itemsLoaded, true)
   assert.equal(summary.turns[0]?.items.length, 4)
 })
+
+test('a rollback takes the dropped turns out of the host\'s copy as well', () => {
+  // #34: only the host's claims on them went, and the turns stayed until the next read.
+  const registry = new SessionRegistry()
+  registry.upsert(session([turn('t-1', 'completed', 1), turn('t-2', 'completed', 1), turn('t-3', 'completed', 1)]), null)
+  registry.forgetTurns(RUNTIME, ID, 1)
+  assert.deepEqual(
+    registry.get(RUNTIME, ID)?.session.turns.map((entry) => entry.id),
+    [turnId('t-1'), turnId('t-2')],
+  )
+  registry.forgetTurns(RUNTIME, ID, 0)
+  assert.equal(registry.get(RUNTIME, ID)?.session.turns.length, 2, 'forgetting none forgets none')
+})

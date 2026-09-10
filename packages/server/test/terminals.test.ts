@@ -146,3 +146,30 @@ test('the terminal chip rides the sync snapshot, and resolving with no terminal 
     /No terminal has printed anything yet/,
   )
 })
+
+test('a runtime that goes away takes its shells with it', async () => {
+  // #74: detachAll marked its terminals exited and killed nothing, and a
+  // terminal marked exited is one close() no longer kills.
+  let kills = 0
+  const processes: RuntimeProcesses = {
+    spawn: () =>
+      Promise.resolve({
+        write: async () => {},
+        resize: async () => {},
+        kill: async () => {
+          kills += 1
+        },
+        onOutput: () => () => {},
+        onExit: () => () => {},
+      }),
+  }
+  const terminals = new Terminals(() => {})
+  const size = { cols: 80, rows: 24 }
+  await terminals.open({ runtime: runtimeId('fake'), processes, cwd: '/w', size })
+  await terminals.open({ runtime: runtimeId('other'), processes, cwd: '/w', size })
+  terminals.detachAll(runtimeId('fake'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(kills, 1, "the runtime's own shell, and only it")
+  await terminals.dispose()
+  assert.equal(kills, 2, 'dispose then kills the one still running, and not the dead one again')
+})
