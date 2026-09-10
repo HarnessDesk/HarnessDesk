@@ -51,8 +51,22 @@ export const planLabel = (record: Record<string, unknown>): string | null => {
 const DONE = new Set(['done', 'complete', 'completed', 'finished', 'closed'])
 const RUNNING = new Set(['progress', 'active', 'running', 'started', 'working', 'doing'])
 /* A negation spelled as one word never meets the check for `not` below:
-   `incomplete`, `unfinished` and `undone` read as nothing at all (#62). */
-const OPEN = new Set(['pending', 'todo', 'open', 'queued', 'waiting', 'new', 'blocked', 'incomplete', 'unfinished', 'undone'])
+   `incomplete`, `unfinished` and `undone` read as nothing at all (#62), and
+   so did their past tenses (review, round 3). */
+const OPEN = new Set([
+  'pending',
+  'todo',
+  'open',
+  'queued',
+  'waiting',
+  'new',
+  'blocked',
+  'incomplete',
+  'incompleted',
+  'uncompleted',
+  'unfinished',
+  'undone',
+])
 const DROPPED = new Set(['cancelled', 'canceled', 'abandoned', 'skipped', 'dropped'])
 const NEGATIONS = new Set(['not', 'un', 'no', 'never'])
 

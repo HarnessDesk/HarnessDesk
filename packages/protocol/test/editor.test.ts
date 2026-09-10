@@ -119,3 +119,14 @@ test('a line that is missing or not a number is refused too', () => {
   assert.equal(applyLineEdits('one\n', [{ fromLine: Number.POSITIVE_INFINITY, text: 'A' }]), 'one\nA\n')
   assert.equal(applyLineEdits('one\n', [{ fromLine: 5, text: '' }]), 'one\n')
 })
+
+test('a line JavaScript would coerce is refused as well, and replacements on one line keep their order', () => {
+  // Round 3 of #158: null truncated to 0 and landed on line 1; and the asked-line tie-break reordered two
+  // replacements that clamp to line 1, so the earlier one overwrote the later.
+  for (const fromLine of [null, true, '2']) {
+    assert.throws(() => applyLineEdits('one\n', [{ fromLine: fromLine as unknown as number, text: 'x' }]), /must be numbers/, String(fromLine))
+  }
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: '2' as unknown as number, text: 'x' }]), /must be numbers/)
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 1, toLine: null as unknown as number, text: 'x' }]), 'x\n', 'a null toLine is no toLine')
+  assert.equal(applyLineEdits('one\ntwo\n', [{ fromLine: 0, text: 'FIRST' }, { fromLine: 1, text: 'SECOND' }]), 'SECOND\ntwo\n')
+})

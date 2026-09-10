@@ -87,3 +87,10 @@ test('in before complete is a negation inside a longer status, and in the past t
   assert.equal(planStatus('TODO_STATUS_IN_COMPLETE'), 'pending')
   assert.equal(planStatus('inCompleted'), 'pending')
 })
+
+test('a past-tense negation spelled as one word is pending too', () => {
+  // Round 3 of #158: `inCompleted` was pending and `incompleted` was not.
+  assert.equal(planStatus('incompleted'), 'pending')
+  assert.equal(planStatus('uncompleted'), 'pending')
+  assert.equal(planStatus('unCompleted'), 'pending')
+})

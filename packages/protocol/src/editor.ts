@@ -91,14 +91,18 @@ export type EditorEvent =
  * every top-down implementation of this has, and it only shows when a plugin
  * sends more than one.
  */
+/** A line an edit may name: a number, and not NaN. `Infinity` is past the end, as any large line is. */
+const isLine = (value: unknown): boolean => typeof value === 'number' && !Number.isNaN(value)
+
 export const applyLineEdits = (source: string, edits: readonly EditorEdit[]): string => {
   if (edits.length === 0) return source
-  // A line that is not a number has nowhere to go: it truncates to NaN, NaN
-  // clamps to NaN, and `splice` read that as 0, so the edit went in above the
-  // first line. A missing or non-numeric line from an untyped caller truncates
-  // to NaN as well (review, round 2).
+  // A line that is not a number has nowhere to go: NaN clamped to NaN, and
+  // `splice` read that as 0, so the edit went in above the first line. From an
+  // untyped caller, a missing or non-numeric line did the same, and one that
+  // JavaScript coerces landed on a line nobody named: `null` on the first
+  // (review, rounds 2 and 3). A line is a number.
   for (const edit of edits) {
-    if (Number.isNaN(Math.trunc(edit.fromLine)) || (edit.toLine != null && Number.isNaN(Math.trunc(edit.toLine)))) {
+    if (!isLine(edit.fromLine) || (edit.toLine != null && !isLine(edit.toLine))) {
       throw new Error(`An edit's lines must be numbers; got fromLine ${String(edit.fromLine)}, toLine ${String(edit.toLine)}.`)
     }
   }
@@ -116,13 +120,14 @@ export const applyLineEdits = (source: string, edits: readonly EditorEdit[]): st
     /* From the bottom up, so each splice leaves the lines above it where the
        edits above expect them. Two appends past the end clamp to the same
        line, and by that line alone the later one went in first — `A` then `B`
-       came out `B`, `A` (#61). So a tie goes by the line each asked for, and
-       two appends that asked for the same one go in reverse, which leaves
-       them in the order given. Replacements that share a line keep the order
-       they always had. */
+       came out `B`, `A` (#61). So a tie between two appends goes by the line
+       each asked for, and two that asked for the same one go in reverse, which
+       leaves them in the order given. Replacements that share a line — a
+       `fromLine` of 0 and one of 1 both clamp to the first — keep the order
+       they always had, the later one last (review, round 3). */
     .sort(
       (a, b) =>
-        b.from - a.from || b.asked - a.asked || (a.to < a.from && b.to < b.from ? b.index - a.index : 0),
+        b.from - a.from || (a.to < a.from && b.to < b.from ? b.asked - a.asked || b.index - a.index : 0),
     )
   for (const edit of ordered) {
     // `text: ''` deletes; anything else replaces, and a multi-line
