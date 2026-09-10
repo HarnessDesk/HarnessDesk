@@ -77,6 +77,19 @@ describe('totalsByFile', () => {
     ])
   })
 
+  test('a whole file counts every line it draws, blank ones included', () => {
+    // Review: these totals filtered blank lines out, and the row's badge does not.
+    expect(
+      totalsByFile([
+        { path: '/p/new.txt', kind: { type: 'add' }, diff: 'one\n\nthree\n' },
+        { path: '/p/gone.txt', kind: { type: 'delete' }, diff: 'a\n\nb\n' },
+      ]),
+    ).toEqual([
+      { path: '/p/new.txt', kind: 'add', added: 3, removed: 0 },
+      { path: '/p/gone.txt', kind: 'delete', added: 0, removed: 3 },
+    ])
+  })
+
   test('a file created and deleted in the same turn is not listed', () => {
     const totals = totalsByFile([
       { path: '/p/scratch.cjs', kind: { type: 'add' }, diff: 'x\n' },

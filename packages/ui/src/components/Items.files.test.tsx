@@ -71,6 +71,12 @@ describe('the counts beside a changed file', () => {
     expect(texts('statRemove')).toEqual(['−0', '−0'])
   })
 
+  it('an added file whose text contains @@ is still counted as its content', () => {
+    show([{ path: '/w/notes.md', kind: { type: 'add' }, diff: 'ping @@ops\n- item one\n' }])
+    expect(texts('statAdd')).toEqual(['+2', '+2'])
+    expect(texts('statRemove')).toEqual(['−0', '−0'])
+  })
+
   it('a modified file is counted by the diff rule, a removed --- included', () => {
     show([{ path: '/w/b.md', kind: { type: 'update' }, diff: '@@ -1,2 +1,2 @@\n----\n+title\n same\n' }])
     expect(texts('statAdd')).toEqual(['+1', '+1'])

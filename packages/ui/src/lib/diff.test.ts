@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { asAdditions, countChanges, countDrawn, parseDiff, splitByFile, splitHunks } from './diff'
+import { asAdditions, countChanges, countDrawn, drawnWhole, linesIn, parseDiff, splitByFile, splitHunks } from './diff'
 
 describe('parseDiff', () => {
   test('numbers both gutters from the hunk header', () => {
@@ -445,6 +445,68 @@ describe('a rename git had to spell out underneath', () => {
     expect(
       paths(['diff --git a/gone.txt b/gone.txt', 'deleted file mode 100644', '--- a/gone.txt', '+++ /dev/null', '@@ -1 +0,0 @@', '-bye']),
     ).toEqual(['gone.txt'])
+  })
+})
+
+describe('an added file whose text merely contains @@', () => {
+  test('is drawn and counted as its content: all additions, no removals', () => {
+    const content = 'title: @@mention\n- item one\ncontact: a@@b.example\n@@var@@\n'
+    expect(drawnWhole(content, true)).toBe(true)
+    expect(countDrawn(content, true)).toEqual({ added: 4, removed: 0 })
+  })
+
+  test('one that carries a real hunk header is still read as a diff', () => {
+    const diff = '--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n'
+    expect(drawnWhole(diff, true)).toBe(false)
+    expect(countDrawn(diff, true)).toEqual({ added: 2, removed: 0 })
+  })
+
+  test('the line count is the lines asAdditions draws', () => {
+    for (const content of ['', 'a', 'a\n', 'a\n\n', '\n', 'one\n\nthree']) {
+      expect(linesIn(content), JSON.stringify(content)).toBe(asAdditions(content).length)
+    }
+  })
+})
+
+describe("git's extended header, every line of it", () => {
+  // Measured: what `git diff -C --find-copies-harder` wrote for a copy, an
+  // edit, a binary file and a mode change, in that order.
+  const diff = [
+    'diff --git a/a.txt b/b.txt',
+    'similarity index 100%',
+    'copy from a.txt',
+    'copy to b.txt',
+    'diff --git a/k.txt b/k.txt',
+    'index 2fa992c..3827cf0 100644',
+    '--- a/k.txt',
+    '+++ b/k.txt',
+    '@@ -1 +1 @@',
+    '-keep',
+    '+KEEP',
+    'diff --git a/pic.bin b/pic.bin',
+    'new file mode 100644',
+    'index 0000000..8352675',
+    'Binary files /dev/null and b/pic.bin differ',
+    'diff --git a/run.sh b/run.sh',
+    'old mode 100644',
+    'new mode 100755',
+  ].join('\n')
+
+  test('is metadata, with no gutter numbers, whatever it says', () => {
+    const drawn = parseDiff(diff).filter((line) => line.kind !== 'meta' && line.kind !== 'hunk')
+    expect(drawn.map((line) => [line.kind, line.text])).toEqual([
+      ['remove', 'keep'],
+      ['add', 'KEEP'],
+    ])
+  })
+
+  test('and adds nothing to the count', () => {
+    expect(countChanges(diff)).toEqual({ added: 1, removed: 1 })
+  })
+
+  test('a copy is keyed by the name git wrote beneath, as a rename is', () => {
+    const copy = ['diff --git a/Plan b/x.md b/Plan b/copy.md', 'similarity index 100%', 'copy from Plan b/x.md', 'copy to Plan b/copy.md']
+    expect(splitByFile(copy.join('\n')).map((file) => file.path)).toEqual(['Plan b/copy.md'])
   })
 })
 

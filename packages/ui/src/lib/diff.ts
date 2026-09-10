@@ -17,6 +17,8 @@ export interface DiffLine {
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 const HEADER = /^(?:diff |index |--- |\+\+\+ |new file|deleted file|similarity|rename )/
+/** A hunk header on a line of its own, anywhere in a text. */
+const HUNK_LINE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m
 
 /**
  * Which raw line is a header and which is content — the one rule `parseDiff`
@@ -33,18 +35,29 @@ const HEADER = /^(?:diff |index |--- |\+\+\+ |new file|deleted file|similarity|r
  * gutter number it had no right to. A raw line can only begin with `diff ` if
  * it is a header — content always carries a ` `, `+`, `-` or `\` prefix — so
  * restarting on it is exact rather than a guess.
+ *
+ * And a header is more than `---` and `+++`. Between a `diff ` line and its
+ * file's first hunk git writes its extended header — `copy from`, `old mode`,
+ * `new mode`, `dissimilarity index`, `Binary files … differ` — and a list of
+ * the lines it might hold named only some, so the rest were drawn as context
+ * with gutter numbers (review, round 2). There, every line is metadata now,
+ * whatever it says; the list is left for a diff that has no `diff ` line.
  */
 const classifier = (): ((raw: string) => LineKind) => {
   let sawHunk = false
+  let introducing = false
   return (raw) => {
     if (HUNK.test(raw)) {
       sawHunk = true
+      introducing = false
       return 'hunk'
     }
     if (raw.startsWith('diff ')) {
       sawHunk = false
+      introducing = true
       return 'meta'
     }
+    if (introducing) return 'meta'
     if (!sawHunk && HEADER.test(raw)) return 'meta'
     if (raw.startsWith('+')) return 'add'
     if (raw.startsWith('-')) return 'remove'
@@ -132,7 +145,30 @@ export const countChanges = (diff: string): { added: number; removed: number } =
  * view drops.
  */
 export const countDrawn = (diff: string, wholeFile: boolean): { added: number; removed: number } =>
-  wholeFile && !diff.includes('@@') ? { added: asAdditions(diff).length, removed: 0 } : countChanges(diff)
+  drawnWhole(diff, wholeFile) ? { added: linesIn(diff), removed: 0 } : countChanges(diff)
+
+/**
+ * Whether an added file's payload is drawn as its content rather than as a
+ * diff — `DiffView` and `countDrawn` both ask this, so they cannot disagree.
+ * It is content unless it carries a hunk header: a line of its own reading
+ * `@@ -a,b +c,d @@`. The test was `@@` anywhere, so an added file whose text
+ * merely held `@@` — `@@mention`, `a@@b`, a template's `@@var@@` — was drawn
+ * and counted by the diff rule, and its `- ` list items read as removals
+ * (review, round 2). A file whose content holds a real hunk header line — a
+ * patch file, added — is the one case this cannot tell apart.
+ */
+export const drawnWhole = (diff: string, wholeFile: boolean): boolean => wholeFile && !HUNK_LINE.test(diff)
+
+/**
+ * How many lines `asAdditions` would draw for this content, without drawing
+ * them: one per newline, and one more for a last line that has none. The
+ * count used to build every line to take its length (review, round 2).
+ */
+export const linesIn = (content: string): number => {
+  let count = 0
+  for (let at = content.indexOf('\n'); at !== -1; at = content.indexOf('\n', at + 1)) count += 1
+  return content.length > 0 && !content.endsWith('\n') ? count + 1 : count
+}
 
 export interface DiffHunk {
   /** The `@@ …` line, verbatim. */

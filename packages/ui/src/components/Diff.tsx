@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 
-import { asAdditions, parseDiff } from '../lib/diff'
+import { asAdditions, drawnWhole, parseDiff } from '../lib/diff'
 import { ChevronIcon } from './Icons'
 import styles from './Diff.module.css'
 
@@ -37,7 +37,7 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
   const rows = useRef<Map<number, HTMLTableRowElement>>(new Map())
 
   const lines = useMemo(
-    () => (wholeFile && !diff.includes('@@') ? asAdditions(diff) : parseDiff(diff)),
+    () => (drawnWhole(diff, wholeFile) ? asAdditions(diff) : parseDiff(diff)),
     [diff, wholeFile],
   )
   const hunkRows = useMemo(
