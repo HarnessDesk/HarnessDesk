@@ -101,6 +101,10 @@ importers:
         version: 30.0.1(@noble/hashes@2.3.0)
 
   packages/cursor-acp:
+    dependencies:
+      '@harnessdesk/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       '@harnessdesk/adapter-acp':
         specifier: workspace:*
@@ -108,9 +112,6 @@ importers:
       '@harnessdesk/adapter-testkit':
         specifier: workspace:*
         version: link:../adapter-testkit
-      '@harnessdesk/protocol':
-        specifier: workspace:*
-        version: link:../protocol
 
   packages/desktop:
     dependencies:

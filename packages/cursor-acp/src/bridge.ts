@@ -21,7 +21,9 @@ import type { Readable, Writable } from 'node:stream'
 import {
   chatPath,
   cursorMeta,
+  contextLabel,
   findChatWorkspace,
+  firstLine,
   readAllChats,
   readChatMode,
   readChatPreview,
@@ -446,9 +448,43 @@ const withContext = (known: Parameterised, context: string): Parameterised | nul
  */
 export const titleOf = (text: string): string => {
   const stripped = stripEnvelope(text)
-  const line = (stripped || text.trim()).split('\n').find((entry) => entry.trim() !== '') ?? ''
-  return line.trim().slice(0, 80)
+  /* A message that is nothing but a context block has no line of the user's
+     to be named by, and falling back to the raw text named the conversation
+     `<context source="…">`, the envelope written for the model (#47). What
+     the block says it is, in its `source`, is written for people; without
+     one, there is no title. The label is read by the protocol's own reader:
+     `wrapContext` writes it with JSON.stringify, and a pattern of this
+     file's own stopped at the first `\"` (review, round 1). */
+  return stripped ? firstLine(stripped) : contextLabel(text)
 }
+
+/**
+ * A stored name, read. Before #47's fix, a conversation that opened with only
+ * a context block was stored under the envelope's first line,
+ * `<context source="…">`, for good. That line is read as its label now, and an
+ * envelope whose label can't be read as no name at all, so the next turn names
+ * it (review, round 4).
+ */
+const storedName = (stored: string | null | undefined): string | null => {
+  if (!stored) return null
+  if (!/^<context\b/.test(stored)) return stored
+  const quoted = /^<context\s+source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
+  if (quoted === undefined) return null
+  try {
+    return firstLine(JSON.parse(quoted) as string) || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What a conversation's row is called: what it was called before, if that
+ * said anything, or this turn's title, or nothing. An empty preview is no
+ * preview; kept with `??`, one written by a context-only first turn named
+ * the conversation nothing for good (review, round 1).
+ */
+export const previewFor = (stored: string | null | undefined, text: string): string | null =>
+  storedName(stored) || titleOf(text) || null
 
 export { cursorMeta } from './store.js'
 
@@ -481,8 +517,9 @@ interface SessionRow {
  *
  * Copied into `@harnessdesk/transport-acp`, the client half, and into
  * `@harnessdesk/claude-acp`, the other bridge that serves it. Copied rather
- * than shared because this bridge carries no HarnessDesk dependency and is
- * meant to keep it that way. Change one, change the others.
+ * than shared: this bridge's one HarnessDesk dependency is
+ * `@harnessdesk/protocol`, for reading context blocks (#47), and the name
+ * isn't in it. Change one, change the others.
  */
 const SESSION_DELETE = '_harnessdesk/session/delete'
 
@@ -1313,7 +1350,7 @@ export class CursorAcpBridge {
         // Cursor's own transcript first: it holds the ask the conversation
         // opened with, where this bridge's index holds whatever was last
         // sent through it — and a conversation is named by how it began.
-        preview: this.#preview(chat.chatId, chat.cwd, chat.updatedAt) ?? ours?.preview ?? null,
+        preview: this.#preview(chat.chatId, chat.cwd, chat.updatedAt) ?? storedName(ours?.preview),
         updatedAt: new Date(Math.max(chat.updatedAt, seen)).toISOString(),
       })
     }
@@ -1324,7 +1361,7 @@ export class CursorAcpBridge {
         sessionId: row.sessionId,
         cwd: row.cwd,
         title: cursorMeta(row.sessionId, row.cwd).title,
-        preview: row.preview,
+        preview: storedName(row.preview),
         updatedAt: row.updatedAt,
       })
     }
@@ -1492,7 +1529,7 @@ export class CursorAcpBridge {
 
     session.cancelled = false
     const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
-    this.#rememberSession(session.chatId, session.cwd, asked ?? titleOf(text))
+    this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text))
 
     for (let attempt = 1; ; attempt += 1) {
       const spoke = { yet: false }
