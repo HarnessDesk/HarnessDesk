@@ -204,6 +204,8 @@ export class Pricing {
       if (datedFormOf(key, candidate)) return ratesFrom(entry.cost)
       // This one is a dated form of the asked id: the newest, and `-latest` over any date.
       if (datedFormOf(candidate, key)) {
+        // One with no price gives way to an older one that has one (review, round 2).
+        if (!ratesFrom(entry.cost)) continue
         const suffix = candidate.slice(key.length)
         const rank = suffix.endsWith('latest') ? '\uffff' : suffix.replace(/\D/g, '')
         if (rank > newest) {

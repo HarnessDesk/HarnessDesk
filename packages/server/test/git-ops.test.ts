@@ -245,3 +245,31 @@ test('a deletion recorded with no content is not put back as an empty file', asy
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('a blank deletion refuses the whole undo, beside an update and a deletion that could be put back', async () => {
+  // Round 2 of #153: the refusal was pinned beside an add; an update and a recorded deletion go no further either.
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+    await rm(join(dir, 'gone.txt'))
+    const turn = turnOf([
+      fileChange(dir, [
+        { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+        { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: 'bye\n' },
+        { path: join(dir, 'empty.txt'), kind: { type: 'delete' }, diff: '' },
+      ]),
+    ])
+    await assert.rejects(revertTurn(dir, turn), (error: unknown) => {
+      assert.ok(error instanceof RevertError)
+      assert.match(error.message, /Cannot put back empty\.txt: the agent recorded no content for it/)
+      assert.doesNotMatch(error.message, /gone\.txt/, 'only the deletion with nothing recorded is named')
+      return true
+    })
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n', 'the update was not undone')
+    await assert.rejects(stat(join(dir, 'gone.txt')), 'nor the recorded deletion put back')
+    await assert.rejects(stat(join(dir, 'empty.txt')))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+

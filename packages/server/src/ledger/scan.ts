@@ -2,6 +2,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { createInterface } from 'node:readline'
 
 import type { UsageRow } from './store.js'
 
@@ -258,21 +259,19 @@ export const scanCodexRollout = async (
   tail: readonly string[] = [],
 ): Promise<ScanResult> => {
   const into: Accumulator = { rows: new Map() }
-  /* The model and the project are said once near the top — `session_meta`,
-     then `turn_context` when they change — and a resumed scan starts after
-     them, so every row it found read 'unknown' with no project (#33). What
-     they were where the last scan stopped travels in the cursor's tail, the
-     slot the Claude scan uses for the message ids it has seen. */
-  let { model, project } = contextFrom(tail)
+  /* The model and the project are said near the top — `session_meta`, then
+     `turn_context` at each turn — and a resumed scan starts after them, so
+     every row it found read 'unknown' with no project (#33). What they were
+     where the last scan stopped travels in the cursor's tail, the slot the
+     Claude scan uses for the message ids it has seen. A cursor written before
+     the tail carried them has an offset and nothing else, and reads them once
+     from the part of the file it had already counted (review, round 2). */
+  const context = contextFrom(tail) ?? (offset > 0 ? await contextBefore(target.path, offset) : unknownContext())
   const consumed = await readLines(target.path, offset, (raw) => {
     const record = raw as CodexRecord
     const payload = record.payload
     if (!payload) return
-    if (record.type === 'session_meta' || record.type === 'turn_context') {
-      if (typeof payload.cwd === 'string' && payload.cwd !== '') project = projectRootOf(payload.cwd)
-      if (typeof payload.model === 'string' && payload.model !== '') model = payload.model
-      return
-    }
+    if (noteContext(record, context)) return
     if (record.type !== 'event_msg' || payload.type !== 'token_count') return
     const last = payload.info?.last_token_usage
     if (!last) return
@@ -280,7 +279,7 @@ export const scanCodexRollout = async (
     const input = positive(last.input_tokens)
     const at = parseTime(record.timestamp)
     if (at === null) return
-    add(into, target.path, target.runtime, at, model, project, {
+    add(into, target.path, target.runtime, at, context.model, context.project, {
       // Codex counts cached tokens inside `input_tokens`; every consumer here
       // expects them beside it, so the cached share comes out.
       input: Math.max(0, input - cached),
@@ -290,11 +289,27 @@ export const scanCodexRollout = async (
       reasoning: positive(last.reasoning_output_tokens),
     })
   })
-  return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify({ model, project })] }
+  return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)] }
 }
 
-/** The model and project a Codex scan had reached, from the tail it left; nothing known, if none. */
-const contextFrom = (tail: readonly string[]): { model: string; project: string } => {
+interface CodexContext {
+  model: string
+  project: string
+}
+
+const unknownContext = (): CodexContext => ({ model: 'unknown', project: '' })
+
+/** Notes what a `session_meta` or `turn_context` record says of the model and project; false for any other record. */
+const noteContext = (record: CodexRecord, context: CodexContext): boolean => {
+  if (record.type !== 'session_meta' && record.type !== 'turn_context') return false
+  const payload = record.payload
+  if (typeof payload?.cwd === 'string' && payload.cwd !== '') context.project = projectRootOf(payload.cwd)
+  if (typeof payload?.model === 'string' && payload.model !== '') context.model = payload.model
+  return true
+}
+
+/** The model and project a Codex scan had reached, from the tail it left; null where the tail carries none. */
+const contextFrom = (tail: readonly string[]): CodexContext | null => {
   try {
     const parsed: unknown = JSON.parse(tail[0] ?? '')
     if (parsed !== null && typeof parsed === 'object') {
@@ -305,9 +320,33 @@ const contextFrom = (tail: readonly string[]): { model: string; project: string 
       }
     }
   } catch {
-    // A cursor written before the tail carried this — or none at all.
+    // A cursor written before the tail carried this, or none at all.
   }
-  return { model: 'unknown', project: '' }
+  return null
+}
+
+/**
+ * What a rollout had said of its model and project before `offset`, for a
+ * cursor that carried neither. Only the lines that can say so are parsed.
+ */
+const contextBefore = async (path: string, offset: number): Promise<CodexContext> => {
+  const context = unknownContext()
+  const stream = createReadStream(path, { start: 0, end: offset - 1 })
+  try {
+    for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
+      if (!line.includes('"session_meta"') && !line.includes('"turn_context"')) continue
+      try {
+        noteContext(JSON.parse(line) as CodexRecord, context)
+      } catch {
+        // A line that is not JSON says nothing.
+      }
+    }
+  } catch {
+    // Unreadable now: nothing is known, as before.
+  } finally {
+    stream.destroy()
+  }
+  return context
 }
 
 interface ClaudeRecord {
