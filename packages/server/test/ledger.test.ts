@@ -457,3 +457,52 @@ test('a resumed Codex scan keeps the model and project it had read', async () =>
   assert.equal(read(second.rows[0]).model, 'gpt-5.5')
   assert.equal(read(second.rows[0]).project, read(first.rows[0]).project)
 })
+
+test('a variant the catalogue lacks is not priced as its base model either', async () => {
+  // Round one of #153: the other direction of the same prefix match.
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: { models: { 'claude-opus-5': { id: 'claude-opus-5', cost: { input: 5, output: 25 } } } },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-opus-5-fast-preview'), null)
+  assert.equal(pricing.rateFor('claude-opus-5-20260101')?.input, 5 / 1_000_000, 'its dated form still is')
+})
+
+test('of several dated forms, -latest wins, and then the newest date', async () => {
+  const dir = scratch()
+  const models = (entries: Record<string, number>) => ({
+    anthropic: {
+      models: Object.fromEntries(Object.entries(entries).map(([id, input]) => [id, { id, cost: { input, output: input } }])),
+    },
+  })
+  const priced = async (entries: Record<string, number>) => {
+    const pricing = new Pricing({
+      cachePath: join(dir, `cache-${Object.keys(entries).length}.json`),
+      overlayPath: join(dir, 'missing.json'),
+      fetchCatalogue: async () => models(entries),
+    })
+    await pricing.warm()
+    return pricing.rateFor('claude-opus-5')?.input
+  }
+  assert.equal(await priced({ 'claude-opus-5-20260601': 6, 'claude-opus-5-20260101': 5 }), 6 / 1_000_000)
+  assert.equal(await priced({ 'claude-opus-5-20260101': 5, 'claude-opus-5-latest': 7, 'claude-opus-5-20260601': 6 }), 7 / 1_000_000)
+})
+
+test('a cursor tail that cannot be read resumes without context, and without failing', async () => {
+  // Review: a cursor from before this change, or a corrupted one.
+  const dir = scratch()
+  const path = join(dir, 'rollout.jsonl')
+  writeFileSync(
+    path,
+    `${JSON.stringify({ type: 'event_msg', timestamp: '2026-09-10T11:02:00Z', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0 } } } })}\n`,
+  )
+  const target = { path, runtime: 'codex', kind: 'codex', size: 0, mtime: 0 } as unknown as Parameters<typeof scanCodexRollout>[0]
+  const result = await scanCodexRollout(target, 0, ['not json'])
+  assert.equal((result.rows[0] as { model: string }).model, 'unknown')
+})
+

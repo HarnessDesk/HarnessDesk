@@ -123,7 +123,7 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
   if (direction === 'undo') {
     const blank = changes.filter((change) => change.kind.type === 'delete' && change.diff === '')
     if (blank.length > 0) {
-      const names = await Promise.all(blank.map(async (change) => (await locate(root, top, change.path)).inRepo))
+      const names = [...new Set(await Promise.all(blank.map(async (change) => (await locate(root, top, change.path)).inRepo)))]
       throw new RevertError(
         `Cannot put back ${names.join(', ')}: the agent recorded no content for ${names.length === 1 ? 'it' : 'them'}. Nothing was changed.`,
         [],
