@@ -182,6 +182,7 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
     // same thing the menu bar has to live with.
     health: info.id === input.activeRuntime ? input.health : null,
     account: input.accountsByRuntime[info.id],
+    accounts: info.capabilities.account,
     usage: reports,
   })
   const meters = reports

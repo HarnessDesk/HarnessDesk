@@ -262,6 +262,7 @@ export const Usage = ({
             registered: true,
             health: info.id === snapshot.activeRuntime ? snapshot.health : null,
             account: snapshot.accountsByRuntime[info.id],
+            accounts: info.capabilities.account,
             usage: snapshot.usage.filter((report) => report.runtime === info.id),
           }) === 'signin',
       ) ?? null,

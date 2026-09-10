@@ -152,9 +152,15 @@ export class CatalogRefresher {
     let installation: InstallationCheck | null = null
     let refreshed = false
     let reason: string | undefined
+    const health = runtime?.health()
+    // A crashed runtime goes through: its own health says "select the
+    // runtime again to restart it", a selection ends here, and the runtime's
+    // refresh is the restart. Every other not-ready state — starting, or
+    // blocked by its launch check — is not something a re-read can mend.
+    const crashed = health?.state === 'unavailable' && health.reason === 'crashed'
     if (!runtime) {
       reason = 'It is not registered here.'
-    } else if (runtime.health().state !== 'ready') {
+    } else if (health?.state !== 'ready' && !crashed) {
       reason = 'It is not running.'
     } else {
       try {

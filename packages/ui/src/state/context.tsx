@@ -8,6 +8,8 @@ import {
 
 import {
   splitSessionKey,
+  type AccountStatus,
+  type RuntimeHealth,
   type RuntimeInfo,
   type Session,
   type SessionKey,
@@ -78,6 +80,36 @@ export const useRuntime = (): RuntimeInfo => {
     const found = snapshot.runtimes.find((entry) => entry.id === wanted)
     return found ?? snapshot.runtimes[0] ?? FALLBACK_RUNTIME
   }, [snapshot.runtimes, snapshot.activeRuntime, paneRuntime])
+}
+
+/**
+ * The health of the runtime `useRuntime()` names — the pane's own, not the
+ * default agent's.
+ *
+ * `snapshot.health` is the default agent's alone, and a pane on another
+ * agent that read it drew the wrong agent's state under its own name: a
+ * member column for a healthy Codex said "Codex isn't available" because the
+ * default, Gemini, had exited. Every runtime's health is kept by id; this
+ * reads that, and falls back to the singular slot only for the default,
+ * which is the one runtime the slot is about.
+ */
+export const useRuntimeHealth = (): RuntimeHealth | null => {
+  const snapshot = useSnapshot()
+  const runtime = useRuntime()
+  return (
+    snapshot.healthByRuntime[runtime.id] ??
+    (runtime.id === snapshot.activeRuntime ? snapshot.health : null)
+  )
+}
+
+/** The same, for the account status: the pane's runtime, never the default's. */
+export const useRuntimeAccount = (): AccountStatus | null => {
+  const snapshot = useSnapshot()
+  const runtime = useRuntime()
+  return (
+    snapshot.accountsByRuntime[runtime.id] ??
+    (runtime.id === snapshot.activeRuntime ? snapshot.account : null)
+  )
 }
 
 const FALLBACK_RUNTIME: RuntimeInfo = {

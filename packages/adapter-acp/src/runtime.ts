@@ -967,10 +967,22 @@ export class AcpRuntime implements AgentRuntime {
     // was enough while the only caller was a background timer; the moment a
     // person presses a button that ends here, "no" without "because" is a
     // control that appears to do nothing.
-    if (this.#health.state !== 'ready') {
+    //
+    // A crashed agent is the one "not running" this can fix. Its own health
+    // says "select the runtime again to restart it", a selection runs exactly
+    // this, and until now the answer was "It is not running" — the sentence
+    // that made the advice unfollowable. The process is gone, so there is no
+    // turn to wait for and nothing open worth keeping: every session it held
+    // was told its agent died when it exited. Any other not-ready state — a
+    // start in progress, a launch the host blocked, a stop that overtook a
+    // start — is left to the path that put it there.
+    const crashed = this.#health.state === 'unavailable' && this.#health.reason === 'crashed'
+    if (this.#health.state !== 'ready' && !crashed) {
       return { restarted: false, reason: 'It is not running.' }
     }
-    const live = [...this.#sessions.values()].filter((session) => session.id !== this.#probeId)
+    const live = crashed
+      ? []
+      : [...this.#sessions.values()].filter((session) => session.id !== this.#probeId)
     const busy = live.filter((session) => session.busy)
     if (busy.length > 0) {
       this.#config.logger?.debug?.('agent restart deferred; a turn is in flight', {

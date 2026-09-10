@@ -412,6 +412,7 @@ export const AccountFooter = ({
       // normal unless it happened to be the active one.
       health: snapshot.healthByRuntime[info.id] ?? null,
       account: status,
+      accounts: info.capabilities.account,
       usage,
     })
     const report = usage[0] ?? null
@@ -676,6 +677,11 @@ export const AccountFooter = ({
             align="end"
             className={styles.seatTrigger}
             onOpenUsage={() => onOpenUsage()}
+            /* Pressing the badge opens the menu, and the card the hover had
+               opened stayed beside it — two surfaces answering one seat. With
+               the menu up, the card has nothing to add: every seat in it
+               carries its own. */
+            disabled={open}
           >
             <span
               className={styles.seatAvatar}

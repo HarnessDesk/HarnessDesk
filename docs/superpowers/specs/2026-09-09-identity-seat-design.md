@@ -145,3 +145,42 @@ syncs.
   default from the seat menu; the pane's session key and the history length
   are unchanged, the seat text stays "HarnessDesk", the badge wears the
   target's mark.
+
+## Addendum, 2026-09-09: what the click-through found
+
+Every switch source was driven against every pane state on the real desk
+(seven agents, 857 rows) through the app's own store and trusted pointer
+events, with sidebar row nodes and the pane node tagged before each switch
+and read back after. Passes, with nothing moving: a conversation open, a
+draft with typed text (the old replacement draft wiped it), a draft carrying
+a hand-off chip, a room board, a docked terminal, a rapid double switch, the
+same-agent press, the palette's "Start with", Settings' default chip, the
+menu seat's card verb, the dark theme. Docking a second transcript is refused
+by design in this build, so that case is void.
+
+Found and fixed:
+
+- **A press on the badge left its name card open under the menu.** The card
+  is disabled while the menu is up; every seat in the menu carries its own.
+- **The empty pane read the default agent's health and account under the
+  pane agent's name** (a member column for a healthy Codex would have said
+  "Codex isn't available" because Gemini, the default, had exited). New
+  `useRuntimeHealth` / `useRuntimeAccount` hooks read the pane's runtime.
+- **Two surfaces disagreed about one agent.** Cline declares no account
+  capability; the first-run screen offered it as usable while the seat, the
+  header strip, the menu bar and the dashboard called it "Needs sign-in".
+  `readinessOf` now takes `accounts: capabilities.account`, and every caller
+  passes it: no sign-in state for an agent that keeps its own credential.
+- **"Select the runtime again to restart it" was advice nothing could
+  follow.** The adapter refused to restart anything not `ready`, which is
+  the crashed state the sentence describes, and a same-agent re-select was a
+  no-op. Selecting a down agent — again or afresh — now runs the catalogue
+  refresh, and the refresh restarts a crashed agent.
+- **Two loaders could land a slow agent's answer on the next agent's
+  draft** once switches became cheap. `loadDraftOptions` and `loadSkills`
+  now check the default has not moved before writing.
+
+Seen and left alone, with a note: a Cursor conversation whose worktree was
+deleted toasts once per open ("its folder no longer exists"); identical
+toasts fold only within five seconds. A quieter read-only state for such a
+conversation is a separate piece of work.

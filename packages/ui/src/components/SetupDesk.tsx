@@ -53,16 +53,13 @@ export const SetupDesk = ({
         {snapshot.runtimes.map((info) => {
           const health = snapshot.healthByRuntime[info.id] ?? null
           const account = snapshot.accountsByRuntime[info.id] ?? null
-          const state: Readiness = !info.capabilities.account
-            ? health?.state === 'unavailable'
-              ? 'broken'
-              : 'ready'
-            : readinessOf({
-                registered: true,
-                health,
-                account,
-                usage: snapshot.usage.filter((report) => report.runtime === info.id),
-              })
+          const state: Readiness = readinessOf({
+            registered: true,
+            health,
+            account,
+            accounts: info.capabilities.account,
+            usage: snapshot.usage.filter((report) => report.runtime === info.id),
+          })
           const sentence =
             state === 'broken' && health?.state === 'unavailable'
               ? `${health.message}${health.remediation ? ` ${health.remediation}` : ''}`

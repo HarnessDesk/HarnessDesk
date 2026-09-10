@@ -125,3 +125,26 @@ describe('isBlocking', () => {
     expect(isBlocking('signin')).toBe(true)
   })
 })
+
+describe('an agent that keeps its own credential', () => {
+  it('is never asked to sign in here: an empty account list is not ours to know', () => {
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: noAccount, accounts: false })).toBe('ready')
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: null, accounts: false })).toBe('ready')
+  })
+
+  it('is still broken when its host is down', () => {
+    expect(
+      readinessOf({
+        registered: true,
+        health: { state: 'unavailable', reason: 'crashed', message: 'Exited.' },
+        account: noAccount,
+        accounts: false,
+      }),
+    ).toBe('broken')
+  })
+
+  it('reads as before when the flag is absent or true', () => {
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: noAccount })).toBe('signin')
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: noAccount, accounts: true })).toBe('signin')
+  })
+})

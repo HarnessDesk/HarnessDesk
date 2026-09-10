@@ -218,3 +218,71 @@ describe('choosing the agent new sessions run as', () => {
     expect(after.historyCursor).toBeNull()
   })
 })
+
+describe('answers that arrive after the default has moved on', () => {
+  it('a slow agent’s draft defaults and skills do not land on the next agent', async () => {
+    await seat()
+    // Codex answers its defaults and skills only after the switch to Claude.
+    let releaseCodex: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseCodex = resolve
+    })
+    const codexOption = { id: 'model', kind: 'select', label: 'Model', value: 'gpt', choices: [] }
+    answers['runtime/sessionDefaults'] = (params: unknown) =>
+      (params as { runtime: string }).runtime === CODEX ? gate.then(() => [codexOption]) : []
+    answers['runtime/skills'] = (params: unknown) =>
+      (params as { runtime: string }).runtime === CODEX ? gate.then(() => [{ name: 'codex-only' }]) : []
+
+    const codexRefresh = store.refreshRuntime()
+    await store.selectRuntime(CLAUDE)
+    releaseCodex()
+    await codexRefresh
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const now = store.getSnapshot()
+    expect(now.activeRuntime).toBe(CLAUDE)
+    expect(now.draftOptions).toBeNull()
+    expect(now.skills).toEqual([])
+  })
+})
+
+describe('picking the agent already picked', () => {
+  it('is a no-op for an agent that is up', async () => {
+    await seat()
+    calls.length = 0
+    await store.selectRuntime(CODEX)
+    expect(calls).toEqual([])
+  })
+
+  it('restarts an agent that is down, as its own remediation promises', async () => {
+    await seat()
+    push({
+      method: 'runtime/healthChanged',
+      params: {
+        runtime: CODEX,
+        health: { state: 'unavailable', reason: 'crashed', message: 'Codex exited.', remediation: 'Select the runtime again to restart it.' },
+      },
+    })
+    answers['runtime/refreshCatalog'] = { installation: null }
+    calls.length = 0
+    await store.selectRuntime(CODEX)
+    expect(calls.map((call) => call.method)).toContain('runtime/refreshCatalog')
+    expect(store.getSnapshot().activeRuntime).toBe(CODEX)
+  })
+
+  it('choosing a down agent as the default restarts it too', async () => {
+    await seat()
+    push({
+      method: 'runtime/healthChanged',
+      params: {
+        runtime: CLAUDE,
+        health: { state: 'unavailable', reason: 'crashed', message: 'Claude Code exited.', remediation: 'Select the runtime again to restart it.' },
+      },
+    })
+    answers['runtime/refreshCatalog'] = { installation: null }
+    calls.length = 0
+    await store.selectRuntime(CLAUDE)
+    expect(store.getSnapshot().activeRuntime).toBe(CLAUDE)
+    expect(calls.map((call) => call.method)).toContain('runtime/refreshCatalog')
+  })
+})

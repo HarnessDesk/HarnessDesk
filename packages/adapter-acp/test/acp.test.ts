@@ -1091,3 +1091,32 @@ test('a user-role chunk the agent marks as a notice is a notice on the live turn
     await runtime.dispose()
   }
 })
+
+test('refreshCatalog restarts an agent that crashed — the restart its own remediation promises', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const bridgeBefore = runtime.info.version
+    // Kill the agent out from under the adapter, as a real exit would.
+    runtime.connection.kill()
+    // Health is not an event on the tape; the exit lands on the next tick or two.
+    for (let i = 0; i < 100 && runtime.health().state !== 'unavailable'; i++) await new Promise((r) => setTimeout(r, 20))
+    const down = runtime.health()
+    assert.equal(down.state, 'unavailable')
+    assert.equal((down as { reason?: string }).reason, 'crashed')
+
+    // Before this, the answer here was { refreshed: false, reason: 'It is not running.' }.
+    assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+    assert.equal(runtime.health().state, 'ready')
+    assert.notEqual(runtime.info.version, bridgeBefore, 'a fresh process answered')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('refreshCatalog still leaves an agent that is merely starting or blocked alone', async () => {
+  const runtime = make()
+  // Never started: not ready, and not crashed either.
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: false, reason: 'It is not running.' })
+  await runtime.dispose()
+})

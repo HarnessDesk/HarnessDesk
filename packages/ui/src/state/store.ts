@@ -400,7 +400,14 @@ export class AppStore {
    * request took.
    */
   async selectRuntime(runtime: RuntimeId): Promise<void> {
-    if (runtime === this.#snapshot.activeRuntime) return
+    // An agent that is down says "select the runtime again to restart it",
+    // and this is the selecting. The catalogue refresh is the verb that
+    // restarts it; picking the agent already picked is otherwise a no-op.
+    const down = this.#snapshot.healthByRuntime[runtime]?.state === 'unavailable'
+    if (runtime === this.#snapshot.activeRuntime) {
+      if (down) await this.refreshCatalog()
+      return
+    }
     this.#patch({
       activeRuntime: runtime,
       health: this.#snapshot.healthByRuntime[runtime] ?? null,
@@ -418,6 +425,9 @@ export class AppStore {
     // Remembered across launches; losing the user's runtime pick on every
     // restart made the shell feel like it had a favourite vendor.
     void this.transport.request('app/state/set', { patch: { activeRuntime: runtime } }).catch(() => {})
+    // Choosing a down agent is also "selecting it again": it comes back up,
+    // and its health change re-reads the surface once it is ready.
+    if (down) void this.refreshCatalog()
     await this.refreshRuntime({ history: false })
   }
 
@@ -571,12 +581,17 @@ export class AppStore {
       // next session starts with.
       const values = kept(asked, options)
       this.#draftsByRuntime[runtime] = values
+      // A switch is cheap now, so two can happen inside one slow answer: the
+      // first agent's defaults must not land on the second agent's draft.
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
     } catch {
       try {
         const options = await this.transport.request('runtime/sessionDefaults', params)
+        if (this.#snapshot.activeRuntime !== runtime) return
         this.#patch({ draftOptions: options.length > 0 ? options : null, draftValues: {} })
       } catch {
+        if (this.#snapshot.activeRuntime !== runtime) return
         this.#patch({ draftOptions: null })
       }
     }
@@ -1750,6 +1765,9 @@ export class AppStore {
         runtime,
         ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
       })
+      // The default may have moved on while this agent was answering; its
+      // skills belong under its own name, not the next agent's.
+      if (this.#snapshot.activeRuntime !== runtime) return
       this.#patch({ skills })
     } catch {
       // `runtime/skills` now *throws* when the agent cannot answer (a

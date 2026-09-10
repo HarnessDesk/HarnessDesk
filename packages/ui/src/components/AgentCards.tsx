@@ -637,6 +637,7 @@ export const AccountHoverCard = ({
   className,
   side,
   align,
+  disabled,
 }: {
   readonly info: RuntimeInfo
   /** Null for a seat that has not signed in; the card then says so. */
@@ -646,8 +647,11 @@ export const AccountHoverCard = ({
   readonly className?: string
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
   readonly align?: 'start' | 'center' | 'end'
+  /** The mark renders bare — while a menu is already open over the same seat, say. */
+  readonly disabled?: boolean
 }) => (
   <AgentHoverCard
+    {...(disabled !== undefined ? { disabled } : {})}
     body={() => (
       <AccountCardBody
         info={info}
