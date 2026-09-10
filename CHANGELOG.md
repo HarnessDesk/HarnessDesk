@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Local or a new worktree, said where you type** — a new conversation's
+  composer now leads with where it will run: **Local** (the folder as it is),
+  a worktree the project already has, or **New worktree**, which is made when
+  the first message goes — so a draft abandoned after choosing one leaves no
+  branch and no folder behind. A folder that is itself a worktree is never
+  called Local, and the header tags any worktree, not only HarnessDesk's own.
+- **Bring a worktree back** — a conversation in a HarnessDesk worktree can
+  bring its branch back to the main checkout from the header's branch menu.
+  Uncommitted work stops it (the dialog lists the files and can ask the agent
+  to commit them); a main checkout that will not take the switch says why in
+  git's own words, and the worktree stays where it was. The conversation
+  carries on in the main checkout through a hand-off.
 - **Gemini CLI and Antigravity show the context ring** — Gemini CLI counts a
   turn's tokens in its own slot on the prompt response rather than ACP's
   `usage` field, and Antigravity's server puts none on the wire at all but

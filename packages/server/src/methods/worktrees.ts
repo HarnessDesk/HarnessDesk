@@ -20,4 +20,6 @@ export const worktreeMethods = {
   'worktree/changes': (ctx, params) => ctx.worktrees.changes(params.path),
 
   'worktree/remove': (ctx, params) => ctx.worktrees.remove(params.path, { ...(params.force ? { force: true } : {}) }),
+
+  'worktree/bringHome': (ctx, params) => ctx.worktrees.bringHome(params.path),
 } satisfies MethodsUnder<'worktree/'>

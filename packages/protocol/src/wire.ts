@@ -1242,6 +1242,20 @@ export interface HostMethods {
     params: { readonly path: string; readonly force?: boolean }
     result: { readonly branch: string | null }
   }
+  /**
+   * The other direction: the worktree's branch is checked out in the main
+   * checkout and the side checkout goes. Refused — with the same list
+   * `worktree/remove` refuses on — while anything there is uncommitted, and
+   * refused in git's own words when the main tree will not take the switch;
+   * in that second case the worktree is put back where it was.
+   *
+   * `from` is the branch the main checkout was on, so the interface can say
+   * what was left behind. `root` is the main checkout itself.
+   */
+  'worktree/bringHome': {
+    params: { readonly path: string }
+    result: { readonly branch: string; readonly from: string | null; readonly root: string }
+  }
 
   // -- the team: one board and one channel per workspace, host-owned.
   // Agents reach the same state through plugin tools; these methods are the

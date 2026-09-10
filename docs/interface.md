@@ -163,7 +163,9 @@ only what a person reaches for *while working* earns a place in it:
 - **New session**: clicking the button opens a choice between a solo session and
   a collaborative room for several agents; ⌘N goes straight to a session. The
   small branch button at the row's end opens the **Worktrees** menu for this
-  project (creating a checkout on a new branch, or jumping to an existing one).
+  project: a new worktree, or one it already has. Either opens a draft pointed
+  at it — the composer's **Work in** control then says so — and nothing is made
+  on disk until that draft's first message.
 - **Dashboard**: opens plan usage and limits, wearing an amber warning count
   only when an agent needs attention.
 - **Plugins**: lists live extensions and their contributed tools and panels.
@@ -280,8 +282,10 @@ once.
 tasks chip · git control · plan meters · browser button · terminal toggle · ⋮.
 
 - The **git control** is the branch chip and the menu behind it: Changes with the
-  count of files this conversation touched, the branch and folder, remove a
-  managed worktree, review uncommitted changes, and commit changes.
+  count of files this conversation touched, the branch and folder, bring a
+  managed worktree back to the main checkout or remove it, review uncommitted
+  changes, and commit changes. The chip wears a **worktree** tag whenever the
+  conversation runs in a linked checkout, HarnessDesk's own or not.
 - **Plan meters** sit ambiently in the header, showing remaining quota and
   window reset times across connected providers.
 - Under **⋮** sit conversation actions (remember conversation, compact context,
@@ -291,6 +295,15 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
   to the git control right beside this menu, where it carries the file count, and
   a second copy would duplicate it. The open view wears a check in the accent
   gutter instead of its icon. ⌘K offers the same views as *Show …* commands.
+
+**A worktree comes back as a branch.** "Bring it back to the main checkout"
+checks the worktree's branch out in the main checkout and removes the worktree
+— a checkout, not a merge, so nothing is folded into whatever the main tree was
+on. Uncommitted work stops it: the dialog lists the files and offers to ask the
+agent to commit them. If the main checkout will not take the switch, git's own
+sentence says why and the worktree is left where it was. The conversation
+cannot follow its folder, so a draft opens in the main checkout carrying it as
+a hand-off.
 
 **Background work has a chip, then a panel.** While an agent has work running
 that outlives the turn — a watcher, a test run sent to the background — the
@@ -370,6 +383,12 @@ not one turn per block.
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
 
+- **Work in** says where a new conversation will run, while that is still a
+  choice: **Local** (the folder as it is), a worktree the project already has,
+  or **New worktree** — named and based in a dialog, and made when the first
+  message goes, so an abandoned draft leaves no branch behind. A folder that
+  is itself a worktree wears its branch and a worktree tag, never Local. Once
+  the conversation exists the control is gone; the header says where it runs.
 - **+** attaches images, adds files (@), opens slash commands (/), attaches
   plugin context providers, or changes the project folder.
 - **Chips** ride above the textarea and resolve at send: files, images, skills,

@@ -46,7 +46,7 @@ import {
   SparkIcon,
   StopIcon,
 } from './Icons'
-import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { Lightbox } from './Lightbox'
 import { Popover, popoverStyles } from './Popover'
@@ -1095,6 +1095,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               </>
             )}
           </Popover>
+          {/* Where it runs, first: the one decision here that cannot be
+              changed once the message has gone. Drafts only. */}
+          <PlaceControl />
           <AgentControl />
           <PermissionControl />
           <ModeControl />

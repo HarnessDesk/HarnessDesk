@@ -244,10 +244,11 @@ export const Sidebar = ({
  * worktree has (what it is called, where it starts from).
  *
  * Codex splits these across two places — the composer picks "New worktree"
- * for the next chat, the project's context menu makes a permanent one. There
- * is no composer to hang the first off here until a conversation exists, and
- * the sidebar is where a person looks for "my other checkouts", so both live
- * on this one control.
+ * for the next chat, the project's context menu makes a permanent one. Both
+ * are here: the composer's Work in control points the draft in front, and
+ * this menu is the same choice reached from the project. Every row of it
+ * opens a draft and points it; nothing is made on disk until that draft's
+ * first message.
  *
  * It stays visible in a folder that is not a repository, disabled and saying
  * why. A control that vanishes teaches nobody what it was.
@@ -311,7 +312,9 @@ const WorktreeMenu = () => {
                   label={worktree.branch ?? '(detached)'}
                   title={worktree.path}
                   value={active?.cwd === worktree.path ? 'here' : undefined}
-                  onSelect={() => void store.newSession({ cwd: worktree.path })}
+                  onSelect={() =>
+                    store.startDraftIn({ kind: 'existing', path: worktree.path, branch: worktree.branch ?? null })
+                  }
                 />
               ))}
             </>

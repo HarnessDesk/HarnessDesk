@@ -12,6 +12,8 @@ import {
   Eraser,
   FolderGit2,
   FolderInput,
+  House,
+  Laptop,
   GitMerge,
   GitPullRequestArrow,
   GitPullRequestClosed,
@@ -285,6 +287,10 @@ export const CommentIcon = icon(MessageSquare, 'CommentIcon')
 export const ResetIcon = icon(RotateCcw, 'ResetIcon')
 /** One checkout of the repository — a folder the repository is open in. */
 export const WorktreeIcon = icon(FolderGit2, 'WorktreeIcon')
+/** The main checkout as a place to work — "Local", beside a worktree. */
+export const LocalIcon = icon(Laptop, 'LocalIcon')
+/** A worktree's branch brought back to the main checkout. */
+export const HomeIcon = icon(House, 'HomeIcon')
 /** A worktree pinned against pruning. */
 export const LockIcon = icon(Lock, 'LockIcon')
 export const UnlockIcon = icon(LockOpen, 'UnlockIcon')

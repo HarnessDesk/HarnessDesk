@@ -187,6 +187,10 @@ export class Worktrees {
   remove(path: string, options: { readonly force?: boolean } = {}): Promise<{ readonly branch: string | null }> {
     return remove(path, { ...options, stateDir: this.stateDir })
   }
+
+  bringHome(path: string): Promise<{ readonly branch: string; readonly from: string | null; readonly root: string }> {
+    return bringHome(path, { stateDir: this.stateDir })
+  }
 }
 
 export const list = async (repoRoot: string, stateDir: string): Promise<Worktree[]> => {
@@ -322,4 +326,88 @@ export const remove = async (
   // versions; nothing of value is in it by now.
   await rm(target, { recursive: true, force: true })
   return { branch: entry.branch }
+}
+
+/**
+ * Brings a worktree's work back to the main checkout: the branch is checked
+ * out there, and the side checkout goes.
+ *
+ * **Checkout, not merge.** "Hand it back to local" means *stop doing this in a
+ * separate checkout and do it here* — the branch travels intact, no history is
+ * folded into whatever the main tree happened to be on, and nothing is
+ * created that a person did not ask for. Folding one branch into another is a
+ * different verb and the history pane already has it.
+ *
+ * The order is forced: git will not check out a branch a second worktree
+ * holds, so the worktree has to go first — and a removal is only safe on a
+ * clean tree, which is why uncommitted work is refused here with the same
+ * error `remove` raises. That leaves one window where the checkout could
+ * fail (the main tree has its own edits to a file the two branches disagree
+ * about) with the worktree already gone, so the failure **puts it back**:
+ * `worktree add <path> <branch>` restores exactly what was taken, because
+ * what was taken was clean. Git's own refusal is what the caller then sees.
+ */
+export const bringHome = async (
+  path: string,
+  options: { readonly stateDir: string },
+): Promise<{ readonly branch: string; readonly from: string | null; readonly root: string }> => {
+  const main = await repositoryRoot(path)
+  if (!main) throw new Error(`${path} is not a git worktree.`)
+  const target = await canonical(path)
+  const entry = (await list(main, options.stateDir)).find((candidate) => candidate.path === target)
+  if (!entry) throw new Error(`${path} is not a worktree of ${main}.`)
+  if (entry.isMain) throw new Error(`${path} is the main checkout; it is already home.`)
+  if (!entry.branch) {
+    throw new Error(
+      `${path} is not on a branch, so there is nothing to check out in the main checkout. Make a branch there first.`,
+    )
+  }
+
+  // Uncommitted work would be destroyed by the removal below, and the
+  // removal is not optional. Same refusal as `remove`, so both surfaces word
+  // the loss identically — and there is no `force` here at all: discarding
+  // the work is the opposite of bringing it back.
+  const pending = await changes(target)
+  if (pending.modified > 0 || pending.untracked > 0) throw new WorktreeDirtyError(target, pending)
+
+  const from = await currentBranchOf(main)
+  await git(main, ['worktree', 'remove', target])
+  try {
+    await git(main, ['checkout', entry.branch])
+  } catch (error) {
+    // Put back exactly what was taken. The tree was clean, so `worktree add`
+    // on the same path and branch restores it whole.
+    await git(main, ['worktree', 'add', target, entry.branch]).catch(() => undefined)
+    throw new Error(
+      `${basename(main)} could not switch to ${entry.branch}, so the worktree was left where it was. ${gitSaid(error)}`,
+    )
+  }
+  await rm(target, { recursive: true, force: true })
+  return { branch: entry.branch, from, root: main }
+}
+
+/** The branch a checkout is on, or null when it is detached. */
+const currentBranchOf = async (root: string): Promise<string | null> => {
+  try {
+    const name = (await git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+    return name === 'HEAD' || name === '' ? null : name
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What git actually said, rather than "Command failed: git -C /long/path …".
+ *
+ * A verb that draws progress overwrites its own line, so the reason arrives
+ * after a carriage return; splitting on both terminators is the only way to
+ * reach it. See the same trap in `git-actions.ts`.
+ */
+const gitSaid = (error: unknown): string => {
+  const streams = error as { stderr?: string; stdout?: string } | null
+  const said = `${streams?.stderr ?? ''}\n${streams?.stdout ?? ''}`
+    .split(/[\n\r]+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^hint:/i.test(line))
+  return said.length > 0 ? said.join(' ') : error instanceof Error ? error.message : String(error)
 }

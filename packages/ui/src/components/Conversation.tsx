@@ -24,6 +24,7 @@ import {
   CrossIcon,
   DiffIcon,
   HistoryIcon,
+  HomeIcon,
   FolderIcon,
   MoreIcon,
   ReviewIcon,
@@ -44,6 +45,7 @@ import { GoalBar, JobsBar } from './SessionBars'
 import { splitTasks, tasksChipLabel } from '../lib/tasks'
 import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
+import { BringHome } from './BringHome'
 import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
@@ -464,6 +466,7 @@ export const Conversation = ({
     ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd)
     : undefined
   const [removingWorktree, setRemovingWorktree] = useState(false)
+  const [bringingHome, setBringingHome] = useState(false)
   const loading = key ? snapshot.loadingSessions.has(key) : false
 
   const items = useMemo(() => (session ? allItems(session) : []), [session])
@@ -533,7 +536,10 @@ export const Conversation = ({
         )}
         {session && <TasksChip />}
         <div className="hd-no-drag">
-          <GitControl onRemoveWorktree={() => setRemovingWorktree(true)} />
+          <GitControl
+            onRemoveWorktree={() => setRemovingWorktree(true)}
+            onBringHome={() => setBringingHome(true)}
+          />
         </div>
         {/* Empty when nothing is registered — and an empty box in a flex row
             still takes the row's gap, which left a hole in the header that
@@ -659,6 +665,7 @@ export const Conversation = ({
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}
+      {bringingHome && worktree && <BringHome worktree={worktree} onClose={() => setBringingHome(false)} />}
     </div>
   )
 }
@@ -668,9 +675,17 @@ export const Conversation = ({
  * what git has to say about it, in one control, the way Codex puts it. The
  * label is the branch; the menu opens the Changes panel, shows the folder,
  * and offers the git actions a turn tends to end with. A draft shows the
- * workspace it will start in, so the composer no longer needs its own chip.
+ * workspace it will start in; *choosing* somewhere else — a worktree — is
+ * the composer's Work in control, because that is a decision about the
+ * message being written, not a fact about a conversation that exists.
  */
-const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
+const GitControl = ({
+  onRemoveWorktree,
+  onBringHome,
+}: {
+  onRemoveWorktree: () => void
+  onBringHome: () => void
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
@@ -680,12 +695,26 @@ const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
   const folder = cwd.split('/').filter(Boolean).at(-1) ?? cwd
   // The workspace's branch is read fresh by the host and follows a switch;
   // the session's is what the runtime recorded when the thread began. ACP
-  // agents report no git at all, so the workspace is the usual source.
+  // agents report no git at all, so the workspace is the usual source —
+  // and for a conversation in a worktree, the repository's own list of its
+  // checkouts, without which that chip named the folder rather than the
+  // branch the worktree is on.
+  const checkout = snapshot.worktrees.find((entry) => entry.path === cwd)
   const branch =
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.git?.branch ?? null : null) ??
+    checkout?.branch ??
     session?.git?.branch ??
     null
   const worktree = session ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd) : undefined
+  // The tag says what the folder *is*, and a linked checkout the person made
+  // themselves is as much a worktree as one HarnessDesk cut — only the verbs
+  // below (bring it back, remove it) are limited to HarnessDesk's own.
+  const summary = session
+    ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
+    : undefined
+  const linked =
+    Boolean(worktree) ||
+    (cwd === snapshot.workspace?.path ? snapshot.workspace?.repo?.worktree === true : summary?.repo?.worktree === true)
   const touched = session
     ? new Set(
         session.turns
@@ -708,7 +737,7 @@ const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
         <>
           {branch ? <BranchIcon size={13} /> : <FolderIcon size={13} />}
           <span className={styles.gitLabel}>{branch ?? folder}</span>
-          {worktree && <span className={styles.gitTag}>worktree</span>}
+          {linked && <span className={styles.gitTag}>worktree</span>}
         </>
       }
     >
@@ -738,6 +767,14 @@ const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
             </Submenu>
           ) : (
             <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+          )}
+          {worktree?.branch && (
+            <MenuItem
+              icon={<HomeIcon size={16} />}
+              label="Bring it back to the main checkout…"
+              title="Checks its branch out in the main checkout; the worktree's folder goes."
+              onSelect={onBringHome}
+            />
           )}
           {worktree && (
             <MenuItem

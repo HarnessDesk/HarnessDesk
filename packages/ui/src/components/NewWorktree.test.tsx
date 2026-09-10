@@ -11,8 +11,9 @@ import { NewWorktree } from './NewWorktree'
  *
  * The two things it exists to carry are the name and the branch it starts
  * from; the button it replaced could carry neither. So the tests are about
- * exactly those two reaching `newSession`, and about the name never
- * promising a branch git would not accept.
+ * exactly those two reaching the draft, about the name never promising a
+ * branch git would not accept — and about the dialog making nothing on disk:
+ * it points the draft, and the host cuts the worktree when the message goes.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -31,15 +32,21 @@ afterEach(() => {
   container.remove()
 })
 
-const rig = ({ open = true }: { open?: boolean } = {}) => {
+const PROJECT = { path: '/repos/harness-desk', name: 'harness-desk', lastOpenedAt: 1 }
+
+const rig = ({ here = true, armed = true }: { here?: boolean; armed?: boolean } = {}) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    workspaces: open ? [{ path: '/repos/harness-desk', name: 'harness-desk', lastOpenedAt: 1 }] : [],
+    // Recent either way: "open" now means the folder the window is in, not
+    // one the list remembers.
+    workspaces: [PROJECT],
+    workspace: here ? PROJECT : null,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    armWorktree: vi.fn().mockResolvedValue(armed),
     newSession: vi.fn().mockResolvedValue('agent:new'),
     openWorkspace: vi.fn().mockResolvedValue(undefined),
     listBranches: vi.fn().mockResolvedValue([
@@ -50,11 +57,11 @@ const rig = ({ open = true }: { open?: boolean } = {}) => {
   return { store }
 }
 
-const render = async (store: AppStore): Promise<void> => {
+const render = async (store: AppStore, onClose: () => void = () => {}): Promise<void> => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <NewWorktree root="/repos/harness-desk" onClose={() => {}} />
+        <NewWorktree root="/repos/harness-desk" onClose={onClose} />
       </StoreProvider>,
     )
   })
@@ -81,13 +88,9 @@ it('starts from the branch you are on unless you pick another', async () => {
   await render(store)
   await type('parser fix')
 
-  await act(async () => button('Create worktree').click())
+  await act(async () => button('Start in a new worktree').click())
 
-  expect(store.newSession).toHaveBeenCalledWith({
-    cwd: '/repos/harness-desk',
-    worktree: 'parser fix',
-    base: 'main',
-  })
+  expect(store.armWorktree).toHaveBeenCalledWith('/repos/harness-desk', 'parser fix', 'main')
 })
 
 it('sends the branch that was picked', async () => {
@@ -96,11 +99,34 @@ it('sends the branch that was picked', async () => {
   await type('parser fix')
 
   await act(async () => button('feat/docs').click())
-  await act(async () => button('Create worktree').click())
+  await act(async () => button('Start in a new worktree').click())
 
-  expect(store.newSession).toHaveBeenCalledWith(
-    expect.objectContaining({ base: 'feat/docs' }),
-  )
+  expect(store.armWorktree).toHaveBeenCalledWith('/repos/harness-desk', 'parser fix', 'feat/docs')
+})
+
+it('makes nothing on disk: the draft is pointed, and the host cuts it on send', async () => {
+  const { store } = rig()
+  const onClose = vi.fn()
+  await render(store, onClose)
+  await type('parser fix')
+
+  await act(async () => button('Start in a new worktree').click())
+
+  expect(store.newSession).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('stays open when the draft could not be pointed', async () => {
+  // The project would not open, and the store has said why; closing would
+  // throw the name and the branch away with it.
+  const { store } = rig({ armed: false })
+  const onClose = vi.fn()
+  await render(store, onClose)
+  await type('parser fix')
+
+  await act(async () => button('Start in a new worktree').click())
+
+  expect(onClose).not.toHaveBeenCalled()
 })
 
 it('shows the branch the name will really become', async () => {
@@ -136,40 +162,30 @@ it('names the project it is about, with enough path to tell two apart', async ()
   expect(strip?.title).toBe('/Users/me/.harnessdesk/worktrees/harness-desk-7ae59f/parser')
 })
 
-it('opens a project it is not already in, and says so before you commit', async () => {
-  const { store } = rig({ open: false })
+it('says it will switch to a project that is not the one open, before you commit', async () => {
+  // Remembered in the recent list, but not the folder the window is in.
+  const { store } = rig({ here: false })
   await render(store)
 
-  expect(document.body.textContent).toContain('opens this folder first')
-
-  await type('parser fix')
-  await act(async () => button('Create worktree').click())
-
-  expect(store.openWorkspace).toHaveBeenCalledWith('/repos/harness-desk')
-  expect(store.newSession).toHaveBeenCalled()
+  expect(document.body.textContent).toContain('switches to this folder first')
 })
 
-it('leaves the workspace alone when the project is already open', async () => {
+it('says nothing about switching when the project is the one open', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(document.body.textContent).not.toContain('opens this folder first')
-
-  await type('parser fix')
-  await act(async () => button('Create worktree').click())
-
-  expect(store.openWorkspace).not.toHaveBeenCalled()
+  expect(document.body.textContent).not.toContain('switches to this folder first')
 })
 
 it('waits to be typed in before it says anything is wrong', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(button('Create worktree').disabled).toBe(true)
+  expect(button('Start in a new worktree').disabled).toBe(true)
   expect(document.body.textContent).not.toContain('Give it a name.')
 
   await type('///')
 
-  expect(button('Create worktree').disabled).toBe(true)
+  expect(button('Start in a new worktree').disabled).toBe(true)
   expect(document.body.textContent).toContain('Give it a name.')
 })

@@ -169,6 +169,24 @@ export interface DraftHandoff {
   readonly cwd: string | null
 }
 
+/**
+ * Where the next conversation will run, while that is still a decision.
+ *
+ * `null` is the open folder as it is — the answer nine times in ten, and the
+ * one a fresh draft starts from. The other two are held on the draft and
+ * become a fact about a session on its first message:
+ *
+ * - `worktree` is a checkout that does not exist yet. The host cuts it on
+ *   send, so a draft abandoned with a worktree chosen leaves no branch and no
+ *   folder behind — the bargain `newDraft` already keeps with the agent's
+ *   history. `root` is the repository it comes off, named here rather than
+ *   read from the workspace at send time, because the two can part.
+ * - `existing` is a managed worktree already on disk.
+ */
+export type DraftPlace =
+  | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }
+  | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
+
 export interface AppSnapshot {
   readonly status: ConnectionStatus
   readonly runtimes: readonly RuntimeInfo[]
@@ -339,6 +357,12 @@ export interface AppSnapshot {
   readonly navCanForward: boolean
   /** The conversation handed to the open draft, if any. */
   readonly draftHandoff: DraftHandoff | null
+  /**
+   * Where the draft will start — see `DraftPlace`. Cleared the moment a
+   * conversation is in front, and when the workspace changes under it: a
+   * worktree chosen for one repository is not a choice about the next.
+   */
+  readonly draftPlace: DraftPlace | null
   readonly sidebarCollapsed: boolean
   readonly theme: 'light' | 'dark' | 'system'
   /**
@@ -576,6 +600,7 @@ const EMPTY: AppSnapshot = {
   navCanBack: false,
   navCanForward: false,
   draftHandoff: null,
+  draftPlace: null,
   sidebarCollapsed: false,
   theme: 'system',
   palette: 'harnessdesk',

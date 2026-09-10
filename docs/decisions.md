@@ -1,6 +1,6 @@
 # The decisions this is built on
 
-Nine choices that shape everything else. Each is
+Eleven choices that shape everything else. Each is
 stated as it stands today, not as it was argued — what the code does, and what
 it costs to keep doing it. Where a decision has a rule a reviewer can apply,
 the rule is the last line of its section.
@@ -226,3 +226,29 @@ changes nothing above it.
 
 **The rule:** the party that publishes writes the signature; the desk
 publishes.
+
+## Where a conversation runs is chosen on the draft, and made on send
+
+A new conversation's place — the open folder, a worktree the project already
+has, or a new one — is a control in the composer, shown only while the
+conversation is a draft. The choice is held on the draft (`draftPlace`), and a
+new worktree is cut by the host when the first message goes, not when it is
+chosen.
+
+The alternative was the one the app had: a worktree made the moment its button
+was pressed, with a conversation started in it. That cannot be previewed,
+cancelled or shown — there is nothing to show until it exists, and once it
+exists, abandoning it leaves a branch and a folder behind. Holding the choice
+costs one field on the draft and one branch in `newSession`. Once a
+conversation exists the choice is a fact, the header's git control states it,
+and the composer control is gone, so the two never say the same thing.
+
+The way back is a checkout, not a merge. `worktree/bringHome` checks the
+worktree's branch out in the main checkout and removes the worktree. Git will
+not check out a branch two trees hold, so the order is forced: uncommitted work
+is refused rather than discarded, and a checkout git refuses puts the worktree
+back as it was. A conversation cannot change folders, so the one that lived
+there is carried to the main checkout by a hand-off.
+
+**The rule:** nothing is made on disk for a conversation that has not been
+sent, and nothing is discarded to bring work home.
