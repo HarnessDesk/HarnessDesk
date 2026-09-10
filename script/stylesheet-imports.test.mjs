@@ -16,6 +16,8 @@ test('a stylesheet import is read whatever its file is called', () => {
     "import dotted from './name.sub.module.css'",
     `import odd from './mismatched.module.css"`,
     "import other from '../elsewhere.module.css'",
+    // From another folder, by its path (round 3 of #183's review).
+    "import piece from './parts/piece.module.css'",
     "import data from './data.json'",
   ].join('\n')
   assert.deepEqual(stylesheetImports(source), [
@@ -25,6 +27,8 @@ test('a stylesheet import is read whatever its file is called', () => {
     { binding: 'quoted', file: 'double-quoted.module.css' },
     { binding: 'spaced', file: 'spaced.module.css' },
     { binding: 'dotted', file: 'name.sub.module.css' },
+    { binding: 'other', file: '../elsewhere.module.css' },
+    { binding: 'piece', file: 'parts/piece.module.css' },
   ])
 })
 
@@ -39,6 +43,9 @@ test("a component's own stylesheet is its own, whichever way the name is spelled
   assert.equal(ownsStylesheet('design/showcase/RailBoard.tsx', 'panel-playground.module.css'), false)
   // An underscore is the other separator a file name uses (review of #183).
   assert.equal(ownsStylesheet('design/showcase/RailBoard2.tsx', 'rail_board2.module.css'), true)
+  // A stylesheet in another folder is another screen's, whatever it's called (round 3).
+  assert.equal(ownsStylesheet('components/Sidebar.tsx', '../design/Sidebar.module.css'), false)
+  assert.equal(ownsStylesheet('design/showcase/PanelPlayground.tsx', 'parts/panel-playground.module.css'), false)
 })
 
 test('a commented-out import is not an import', () => {

@@ -23,12 +23,15 @@ export const bareSource = (source) =>
  * went unreported (#91, #80). The source is read without its comments: a
  * commented-out import is not an import (review of #183). And an import is a
  * statement at the start of a line, so one quoted in a trailing comment is
- * not read either (round 2).
+ * not read either (round 2). An import from another folder is read too, by its
+ * path: one by `../` went unread, so a screen could borrow another's stylesheet
+ * without being counted (round 3).
  */
 export const stylesheetImports = (source) =>
-  [...bareSource(source).matchAll(/^\s*import\s+(\w+)\s+from\s+(['"])\.\/([\w.-]+\.module\.css)\2/gm)].map((match) => ({
+  [...bareSource(source).matchAll(/^\s*import\s+(\w+)\s+from\s+(['"])(\.{1,2}\/[\w./-]*\.module\.css)\2/gm)].map((match) => ({
     binding: match[1],
-    file: match[3],
+    // Relative to the importing file, and one in its own folder by its name alone.
+    file: match[3].replace(/^\.\//, ''),
   }))
 
 /**
@@ -42,6 +45,8 @@ export const stylesheetImports = (source) =>
  * seven showcase boards were counted as component libraries (#91).
  */
 export const ownsStylesheet = (file, sheet) => {
+  // A stylesheet in another folder is another screen's, whatever it's called (review of #183, round 3).
+  if (path.dirname(sheet) !== '.') return false
   const key = (name) => name.toLowerCase().replace(/[-_]/g, '')
   const names = [path.basename(file, '.tsx'), path.basename(path.dirname(file))]
   return names.some((name) => key(`${name}.module.css`) === key(sheet))
