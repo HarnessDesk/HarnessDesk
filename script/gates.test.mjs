@@ -519,6 +519,12 @@ test('a method name held in a variable is not a caller either', () => {
   assert.deepEqual([...reachedBy(methods, ["const marker = 'team/inbound'"])], [])
   assert.deepEqual([...reachedBy(methods, ["const list = ['team/inbound']"])], [])
   assert.deepEqual([...reachedBy(methods, ["export const NAME = 'team/inbound' as const"])], [])
+  /* And not any call either — round 3's finding. `reachable` means a
+     dispatch, so a name printed, logged, or passed to something else is not
+     one however it is punctuated. */
+  assert.deepEqual([...reachedBy(methods, ["console.log('team/inbound')"])], [])
+  assert.deepEqual([...reachedBy(methods, ["track('event', 'team/inbound')"])], [])
+  assert.deepEqual([...reachedBy(methods, ["describe('team/inbound', () => {})"])], [])
 
   // The controls: both shapes a real call is written in.
   assert.deepEqual([...reachedBy(methods, ["await request('team/inbound', { mode })"])], ['team/inbound'])

@@ -99,15 +99,17 @@ export interface StoredCredential {
   readonly name: string
   readonly createdAt: number
   /**
-   * The agent this key signs in, when it is one of those.
+   * What this key belongs to, when it belongs to something with a door of its
+   * own; `null` for the endpoint keys Settings lists.
    *
-   * The store holds two unrelated kinds and only the host can tell them
-   * apart. An agent's key is cleared from that agent's own sign-in page,
-   * through `runtime/apiKey/clear`, which reloads the runtime's secrets;
-   * deleting it as if it were a route's leftover would take the agent's
-   * credentials away and leave it running as though it still had them.
+   * The store holds several unrelated kinds and only the host can tell them
+   * apart. An agent's key is cleared from that agent's sign-in page, through
+   * `runtime/apiKey/clear`, which also reloads the runtime's secrets; a
+   * gateway account's key is held by the account and goes when the account
+   * does. Deleting either as a route's leftover takes a credential away from
+   * something still using it.
    */
-  readonly agent: string | null
+  readonly owner: { readonly kind: 'agent' | 'gateway'; readonly of: string } | null
 }
 
 /** One row of `routes/list`, as the wire returns it. */

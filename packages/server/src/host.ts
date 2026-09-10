@@ -882,6 +882,15 @@ export class Host {
         remove: (runtime) => this.#removeAccount(runtime),
         reloadSecrets: (runtime) => this.#reloadSecrets(runtime),
         announce: (runtime) => this.#announceAccount(runtime),
+        /* Asked of each registered runtime rather than of a slot list, because
+           `AccountFactory` answers per runtime — `slotOf` is the only door to
+           a slot's gateway, and every gateway account is a registered
+           runtime. */
+        gatewayCredentials: () =>
+          [...this.#runtimes.values()].flatMap((runtime) => {
+            const gateway = this.options.accounts?.slotOf(runtime.info)?.gateway
+            return gateway ? [{ ref: gateway.credentialRef, name: gateway.name }] : []
+          }),
       },
       routes: {
         list: () => this.#routes(),

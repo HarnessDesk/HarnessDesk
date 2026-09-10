@@ -112,15 +112,18 @@ const filesUnder = (dir) => {
  * `gates.test.mjs` against the glob that once opened a three-hundred-line
  * comment.
  *
- * **And the literal has to be in a call position** — first argument of
- * something, `(` and then the string. `const marker = 'team/inbound'` is not
- * a caller, and stripping comments did nothing about it. Measured before
- * narrowing: all 169 reachable methods are written this way today, so the
- * rule costs no false negatives. The ones it would still miss — a
- * double-quoted or concatenated name — fail loudly and are fixed by looking,
- * which is the direction to err in.
+ * **And the literal has to be the argument to a `request(`** — a dispatch,
+ * which is the only thing "reachable" means here. Two rounds of review walked
+ * this in: `const marker = 'team/inbound'` passed a comment-stripping match,
+ * and then `console.log('team/inbound')` and `foo(x, 'team/inbound')` passed
+ * an any-call-position one. Measured before each narrowing rather than after,
+ * because a rule that tightens is only worth having if nothing real is
+ * written the other way — all 169 reachable methods go through `request(`
+ * today, so this costs no false negatives. A new caller spelled some other
+ * way fails loudly, which is the direction to err in; so do the two spellings
+ * this cannot see, a double-quoted name and a concatenated one.
  */
-const CALL_BEFORE = /[(,]\s*$/
+const CALL_BEFORE = /\brequest\(\s*$/
 
 export const reachedBy = (methods, sources) => {
   const text = sources.map((source) => withoutComments(source)).join('\n')

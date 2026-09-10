@@ -695,8 +695,18 @@ export interface HostMethods {
       readonly ref: string
       readonly name: string
       readonly createdAt: number
-      /** The agent this signs in, when the broker minted it for one; else null. */
-      readonly agent: string | null
+      /**
+       * What this key belongs to, when it belongs to something with a door of
+       * its own — an agent's sign-in, or a gateway account's endpoint. `null`
+       * is a key a custom endpoint refers to, which is the only kind Settings
+       * offers to remove.
+       *
+       * Asked as "who owns it" rather than "is it an agent's", because the
+       * second question has been answered wrongly twice: an agent's key drew
+       * as an orphan, and then so did a gateway account's. Every owner class
+       * has to name itself here or it reads as nobody's.
+       */
+      readonly owner: { readonly kind: 'agent' | 'gateway'; readonly of: string } | null
     }[]
   }
   'credentials/store': {

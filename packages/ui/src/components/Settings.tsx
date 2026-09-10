@@ -333,14 +333,15 @@ const RoutesRows = () => {
  * under an empty endpoint list is a permanent reminder of a state that is
  * fine.
  *
- * **Route keys only.** The same store holds every agent's sign-in key, and
- * review caught this section listing them: an active `agent:codex:
- * OPENAI_API_KEY` drew here as "No endpoint uses it", because no endpoint
- * ever does, with a Remove beside it — and `credentials/delete` is not the
- * verb for one. `runtime/apiKey/clear` is, on the agent's own page, because
- * it also reloads the runtime's secrets; a plain delete would take the key
- * away and leave the agent running as though it still had one. The host says
- * which is which (`CredentialBroker.agentOf`); this does not parse names.
+ * **Route keys only, and the rule is "nothing else owns it".** The same store
+ * holds every agent's sign-in key and every gateway account's, and review
+ * caught this section listing each in turn — an active
+ * `agent:codex:OPENAI_API_KEY` drew as "No endpoint uses it", because no
+ * endpoint ever does, and then so did a gateway account's key. Both have
+ * doors of their own that do more than delete: the agent's page reloads the
+ * runtime's secrets, and an account's key goes with the account. Asking "is
+ * it an agent's" got the second class wrong, so the host answers "what owns
+ * it" and this lists the ones nothing does.
  */
 const KeysRows = () => {
   const store = useStore()
@@ -362,9 +363,10 @@ const KeysRows = () => {
   // one may drop it, and both happen on the section directly above this.
   useEffect(() => reload(), [reload, snapshot.routes])
 
-  /* The endpoints' own keys. An agent's is a different thing with a different
-     verb, and it has a page of its own. */
-  const routeKeys = useMemo(() => (keys ?? []).filter((key) => key.agent === null), [keys])
+  /* The endpoints' own keys: the ones nothing else claims. An agent's key and
+     a gateway account's are different things with different verbs, and each
+     has a surface of its own. */
+  const routeKeys = useMemo(() => (keys ?? []).filter((key) => key.owner === null), [keys])
 
   /* Which endpoint each key is for. A key is named by whoever refers to it,
      and the ones nobody refers to are exactly the leak this section exists

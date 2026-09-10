@@ -54,21 +54,21 @@ const runtime = {
   presentation: { name: 'OpenAI Codex' },
 } as unknown as RuntimeInfo
 
-const KEY: StoredCredential = { ref: 'cred_a', name: 'Proxy key', createdAt: Date.UTC(2026, 0, 9), agent: null }
+const KEY: StoredCredential = { ref: 'cred_a', name: 'Proxy key', createdAt: Date.UTC(2026, 0, 9), owner: null }
 const ORPHAN: StoredCredential = {
   ref: 'cred_b',
   name: 'Old gateway key',
   createdAt: Date.UTC(2025, 10, 2),
-  agent: null,
+  owner: null,
 }
-/* An agent's own sign-in key. Same store, same list, different thing — and
-   the host says which by minting the name (`CredentialBroker.secretName`)
-   and reading it back (`agentOf`). */
+/* Two keys with owners of their own. Same store, same list, different verbs:
+   an agent's is cleared from its sign-in page and a gateway account's goes
+   with the account. The host names the owner; this does not guess. */
 const AGENT_KEY: StoredCredential = {
   ref: 'cred_c',
   name: 'agent:codex:OPENAI_API_KEY',
   createdAt: Date.UTC(2026, 0, 9),
-  agent: 'codex',
+  owner: { kind: 'agent', of: 'codex' },
 }
 
 const route: RouteInfo = {
@@ -189,7 +189,14 @@ it('a refused delete leaves the row where it is', async () => {
   expect(container.textContent).toContain('Proxy key')
 })
 
-it('an agent’s own sign-in key is not one of these, and is not offered for deletion', async () => {
+const GATEWAY_KEY: StoredCredential = {
+  ref: 'cred_d',
+  name: 'Acme gateway key',
+  createdAt: Date.UTC(2026, 0, 9),
+  owner: { kind: 'gateway', of: 'Acme gateway' },
+}
+
+it('a key with an owner is not one of these, and is not offered for deletion', async () => {
   /* Found in review and reproduced on the real app: `credentials/list`
      returns every secret the broker holds, so `agent:codex:OPENAI_API_KEY`
      drew here reading "No endpoint uses it" — because no endpoint ever does —
@@ -197,18 +204,23 @@ it('an agent’s own sign-in key is not one of these, and is not offered for del
      one: `runtime/apiKey/clear` also reloads the runtime's secrets, so a
      plain delete takes the key away and leaves the agent running as though it
      still had it. */
-  mount([KEY, AGENT_KEY])
+  mount([KEY, AGENT_KEY, GATEWAY_KEY])
   await act(async () => {})
 
   expect(container.textContent).not.toContain('OPENAI_API_KEY')
+  /* The second owner class, found a round after the first: a gateway account's
+     key is named by nothing in `routes`, so "is it an agent's" read it as an
+     orphan. Its name gives nothing away either — it is `<name> key`, exactly
+     like a route's. */
+  expect(container.textContent).not.toContain('Acme gateway key')
   // The control: the route's key beside it is still listed, and the count is
   // of what is drawn rather than of what came back.
   expect(container.textContent).toContain('Proxy key')
   expect(container.textContent).toContain('Stored keys · 1')
 })
 
-it('a list of nothing but agent keys draws no section at all', async () => {
-  mount([AGENT_KEY])
+it('a list of nothing but owned keys draws no section at all', async () => {
+  mount([AGENT_KEY, GATEWAY_KEY])
   await act(async () => {})
   expect(container.textContent).not.toContain('Stored keys')
   expect(container.textContent).toContain('Custom endpoints')

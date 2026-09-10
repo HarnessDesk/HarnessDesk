@@ -157,6 +157,15 @@ export interface HostContext {
     reloadSecrets(runtime: RuntimeId): Promise<SecretReload>
     /** Tells every client this runtime's sign-in state moved. */
     announce(runtime: RuntimeId): Promise<void>
+    /**
+     * The credentials gateway accounts hold, by reference.
+     *
+     * Narrower than the slot list on purpose: the one caller is
+     * `credentials/list`, which needs to say that a key has an owner — and a
+     * key whose owner nothing names reads as an orphan with a Remove beside
+     * it, which is how this came to be asked.
+     */
+    gatewayCredentials(): readonly { readonly ref: string; readonly name: string }[]
   }
 
   readonly routes: {
