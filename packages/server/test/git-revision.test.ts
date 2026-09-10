@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { isRevisionName } from '../src/git-revision.js'
+import { isRevisionName, isSha } from '../src/git-revision.js'
 
 /**
  * What this host will hand to git as a single revision.
@@ -82,4 +82,15 @@ test('the ^ suffixes that do name one revision still pass', () => {
   for (const ref of ['HEAD^{commit}', 'v1.0.0^{}', 'HEAD^2', 'HEAD^0', 'HEAD~2^2']) {
     assert.equal(isRevisionName(ref), true, ref)
   }
+})
+
+test('a commit id is 4 to 64 hex characters: SHA-1, SHA-256, and the abbreviations between', () => {
+  // #67: a SHA-256 repository names every commit in 64, and 40 was the ceiling.
+  assert.equal(isSha('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'), true)
+  assert.equal(isSha('da39a3ee5e6b4b0d3255bfef95601890afd80709'), true)
+  assert.equal(isSha('abcd'), true)
+  assert.equal(isSha('abc'), false, 'shorter than git abbreviates')
+  assert.equal(isSha('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550'), false, '65')
+  assert.equal(isSha('HEAD'), false)
+  assert.equal(isSha('--not-a-sha'), false)
 })

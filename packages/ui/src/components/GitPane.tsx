@@ -715,7 +715,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           badge={currentRef?.behind ?? 0}
           words={fit.labels}
           busy={working !== null}
-          disabled={currentRef?.upstream ? false : 'This branch tracks no remote branch.'}
+          disabled={pullRefusal(currentRef)}
           title={currentRef?.upstream ? `Pull ${currentRef.upstream}` : 'Pull'}
           onClick={doPull}
         />
@@ -1485,6 +1485,18 @@ const HeadCell = ({
 }
 
 /** One toolbar verb: a glyph, its word when the pane is wide, and a count. */
+/**
+ * Why Pull cannot run for this branch, or false when it can. A branch whose
+ * upstream was deleted on its remote still names it, and a pull from it can
+ * only fail, so it says why rather than offering a button that errors. #98.
+ */
+const pullRefusal = (branch: GitBranchRef | null | undefined): string | false =>
+  !branch?.upstream
+    ? 'This branch tracks no remote branch.'
+    : branch.gone
+      ? `${branch.upstream} is gone from its remote.`
+      : false
+
 const ActionBtn = ({
   icon,
   label,
@@ -1574,9 +1586,7 @@ const BranchMenu = ({
       <MenuItem
         icon={<PullIcon size={14} />}
         label={branch.upstream ? `Pull ${branch.upstream}` : 'Pull'}
-        disabled={
-          !itself ? 'Check it out first.' : branch.upstream ? false : 'This branch tracks no remote branch.'
-        }
+        disabled={!itself ? 'Check it out first.' : pullRefusal(branch)}
         onSelect={onPull}
       />
       <MenuItem
@@ -1806,6 +1816,8 @@ const RefsRail = ({
       : []
 
   const track = (branch: GitBranchRef): string | null => {
+    // The word the worktree rows already use for a branch that no longer resolves.
+    if (branch.gone) return 'gone'
     if (branch.ahead === 0 && branch.behind === 0) return null
     return [branch.ahead > 0 ? `↑${branch.ahead}` : null, branch.behind > 0 ? `↓${branch.behind}` : null]
       .filter(Boolean)

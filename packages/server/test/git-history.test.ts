@@ -302,3 +302,61 @@ test('createBranch: lands at the commit, refuses bad names and bad ids', async (
   await assert.rejects(createBranch(dir, 'twice..dotted', at))
   await assert.rejects(createBranch(dir, 'fine', 'HEAD'))
 })
+
+test('a repository that names its commits in SHA-256 opens them', async () => {
+  // #67: the id check stopped at 40 characters, a SHA-1's length.
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const head = await sha(dir, 'HEAD')
+  assert.equal(head.length, 64, 'the control: this repository really is SHA-256')
+  assert.equal((await commit(dir, head)).sha, head)
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
+})
+
+test('a renamed file opens as the rename it was, not as a file added from nothing', async () => {
+  // #68: only the new path was in the pathspec, so git had nothing to pair it with.
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'old.txt'), 'one\ntwo\nthree\nfour\nfive\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await git(dir, 'mv', 'old.txt', 'new.txt')
+  await writeFile(join(dir, 'new.txt'), 'one\ntwo\nthree\nfour\nFIVE\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'rename, with one line changed')
+  const head = await sha(dir, 'HEAD')
+  const listedAs = (await commit(dir, head)).files.find((file) => file.path === 'new.txt')
+  assert.equal(listedAs?.oldPath, 'old.txt', 'the control: the file list calls it a rename')
+
+  const patch = await commitDiff(dir, head, 'new.txt')
+  assert.match(patch, /^rename from old\.txt$/m)
+  assert.match(patch, /^rename to new\.txt$/m)
+  assert.doesNotMatch(patch, /^new file mode/m)
+  assert.deepEqual(patch.split('\n').filter((line) => /^[+-](?![+-])/.test(line)), ['-five', '+FIVE'])
+})
+
+test('a branch whose upstream was deleted says so, rather than reading as level', async () => {
+  // #98: `[gone]` parsed as zero ahead and zero behind.
+  const remote = await tempDir()
+  await git(remote, 'init', '-q', '--bare', '-b', 'main')
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await git(dir, 'remote', 'add', 'origin', remote)
+  await git(dir, 'push', '-q', '-u', 'origin', 'main')
+  await git(dir, 'checkout', '-qb', 'feat/merged')
+  await git(dir, 'push', '-q', '-u', 'origin', 'feat/merged')
+  await git(remote, 'branch', '-D', 'feat/merged')
+  await git(dir, 'fetch', '-q', '--prune')
+
+  const branches = (await refs(dir))?.branches ?? []
+  const named = (name: string) => branches.find((branch) => branch.name === name)
+  assert.equal(named('feat/merged')?.upstream, 'origin/feat/merged')
+  assert.equal(named('feat/merged')?.gone, true)
+  assert.equal(named('main')?.gone, false, 'the control: level with a remote branch that exists')
+})

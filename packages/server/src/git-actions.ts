@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { isRevisionName } from './git-revision.js'
+import { isRevisionName, isSha } from './git-revision.js'
 import { parsePorcelain } from './porcelain.js'
 
 /**
@@ -55,9 +55,6 @@ const plain = (error: unknown): string => {
 const fail = (doing: string, error: unknown): never => {
   throw new Error(`${doing}: ${plain(error)}`)
 }
-
-/** A full or abbreviated commit id, and nothing that could read as an option. */
-const isSha = (value: string): boolean => /^[0-9a-f]{4,40}$/i.test(value)
 
 /**
  * A name this module will hand to git as a revision: a branch, a remote

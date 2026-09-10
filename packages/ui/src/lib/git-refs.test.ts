@@ -12,6 +12,7 @@ const branch = (name: string): GitBranchRef => ({
   upstream: null,
   ahead: 0,
   behind: 0,
+  gone: false,
 })
 
 describe('branchTree', () => {

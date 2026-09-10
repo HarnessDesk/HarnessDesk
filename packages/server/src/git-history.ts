@@ -16,6 +16,8 @@ import type {
   GitTagRef,
 } from '@harnessdesk/protocol'
 
+import { isSha } from './git-revision.js'
+
 /**
  * The repository's past, read for the history pane: the log, the refs, one
  * commit opened, one file's patch at that commit. Everything here reads;
@@ -58,9 +60,6 @@ const asked = async (root: string, args: readonly string[]): Promise<string | nu
     throw error
   }
 }
-
-/** A full or abbreviated commit id, and nothing that could read as an option. */
-const isSha = (value: string): boolean => /^[0-9a-f]{4,40}$/i.test(value)
 
 /**
  * A search term used inside a pathspec, with wildmatch's operators escaped:
@@ -152,9 +151,13 @@ export const log = async (root: string, options: LogOptions = {}): Promise<GitLo
 // --------------------------------------------------------------------- refs
 
 /** `[ahead 1, behind 2]`, `[gone]`, or nothing — for-each-ref's own words. */
-const parseTrack = (track: string): { ahead: number; behind: number } => ({
+const parseTrack = (track: string): { ahead: number; behind: number; gone: boolean } => ({
   ahead: Number(/ahead (\d+)/.exec(track)?.[1] ?? 0),
   behind: Number(/behind (\d+)/.exec(track)?.[1] ?? 0),
+  /* The upstream was deleted on its remote and pruned here. Read as counts
+     alone that is zero ahead and zero behind — level with a branch that no
+     longer exists, and a Pull that can only fail. #98. */
+  gone: /\bgone\b/.test(track),
 })
 
 /**
@@ -260,8 +263,20 @@ const diffBase = async (root: string, sha: string): Promise<string | null> => {
   return parents.split(' ').filter((entry) => entry.length > 0)[0] ?? null
 }
 
-/** git's well-known empty tree, the base a root commit diffs against. */
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+/**
+ * The empty tree, which a root commit is read against. A well-known object,
+ * but named differently in each object format: a SHA-256 repository has no
+ * object by the SHA-1 name, so its first commit opened as nothing at all —
+ * found by #67's test, once the ids themselves were let through. Asked of the
+ * repository only when a root commit needs it; a git too old to answer is a
+ * SHA-1 repository.
+ */
+const EMPTY_TREES: Readonly<Record<string, string>> = {
+  sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+  sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
+}
+const emptyTree = async (root: string): Promise<string> =>
+  EMPTY_TREES[(await asked(root, ['rev-parse', '--show-object-format']))?.trim() ?? 'sha1'] ?? EMPTY_TREES['sha1']!
 
 /**
  * One commit opened: full message, both identities, and its files with
@@ -279,7 +294,7 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
   const [fullSha, parentList, author, authorEmail, authoredAt, committer, committedAt, decorations, ...rest] =
     meta.split('\x00')
   const parents = (parentList ?? '').split(' ').filter((entry) => entry.length > 0)
-  const base = parents[0] ?? EMPTY_TREE
+  const base = parents[0] ?? (await emptyTree(root))
 
   const [numstat, nameStatus] = await Promise.all([
     asked(root, ['diff', '--numstat', '-z', '--no-color', '--no-ext-diff', base, sha]),
@@ -307,28 +322,16 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
     }
   }
 
-  const files: GitCommitFile[] = []
-  {
-    const fields = (nameStatus ?? '').split('\0')
-    for (let index = 0; index < fields.length; index += 1) {
-      const status = fields[index]
-      if (!status || status.length === 0) continue
-      const letter = status[0] ?? ''
-      const renamed = letter === 'R' || letter === 'C'
-      const oldPath = renamed ? (fields[index + 1] ?? '') : undefined
-      const path = renamed ? (fields[index + 2] ?? '') : (fields[index + 1] ?? '')
-      index += renamed ? 2 : 1
-      if (path.length === 0) continue
-      const count = counts.get(path) ?? { added: 0, removed: 0 }
-      files.push({
-        path,
-        ...(oldPath && oldPath.length > 0 ? { oldPath } : {}),
-        status: STATUS_LETTERS[letter] ?? 'modified',
-        added: count.added,
-        removed: count.removed,
-      })
+  const files: GitCommitFile[] = listed(nameStatus).map(({ letter, path, oldPath }) => {
+    const count = counts.get(path) ?? { added: 0, removed: 0 }
+    return {
+      path,
+      ...(oldPath ? { oldPath } : {}),
+      status: STATUS_LETTERS[letter] ?? 'modified',
+      added: count.added,
+      removed: count.removed,
     }
-  }
+  })
 
   return {
     sha: (fullSha ?? sha).trim(),
@@ -350,11 +353,41 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
   }
 }
 
+/**
+ * `--name-status -z`: a status letter, then one path — or two for a rename or
+ * a copy, the old one first. Empty when git gave nothing.
+ */
+const listed = (nameStatus: string | null): { letter: string; path: string; oldPath?: string }[] => {
+  const files: { letter: string; path: string; oldPath?: string }[] = []
+  const fields = (nameStatus ?? '').split('\0')
+  for (let index = 0; index < fields.length; index += 1) {
+    const status = fields[index]
+    if (!status || status.length === 0) continue
+    const letter = status[0] ?? ''
+    const renamed = letter === 'R' || letter === 'C'
+    const oldPath = renamed ? (fields[index + 1] ?? '') : undefined
+    const path = renamed ? (fields[index + 2] ?? '') : (fields[index + 1] ?? '')
+    index += renamed ? 2 : 1
+    if (path.length === 0) continue
+    files.push({ letter, path, ...(oldPath && oldPath.length > 0 ? { oldPath } : {}) })
+  }
+  return files
+}
+
 /** One file's patch at one commit, against the same base the file list used. */
 export const commitDiff = async (root: string, sha: string, path: string): Promise<string> => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
-  const base = (await diffBase(root, sha)) ?? EMPTY_TREE
-  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', base, sha, '--', path])) ?? ''
+  const base = (await diffBase(root, sha)) ?? (await emptyTree(root))
+  /* A rename is two paths, and a pathspec naming only the new one hides the
+     old one from git: with nothing to pair it with, the file read as added
+     from nothing, every line new. #68. The old path comes from the same
+     name-status the file list is built from, so the patch shows what the list
+     said — a rename, and only what changed across it. */
+  const entry = listed(
+    await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]),
+  ).find((file) => file.path === path)
+  const paths = entry?.oldPath ? [entry.oldPath, path] : [path]
+  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', base, sha, '--', ...paths])) ?? ''
 }
 
 // ------------------------------------------------------------ createBranch

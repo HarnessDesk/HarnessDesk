@@ -30,3 +30,11 @@
  */
 export const isRevisionName = (ref: string): boolean =>
   /^[\w][\w./@{}~^-]*$/.test(ref) && !ref.includes('..') && !/\^[-@]/.test(ref)
+
+/**
+ * A commit id: hex, from git's shortest abbreviation (4) to a full SHA-256
+ * object name (64). A repository made with `--object-format=sha256` names
+ * every commit in 64 characters, and the old upper bound of 40 — a SHA-1's —
+ * refused all of them, in both files that kept a copy of the check. #67.
+ */
+export const isSha = (value: string): boolean => /^[0-9a-f]{4,64}$/i.test(value)
