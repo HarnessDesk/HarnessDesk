@@ -93,10 +93,12 @@ export type EditorEvent =
  */
 export const applyLineEdits = (source: string, edits: readonly EditorEdit[]): string => {
   if (edits.length === 0) return source
-  // A line that is not a number has nowhere to go: NaN clamped to NaN, and
-  // `splice` read that as 0, so the edit went in above the first line.
+  // A line that is not a number has nowhere to go: it truncates to NaN, NaN
+  // clamps to NaN, and `splice` read that as 0, so the edit went in above the
+  // first line. A missing or non-numeric line from an untyped caller truncates
+  // to NaN as well (review, round 2).
   for (const edit of edits) {
-    if (Number.isNaN(edit.fromLine) || (edit.toLine != null && Number.isNaN(edit.toLine))) {
+    if (Number.isNaN(Math.trunc(edit.fromLine)) || (edit.toLine != null && Number.isNaN(Math.trunc(edit.toLine)))) {
       throw new Error(`An edit's lines must be numbers; got fromLine ${String(edit.fromLine)}, toLine ${String(edit.toLine)}.`)
     }
   }

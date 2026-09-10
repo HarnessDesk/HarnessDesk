@@ -109,3 +109,13 @@ test('a line that is not a number is refused, rather than put above the first', 
   assert.throws(() => applyLineEdits('one\n', [{ fromLine: Number.NaN, text: 'x' }]), /must be numbers/)
   assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: Number.NaN, text: 'x' }]), /must be numbers/)
 })
+
+test('a line that is missing or not a number is refused too', () => {
+  // Round 2 of #158: the check read the raw value, and `undefined` and `'abc'` are not NaN until truncated.
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: undefined as unknown as number, text: 'x' }]), /must be numbers/)
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 'abc' as unknown as number, text: 'x' }]), /must be numbers/)
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: 'abc' as unknown as number, text: 'x' }]), /must be numbers/)
+  // Infinity is a line past the end, as any large one is, and an empty append adds nothing.
+  assert.equal(applyLineEdits('one\n', [{ fromLine: Number.POSITIVE_INFINITY, text: 'A' }]), 'one\nA\n')
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 5, text: '' }]), 'one\n')
+})

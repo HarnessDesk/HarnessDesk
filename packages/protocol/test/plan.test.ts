@@ -81,3 +81,9 @@ test('in before complete is a negation however it is joined, and in_progress is 
   assert.equal(planStatus('in_progress'), 'inProgress')
   assert.equal(planStatus('inProgress'), 'inProgress')
 })
+
+test('in before complete is a negation inside a longer status, and in the past tense', () => {
+  // Round 2 of #158.
+  assert.equal(planStatus('TODO_STATUS_IN_COMPLETE'), 'pending')
+  assert.equal(planStatus('inCompleted'), 'pending')
+})
