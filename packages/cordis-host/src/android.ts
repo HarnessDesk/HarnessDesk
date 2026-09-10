@@ -70,6 +70,19 @@ export interface AndroidDevice {
 }
 
 /**
+ * The device a call names, if it names one — trimmed, as the tools trim it, so
+ * a blank serial from any caller is no serial rather than a device called
+ * `'   '`.
+ */
+const named = (serial: string | undefined): string | undefined => serial?.trim() || undefined
+
+/** `-s <serial>` ahead of the subcommand when a device was named; nothing when not. */
+const onDevice = (serial: string | undefined): string[] => {
+  const device = named(serial)
+  return device ? ['-s', device] : []
+}
+
+/**
  * The devices in `adb devices -l`, and nothing adb says about itself.
  *
  * Everything up to *and including* adb's own header is dropped, not only the
@@ -82,9 +95,6 @@ export interface AndroidDevice {
  * Without a header at all, every other line is still read, so an adb that
  * someday words its header differently lists devices rather than none. #43.
  */
-/** `-s <serial>` ahead of the subcommand when a device was named; nothing when not. */
-const onDevice = (serial: string | undefined): string[] => (serial ? ['-s', serial] : [])
-
 export const parseAdbDevices = (stdout: string): AndroidDevice[] => {
   const lines = stdout.split('\n').map((line) => line.trim())
   const header = lines.findIndex((line) => line.startsWith('List of devices attached'))
@@ -135,7 +145,7 @@ export class AndroidService extends Service {
    * refusal can never lead back into itself.
    */
   private async refusal(error: Error, serial: string | undefined): Promise<Error> {
-    if (serial !== undefined || !/more than one (device|emulator)/i.test(error.message)) return missingAdb(error)
+    if (named(serial) !== undefined || !/more than one (device|emulator)/i.test(error.message)) return missingAdb(error)
     const ready = await runDevice(adbBinary(), ['devices', '-l'], { what: 'Listing Android devices' }).then(
       ({ stdout }) => parseAdbDevices(stdout).filter((device) => device.state === 'device'),
       () => [],

@@ -186,3 +186,22 @@ test("a device adb does not know is adb's own refusal, not the one about several
   assert.match(error ?? '', /device 'nope' not found/)
   assert.doesNotMatch(error ?? '', /More than one/)
 })
+
+test('a blank serial names no device at the service either', { skip: !posixShell }, async (t) => {
+  // The tools trimmed it; a plugin calling ctx.android directly did not.
+  const adb = fakeAdb(t, ['emulator-5554\tdevice'])
+  const call = await withKernel(t)
+  assert.equal((await call('tap', 1, 2, '   ')).error, undefined)
+  assert.equal((await call('tap', 3, 4, ' emulator-5554 ')).error, undefined)
+  assert.deepEqual(adb.calls(), ['shell input tap 1 2', '-s emulator-5554 shell input tap 3 4'])
+})
+
+test('with several attached and none ready, the refusal still says how to choose', { skip: !posixShell }, async (t) => {
+  fakeAdb(t, ['R58M123ABC\tunauthorized', 'emulator-5556\toffline'])
+  const call = await withKernel(t)
+  assert.equal(
+    (await call('tap', 1, 2)).error,
+    'More than one Android device or emulator is connected. Name one with `serial`, or set ANDROID_SERIAL for the desk.',
+  )
+})
+
