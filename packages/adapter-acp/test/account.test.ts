@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url'
 
 import type { AgentEvent } from '@harnessdesk/protocol'
 
+import { EventEmitter } from 'node:events'
+
+import { CliAccount } from '../src/account.js'
 import { AcpRuntime, parseStatus } from '../src/index.js'
 
 /**
@@ -296,4 +299,76 @@ test('a brace or an escaped quote inside a string does not end the object early'
 test('an object that never closes is not a signed-in account', () => {
   // The control: it read as nothing before, and it still does.
   assert.equal(parseStatus('{"loggedIn": true, "email": "a@b.c"'), null)
+})
+
+test('a status after a braced preface, or after an NDJSON log line, is still found', () => {
+  // Round one anchored on the first brace, so the preface was the object tried.
+  const signedIn = { kind: 'cli', label: 'a@b.c', email: 'a@b.c' }
+  assert.deepEqual(parseStatus('info {cache}\n{"loggedIn":true,"email":"a@b.c"}'), signedIn)
+  // This one parses — it is JSON, just not a status — and has to be passed over.
+  assert.deepEqual(parseStatus('{"level":"info","msg":"checking"}\n{"loggedIn":true,"email":"a@b.c"}'), signedIn)
+})
+
+test('a " in a value is a character to the scanner, as it is to JSON', () => {
+  /* Review asked whether the scanner, which does not decode `\u` escapes,
+     could end an object somewhere JSON.parse would not. It cannot: an escape
+     never ends a string in either. The scanner takes the backslash and the
+     `u` as one escape and the four digits as characters, which is where
+     JSON.parse leaves them too — the brace after it is still inside the
+     string for both. */
+  const text = '{"loggedIn":true,"email":"a@b.c","plan":"x\\u0022}{\\u0022"}'
+  // The plan comes back whole — quote, braces, quote — so the object ended
+  // where JSON.parse ends it, not at the brace inside the value.
+  assert.deepEqual(parseStatus(text), { kind: 'cli', label: 'a@b.c', email: 'a@b.c', planType: 'x"}{"' })
+})
+
+/** A child process the test drives by hand, for endings a real CLI cannot stage. */
+const fakeChild = () =>
+  Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true })
+
+const accountWith = (child: ReturnType<typeof fakeChild>, events: AgentEvent[]) =>
+  new CliAccount(
+    { status: { command: 'unused' }, login: { command: 'hd-missing' } },
+    'fake-acp' as never,
+    (event) => events.push(event),
+    undefined,
+    (() => child) as never,
+  )
+
+const completions = (events: readonly AgentEvent[]) =>
+  events.filter((event) => event.type === 'account/loginCompleted').length
+
+test('an error and an exit in the same tick, before the URL, report no completion', async () => {
+  /* Some Node versions emit 'exit' after a spawn error; the one this runs on
+     does not, so both are emitted here by hand — in one tick, which is the
+     order that defeated round one's fix. Nobody was handed this login's id,
+     so nothing may be announced for it. */
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.emit('error', Object.assign(new Error('spawn hd-missing ENOENT'), { code: 'ENOENT' }))
+  child.emit('exit', null)
+  await assert.rejects(login, /could not start \(hd-missing\)/)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(completions(events), 0)
+})
+
+test('an error after the URL was handed out ends the flow once, even with an exit behind it', async () => {
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.stdout.emit('data', Buffer.from('Open https://auth.example.com/flow/xyz to sign in\n'))
+  const start = await login
+  assert.equal(start.type, 'browser')
+
+  child.emit('error', new Error('the pipe went away'))
+  child.emit('exit', 1)
+  await new Promise((resolve) => setImmediate(resolve))
+  const ended = events.filter((event) => event.type === 'account/loginCompleted') as Extract<
+    AgentEvent,
+    { type: 'account/loginCompleted' }
+  >[]
+  assert.equal(ended.length, 1, 'one ending, not one per event')
+  assert.equal(ended[0]?.success, false)
+  assert.match(ended[0]?.error ?? '', /stopped: the pipe went away/)
 })

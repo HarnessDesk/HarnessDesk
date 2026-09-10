@@ -49,6 +49,11 @@ export class CliAccount {
     private readonly runtime: RuntimeId,
     private readonly emit: (event: AgentEvent) => void,
     private readonly log?: (message: string, details?: unknown) => void,
+    /* How the sign-in command is started. Injected only by tests: the ways a
+       child can end in an `'error'` — before its URL is handed out, and after
+       — cannot be provoked through a real CLI on every Node version, and the
+       code that handles them was otherwise untested. */
+    private readonly spawnChild: typeof spawn = spawn,
   ) {}
 
   async status(): Promise<AccountStatus> {
@@ -72,7 +77,7 @@ export class CliAccount {
     const spec = this.commands.login
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
-    const child = spawn(spec.command, [...(spec.args ?? [])], {
+    const child = this.spawnChild(spec.command, [...(spec.args ?? [])], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, ...spec.env },
     })
@@ -90,12 +95,19 @@ export class CliAccount {
     let settled = false
     const failed = new Promise<Error>((resolve) => child.once('error', resolve))
     void failed.then((error) => {
-      // Before the URL is handed out, `login()` reports it itself, below.
-      // After, the flow it started must be told it is over, or the sign-in
-      // page waits for an exit that may never come.
-      if (!handedOut || settled) return
+      /* One ending per flow, and an error is one — so `settled` is claimed
+         *first*. An `'exit'` can be queued in the same tick behind the error,
+         and its handler runs before `login()`'s race hands back control: set
+         the flag only after the race, as round one did, and the exit handler
+         still found the flow unsettled and reported a completion for a login
+         id no caller was ever given. The test emits both events in one tick
+         to prove the order matters. */
+      if (settled) return
       settled = true
       this.#logins.delete(loginId)
+      // Before the URL is handed out there is no one holding the id to tell:
+      // `login()` reports this error itself, by rejecting.
+      if (!handedOut) return
       this.emit({
         type: 'account/loginCompleted',
         runtime: this.runtime,
@@ -156,6 +168,8 @@ export class CliAccount {
     }
     this.#logins.delete(loginId)
     if (outcome.kind === 'error') {
+      // Already settled by the error handler above; see there for why it
+      // cannot be left until here.
       throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
     }
     if (outcome.kind === 'timeout') child.kill('SIGTERM')
@@ -194,7 +208,6 @@ export class CliAccount {
   }
 }
 
-/** One account from whatever the status command printed, or null for signed out. */
 /**
  * The first whole JSON object in `text`, from `from` — braces counted, and
  * ignored inside strings — or null when it never closes.
@@ -228,31 +241,55 @@ const firstObject = (text: string, from: number): string | null => {
   return null
 }
 
+/**
+ * The first object in `text` that parses as JSON **and says something about
+ * sign-in** — `loggedIn`, `logged_in` or `email`.
+ *
+ * Not simply the first brace. A CLI can print `info {cache}` before its
+ * status, or log in NDJSON, and anchoring on the first `{` read that preface:
+ * it failed to parse, or parsed and said nothing, and a signed-in account was
+ * reported as signed out — the very outcome #39 was about, one line earlier
+ * in the output. Found in review. Each opening brace is tried in turn; a run
+ * that closes but is not JSON, or is JSON about something else, is passed
+ * over rather than ending the search.
+ */
+const statusObject = (text: string): Record<string, unknown> | null => {
+  for (let at = text.indexOf('{'); at !== -1; at = text.indexOf('{', at + 1)) {
+    const candidate = firstObject(text, at)
+    if (candidate === null) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(candidate)
+    } catch {
+      continue
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    const record = parsed as Record<string, unknown>
+    if ('loggedIn' in record || 'logged_in' in record || 'email' in record) return record
+  }
+  return null
+}
+
+/** One account from whatever the status command printed, or null for signed out. */
 export const parseStatus = (
   stdout: string,
 ): { kind: string; label: string; email?: string; planType?: string } | null => {
   const text = stdout.trim()
-  const jsonStart = text.indexOf('{')
-  const json = jsonStart === -1 ? null : firstObject(text, jsonStart)
-  if (json !== null) {
-    try {
-      const record = JSON.parse(json) as Record<string, unknown>
-      const loggedIn = record['loggedIn'] ?? record['logged_in']
-      if (loggedIn === false) return null
-      const email = typeof record['email'] === 'string' ? record['email'] : undefined
-      const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
-      if (loggedIn === true || email) {
-        return {
-          kind: 'cli',
-          label: email ?? 'Signed in',
-          ...(email ? { email } : {}),
-          ...(typeof plan === 'string' ? { planType: plan } : {}),
-        }
+  const record = statusObject(text)
+  if (record !== null) {
+    const loggedIn = record['loggedIn'] ?? record['logged_in']
+    if (loggedIn === false) return null
+    const email = typeof record['email'] === 'string' ? record['email'] : undefined
+    const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
+    if (loggedIn === true || email) {
+      return {
+        kind: 'cli',
+        label: email ?? 'Signed in',
+        ...(email ? { email } : {}),
+        ...(typeof plan === 'string' ? { planType: plan } : {}),
       }
-      return null
-    } catch {
-      // Not JSON after all; fall through to the sentence form.
     }
+    return null
   }
   const sentence = /logged in(?: as[: ]+)(\S+)/i.exec(text)
   if (sentence) {
