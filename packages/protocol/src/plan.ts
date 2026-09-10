@@ -91,7 +91,11 @@ export const planStatus = (value: unknown): PlanStatus | null => {
     .split(/[^a-z]+/)
     .filter(Boolean)
   if (words.some((word) => DROPPED.has(word))) return 'cancelled'
-  if (words.some((word) => NEGATIONS.has(word))) return 'pending'
+  // `in` negates only the `complete` after it: split by case or a separator,
+  // `inComplete` is two words, and `in` alone is `in_progress`'s (review, round 1).
+  const negated = (word: string, at: number): boolean =>
+    NEGATIONS.has(word) || (word === 'in' && (words[at + 1] ?? '').startsWith('complete'))
+  if (words.some(negated)) return 'pending'
   if (words.some((word) => DONE.has(word))) return 'done'
   if (words.some((word) => RUNNING.has(word))) return 'inProgress'
   if (words.some((word) => OPEN.has(word))) return 'pending'

@@ -168,3 +168,10 @@ test('session/goal carries a null objective through, which is how a goal is clea
   assert.equal(goal('ship the retry change'), 'ship the retry change')
 })
 
+test('session/goal without an objective is refused rather than read as one', () => {
+  // Round 1 of #158: `undefined` is not `null`, so an omitted objective reached the adapter as a goal to set with none.
+  assert.throws(
+    () => parseClientMessage({ id: 1, method: 'session/goal', params: { runtime: 'codex', sessionId: 's-1' } }),
+    /objective/,
+  )
+})

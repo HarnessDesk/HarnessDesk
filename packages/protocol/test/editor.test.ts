@@ -88,3 +88,24 @@ test('appends past the end come out in the order they were given', () => {
   assert.equal(applyLineEdits('one\n', [{ fromLine: 5, text: 'A' }, { fromLine: 6, text: 'B' }]), 'one\nA\nB\n')
   assert.equal(applyLineEdits('one\n', [{ fromLine: 2, text: 'A' }, { fromLine: 2, text: 'B' }]), 'one\nA\nB\n')
 })
+
+test('appends past the end go by the line each asked for, as they would in a longer file', () => {
+  // Round 1 of #158: line 5 goes above line 6 whichever is given first, as it does where both lines exist.
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 6, text: 'A' }, { fromLine: 5, text: 'B' }]), 'one\nB\nA\n')
+  // Only appends that asked for the same line fall back to the order given, however many there are.
+  assert.equal(
+    applyLineEdits('one\n', [{ fromLine: 5, text: 'A' }, { fromLine: 5, text: 'B' }, { fromLine: 5, text: 'C' }]),
+    'one\nA\nB\nC\n',
+  )
+  // A multi-line append moves nothing after it, and a replacement in the same batch keeps its line.
+  assert.equal(
+    applyLineEdits('one\ntwo\n', [{ fromLine: 9, text: 'A1\nA2' }, { fromLine: 1, text: 'ONE' }, { fromLine: 10, text: 'B' }]),
+    'ONE\ntwo\nA1\nA2\nB\n',
+  )
+})
+
+test('a line that is not a number is refused, rather than put above the first', () => {
+  // Round 1 of #158: NaN clamped to NaN, and `splice` read that as 0.
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: Number.NaN, text: 'x' }]), /must be numbers/)
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: Number.NaN, text: 'x' }]), /must be numbers/)
+})

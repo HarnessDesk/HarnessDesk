@@ -74,3 +74,10 @@ test('a negation spelled as one word is still pending', () => {
   // And the two-word spellings still say the same.
   assert.equal(planStatus('not_done'), 'pending')
 })
+
+test('in before complete is a negation however it is joined, and in_progress is still running', () => {
+  // Round 1 of #158: split by case or a separator, `incomplete` is `in` and `complete`, which read as done.
+  for (const status of ['inComplete', 'in_complete', 'in-complete', 'IN_COMPLETE']) assert.equal(planStatus(status), 'pending', status)
+  assert.equal(planStatus('in_progress'), 'inProgress')
+  assert.equal(planStatus('inProgress'), 'inProgress')
+})
