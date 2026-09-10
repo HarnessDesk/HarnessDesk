@@ -170,17 +170,24 @@ export const todoPlugin: HarnessPlugin = {
              how a plan is put down, so the plan was wiped (#57). A call that
              names no list at all is refused rather than read as an empty one:
              putting a plan down is `tasks: []`, said on purpose. */
-          const named = LIST_KEYS.find((name) => args?.[name] !== undefined)
-          if (named === undefined) {
+          const present = LIST_KEYS.filter((name) => args?.[name] !== undefined)
+          if (present.length === 0) {
             return `todo_write takes the whole list, as "tasks". The list is unchanged:\n${renderTodos(listFor(key))}`
           }
-          const sent = args[named]
           // The schema says an array; a model that sends a bare string would
           // otherwise take `.map` with it and come back a runtime TypeError
           // instead of something it can act on.
-          if (!Array.isArray(sent)) {
-            return `"${named}" has to be a list. The list is unchanged:\n${renderTodos(listFor(key))}`
+          const lists = present.filter((name) => Array.isArray(args[name]))
+          if (lists.length === 0) {
+            return `"${present[0]}" has to be a list. The list is unchanged:\n${renderTodos(listFor(key))}`
           }
+          /* The rule the Tasks panel reads the same call by (`planOf`): a list
+             with entries wins, and only when every list the call carries is
+             empty is it a clear. First-present-wins let an empty `tasks` beside
+             a full `todos` put the plan down here while the panel showed the
+             `todos` (review, round one). */
+          const named = lists.find((name) => (args[name] as unknown[]).length > 0) ?? lists[0]!
+          const sent = args[named] as unknown[]
           const readable = sent
             .map(readItem)
             .filter((entry): entry is { task: string; status: TodoStatus | null } => entry !== null)

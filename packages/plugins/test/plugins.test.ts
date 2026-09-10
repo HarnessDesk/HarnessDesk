@@ -521,6 +521,27 @@ test('todo_write reads the list under the key an agent uses, and a call with no 
   assert.match(await list(), /empty/)
 })
 
+test('todo_write takes the list with entries, as the Tasks panel does, and refuses one that is not a list', async (t) => {
+  // Round one: an empty `tasks` beside a full `todos` put the plan down here
+  // while the panel, which prefers a list with entries, showed the todos.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-precedence' as SessionId }
+  const list = async (): Promise<string> => text(await kernel.invokeTool(read, {}, scope))
+
+  await kernel.invokeTool(write, { tasks: [], todos: [{ task: 'build' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. build$/)
+  assert.match(text(await kernel.invokeTool(write, { todos: 'nope' }, scope)), /"todos" has to be a list/)
+  assert.match(await list(), /^\[ \] 1\. build$/, 'refused, and unchanged')
+  // Every list empty is the clear.
+  await kernel.invokeTool(write, { tasks: [], plan: [] }, scope)
+  assert.match(await list(), /empty/)
+})
+
 test('cancelling every task puts the plan down, rather than being refused as unreadable', async (t) => {
   // #58: cancelled tasks leave the list, and the readable-text check ran after they had.
   const kernel = new ExtensionKernel()
