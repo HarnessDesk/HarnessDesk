@@ -65,3 +65,12 @@ test('a plan key is one an agent uses, and `steps` is not one', () => {
   assert.equal((PLAN_ARRAY_KEYS as readonly string[]).includes('plan'), true)
   assert.equal((PLAN_ARRAY_KEYS as readonly string[]).includes('steps'), false)
 })
+
+test('a negation spelled as one word is still pending', () => {
+  // #62: incomplete, unfinished and undone read as no status at all.
+  assert.equal(planStatus('incomplete'), 'pending')
+  assert.equal(planStatus('unfinished'), 'pending')
+  assert.equal(planStatus('undone'), 'pending')
+  // And the two-word spellings still say the same.
+  assert.equal(planStatus('not_done'), 'pending')
+})

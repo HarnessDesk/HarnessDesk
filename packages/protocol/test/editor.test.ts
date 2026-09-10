@@ -82,3 +82,9 @@ test('no edits is the file, untouched and identical', () => {
 test('an empty file can be written into', () => {
   assert.equal(applyLineEdits('', [{ fromLine: 1, text: 'first' }]), 'first')
 })
+
+test('appends past the end come out in the order they were given', () => {
+  // #61: both clamp to the line after the last, and the later one went in first.
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 5, text: 'A' }, { fromLine: 6, text: 'B' }]), 'one\nA\nB\n')
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 2, text: 'A' }, { fromLine: 2, text: 'B' }]), 'one\nA\nB\n')
+})

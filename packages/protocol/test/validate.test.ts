@@ -157,3 +157,14 @@ test('team/handout carries a template and per-member values, and is refused with
     ValidationError,
   )
 })
+
+test('session/goal carries a null objective through, which is how a goal is cleared', () => {
+  // #25: optional(isString) turned null into undefined, and the Codex adapter clears only on null.
+  const goal = (objective: unknown) =>
+    (parseClientMessage({ id: 1, method: 'session/goal', params: { runtime: 'codex', sessionId: 's-1', objective } }).params as {
+      objective: unknown
+    }).objective
+  assert.equal(goal(null), null)
+  assert.equal(goal('ship the retry change'), 'ship the retry change')
+})
+

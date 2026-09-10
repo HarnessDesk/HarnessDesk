@@ -98,13 +98,23 @@ export const applyLineEdits = (source: string, edits: readonly EditorEdit[]): st
   // line of a file silently strips the newline the file ended with.
   const trailing = source.endsWith('\n')
   const lines = (trailing ? source.slice(0, -1) : source).split('\n')
-  const ordered = [...edits]
-    .map((edit) => {
+  const ordered = edits
+    .map((edit, index) => {
       const from = Math.min(Math.max(1, Math.trunc(edit.fromLine)), lines.length + 1)
       const to = Math.min(Math.max(from, Math.trunc(edit.toLine ?? from)), lines.length)
-      return { from, to, text: edit.text }
+      return { from, to, text: edit.text, asked: Math.trunc(edit.fromLine), index }
     })
-    .sort((a, b) => b.from - a.from)
+    /* From the bottom up, so each splice leaves the lines above it where the
+       edits above expect them. Two appends past the end clamp to the same
+       line, and by that line alone the later one went in first — `A` then `B`
+       came out `B`, `A` (#61). So a tie goes by the line each asked for, and
+       two appends that asked for the same one go in reverse, which leaves
+       them in the order given. Replacements that share a line keep the order
+       they always had. */
+    .sort(
+      (a, b) =>
+        b.from - a.from || b.asked - a.asked || (a.to < a.from && b.to < b.from ? b.index - a.index : 0),
+    )
   for (const edit of ordered) {
     // `text: ''` deletes; anything else replaces, and a multi-line
     // replacement splits into the lines it actually contains rather than
