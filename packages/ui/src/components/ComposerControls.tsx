@@ -64,29 +64,52 @@ const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)'
  * window can go to 720 with the sidebar open, and a control whose icon says
  * what it is — a shield, a chip — can afford to be quiet there. The full
  * label stays in the trigger's title, and in the menu.
+ *
+ * The model's name folds with the rest. It used to stay, as the one word a
+ * mark cannot carry — and at a phone's width it was then the one word clipped
+ * to its first letters, which carries less than the mark does.
  */
 const NARROW_TOOLBAR = 560
 
 /**
- * Whether the toolbar this control sits in is narrow. The control renders a
+ * Below this — a phone's width — the glyph is all a control keeps: the chevron
+ * that says "this opens a menu" folds too. Glyph, chevron and padding for six
+ * controls, a send coin and the gaps between them come to about 310px, and a
+ * 320px window leaves the toolbar 238; squeezed into that, every glyph was
+ * drawn a third smaller than its size.
+ */
+const TIGHT_TOOLBAR = 320
+
+type ToolbarWidth = 'wide' | 'narrow' | 'tight'
+
+/**
+ * How narrow the toolbar this control sits in is. The control renders a
  * layout-less wrapper so it can find its toolbar without the toolbar having
  * to know about it. A callback ref, because a control often mounts as
  * nothing — its options arrive after the runtime does — and starts watching
  * only once it has drawn something.
  */
-const useNarrowToolbar = (): { ref: (node: HTMLSpanElement | null) => void; narrow: boolean } => {
+const useNarrowToolbar = (): {
+  ref: (node: HTMLSpanElement | null) => void
+  narrow: boolean
+  tight: boolean
+} => {
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null)
   const ref = useCallback((node: HTMLSpanElement | null) => setToolbar(node?.parentElement ?? null), [])
-  const [narrow, setNarrow] = useState(false)
+  // A step, not a width: set on every frame of a resize, a width would draw
+  // the control again on every frame; a step only when one is crossed.
+  const [step, setStep] = useState<ToolbarWidth>('wide')
   useEffect(() => {
     if (!toolbar || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setNarrow(entry.contentRect.width < NARROW_TOOLBAR)
+      if (!entry) return
+      const width = entry.contentRect.width
+      setStep(width < TIGHT_TOOLBAR ? 'tight' : width < NARROW_TOOLBAR ? 'narrow' : 'wide')
     })
     observer.observe(toolbar)
     return () => observer.disconnect()
   }, [toolbar])
-  return { ref, narrow }
+  return { ref, narrow: step !== 'wide', tight: step === 'tight' }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -283,7 +306,7 @@ const currentLabel = (option: SelectOption): string =>
 export const PermissionControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { ref, narrow } = useNarrowToolbar()
+  const { ref, narrow, tight } = useNarrowToolbar()
   const all = useComposerOptions()
   const options = optionsIn(all, '_permissions')
   if (options.length === 0) return null
@@ -305,7 +328,7 @@ export const PermissionControl = () => {
           <>
             {shieldFor(tone)}
             {!narrow && current}
-            <Chevron />
+            {!tight && <Chevron />}
           </>
         }
       >
@@ -361,7 +384,7 @@ const FOLD_FROM = FEATURED_MODELS + 2
 export const ModelControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { ref, narrow } = useNarrowToolbar()
+  const { ref, narrow, tight } = useNarrowToolbar()
   const session = useActiveSession()
   const agent = brandForRuntime(useRuntime())
   const all = useComposerOptions()
@@ -392,6 +415,10 @@ export const ModelControl = () => {
   // ride `session/create`; a live session keeps whatever it started on.
   const routes = !session ? snapshot.routes : []
   const activeRoute = snapshot.routes.find((route) => route.id === snapshot.draftRouteId)
+  // What the trigger says: the model — or the route a draft will start on —
+  // and how hard it thinks.
+  const name = !session && activeRoute ? activeRoute.name : model.type === 'select' ? currentLabel(model) : model.label
+  const effort = firstLevel && !activeRoute ? currentLabel(firstLevel) : null
 
   // The short list: the first few the runtime offers, plus the current one.
   const featured: OptionChoice[] = []
@@ -411,7 +438,11 @@ export const ModelControl = () => {
     <InToolbar refer={ref}>
       {dialog}
       <Popover
-        title="Model and reasoning"
+        /* Narrow, the words go to the hover text — and so, with nothing else
+           to name the trigger, to its accessible name. */
+        title={
+          narrow ? `${[name, effort].filter(Boolean).join(' · ')} — model and reasoning` : 'Model and reasoning'
+        }
         drop="up"
         label={
           <>
@@ -426,15 +457,9 @@ export const ModelControl = () => {
             ) : (
               <ModelIcon size={13} />
             )}
-            <span className={styles.strong}>
-              {!session && activeRoute
-                ? activeRoute.name
-                : model.type === 'select'
-                  ? currentLabel(model)
-                  : model.label}
-            </span>
-            {firstLevel && !activeRoute && !narrow && <span className={styles.dim}>{currentLabel(firstLevel)}</span>}
-            <Chevron />
+            {!narrow && <span className={styles.strong}>{name}</span>}
+            {effort && !narrow && <span className={styles.dim}>{effort}</span>}
+            {!tight && <Chevron />}
           </>
         }
       >
@@ -607,7 +632,7 @@ const RuntimeBuildNote = () => {
 
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
-  const { ref, narrow } = useNarrowToolbar()
+  const { ref, narrow, tight } = useNarrowToolbar()
   const all = useComposerOptions()
   const modes = optionsIn(all, 'mode')
   const mode = modes[0]
@@ -625,7 +650,7 @@ export const ModeControl = () => {
           <>
             {current ? choiceIcon(mode, current) : <ZapIcon size={13} />}
             {!narrow && label}
-            <Chevron />
+            {!tight && <Chevron />}
           </>
         }
       >
@@ -643,7 +668,7 @@ export const ModeControl = () => {
 
 /** Everything the runtime declared that has no dedicated place. */
 export const MoreControl = () => {
-  const { ref, narrow } = useNarrowToolbar()
+  const { ref, narrow, tight } = useNarrowToolbar()
   const all = useComposerOptions()
   const others = optionsIn(all, 'other')
   if (others.length === 0) return null
@@ -657,7 +682,7 @@ export const MoreControl = () => {
           <>
             <SlidersIcon size={13} />
             {!narrow && 'More'}
-            <Chevron />
+            {!tight && <Chevron />}
           </>
         }
       >
@@ -682,7 +707,7 @@ export const MoreControl = () => {
 export const AgentControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { ref, narrow } = useNarrowToolbar()
+  const { ref, narrow, tight } = useNarrowToolbar()
   const session = useActiveSession()
   const [handoff, setHandoff] = useState<RuntimeId | null>(null)
   const ownerId = session ? session.runtime : snapshot.activeRuntime
@@ -705,7 +730,7 @@ export const AgentControl = () => {
           <>
             <RuntimeMark runtime={owner} size={13} />
             {!narrow && <span className={styles.strong}>{brandOf(owner.presentation.name)}</span>}
-            <Chevron />
+            {!tight && <Chevron />}
           </>
         }
       >
