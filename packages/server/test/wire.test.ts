@@ -1410,6 +1410,33 @@ test('the first turn carries the desk’s attribution, the next does not, and th
   const second = splitContext(await turn(session, 'again'))
   assert.equal(second.injections.length, 0, 'the same seat is not told twice')
 
+  // The seat changed: the line names the model, so the new one is told.
+  await client.call('session/options/set', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    optionId: 'model',
+    value: 'fake-2',
+  })
+  const moved = splitContext(await turn(session, 'on the other model'))
+  assert.ok(
+    moved.injections[0]?.text.includes('(Fake Runtime Fake Two)'),
+    'a changed seat is told again, with the new line',
+  )
+  const settled = splitContext(await turn(session, 'and again'))
+  assert.equal(settled.injections.length, 0, 'and then not again')
+
+  // A turn the agent never accepted is a turn it was never told on: the
+  // retry carries the envelope, or the conversation is told nothing at all.
+  const fresh = await open()
+  const live = harness.runtime.sessions.get(fresh.id) as FakeSession
+  live.sendFailure = new Error('the agent fell over')
+  await assert.rejects(
+    client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: fresh.id, input: [{ type: 'text', text: 'hello' }] }),
+    /fell over/,
+  )
+  const retried = splitContext(await turn(fresh, 'hello again'))
+  assert.equal(retried.injections[0]?.label, 'HarnessDesk', 'the retry after a failed send still carries the envelope')
+
   await client.call('app/state/set', { patch: { attribution: { pullRequests: false } } })
   const quiet = splitContext(await turn(await open(), 'hello'))
   assert.equal(quiet.injections.length, 0, 'off is off, without a restart')

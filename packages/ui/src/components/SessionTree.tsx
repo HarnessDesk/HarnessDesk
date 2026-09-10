@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 
-import { sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { sessionKey, splitContext, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, projectRootOf, type ProjectGroup } from '../lib/projects'
@@ -820,13 +820,19 @@ const rowOf = (session: Session): SessionSummary => ({
   repo: null,
 })
 
-/** The first thing the person typed, for a row with no name yet. */
+/**
+ * The first thing the person typed, for a row with no name yet — their words
+ * alone, with any envelope the desk sent beside them taken off here rather
+ * than left for every reader to strip.
+ */
 const firstAsk = (session: Session): string | null => {
   for (const turn of session.turns) {
     for (const item of turn.items) {
       if (item.type !== 'userMessage') continue
       const text = item.content.find((block) => block.type === 'text')
-      if (text?.type === 'text' && text.text.trim().length > 0) return text.text
+      if (text?.type !== 'text') continue
+      const words = splitContext(text.text).text.trim()
+      if (words.length > 0) return words
     }
   }
   return null
@@ -844,9 +850,22 @@ export const useProjectGroups = (): ProjectGroup[] => {
       .filter(([key]) => !listed.has(String(key)))
       .map(([, session]) => rowOf(session))
   }, [snapshot.history, snapshot.sessions])
-  const liveKey = liveRows
-    .map((row) => `${row.runtime}\u0000${row.id}\u0000${row.title ?? ''}\u0000${row.cwd}\u0000${row.status.type}`)
-    .join('\u0001')
+  /* The facts a live row is drawn from, as one string. The first ask is one
+     of them: a conversation opened empty is "Untitled session" until the
+     person types, and the row has to learn its name then — a key without
+     the preview kept the old label for as long as nothing else about the
+     row changed. Assistant tokens never move it, because `firstAsk` reads
+     the person's messages only. */
+  const liveKey = useMemo(
+    () =>
+      liveRows
+        .map(
+          (row) =>
+            `${row.runtime}\u0000${row.id}\u0000${row.title ?? ''}\u0000${row.preview ?? ''}\u0000${row.cwd}\u0000${row.status.type}`,
+        )
+        .join('\u0001'),
+    [liveRows],
+  )
   const liveRef = useRef(liveRows)
   liveRef.current = liveRows
   /* The roots the rooms declare, and not `teams` itself, because that map is

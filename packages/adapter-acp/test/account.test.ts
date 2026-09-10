@@ -195,3 +195,21 @@ test('an agent that refuses a session for want of a sign-in says so, in its decl
     await runtime.dispose()
   }
 })
+
+test('a sign-in that lapses turns an observed agent back into one that needs signing in', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED_AFTER: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [], 'the observation followed the agent’s latest answer')
+    assert.equal(status.signInMethods[0]?.id, 'acp:device')
+    assert.equal(events.filter((event) => event.type === 'account/changed').length, 2, 'each change was announced once')
+  } finally {
+    await runtime.dispose()
+  }
+})

@@ -1,4 +1,4 @@
-import { wrapContext, type ConfigOption, type UserContent } from '@harnessdesk/protocol'
+import { splitContext, wrapContext, type ConfigOption, type Turn, type UserContent } from '@harnessdesk/protocol'
 
 /**
  * The line a pull request ends with when an agent opened it from here.
@@ -27,6 +27,13 @@ export const ATTRIBUTION_SOURCE = 'HarnessDesk'
 /** The controls that carry an effort, under the ids the adapters declare them. */
 const EFFORT_IDS = ['effort', 'reasoning', 'reasoningEffort']
 
+/**
+ * The words an agent folds into a model's name when the effort is part of
+ * the id — "(High)", "(Medium)" — and nothing else in brackets: "(70B)",
+ * "(2024-08-06)" and "(Hybrid)" are the model's own name and stay as written.
+ */
+const EFFORT_WORDS = /^(?:minimal|none|low|medium|high|max|maximum|xhigh|extra high|ultra)$/i
+
 /** The label of a select control's current choice, or its raw value when the choice is unlisted. */
 const currentLabel = (options: readonly ConfigOption[], id: string): string | null => {
   const option = options.find((entry) => entry.id === id)
@@ -45,7 +52,8 @@ export const seatLabel = (agent: string, options: readonly ConfigOption[]): stri
   const effort = EFFORT_IDS.map((id) => currentLabel(options, id)).find((label) => label !== null) ?? null
   if (model === null) return effort === null ? agent : `${agent} · ${effort}`
   const folded = effort === null ? /^(.*\S)\s*\(([^()]+)\)$/.exec(model) : null
-  const modelPart = folded ? `${folded[1]} · ${folded[2]}` : model
+  const word = folded?.[2]?.trim() ?? ''
+  const modelPart = folded && EFFORT_WORDS.test(word) ? `${folded[1]} · ${word}` : model
   return `${agent} ${modelPart}${effort === null ? '' : ` · ${effort}`}`
 }
 
@@ -83,4 +91,34 @@ export const withAttribution = (input: readonly UserContent[], line: string): re
   return input.map((block, index) =>
     index === at && block.type === 'text' ? { ...block, text: `${block.text}\n\n${envelope}` } : block,
   )
+}
+
+/** The shape of the line, for finding one the conversation already carries. */
+const LINE = /^🤖 Generated with \[HarnessDesk\]\([^)]*\) \(.*\)$/m
+
+/**
+ * The attribution line this conversation was last told, read from its own
+ * transcript: the last of the person's messages that carries the desk's
+ * envelope, and the line inside it. The transcript is the record of what the
+ * agent was told, which is why a host that restarted does not need a record
+ * of its own to keep "once per conversation" true — and why a seat that
+ * changed since is still told again, because the line names the model.
+ */
+export const lastAttributionIn = (turns: readonly Turn[]): string | null => {
+  for (let at = turns.length - 1; at >= 0; at -= 1) {
+    const items = turns[at]?.items ?? []
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index]
+      if (item?.type !== 'userMessage') continue
+      for (const block of item.content) {
+        if (block.type !== 'text') continue
+        for (const injection of splitContext(block.text).injections) {
+          if (injection.label !== ATTRIBUTION_SOURCE) continue
+          const found = LINE.exec(injection.text)
+          if (found) return found[0]
+        }
+      }
+    }
+  }
+  return null
 }

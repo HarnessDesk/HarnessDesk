@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { splitContext, type ConfigOption, type UserContent } from '@harnessdesk/protocol'
+import { splitContext, type ConfigOption, type Turn, type UserContent } from '@harnessdesk/protocol'
 
 import {
   ATTRIBUTION_SOURCE,
   attributionLine,
+  lastAttributionIn,
   seatLabel,
   withAttribution,
 } from '../src/attribution.js'
@@ -77,4 +78,28 @@ test('a turn with no text gets the envelope as a text block of its own', () => {
   const sent = withAttribution([{ type: 'image', url: 'data:image/png;base64,AA==' }], attributionLine('Codex'))
   assert.equal(sent.length, 2)
   assert.equal(sent[1]?.type, 'text')
+})
+
+test('only an effort word is folded out of a model’s brackets; a version or a size stays as the model wrote it', () => {
+  const named = (label: string): ConfigOption[] => [select('model', 'm', [['m', label]])]
+  assert.equal(seatLabel('Antigravity', named('Gemini 3.8 Flash (Medium)')), 'Antigravity Gemini 3.8 Flash · Medium')
+  assert.equal(seatLabel('Anywhere', named('Llama 3.3 (70B)')), 'Anywhere Llama 3.3 (70B)')
+  assert.equal(seatLabel('Anywhere', named('GPT-4o (2024-08-06)')), 'Anywhere GPT-4o (2024-08-06)')
+  assert.equal(seatLabel('Anywhere', named('Claude 3.7 Sonnet (Hybrid)')), 'Anywhere Claude 3.7 Sonnet (Hybrid)')
+})
+
+test('the line a conversation was last told is read back from its own transcript', () => {
+  const line = attributionLine('Codex GPT-5.4 · High')
+  const older = attributionLine('Codex GPT-5.4 · Low')
+  const user = (text: string) => ({ id: 'u', type: 'userMessage' as const, content: [{ type: 'text' as const, text }] })
+  const turns = [
+    { id: 't1', status: 'completed', items: [user((withAttribution([{ type: 'text', text: 'first' }], older)[0] as { text: string }).text)] },
+    { id: 't2', status: 'completed', items: [user('nothing riding on this one')] },
+    { id: 't3', status: 'completed', items: [user((withAttribution([{ type: 'text', text: 'third' }], line)[0] as { text: string }).text)] },
+    { id: 't4', status: 'completed', items: [user('plain again')] },
+  ] as unknown as Turn[]
+  assert.equal(lastAttributionIn(turns), line, 'the newest envelope wins, not the first')
+  assert.equal(lastAttributionIn(turns.slice(0, 2)), older)
+  assert.equal(lastAttributionIn([turns[1]!]), null)
+  assert.equal(lastAttributionIn([]), null)
 })

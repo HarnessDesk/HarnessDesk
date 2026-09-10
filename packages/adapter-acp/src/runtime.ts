@@ -2039,7 +2039,8 @@ type SignInObservation =
  * while a bridge may answer with the words alone.
  */
 const AUTH_REQUIRED_CODE = -32000
-const AUTH_REQUIRED_WORDS = /authentication required|not authenticated|unauthenticated|auth[_ -]required/i
+const AUTH_REQUIRED_WORDS =
+  /authentication required|not authenticated|unauthenticated|auth[_ -]required|login required|sign[- ]?in required|not (?:signed|logged) in/i
 const isAuthRefusal = (error: unknown): boolean =>
   error instanceof AcpError && (error.code === AUTH_REQUIRED_CODE || AUTH_REQUIRED_WORDS.test(error.message))
 

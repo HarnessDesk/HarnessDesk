@@ -491,7 +491,13 @@ const handlers = {
     // FAKE_ACP_AUTH_REQUIRED=1 plays an agent that wants a sign-in before it
     // opens anything — ACP's auth_required, code and words both, as Google
     // Antigravity's server answers it.
-    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1') {
+    // FAKE_ACP_AUTH_REQUIRED_AFTER=<n> plays a sign-in that lapses: the first
+    // n opens succeed and every later one is refused the same way.
+    const opensSoFar = (globalThis.__opens = (globalThis.__opens ?? 0) + 1)
+    const lapsed =
+      process.env.FAKE_ACP_AUTH_REQUIRED_AFTER !== undefined &&
+      opensSoFar > Number(process.env.FAKE_ACP_AUTH_REQUIRED_AFTER)
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed) {
       send({
         jsonrpc: '2.0',
         id,

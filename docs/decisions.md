@@ -199,7 +199,11 @@ other injection uses, so the transcript shows it as what it is rather than
 as something the person typed; once per conversation, and again only when
 the seat changes, because the line names the model. It is a preference, on
 by default, and the host reads it on every send so the switch needs no
-restart.
+restart. "Once" is measured against what the agent actually received: the
+seat is recorded only after the agent accepts the turn, so a send that failed
+is retried with the envelope, and after a restart the conversation's own
+transcript — the last envelope it carries — says what it was told, so a
+resumed conversation is not told again.
 
 *Not done here:* the desk does not detect the pull request itself. The
 agent is told the rule and follows it as it follows any other; a `gh pr

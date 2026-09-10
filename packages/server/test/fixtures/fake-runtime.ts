@@ -712,8 +712,15 @@ export class FakeSession implements AgentSession {
    * wide enough to land a second request in sets it.
    */
   sendDelayMs = 0
+  /** Thrown by the next `send`, once — a turn the agent never accepted. */
+  sendFailure: Error | null = null
 
   async send(input: readonly UserContent[]): Promise<TurnId> {
+    if (this.sendFailure) {
+      const failure = this.sendFailure
+      this.sendFailure = null
+      throw failure
+    }
     if (this.sendDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.sendDelayMs))
     this.#turn += 1
     const id = turnId(`fake-turn-${this.#turn}`)

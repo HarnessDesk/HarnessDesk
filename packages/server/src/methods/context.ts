@@ -19,6 +19,7 @@ import type {
   SessionBusyError,
   SessionId,
   SessionSummary,
+  TurnId,
   UserContent,
   WireNotification,
 } from '@harnessdesk/protocol'
@@ -113,12 +114,12 @@ export interface HostContext {
   readonly sessions: {
     /** The live handle for a conversation, reopening it when the agent restarted underneath. */
     live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<AgentSession>
-    /** The turn with the desk's attribution beside it, when it is on and this seat is new to the conversation. */
-    attribute(
+    /** Sends a turn with the desk's attribution beside it when it is on and this seat is new to the conversation; the seat is recorded once the agent accepts. */
+    sendAttributed(
       params: { readonly runtime: RuntimeId; readonly sessionId: SessionId },
       live: AgentSession,
       input: readonly UserContent[],
-    ): readonly UserContent[]
+    ): Promise<TurnId>
     /** The host's record of a conversation, or a refusal. */
     record(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): SessionRecord
     /** A full read, enriched from the host's own transcript where the backend's is thin. */

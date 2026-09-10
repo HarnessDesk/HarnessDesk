@@ -737,3 +737,76 @@ it('gives a conversation open in this window a row even when its agent lists no 
   // A worktree conversation is filed under the checkout it belongs to.
   expect(container.textContent).toContain('repo')
 })
+
+it('names a live row after the person’s first ask as soon as it is typed', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const key = sessionKey(runtimeId('agent'), sessionId('live-2'))
+  const empty = {
+    id: 'live-2',
+    runtime: 'agent',
+    title: null,
+    preview: null,
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+  } as unknown as Session
+  // The same conversation once the first message went out: the status is
+  // back to idle — nothing but the transcript differs from the empty one.
+  const asked = {
+    ...empty,
+    turns: [
+      {
+        id: 'turn-1',
+        items: [
+          {
+            type: 'userMessage',
+            content: [{ type: 'text', text: 'Rename the branch\n\n<context source="HarnessDesk">\nsign it\n</context>' }],
+          },
+        ],
+      },
+    ],
+  } as unknown as Session
+  let snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: key,
+    runtimes: [runtime],
+    history: [],
+    sessions: new Map([[key, empty]]),
+    workspaces: [{ path: '/repo' }],
+  } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+  const rows = () => [...container.querySelectorAll('button[data-active]')].map((row) => row.textContent ?? '')
+  expect(rows()[0]).toContain('Untitled session')
+
+  act(() => {
+    snapshot = { ...snapshot, sessions: new Map([[key, asked]]) } as unknown as AppSnapshot
+    for (const listener of listeners) listener()
+  })
+  expect(rows()[0]).toContain('Rename the branch')
+  expect(rows()[0]).not.toContain('sign it')
+})
