@@ -265,17 +265,22 @@ const firstObject = (text: string, from: number): string | null => {
  * that closes but is not JSON, or is JSON about something else, is passed
  * over rather than ending the search.
  */
-const statusObject = (text: string): Record<string, unknown> | null => {
+const statusRecords = (
+  text: string,
+): { status: Record<string, unknown> | null; emailOnly: Record<string, unknown> | null } => {
+  let emailOnly: Record<string, unknown> | null = null
   /* Objects at the top level only: after a whole object the search goes on
-     from its end, not from the brace after its start. Resuming inside it made
-     every object nested in another a candidate, so a field of something else
-     — `{"payload":{"email":…}}`, a log line's context — read as a signed-in
-     status. Round two's review caught it. */
-  let byEmail: Record<string, unknown> | null = null
+     from its end, not from the brace after its start, so no object nested in
+     another is ever a candidate (round two). */
   for (let at = text.indexOf('{'); at !== -1; ) {
     const candidate = firstObject(text, at)
-    at = text.indexOf('{', candidate === null ? at + 1 : at + candidate.length)
-    if (candidate === null) continue
+    /* An object that never closes holds everything after it, so nothing after
+       it is at the top level, and the scan stops. Resuming at the next brace
+       walked into it: truncated output such as `{"wrap":{"loggedIn":true,…}`
+       read as signed in (review, round four), where malformed output had
+       always read as nothing. */
+    if (candidate === null) break
+    at = text.indexOf('{', at + candidate.length)
     let parsed: unknown
     try {
       parsed = JSON.parse(candidate)
@@ -286,14 +291,12 @@ const statusObject = (text: string): Record<string, unknown> | null => {
     const record = parsed as Record<string, unknown>
     /* A record that says whether the account is signed in is the status. One
        that only names an email may be the status of a CLI that answers that
-       way — or a log line that happens to carry one, ahead of the status:
-       round three found `{"level":"info","email":…}` then `{"loggedIn":false}`
-       read as signed in. So an email-only record is the answer of last
-       resort, taken only when nothing in the output says signed in or out. */
-    if ('loggedIn' in record || 'logged_in' in record) return record
-    if (byEmail === null && 'email' in record) byEmail = record
+       way, or a log line that happens to carry one (round three), so it is
+       kept as the answer of last resort. */
+    if ('loggedIn' in record || 'logged_in' in record) return { status: record, emailOnly }
+    if (emailOnly === null && 'email' in record) emailOnly = record
   }
-  return byEmail
+  return { status: null, emailOnly }
 }
 
 /** One account from whatever the status command printed, or null for signed out. */
@@ -301,26 +304,31 @@ export const parseStatus = (
   stdout: string,
 ): { kind: string; label: string; email?: string; planType?: string } | null => {
   const text = stdout.trim()
-  const record = statusObject(text)
-  if (record !== null) {
-    const loggedIn = record['loggedIn'] ?? record['logged_in']
-    if (loggedIn === false) return null
-    const email = typeof record['email'] === 'string' ? record['email'] : undefined
-    const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
-    if (loggedIn === true || email) {
-      return {
-        kind: 'cli',
-        label: email ?? 'Signed in',
-        ...(email ? { email } : {}),
-        ...(typeof plan === 'string' ? { planType: plan } : {}),
-      }
-    }
-    return null
-  }
+  const { status, emailOnly } = statusRecords(text)
+  if (status !== null) return fromRecord(status)
+  /* A sentence that says who is signed in outranks a record that only names an
+     email, which may be a log line's (review, round four). */
   const sentence = /logged in(?: as[: ]+)(\S+)/i.exec(text)
   if (sentence) {
     const identity = sentence[1]!.replace(/[.,]$/, '')
     return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
+  }
+  return emailOnly !== null ? fromRecord(emailOnly) : null
+}
+
+/** An account from a status record, or null when it says signed out or says nothing. */
+const fromRecord = (record: Record<string, unknown>): { kind: string; label: string; email?: string; planType?: string } | null => {
+  const loggedIn = record['loggedIn'] ?? record['logged_in']
+  if (loggedIn === false) return null
+  const email = typeof record['email'] === 'string' ? record['email'] : undefined
+  const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
+  if (loggedIn === true || email) {
+    return {
+      kind: 'cli',
+      label: email ?? 'Signed in',
+      ...(email ? { email } : {}),
+      ...(typeof plan === 'string' ? { planType: plan } : {}),
+    }
   }
   return null
 }

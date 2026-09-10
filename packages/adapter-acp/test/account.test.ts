@@ -476,3 +476,17 @@ test('a cancelled flow ends once, as a failure, and its child is stopped', async
   assert.equal(ended[0]?.success, false)
 })
 
+test('an object that never closes hides nothing that could be read as a status', () => {
+  // Round four: resuming at the next brace walked into a truncated object.
+  assert.equal(parseStatus('{"wrap":{"loggedIn":true,"email":"a@b.c"}'), null)
+})
+
+test('a sentence that says who is signed in outranks a record that only names an email', () => {
+  // Round four: a log line's email was taken over the CLI's own sentence.
+  assert.deepEqual(parseStatus('{"level":"info","email":"ops@example.com"}\nLogged in as a@b.c'), {
+    kind: 'cli',
+    label: 'a@b.c',
+    email: 'a@b.c',
+  })
+})
+
