@@ -48,7 +48,9 @@ export const searchPlugin: HarnessPlugin = {
     name: 'search',
     inject: ['tools', 'shell', 'workspace'],
     apply(ctx: HarnessContext, config: Config) {
-      const maxResults = Math.min(Math.max(config?.maxResults ?? DEFAULT_MAX_RESULTS, 1), 500)
+      // Whole: it is ripgrep's `--max-count` too now, and ripgrep refuses a
+      // fraction, so a setting of 10.5 failed every search (review, round two).
+      const maxResults = Math.trunc(Math.min(Math.max(config?.maxResults ?? DEFAULT_MAX_RESULTS, 1), 500))
       const maxLine = Math.max(config?.maxLineLength ?? DEFAULT_MAX_LINE, 40)
 
       const requireRoot = (): string => {

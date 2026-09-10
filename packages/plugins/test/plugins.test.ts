@@ -346,6 +346,28 @@ test('a file with more matches than the result can show still says so', async (t
   assert.match(found, /\[at least \d+ more matches not shown/)
 })
 
+test('a result limit set as a fraction is a whole one, not a search ripgrep refuses', async (t) => {
+  // Round two: maxResults became ripgrep's --max-count, and `--max-count 3.5` is an error.
+  if (!(await ripgrepOr(t))) return
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-fraction-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'five.txt'), Array.from({ length: 5 }, (_, n) => `retry ${n}`).join('\n') + '\n')
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load({ ...searchPlugin, config: { maxResults: 2.5 } })
+  await settle()
+
+  const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
+  assert.doesNotMatch(found, /Search failed/)
+  assert.equal(found.split('\n').filter((line) => /five\.txt:\d+:retry \d+$/.test(line)).length, 2)
+  assert.match(found, /more matches not shown/)
+})
+
 test('results ripgrep gave while failing say they may be incomplete', {
   skip: process.platform === 'win32' || process.getuid?.() === 0,
 }, async (t) => {
