@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
-import { ownsStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
+import { bareSource, ownsStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -98,16 +98,6 @@ const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 /** Strip comments so prose about a value is not counted as the value. */
 const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
 
-/**
- * The same, for source: block comments and line comments both.
- *
- * The rules below are explained in comments in the very files they govern —
- * `Dialog.tsx`'s own doc comment says `aria-modal`, and a note reading "do not
- * hand-roll an overlay" contains every word the check looks for. A check that
- * fires on the prose describing it teaches people to delete the prose.
- */
-const bareSource = (source) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
 const findings = {
   wrongVariant: [],
@@ -396,7 +386,8 @@ for (const file of tsxFiles()) {
 
   for (const [binding, sheet] of sheets) {
     const use = new RegExp(`\\b${binding}\\.([A-Za-z][A-Za-z0-9_]*)`, 'g')
-    for (const hit of source.matchAll(use)) {
+    // `code`, not `source`: a class named in a comment is not one used (review of #183).
+    for (const hit of code.matchAll(use)) {
       if (!sheet.classes.has(hit[1])) {
         findings.missingClass.push(`${name}: ${binding}.${hit[1]} — not in ${sheet.file}`)
       }
