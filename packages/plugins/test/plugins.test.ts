@@ -586,6 +586,39 @@ test('cancelling every task puts the plan down, rather than being refused as unr
   assert.match(text(await kernel.invokeTool(read, {}, scope)), /^\[ \] 1\. ship$/)
 })
 
+test('cancelling every task under todos puts the plan down too, whatever spelling cancels it', async (t) => {
+  // Round 3 of #151: the cancel-all case was pinned under `tasks` alone.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-cancel-todos' as SessionId }
+  await kernel.invokeTool(write, { todos: [{ content: 'design' }, { content: 'build' }] }, scope)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /design/, 'the control: the list was set')
+  await kernel.invokeTool(
+    write,
+    { todos: [{ content: 'design', status: 'TODO_STATUS_CANCELLED' }, { content: 'build', status: 'cancelled' }] },
+    scope,
+  )
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /empty/)
+})
+
+test('a list with an unreadable entry and a cancelled one is put down, as the Tasks panel reads it', async (t) => {
+  // Round 3 of #151: the one task that can be read was cancelled, and the entry beside it says nothing.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-cancel-mixed' as SessionId }
+  await kernel.invokeTool(write, { tasks: ['ship'] }, scope)
+  assert.doesNotMatch(text(await kernel.invokeTool(write, { tasks: [{}, { task: 'design', status: 'cancelled' }] }, scope)), /readable text/)
+  assert.match(text(await kernel.invokeTool(read, {}, scope)), /empty/)
+})
+
 // ---------------------------------------------------------------- context chips
 
 test('git contributes chips that stay out of every turn and resolve on demand', async (t) => {

@@ -35,7 +35,8 @@ export interface TodoItem {
 /**
  * Where a call's list can be. The schema names `tasks`, but an agent sends the
  * list under whatever key its own plan tool uses — Claude Code and Cursor say
- * `todos` (`PLAN_ARRAY_KEYS`). `tasks` is read first, as the schema asks.
+ * `todos` (`PLAN_ARRAY_KEYS`). Which of them holds the list is settled the way
+ * the Tasks panel settles it, in the call's own order: see `execute`.
  */
 const LIST_KEYS = ['tasks', ...PLAN_ARRAY_KEYS.filter((name) => name !== 'tasks')]
 
@@ -180,8 +181,8 @@ export const todoPlugin: HarnessPlugin = {
           // The schema says an array; a model that sends a bare string would
           // otherwise take `.map` with it and come back a runtime TypeError
           // instead of something it can act on.
-          const lists = present.filter((name) => Array.isArray(args[name]))
-          if (lists.length === 0) {
+          const arrays = present.filter((name) => Array.isArray(args[name]))
+          if (arrays.length === 0) {
             return `"${present[0]}" has to be a list. The list is unchanged:\n${renderTodos(listFor(key))}`
           }
           /* The rule the Tasks panel reads the same call by (`planOf`): a list
@@ -198,9 +199,9 @@ export const todoPlugin: HarnessPlugin = {
              entries, readable or not, refused a call whose later list the
              panel read as the plan (review, round two). */
           const named =
-            lists.find((name) => readableIn(name).length > 0) ??
-            lists.find((name) => (args[name] as unknown[]).length > 0) ??
-            lists[0]!
+            arrays.find((name) => readableIn(name).length > 0) ??
+            arrays.find((name) => (args[name] as unknown[]).length > 0) ??
+            arrays[0]!
           const sent = args[named] as unknown[]
           const readable = readableIn(named)
           // Sending nothing is how a plan is put down, and is honoured. Sending

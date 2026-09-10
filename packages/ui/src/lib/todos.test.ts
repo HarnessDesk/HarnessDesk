@@ -278,3 +278,14 @@ describe('sessionPlan', () => {
     expect(sessionPlan(null)).toBeNull()
   })
 })
+
+it('reads a list cancelled under todos, in any spelling, as a plan put down', () => {
+  // Round 3 of #151: pinned under `tasks` alone, and by the one spelling.
+  expect(planOf({ todos: [{ content: 'design', status: 'TODO_STATUS_CANCELLED' }, { content: 'build', status: 'cancelled' }] })).toEqual([])
+})
+
+it('reads an unreadable entry beside a cancelled one as a plan put down, as todo_write does', () => {
+  // Round 3 of #151: the one task that can be read was cancelled, and the other says nothing.
+  expect(planOf({ tasks: [{}, { task: 'design', status: 'cancelled' }] })).toEqual([])
+})
+
