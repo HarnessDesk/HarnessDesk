@@ -823,16 +823,20 @@ const rowOf = (session: Session): SessionSummary => ({
 /**
  * The first thing the person typed, for a row with no name yet — their words
  * alone, with any envelope the desk sent beside them taken off here rather
- * than left for every reader to strip.
+ * than left for every reader to strip. Every text block of a message is
+ * read, not the first: the composer puts attached context — a page, a
+ * plan — in blocks of its own *before* the typed words, so the first block
+ * of a message with chips is all envelope and strips to nothing.
  */
 const firstAsk = (session: Session): string | null => {
   for (const turn of session.turns) {
     for (const item of turn.items) {
       if (item.type !== 'userMessage') continue
-      const text = item.content.find((block) => block.type === 'text')
-      if (text?.type !== 'text') continue
-      const words = splitContext(text.text).text.trim()
-      if (words.length > 0) return words
+      for (const block of item.content) {
+        if (block.type !== 'text') continue
+        const words = splitContext(block.text).text.trim()
+        if (words.length > 0) return words
+      }
     }
   }
   return null
