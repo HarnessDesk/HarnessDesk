@@ -58,6 +58,17 @@ describe('stripTrigger', () => {
     expect(stripTrigger('line 1\n@file', 'file')).toBe('line 1\n')
     expect(stripTrigger('a\t@x', 'file')).toBe('a\t')
   })
+
+  test('keeps a carriage return, a CRLF pair, a run of spaces, and a bare @ on its own line', () => {
+    // `\s` is wider than the three characters above; the strip must hand back
+    // whichever one the pattern took, and only that one.
+    expect(stripTrigger('a\r@x', 'file')).toBe('a\r')
+    expect(stripTrigger('line 1\r\n@file', 'file')).toBe('line 1\r\n')
+    // Only the space next to the `@` is inside the match; the rest never left.
+    expect(stripTrigger('check   @rea', 'file')).toBe('check   ')
+    // The picker opens on `@` alone, so the strip has to work before a query exists.
+    expect(stripTrigger('line 1\n@', 'file')).toBe('line 1\n')
+  })
 })
 
 describe('stripMention', () => {
@@ -66,6 +77,13 @@ describe('stripMention', () => {
     expect(stripMention('a\t@x')).toBe('a\t')
     expect(stripMention('hello @file')).toBe('hello ')
     expect(stripMention('@file')).toBe('')
+  })
+
+  test('keeps a carriage return, a CRLF pair, a run of spaces, and a bare @ on its own line', () => {
+    expect(stripMention('a\r@x')).toBe('a\r')
+    expect(stripMention('line 1\r\n@file')).toBe('line 1\r\n')
+    expect(stripMention('check   @rea')).toBe('check   ')
+    expect(stripMention('line 1\n@')).toBe('line 1\n')
   })
 })
 

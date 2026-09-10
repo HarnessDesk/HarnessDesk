@@ -262,6 +262,22 @@ it('the space a pick leaves closes up in front of punctuation', () => {
   expect(box().value).toBe('Hey, take a look')
 })
 
+it('a mention that starts a new line leaves the line break where it was', () => {
+  rig()
+  act(() => type('first line\n@op'))
+  expect(options()).toHaveLength(1)
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['Opus'])
+  /* The strip kept a space and nothing else, so `@op` picked on a line of
+     its own took the newline with it and the two lines ran together (#87). */
+  expect(box().value).toBe('first line\n')
+
+  // The gap-closer exists for `Hey @op` then `,`; it does not pull punctuation
+  // up across a line break.
+  act(() => type('first line\n,'))
+  expect(box().value).toBe('first line\n,')
+})
+
 it('one recipient is a post; two are one hand-out', async () => {
   const { store } = rig()
 
