@@ -181,16 +181,22 @@ export interface HarnessContext {
     screenshot(): Promise<string>
     tap(x: number, y: number): Promise<void>
   }
-  /** Android devices and emulators, via adb. Requires the `android` permission. */
+  /**
+   * Android devices and emulators, via adb. Requires the `android` permission.
+   * Every call that touches a device takes an optional `serial` — one of the
+   * serials `devices()` lists. Without it adb picks the device, which it can
+   * only do when exactly one is attached; with two, the call is refused with
+   * the serials to choose from.
+   */
   readonly android: {
     devices(): Promise<readonly { serial: string; state: string; description: string }[]>
-    install(apkPath: string): Promise<void>
-    launch(target: string): Promise<void>
-    screenshot(): Promise<string>
-    tap(x: number, y: number): Promise<void>
-    key(key: string): Promise<void>
-    text(text: string): Promise<void>
-    logcat(lines?: number, tag?: string): Promise<string>
+    install(apkPath: string, serial?: string): Promise<void>
+    launch(target: string, serial?: string): Promise<void>
+    screenshot(serial?: string): Promise<string>
+    tap(x: number, y: number, serial?: string): Promise<void>
+    key(key: string, serial?: string): Promise<void>
+    text(text: string, serial?: string): Promise<void>
+    logcat(lines?: number, tag?: string, serial?: string): Promise<string>
   }
   readonly harness: {
     readonly instanceId: string
