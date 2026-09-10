@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { wrapContext } from '@harnessdesk/protocol'
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
 import type { AgentEvent, AgentItem } from '@harnessdesk/protocol'
@@ -16,7 +17,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 import { SCRATCH_TMP, tempDir } from './scratch.js'
 
-import { cursorMeta, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
+import { cursorMeta, previewFor, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
 
 /**
  * The bridge under the real HarnessDesk ACP adapter — the full path a user's
@@ -603,8 +604,18 @@ test('a message that is only a context block is named by what the block says it 
     titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>'),
     'Handed off from Claude Code — “x”',
   )
-  assert.equal(titleOf("<context source='single'>x</context>"), 'single')
   assert.equal(titleOf('<context>only context</context>'), '')
+  // Round 1 of #167: the envelope writes its label with JSON.stringify, so a quote or a backslash arrives escaped.
+  for (const label of ['Handed off from Claude Code — “fix: "404" on reload”', 'Handed off from C:\\work\\retry', 'Plain']) {
+    assert.equal(titleOf(wrapContext(label, '## Goal\nstuff')), label, label)
+  }
+})
+
+test('a stored preview that says nothing gives way to the next turn\'s title', () => {
+  // Round 1 of #167: an empty preview from a context-only first turn was kept with ??, for good.
+  assert.equal(previewFor('', 'Fix the bug'), 'Fix the bug')
+  assert.equal(previewFor(undefined, '<context>only context</context>'), null)
+  assert.equal(previewFor('Earlier name', 'Fix the bug'), 'Earlier name')
 })
 
 test('the model list ages out, so a long-lived bridge sees models Cursor adds later', async () => {

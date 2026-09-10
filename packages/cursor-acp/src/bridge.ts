@@ -18,6 +18,7 @@ import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
+import { splitContext } from '@harnessdesk/protocol'
 import {
   chatPath,
   cursorMeta,
@@ -444,23 +445,28 @@ const withContext = (known: Parameterised, context: string): Parameterised | nul
  * user wrote, after any context block HarnessDesk prepended (a hand-off
  * packet, a referenced conversation) — the block is for the model.
  */
-/** What a context block says it is, in its `source`, which is written for people. */
-const CONTEXT_SOURCE = /<context\b[^>]*?\bsource=(?:"([^"]*)"|'([^']*)')/
-
 export const titleOf = (text: string): string => {
   const stripped = stripEnvelope(text)
   /* A message that is nothing but a context block has no line of the user's
      to be named by, and falling back to the raw text named the conversation
      `<context source="…">`, the envelope written for the model (#47). What
      the block says it is, in its `source`, is written for people; without
-     one, there is no title. */
-  if (!stripped) {
-    const source = CONTEXT_SOURCE.exec(text)
-    return (source?.[1] ?? source?.[2] ?? '').trim().slice(0, 80)
-  }
+     one, there is no title. The label is read by the protocol's own reader:
+     `wrapContext` writes it with JSON.stringify, and a pattern of this
+     file's own stopped at the first `\"` (review, round 1). */
+  if (!stripped) return (splitContext(text).injections[0]?.label ?? '').trim().slice(0, 80)
   const line = stripped.split('\n').find((entry) => entry.trim() !== '') ?? ''
   return line.trim().slice(0, 80)
 }
+
+/**
+ * What a conversation's row is called: what it was called before, if that
+ * said anything, or this turn's title, or nothing. An empty preview is no
+ * preview; kept with `??`, one written by a context-only first turn named
+ * the conversation nothing for good (review, round 1).
+ */
+export const previewFor = (stored: string | null | undefined, text: string): string | null =>
+  stored || titleOf(text) || null
 
 export { cursorMeta } from './store.js'
 
@@ -1504,7 +1510,7 @@ export class CursorAcpBridge {
 
     session.cancelled = false
     const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
-    this.#rememberSession(session.chatId, session.cwd, asked ?? titleOf(text))
+    this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text))
 
     for (let attempt = 1; ; attempt += 1) {
       const spoke = { yet: false }
