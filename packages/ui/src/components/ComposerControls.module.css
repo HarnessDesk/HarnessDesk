@@ -68,11 +68,13 @@
 
 
 /*
- * The place control's two marks. A worktree armed for the draft is something
- * that will happen on send, so it reads in the primary ink — the AA-solved
- * text step, never the accent itself — and a folder that already is a
- * worktree wears the same small tag the header's git control does.
+ * The place control. A worktree armed for the draft is something that will
+ * happen on send, so it reads in the primary ink — the AA-solved text step,
+ * never the accent itself — at the weight every subject in this toolbar
+ * wears. A folder that already is a worktree says so with the design
+ * system's Badge, the same one the header's git control wears.
  */
+
 /* The place's word gives way before the agent's or the model's does: they
    are one word each, and a branch can be forty characters. */
 .word {
@@ -80,16 +82,6 @@
 }
 
 .armed {
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-primary-ink);
-}
-
-.tag {
-  flex: none;
-  padding: 0 var(--hd-space-1);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  font-size: var(--hd-text-xs);
-  text-transform: uppercase;
-  color: var(--hdp-alias-label-tertiary);
 }

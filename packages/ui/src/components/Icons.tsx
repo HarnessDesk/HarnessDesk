@@ -65,6 +65,7 @@ import {
   FoldVertical,
   Funnel,
   GitBranch,
+  GitBranchPlus,
   GitCommitHorizontal,
   GitGraph,
   GitFork,
@@ -291,6 +292,8 @@ export const WorktreeIcon = icon(FolderGit2, 'WorktreeIcon')
 export const LocalIcon = icon(Laptop, 'LocalIcon')
 /** A worktree's branch brought back to the main checkout. */
 export const HomeIcon = icon(House, 'HomeIcon')
+/** A worktree still to be made — the draft's place until its first message. */
+export const NewWorktreeIcon = icon(GitBranchPlus, 'NewWorktreeIcon')
 /** A worktree pinned against pruning. */
 export const LockIcon = icon(Lock, 'LockIcon')
 export const UnlockIcon = icon(LockOpen, 'UnlockIcon')

@@ -5,10 +5,10 @@
   "handRolledOverlay": 4,
   "looseTarget": 12,
   "looseIcon": 3,
-  "danglingToken": 1,
+  "danglingToken": 0,
   "crossImport": 11,
-  "rawRadius": 56,
-  "offGrid": 209,
-  "rawColour": 47,
+  "rawRadius": 49,
+  "offGrid": 185,
+  "rawColour": 8,
   "arbitraryUtility": 6
 }

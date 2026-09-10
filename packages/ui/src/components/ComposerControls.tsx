@@ -3,6 +3,7 @@ import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SelectOption }
 import { optionsIn } from '@harnessdesk/protocol'
 
 import { Btn, Dialog } from '../design'
+import { Badge } from '../design/ui/badge'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
 import { worktreeBranch } from '../lib/worktree-branch'
@@ -25,8 +26,8 @@ import {
   EffortMaxIcon,
   EffortMediumIcon,
   ModelIcon,
+  NewWorktreeIcon,
   PlanIcon,
-  PlusIcon,
   PresetIcon,
   RetryIcon,
   RouteIcon,
@@ -872,6 +873,10 @@ const HandoffSheet = ({
  * drawn in the primary ink: it is something that will happen on send, not a
  * description of a folder, and nothing exists on disk until that message
  * goes.
+ *
+ * Each place has a glyph of its own — a laptop, a branch, a branch with a
+ * plus — because a narrow toolbar keeps the glyph and drops the word, and
+ * an armed worktree used to differ from an existing one by colour alone.
  */
 export const PlaceControl = () => {
   const store = useStore()
@@ -919,14 +924,14 @@ export const PlaceControl = () => {
         label={
           <>
             {armed ? (
-              <BranchIcon size={13} className={sheet.armed} />
+              <NewWorktreeIcon size={13} className={sheet.armed} />
             ) : tagged ? (
               <BranchIcon size={13} />
             ) : (
               <LocalIcon size={13} />
             )}
             {!narrow && <span className={`${sheet.word} ${armed ? sheet.armed : styles.strong}`}>{word}</span>}
-            {!narrow && tagged && <span className={sheet.tag}>worktree</span>}
+            {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
             <Chevron />
           </>
         }
@@ -938,16 +943,16 @@ export const PlaceControl = () => {
               icon={linked ? <BranchIcon size={14} /> : <LocalIcon size={14} />}
               label={linked ? 'This worktree' : 'Local'}
               value={branch ?? undefined}
-              title={workspace.path}
+              title={branch ? `${branch} — ${workspace.path}` : workspace.path}
               selected={place === null}
               onSelect={() => store.startDraftIn(null)}
             />
             <MenuItem
-              icon={<PlusIcon size={14} />}
+              icon={<NewWorktreeIcon size={14} />}
               label={armed ? 'New worktree' : 'New worktree…'}
               value={armedBranch ?? undefined}
               hint={armed ? `Made when you send, from ${armed.base ?? 'HEAD'}.` : undefined}
-              title="A checkout of its own, on a branch of its own."
+              title={armedBranch ?? 'A checkout of its own, on a branch of its own.'}
               selected={armed !== null}
               disabled={branch ? false : 'Worktrees need a git repository. This folder is not one.'}
               onSelect={() => {
@@ -963,7 +968,7 @@ export const PlaceControl = () => {
                     key={entry.path}
                     icon={<BranchIcon size={14} />}
                     label={entry.branch ?? '(detached)'}
-                    title={entry.path}
+                    title={`${entry.branch ?? '(detached)'} — ${entry.path}`}
                     selected={chosen?.path === entry.path}
                     onSelect={() =>
                       store.startDraftIn({ kind: 'existing', path: entry.path, branch: entry.branch ?? null })

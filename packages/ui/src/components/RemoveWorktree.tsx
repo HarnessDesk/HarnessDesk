@@ -4,8 +4,8 @@ import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
 import { useStore } from '../state/context'
-import { AlertIcon, BranchIcon } from './Icons'
-import styles from './RemoveWorktree.module.css'
+import { BranchIcon } from './Icons'
+import { UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
 
 /**
  * Removing a worktree.
@@ -19,7 +19,15 @@ import styles from './RemoveWorktree.module.css'
  * The surface, the Escape key, the focus return and where the buttons go are
  * all `ConfirmDialog`'s problem now; what is left here is the only part that
  * is about worktrees.
+ *
+ * Nor does it draw anything of its own any more. Its sentences are the
+ * dialog body's, and the files it would discard are the design system's
+ * warning `Alert` — the one the bring-back dialog shows for the same fact.
  */
+
+/** The dialog body's paragraph rhythm, for the alerts set among its paragraphs. */
+const RHYTHM = 'mb-3 last:mb-0'
+
 export const RemoveWorktree = ({
   worktree,
   onClose,
@@ -70,23 +78,23 @@ export const RemoveWorktree = ({
       onConfirm={() => void remove(dirty)}
       onCancel={onClose}
     >
-      <p className={styles.blurb}>
-        <span className={styles.mono}>{worktree.path}</span>
+      <p>
+        <span className="font-mono break-all">{worktree.path}</span>
         {worktree.branch && (
           <>
             {' '}
-            on branch <span className={styles.mono}>{worktree.branch}</span>
+            on branch <span className="font-mono">{worktree.branch}</span>
           </>
         )}
         . The branch is kept either way; only the checkout goes.
       </p>
 
-      {error && <p className={`${styles.note} ${styles.error}`}>{error}</p>}
+      {error && <WorktreeProblem className={RHYTHM}>{error}</WorktreeProblem>}
 
-      {changes === null && !error && <p className={styles.note}>Checking for unsaved work…</p>}
+      {changes === null && !error && <p>Checking for unsaved work…</p>}
 
       {changes !== null && !dirty && (
-        <p className={styles.note}>
+        <p>
           Nothing uncommitted.
           {changes.unpushedCommits > 0 &&
             ` ${changes.unpushedCommits} commit${changes.unpushedCommits === 1 ? '' : 's'} on the branch ${
@@ -96,26 +104,14 @@ export const RemoveWorktree = ({
       )}
 
       {dirty && changes && (
-        <section className={styles.group}>
-          <div className={styles.groupLabel}>
-            <AlertIcon size={12} />
-            This would discard {changes.modified > 0 && `${changes.modified} modified`}
-            {changes.modified > 0 && changes.untracked > 0 && ' and '}
-            {changes.untracked > 0 && `${changes.untracked} untracked`} file
-            {changes.modified + changes.untracked === 1 ? '' : 's'}
-          </div>
-          <ul className={styles.files}>
-            {changes.files.map((file) => (
-              <li key={file} className={styles.mono}>
-                {file}
-              </li>
-            ))}
-          </ul>
-          <p className={styles.note}>
-            Commit or stash them in the worktree first if you want to keep them. There is no undo
-            for discarding.
-          </p>
-        </section>
+        <UncommittedFiles
+          className={RHYTHM}
+          changes={changes}
+          title={`This would discard ${describeUncommitted(changes)}`}
+        >
+          Commit or stash them in the worktree first if you want to keep them. There is no undo
+          for discarding.
+        </UncommittedFiles>
       )}
     </ConfirmDialog>
   )

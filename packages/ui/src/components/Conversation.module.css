@@ -410,14 +410,36 @@
   font-size: var(--hd-text-sm);
 }
 
-.gitTag {
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--hdp-alias-bg-module-platform);
-  font-size: var(--hd-text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--hdp-alias-label-tertiary);
+/* The chip's words — the branch, and the worktree badge when there is one —
+   as one box, so a narrow header folds them away together and leaves the
+   glyph, which already says which it is. */
+.gitWords {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+/* Narrow: the session's name needs the room more than the branch does — the
+   same floor the plan strip folds its figures at. The chip keeps its glyph,
+   and its hover says the rest. Measured at 375px, the words ran the chip to
+   281px and squeezed the name to nothing. */
+/* Medium: the badge goes first. The glyph already says "worktree", and this
+   is the width the plan strip folds its promoted chips at, for the same
+   reason — past here each chip costs the session's name more than it is
+   worth. Measured at 150% zoom with the sidebar open, the badge's chip held
+   269px while the name had 88. Two classes, because a container query adds no
+   specificity and the badge's own `inline-flex` utility would win the tie. */
+@container hd-header (max-width: 760px) {
+  .gitWords .gitBadge {
+    display: none;
+  }
+}
+
+@container hd-header (max-width: 520px) {
+  .gitWords {
+    display: none;
+  }
 }
 
 .gitRow {

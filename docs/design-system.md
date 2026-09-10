@@ -719,10 +719,10 @@ list can only go down.
 | `handRolledOverlay` | 4 | Five decisions — buttons, Escape, focus, click-outside, surface — made again, usually one by omission. |
 | `looseTarget` | 12 | A 20px close button is a miss on a trackpad, and WCAG 2.2 asks for 24 unless it has clearance. |
 | `looseIcon` | 3 | Makes "change the icon set" a search across the app instead of one edit. |
-| `danglingToken` | 1 | A silent no-op: the declaration does nothing. |
+| `danglingToken` | 0 | A silent no-op: the declaration does nothing. |
 | `crossImport` | 11 | Rebuilding one screen changes another. |
-| `rawRadius` | 56 | Will not follow a shape change. |
-| `offGrid` | 209 | Will not follow a density change. |
-| `rawColour` | 47 | Will not follow a palette or theme change. |
+| `rawRadius` | 49 | Will not follow a shape change. |
+| `offGrid` | 185 | Will not follow a density change. |
+| `rawColour` | 8 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 6 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 

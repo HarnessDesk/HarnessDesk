@@ -284,8 +284,10 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 - The **git control** is the branch chip and the menu behind it: Changes with the
   count of files this conversation touched, the branch and folder, bring a
   managed worktree back to the main checkout or remove it, review uncommitted
-  changes, and commit changes. The chip wears a **worktree** tag whenever the
-  conversation runs in a linked checkout, HarnessDesk's own or not.
+  changes, and commit changes. Its glyph says where the conversation runs — a
+  laptop for the main checkout, a branch for a worktree, which also wears a
+  **worktree** badge, HarnessDesk's own or not — and in a narrow header the
+  words fold away and the glyph stays.
 - **Plan meters** sit ambiently in the header, showing remaining quota and
   window reset times across connected providers.
 - Under **⋮** sit conversation actions (remember conversation, compact context,
@@ -387,8 +389,10 @@ in [extending.md](extending.md).
   choice: **Local** (the folder as it is), a worktree the project already has,
   or **New worktree** — named and based in a dialog, and made when the first
   message goes, so an abandoned draft leaves no branch behind. A folder that
-  is itself a worktree wears its branch and a worktree tag, never Local. Once
-  the conversation exists the control is gone; the header says where it runs.
+  is itself a worktree wears its branch and a worktree badge, never Local.
+  Each place has its own glyph — a laptop, a branch, a branch with a plus —
+  so a narrow composer that keeps only glyphs still says which. Once the
+  conversation exists the control is gone; the header says where it runs.
 - **+** attaches images, adds files (@), opens slash commands (/), attaches
   plugin context providers, or changes the project folder.
 - **Chips** ride above the textarea and resolve at send: files, images, skills,

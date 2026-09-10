@@ -13,6 +13,8 @@ move is real work and is not news to a person weighing an upgrade.
   the first message goes — so a draft abandoned after choosing one leaves no
   branch and no folder behind. A folder that is itself a worktree is never
   called Local, and the header tags any worktree, not only HarnessDesk's own.
+  Each place has its own glyph, so a narrow window that folds the words away
+  still says which.
 - **Bring a worktree back** — a conversation in a HarnessDesk worktree can
   bring its branch back to the main checkout from the header's branch menu.
   Uncommitted work stops it (the dialog lists the files and can ask the agent

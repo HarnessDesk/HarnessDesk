@@ -4,8 +4,8 @@ import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
-import { AlertIcon, HomeIcon } from './Icons'
-import styles from './BringHome.module.css'
+import { HomeIcon } from './Icons'
+import { UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
 
 /**
  * Bringing a worktree's work back to the main checkout.
@@ -24,12 +24,20 @@ import styles from './BringHome.module.css'
  * at all: the dialog names the files and offers the one step that unblocks
  * it — asking the agent that made them to commit them, in this conversation,
  * where the message can be read before it goes.
+ *
+ * It draws with nothing of its own. The dialog body already sets and spaces
+ * its sentences; the two things here that are not sentences — the files git
+ * has not got, and a refusal — are the design system's `Alert`, shared with
+ * the removal dialog through `WorktreeAlerts`.
  */
 
 const COMMIT_ASK =
   'Commit the work in this worktree with a clear message, so it can be brought back to the main checkout. ' +
   'Nothing may be left uncommitted, so if something should not be committed, tell me what it is and ask before ' +
   'deleting it. Then tell me the commit hash.'
+
+/** The dialog body's paragraph rhythm, for the alerts set among its paragraphs. */
+const RHYTHM = 'mb-3 last:mb-0'
 
 export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: () => void }) => {
   const store = useStore()
@@ -88,55 +96,43 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
       onConfirm={() => void confirm()}
       onCancel={onClose}
     >
-      <p className={styles.blurb}>
-        <span className={styles.name}>{folder}</span> switches
+      <p>
+        <span className="text-(--hd-foreground)">{folder}</span> switches
         {main?.branch && (
           <>
             {' '}
-            from <span className={styles.mono}>{main.branch}</span>
+            from <span className="font-mono">{main.branch}</span>
           </>
         )}{' '}
-        to <span className={styles.mono}>{worktree.branch}</span>, with every commit made here. The
+        to <span className="font-mono">{worktree.branch}</span>, with every commit made here. The
         worktree's folder is removed; the branch is not.
       </p>
 
-      {unread && <p className={`${styles.note} ${styles.error}`}>{unread}</p>}
-      {changes === null && !unread && <p className={styles.note}>Checking for uncommitted work…</p>}
+      {unread && <WorktreeProblem className={RHYTHM}>{unread}</WorktreeProblem>}
+      {changes === null && !unread && <p>Checking for uncommitted work…</p>}
 
       {changes !== null && !dirty && (
-        <p className={styles.note}>
+        <p>
           This conversation cannot move with its folder, so a new one opens in {folder} carrying
           what happened here.
         </p>
       )}
 
       {dirty && changes && (
-        <section className={styles.group}>
-          <div className={styles.groupLabel}>
-            <AlertIcon size={12} />
-            {changes.modified > 0 && `${changes.modified} modified`}
-            {changes.modified > 0 && changes.untracked > 0 && ' and '}
-            {changes.untracked > 0 && `${changes.untracked} untracked`} file
-            {changes.modified + changes.untracked === 1 ? '' : 's'} not committed
-          </div>
-          <ul className={styles.files}>
-            {changes.files.map((file) => (
-              <li key={file} className={styles.mono}>
-                {file}
-              </li>
-            ))}
-          </ul>
-          <p className={styles.note}>
-            The worktree's folder has to go for its branch to be checked out anywhere else, and
-            uncommitted work would go with it. Commit it first.
-          </p>
-        </section>
+        <UncommittedFiles
+          className={RHYTHM}
+          changes={changes}
+          title={`${describeUncommitted(changes)} not committed`}
+        >
+          The worktree's folder has to go for its branch to be checked out anywhere else, and
+          uncommitted work would go with it. Commit it first.
+        </UncommittedFiles>
       )}
 
       {refused && (
-        <p className={`${styles.note} ${styles.error}`} role="alert">
+        <WorktreeProblem live className={RHYTHM}>
           {refused}
-        </p>
+        </WorktreeProblem>
       )}
     </ConfirmDialog>
   )

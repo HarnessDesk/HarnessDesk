@@ -25,6 +25,7 @@ import {
   DiffIcon,
   HistoryIcon,
   HomeIcon,
+  LocalIcon,
   FolderIcon,
   MoreIcon,
   ReviewIcon,
@@ -35,6 +36,7 @@ import {
 } from './Icons'
 import { Menu, MenuItem, MenuLabel, Submenu } from './Menu'
 import { Popover, popoverStyles } from './Popover'
+import { Badge } from '../design/ui/badge'
 import { STATUS_LABEL, paneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
@@ -690,7 +692,11 @@ const GitControl = ({
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const runtime = useRuntime()
-  const cwd = session?.cwd ?? snapshot.workspace?.path ?? null
+  // A draft pointed at a worktree will start there, so that is where this
+  // says it works — this chip and the composer's Work in control must never
+  // name two folders for one draft.
+  const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : null
+  const cwd = session?.cwd ?? pointed ?? snapshot.workspace?.path ?? null
   if (!cwd) return null
   const folder = cwd.split('/').filter(Boolean).at(-1) ?? cwd
   // The workspace's branch is read fresh by the host and follows a switch;
@@ -714,6 +720,7 @@ const GitControl = ({
     : undefined
   const linked =
     Boolean(worktree) ||
+    (checkout !== undefined && !checkout.isMain) ||
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.repo?.worktree === true : summary?.repo?.worktree === true)
   const touched = session
     ? new Set(
@@ -731,13 +738,22 @@ const GitControl = ({
 
   return (
     <Popover
-      title={cwd}
+      title={`${linked ? 'Worktree' : 'Local'} — ${cwd}`}
       align="right"
       label={
         <>
-          {branch ? <BranchIcon size={13} /> : <FolderIcon size={13} />}
-          <span className={styles.gitLabel}>{branch ?? folder}</span>
-          {linked && <span className={styles.gitTag}>worktree</span>}
+          {/* The glyph says where, so it can stand alone when a narrow header
+              folds the words away: a branch for a worktree, a laptop for the
+              main checkout, a folder for one that is not a repository. */}
+          {linked ? <BranchIcon size={13} /> : branch ? <LocalIcon size={13} /> : <FolderIcon size={13} />}
+          <span className={styles.gitWords}>
+            <span className={styles.gitLabel}>{branch ?? folder}</span>
+            {linked && (
+              <Badge variant="secondary" className={styles.gitBadge}>
+                worktree
+              </Badge>
+            )}
+          </span>
         </>
       }
     >

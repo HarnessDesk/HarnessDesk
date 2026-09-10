@@ -61,6 +61,13 @@ describe('Icons', () => {
     // options sit within a row of each other in the sidebar's title row.
     expect(glyph(Icons.FilterIcon)).not.toBe(glyph(Icons.SearchIcon))
     expect(glyph(Icons.FilterIcon)).not.toBe(glyph(Icons.SlidersIcon))
+    // Where a conversation runs, said by the glyph alone once a narrow toolbar
+    // or header drops the words: the main checkout, a worktree, and one still
+    // to be made. The last two once differed by colour only, which is no
+    // difference at all to some readers.
+    expect(glyph(Icons.LocalIcon)).not.toBe(glyph(Icons.BranchIcon))
+    expect(glyph(Icons.NewWorktreeIcon)).not.toBe(glyph(Icons.BranchIcon))
+    expect(glyph(Icons.NewWorktreeIcon)).not.toBe(glyph(Icons.LocalIcon))
   })
 })
 
