@@ -48,3 +48,11 @@ test('failing file:lines are pulled from mixed reporter output, node_modules ski
   assert.ok(failures.some((f) => f === 'src/thing.ts:42'))
   assert.ok(!failures.some((f) => f.includes('node_modules')))
 })
+
+test('a failure line keeps its description whole, digits and all', () => {
+  // #55: a digit anywhere in the description put the keyword where the file goes.
+  assert.deepEqual(extractFailures('FAIL src/auth.test.ts (15ms)'), ['src/auth.test.ts (15ms)'])
+  assert.deepEqual(extractFailures('not ok 3 - adds 2 and 2'), ['3 - adds 2 and 2'])
+  // And a stack's file and line is still a file and a line.
+  assert.deepEqual(extractFailures('    at check (src/auth.ts:42:7)'), ['src/auth.ts:42'])
+})

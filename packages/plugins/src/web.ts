@@ -22,6 +22,9 @@ const DEFAULT_MAX = 40_000
  * stripped and entities decoded. Handing a model raw markup wastes most of the
  * context window on attributes nobody reads.
  */
+/** The entities markup escapes text with, and the space. Decoded in one pass: `&amp;` first uncovered a `&lt;` that was then decoded too (#59). */
+const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
+
 export const htmlToText = (html: string): string =>
   html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
@@ -30,12 +33,7 @@ export const htmlToText = (html: string): string =>
     .replace(/<\/(p|div|section|article|li|h[1-6]|tr|br)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/gi, (entity: string, name: string) => ENTITIES[name.toLowerCase()] ?? entity)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
