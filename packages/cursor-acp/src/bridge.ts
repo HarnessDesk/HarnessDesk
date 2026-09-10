@@ -441,6 +441,13 @@ const withContext = (known: Parameterised, context: string): Parameterised | nul
 }
 
 /**
+ * The first line of `text` that says anything, cut to a row's width. A label
+ * is read the same way as the user's text: one with a line break in it put
+ * the rest of it in the row (review, round 3).
+ */
+const firstLine = (text: string): string => (text.split('\n').find((entry) => entry.trim() !== '') ?? '').trim().slice(0, 80)
+
+/**
  * A conversation's name from its first prompt: the first line of what the
  * user wrote, after any context block HarnessDesk prepended (a hand-off
  * packet, a referenced conversation) — the block is for the model.
@@ -454,9 +461,7 @@ export const titleOf = (text: string): string => {
      one, there is no title. The label is read by the protocol's own reader:
      `wrapContext` writes it with JSON.stringify, and a pattern of this
      file's own stopped at the first `\"` (review, round 1). */
-  if (!stripped) return (splitContext(text).injections[0]?.label ?? '').trim().slice(0, 80)
-  const line = stripped.split('\n').find((entry) => entry.trim() !== '') ?? ''
-  return line.trim().slice(0, 80)
+  return firstLine(stripped || (splitContext(text).injections[0]?.label ?? ''))
 }
 
 /**
@@ -499,8 +504,9 @@ interface SessionRow {
  *
  * Copied into `@harnessdesk/transport-acp`, the client half, and into
  * `@harnessdesk/claude-acp`, the other bridge that serves it. Copied rather
- * than shared because this bridge carries no HarnessDesk dependency and is
- * meant to keep it that way. Change one, change the others.
+ * than shared: this bridge's one HarnessDesk dependency is
+ * `@harnessdesk/protocol`, for reading context blocks (#47), and the name
+ * isn't in it. Change one, change the others.
  */
 const SESSION_DELETE = '_harnessdesk/session/delete'
 

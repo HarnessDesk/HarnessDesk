@@ -611,11 +611,56 @@ test('a message that is only a context block is named by what the block says it 
   }
 })
 
+test('a message of several context blocks is named by the first, and by one line of it', () => {
+  // Round 3 of #167: which block names it is pinned here, and a label with a line break in it put the rest in the row.
+  assert.equal(titleOf(`${wrapContext('Handed off from Claude Code', 'a')}\n\n${wrapContext('Git', 'b')}`), 'Handed off from Claude Code')
+  assert.equal(titleOf(wrapContext('Handed off\nfrom Claude Code', 'body')), 'Handed off')
+})
+
 test('a stored preview that says nothing gives way to the next turn\'s title', () => {
   // Round 1 of #167: an empty preview from a context-only first turn was kept with ??, for good.
   assert.equal(previewFor('', 'Fix the bug'), 'Fix the bug')
   assert.equal(previewFor(undefined, '<context>only context</context>'), null)
   assert.equal(previewFor('Earlier name', 'Fix the bug'), 'Earlier name')
+})
+
+test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {
+  // Round 3 of #167: titleOf and previewFor were tested alone, never through a turn into sessions.json.
+  const dir = tempDir('cursor-acp-preview-')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const turns = () => tape.events.filter((event) => event.type === 'turn/completed').length
+  const say = async (session: Awaited<ReturnType<AcpRuntime['createSession']>>, text: string) => {
+    const done = turns() + 1
+    await session.send([{ type: 'text', text }])
+    await tape.until(() => turns() >= done, 20_000)
+  }
+  const preview = (id: unknown) =>
+    (JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8')) as { sessions: { sessionId: string; preview: string | null }[] }).sessions.find(
+      (row) => row.sessionId === String(id),
+    )?.preview
+  try {
+    const labelled = await runtime.createSession({ cwd: WORKDIR })
+    await say(labelled, wrapContext('Handed off from Claude Code', '## Goal\nstuff'))
+    assert.equal(preview(labelled.id), 'Handed off from Claude Code', 'named by the label, not the markup')
+    await say(labelled, 'Fix the bug')
+    assert.equal(preview(labelled.id), 'Handed off from Claude Code', 'and the name stays')
+
+    const unlabelled = await runtime.createSession({ cwd: WORKDIR })
+    await say(unlabelled, '<context>only context</context>')
+    assert.equal(preview(unlabelled.id), null, 'nothing to be named by yet')
+    await say(unlabelled, 'Fix the bug')
+    assert.equal(preview(unlabelled.id), 'Fix the bug', 'so the next turn names it')
+  } finally {
+    await runtime.dispose()
+  }
 })
 
 test('the model list ages out, so a long-lived bridge sees models Cursor adds later', async () => {
