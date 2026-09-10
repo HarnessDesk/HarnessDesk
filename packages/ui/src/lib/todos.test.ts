@@ -116,6 +116,11 @@ describe('planOf', () => {
     ).toEqual(['keep'])
   })
 
+  it('reads the same list todo_write takes: the first that holds a readable task, in the call\'s order', () => {
+    expect(planOf({ tasks: [{}], todos: [{ task: 'ship' }] })?.map((todo) => todo.label)).toEqual(['ship'])
+    expect(planOf({ todos: [{ task: 'b' }], tasks: [{ task: 'a' }] })?.map((todo) => todo.label)).toEqual(['b'])
+  })
+
   it('reads a list whose tasks were all cancelled as a plan put down', () => {
     // #58, found in review: read as "said nothing", it brought back the plan before.
     expect(planOf({ tasks: [{ task: 'design', status: 'cancelled' }, { task: 'build', status: 'cancelled' }] })).toEqual([])

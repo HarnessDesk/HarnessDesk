@@ -170,7 +170,10 @@ export const todoPlugin: HarnessPlugin = {
              how a plan is put down, so the plan was wiped (#57). A call that
              names no list at all is refused rather than read as an empty one:
              putting a plan down is `tasks: []`, said on purpose. */
-          const present = LIST_KEYS.filter((name) => args?.[name] !== undefined)
+          // In the call's own order, the order `planOf` walks it in.
+          const present = Object.keys(args ?? {}).filter(
+            (name) => (LIST_KEYS as readonly string[]).includes(name) && args[name] !== undefined,
+          )
           if (present.length === 0) {
             return `todo_write takes the whole list, as "tasks". The list is unchanged:\n${renderTodos(listFor(key))}`
           }
@@ -186,11 +189,20 @@ export const todoPlugin: HarnessPlugin = {
              empty is it a clear. First-present-wins let an empty `tasks` beside
              a full `todos` put the plan down here while the panel showed the
              `todos` (review, round one). */
-          const named = lists.find((name) => (args[name] as unknown[]).length > 0) ?? lists[0]!
+          const readableIn = (name: string) =>
+            (args[name] as unknown[])
+              .map(readItem)
+              .filter((entry): entry is { task: string; status: TodoStatus | null } => entry !== null)
+          /* And the whole of that rule: the first list holding a task that can
+             be read wins, whatever it says of it. Taking the first list with
+             entries, readable or not, refused a call whose later list the
+             panel read as the plan (review, round two). */
+          const named =
+            lists.find((name) => readableIn(name).length > 0) ??
+            lists.find((name) => (args[name] as unknown[]).length > 0) ??
+            lists[0]!
           const sent = args[named] as unknown[]
-          const readable = sent
-            .map(readItem)
-            .filter((entry): entry is { task: string; status: TodoStatus | null } => entry !== null)
+          const readable = readableIn(named)
           // Sending nothing is how a plan is put down, and is honoured. Sending
           // tasks that cannot be read is a malformed call, and emptying the
           // list on one would look exactly like the agent having finished. So

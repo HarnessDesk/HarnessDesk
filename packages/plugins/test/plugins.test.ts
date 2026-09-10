@@ -542,6 +542,27 @@ test('todo_write takes the list with entries, as the Tasks panel does, and refus
   assert.match(await list(), /empty/)
 })
 
+test('todo_write reads the list the Tasks panel reads, in the order it reads them', async (t) => {
+  // Round two: an unreadable `tasks` refused a call whose `todos` the panel read.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(todoPlugin)
+  await settle()
+  const write = toolNamed(kernel, 'todo_write')
+  const read = toolNamed(kernel, 'todo_read')
+  const scope = { sessionId: 's-parity' as SessionId }
+  const list = async (): Promise<string> => text(await kernel.invokeTool(read, {}, scope))
+
+  await kernel.invokeTool(write, { tasks: [{}], todos: [{ task: 'ship' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. ship$/)
+  // Two readable lists: the call's own first, as the panel reads it.
+  await kernel.invokeTool(write, { todos: [{ task: 'b' }], tasks: [{ task: 'a' }] }, scope)
+  assert.match(await list(), /^\[ \] 1\. b$/)
+  // Claude Code's and Cursor's own shape: content, and their words for done.
+  await kernel.invokeTool(write, { todos: [{ content: 'design', status: 'completed' }] }, scope)
+  assert.match(await list(), /^\[x\] 1\. design$/)
+})
+
 test('cancelling every task puts the plan down, rather than being refused as unreadable', async (t) => {
   // #58: cancelled tasks leave the list, and the readable-text check ran after they had.
   const kernel = new ExtensionKernel()
