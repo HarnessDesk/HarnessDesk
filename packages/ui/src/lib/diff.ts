@@ -18,42 +18,65 @@ export interface DiffLine {
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 const HEADER = /^(?:diff |index |--- |\+\+\+ |new file|deleted file|similarity|rename )/
 
+/**
+ * Which raw line is a header and which is content — the one rule `parseDiff`
+ * and `countChanges` share, so the diff a reader sees and the `+N −M` beside
+ * it cannot disagree. They did: `countChanges` skipped `+++`/`---` anywhere
+ * while `parseDiff` skipped them only before the first hunk, so a removed
+ * `--count;` was drawn as a removal and not counted.
+ *
+ * `+++` and `---` are headers before a file's first hunk and content after it,
+ * so the test is positional — and positional **per file**. A multi-file diff,
+ * a turn's whole diff, opens every file with a `diff ` line, and the position
+ * never restarted there: every file after the first had its `diff --git`,
+ * `---` and `+++` drawn as context, a removal and an addition, each with a
+ * gutter number it had no right to. A raw line can only begin with `diff ` if
+ * it is a header — content always carries a ` `, `+`, `-` or `\` prefix — so
+ * restarting on it is exact rather than a guess.
+ */
+const classifier = (): ((raw: string) => LineKind) => {
+  let sawHunk = false
+  return (raw) => {
+    if (HUNK.test(raw)) {
+      sawHunk = true
+      return 'hunk'
+    }
+    if (raw.startsWith('diff ')) {
+      sawHunk = false
+      return 'meta'
+    }
+    if (!sawHunk && HEADER.test(raw)) return 'meta'
+    if (raw.startsWith('+')) return 'add'
+    if (raw.startsWith('-')) return 'remove'
+    // "\ No newline at end of file"
+    if (raw.startsWith('\\')) return 'meta'
+    return 'context'
+  }
+}
+
 export const parseDiff = (diff: string): DiffLine[] => {
   const lines: DiffLine[] = []
+  const classify = classifier()
   let oldNumber = 0
   let newNumber = 0
-  let sawHunk = false
 
   for (const raw of diff.split('\n')) {
-    const hunk = HUNK.exec(raw)
-    if (hunk) {
-      sawHunk = true
-      oldNumber = Number(hunk[1])
-      newNumber = Number(hunk[2])
-      lines.push({ kind: 'hunk', text: raw, oldNumber: null, newNumber: null })
-      continue
+    const kind = classify(raw)
+    if (kind === 'hunk') {
+      const hunk = HUNK.exec(raw)
+      oldNumber = Number(hunk?.[1])
+      newNumber = Number(hunk?.[2])
+      lines.push({ kind, text: raw, oldNumber: null, newNumber: null })
+    } else if (kind === 'meta') {
+      lines.push({ kind, text: raw, oldNumber: null, newNumber: null })
+    } else if (kind === 'add') {
+      lines.push({ kind, text: raw.slice(1), oldNumber: null, newNumber: newNumber++ })
+    } else if (kind === 'remove') {
+      lines.push({ kind, text: raw.slice(1), oldNumber: oldNumber++, newNumber: null })
+    } else {
+      const text = raw.startsWith(' ') ? raw.slice(1) : raw
+      lines.push({ kind, text, oldNumber: oldNumber++, newNumber: newNumber++ })
     }
-    // `+++`/`---` are headers before the first hunk and content after it, so the
-    // check has to be positional rather than purely textual.
-    if (!sawHunk && HEADER.test(raw)) {
-      lines.push({ kind: 'meta', text: raw, oldNumber: null, newNumber: null })
-      continue
-    }
-    if (raw.startsWith('+')) {
-      lines.push({ kind: 'add', text: raw.slice(1), oldNumber: null, newNumber: newNumber++ })
-      continue
-    }
-    if (raw.startsWith('-')) {
-      lines.push({ kind: 'remove', text: raw.slice(1), oldNumber: oldNumber++, newNumber: null })
-      continue
-    }
-    if (raw.startsWith('\\')) {
-      // "\ No newline at end of file"
-      lines.push({ kind: 'meta', text: raw, oldNumber: null, newNumber: null })
-      continue
-    }
-    const text = raw.startsWith(' ') ? raw.slice(1) : raw
-    lines.push({ kind: 'context', text, oldNumber: oldNumber++, newNumber: newNumber++ })
   }
 
   // The trailing blank from the final newline is an artefact, not a line.
@@ -73,13 +96,19 @@ export const asAdditions = (content: string): DiffLine[] => {
   }))
 }
 
+/**
+ * Additions and removals, by the same rule `parseDiff` draws them with. A
+ * counter of its own is what let the two disagree; this allocates nothing per
+ * line, which matters because the review pane counts every file on render.
+ */
 export const countChanges = (diff: string): { added: number; removed: number } => {
+  const classify = classifier()
   let added = 0
   let removed = 0
   for (const line of diff.split('\n')) {
-    if (line.startsWith('+++') || line.startsWith('---')) continue
-    if (line.startsWith('+')) added += 1
-    else if (line.startsWith('-')) removed += 1
+    const kind = classify(line)
+    if (kind === 'add') added += 1
+    else if (kind === 'remove') removed += 1
   }
   return { added, removed }
 }
@@ -108,6 +137,124 @@ export const splitHunks = (diff: string): DiffHunk[] => {
   return hunks.map((hunk) => ({ header: hunk.header, text: hunk.lines.join('\n').trimEnd() }))
 }
 
+const GIT_HEADER = 'diff --git '
+
+/** The escapes git writes inside a quoted path, and the byte each stands for. */
+const C_ESCAPES: Readonly<Record<string, number>> = {
+  a: 7,
+  b: 8,
+  t: 9,
+  n: 10,
+  v: 11,
+  f: 12,
+  r: 13,
+  '"': 34,
+  '\\': 92,
+}
+
+/**
+ * The git C-quoted path token whose opening quote is at `at`, unescaped — or
+ * null when it never closes.
+ *
+ * **Bytes, then UTF-8.** With `core.quotePath` on, which is git's default, a
+ * non-ASCII name is written as octal escapes of its UTF-8 *bytes*: `café.txt`
+ * is `"caf\303\251.txt"`. Turning each escape into a character on its own
+ * gives `cafÃ©.txt`, which is a name no file has. With it off, the same name
+ * can arrive raw *inside* the quotes beside an escaped tab, so raw text is
+ * encoded back to bytes and the whole token decoded once. Both settings were
+ * measured against git before this was written.
+ */
+const readQuoted = (text: string, at: number): { value: string; end: number } | null => {
+  const encoder = new TextEncoder()
+  const bytes: number[] = []
+  for (let i = at + 1; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch === '"') return { value: new TextDecoder().decode(new Uint8Array(bytes)), end: i + 1 }
+    if (ch !== '\\') {
+      // A whole code point, so a character outside the BMP is not split into
+      // two halves that each encode as a replacement character.
+      const point = String.fromCodePoint(text.codePointAt(i) ?? 0xfffd)
+      bytes.push(...encoder.encode(point))
+      i += point.length - 1
+      continue
+    }
+    const next = text[i + 1] ?? ''
+    const known = C_ESCAPES[next]
+    if (known !== undefined) {
+      bytes.push(known)
+      i += 1
+    } else if (/[0-7]/.test(next)) {
+      const octal = /^[0-7]{1,3}/.exec(text.slice(i + 1))?.[0] ?? next
+      bytes.push(Number.parseInt(octal, 8) & 0xff)
+      i += octal.length
+    } else {
+      // An escape git does not write. Kept as written rather than dropped.
+      bytes.push(...encoder.encode(next))
+      i += 1
+    }
+  }
+  return null
+}
+
+/**
+ * The path a `diff --git` line names: the new side, or the old one when the
+ * new side cannot be read.
+ *
+ * Git quotes **each side on its own** — measured: a rename from `plain.txt` to
+ * a name with a tab in it is `diff --git a/plain.txt "b/tab\tname.txt"` — so
+ * each side is read as a quoted token or a bare path independently. The old
+ * pattern required a literal `a/` straight after `diff --git `, and every
+ * quoted header failed it.
+ *
+ * Two bare sides are ambiguous when a name contains ` b/`. Git does not quote
+ * for a space, so `diff --git a/x b/y.txt b/x b/y.txt` is one file, `x b/y.txt`
+ * — and a lazy match splits it at the first ` b/`. When both sides are the
+ * same name, which is every change but a rename, the line is `a/X b/X`, so
+ * the halves are found by length. A rename between such names is ambiguous to
+ * git as well, which is why it writes `rename to` beneath; the first ` b/` is
+ * kept for that case, as before.
+ */
+const headerPath = (line: string): string => {
+  const rest = line.slice(GIT_HEADER.length)
+  let a: string | null = null
+  let b: string | null = null
+  if (rest.startsWith('"')) {
+    const first = readQuoted(rest, 0)
+    if (first) {
+      a = first.value
+      const tail = rest.slice(first.end + 1)
+      b = tail.startsWith('"') ? (readQuoted(tail, 0)?.value ?? null) : tail
+    }
+  } else {
+    const quoted = rest.indexOf(' "b/')
+    if (quoted !== -1 && rest.endsWith('"')) {
+      a = rest.slice(0, quoted)
+      b = readQuoted(rest, quoted + 1)?.value ?? null
+    } else {
+      // `a/` + X + ` b/` + X, when the two names are one.
+      const n = (rest.length - 5) / 2
+      if (
+        Number.isInteger(n) &&
+        n > 0 &&
+        rest.slice(2 + n, 5 + n) === ' b/' &&
+        rest.slice(2, 2 + n) === rest.slice(5 + n)
+      ) {
+        a = `a/${rest.slice(2, 2 + n)}`
+        b = `b/${rest.slice(5 + n)}`
+      } else {
+        const split = rest.indexOf(' b/')
+        if (split !== -1) {
+          a = rest.slice(0, split)
+          b = rest.slice(split + 1)
+        }
+      }
+    }
+  }
+  const strip = (side: string | null, prefix: string): string | null =>
+    side !== null && side.startsWith(prefix) ? side.slice(prefix.length) : null
+  return strip(b, 'b/') ?? strip(a, 'a/') ?? ''
+}
+
 export interface FileDiff {
   /** The new path, or the old one for a deletion. */
   readonly path: string
@@ -124,10 +271,12 @@ export const splitByFile = (diff: string): FileDiff[] => {
   const files: FileDiff[] = []
   let current: { path: string; lines: string[] } | null = null
   for (const line of diff.split('\n')) {
-    const header = /^diff --git a\/(.+?) b\/(.+)$/.exec(line)
-    if (header) {
+    /* Every `diff --git` line is a boundary, whether or not its path can be
+       read. One the old pattern could not match was taken as content, so a
+       quoted file's whole diff was filed under the previous file's path. */
+    if (line.startsWith(GIT_HEADER)) {
       if (current) files.push({ path: current.path, diff: current.lines.join('\n') })
-      current = { path: header[2] ?? header[1] ?? '', lines: [line] }
+      current = { path: headerPath(line), lines: [line] }
       continue
     }
     if (!current) current = { path: '', lines: [] }

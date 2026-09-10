@@ -128,3 +128,152 @@ describe('splitHunks', () => {
     expect(splitHunks('')).toEqual([])
   })
 })
+
+/**
+ * Three defects from the bug hunt — #82, #83, #84 — and all three are one
+ * question asked badly: which line is a header. The `diff --git` lines below
+ * are copied from what git printed for these files, under both
+ * `core.quotePath` settings, rather than written from memory: a fixture
+ * invented rather than measured passes while the real wire fails.
+ */
+describe('multi-file diffs, header by header (#82)', () => {
+  const twoFiles = [
+    'diff --git a/src/a.ts b/src/a.ts',
+    'index 1..2 100644',
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'diff --git a/src/b.ts b/src/b.ts',
+    'index 3..4 100644',
+    '--- a/src/b.ts',
+    '+++ b/src/b.ts',
+    '@@ -10,3 +10,3 @@',
+    ' kept',
+    '---count;',
+    '+++count;',
+  ].join('\n')
+
+  test("every file's header is metadata, not only the first file's", () => {
+    const lines = parseDiff(twoFiles)
+    const at = lines.findIndex((line) => line.text === 'diff --git a/src/b.ts b/src/b.ts')
+    expect(at).toBeGreaterThan(0)
+    // These read as context, a removal and an addition before.
+    expect(lines.slice(at, at + 4).map((line) => line.kind)).toEqual(['meta', 'meta', 'meta', 'meta'])
+  })
+
+  test("the second file's header lines carry no gutter numbers", () => {
+    const lines = parseDiff(twoFiles)
+    const at = lines.findIndex((line) => line.text === 'diff --git a/src/b.ts b/src/b.ts')
+    for (const line of lines.slice(at, at + 4)) {
+      expect(line).toMatchObject({ oldNumber: null, newNumber: null })
+    }
+    /* The control, and it passes either way: the hunk header resets the
+       numbers, so the *content* was always numbered right. What was wrong is
+       that the header lines above it were given numbers too. */
+    expect(lines.find((line) => line.text === 'kept')).toMatchObject({ oldNumber: 10, newNumber: 10 })
+  })
+
+  test('inside each file the position still holds: after a hunk, --- and +++ are content', () => {
+    const lines = parseDiff(twoFiles)
+    expect(lines.find((line) => line.text === '--count;')?.kind).toBe('remove')
+    expect(lines.find((line) => line.text === '++count;')?.kind).toBe('add')
+  })
+})
+
+describe('countChanges agrees with what is drawn (#83)', () => {
+  test('a removed --count; and an added ++count; are counted', () => {
+    // Pre-decrement, a SQL comment, a Lua comment: all ordinary content.
+    expect(countChanges(['@@ -1,2 +1,2 @@', '---count;', '+++count;'].join('\n'))).toEqual({
+      added: 1,
+      removed: 1,
+    })
+  })
+
+  test('every file header in a multi-file diff is left out of the count', () => {
+    const diff = [
+      'diff --git a/a b/a',
+      '--- a/a',
+      '+++ b/a',
+      '@@ -1 +1 @@',
+      '-x',
+      '+y',
+      'diff --git a/b b/b',
+      '--- a/b',
+      '+++ b/b',
+      '@@ -1 +1 @@',
+      '-p',
+      '+q',
+    ].join('\n')
+    expect(countChanges(diff)).toEqual({ added: 2, removed: 2 })
+  })
+
+  test('the count is the additions and removals parseDiff draws, for any diff', () => {
+    /* The invariant rather than one case. The `+N −M` beside a file and the
+       diff under it are two readings of one text, and they disagreed: the old
+       counter skipped `---`/`+++` anywhere, the view only before a hunk. */
+    for (const diff of [
+      ['@@ -1,2 +1,2 @@', '---count;', '+++count;'].join('\n'),
+      ['--- a/x', '+++ b/x', '@@ -1,2 +1,2 @@', '-old', '+new', ' same'].join('\n'),
+      ['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '---x', '+++y'].join('\n'),
+      ' unchanged\n context',
+    ]) {
+      const drawn = parseDiff(diff)
+      expect(countChanges(diff), diff).toEqual({
+        added: drawn.filter((line) => line.kind === 'add').length,
+        removed: drawn.filter((line) => line.kind === 'remove').length,
+      })
+    }
+  })
+})
+
+describe('splitByFile reads every header git writes (#84)', () => {
+  const file = (header: string, body: readonly string[] = ['@@ -1 +1 @@', '-a', '+b']): string =>
+    [header, ...body].join('\n')
+
+  test('a quoted non-ASCII name is decoded from its UTF-8 bytes', () => {
+    // core.quotePath=true — git's default — writes café.txt as octal escapes of its bytes.
+    const [only] = splitByFile(file(String.raw`diff --git "a/caf\303\251.txt" "b/caf\303\251.txt"`))
+    expect(only?.path).toBe('café.txt')
+    // Each escape turned into a character on its own gives this: a name no file has.
+    expect(only?.path).not.toBe('cafÃ©.txt')
+  })
+
+  test('the same name with core.quotePath off arrives raw and unquoted', () => {
+    expect(splitByFile(file('diff --git a/café.txt b/café.txt'))[0]?.path).toBe('café.txt')
+  })
+
+  test('git quotes each side on its own, so a rename can quote only one', () => {
+    // Measured: a rename from plain.txt to a name containing a tab.
+    expect(splitByFile(file(String.raw`diff --git a/plain.txt "b/tab\tname.txt"`))[0]?.path).toBe('tab\tname.txt')
+  })
+
+  test('an escaped quote and an escaped backslash decode to themselves', () => {
+    expect(splitByFile(file(String.raw`diff --git "a/quo\"te.txt" "b/quo\"te.txt"`))[0]?.path).toBe('quo"te.txt')
+    expect(splitByFile(file(String.raw`diff --git "a/back\\slash.txt" "b/back\\slash.txt"`))[0]?.path).toBe(
+      'back\\slash.txt',
+    )
+  })
+
+  test('a name containing " b/" is one name, not a place to split', () => {
+    // Unquoted: git quotes for quotes, backslashes and control characters, not for spaces.
+    expect(splitByFile(file('diff --git a/x b/y.txt b/x b/y.txt'))[0]?.path).toBe('x b/y.txt')
+  })
+
+  test('a quoted header is a boundary, so its file does not join the one before', () => {
+    const diff = [
+      file('diff --git a/first.txt b/first.txt'),
+      file(String.raw`diff --git "a/tab\tx.txt" "b/tab\tx.txt"`, ['@@ -1 +1 @@', '-quoted-old', '+quoted-new']),
+    ].join('\n')
+    const files = splitByFile(diff)
+    expect(files.map((entry) => entry.path)).toEqual(['first.txt', 'tab\tx.txt'])
+    // The symptom as a reader met it: the quoted file's lines filed under first.txt.
+    expect(files[0]?.diff).not.toContain('quoted-new')
+  })
+
+  test('a rename between two plain names still keys the new one', () => {
+    // The control: the ordinary rename the old pattern already handled.
+    expect(splitByFile(file('diff --git a/old.txt b/new.txt'))[0]?.path).toBe('new.txt')
+  })
+})
