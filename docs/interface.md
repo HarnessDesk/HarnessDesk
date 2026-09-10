@@ -203,9 +203,26 @@ icon. The row sits outside the scroller, so filtering is one click away however
 far down you are. The display-controls button wears a dot when a filter is
 hiding rows, because a filtered list must never read as missing data.
 
-The footer is one **account row** that shows your active account and avatar,
-with a menu for switching accounts, inspecting health and usage, opening
-Settings, and signing out.
+**The footer is the seat: you, and the agent you will pick up next.** The row
+is your identity — HarnessDesk today, your HarnessDesk account when there is
+one — and at its end sits the mark of the agent new sessions run as, in its
+account's ring, with that agent's readiness dot beside it. The account's
+*name* is not on the row: an account is a pen, not a person. Rest on the mark
+for its name card — which account, on what plan, how much is left. The menu
+behind the row is where switching happens: **Run new sessions as** lists every
+account of every agent with the same figure the header strip shows and ticks
+the default; then Add an account, Settings, Dashboard, and signing out of the
+default agent.
+
+**Switching is a preference, not a navigation.** Picking a different agent
+changes what ⌘N and a draft's agent chip start with, and nothing else: the
+conversation on screen stays (it belongs to its agent, and its own composer
+says so), the session list stays where you scrolled it, and only an empty
+draft takes on the new agent. The rule behind every surface: one *inside* a
+pane speaks for the pane's agent — the header strip, the context ring, the
+composer; one *outside* every pane speaks for the default — the seat, the
+status banner, the palette's *Start with* (which opens a draft, because it
+promised a conversation).
 
 ### Archive and delete
 

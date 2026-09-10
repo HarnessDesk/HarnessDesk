@@ -651,6 +651,11 @@
   background: var(--hdp-alias-interactive-bg-hover);
 }
 
+/* You: the desk's own mark on the same quiet disc the menu's top row draws
+   it on, at the row's size. It used to be the account's initials on the
+   accent gradient, or the agent's mark — which made an account read as the
+   person, and changed every time the default agent did. The agent now sits
+   at the row's other end, in `.seatAvatar`, where the menu's seats wear it. */
 .avatar {
   flex: none;
   display: inline-grid;
@@ -658,27 +663,9 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--hd-accent), var(--hd-tint-violet-ink)); /* desk: a forked literal → the token it was a copy of */
-  color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
-  font-size: var(--hd-text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-.avatar[data-off] {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-tertiary);
-}
-
-/* A vendor's mark: on a quiet disc in the text colour, not the accent gradient. */
-.avatar[data-brand] {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
-}
-
-.avatar[data-brand][data-off] {
-  color: var(--hdp-alias-label-tertiary);
+  background: var(--hdp-alias-bg-module-platform); /* desk: the account's accent gradient → the menu's own quiet disc; the seat is you, not an account */
+  color: var(--hdp-alias-label-primary); /* desk: ink on a brand fill → the label ink the menu's mark already wears */
+  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
 }
 
 .accountMenuMark {
@@ -696,21 +683,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.agentBadge {
-  flex: none;
-  display: inline-block;
-  padding: 0 5px;
-  height: 14px;
-  line-height: 14px;
-  border-radius: 3px;
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-tertiary);
-  font-size: var(--hd-text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .accountMeta {
@@ -1413,6 +1385,12 @@
   background: var(--hdp-alias-bg-module-platform);
   color: var(--hdp-alias-label-secondary);
   box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+}
+
+/* The row's badge for a default agent nobody has signed in to: no ring,
+   because the ring is the account's, and there is no account. */
+.seatAvatar[data-off] {
+  color: var(--hdp-alias-label-tertiary);
 }
 
 .seatAvatar[data-tint='blue'] {

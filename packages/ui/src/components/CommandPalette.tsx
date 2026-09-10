@@ -350,10 +350,13 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       hint: runtime.id === snapshot.activeRuntime ? 'current' : runtime.presentation.tagline,
       icon: <RuntimeMark runtime={runtime} />,
       keywords: `switch agent ${brandOf(runtime.presentation.name)}`,
+      // "Start with" promises a conversation. Choosing the agent is a
+      // preference that leaves the screen alone, so the draft is opened
+      // here, on purpose, after the pick.
       run: () => {
         close()
         if (runtime.id !== snapshot.activeRuntime) void store.selectRuntime(runtime.id)
-        else store.newDraft()
+        store.newDraft()
       },
     }))
 

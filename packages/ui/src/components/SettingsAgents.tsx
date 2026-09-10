@@ -412,7 +412,7 @@ const AgentBlock = ({
               the state — as a chip that names itself, never as a bare dot the
               reader has to decode. A healthy agent shows none of the three. */}
           <span className={styles.headMeta}>
-            {snapshot.activeRuntime === info.id && <Chip state="ready" label="Active" />}
+            {snapshot.activeRuntime === info.id && <Chip state="ready" label="Default" />}
             {count !== null && <span className={styles.headCount}>{count}</span>}
             {state !== 'ready' && <Chip state={state} />}
           </span>
@@ -1592,7 +1592,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
         blurb={info.presentation.tagline}
         actions={
           active ? (
-            <Chip state="ready" label="Active" />
+            <Chip state="ready" label="Default" />
           ) : (
             <Btn
               variant="outline"
@@ -1600,7 +1600,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
               onClick={() => void store.selectRuntime(info.id)}
             >
               <CheckIcon size={14} />
-              Use this agent
+              Use for new sessions
             </Btn>
           )
         }

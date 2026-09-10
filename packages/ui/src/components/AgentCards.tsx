@@ -565,12 +565,20 @@ const AccountCardBody = ({
     const sessions = [...snapshot.sessions.values()].filter((one) => one.runtime === info.id)
     const working = sessions.filter((one) => busyNow(one)).length
 
+    /* A verb that would do nothing is absent, not greyed: the agent that
+       already is the default gets no "run new sessions as this", which
+       `selectRuntime` would return from without a word. The seat's own row
+       and the menu's tick already say it is the default. */
     const actions: AgentCardAction[] = [
-      {
-        label: 'Run new sessions as this',
-        onSelect: () => void store.selectRuntime(info.id),
-        primary: true,
-      },
+      ...(info.id === snapshot.activeRuntime
+        ? []
+        : [
+            {
+              label: 'Run new sessions as this',
+              onSelect: () => void store.selectRuntime(info.id),
+              primary: true,
+            },
+          ]),
       ...(onOpenUsage ? [{ label: 'Usage', onSelect: () => onOpenUsage(info.id) }] : []),
     ]
 
