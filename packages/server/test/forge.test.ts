@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { sessionId, type ForgeReference, type PublicationItem, type Session } from '@harnessdesk/protocol'
+import { rm } from 'node:fs/promises'
+import { join } from 'node:path'
+
+import { itemId, sessionId, turnId, type AgentItem, type ForgeReference, type PublicationItem, type Session } from '@harnessdesk/protocol'
 
 import { FORGE_INSTRUCTION, ForgePlane, type GhRunner } from '../src/forge.js'
+import { StateStore } from '../src/index.js'
 import { FAKE_RUNTIME_ID, type FakeSession } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
 
@@ -122,6 +126,95 @@ test('a publication after the turn ended goes into the last turn, never nowhere'
   await harness.host.forgePlane.publish(reference, { runtime: String(FAKE_RUNTIME_ID), sessionId: session.id, plugin: 'git' })
   const turn = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!.session.turns.at(-1)!
   assert.ok(turn.items.some((item) => item.type === 'publication'))
+})
+
+/**
+ * The runtime's own account of a turn, longer than what it streamed — the
+ * shape Codex hands back when a rollout stored more than the wire carried.
+ * It has never heard of a publication. The host keeps the row where it
+ * stood, in its own record and in what the windows are told.
+ */
+test('a publication keeps its place when the runtime’s account of the turn is longer, and the windows are told the kept list', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const session = (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'go' }] })
+  await client.until(() => client.events.some((event) => event.type === 'turn/started'))
+  await harness.host.forgePlane.publish(reference, { runtime: String(FAKE_RUNTIME_ID), sessionId: session.id, plugin: 'git' })
+  await client.until(() => client.events.some((event) => event.type === 'item/completed' && event.item.type === 'publication'))
+
+  const longer: AgentItem[] = [
+    { id: itemId('u-1'), type: 'userMessage', content: [{ type: 'text', text: 'go' }] },
+    { id: itemId('a-1'), type: 'assistantMessage', text: 'echo: go' },
+    { id: itemId('a-stored-1'), type: 'assistantMessage', text: 'a step the wire never carried' },
+    { id: itemId('a-stored-2'), type: 'assistantMessage', text: 'and another' },
+  ]
+  harness.runtime.emit({
+    type: 'turn/completed',
+    sessionId: sessionId(session.id),
+    turn: { id: turnId('fake-turn-1'), items: longer, status: 'completed' },
+  })
+  await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
+
+  const expected = ['userMessage', 'assistantMessage', 'publication', 'assistantMessage', 'assistantMessage']
+  const held = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!.session.turns.at(-1)!
+  assert.deepEqual(held.items.map((item) => item.type), expected, 'the host’s record: the longer list, with the row where it stood')
+  const told = client.events.find((event) => event.type === 'turn/completed')
+  assert.ok(told && told.type === 'turn/completed')
+  assert.deepEqual(told.turn.items.map((item) => item.type), expected, 'the windows were told the same list, not the runtime’s')
+})
+
+/**
+ * Across a restart, and across a read the backend answers with as much as
+ * the host knew. The old rule preferred the backend's turn whenever it was
+ * not shorter — right for everything the backend produced, and wrong for the
+ * one item it never produced.
+ */
+test('a publication survives a restart and a read the backend answers with as much as the host knew', async (t) => {
+  const first = await start()
+  const client = await Client.connect(first.server)
+  const session = (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'go' }] })
+  await client.until(() => client.events.some((event) => event.type === 'turn/started'))
+  await first.host.forgePlane.publish(reference, { runtime: String(FAKE_RUNTIME_ID), sessionId: session.id, plugin: 'git' })
+  const live = first.runtime.sessions.get(session.id) as FakeSession
+  live.finish()
+  await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
+  client.close()
+  // Down, but not gone: `stop` would remove the state directory, and the
+  // state directory — the transcript in it — is the point.
+  await first.server.close()
+  await first.host.dispose()
+
+  const second = await start({ state: new StateStore(join(first.stateDir, 'state.json')) })
+  t.after(() => stop(second))
+  t.after(() => rm(first.stateDir, { recursive: true, force: true }))
+  const again = await Client.connect(second.server)
+  t.after(() => again.close())
+  // The backend's own account: the two items it streamed and one it stored
+  // besides — as many as the host held, and no publication among them.
+  second.runtime.stored.set(sessionId(session.id), [
+    {
+      id: turnId('fake-turn-1'),
+      status: 'completed',
+      items: [
+        { id: itemId('u-1'), type: 'userMessage', content: [{ type: 'text', text: 'go' }] },
+        { id: itemId('a-1'), type: 'assistantMessage', text: 'echo: go' },
+        { id: itemId('a-stored-1'), type: 'assistantMessage', text: 'a step the wire never carried' },
+      ],
+    },
+  ])
+  const read = (await again.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })) as Session
+  assert.deepEqual(
+    read.turns.at(-1)?.items.map((item) => item.type),
+    ['userMessage', 'assistantMessage', 'publication', 'assistantMessage'],
+    'the backend’s list, with the host’s row put back where it stood',
+  )
+  const kept = read.turns.at(-1)?.items.find((item) => item.type === 'publication') as PublicationItem | undefined
+  assert.deepEqual(kept?.reference, reference)
 })
 
 const answering = (script: (args: readonly string[]) => { stdout?: string; stderr?: string; exitCode?: number }): { gh: GhRunner; calls: string[][] } => {

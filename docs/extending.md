@@ -567,15 +567,19 @@ await ctx.forge.publish(
 )
 
 // How the desk reaches the forge right now: the person's gh, as whom.
-const { via, login, available, reason } = await ctx.forge.identity()
+const { via, login, available, reason } = await ctx.forge.identity(scope)
 ```
 
 Three things worth knowing:
 
-- **The seat is a fact about the calling conversation**, so `seat` and
-  `publish` take the `scope` your tool's `execute` was handed and refuse a
-  call that rides no live invocation — the same gate as `ctx.team`. A plugin
-  cannot sign as a conversation it was not called from.
+- **Every verb rides the invocation it was called from**, so `seat`, `publish`
+  and `identity` take the `scope` your tool's `execute` was handed and refuse
+  a call that rides no live invocation of a plugin granted `forge` — the same
+  gate as `ctx.team`, and the two grants are checked apart: a plugin granted
+  one plane cannot reach the other while it runs. A plugin cannot sign as a
+  conversation it was not called from, and a reference that is not one — no
+  kind, repo, number, url or via, or the wrong types — is refused at the
+  boundary before it reaches any transcript.
 - **Null signs nothing.** A call the desk cannot place — no conversation
   behind it, or a host with no forge plane — gets no seat, and a signature
   built from a guess would be a false one. Say so in the result instead.

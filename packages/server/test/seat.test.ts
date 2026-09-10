@@ -49,6 +49,8 @@ test('an effort folded into the model’s own label is split back out', () => {
 test('only an effort word is folded out of a model’s brackets; a version or a size stays as the model wrote it', () => {
   const named = (label: string): ConfigOption[] => [select('model', 'm', [['m', label]])]
   assert.equal(seatOf('Antigravity', named('Gemini 3.8 Flash (Medium)')).label, 'Antigravity Gemini 3.8 Flash · Medium')
+  // Spelled as a control's label would be, whatever the agent's own casing.
+  assert.equal(seatOf('Antigravity', named('Gemini 3.8 Flash (high)')).effort, 'High')
   assert.equal(seatOf('Anywhere', named('Llama 3.3 (70B)')).label, 'Anywhere Llama 3.3 (70B)')
   assert.equal(seatOf('Anywhere', named('GPT-4o (2024-08-06)')).label, 'Anywhere GPT-4o (2024-08-06)')
   assert.equal(seatOf('Anywhere', named('Claude 3.7 Sonnet (Hybrid)')).label, 'Anywhere Claude 3.7 Sonnet (Hybrid)')

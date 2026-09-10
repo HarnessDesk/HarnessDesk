@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 
 import type { ForgeEngine, ForgeIdentity, ForgeScope, ForgeSeat } from '@harnessdesk/cordis-host'
-import { itemId, type ConfigOption, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
+import { isForgeReference, itemId, type ConfigOption, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
 
 import { seatOf } from './seat.js'
 
@@ -123,7 +123,7 @@ export class ForgePlane implements ForgeEngine {
    * Cached for a while — every publication asks — and asked once at a time,
    * so a burst of tool calls does not fan out into a burst of API calls.
    */
-  async identity(): Promise<ForgeIdentity> {
+  async identity(_scope?: ForgeScope): Promise<ForgeIdentity> {
     const now = Date.now()
     if (this.#identity && now - this.#identity.at < this.#identityTtlMs) return this.#identity.value
     if (this.#asking) return this.#asking
@@ -159,6 +159,11 @@ export class ForgePlane implements ForgeEngine {
   async publish(reference: ForgeReference, scope: ForgeScope): Promise<void> {
     if (!scope.runtime || !scope.sessionId) {
       throw new Error('A publication is recorded against a conversation, and this call named none.')
+    }
+    // The supervisor checks a child's reference at its boundary; this is the
+    // same check for a built-in, which reaches the plane directly.
+    if (!isForgeReference(reference)) {
+      throw new Error('The publication is not a forge reference: kind, repo, number, url and via are required, in their types.')
     }
     const now = Date.now()
     const item: PublicationItem = {

@@ -103,9 +103,11 @@ describe('the publication row', () => {
     expect(publicationVerb(reference({ action: 'updated' }))).toBe('Updated the pull request')
     expect(publicationVerb(reference({ kind: 'review', action: 'posted' }))).toBe('Reviewed the pull request')
     expect(publicationVerb(reference({ kind: 'comment', action: 'posted' }))).toBe('Commented on the pull request')
+    expect(publicationVerb(reference({ kind: 'comment', action: 'posted', subject: 'issue' }))).toBe('Commented on the issue')
+    // Said, not guessed: a pull request whose size the forge did not give is still a pull request.
     expect(
       publicationVerb(reference({ kind: 'comment', action: 'posted', additions: null, deletions: null, files: null })),
-    ).toBe('Commented on the issue')
+    ).toBe('Commented on the pull request')
   })
 
   it('says the state in a word, and nothing when the forge gave none', () => {

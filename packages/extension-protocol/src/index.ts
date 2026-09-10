@@ -248,7 +248,7 @@ export interface ChildToHostMethods {
    * transport and programming errors throw.
    */
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
-  'forge/identity': { params: Record<string, never>; result: ForgeIdentityInfo }
+  'forge/identity': { params: { readonly scope: TeamCallScope }; result: ForgeIdentityInfo }
   'forge/publish': {
     params: { readonly scope: TeamCallScope; readonly reference: ForgeReference }
     result: null

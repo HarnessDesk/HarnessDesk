@@ -274,6 +274,12 @@ export interface ForgeReference {
   readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'
   /** What the conversation did to it; absent for something merely looked up. */
   readonly action?: 'opened' | 'updated' | 'posted'
+  /**
+   * What a review or a comment is on, said rather than guessed: the row
+   * reads "Commented on the issue" because the plugin said so, never
+   * because the reference happened to carry no size.
+   */
+  readonly subject?: 'pullRequest' | 'issue'
   /** `owner/name`, as the forge spells it. */
   readonly repo: string
   readonly number: number
@@ -291,6 +297,41 @@ export interface ForgeReference {
   readonly via: 'gh' | 'app'
   /** The line the desk signed it with, when it signed. */
   readonly signature: string | null
+}
+
+const FORGE_KINDS = new Set(['pullRequest', 'issue', 'review', 'comment'])
+const FORGE_STATES = new Set(['open', 'draft', 'merged', 'closed'])
+
+/**
+ * Whether a value is a forge reference in its required parts and types.
+ * Checked where a reference crosses a trust boundary — a plugin in the
+ * child process handing one to the host — so that what lands in every
+ * window's transcript is at least the shape the renderer expects.
+ */
+export const isForgeReference = (value: unknown): value is ForgeReference => {
+  if (typeof value !== 'object' || value === null) return false
+  const ref = value as Record<string, unknown>
+  const optionalString = (field: unknown): boolean => field === null || field === undefined || typeof field === 'string'
+  const optionalNumber = (field: unknown): boolean =>
+    field === null || field === undefined || (typeof field === 'number' && Number.isFinite(field))
+  return (
+    typeof ref['kind'] === 'string' &&
+    FORGE_KINDS.has(ref['kind']) &&
+    typeof ref['repo'] === 'string' &&
+    typeof ref['number'] === 'number' &&
+    Number.isFinite(ref['number']) &&
+    typeof ref['url'] === 'string' &&
+    /^https?:\/\//.test(ref['url']) &&
+    (ref['via'] === 'gh' || ref['via'] === 'app') &&
+    (ref['state'] === null || ref['state'] === undefined || (typeof ref['state'] === 'string' && FORGE_STATES.has(ref['state']))) &&
+    optionalString(ref['title']) &&
+    optionalString(ref['author']) &&
+    optionalString(ref['excerpt']) &&
+    optionalString(ref['signature']) &&
+    optionalNumber(ref['additions']) &&
+    optionalNumber(ref['deletions']) &&
+    optionalNumber(ref['files'])
+  )
 }
 
 /** A publication: what a conversation put on the forge, through the desk. */

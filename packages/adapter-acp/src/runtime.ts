@@ -283,6 +283,13 @@ export interface AcpAgentConfig {
      * called over MCP finally knows which conversation called it.
      */
     readonly onSession?: (token: string, sessionId: string) => void
+    /**
+     * Told the token before the open is sent, when the session has no id
+     * yet. The agent spawns the bridge while the open is in flight and the
+     * bridge asks the gateway for its instructions at its own handshake, so
+     * whoever answers that question needs to know whose token it is first.
+     */
+    readonly onOpen?: (token: string) => void
   }
   /**
    * The desk's standing instruction for the agent, read when a session is
@@ -1589,6 +1596,8 @@ export class AcpRuntime implements AgentRuntime {
   async #openWithTools<T>(method: 'session/new' | 'session/load', params: Record<string, unknown>): Promise<T> {
     const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
+    // The token's runtime is known now; its session only once the open answers.
+    if (servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
     // The claim closes the loop: the bridge this open spawns carries the
     // token, and whoever built the runtime now learns which session it names.
     const claim = (result: T): T => {

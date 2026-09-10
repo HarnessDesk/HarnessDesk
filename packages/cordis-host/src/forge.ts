@@ -55,7 +55,13 @@ export interface ForgeScope {
 export interface ForgeEngine {
   /** The seat of the calling conversation, or null when the scope names none the host holds. */
   seat(scope: ForgeScope): Promise<ForgeSeat | null>
-  identity(): Promise<ForgeIdentity>
+  /**
+   * How the desk reaches the forge. The answer names no conversation; the
+   * scope is there because every forge verb rides the invocation it was
+   * called from, so that a plugin in the shared child cannot reach any of
+   * them by speaking the wire protocol between invocations.
+   */
+  identity(scope: ForgeScope): Promise<ForgeIdentity>
   /** Records what the calling conversation published, into its transcript. */
   publish(reference: ForgeReference, scope: ForgeScope): Promise<void>
 }
@@ -102,9 +108,9 @@ export class ForgeService extends Service {
     return engine().seat(asForgeScope(scope, plugin))
   }
 
-  async identity(): Promise<ForgeIdentity> {
-    this.gate()
-    return engine().identity()
+  async identity(scope?: ScopeQuery): Promise<ForgeIdentity> {
+    const plugin = this.gate()
+    return engine().identity(asForgeScope(scope, plugin))
   }
 
   async publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void> {

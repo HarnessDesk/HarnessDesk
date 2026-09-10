@@ -45,11 +45,34 @@ export const DEFAULT_SIGNATURE = '🤖 Generated with [HarnessDesk](https://harn
 export const DEFAULT_REVIEW_SIGNATURE = '**Review by {seat} · via HarnessDesk**'
 
 /**
- * A HarnessDesk signature as a body's last line — and only there. A body
- * that quotes the line somewhere in its prose keeps it: the desk replaces
- * what it wrote, never what the author wrote about it.
+ * The default's shape as a body's last line — and only there. A body that
+ * quotes the line somewhere in its prose keeps it: the desk replaces what it
+ * wrote, never what the author wrote about it. Kept beside the template's
+ * own matcher for a description signed before the template was changed.
  */
-const SIGNED_BEFORE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]*$/
+const DEFAULT_SHAPE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]*$/
+
+const PLACEHOLDER = /\{(?:seat|agent|model|effort|version|thinking)\}/g
+
+const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * A matcher for the line a template renders to, whatever the seat put in
+ * it: each placeholder may be anything, a " · " may have gone with an empty
+ * part, and runs of spaces may have collapsed. Anchored to the end of the
+ * body, because only the desk's own trailing line is ever replaced. Null for
+ * a template with no words of its own — bare `{seat}` — which would match any
+ * last line at all; such a template is matched by its exact rendering.
+ */
+export const signatureMatcher = (template: string): RegExp | null => {
+  const trimmed = template.trim()
+  if (trimmed === '' || trimmed.replace(PLACEHOLDER, '').trim() === '') return null
+  const pattern = trimmed
+    .split(PLACEHOLDER)
+    .map((chunk) => escapeRegex(chunk).replace(/ · /g, '(?: · )?').replace(/\s+/g, '\\s*'))
+    .join('[^\\n]*?')
+  return new RegExp(`(?:^|\\n)${pattern}\\s*$`)
+}
 
 /** How much of a body the transcript card is given: the opening, as the forge holds it. */
 const EXCERPT_LIMIT = 600
@@ -74,8 +97,9 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
     model: seat.model ?? '',
     effort: seat.effort ?? '',
     version: seat.version ?? '',
+    thinking: seat.thinking ? 'Thinking' : '',
   }
-  const filled = template.replace(/\{(seat|agent|model|effort|version)\}/g, (_match, key: string) => parts[key] ?? '')
+  const filled = template.replace(/\{(seat|agent|model|effort|version|thinking)\}/g, (_match, key: string) => parts[key] ?? '')
   return filled
     .split(' · ')
     .map((part) => part.replace(/\s{2,}/g, ' ').trim())
@@ -84,9 +108,21 @@ export const renderSignature = (template: string, seat: ForgeSeat): string => {
     .trim()
 }
 
-/** The body with the signature as its last line, and any earlier HarnessDesk line gone. */
-export const signBody = (body: string, signature: string | null): string => {
-  const stripped = body.replace(/\s+$/, '').replace(SIGNED_BEFORE, '').replace(/\s+$/, '')
+/**
+ * The body with the signature as its last line, and the earlier one gone —
+ * whichever of three it was: a line the current template rendered for some
+ * seat, the current rendering exactly, or the default's shape from before
+ * the template was changed. One line is replaced, never two.
+ */
+export const signBody = (body: string, signature: string | null, template: string = DEFAULT_SIGNATURE): string => {
+  let stripped = body.replace(/\s+$/, '')
+  const exact = signature ? new RegExp(`(?:^|\\n)${escapeRegex(signature)}\\s*$`) : null
+  for (const matcher of [signatureMatcher(template), exact, DEFAULT_SHAPE]) {
+    if (matcher && matcher.test(stripped)) {
+      stripped = stripped.replace(matcher, '').replace(/\s+$/, '')
+      break
+    }
+  }
   if (signature === null || signature === '') return stripped
   return stripped === '' ? signature : `${stripped}\n\n${signature}`
 }
@@ -136,9 +172,19 @@ const excerptOf = (body: string | null | undefined): string | null => {
   return text.length > EXCERPT_LIMIT ? `${text.slice(0, EXCERPT_LIMIT).trimEnd()}…` : text
 }
 
+/**
+ * What `gh` prints about itself rather than about the request — an upgrade
+ * notice lands on stderr ahead of the actual error — and is not the answer.
+ */
+const GH_NOTICE = /A new release of gh is available|To upgrade, run|github\.com\/cli\/cli\/releases/i
+
 /** `gh`'s failures in a person's words, since the agent will repeat them to one. */
 const ghFailure = (args: readonly string[], said: string): string => {
-  const line = said.trim().split('\n').find((entry) => entry.trim() !== '') ?? ''
+  const line =
+    said
+      .split('\n')
+      .map((entry) => entry.trim())
+      .find((entry) => entry !== '' && !GH_NOTICE.test(entry)) ?? ''
   if (/ENOENT|spawn gh|command not found/i.test(said)) {
     return 'gh is not installed, or not on the PATH HarnessDesk was started with. Install GitHub CLI and run `gh auth login`.'
   }
@@ -244,16 +290,26 @@ export const gitPlugin: HarnessPlugin = {
         }
       }
 
-      const signatureFor = (seat: ForgeSeat | null, template: string | undefined, fallback: string): string | null => {
-        if (seat === null) return null
+      /**
+       * The line to sign with, or why there is none: no seat the desk can
+       * name, a template the person blanked, or a template that rendered to
+       * nothing for this seat — three different sentences for the agent.
+       */
+      const signatureFor = (
+        seat: ForgeSeat | null,
+        template: string | undefined,
+        fallback: string,
+      ): { readonly line: string | null; readonly template: string; readonly why: 'seat' | 'blank' | 'empty' | null } => {
         const chosen = template === undefined ? fallback : template
+        if (seat === null) return { line: null, template: chosen, why: 'seat' }
+        if (chosen.trim() === '') return { line: null, template: chosen, why: 'blank' }
         const rendered = renderSignature(chosen, seat)
-        return rendered === '' ? null : rendered
+        return rendered === '' ? { line: null, template: chosen, why: 'empty' } : { line: rendered, template: chosen, why: null }
       }
 
-      const viaOf = async (): Promise<ForgeReference['via']> => {
+      const viaOf = async (scope: ScopeQuery): Promise<ForgeReference['via']> => {
         try {
-          return (await ctx.forge.identity()).via
+          return (await ctx.forge.identity(scope)).via
         } catch {
           return 'gh'
         }
@@ -265,6 +321,7 @@ export const gitPlugin: HarnessPlugin = {
       ): ForgeReference => ({
         kind: fields.kind,
         action: fields.action,
+        ...(fields.kind === 'review' || fields.kind === 'comment' ? { subject: 'pullRequest' as const } : {}),
         repo: repoOf(pr.url),
         number: pr.number,
         url: fields.url ?? pr.url,
@@ -294,12 +351,14 @@ export const gitPlugin: HarnessPlugin = {
         }
       }
 
-      const seatNote = (seat: ForgeSeat | null, signature: string | null): string =>
-        signature !== null
+      const seatNote = (seat: ForgeSeat | null, signed: { readonly line: string | null; readonly why: string | null }): string =>
+        signed.line !== null
           ? `Signed for ${seat?.label ?? 'this seat'}.`
-          : seat === null
+          : signed.why === 'seat'
             ? 'Unsigned: the desk could not tell which conversation made this call.'
-            : 'Unsigned: the signature is switched off in the Git plugin’s settings.'
+            : signed.why === 'empty'
+              ? 'Unsigned: the signature template produced nothing for this seat.'
+              : 'Unsigned: the signature is switched off in the Git plugin’s settings.'
 
       const describePullRequest = (pr: GhPullRequest): string => {
         const state = stateOf(pr)
@@ -388,8 +447,11 @@ export const gitPlugin: HarnessPlugin = {
           if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
           const upstream = await ctx.shell.run('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
           if (upstream.exitCode !== 0) {
+            // The remote to name: the repository's own, which is not always `origin`.
+            const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
+            const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
             throw new Error(
-              `Branch ${branch} has not been pushed. Push it first — \`git push -u origin ${branch}\` — then call pr_create again; this tool never pushes.`,
+              `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
             )
           }
           const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
@@ -407,18 +469,18 @@ export const gitPlugin: HarnessPlugin = {
             )
           }
           const seat = await seatFor(scope)
-          const signature = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signature)]
+          const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
+          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line, signed.template)]
           if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
           if (args.draft === true) argv.push('--draft')
           const created = await gh(argv)
           const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
           const pr = await viewPullRequest(url || branch)
           const note = await publish(
-            referenceOf(pr, { kind: 'pullRequest', action: 'opened', via: await viaOf(), signature }),
+            referenceOf(pr, { kind: 'pullRequest', action: 'opened', via: await viaOf(scope), signature: signed.line }),
             scope,
           )
-          return [`Opened pull request #${pr.number}: ${pr.title}`, pr.url, seatNote(seat, signature), note]
+          return [`Opened pull request #${pr.number}: ${pr.title}`, pr.url, seatNote(seat, signed), note]
             .filter((line) => line !== null && line !== '')
             .join('\n')
         },
@@ -440,7 +502,7 @@ export const gitPlugin: HarnessPlugin = {
         execute: async (args: { number?: number; title?: string; body?: string; base?: string }, scope) => {
           const current = await pullRequestFor(args.number)
           const seat = await seatFor(scope)
-          const signature = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
+          const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
           const argv = ['pr', 'edit', String(current.number)]
           let changed = 0
           if (typeof args.title === 'string' && args.title.trim() !== '') {
@@ -448,7 +510,7 @@ export const gitPlugin: HarnessPlugin = {
             changed += 1
           }
           if (typeof args.body === 'string') {
-            argv.push('--body', signBody(args.body, signature))
+            argv.push('--body', signBody(args.body, signed.line, signed.template))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {
@@ -462,15 +524,15 @@ export const gitPlugin: HarnessPlugin = {
             referenceOf(pr, {
               kind: 'pullRequest',
               action: 'updated',
-              via: await viaOf(),
-              signature: typeof args.body === 'string' ? signature : null,
+              via: await viaOf(scope),
+              signature: typeof args.body === 'string' ? signed.line : null,
             }),
             scope,
           )
           return [
             `Updated pull request #${pr.number}: ${pr.title}`,
             pr.url,
-            typeof args.body === 'string' ? seatNote(seat, signature) : null,
+            typeof args.body === 'string' ? seatNote(seat, signed) : null,
             note,
           ]
             .filter((line) => line !== null && line !== '')
@@ -505,9 +567,9 @@ export const gitPlugin: HarnessPlugin = {
           if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
           const pr = await pullRequestFor(args.number)
           const seat = await seatFor(scope)
-          const signature = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
-          const signed = signature === null ? body : body === '' ? signature : `${signature}\n\n${body}`
-          await gh(['pr', 'review', String(pr.number), flag, '--body', signed])
+          const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
+          const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
+          await gh(['pr', 'review', String(pr.number), flag, '--body', review])
           // `gh pr review` prints no address for what it posted; the API knows.
           let url = pr.url
           try {
@@ -517,11 +579,11 @@ export const gitPlugin: HarnessPlugin = {
             // The pull request's own address is a fine second best.
           }
           const note = await publish(
-            referenceOf(pr, { kind: 'review', action: 'posted', via: await viaOf(), url, signature }),
+            referenceOf(pr, { kind: 'review', action: 'posted', via: await viaOf(scope), url, signature: signed.line }),
             scope,
           )
           const verdict = args.event === 'approve' ? 'Approved' : args.event === 'request_changes' ? 'Requested changes on' : 'Commented on'
-          return [`${verdict} pull request #${pr.number}: ${pr.title}`, url, seatNote(seat, signature), note]
+          return [`${verdict} pull request #${pr.number}: ${pr.title}`, url, seatNote(seat, signed), note]
             .filter((line) => line !== null && line !== '')
             .join('\n')
         },
@@ -545,7 +607,7 @@ export const gitPlugin: HarnessPlugin = {
           const pr = await pullRequestFor(args.number)
           const posted = await gh(['pr', 'comment', String(pr.number), '--body', body])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
-          const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(), url }), scope)
+          const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url }), scope)
           return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
             .filter((line) => line !== null && line !== '')
             .join('\n')
@@ -646,6 +708,7 @@ export const gitPlugin: HarnessPlugin = {
             {
               kind: 'comment',
               action: 'posted',
+              subject: 'issue',
               repo: repoOf(issue.url),
               number: issue.number,
               url,
@@ -656,7 +719,7 @@ export const gitPlugin: HarnessPlugin = {
               deletions: null,
               files: null,
               excerpt: excerptOf(body),
-              via: await viaOf(),
+              via: await viaOf(scope),
               signature: null,
             },
             scope,

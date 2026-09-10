@@ -488,6 +488,96 @@ test('a forge call rides its own invocation or is refused; the identity needs no
 
     const identity = await host.invokeTool(toolId('forge_identity'), {}, live)
     assert.match(JSON.stringify(identity), /octocat/)
+
+    // A shape that is not a reference stops at the boundary, before the engine.
+    const garbage = await host.invokeTool(toolId('forge_publish_garbage'), {}, live)
+    assert.match(JSON.stringify(garbage), /refused: .*not a forge reference/)
+  } finally {
+    await host.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+/**
+ * A grant is for one plane. The arming is shared — one live invocation arms
+ * a plugin for whichever plane it is granted — so the parent checks the
+ * grant as well as the arming: a forge-only plugin writing a `team/*` frame
+ * while it runs, a team-only plugin writing `forge/seat`, and a plugin with
+ * no grant at all writing `forge/identity` under a granted sibling's name
+ * are all refused before any engine hears of them.
+ */
+test('a grant is for one plane: the arming alone opens neither the other plane nor the identity', async () => {
+  const boards: unknown[] = []
+  const seats: unknown[] = []
+  const identities: unknown[] = []
+  const team: TeamEngine = {
+    board: async (callScope) => {
+      boards.push(callScope)
+      return 'board'
+    },
+    addIntent: async () => 'x',
+    claim: async () => 'x',
+    claimNext: async () => 'x',
+    conflicts: async () => 'x',
+    complete: async () => 'x',
+    release: async () => 'x',
+    handoff: async () => 'x',
+    status: async () => 'status ok',
+    send: async () => 'x',
+  }
+  const forge: ForgeEngine = {
+    seat: async (callScope) => {
+      seats.push(callScope)
+      return { agent: 'Codex', version: null, model: null, effort: null, thinking: false, label: 'Codex' }
+    },
+    identity: async (callScope) => {
+      identities.push(callScope)
+      return { via: 'gh', login: 'octocat', available: true, reason: null }
+    },
+    publish: async () => {},
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
+  const store = join(dir, 'plugins')
+  for (const name of ['forgeish', 'teamish', 'ungranted']) {
+    await cp(join(FIXTURES, `plugin-${name}`), join(store, name), { recursive: true })
+  }
+  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+    invokeTimeoutMs: 3000,
+    env: { HARNESSDESK_PLUGINS: store },
+    teamEngine: team,
+    forgeEngine: forge,
+  })
+  try {
+    await host.loadInstalledPlugins()
+    const toolId = (name: string): ContributionId => {
+      const tool = host.list('tool').find((entry) => entry.name === name)
+      assert.ok(tool, `tool ${name} should be contributed`)
+      return tool.id
+    }
+    const live = { runtime: 'codex' as RuntimeId, sessionId: 's1' as SessionId }
+
+    // Not vacuous: each fixture really speaks the protocol and really is
+    // answered — with a refusal naming the reason, never with silence.
+    const board = await host.invokeTool(toolId('team_via_forge_grant'), {}, live)
+    assert.match(JSON.stringify(board), /cannot be attributed/)
+    assert.doesNotMatch(JSON.stringify(board), /no answer/)
+    assert.equal(boards.length, 0, 'the forge-only plugin never reached the board')
+
+    const seat = await host.invokeTool(toolId('forge_via_team_grant'), {}, live)
+    assert.match(JSON.stringify(seat), /cannot be attributed/)
+    assert.doesNotMatch(JSON.stringify(seat), /no answer/)
+    assert.equal(seats.length, 0, 'the team-only plugin never reached the seat')
+
+    const identity = await host.invokeTool(toolId('forge_identity_ungranted'), {}, live)
+    assert.match(JSON.stringify(identity), /cannot be attributed/)
+    assert.doesNotMatch(JSON.stringify(identity), /octocat/)
+    assert.equal(identities.length, 0, 'the ungranted plugin never reached the identity')
+
+    // The control: the same verbs, from the plugin that holds the grant, go through.
+    const honest = await host.invokeTool(toolId('forge_identity'), {}, live)
+    assert.match(JSON.stringify(honest), /octocat/)
+    assert.equal(identities.length, 1)
+    assert.ok(typeof (identities[0] as { plugin?: unknown }).plugin === 'string', 'the identity is asked as a named plugin, on its own invocation')
   } finally {
     await host.dispose()
     await rm(dir, { recursive: true, force: true })

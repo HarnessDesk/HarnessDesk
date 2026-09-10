@@ -1483,11 +1483,12 @@ export class CursorAcpBridge {
       ...(session.pluginDir ? ['--plugin-dir', session.pluginDir, '--approve-mcps'] : []),
       '--', // a prompt that begins with `-` must stay a prompt
       // The client's briefing rides ahead of the first prompt only; the chat
-      // remembers it from there. Marked before the spawn: a turn that dies
-      // before it speaks is retried with the same `args`, briefing included.
+      // remembers it from there. Marked briefed only once a turn has run
+      // (below): a turn stopped at the start gate, or a spawn that died
+      // before its first word and was not retried, never showed it to the
+      // agent, and the next prompt carries it again.
       session.briefing && !session.briefed ? `${session.briefing}\n\n${text}` : text,
     ]
-    session.briefed = true
 
     session.cancelled = false
     const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
@@ -1504,7 +1505,11 @@ export class CursorAcpBridge {
         return { stopReason: 'cancelled' }
       }
       try {
-        return await this.#runTurn(session, args, configHome, spoke, leave)
+        const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
+        // The agent has read the prompt — briefing included — whatever the
+        // turn's outcome; the chat remembers it under `--resume`.
+        session.briefed = true
+        return outcome
       } catch (error) {
         leave()
         const said = error instanceof Error ? error.message : String(error)

@@ -14,7 +14,9 @@ const STATE: Record<NonNullable<ForgeReference['state']>, { label: string; tone:
 
 /** The verb the transcript row leads with: what the conversation did. */
 export const publicationVerb = (reference: ForgeReference): string => {
-  const thing = reference.kind === 'issue' ? 'the issue' : reference.kind === 'comment' ? (reference.additions === null && reference.files === null && reference.deletions === null ? 'the issue' : 'the pull request') : 'the pull request'
+  // What a comment or a review is on is said by the reference, never guessed
+  // from what it happens to carry; a pull request is the default subject.
+  const thing = reference.subject === 'issue' ? 'the issue' : 'the pull request'
   switch (reference.kind) {
     case 'pullRequest':
       return reference.action === 'updated' ? 'Updated the pull request' : reference.action === 'opened' ? 'Opened a pull request' : 'Pull request'

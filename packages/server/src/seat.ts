@@ -83,7 +83,10 @@ export const seatOf = (
     const word = folded?.[2]?.trim() ?? ''
     if (folded && EFFORT_WORDS.test(word)) {
       model = folded[1] ?? model
-      effort = word
+      // Written the way an effort control's own label is — "High", never
+      // "high" — so the same seat signs the same whichever way the agent
+      // spelled it.
+      effort = word.charAt(0).toUpperCase() + word.slice(1)
     }
   }
   return {

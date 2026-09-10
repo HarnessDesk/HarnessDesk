@@ -29,6 +29,7 @@ import {
   type PluginHostStats,
 } from '@harnessdesk/extension-protocol'
 import {
+  isForgeReference,
   pluginInstanceId,
   scopeApplies,
   type CapabilityContribution,
@@ -397,32 +398,39 @@ export class PluginHostProcess {
           return
         }
         const params = request.params as Record<string, unknown>
-        if (request.method === 'forge/identity') {
-          reply({ response: request.request, result: await plane.identity() })
-          return
-        }
-        // The seat and the record are attributed to a conversation, so they
-        // ride a live invocation the parent dispatched — the same arming the
-        // team verbs use, for the same reason.
+        // Every forge verb rides a live invocation the parent dispatched to
+        // the plugin that speaks — the identity too. It names no
+        // conversation, but the grant it needs is per plugin, and the arming
+        // is the one thing the parent knows about which plugin is speaking:
+        // without it, any plugin in the shared child could read the forge
+        // login by writing the frame itself. See the team block below.
         const scope = (params['scope'] ?? {}) as ForgeScope
-        const armed =
-          typeof scope.runtime === 'string' &&
-          typeof scope.sessionId === 'string' &&
-          typeof scope.plugin === 'string' &&
-          (this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) > 0
-        if (!armed) {
+        if (!this.#armedFor(scope, 'forge')) {
           refuse(
-            'Refused: this forge call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed to a seat.',
+            'Refused: this forge call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed. Forge verbs work only while a tool call, context resolution, or command for that conversation — dispatched to this plugin, which must be granted `forge` — is in flight.',
           )
           return
         }
         switch (request.method) {
+          case 'forge/identity': {
+            reply({ response: request.request, result: await plane.identity(scope) })
+            return
+          }
           case 'forge/seat': {
             reply({ response: request.request, result: await plane.seat(scope) })
             return
           }
           case 'forge/publish': {
-            await plane.publish(params['reference'] as ForgeReference, scope)
+            // The reference crosses from the child into every window's
+            // transcript; a shape the renderer does not expect stops here.
+            const reference = params['reference']
+            if (!isForgeReference(reference)) {
+              refuse(
+                'Refused: the publication is not a forge reference — kind, repo, number, url and via are required, in their types.',
+              )
+              return
+            }
+            await plane.publish(reference, scope)
             reply({ response: request.request, result: null })
             return
           }
@@ -453,13 +461,7 @@ export class PluginHostProcess {
         // remains one trust domain — a plugin that lies about its identity is
         // still only reaching a window where the plugin it names is itself
         // mid-invocation — but the ambient, always-on grant is gone.
-        const armed =
-          typeof scope.runtime === 'string' &&
-          typeof scope.sessionId === 'string' &&
-          typeof scope.plugin === 'string' &&
-          (this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) >
-            0
-        if (!armed) {
+        if (!this.#armedFor(scope, 'team')) {
           refuse(
             'Refused: this team call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed. Team verbs work only while a tool call, context resolution, or command for that conversation — dispatched to this plugin, which must be granted `team` — is in flight.',
           )
@@ -689,6 +691,25 @@ export class PluginHostProcess {
         plugin.contributions.some((entry) => predicate(entry as { kind: string; name?: string })),
       )
       .map((plugin) => String(plugin.instanceId))
+  }
+
+  /**
+   * Whether a child's claim to be a plugin mid-invocation for a conversation
+   * is one the parent stands behind, *and* that plugin holds the grant for
+   * the plane it is reaching. The arming says the plugin is running; the
+   * grant says which plane it may touch. Both are checked, because the
+   * arming is shared between the two planes — one live invocation arms a
+   * plugin for whichever it is granted — and a forge-only plugin that could
+   * write a `team/*` frame while armed would reach the board without the
+   * grant the manifest never asked for.
+   */
+  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown }, plane: 'team' | 'forge'): boolean {
+    if (typeof scope.runtime !== 'string' || typeof scope.sessionId !== 'string' || typeof scope.plugin !== 'string') {
+      return false
+    }
+    if ((this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) <= 0) return false
+    const plugin = this.#plugins.find((entry) => String(entry.instanceId) === scope.plugin)
+    return plugin !== undefined && plugin.enabled && plugin.permissions[plane] === true
   }
 
   /** The plugins whose scoped engine calls — team or forge — a live invocation arms. */

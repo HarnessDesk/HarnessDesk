@@ -148,7 +148,7 @@ export interface HarnessContext {
    */
   readonly forge: {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
-    identity(): Promise<ForgeIdentity>
+    identity(scope?: ScopeQuery): Promise<ForgeIdentity>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
   }
   readonly team: {

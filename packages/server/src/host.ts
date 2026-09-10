@@ -74,6 +74,7 @@ import { EditorPlane } from './editor-plane.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
+import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
 import { redactorFor } from './diagnostics.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
@@ -1945,30 +1946,27 @@ export class Host {
     // What the host itself put in the turn, before the runtime's own account
     // of it replaces the list: a runtime that streamed less than it stored
     // hands back a longer list that has never heard of a publication, and
-    // `reduceSession` rightly prefers the longer one.
+    // `reduceSession` rightly prefers the longer one. Put back where they
+    // stood — and sent onward in the event the windows get, whose own
+    // `reduceSession` would otherwise make the same replacement and lose
+    // the row the host had just kept.
     const published =
       event.type === 'turn/completed'
-        ? (this.registry
-            .get(runtime, event.sessionId)
-            ?.session.turns.find((turn) => turn.id === event.turn.id)
-            ?.items.filter((item): item is PublicationItem => item.type === 'publication') ?? [])
+        ? publicationsIn(
+            this.registry.get(runtime, event.sessionId)?.session.turns.find((turn) => turn.id === event.turn.id)
+              ?.items ?? [],
+          )
         : []
     const record = this.registry.apply(runtime, event)
+    let outgoing: AgentEvent = event
     if (record && event.type === 'turn/completed' && published.length > 0) {
+      const kept = record.session.turns.find((turn) => turn.id === event.turn.id)
+      const items = withPublications(kept?.items ?? [], published)
       record.session = {
         ...record.session,
-        turns: record.session.turns.map((turn) =>
-          turn.id === event.turn.id
-            ? {
-                ...turn,
-                items: [
-                  ...turn.items,
-                  ...published.filter((item) => !turn.items.some((entry) => entry.id === item.id)),
-                ],
-              }
-            : turn,
-        ),
+        turns: record.session.turns.map((turn) => (turn.id === event.turn.id ? { ...turn, items } : turn)),
       }
+      outgoing = { ...event, turn: { ...event.turn, items } }
     }
     // The runtime's own list, held so a reloading client gets it back. Kept
     // here and not folded into the session: the runtime owns it, and a second
@@ -1984,7 +1982,7 @@ export class Host {
     if (event.type === 'turn/completed') {
       void this.#usageService.refresh(runtime).catch(() => undefined)
     }
-    this.#push({ method: 'event', params: { runtime, event } })
+    this.#push({ method: 'event', params: { runtime, event: outgoing } })
     // A sign-in that landed on an identity another account already holds did
     // not add an account. Checked after the event has gone out, so the screen
     // that started the flow sees it succeed — which it did — before the row it

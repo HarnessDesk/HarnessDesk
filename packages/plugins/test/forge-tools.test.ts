@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeSeat } from '@harnessdesk/cordis-host'
 import type { ContributionId, ForgeReference, ToolResult } from '@harnessdesk/protocol'
 
-import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, gitPlugin, renderSignature, signBody } from '../src/index.js'
+import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, gitPlugin, renderSignature, signBody, signatureMatcher } from '../src/index.js'
 
 /**
  * The Git plugin's forge tools, driven through the real kernel against a
@@ -44,10 +44,17 @@ const pr = () => ({
 const verb = args.slice(0, 2).join(' ')
 if (verb === 'pr list') { process.stdout.write(fs.existsSync(bodyFile) ? JSON.stringify([{ number: 7, url: pr().url }]) : '[]'); process.exit(0) }
 if (verb === 'pr create') { fs.writeFileSync(bodyFile, after('--body') ?? ''); process.stdout.write('https://github.com/acme/widgets/pull/7\n'); process.exit(0) }
-if (verb === 'pr view') { process.stdout.write(JSON.stringify(pr())); process.exit(0) }
 if (verb === 'pr edit') { const body = after('--body'); if (body !== null) fs.writeFileSync(bodyFile, body); process.exit(0) }
 if (verb === 'pr review') { fs.writeFileSync(path.join(home, 'review.md'), after('--body') ?? ''); process.exit(0) }
 if (verb === 'pr comment') { process.stdout.write('https://github.com/acme/widgets/pull/7#issuecomment-1\n'); process.exit(0) }
+if (verb === 'pr view' || verb === 'pr checks') {
+  // Nothing by that number — said the way gh says it, behind the notice it prints about itself first.
+  if (args[2] === '999') { process.stderr.write('A new release of gh is available: 2.60.0 → 2.61.0\nTo upgrade, run: brew upgrade gh\nhttps://github.com/cli/cli/releases/tag/v2.61.0\nGraphQL: Could not resolve to a PullRequest with the number of 999.\n'); process.exit(1) }
+}
+if (verb === 'pr view') { process.stdout.write(JSON.stringify(pr())); process.exit(0) }
+if (verb === 'pr checks') { process.stdout.write(JSON.stringify([{ name: 'build', state: 'SUCCESS', bucket: 'pass', link: 'https://ci/1', workflow: 'CI' }, { name: 'lint', state: 'FAILURE', bucket: 'fail', link: 'https://ci/2' }, { name: 'deploy', state: 'PENDING', bucket: 'pending' }])); process.exit(8) }
+if (verb === 'issue view') { process.stdout.write(JSON.stringify({ number: 42, title: 'Widgets wobble', state: 'OPEN', url: 'https://github.com/acme/widgets/issues/42', author: { login: 'octocat' }, body: 'They wobble.', labels: [{ name: 'bug' }], comments: [{ author: { login: 'hubot' }, body: 'Confirmed.', createdAt: '2026-09-10T00:00:00Z' }] })); process.exit(0) }
+if (verb === 'issue comment') { process.stdout.write('https://github.com/acme/widgets/issues/42#issuecomment-2\n'); process.exit(0) }
 if (verb.startsWith('api')) { process.stdout.write('https://github.com/acme/widgets/pull/7#pullrequestreview-9\n'); process.exit(0) }
 process.stderr.write('fake gh: unknown ' + verb + '\n'); process.exit(1)
 `
@@ -280,4 +287,75 @@ test('signing a body replaces an earlier HarnessDesk line and never doubles a bl
   // A line the author quoted stays; only the desk's own trailing line is replaced.
   const quoted = `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Old Seat)`
   assert.equal(signBody(quoted, line), `The default is:\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})\n\nMore.\n\n${line}`)
+})
+
+test('a person’s own template is replaced on update, whatever it says, and a bare placeholder replaces only its own rendering', async (t) => {
+  const own = await rig(t, { signature: 'Written by {agent} · {model}' })
+  await own.run('pr_create', { title: 'Add widgets', body: 'first' })
+  assert.equal(bodySentTo(own.calls(), 'create'), 'first\n\nWritten by Codex · GPT-5.4')
+  own.seat.current = { ...SEAT, model: 'GPT-5.4 Mini', label: 'Codex GPT-5.4 Mini · High' }
+  await own.run('pr_update', { body: 'Rewritten.\n\nWritten by Codex · GPT-5.4' })
+  assert.equal(bodySentTo(own.calls(), 'edit'), 'Rewritten.\n\nWritten by Codex · GPT-5.4 Mini', 'one line, the current seat’s, whatever the template says')
+  // A description signed before the template was changed still loses its default-shaped line.
+  await own.run('pr_update', { body: 'Older.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)' })
+  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), 'Older.\n\nWritten by Codex · GPT-5.4 Mini')
+  // A part that went with its separator still matches: the template's line for a bare seat.
+  own.seat.current = { agent: 'Gemini CLI', version: null, model: null, effort: null, thinking: false, label: 'Gemini CLI' }
+  await own.run('pr_update', { body: 'Bare.\n\nWritten by Codex · GPT-5.4 Mini' })
+  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), 'Bare.\n\nWritten by Gemini CLI')
+})
+
+test('a template with no words of its own matches only its exact rendering, never the author’s last line', async (t) => {
+  const bare = await rig(t, { signature: '{seat}' })
+  await bare.run('pr_create', { title: 'Add widgets', body: 'first' })
+  assert.equal(bodySentTo(bare.calls(), 'create'), 'first\n\nCodex GPT-5.4 · High')
+  await bare.run('pr_update', { body: 'Prose ends here.\n\nCodex GPT-5.4 · High' })
+  assert.equal(bare.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), 'Prose ends here.\n\nCodex GPT-5.4 · High', 'the same seat: replaced once, the prose kept')
+  assert.equal(signatureMatcher('{seat}'), null)
+  assert.equal(signatureMatcher('  {agent} {model} '), null)
+  assert.ok(signatureMatcher('Written by {agent}') instanceof RegExp)
+})
+
+test('checks, issues and their comments are read and posted, and the record says the subject', async (t) => {
+  const forge = await rig(t)
+  await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
+  const checks = await forge.run('pr_checks', {})
+  assert.match(checks, /Checks on pull request #7/)
+  assert.match(checks, /✓ build \(CI\) https:\/\/ci\/1/)
+  assert.match(checks, /✗ lint https:\/\/ci\/2/)
+  assert.match(checks, /… deploy/)
+
+  const issue = await forge.run('issue_view', { number: 42 })
+  assert.match(issue, /#42 Widgets wobble/)
+  assert.match(issue, /open · acme\/widgets · opened by octocat · bug/)
+  assert.match(issue, /They wobble\./)
+  assert.match(issue, /Discussion:\nhubot \(2026-09-10T00:00:00Z\):\nConfirmed\./)
+
+  const said = await forge.run('issue_comment', { number: 42, body: 'On it.' })
+  assert.match(said, /Commented on issue #42: Widgets wobble/)
+  const posted = forge.published.at(-1)!
+  assert.equal(posted.kind, 'comment')
+  assert.equal(posted.subject, 'issue')
+  assert.equal(posted.number, 42)
+  assert.equal(posted.url, 'https://github.com/acme/widgets/issues/42#issuecomment-2')
+  assert.equal(posted.state, 'open')
+  const comment = forge.calls().find((args) => args[0] === 'issue' && args[1] === 'comment')!
+  assert.equal(comment[comment.indexOf('--body') + 1], 'On it.')
+
+  // A comment on a pull request says so too — said, not guessed from the size.
+  await forge.run('pr_comment', { body: 'And here.' })
+  assert.equal(forge.published.at(-1)?.subject, 'pullRequest')
+})
+
+test('gh’s own upgrade notice is not the error', async (t) => {
+  const forge = await rig(t)
+  const said = await forge.run('pr_view', { number: 999 })
+  assert.match(said, /GraphQL: Could not resolve to a PullRequest with the number of 999/)
+  assert.doesNotMatch(said, /new release|upgrade/)
+})
+
+test('a thinking seat can say so in a template, and a seat that is not says nothing', () => {
+  assert.equal(renderSignature('{agent} {thinking}', { ...SEAT, thinking: true }), 'Codex Thinking')
+  assert.equal(renderSignature('{agent} {thinking}', SEAT), 'Codex')
+  assert.equal(renderSignature('{agent} · {thinking} · via HarnessDesk', { ...SEAT, thinking: true }), 'Codex · Thinking · via HarnessDesk')
 })

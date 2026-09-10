@@ -253,12 +253,25 @@ export const createDefaultHost = (
   // cap the oldest mapping goes, and a call with a forgotten token is simply
   // unscoped, which is exactly what it was before the token existed.
   const callers = new Map<string, { runtime: string; sessionId: string }>()
+  const bounded = <V>(map: Map<string, V>): void => {
+    if (map.size > 2000) {
+      const oldest = map.keys().next().value
+      if (oldest !== undefined) map.delete(oldest)
+    }
+  }
   const claimCaller = (runtime: string) => (token: string, sessionId: string) => {
     callers.set(token, { runtime, sessionId })
-    if (callers.size > 2000) {
-      const oldest = callers.keys().next().value
-      if (oldest !== undefined) callers.delete(oldest)
-    }
+    bounded(callers)
+  }
+  // Which runtime a bridge's token belongs to, known from the moment the
+  // open is sent — before the session has an id. The agent spawns the bridge
+  // while `session/new` is still in flight, and the bridge asks the gateway
+  // for its instructions at its own handshake, so the session-level claim
+  // above arrives too late for that question.
+  const callerRuntimes = new Map<string, string>()
+  const claimOpen = (runtime: string) => (token: string) => {
+    callerRuntimes.set(token, runtime)
+    bounded(callerRuntimes)
   }
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
@@ -269,8 +282,8 @@ export const createDefaultHost = (
     // instruction layer of its own — Claude Code heard it twice otherwise,
     // once appended to its system prompt and once as the server's own.
     instructions: (caller) => {
-      const scope = caller !== undefined ? callers.get(caller) : undefined
-      if (scope && host.runtimeInfo(scope.runtime)?.capabilities.instructions) return ''
+      const runtime = caller !== undefined ? (callers.get(caller)?.runtime ?? callerRuntimes.get(caller)) : undefined
+      if (runtime !== undefined && host.runtimeInfo(runtime)?.capabilities.instructions) return ''
       return host.forgePlane.instructions()
     },
     invokeByName: async (namespace, name, args, caller) => {
@@ -368,7 +381,9 @@ export const createDefaultHost = (
       ...(agent.brand ? {} : templateBrandFor(agent.id) ? { brand: templateBrandFor(agent.id) } : {}),
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env),
-      ...(toolServer ? { toolServer: { ...toolServer, onSession: claimCaller(agent.id) } } : {}),
+      ...(toolServer
+        ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
+        : {}),
       instructions: () => host.forgePlane.instructions(),
       logger: log,
       resolveSecret: (env) => host.credentials.peek(CredentialBroker.secretName(agent.id, env)),
