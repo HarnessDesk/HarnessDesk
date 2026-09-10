@@ -78,6 +78,33 @@ export class CliAccount {
     })
     this.#logins.set(loginId, child)
 
+    /* A command that cannot be started — not installed, not on PATH, not
+       executable — is reported by `spawn` as an `'error'` event, not as an
+       exit. With no listener Node throws it, and an unhandled `'error'` takes
+       the whole host process down, and every conversation on the desk with
+       it. A missing sign-in binary is the ordinary state of an agent that is
+       not installed yet, so it has to be a sentence rather than a crash.
+       Node may or may not emit `'exit'` after an error, so the race below
+       learns about it from here rather than waiting out its timeout. */
+    let handedOut = false
+    let settled = false
+    const failed = new Promise<Error>((resolve) => child.once('error', resolve))
+    void failed.then((error) => {
+      // Before the URL is handed out, `login()` reports it itself, below.
+      // After, the flow it started must be told it is over, or the sign-in
+      // page waits for an exit that may never come.
+      if (!handedOut || settled) return
+      settled = true
+      this.#logins.delete(loginId)
+      this.emit({
+        type: 'account/loginCompleted',
+        runtime: this.runtime,
+        loginId,
+        success: false,
+        error: `The sign-in command stopped: ${error.message}`,
+      })
+    })
+
     let url: string | null = null
     let resolveUrl: ((url: string) => void) | null = null
     const sawUrl = new Promise<string>((resolve) => {
@@ -101,6 +128,9 @@ export class CliAccount {
 
     const exited = new Promise<number | null>((resolve) => child.once('exit', resolve))
     void exited.then((code) => {
+      // An error may already have closed this flow; one ending is enough.
+      if (settled) return
+      settled = true
       this.#logins.delete(loginId)
       this.emit({
         type: 'account/loginCompleted',
@@ -115,12 +145,19 @@ export class CliAccount {
     const outcome = await Promise.race([
       sawUrl.then((found) => ({ kind: 'url' as const, found })),
       exited.then((code) => ({ kind: 'exit' as const, code })),
+      failed.then((error) => ({ kind: 'error' as const, error })),
       new Promise<{ kind: 'timeout' }>((resolve) =>
         setTimeout(() => resolve({ kind: 'timeout' }), URL_TIMEOUT_MS).unref(),
       ),
     ])
-    if (outcome.kind === 'url') return { type: 'browser', loginId, url: outcome.found }
+    if (outcome.kind === 'url') {
+      handedOut = true
+      return { type: 'browser', loginId, url: outcome.found }
+    }
     this.#logins.delete(loginId)
+    if (outcome.kind === 'error') {
+      throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
+    }
     if (outcome.kind === 'timeout') child.kill('SIGTERM')
     throw new Error(
       outcome.kind === 'exit' && outcome.code === 0
@@ -158,14 +195,48 @@ export class CliAccount {
 }
 
 /** One account from whatever the status command printed, or null for signed out. */
+/**
+ * The first whole JSON object in `text`, from `from` — braces counted, and
+ * ignored inside strings — or null when it never closes.
+ *
+ * `JSON.parse(text.slice(start))` needed the object to be the last thing a
+ * CLI printed. One that answered `{"loggedIn":true,…}` and then `Session
+ * active.` made the parse throw; the catch fell through to the sentence form,
+ * the sentence form found nothing, and a signed-in account was reported as
+ * signed out. Strings are tracked because an email or a plan name may contain
+ * a brace, and counting that one would end the object in the wrong place.
+ */
+const firstObject = (text: string, from: number): string | null => {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = from; i < text.length; i += 1) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(from, i + 1)
+    }
+  }
+  return null
+}
+
 export const parseStatus = (
   stdout: string,
 ): { kind: string; label: string; email?: string; planType?: string } | null => {
   const text = stdout.trim()
   const jsonStart = text.indexOf('{')
-  if (jsonStart !== -1) {
+  const json = jsonStart === -1 ? null : firstObject(text, jsonStart)
+  if (json !== null) {
     try {
-      const record = JSON.parse(text.slice(jsonStart)) as Record<string, unknown>
+      const record = JSON.parse(json) as Record<string, unknown>
       const loggedIn = record['loggedIn'] ?? record['logged_in']
       if (loggedIn === false) return null
       const email = typeof record['email'] === 'string' ? record['email'] : undefined

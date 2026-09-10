@@ -225,3 +225,75 @@ test('a -32000 that is not about signing in is not read as a sign-in refusal', a
     await runtime.dispose()
   }
 })
+
+/**
+ * #17 — a sign-in binary that does not exist.
+ *
+ * With no `'error'` listener, `spawn` of a missing command threw an unhandled
+ * `'error'` event and took the whole process down. Reproduced on the unfixed
+ * build before this was written: `Unhandled 'error' event … ENOENT`, and the
+ * process gone. Here the process is the test runner, so this test finishing
+ * at all is half the proof; the rejection is the other half.
+ */
+test('a sign-in command that does not exist is a refusal in words, not a crashed host', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    account: {
+      status: { command: FAKE_CLI, args: ['status'] },
+      login: { command: 'hd-no-such-sign-in-binary' },
+      logout: { command: FAKE_CLI, args: ['logout'] },
+    },
+  })
+  await runtime.start()
+  try {
+    const started = Date.now()
+    await assert.rejects(runtime.login('cli-browser'), /could not start \(hd-no-such-sign-in-binary\).*ENOENT/)
+    /* At once, not after the URL timeout. Node may never emit `'exit'` after
+       a spawn error, so a listener that only kept the process alive would
+       leave the flow waiting out the whole timeout before saying anything. */
+    assert.ok(Date.now() - started < 2_000, 'rejected without waiting out the URL timeout')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
+ * #39 — a status object with text after it.
+ *
+ * The parse took everything from the first brace to the end of the output, so
+ * any line a CLI printed after its JSON made it throw; the catch fell through
+ * to the sentence form, that found nothing, and a signed-in account was
+ * reported as signed out.
+ */
+test('a status object with text after it is read, and the account is signed in', () => {
+  const signedIn = { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }
+  assert.deepEqual(parseStatus('{"loggedIn": true, "email": "user@example.com"}\nSession active.'), signedIn)
+  // Pretty-printed, as some CLIs print it, and then a log line.
+  assert.deepEqual(parseStatus('{\n  "loggedIn": true,\n  "email": "user@example.com"\n}\nReady.'), signedIn)
+  // A banner before it and a remark after it on the same line.
+  assert.deepEqual(parseStatus('Checking…\n{"loggedIn":true,"email":"user@example.com"} (cached)'), signedIn)
+})
+
+test('a brace or an escaped quote inside a string does not end the object early', () => {
+  // A plan or an org name can hold a brace; counting it would cut the object short.
+  assert.deepEqual(parseStatus('{"loggedIn":true,"email":"a@b.c","planType":"team {eu}"}\ndone'), {
+    kind: 'cli',
+    label: 'a@b.c',
+    email: 'a@b.c',
+    planType: 'team {eu}',
+  })
+  assert.deepEqual(parseStatus('{"loggedIn":true,"email":"a@b.c","planType":"say \\"}\\" plan"}\nok'), {
+    kind: 'cli',
+    label: 'a@b.c',
+    email: 'a@b.c',
+    planType: 'say "}" plan',
+  })
+})
+
+test('an object that never closes is not a signed-in account', () => {
+  // The control: it read as nothing before, and it still does.
+  assert.equal(parseStatus('{"loggedIn": true, "email": "a@b.c"'), null)
+})
