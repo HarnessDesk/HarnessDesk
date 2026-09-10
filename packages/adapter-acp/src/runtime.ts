@@ -2518,6 +2518,10 @@ class AcpSession implements AgentSession {
         // that says nothing at all, from its own record if it keeps one.
         const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
         if (usage) this.#recordTurnUsage(usage)
+        // A turn the agent's own record could not account for is not the one
+        // before it: its figures are unknown, so the last turn shows none
+        // rather than the previous turn's under this one's name.
+        else if (this.#host.usageRecord) this.#forgetLastTurn()
         this.#finishTurn(turn, response.stopReason)
       })
       .catch((error: unknown) => this.#failTurn(turn, describeAcp(error)))
@@ -2979,6 +2983,13 @@ class AcpSession implements AgentSession {
     } catch {
       return null
     }
+  }
+
+  /** The last turn's figures withdrawn: this turn's are unknown, and the ones before it are not its. */
+  #forgetLastTurn(): void {
+    if (!this.#usage) return
+    this.#usage = { ...this.#usage, last: NO_TOKENS }
+    this.#emit({ type: 'usage/updated', sessionId: this.id, usage: this.#usage })
   }
 
   /** A finished turn's tokens: they become `last`, and join the running total. */

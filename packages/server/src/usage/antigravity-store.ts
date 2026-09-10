@@ -28,9 +28,12 @@ import type { KnownAgent } from '../installs/known-agents.js'
  * (`exa.codeium_common_pb.ModelUsageStats`, compiled into the server).
  *
  * The turn's boundary is the server's own answer. Rows are read the moment
- * `session/prompt` resolves; a row committed after that read, and the rows of
- * a turn whose read failed, fall before the next turn's mark — missing from
- * the session's total, never counted twice and never under another turn.
+ * `session/prompt` resolves, and no row is counted twice. A row committed
+ * after that read but before the next turn begins, and the rows of a turn
+ * whose read failed, fall before the next turn's mark and are missing from
+ * the session's total; a row committed after the next turn has begun is
+ * counted in that turn. Live, neither happened: the server commits a turn's
+ * rows before it answers the prompt (measured on a three-call turn).
  *
  * Nothing here writes. A WAL database opened read-only maps the `-shm` the
  * server made; where there is none, opening it would create one in the
@@ -55,9 +58,19 @@ const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 /**
  * A turn the store shows no model call for — a command the agent answered
  * itself, a turn stopped before it asked anything. That is news, not silence:
- * the last turn is this one, and it spent nothing.
+ * the last turn is this one, and it spent nothing. Every figure in it is a
+ * known zero — nothing read from cache, written to it or thought — so a
+ * session whose calls name cache writes keeps its running write count
+ * through it rather than losing it to a figure left unsaid.
  */
-const NO_CALLS: AcpUsage = { totalTokens: 0, inputTokens: 0, outputTokens: 0 }
+const NO_CALLS: AcpUsage = {
+  totalTokens: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cachedReadTokens: 0,
+  cachedWriteTokens: 0,
+  thoughtTokens: 0,
+}
 
 export interface AntigravityStoreOptions {
   /** The environment the server runs in; `GEMINI_HOME`, when set, is its `.gemini` folder. */

@@ -108,8 +108,8 @@ test('a turn is the calls it added to the store, counted the way the agent count
   })
   assert.deepEqual(
     record.since(SESSION, 3),
-    { totalTokens: 0, inputTokens: 0, outputTokens: 0 },
-    'a turn that called no model is a turn of nothing, and says so — or the one before it reads as the last',
+    { totalTokens: 0, inputTokens: 0, outputTokens: 0, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 0 },
+    'a turn that called no model is a turn of nothing, every figure a known zero — or the one before it reads as the last, and a running write count is lost',
   )
 })
 
@@ -176,6 +176,19 @@ test('a row that lands after its turn was read is in no turn: never counted twic
   const second = record.mark(SESSION) ?? -1
   add({ input: 200, output: 20, thinking: 0, response: 20 })
   assert.equal(record.since(SESSION, second)?.inputTokens, 200)
+})
+
+test('a row that lands after the next turn has begun is counted in that turn — once, and only there', (t) => {
+  const { gemini, add } = store(t)
+  const record = antigravityUsageRecord({ env: { GEMINI_HOME: gemini } })
+  const first = record.mark(SESSION) ?? -1
+  add({ input: 100, output: 10, thinking: 0, response: 10 })
+  assert.equal(record.since(SESSION, first)?.inputTokens, 100)
+  const second = record.mark(SESSION) ?? -1
+  // The first turn's straggler, committed after the second turn was marked.
+  add({ input: 5000, output: 50, thinking: 0, response: 50 })
+  add({ input: 200, output: 20, thinking: 0, response: 20 })
+  assert.equal(record.since(SESSION, second)?.inputTokens, 5200)
 })
 
 test('a store opened before its table exists is empty, not unreadable, and its calls count once the table arrives', (t) => {

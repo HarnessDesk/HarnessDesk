@@ -163,8 +163,7 @@ const clineIdentity = (context: IdentityContext): Account | null => {
       ? join(home, '.cline', 'data')
       : resolve(context.cwd ?? process.cwd(), dataDir.replace(/^~(?=$|\/)/, home))
   const settings = readJson(join(folder, 'settings', 'providers.json'))
-  const provider =
-    flagValue(args, '--provider') ?? flagValue(args, '-P') ?? nonEmpty(at(settings, 'lastUsedProvider')) ?? 'cline'
+  const provider = flagValue(args, '--provider', '-P') ?? nonEmpty(at(settings, 'lastUsedProvider')) ?? 'cline'
   const auth = at(settings, 'providers', provider, 'settings', 'auth')
   const email = nonEmpty(at(auth, 'metadata', 'userInfo', 'email')) ?? nonEmpty(at(auth, 'email'))
   return email ? signedInAs(email) : null
@@ -191,12 +190,22 @@ const at = (value: unknown, ...keys: readonly string[]): unknown => {
 const nonEmpty = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 
-/** `--flag value` or `--flag=value`, or null. */
-const flagValue = (args: readonly string[], flag: string): string | null => {
+/**
+ * The value an option was last given — `--flag value`, `--flag=value`, or a
+ * short spelling as `-f value` — or null. The last, and across every spelling
+ * of the option, because that is how Cline reads its own arguments: its CLI
+ * is built on commander (the binary embeds it), and commander 9.5 keeps the
+ * last value of an option given twice and treats `-P` and `--provider` as one
+ * option.
+ */
+const flagValue = (args: readonly string[], ...spellings: readonly string[]): string | null => {
+  let value: string | null = null
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
-    if (arg === flag) return nonEmpty(args[index + 1])
-    if (arg.startsWith(`${flag}=`)) return nonEmpty(arg.slice(flag.length + 1))
+    for (const spelling of spellings) {
+      if (arg === spelling) value = nonEmpty(args[index + 1])
+      else if (spelling.startsWith('--') && arg.startsWith(`${spelling}=`)) value = nonEmpty(arg.slice(spelling.length + 1))
+    }
   }
-  return null
+  return value
 }

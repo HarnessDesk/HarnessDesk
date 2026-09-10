@@ -282,9 +282,12 @@ ACP's `inputTokens` adds it back. Live, a one-word reply was 11,650 in and 38
 out, 37 of them thinking; and on a three-call, tool-using turn the desk
 recorded exactly what the store held when the prompt resolved, nothing arrived
 in the eight seconds after, and after a restart and a resume the store was open
-and readable before the next turn. A row that did land late would fall before
-the next turn's mark — missing from the total, never counted twice or under
-another turn. A turn with no model call is a turn of zero tokens, and a store
+and readable before the next turn. No row is counted twice: one that landed
+after its turn was read but before the next began would be missing from the
+total, and one that landed after the next turn had begun would be counted in
+that turn — neither was seen live. A turn the store cannot account for shows
+no last turn rather than the one before it. A turn with no model call is a
+turn of zero tokens, every figure a known zero, and a store
 the server holds that is not the shape measured is said once in the log. The
 store is opened read-only and only while the server holds it open: without the
 server's `-shm`, a read-only open would create one in the agent's folder, so

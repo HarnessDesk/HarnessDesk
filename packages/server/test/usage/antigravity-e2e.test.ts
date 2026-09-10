@@ -70,8 +70,8 @@ test('through the adapter, each turn is what the agent wrote down, and a turn wi
   await turn('deleg nothing')
   assert.deepEqual(
     (await usage())?.last,
-    { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
-    'the last turn is this one, and it spent nothing',
+    { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+    'the last turn is this one, and it spent nothing — its cache writes a known zero too',
   )
   assert.equal((await usage())?.total.totalTokens, 25506 + 38506, 'and the session total is unchanged')
 })

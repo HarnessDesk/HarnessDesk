@@ -141,6 +141,37 @@ test("Gemini CLI's environment fallback is its own, branch for branch — and GO
   assert.equal(read('gemini', { home: empty, env: { GOOGLE_API_KEY: 'k' } }), null)
 })
 
+test('a provider named on the row outranks the one Cline last used', (t) => {
+  const settings = {
+    version: 1,
+    lastUsedProvider: 'anthropic',
+    modes: {},
+    providers: {
+      cline: { settings: { auth: { metadata: { userInfo: { email: 'dev@example.com' } } } } },
+      anthropic: { settings: { apiKey: 'key' } },
+    },
+  }
+  const dir = home(t, { '.cline/data/settings/providers.json': settings })
+  assert.equal(read('cline', { home: dir, args: ['--acp'] }), null, 'the key provider in use names nobody')
+  assert.equal(read('cline', { home: dir, args: ['--acp', '-P', 'cline'] })?.email, 'dev@example.com')
+  assert.equal(read('cline', { home: dir, args: ['--acp', '--provider=cline'] })?.email, 'dev@example.com')
+})
+
+test("an option given twice is its last value, every spelling alike — as Cline's own parser reads it", (t) => {
+  const email = { settings: { auth: { metadata: { userInfo: { email: 'dev@example.com' } } } } }
+  const key = { settings: { apiKey: 'key' } }
+  const root = home(t, {
+    'named/settings/providers.json': { lastUsedProvider: 'cline', providers: { cline: email } },
+    'keyed/settings/providers.json': { lastUsedProvider: 'anthropic', providers: { anthropic: key } },
+    '.cline/data/settings/providers.json': { lastUsedProvider: 'anthropic', providers: { cline: email, anthropic: key } },
+  })
+  const cline = (...args: string[]) => read('cline', { home: root, cwd: root, args: ['--acp', ...args] })?.email ?? null
+  assert.equal(cline('--data-dir', 'keyed', '--data-dir', 'named'), 'dev@example.com')
+  assert.equal(cline('--data-dir', 'named', '--data-dir', 'keyed'), null)
+  assert.equal(cline('-P', 'anthropic', '--provider', 'cline'), 'dev@example.com')
+  assert.equal(cline('--provider', 'cline', '-P', 'anthropic'), null)
+})
+
 test('a relative --data-dir is relative to where Cline runs, not to the desk', (t) => {
   const moved = home(t, {
     'state/settings/providers.json': {

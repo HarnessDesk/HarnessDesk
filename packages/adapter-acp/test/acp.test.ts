@@ -310,6 +310,58 @@ test('usage the agent put on the wire outranks its record, which is then not rea
   }
 })
 
+test('a turn its record cannot account for shows no last turn, rather than the one before it', async () => {
+  let reads = 0
+  const runtime = withRecord({
+    mark: () => 0,
+    since: () => (++reads === 1 ? { totalTokens: 150, inputTokens: 100, outputTokens: 50 } : null),
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const completed = (count: number) => (event: AgentEvent) =>
+    event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === count
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'hello there' }])
+    await tape.until(completed(1))
+    assert.equal((await runtime.readSession(session.id)).usage?.last.totalTokens, 150)
+    await session.send([{ type: 'text', text: 'hello again' }])
+    await tape.until(completed(2))
+    const usage = (await runtime.readSession(session.id)).usage
+    assert.equal(usage?.last.totalTokens, 0, 'unknown, so nothing: not the first turn under the second one’s name')
+    assert.equal(usage?.total.totalTokens, 150, 'and the total keeps what it knew')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a turn of no calls keeps a running cache-write count, because its zeros are known', async () => {
+  let reads = 0
+  const runtime = withRecord({
+    mark: () => 0,
+    since: () =>
+      ++reads === 1
+        ? { totalTokens: 150, inputTokens: 100, outputTokens: 50, cachedReadTokens: 20, cachedWriteTokens: 50 }
+        : { totalTokens: 0, inputTokens: 0, outputTokens: 0, cachedReadTokens: 0, cachedWriteTokens: 0, thoughtTokens: 0 },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const completed = (count: number) => (event: AgentEvent) =>
+    event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === count
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'hello there' }])
+    await tape.until(completed(1))
+    await session.send([{ type: 'text', text: 'hello again' }])
+    await tape.until(completed(2))
+    const usage = (await runtime.readSession(session.id)).usage
+    assert.equal(usage?.last.totalTokens, 0)
+    assert.equal(usage?.total.cacheWriteTokens, 50, 'the chain of known write counts is unbroken')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a record that cannot be read leaves the turn without usage rather than a guess', async () => {
   for (const mark of [() => null, () => { throw new Error('locked') }]) {
     let reads = 0
