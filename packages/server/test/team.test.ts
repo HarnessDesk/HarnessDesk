@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -3434,6 +3434,37 @@ test('a delete that joins a later pass is not reported done by the earlier one',
   assert.equal(existsSync(file), false, 'the file is gone when the delete says it is')
 })
 
+/**
+ * The other half of #35, which all three reviewers asked for: a pass that
+ * fails reports the failure to every caller it carries — the one coalesced
+ * into it as well as the one that opened it.
+ *
+ * One pass, not two. The shape review described — an earlier pass that
+ * succeeds, then a later one that fails — needs the disk to change between
+ * two passes, and nothing can stand there: the later pass issues its unlink
+ * in the same microtask turn the earlier one finishes in, before any test
+ * code runs again, and whatever makes an unlink fail from the start makes
+ * the earlier pass's write fail too. The two halves cover it instead: the
+ * test above proves the later pass is the one that settles the delete, and
+ * this one proves a pass hands its outcome, a failure included, to everyone
+ * it settles.
+ */
+test('a pass that fails reports it to the delete coalesced into it', async (t) => {
+  const { team, dir, room } = await rig(t)
+  const file = join(dir, `${encodeURIComponent(room)}.json`)
+  await team.flush()
+  // A directory where the room's file was: `rm` will not remove a directory
+  // it was not told to recurse into, so this pass's unlink fails.
+  rmSync(file)
+  mkdirSync(file)
+  writeFileSync(join(file, 'keep'), '')
+
+  team.renameRoom(room, 'renamed') // opens the pass
+  await assert.rejects(team.deleteRoom(room), /could not be deleted/) // coalesces into it
+  // Not deleted means still here, as the refusal says.
+  assert.equal(team.stateFor(room).name, 'renamed')
+})
+
 test('a delete coalesced before its pass starts is still settled by that pass', async (t) => {
   // The control: ordinary coalescing, which worked before and must keep working.
   const { team, dir, room } = await rig(t)
@@ -3442,4 +3473,41 @@ test('a delete coalesced before its pass starts is still settled by that pass', 
   team.renameRoom(room, 'renamed')
   await team.deleteRoom(room)
   assert.equal(existsSync(file), false)
+})
+
+test('a card waiting on another, marked done or abandoned, is no longer waiting', async (t) => {
+  // Review's other shape for #73: blocked by the graph rather than by hand.
+  const { team, room } = await rig(t)
+  for (const action of ['done', 'abandon'] as const) {
+    const first = team.addIntentAsUser(room, { title: `first, before ${action}` })
+    const waiting = team.addIntentAsUser(room, { title: `waits, then ${action}`, dependsOn: [first.id] })
+    const before = team.stateFor(room).intents.find((entry) => entry.id === waiting.id)
+    assert.equal(before?.blockedBy, 'graph', 'the control: it really was waiting on the first')
+
+    team.intentAction(room, waiting.id, action)
+    const after = team.stateFor(room).intents.find((entry) => entry.id === waiting.id)
+    assert.equal(after?.state, action === 'done' ? 'done' : 'abandoned')
+    assert.equal(after?.blockedReason, null, `${action} leaves no reason behind`)
+    assert.equal(after?.blockedBy, null, `${action} leaves nothing it waits on`)
+  }
+})
+
+test('abandoned work opens nothing that depends on it; finished work does', async (t) => {
+  /* Review asked what clearing the block on done and abandon does downstream.
+     Nothing, and this pins why: what opens a dependent is its dependency's
+     *state*, and abandoned is not done — including when a later `done`
+     elsewhere sends the board looking for work to open. */
+  const { team, room } = await rig(t)
+  const state = (id: number) => team.stateFor(room).intents.find((entry) => entry.id === id)
+  const dropped = team.addIntentAsUser(room, { title: 'dropped' })
+  const onDropped = team.addIntentAsUser(room, { title: 'needs the dropped one', dependsOn: [dropped.id] })
+  team.intentAction(room, dropped.id, 'abandon')
+  assert.equal(state(onDropped.id)?.state, 'blocked', 'abandoned work satisfies nothing')
+  assert.equal(state(onDropped.id)?.blockedBy, 'graph')
+
+  const finished = team.addIntentAsUser(room, { title: 'finished' })
+  const onFinished = team.addIntentAsUser(room, { title: 'needs the finished one', dependsOn: [finished.id] })
+  team.intentAction(room, finished.id, 'done')
+  assert.equal(state(onFinished.id)?.state, 'open', 'finished work opens what waited on it')
+  assert.equal(state(onDropped.id)?.state, 'blocked', 'and the pass that opened it left the other one waiting')
 })
