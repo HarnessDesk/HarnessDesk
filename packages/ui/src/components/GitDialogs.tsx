@@ -49,6 +49,13 @@ const STATUS_LETTER: Record<GitFileStatus['status'], string> = {
 
 // ------------------------------------------------------------------- commit
 
+/** The first entry for each path, in order. */
+const onePerPath = (files: readonly GitFileStatus[]): GitFileStatus[] => {
+  const byPath = new Map<string, GitFileStatus>()
+  for (const file of files) if (!byPath.has(file.path)) byPath.set(file.path, file)
+  return [...byPath.values()]
+}
+
 /**
  * The toolbar's Commit: the dirty files with a check each, a message, one
  * button. Unchecking a file leaves it dirty for a later commit; with every
@@ -68,7 +75,8 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
     void store.transport
       .request('git/status', { root })
       .then((status) => {
-        if (!cancelled) setFiles(status?.files ?? [])
+        // One row a file: status lists a file staged and changed again twice, one entry a column (#31).
+        if (!cancelled) setFiles(onePerPath(status?.files ?? []))
       })
       .catch(() => {
         if (!cancelled) setFiles([])
