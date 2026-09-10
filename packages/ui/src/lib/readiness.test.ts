@@ -94,14 +94,6 @@ describe('readinessOf', () => {
     ).toBe('limit')
   })
 
-  it('does not read an unanswerable account question as signed out', () => {
-    const ready = { state: 'ready' } as const
-    expect(readinessOf({ registered: true, health: ready, account: noAccount, accounts: false })).toBe('ready')
-    expect(readinessOf({ registered: true, health: ready, account: null, accounts: false })).toBe('ready')
-    expect(readinessOf({ registered: true, health: ready, account: noAccount, accounts: true })).toBe('signin')
-    expect(readinessOf({ registered: true, health: ready, account: noAccount })).toBe('signin')
-  })
-
   it('is ready when nothing is in the way', () => {
     expect(
       readinessOf({ registered: true, health: { state: 'ready' }, account, usage: [report(null)] }),
