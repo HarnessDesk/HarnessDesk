@@ -145,6 +145,31 @@ them in `docs/decisions.md`.
     Where this table and the audit disagree, the audit is right — it reads the
     code and this is prose. Its failure messages name the file to edit.
 
+13. **Nothing that leaves the machine carries a real identity.** A pull
+    request body, a review or issue comment, the `screenshots` branch, a video
+    and every fixture committed here are public the moment they are pushed,
+    and GitHub keeps what was pushed for a while after it is deleted, so a
+    leak is never fully undone. The running app shows its user's identity by
+    design — the seat, its menu, the header strip and the name cards carry
+    account names and emails — so any frame of a real desk is a frame of
+    somebody's accounts, and a placeholder name in a test is as public as a
+    screenshot.
+    - **Public frames come from the fake-agent rig**: an isolated
+      `HARNESSDESK_HOME` and the scripted fake agents
+      (`packages/adapter-codex/test/fixtures/fake-codex.mjs` signs in as
+      `dev@example.com`). Never a real desk — and not the preview harness
+      either, whose fixture accounts have realistic names: a frame of its
+      seat or menu is not public material.
+    - **Placeholder people are obviously fictional** — `Jane Doe`,
+      `dev@example.com` — in screenshots, tests, fixtures, docs and commit
+      messages alike. Never a name, handle or address that belongs to a real
+      person or account, the user's own included.
+    - **Check before anything is pushed or posted**: grep the text *and your
+      own added lines* for `@`, personal names, handles and `/Users/` paths,
+      and read every image yourself — the seat, the menu, the strip, the name
+      cards. A frame taken on a real desk is for measuring; it stays on the
+      machine and is deleted after.
+
 ## Before you commit
 
 ```bash
@@ -183,3 +208,5 @@ from rotting.
   credentials, network, or credits.
 - Fixtures are synthesised from observed shapes. Do not record real user sessions
   into the repository — they contain the user's source code.
+- Identities in tests and fixtures are placeholders — `Jane Doe`,
+  `dev@example.com` — never a real person's or account's (rule 13).
