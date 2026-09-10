@@ -68,6 +68,44 @@ test('a trailing carriage return on one line does not eat the lines around it', 
   assert.equal(plainTerminalText('first\rsecond\nthird\r\nfourth\r'), 'second\nthird\nfourth')
 })
 
+/**
+ * The same rule, at the level a reader actually meets it.
+ *
+ * `lastOutput` re-runs `plainTerminalText` over the whole concatenated
+ * scrollback each time it is asked, so the transform above is the transform
+ * here — but that is a fact about the current implementation, and the chip
+ * that shows a terminal to an agent reads it *between* writes. A bar sitting
+ * at a bare `\r` waiting for its next frame is the ordinary state of a
+ * terminal somebody is watching, and it used to read as nothing at all.
+ *
+ * Raised in review as implied rather than pinned, which it was.
+ */
+test('a terminal read between frames shows the bar, and the next frame replaces it', async () => {
+  const { processes, print } = fakeProcesses()
+  const terminals = new Terminals(() => {})
+  await terminals.open({
+    runtime: runtimeId('fake'),
+    processes,
+    cwd: '/build',
+    size: { cols: 80, rows: 24 },
+  })
+
+  // The frame has been drawn and the cursor sent home; nothing has overwritten
+  // it yet. This is the moment the chip used to report as empty.
+  print(0, 'Building… 40%\r')
+  assert.equal(terminals.lastOutput()?.text, 'Building… 40%')
+
+  // The next frame lands on the same line and wins, as the overwrite rule says.
+  print(0, 'Building… 80%\r')
+  assert.equal(terminals.lastOutput()?.text, 'Building… 80%')
+
+  // And once the line is finished, the bar is history and the line below is
+  // its own.
+  print(0, 'Building… done\r\nlinking\n')
+  assert.equal(terminals.lastOutput()?.text, 'Building… done\nlinking\n')
+  await terminals.dispose()
+})
+
 test('lastOutput is the most recently printing terminal, and null before any prints', async () => {
   const { processes, print } = fakeProcesses()
   const terminals = new Terminals(() => {})
