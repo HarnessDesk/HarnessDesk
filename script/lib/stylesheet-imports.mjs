@@ -42,11 +42,11 @@ export const stylesheetImports = (source) =>
  * component's stylesheet is spelled more than one way here: `Composer.tsx` beside `Composer.module.css`, and
  * `PanelPlayground.tsx` beside `panel-playground.module.css`. Compared as
  * written, the second read as one screen borrowing another's stylesheet, and
- * seven showcase boards were counted as component libraries (#91).
+ * seven showcase boards were counted as component libraries (#91). `sheet` is
+ * the import's path relative to `file`, so a stylesheet in another folder,
+ * `../x/Name.module.css`, never matches, whatever it's called.
  */
 export const ownsStylesheet = (file, sheet) => {
-  // A stylesheet in another folder is another screen's, whatever it's called (review of #183, round 3).
-  if (path.dirname(sheet) !== '.') return false
   const key = (name) => name.toLowerCase().replace(/[-_]/g, '')
   const names = [path.basename(file, '.tsx'), path.basename(path.dirname(file))]
   return names.some((name) => key(`${name}.module.css`) === key(sheet))
