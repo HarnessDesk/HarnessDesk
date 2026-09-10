@@ -191,7 +191,7 @@ export class CliAccount {
     let urlTimer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
       sawUrl.then((found) => ({ kind: 'url' as const, found })),
-      exited.then(({ code }) => ({ kind: 'exit' as const, code })),
+      exited.then(({ code, signal }) => ({ kind: 'exit' as const, code, signal })),
       failed.then((error) => ({ kind: 'error' as const, error })),
       new Promise<{ kind: 'timeout' }>((resolve) => {
         urlTimer = setTimeout(() => resolve({ kind: 'timeout' }), this.seams.urlTimeoutMs ?? URL_TIMEOUT_MS)
@@ -218,11 +218,18 @@ export class CliAccount {
     }
     // The exit this causes finds the flow never handed out, and reports nothing.
     if (outcome.kind === 'timeout') child.kill('SIGTERM')
-    throw new Error(
-      outcome.kind === 'exit' && outcome.code === 0
-        ? lastWords(tail) || 'Already signed in.'
-        : lastWords(tail) || 'The sign-in command printed no URL to open.',
-    )
+    /* A command that ended before printing a URL, having said nothing, says
+       how it ended: an exit with code 1 is not "printed no URL" (review,
+       round ten). That sentence is for the one ending it is true of, the
+       timeout. */
+    if (outcome.kind === 'exit') {
+      throw new Error(
+        outcome.code === 0
+          ? lastWords(tail) || 'Already signed in.'
+          : lastWords(tail) || stoppedBy(outcome.code, outcome.signal),
+      )
+    }
+    throw new Error(lastWords(tail) || 'The sign-in command printed no URL to open.')
   }
 
   async cancel(loginId: string): Promise<void> {
@@ -369,12 +376,14 @@ const statusRecords = (
  * A sentence saying nobody is signed in: a negation anywhere in the clause
  * before the verb, or signed out. A negation is `not`, `no longer`, `never`,
  * or a contraction of one, `aren't` or `isn't`, in either apostrophe
- * (review, round eight). A clause ends at `!`, `?` and `;` as it does at a
- * full stop, and a sign-out said to be in the past ("last logged out") is
- * not the state now, where "you were logged out" still is (review, round
- * nine).
+ * (review, round eight). A clause ends at a full stop, `!`, `?`, `;`, `:`,
+ * a comma or a line break of either kind: "Not cached, logged in as …" is
+ * two clauses, and a spinner's overwritten frame is a line of its own
+ * (review, rounds nine and ten). A sign-out said to be in the past ("last
+ * logged out") is not the state now, where "you were logged out" still is
+ * (round nine).
  */
-const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)[^.!?;\n]*?\b(?:logged|signed) in\b|(?<!\b(?:last|previously|formerly)\s+)\b(?:logged|signed) out\b/i
+const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)[^.!?;:,\r\n]*?\b(?:logged|signed) in\b|(?<!\b(?:last|previously|formerly)\s+)\b(?:logged|signed) out\b/i
 
 /** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
 const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
@@ -410,7 +419,8 @@ export const parseStatus = (
 const fromRecord = (record: Record<string, unknown>): { kind: string; label: string; email?: string; planType?: string } | null => {
   const loggedIn = record['loggedIn'] ?? record['logged_in']
   if (loggedIn === false) return null
-  const email = typeof record['email'] === 'string' ? record['email'] : undefined
+  // An empty email names nobody: `"email": ""` was an account called nothing (review, round ten).
+  const email = typeof record['email'] === 'string' && record['email'] !== '' ? record['email'] : undefined
   const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
   if (loggedIn === true || email) {
     return {

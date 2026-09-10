@@ -5,7 +5,7 @@
  *
  *   FAKE_CLI_STYLE  json | text        — how `status` speaks
  *   FAKE_CLI_STATE  in | out           — whether anyone is signed in
- *   FAKE_CLI_LOGIN  ok | fail | silent — how `login` behaves
+ *   FAKE_CLI_LOGIN  ok | fail | silent | hang — how `login` behaves
  */
 const [verb] = process.argv.slice(2)
 const style = process.env.FAKE_CLI_STYLE ?? 'json'
@@ -37,7 +37,9 @@ if (verb === 'login') {
     process.exit(1)
   }
   process.stdout.write('Open the link to sign in:\n  https://auth.example.com/flow/abc123\n')
-  setTimeout(() => {
+  // `hang`: a sign-in nobody finishes, which only a kill ends.
+  if (mode === 'hang') setInterval(() => {}, 60_000)
+  else setTimeout(() => {
     if (mode === 'fail') {
       process.stderr.write('the browser flow was refused\n')
       process.exit(1)

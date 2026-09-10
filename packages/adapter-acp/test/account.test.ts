@@ -719,3 +719,101 @@ test('a flow that printed nothing but its URL says how it ended', async () => {
   const ended = events.find((event) => event.type === 'account/loginCompleted') as { error?: string } | undefined
   assert.equal(ended?.error, 'The sign-in command exited with code 1.')
 })
+
+test('a status record whose email is empty names nobody', () => {
+  // Round 10 of #134: "email": "" was an account called nothing.
+  assert.deepEqual(parseStatus('{"loggedIn":true,"email":""}'), { kind: 'cli', label: 'Signed in' })
+  assert.equal(parseStatus('{"email":""}'), null)
+})
+
+test('a sign-in command that ends before its URL, saying nothing, says how it ended', async () => {
+  // Round 10 of #134: an exit with code 1 and no output read "printed no URL to open".
+  const failed = fakeChild()
+  const first = accountWith(failed, []).login()
+  failed.emit('exit', 1, null)
+  await assert.rejects(first, { message: 'The sign-in command exited with code 1.' })
+  const killed = fakeChild()
+  const second = accountWith(killed, []).login()
+  killed.emit('exit', null, 'SIGKILL')
+  await assert.rejects(second, { message: 'The sign-in command was stopped (SIGKILL).' })
+})
+
+test('a comma, a colon or a carriage return ends the clause a negation is in', () => {
+  // Round 10 of #134: "Not cached, logged in as …" read as signed out.
+  const signedIn = { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }
+  for (const text of [
+    'Not cached, logged in as user@example.com',
+    "Can't check for updates: logged in as user@example.com",
+    'Not verified yet…\rLogged in as user@example.com',
+  ]) {
+    assert.deepEqual(parseStatus(text), signedIn, JSON.stringify(text))
+  }
+  // Within one clause, a negation still signs out.
+  assert.equal(parseStatus('You are not currently logged in as user@example.com'), null)
+})
+
+test('cancelling a flow that has already ended does nothing', async () => {
+  // Round 10 of #134: "unknown ids are not an error" had no test.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const account = accountWith(child, events)
+  const login = account.login()
+  child.stdout.emit('data', Buffer.from('Open https://example.com/device to sign in\n'))
+  const started = (await login) as { loginId: string }
+  child.emit('exit', 0, null)
+  await tick()
+  await account.cancel(started.loginId)
+  await tick()
+  assert.equal(completions(events), 1, 'the exit ended it, and the cancel adds nothing')
+})
+
+test('two sign-ins at once each end once, and cancelling one leaves the other', async () => {
+  // Round 10 of #134: nothing ran two flows on one account.
+  const children = [fakeChild(), fakeChild()]
+  const queue = [...children]
+  const events: AgentEvent[] = []
+  const account = new CliAccount(
+    { status: { command: 'unused' }, login: { command: 'hd-missing' } },
+    'fake-acp' as never,
+    (event) => events.push(event),
+    undefined,
+    { spawn: (() => queue.shift()) as never },
+  )
+  const a = account.login()
+  children[0]!.stdout.emit('data', Buffer.from('Open https://example.com/a to sign in\n'))
+  const b = account.login()
+  children[1]!.stdout.emit('data', Buffer.from('Open https://example.com/b to sign in\n'))
+  const [one, two] = (await Promise.all([a, b])) as { loginId: string; url: string }[]
+  assert.notEqual(one!.loginId, two!.loginId)
+  assert.deepEqual([one!.url, two!.url], ['https://example.com/a', 'https://example.com/b'])
+  await account.cancel(one!.loginId)
+  children[1]!.emit('exit', 0, null)
+  await tick()
+  const ended = events.filter((event) => event.type === 'account/loginCompleted') as { loginId: string; success: boolean }[]
+  assert.deepEqual(
+    ended.map((event) => [event.loginId, event.success]),
+    [
+      [one!.loginId, false],
+      [two!.loginId, true],
+    ],
+  )
+})
+
+test('a cancelled sign-in with a real child ends once, and the kill it causes adds nothing', async () => {
+  // Round 10 of #134: cancel was tested on a child the test drives by hand, never on a process.
+  const runtime = make({ FAKE_CLI_LOGIN: 'hang' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    const start = await runtime.login('cli-browser')
+    await runtime.cancelLogin(start.loginId)
+    // Time for the SIGTERM's exit to arrive and be ignored.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const ended = events.filter((event) => event.type === 'account/loginCompleted') as { error?: string }[]
+    assert.equal(ended.length, 1)
+    assert.equal(ended[0]?.error, 'Sign-in was cancelled.')
+  } finally {
+    await runtime.dispose()
+  }
+})
