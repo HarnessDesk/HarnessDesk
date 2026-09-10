@@ -108,7 +108,7 @@ export const sessionMethods = {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
     if (!runtime.info.capabilities.deleteHistory) {
-      throw new Error(`${runtime.info.name} cannot delete a stored conversation.`)
+      throw new Error(`${runtime.info.presentation.name} cannot delete a stored conversation.`)
     }
     // The agent's copy first: if it refuses, nothing here is thrown away,
     // and the conversation is exactly as it was.

@@ -2436,7 +2436,7 @@ export class Host {
     const runtime = this.#runtime({ runtime: id })
     const slot = accounts?.slotOf(runtime.info) ?? null
     if (!accounts || !slot?.removable) {
-      throw new Error(`${runtime.info.name} is this agent's original account and cannot be removed.`)
+      throw new Error(`${runtime.info.presentation.name} is this agent's original account and cannot be removed.`)
     }
     // A gateway account has no vendor session to end — its credential is ours
     // to destroy. The gateway process goes first, so nothing is left holding

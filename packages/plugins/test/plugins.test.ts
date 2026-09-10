@@ -1026,3 +1026,19 @@ test('htmlToText reads entities in any case, leaves unknown ones alone, and deco
   assert.equal(htmlToText('&copy; &bogus; &amp;&amp;'), '&copy; &bogus; &&')
   assert.equal(htmlToText('&amp;amp;lt;'), '&amp;lt;')
 })
+
+test('read_file stops at the byte limit it is named for, and never cuts a character in half', async () => {
+  // #96: maxBytes was compared with content.length, so a file of three-byte characters ran to three times the bytes.
+  const tools = new Map<string, { execute: (args: unknown) => Promise<unknown> }>()
+  const ctx = {
+    tools: { register: (tool: { name: string; execute: (args: unknown) => Promise<unknown> }) => tools.set(tool.name, tool) },
+    fs: { read: async (path: string) => (path === 'short.txt' ? 'plain text' : '€'.repeat(500)), list: async () => [] },
+  }
+  filesPlugin.plugin.apply(ctx as never, { maxBytes: 1000 })
+  const result = String(await tools.get('read_file')!.execute({ path: 'prices.txt' }))
+  const body = result.split('\n\n[truncated')[0] ?? ''
+  assert.equal(new TextEncoder().encode(body).length, 999, 'the last whole character that fits')
+  assert.ok(!body.includes(String.fromCharCode(0xfffd)), 'no character is cut in half')
+  assert.match(result, /\[truncated at 1000 bytes\]$/)
+  assert.equal(await tools.get('read_file')!.execute({ path: 'short.txt' }), 'plain text')
+})
