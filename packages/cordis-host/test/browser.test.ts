@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, dirname } from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -689,4 +692,90 @@ test('the shifted digits and the rest of the punctuation keys', () => {
     ['~', 'Backquote', 192],
   ]
   for (const [character, code, keyCode] of cases) assert.deepEqual(characterKey(character), { code, keyCode }, character)
+})
+
+test('a PDF is saved as a file, named for the page, and what comes back is the path', async (t) => {
+  // #51: the PDF went back to the agent as an image part, which no model reads.
+  const engine: BrowserEngine = {
+    async ensure() {
+      return {
+        async send(method) {
+          if (method === 'Page.printToPDF') return { data: Buffer.from('%PDF-1.7 fake').toString('base64') }
+          return {}
+        },
+      }
+    },
+    async close() {},
+  }
+  setBrowserEngine(engine)
+  t.after(() => setBrowserEngine(null))
+  const saver: HarnessPlugin = {
+    manifest: { id: 'saver', name: 'Saver', permissions: { browser: true } },
+    plugin: {
+      name: 'saver',
+      inject: ['tools', 'browser'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'save',
+          description: 'Saves the page.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => ctx.browser.savePdf({ name: 'Q3 / plan: draft' }),
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(saver)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'save')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  if (!result.ok) throw new Error(result.error)
+  const part = result.content[0]
+  const saved = JSON.parse(part?.type === 'text' ? part.text : '{}') as { path: string; bytes: number }
+  t.after(() => rmSync(dirname(saved.path), { recursive: true, force: true }))
+  assert.equal(basename(saved.path), 'Q3 - plan- draft.pdf', 'a separator in the title is not a folder')
+  assert.ok(saved.path.startsWith(tmpdir()), saved.path)
+  assert.equal(readFileSync(saved.path, 'utf8'), '%PDF-1.7 fake')
+  assert.equal(saved.bytes, 13)
+})
+
+test('a part a model cannot read as an image is named instead, whoever returns it', async (t) => {
+  // #51: a PDF in an image part went to every agent's model as an image.
+  const returner: HarnessPlugin = {
+    manifest: { id: 'returner', name: 'Returner', permissions: {} },
+    plugin: {
+      name: 'returner',
+      inject: ['tools'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'parts',
+          description: 'Returns parts.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => [
+            { type: 'text', text: 'Here it is' },
+            { type: 'image', url: 'data:application/pdf;base64,JVBERg==', mimeType: 'application/pdf' },
+            { type: 'image', url: 'data:image/png;base64,AAAA', mimeType: 'image/png' },
+            { type: 'image', url: 'data:application/zip;base64,UEsD' },
+          ],
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(returner)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'parts')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  if (!result.ok) throw new Error(result.error)
+  assert.deepEqual(
+    result.content.map((part) => (part.type === 'text' ? part.text : `image ${part.mimeType}`)),
+    [
+      'Here it is',
+      "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
+      'image image/png',
+      "An image part held application/zip, which isn't an image a model can read, so it was left out.",
+    ],
+  )
 })

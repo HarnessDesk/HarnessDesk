@@ -120,3 +120,17 @@ test('browser_key offers the agent exactly the keys the browser will take', () =
   }
   assert.deepEqual([...offered].sort(), [...KEY_NAMES].sort(), 'a key the tool never mentions is a key nobody presses')
 })
+
+test('a page saved as a PDF comes back as a sentence naming the file, not as an image', async () => {
+  // #51: the PDF was an image part, which no model reads, and the transcript drew it as a broken image (#79).
+  const tools = withBrowser({
+    page: async () => ({ url: 'http://a.test/', title: 'Quarterly report' }),
+    savePdf: async (options: { name?: string }) => ({ path: `/tmp/hd-pdf-x/${options.name}.pdf`, bytes: 12_345 }),
+    pdf: async () => {
+      throw new Error('a data URL is not how a page is saved')
+    },
+  })
+  const parts = (await tools.get('browser_page')!.execute({ action: 'pdf' })) as { type: string; text?: string }[]
+  assert.deepEqual(parts.map((part) => part.type), ['text'])
+  assert.equal(parts[0]!.text, 'Saved Quarterly report as a PDF (12 KB): /tmp/hd-pdf-x/Quarterly report.pdf')
+})

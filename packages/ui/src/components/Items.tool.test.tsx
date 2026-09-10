@@ -112,6 +112,18 @@ describe('an opened tool step', () => {
     open(call({ tool: 'Bash', result: [{ type: 'json', value: { ok: true } }] }))
     expect(json()).toEqual(['{\n  "ok": true\n}'])
   })
+
+  it('names a result part it cannot draw as an image, instead of drawing a broken one', () => {
+    // #79: a PDF went into an <img>.
+    open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'data:application/pdf;base64,JVBERi0xLjcK', mimeType: 'application/pdf' }] }))
+    expect(container.querySelectorAll('img[src^="data:application/pdf"]').length).toBe(0)
+    expect(outputs()).toEqual(["application/pdf, 1 KB: not an image, so it isn't shown."])
+  })
+
+  it('draws a result part that is an image', () => {
+    open(call({ tool: 'browser_screenshot', result: [{ type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }] }))
+    expect(container.querySelectorAll('img[src="data:image/png;base64,iVBORw0KGgo="]').length).toBe(1)
+  })
 })
 
 /** Render without opening anything — a user bubble has nothing to open. */

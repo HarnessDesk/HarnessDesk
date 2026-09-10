@@ -124,4 +124,14 @@ export const dataUrlMimeType = (url: string): string | null => {
   return match?.[1]?.toLowerCase() ?? null
 }
 
+/**
+ * What a tool result's image part says in the transcript when an `<img>` can't
+ * draw it: its type and size. A PDF drawn as an image was a broken one (#79).
+ */
+export const unshownImage = (url: string, mimeType?: string): string => {
+  const type = mimeType || dataUrlMimeType(url) || 'A file'
+  const bytes = dataUrlBytes(url)
+  return `${type}${bytes === null ? '' : `, ${formatBytes(bytes)}`}: not an image, so it isn't shown.`
+}
+
 export { formatBytes }

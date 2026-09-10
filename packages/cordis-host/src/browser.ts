@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -297,6 +297,18 @@ export interface NetworkEntry {
 
 // ------------------------------------------------------------------ service
 
+/**
+ * A page title made safe as a file name. Separators and NUL become dashes (a
+ * colon is a separator to the Finder), and a name of dots, or none, is `page`.
+ */
+const pdfName = (title: string | undefined): string => {
+  const clean = String(title ?? '')
+    .replace(/[/\\:\x00]/g, '-')
+    .trim()
+    .slice(0, 80)
+  return clean === '' || /^\.+$/.test(clean) ? 'page' : clean
+}
+
 export class BrowserService extends Service {
   static [Service.tracker] = { associate: 'browser', property: 'ctx' }
 
@@ -404,6 +416,23 @@ export class BrowserService extends Service {
       })) as { data?: string }
     if (!result.data) throw new Error('The browser returned no PDF data.')
     return `data:application/pdf;base64,${result.data}`
+  }
+
+  /**
+   * The page as a PDF file, in a folder of its own under the system's temp
+   * directory, named for the page: the path, and the size. What an agent does
+   * with a PDF is name it, open it or hand it on, and each of those takes a
+   * path. As a data URL it went to the model as an image, which no model
+   * reads (#51).
+   */
+  async savePdf(
+    options: { landscape?: boolean; printBackground?: boolean; name?: string } = {},
+  ): Promise<{ path: string; bytes: number }> {
+    const url = await this.pdf(options)
+    const data = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
+    const path = join(mkdtempSync(join(tmpdir(), 'hd-pdf-')), `${pdfName(options.name)}.pdf`)
+    writeFileSync(path, data)
+    return { path, bytes: data.length }
   }
 
   /** A full click — move, press, release — at the screenshot's own pixels. */

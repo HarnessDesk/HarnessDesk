@@ -27,6 +27,10 @@ import type { HarnessContext, HarnessPlugin, NetworkEntry, PointerTarget } from 
  * at all.
  */
 
+/** A file's size, as a person reads one. */
+const readableSize = (bytes: number): string =>
+  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+
 /** How a console entry reads in a tool result. */
 const consoleLine = (entry: { level: string; text: string; url?: string; line?: number }): string =>
   `[${entry.level}] ${entry.text}${entry.url ? ` (${entry.url}${entry.line ? `:${entry.line}` : ''})` : ''}`
@@ -346,7 +350,7 @@ export const browserPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'browser_page',
         description:
-          'The page itself: go back or forward, reload, wait for something to appear, emulate a device or colour scheme, print to PDF, or hand files to a file input.',
+          'The page itself: go back or forward, reload, wait for something to appear, emulate a device or colour scheme, save it as a PDF file, or hand files to a file input.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -406,11 +410,14 @@ export const browserPlugin: HarnessPlugin = {
               })
               return look('Emulating')
             case 'pdf': {
-              const pdf = await ctx.browser.pdf()
+              /* A file, and a sentence naming it. As an image part the PDF
+                 went to the model as an image, which no model reads (#51),
+                 and the transcript drew it as a broken one (#79). A path is
+                 something every agent can name, open or pass on. */
               const page = await ctx.browser.page()
+              const saved = await ctx.browser.savePdf({ name: page.title })
               return [
-                { type: 'text' as const, text: `${page.title || '(untitled)'} as PDF` },
-                { type: 'image' as const, url: pdf, mimeType: 'application/pdf' },
+                { type: 'text' as const, text: `Saved ${page.title || '(untitled)'} as a PDF (${readableSize(saved.bytes)}): ${saved.path}` },
               ]
             }
             case 'upload': {

@@ -82,6 +82,11 @@ export interface HarnessContext {
     page(): Promise<{ url: string; title: string }>
     screenshot(options?: ScreenshotOptions): Promise<string>
     pdf(options?: { landscape?: boolean; printBackground?: boolean }): Promise<string>
+    /**
+     * The page as a PDF file on this machine, in a folder of its own: where
+     * it was written, and its size. `name` names the file.
+     */
+    savePdf(options?: { landscape?: boolean; printBackground?: boolean; name?: string }): Promise<{ path: string; bytes: number }>
     click(x: number, y: number, options?: PointerOptions): Promise<void>
     clickRef(ref: string, options?: PointerOptions): Promise<void>
     hover(target: PointerTarget): Promise<void>
