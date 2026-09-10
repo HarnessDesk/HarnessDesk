@@ -72,7 +72,12 @@ export const searchPlugin: HarnessPlugin = {
           if (!(await hasRipgrep())) {
             return 'ripgrep (`rg`) is not installed, so workspace search is unavailable. Install it with `brew install ripgrep`.'
           }
-          const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', '20']
+          /* `--max-count` is ripgrep's cap *per file*, not in total. At 20, a
+             file with more matches than that was cut at twenty however high
+             the caller's limit was, and whether or not anything else matched
+             (#53). A file may now give as many as the result can show, and
+             the total is still cut to `maxResults` below. */
+          const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', String(maxResults)]
           if (args.ignoreCase) argv.push('--ignore-case')
           if (args.glob) argv.push('--glob', args.glob)
           argv.push('--regexp', args.pattern)
@@ -90,7 +95,8 @@ export const searchPlugin: HarnessPlugin = {
           const lines = result.stdout.split('\n').filter(Boolean)
           const shown = lines.slice(0, maxResults).map(clip)
           return lines.length > maxResults
-            ? `${shown.join('\n')}\n\n[${lines.length - maxResults} more matches not shown — narrow the pattern]`
+            ? // "At least": a file past the per-file cap above counts only up to it.
+              `${shown.join('\n')}\n\n[at least ${lines.length - maxResults} more matches not shown — narrow the pattern]`
             : shown.join('\n') || 'No matches.'
         },
       })
@@ -111,6 +117,15 @@ export const searchPlugin: HarnessPlugin = {
             return 'ripgrep (`rg`) is not installed, so file search is unavailable. Install it with `brew install ripgrep`.'
           }
           const result = await ctx.shell.run('rg', ['--files', '--glob', args.glob, '.'])
+          /* ripgrep exits 1 for "no files", which is an answer, and 2 for an
+             error — a glob it cannot parse, a path it cannot read — which is
+             not. Both read as "No files match.", so an agent that wrote `[`
+             for a bracket was told the workspace had nothing of the kind
+             (#54). The reading search_text already had. */
+          if (result.exitCode !== 0 && result.stdout.trim().length === 0) {
+            const stderr = result.stderr.trim()
+            return stderr.length > 0 ? `File search failed: ${stderr}` : 'No files match.'
+          }
           const files = result.stdout.split('\n').filter(Boolean)
           if (files.length === 0) return 'No files match.'
           return files.length > maxResults

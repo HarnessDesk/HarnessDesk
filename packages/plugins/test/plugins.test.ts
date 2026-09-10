@@ -298,6 +298,47 @@ test('search finds real matches in a real directory', async (t) => {
   assert.match(text(missing), /No matches/)
 })
 
+test('search_text shows a file past its twentieth match, up to the result limit', async (t) => {
+  // #53: `--max-count` is ripgrep's cap per file, and it was 20.
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-many-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'many.txt'), Array.from({ length: 30 }, (_, n) => `retry ${n}`).join('\n') + '\n')
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(searchPlugin)
+  await settle()
+
+  const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
+  assert.equal(found.split('\n').filter((line) => /many\.txt:\d+:retry \d+$/.test(line)).length, 30)
+})
+
+test('find_files says when ripgrep refused the glob, rather than that nothing matched', async (t) => {
+  // #54: an exit of 2, with ripgrep's reason on stderr, read as "No files match."
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-find-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(searchPlugin)
+  await settle()
+
+  const find = async (glob: string): Promise<string> =>
+    text(await kernel.invokeTool(toolNamed(kernel, 'find_files'), { glob }, {}))
+  assert.match(await find('['), /^File search failed: .*glob/)
+  assert.equal(await find('*.nomatch'), 'No files match.', 'an exit of 1 with nothing said is still an answer')
+  assert.match(await find('*.txt'), /a\.txt/)
+})
+
 test('the task list is one per conversation, and a write replaces the whole of it', async (t) => {
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
