@@ -553,3 +553,26 @@ test('an ssh remote that names no repository, or cannot be parsed, has no pull-r
   await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@[not-a-host/openma/harnessdesk.git')
   assert.equal(await pullRequestUrl(dir, 'main'), null)
 })
+
+test('the write verbs take a SHA-256 commit by its full id', async (t) => {
+  // #67 let 64-character ids through one check for every verb; these are the verbs that write with one.
+  const dir = await tempDir()
+  const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (!made) return t.skip('this git cannot make a SHA-256 repository')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const first = await sha(dir, 'HEAD')
+  await writeFile(join(dir, 'a.txt'), 'a\nb\n')
+  await git(dir, 'commit', '-qam', 'two')
+  const second = await sha(dir, 'HEAD')
+  assert.equal(second.length, 64, 'the control: this repository really is SHA-256')
+
+  assert.match(await patch(dir, second), /^\+b$/m)
+  await createTag(dir, 'v1', first)
+  assert.equal(await sha(dir, 'v1^{commit}'), first)
+  assert.deepEqual((await revertCommit(dir, second)).conflicts, [])
+  assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'a\n')
+  assert.deepEqual((await cherryPick(dir, second)).conflicts, [])
+  assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'a\nb\n')
+})

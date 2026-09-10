@@ -303,10 +303,12 @@ test('createBranch: lands at the commit, refuses bad names and bad ids', async (
   await assert.rejects(createBranch(dir, 'fine', 'HEAD'))
 })
 
-test('a repository that names its commits in SHA-256 opens them', async () => {
+test('a repository that names its commits in SHA-256 opens them', async (t) => {
   // #67: the id check stopped at 40 characters, a SHA-1's length.
   const dir = await tempDir()
-  await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main')
+  // Git makes SHA-256 repositories from 2.29; an older one has nothing to test here.
+  const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (!made) return t.skip('this git cannot make a SHA-256 repository')
   await writeFile(join(dir, 'a.txt'), 'a\n')
   await git(dir, 'add', '.')
   await git(dir, 'commit', '-qm', 'one')

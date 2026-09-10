@@ -1493,7 +1493,8 @@ const pullRefusal = (branch: GitBranchRef | null | undefined): string | false =>
   !branch?.upstream
     ? 'This branch tracks no remote branch.'
     : branch.gone
-      ? `${branch.upstream} is gone from its remote.`
+      ? // What it tracks can be a local branch as well, so the sentence names no remote.
+        `The branch this one tracks, ${branch.upstream}, is gone.`
       : false
 
 /** One toolbar verb: a glyph, its word when the pane is wide, and a count. */
