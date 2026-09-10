@@ -1084,8 +1084,10 @@ export class AcpConnection {
     }
     const method = message['method']
     if (typeof method !== 'string') return
-    if (typeof id === 'number') {
-      // Agent→client request. Answer or refuse; silence would hang the agent.
+    /* Agent→client request. Answer or refuse; silence would hang the agent.
+       JSON-RPC ids are numbers or strings, and a string one fell through to
+       the notification path below, where nothing answers (#37). */
+    if (typeof id === 'number' || typeof id === 'string') {
       const handler = this.#options.onRequest
       void (async () => {
         try {
