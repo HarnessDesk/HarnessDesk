@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { cycle, detectTrigger, stripTrigger } from './triggers'
+import { cycle, detectTrigger, stripMention, stripTrigger } from './triggers'
 
 describe('detectTrigger', () => {
   test('a slash at the start opens commands', () => {
@@ -50,6 +50,40 @@ describe('stripTrigger', () => {
   test('removes the mention token but keeps the separating space', () => {
     expect(stripTrigger('check @rea', 'file')).toBe('check ')
     expect(stripTrigger('@rea', 'file')).toBe('')
+    expect(stripTrigger('hello @file', 'file')).toBe('hello ')
+    expect(stripTrigger('@file', 'file')).toBe('')
+  })
+
+  test('preserves preceding whitespace including newlines and tabs', () => {
+    expect(stripTrigger('line 1\n@file', 'file')).toBe('line 1\n')
+    expect(stripTrigger('a\t@x', 'file')).toBe('a\t')
+  })
+
+  test('keeps a carriage return, a CRLF pair, a run of spaces, and a bare @ on its own line', () => {
+    // `\s` is wider than the three characters above; the strip must hand back
+    // whichever one the pattern took, and only that one.
+    expect(stripTrigger('a\r@x', 'file')).toBe('a\r')
+    expect(stripTrigger('line 1\r\n@file', 'file')).toBe('line 1\r\n')
+    // Only the space next to the `@` is inside the match; the rest never left.
+    expect(stripTrigger('check   @rea', 'file')).toBe('check   ')
+    // The picker opens on `@` alone, so the strip has to work before a query exists.
+    expect(stripTrigger('line 1\n@', 'file')).toBe('line 1\n')
+  })
+})
+
+describe('stripMention', () => {
+  test('preserves preceding whitespace including newlines and tabs', () => {
+    expect(stripMention('line 1\n@file')).toBe('line 1\n')
+    expect(stripMention('a\t@x')).toBe('a\t')
+    expect(stripMention('hello @file')).toBe('hello ')
+    expect(stripMention('@file')).toBe('')
+  })
+
+  test('keeps a carriage return, a CRLF pair, a run of spaces, and a bare @ on its own line', () => {
+    expect(stripMention('a\r@x')).toBe('a\r')
+    expect(stripMention('line 1\r\n@file')).toBe('line 1\r\n')
+    expect(stripMention('check   @rea')).toBe('check   ')
+    expect(stripMention('line 1\n@')).toBe('line 1\n')
   })
 })
 

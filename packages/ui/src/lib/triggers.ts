@@ -28,7 +28,7 @@ export const detectTrigger = (text: string): TriggerMatch => {
 export const stripTrigger = (text: string, kind: 'command' | 'file'): string =>
   kind === 'command'
     ? text.replace(COMMAND_PATTERN, (whole) => (whole.startsWith('\n') ? '\n' : ''))
-    : text.replace(MENTION_PATTERN, (whole) => (whole.startsWith(' ') ? ' ' : ''))
+    : text.replace(MENTION_PATTERN, (whole) => (whole.startsWith('@') ? '' : whole.slice(0, 1)))
 
 /** Wraps an index into range, so arrow keys cycle rather than stopping. */
 export const cycle = (index: number, delta: number, length: number): number =>
@@ -59,7 +59,7 @@ export const detectMention = (text: string): { readonly query: string } | null =
  * from a room's, and nothing would fail.
  */
 export const stripMention = (text: string): string =>
-  text.replace(MENTION_PATTERN, (whole) => (whole.startsWith(' ') ? ' ' : ''))
+  text.replace(MENTION_PATTERN, (whole) => (whole.startsWith('@') ? '' : whole.slice(0, 1)))
 
 /**
  * The space a picked mention leaves behind, when the next thing typed is
