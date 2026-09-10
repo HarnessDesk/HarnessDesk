@@ -11,6 +11,7 @@ import type {
   ItemStatus,
   NoticeItem,
   PlanItem,
+  PublicationItem,
   ReasoningItem,
   ReviewItem,
   SessionId,
@@ -63,6 +64,7 @@ import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-
 import { isRenderableImageUrl } from '../lib/images'
 import { Lightbox, type LightboxImage } from './Lightbox'
 import { Markdown } from './Markdown'
+import { Publication } from './Publication'
 import styles from './Items.module.css'
 
 /**
@@ -1010,6 +1012,8 @@ export const ItemView = ({
         return <Notice item={item} />
       case 'review':
         return <Review item={item} />
+      case 'publication':
+        return <Publication item={item as PublicationItem} />
       case 'error':
         return <ErrorRow item={item} />
     }

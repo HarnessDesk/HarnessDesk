@@ -72,8 +72,8 @@ test('a message typed mid-turn waits, and goes out when the turn ends', async (t
   const prompts = record!.session.turns.flatMap((turn) =>
     turn.items.filter((item) => item.type === 'userMessage'),
   )
-  // The person's words: the desk's attribution envelope rides on the first
-  // turn, and it is not what this is measuring.
+  // The person's words, whole: a context envelope riding on a turn would
+  // only obscure what this is measuring.
   assert.deepEqual(
     prompts.map((item) =>
       splitContext(item.type === 'userMessage' && item.content[0]?.type === 'text' ? item.content[0].text : '').text,

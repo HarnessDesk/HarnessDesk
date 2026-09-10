@@ -27,6 +27,7 @@ import { FsService, HttpService, ShellService, WorkspaceService } from './capabi
 import { BrowserService, setBrowserSettings, type BrowserSettings } from './browser.js'
 import { EditorService } from './editor.js'
 import { TeamService } from './team.js'
+import { ForgeService } from './forge.js'
 import { IosService } from './ios.js'
 import { AndroidService } from './android.js'
 import { install, inspect, listInstalled, loadInstalled, uninstall } from './installer.js'
@@ -122,6 +123,7 @@ const mergePermissions = (
   android: requested?.android ?? false,
   editor: requested?.editor ?? false,
   team: requested?.team ?? false,
+  forge: requested?.forge ?? false,
   secrets: requested?.secrets ?? [],
 })
 
@@ -193,6 +195,11 @@ export class ExtensionKernel implements CapabilityRegistry {
       }
     })
     this.#root.plugin(class extends TeamService {
+      constructor(ctx: Context) {
+        super(ctx, runtime)
+      }
+    })
+    this.#root.plugin(class extends ForgeService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }

@@ -45,7 +45,7 @@ cannot.
 
 ³ Declared per runtime as the `pluginTools` capability, and reported
 truthfully — an agent that refuses the server reports `false`, not hope.
-HarnessDesk offers every agent an MCP server carrying its 53 built-in plugin
+HarnessDesk offers every agent an MCP server carrying its 61 built-in plugin
 tools (the browser, iOS Simulator, Android, checkpoint and todo plugins among
 them; installed plugins add their own on top). Codex takes them as dynamic
 tools; Claude Code takes the server; Cursor takes them through a generated

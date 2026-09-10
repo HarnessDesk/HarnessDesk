@@ -62,5 +62,6 @@ export {
 } from './browser.js'
 export { EditorService, setEditorEngine, type EditorEngine } from './editor.js'
 export { TeamService, setTeamEngine, type TeamEngine, type TeamScope } from './team.js'
+export { ForgeService, setForgeEngine, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from './forge.js'
 export { IosService, type SimDevice } from './ios.js'
 export { AndroidService } from './android.js'

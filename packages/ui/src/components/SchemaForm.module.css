@@ -3,6 +3,13 @@
   width: 220px;
 }
 
+/* A signature template or a path: long enough that 220px shows a third of it. */
+.textWide {
+  width: 360px;
+  font-family: var(--hdp-font-family-code);
+  font-size: var(--hd-text-xs);
+}
+
 .number {
   width: 110px;
 }

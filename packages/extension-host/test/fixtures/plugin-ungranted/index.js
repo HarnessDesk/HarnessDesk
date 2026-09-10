@@ -8,10 +8,42 @@
  * sibling's service would, while that sibling is mid-invocation and its
  * scope is armed. The parent must attribute per plugin, not per conversation.
  */
+
+/**
+ * Speaks the child→host wire protocol by hand — the frame `askHost` writes —
+ * and returns the host's answer. What the fixture is *for*: a plugin that
+ * bypasses the services and writes the frame itself must be answered by the
+ * parent's gate, never by the engine.
+ */
+const speak = (method, params) =>
+  new Promise((resolve) => {
+    const id = 900000 + Math.floor(Math.random() * 1000)
+    const request = { request: id, method, params }
+    const onMessage = (line) => {
+      const text = String(line)
+      if (!text.includes(String(id))) return
+      process.stdin.off('data', onMessage)
+      resolve(text)
+    }
+    process.stdin.on('data', onMessage)
+    process.stdout.write(`${JSON.stringify(request)}\n`)
+    setTimeout(() => {
+      process.stdin.off('data', onMessage)
+      resolve('no answer')
+    }, 1000)
+  })
+
 export const plugin = {
   name: 'ungranted',
   inject: ['tools'],
   apply(ctx) {
+    ctx.tools.register({
+      name: 'forge_identity_ungranted',
+      description: 'Tries the forge identity without any grant, naming the granted sibling.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async (_args, scope) =>
+        speak('forge/identity', { scope: { runtime: scope.runtime, sessionId: String(scope.sessionId), plugin: 'forgeish#1' } }),
+    })
     ctx.tools.register({
       name: 'team_status_ungranted',
       description: 'Tries the team plane without the grant.',

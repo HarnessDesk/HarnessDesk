@@ -489,6 +489,25 @@ const SESSION_DELETE = '_harnessdesk/session/delete'
 /** What this bridge declares in `initialize`'s `_meta` when it serves it. */
 const SESSION_DELETE_CAPABILITY = 'deleteSession'
 
+/**
+ * A standing instruction the client hands a session under
+ * `_meta.harnessdesk.instructions`. `cursor-agent` has no instruction layer
+ * a print-mode turn can reach — no system prompt flag, no rules file this
+ * bridge should write into the person's project — so the sentence rides
+ * ahead of the first prompt of each opened session, once: the chat keeps
+ * its context across `--resume`, and a briefing repeated on every turn
+ * would be noise the model has already read. Declared in the handshake
+ * under the same key, so a client knows the channel exists.
+ */
+const INSTRUCTIONS_CAPABILITY = 'instructions'
+
+const briefingOf = (params: Record<string, unknown>): string | null => {
+  const meta = params['_meta']
+  const ours = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>)['harnessdesk'] : undefined
+  const text = typeof ours === 'object' && ours !== null ? (ours as Record<string, unknown>)[INSTRUCTIONS_CAPABILITY] : undefined
+  return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
+}
+
 const readIndex = (): StoredSession[] => {
   try {
     const parsed = JSON.parse(readFileSync(join(stateDir(), 'sessions.json'), 'utf8')) as {
@@ -740,6 +759,9 @@ interface Session {
   pluginDir: string | null
   /** Images written to disk for this conversation so far; names the next file. */
   imageCount: number
+  /** The client's standing instruction, sent ahead of the first prompt; see `INSTRUCTIONS_CAPABILITY`. */
+  briefing: string | null
+  briefed: boolean
   child: ChildProcess | null
   cancelled: boolean
   /**
@@ -843,7 +865,7 @@ export class CursorAcpBridge {
           authMethods: [],
           // ACP can list a chat but not remove one. This bridge knows where
           // Cursor keeps them, so it serves the extension that can.
-          _meta: { harnessdesk: { [SESSION_DELETE_CAPABILITY]: true } },
+          _meta: { harnessdesk: { [SESSION_DELETE_CAPABILITY]: true, [INSTRUCTIONS_CAPABILITY]: true } },
         }
       case 'session/new':
         return this.#newSession(params)
@@ -1100,6 +1122,7 @@ export class CursorAcpBridge {
     cwd: string,
     modeId: string | null = null,
     pluginDir: string | null = null,
+    briefing: string | null = null,
   ): Promise<unknown> {
     const families = await this.#families()
     const session: Session = {
@@ -1117,6 +1140,8 @@ export class CursorAcpBridge {
       sandbox: 'default',
       pluginDir,
       imageCount: 0,
+      briefing,
+      briefed: false,
       child: null,
       cancelled: false,
     }
@@ -1178,7 +1203,7 @@ export class CursorAcpBridge {
     // Not remembered yet: a chat becomes a conversation on its first prompt.
     // Options probes and abandoned drafts create chats too, and indexing
     // them filled the session list with untitled rows nobody had spoken to.
-    return this.#openSession(chatId, cwd, null, servers ? writeToolPlugin(chatId, servers) : null)
+    return this.#openSession(chatId, cwd, null, servers ? writeToolPlugin(chatId, servers) : null, briefingOf(params))
   }
 
   /**
@@ -1214,6 +1239,7 @@ export class CursorAcpBridge {
       cwd,
       readChatMode(sessionId, cwd, MODE_IDS),
       servers ? writeToolPlugin(sessionId, servers) : null,
+      briefingOf(params),
     )
   }
 
@@ -1456,7 +1482,12 @@ export class CursorAcpBridge {
       // directory is the one HarnessDesk itself offered.
       ...(session.pluginDir ? ['--plugin-dir', session.pluginDir, '--approve-mcps'] : []),
       '--', // a prompt that begins with `-` must stay a prompt
-      text,
+      // The client's briefing rides ahead of the first prompt only; the chat
+      // remembers it from there. Marked briefed only once a turn has run
+      // (below): a turn stopped at the start gate, or a spawn that died
+      // before its first word and was not retried, never showed it to the
+      // agent, and the next prompt carries it again.
+      session.briefing && !session.briefed ? `${session.briefing}\n\n${text}` : text,
     ]
 
     session.cancelled = false
@@ -1474,7 +1505,11 @@ export class CursorAcpBridge {
         return { stopReason: 'cancelled' }
       }
       try {
-        return await this.#runTurn(session, args, configHome, spoke, leave)
+        const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
+        // The agent has read the prompt — briefing included — whatever the
+        // turn's outcome; the chat remembers it under `--resume`.
+        session.briefed = true
+        return outcome
       } catch (error) {
         leave()
         const said = error instanceof Error ? error.message : String(error)

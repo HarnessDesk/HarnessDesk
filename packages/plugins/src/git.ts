@@ -1,12 +1,23 @@
-import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
+import type { ForgeSeat, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
+import type { ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
 
 /**
  * Git tools, available to every agent.
  *
  * Written against the same API a third-party plugin uses — no privileged path.
- * It declares `shell` because it genuinely spawns `git`; routing that through
- * `ctx.shell` rather than importing `child_process` is what keeps the
+ * It declares `shell` because it genuinely spawns `git` and `gh`; routing that
+ * through `ctx.shell` rather than importing `child_process` is what keeps the
  * permission model honest for HarnessDesk's own code too.
+ *
+ * Two halves. The reads — status, diff, log, the chips — have always been
+ * here. The `pr_*` and `issue_*` tools are how an agent publishes *through
+ * the desk*: they reach GitHub with the person's own `gh`, exactly as the
+ * agent's own shell would, and add the two things a shell cannot. The pull
+ * request is signed for the seat that wrote it — which agent, on which
+ * model, at which effort — in the line the person configured below; and what
+ * was published is recorded in the conversation, as the object it is, through
+ * `ctx.forge`. Both need the `forge` grant, and both are the desk's part of
+ * the job; the forge is `gh`'s.
  */
 
 /** Context is for reading, not for flooding a turn: past this, the tail is the agent's to fetch. */
@@ -23,12 +34,214 @@ const count = (value: unknown): number | null => {
   return Number.isFinite(read) ? read : null
 }
 
+/**
+ * The line a pull request ends with, unless the person wrote their own or
+ * blanked it. `{seat}` is the agent, its model and its effort as one label;
+ * the parts are there for anyone composing a different line.
+ */
+export const DEFAULT_SIGNATURE = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) ({seat})'
+
+/** The line a review opens with; same placeholders, same blank-means-none. */
+export const DEFAULT_REVIEW_SIGNATURE = '**Review by {seat} · via HarnessDesk**'
+
+/**
+ * The mark the desk leaves on the line it wrote, so that what it replaces
+ * on the next update is exactly that line and never the author's. An HTML
+ * comment: GitHub renders it as nothing, and the visible text is only the
+ * signature. Guessing the line from the template's shape was tried and
+ * fails on every short template — "Written by {agent} · {model}" fits an
+ * author's "Written by humans · mostly", and "- {seat}" fits any bullet.
+ */
+export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
+
+/**
+ * The desk's marked line in a body: the last line, outside a fenced code
+ * block, that *ends* in the mark. A sample of the mark in a code fence, or
+ * a mention of it in a code span, is the author's and is not the line —
+ * the desk's own line is the one it wrote, and it wrote the mark last.
+ */
+const markedLineIn = (lines: readonly string[]): number | null => {
+  let fenced = false
+  let found: number | null = null
+  lines.forEach((line, index) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      fenced = !fenced
+      return
+    }
+    if (!fenced && /<!-- harnessdesk:signature -->\s*$/.test(line)) found = index
+  })
+  return found
+}
+
+/**
+ * What the desk signed a description with last time, read off the body as
+ * GitHub holds it: the marked line's visible text. Handed to `signBody` so
+ * that a body an agent passed back with the mark gone — copied out of a
+ * read, edited by hand — still loses exactly that line and no other.
+ */
+export const previousSignature = (body: string | null | undefined): string | null => {
+  const lines = (body ?? '').split('\n')
+  const at = markedLineIn(lines)
+  if (at === null) return null
+  const text = unmarked(lines[at] ?? '').trim()
+  return text === '' ? null : text
+}
+
+/**
+ * The default's shape as a body's last line, from before the mark existed —
+ * and only there. A body that quotes the line somewhere in its prose keeps
+ * it: the desk replaces what it wrote, never what the author wrote about it.
+ */
+const DEFAULT_SHAPE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]*$/
+
+const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** GitHub's text without the desk's mark, for a card and for an excerpt. */
+export const unmarked = (text: string): string => text.replace(/ ?<!-- harnessdesk:signature -->/g, '')
+
+/** How much of a body the transcript card is given: the opening, as the forge holds it. */
+const EXCERPT_LIMIT = 600
+
+interface GitConfig {
+  branchContext?: boolean
+  logLimit?: number
+  signature?: string
+  reviewSignature?: string
+}
+
+/**
+ * A template with the seat's parts filled in. A part that resolves to
+ * nothing takes its separator with it — an agent with no effort control
+ * signs "Codex GPT-5.4", never "Codex GPT-5.4 · " — and a template left
+ * blank is no signature at all.
+ */
+export const renderSignature = (template: string, seat: ForgeSeat): string => {
+  const parts: Record<string, string> = {
+    seat: seat.label,
+    agent: seat.agent,
+    model: seat.model ?? '',
+    effort: seat.effort ?? '',
+    version: seat.version ?? '',
+    thinking: seat.thinking ? 'Thinking' : '',
+  }
+  const filled = template.replace(/\{(seat|agent|model|effort|version|thinking)\}/g, (_match, key: string) => parts[key] ?? '')
+  return filled
+    .split(' · ')
+    .map((part) => part.replace(/\s{2,}/g, ' ').trim())
+    .filter((part) => part !== '')
+    .join(' · ')
+    .trim()
+}
+
+/**
+ * The body with the signature as its last line, marked, and the earlier one
+ * gone — the line the desk marked, wherever the agent left it; failing that,
+ * as the last line only: what the desk signed with last time as GitHub holds
+ * it (`previous`), the current rendering exactly, or the default's shape from
+ * before the mark existed. An unmarked line that merely resembles a
+ * signature is the author's and stays.
+ */
+export const signBody = (body: string, signature: string | null, previous: string | null = null): string => {
+  const lines = body.replace(/\s+$/, '').split('\n')
+  const at = markedLineIn(lines)
+  let stripped: string
+  if (at !== null) {
+    lines.splice(at, 1)
+    // A blank the line stood between would otherwise be left doubled, and a
+    // line that opened the body leaves a blank at the top.
+    stripped = lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\s+$/, '')
+  } else {
+    stripped = lines.join('\n')
+    const trailing = (text: string | null): RegExp | null =>
+      text ? new RegExp(`(?:^|\\n)${escapeRegex(text)}\\s*$`) : null
+    for (const matcher of [trailing(previous), trailing(signature), DEFAULT_SHAPE]) {
+      if (matcher && matcher.test(stripped)) {
+        stripped = stripped.replace(matcher, '').replace(/\s+$/, '')
+        break
+      }
+    }
+  }
+  if (signature === null || signature === '') return stripped
+  const line = `${signature} ${SIGNATURE_MARK}`
+  return stripped === '' ? line : `${stripped}\n\n${line}`
+}
+
+/** GitHub's own JSON for a pull request, in the fields the tools read. */
+interface GhPullRequest {
+  number: number
+  title: string
+  state: 'OPEN' | 'MERGED' | 'CLOSED' | string
+  isDraft?: boolean
+  url: string
+  author?: { login?: string } | null
+  additions?: number
+  deletions?: number
+  changedFiles?: number
+  body?: string | null
+  headRefName?: string
+  baseRefName?: string
+}
+
+interface GhIssue {
+  number: number
+  title: string
+  state: 'OPEN' | 'CLOSED' | string
+  url: string
+  author?: { login?: string } | null
+  body?: string | null
+  labels?: readonly { name?: string }[]
+  comments?: readonly { author?: { login?: string } | null; body?: string; createdAt?: string }[]
+}
+
+const PR_FIELDS = 'number,title,state,isDraft,url,author,additions,deletions,changedFiles,body,headRefName,baseRefName'
+const ISSUE_FIELDS = 'number,title,state,url,author,body,labels,comments'
+
+const stateOf = (pr: GhPullRequest): ForgeReference['state'] =>
+  pr.isDraft ? 'draft' : pr.state === 'OPEN' ? 'open' : pr.state === 'MERGED' ? 'merged' : pr.state === 'CLOSED' ? 'closed' : null
+
+/** `owner/name`, read off the URL GitHub gave — no second call for a fact the first already carried. */
+const repoOf = (url: string): string => {
+  const found = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/(?:pull|issues)\/\d+/.exec(url)
+  return found?.[1] ?? ''
+}
+
+const excerptOf = (body: string | null | undefined): string | null => {
+  const text = unmarked(body ?? '').trim()
+  if (text === '') return null
+  return text.length > EXCERPT_LIMIT ? `${text.slice(0, EXCERPT_LIMIT).trimEnd()}…` : text
+}
+
+/**
+ * What `gh` prints about itself rather than about the request — an upgrade
+ * notice lands on stderr ahead of the actual error — and is not the answer.
+ */
+const GH_NOTICE = /A new release of gh is available|To upgrade, run|github\.com\/cli\/cli\/releases/i
+
+/** `gh`'s failures in a person's words, since the agent will repeat them to one. */
+const ghFailure = (args: readonly string[], said: string): string => {
+  const line =
+    said
+      .split('\n')
+      .map((entry) => entry.trim())
+      .find((entry) => entry !== '' && !GH_NOTICE.test(entry)) ?? ''
+  if (/ENOENT|spawn gh|command not found/i.test(said)) {
+    return 'gh is not installed, or not on the PATH HarnessDesk was started with. Install GitHub CLI and run `gh auth login`.'
+  }
+  if (/not logged in|not logged into|gh auth login|HTTP 401/i.test(said)) {
+    return 'gh is not signed in. Run `gh auth login` in a terminal, then try again.'
+  }
+  return line || `gh ${args[0] ?? ''} ${args[1] ?? ''} failed.`
+}
+
+const text = { type: 'string' } as const
+
 export const gitPlugin: HarnessPlugin = {
   manifest: {
     id: 'git',
     name: 'Git',
-    description: 'Read-only git tools: status, diff, log, and branch context.',
-    permissions: { workspace: { read: true, write: false }, shell: true },
+    description:
+      'Git tools: status, diff, log and branch context; pull requests, reviews and issues on GitHub through gh, signed for the conversation and recorded in it.',
+    permissions: { workspace: { read: true, write: false }, shell: true, forge: true },
     configSchema: {
       type: 'object',
       properties: {
@@ -36,18 +249,32 @@ export const gitPlugin: HarnessPlugin = {
           type: 'boolean',
           title: 'Tell the agent the current branch',
           description: 'Adds the branch name to every turn as context.',
+          default: true,
         },
         logLimit: {
           type: 'number',
           title: 'Commits to show by default',
+        },
+        signature: {
+          type: 'string',
+          title: 'Pull request signature',
+          description:
+            'Ends every pull request an agent opens or edits from a conversation. {seat} is the agent, its model and its effort; {agent}, {model}, {effort} and {version} are the parts. Leave empty to sign nothing.',
+          default: DEFAULT_SIGNATURE,
+        },
+        reviewSignature: {
+          type: 'string',
+          title: 'Review signature',
+          description: 'Opens every review an agent posts from a conversation. Same placeholders; leave empty for none.',
+          default: DEFAULT_REVIEW_SIGNATURE,
         },
       },
     },
   },
   plugin: {
     name: 'git',
-    inject: ['tools', 'context', 'shell', 'workspace'],
-    apply(ctx: HarnessContext, config: { branchContext?: boolean; logLimit?: number }) {
+    inject: ['tools', 'context', 'shell', 'workspace', 'forge'],
+    apply(ctx: HarnessContext, config: GitConfig) {
       const git = async (args: readonly string[]): Promise<string> => {
         if (!ctx.workspace.root) throw new Error('No workspace is open.')
         const result = await ctx.shell.run('git', args)
@@ -55,6 +282,140 @@ export const gitPlugin: HarnessPlugin = {
           throw new Error(result.stderr.trim() || `git ${args[0]} failed`)
         }
         return result.stdout.trim()
+      }
+
+      // gh uses the person's own login; HarnessDesk holds no token. A
+      // minute, because a create waits on GitHub and the person's network.
+      const gh = async (args: readonly string[]): Promise<string> => {
+        if (!ctx.workspace.root) throw new Error('No workspace is open.')
+        const result = await ctx.shell.run('gh', args, { timeoutMs: 60_000 })
+        if (result.exitCode !== 0) throw new Error(ghFailure(args, `${result.stderr}\n${result.stdout}`))
+        return result.stdout.trim()
+      }
+
+      const viewPullRequest = async (selector: string): Promise<GhPullRequest> =>
+        JSON.parse(await gh(['pr', 'view', selector, '--json', PR_FIELDS])) as GhPullRequest
+
+      /** The pull request a call names, or the one for the current branch when it names none. */
+      const selectorOf = (number: unknown): string =>
+        typeof number === 'number' && Number.isFinite(number) && number > 0
+          ? String(number)
+          : typeof number === 'string' && number.trim() !== ''
+            ? number.trim().replace(/^#/, '')
+            : ''
+
+      const pullRequestFor = async (number: unknown): Promise<GhPullRequest> => {
+        const selector = selectorOf(number)
+        if (selector !== '') return viewPullRequest(selector)
+        try {
+          return await viewPullRequest('')
+        } catch (error) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)} — no pull request number was given, and the current branch has none open.`,
+          )
+        }
+      }
+
+      /**
+       * The seat this call is made from, or null when the desk cannot say —
+       * a call with no conversation behind it, or a host with no forge plane.
+       * Null signs nothing: an invented seat would be a false signature.
+       */
+      const seatFor = async (scope: ScopeQuery): Promise<ForgeSeat | null> => {
+        try {
+          return await ctx.forge.seat(scope)
+        } catch {
+          return null
+        }
+      }
+
+      /**
+       * The line to sign with, or why there is none: no seat the desk can
+       * name, a template the person blanked, or a template that rendered to
+       * nothing for this seat — three different sentences for the agent.
+       */
+      const signatureFor = (
+        seat: ForgeSeat | null,
+        template: string | undefined,
+        fallback: string,
+      ): { readonly line: string | null; readonly template: string; readonly why: 'seat' | 'blank' | 'empty' | null } => {
+        const chosen = template === undefined ? fallback : template
+        if (seat === null) return { line: null, template: chosen, why: 'seat' }
+        if (chosen.trim() === '') return { line: null, template: chosen, why: 'blank' }
+        const rendered = renderSignature(chosen, seat)
+        return rendered === '' ? { line: null, template: chosen, why: 'empty' } : { line: rendered, template: chosen, why: null }
+      }
+
+      const viaOf = async (scope: ScopeQuery): Promise<ForgeReference['via']> => {
+        try {
+          return (await ctx.forge.identity(scope)).via
+        } catch {
+          return 'gh'
+        }
+      }
+
+      const referenceOf = (
+        pr: GhPullRequest,
+        fields: Pick<ForgeReference, 'kind' | 'action' | 'via'> & { url?: string; signature?: string | null },
+      ): ForgeReference => ({
+        kind: fields.kind,
+        action: fields.action,
+        ...(fields.kind === 'review' || fields.kind === 'comment' ? { subject: 'pullRequest' as const } : {}),
+        repo: repoOf(pr.url),
+        number: pr.number,
+        url: fields.url ?? pr.url,
+        title: pr.title ?? null,
+        state: stateOf(pr),
+        author: pr.author?.login ?? null,
+        additions: typeof pr.additions === 'number' ? pr.additions : null,
+        deletions: typeof pr.deletions === 'number' ? pr.deletions : null,
+        files: typeof pr.changedFiles === 'number' ? pr.changedFiles : null,
+        excerpt: excerptOf(pr.body),
+        via: fields.via,
+        signature: fields.signature ?? null,
+      })
+
+      /**
+       * The record, made after the forge has the thing. A record that could
+       * not be written is a note on the result, never a failure: the pull
+       * request exists, and telling the agent otherwise would have it open
+       * another.
+       */
+      const publish = async (reference: ForgeReference, scope: ScopeQuery): Promise<string | null> => {
+        try {
+          await ctx.forge.publish(reference, scope)
+          return null
+        } catch (error) {
+          return `(Not recorded in the conversation: ${error instanceof Error ? error.message : String(error)})`
+        }
+      }
+
+      const seatNote = (seat: ForgeSeat | null, signed: { readonly line: string | null; readonly why: string | null }): string =>
+        signed.line !== null
+          ? `Signed for ${seat?.label ?? 'this seat'}.`
+          : signed.why === 'seat'
+            ? 'Unsigned: the desk could not tell which conversation made this call.'
+            : signed.why === 'empty'
+              ? 'Unsigned: the signature template produced nothing for this seat.'
+              : 'Unsigned: the signature is switched off in the Git plugin’s settings.'
+
+      const describePullRequest = (pr: GhPullRequest): string => {
+        const state = stateOf(pr)
+        const head = [
+          `#${pr.number} ${pr.title}`,
+          `${state ?? pr.state.toLowerCase()} · ${repoOf(pr.url)}`,
+          [
+            pr.author?.login ? `${pr.author.login} wants to merge` : 'merges',
+            pr.headRefName ? `${pr.headRefName} into ${pr.baseRefName ?? '?'}` : '',
+            typeof pr.additions === 'number' ? `· +${pr.additions} −${pr.deletions ?? 0}` : '',
+            typeof pr.changedFiles === 'number' ? `· ${pr.changedFiles} file${pr.changedFiles === 1 ? '' : 's'}` : '',
+          ]
+            .filter((part) => part !== '')
+            .join(' '),
+          pr.url,
+        ].join('\n')
+        const body = unmarked(pr.body ?? '').trim()
+        return body === '' ? head : `${head}\n\n${body}`
       }
 
       ctx.tools.register({
@@ -101,6 +462,315 @@ export const gitPlugin: HarnessPlugin = {
         },
       })
 
+      // ------------------------------------------------------- the forge
+
+      ctx.tools.register({
+        name: 'pr_create',
+        description:
+          'Open a pull request on GitHub for the current branch, through HarnessDesk. The branch must already be pushed to its remote — this never pushes, and says what to run when it is not. The description is signed for this conversation’s seat (agent, model, effort) by the desk; do not add a signature or a “Generated with” line of your own. Use this rather than `gh pr create`: the pull request is then recorded in the conversation.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'The pull request title.' },
+            body: { type: 'string', description: 'The description, in GitHub Markdown. Do not hard-wrap prose; GitHub renders every newline.' },
+            base: { type: 'string', description: 'The branch to merge into. Defaults to the repository’s default branch.' },
+            draft: { type: 'boolean', description: 'Open it as a draft.' },
+          },
+          required: ['title', 'body'],
+        },
+        execute: async (args: { title: string; body: string; base?: string; draft?: boolean }, scope) => {
+          const title = String(args.title ?? '').trim()
+          const body = String(args.body ?? '')
+          if (title === '') throw new Error('A pull request needs a title.')
+          const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
+          if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
+          const upstream = await ctx.shell.run('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+          if (upstream.exitCode !== 0) {
+            // The remote to name: the repository's own, which is not always `origin`.
+            const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
+            const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
+            throw new Error(
+              `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
+            )
+          }
+          const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
+          if (unpushed !== '0') {
+            throw new Error(
+              `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Run \`git push\`, then call pr_create again; this tool never pushes.`,
+            )
+          }
+          const existing = JSON.parse(
+            await gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url']),
+          ) as readonly { number: number; url: string }[]
+          if (existing.length > 0 && existing[0]) {
+            throw new Error(
+              `Pull request #${existing[0].number} is already open for ${branch}: ${existing[0].url}. Use pr_update to change it.`,
+            )
+          }
+          const seat = await seatFor(scope)
+          const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
+          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line)]
+          if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
+          if (args.draft === true) argv.push('--draft')
+          const created = await gh(argv)
+          const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
+          const pr = await viewPullRequest(url || branch)
+          const note = await publish(
+            referenceOf(pr, { kind: 'pullRequest', action: 'opened', via: await viaOf(scope), signature: signed.line }),
+            scope,
+          )
+          return [`Opened pull request #${pr.number}: ${pr.title}`, pr.url, seatNote(seat, signed), note]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'pr_update',
+        description:
+          'Change a pull request’s title, description or base branch, through HarnessDesk. A new description is signed for this conversation’s seat, replacing any earlier HarnessDesk line; do not write one yourself. Names the pull request by number, or takes the one open for the current branch.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' },
+            title: text,
+            body: { type: 'string', description: 'The whole new description, in GitHub Markdown.' },
+            base: { type: 'string', description: 'A new base branch.' },
+          },
+        },
+        execute: async (args: { number?: number; title?: string; body?: string; base?: string }, scope) => {
+          const current = await pullRequestFor(args.number)
+          const seat = await seatFor(scope)
+          const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
+          const argv = ['pr', 'edit', String(current.number)]
+          let changed = 0
+          if (typeof args.title === 'string' && args.title.trim() !== '') {
+            argv.push('--title', args.title.trim())
+            changed += 1
+          }
+          if (typeof args.body === 'string') {
+            // What the desk signed with last time is read off GitHub's own
+            // copy, so a body passed back without the mark still loses it.
+            argv.push('--body', signBody(args.body, signed.line, previousSignature(current.body)))
+            changed += 1
+          }
+          if (typeof args.base === 'string' && args.base.trim() !== '') {
+            argv.push('--base', args.base.trim())
+            changed += 1
+          }
+          if (changed === 0) throw new Error('Nothing to change: give a title, a body or a base.')
+          await gh(argv)
+          const pr = await viewPullRequest(String(current.number))
+          const note = await publish(
+            referenceOf(pr, {
+              kind: 'pullRequest',
+              action: 'updated',
+              via: await viaOf(scope),
+              signature: typeof args.body === 'string' ? signed.line : null,
+            }),
+            scope,
+          )
+          return [
+            `Updated pull request #${pr.number}: ${pr.title}`,
+            pr.url,
+            typeof args.body === 'string' ? seatNote(seat, signed) : null,
+            note,
+          ]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'pr_review',
+        description:
+          'Post a review on a pull request — approve, request changes, or comment — through HarnessDesk. The review opens with a line naming this conversation’s seat; do not add one. Names the pull request by number, or takes the one open for the current branch.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' },
+            event: { type: 'string', enum: ['approve', 'request_changes', 'comment'], description: 'The verdict.' },
+            body: { type: 'string', description: 'The review, in GitHub Markdown.' },
+          },
+          required: ['event', 'body'],
+        },
+        execute: async (args: { number?: number; event: string; body: string }, scope) => {
+          const flag =
+            args.event === 'approve'
+              ? '--approve'
+              : args.event === 'request_changes'
+                ? '--request-changes'
+                : args.event === 'comment'
+                  ? '--comment'
+                  : null
+          if (flag === null) throw new Error('event must be approve, request_changes or comment.')
+          const body = String(args.body ?? '').trim()
+          if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
+          const pr = await pullRequestFor(args.number)
+          const seat = await seatFor(scope)
+          const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
+          const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
+          await gh(['pr', 'review', String(pr.number), flag, '--body', review])
+          // `gh pr review` prints no address for what it posted; the API knows.
+          let url = pr.url
+          try {
+            const last = await gh(['api', `repos/${repoOf(pr.url)}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url'])
+            if (/^https?:\/\//.test(last)) url = last
+          } catch {
+            // The pull request's own address is a fine second best.
+          }
+          const note = await publish(
+            referenceOf(pr, { kind: 'review', action: 'posted', via: await viaOf(scope), url, signature: signed.line }),
+            scope,
+          )
+          const verdict = args.event === 'approve' ? 'Approved' : args.event === 'request_changes' ? 'Requested changes on' : 'Commented on'
+          return [`${verdict} pull request #${pr.number}: ${pr.title}`, url, seatNote(seat, signed), note]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'pr_comment',
+        description:
+          'Leave a comment on a pull request’s conversation, through HarnessDesk. Comments are not signed. Names the pull request by number, or takes the one open for the current branch.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' },
+            body: { type: 'string', description: 'The comment, in GitHub Markdown.' },
+          },
+          required: ['body'],
+        },
+        execute: async (args: { number?: number; body: string }, scope) => {
+          const body = String(args.body ?? '').trim()
+          if (body === '') throw new Error('A comment needs a body.')
+          const pr = await pullRequestFor(args.number)
+          const posted = await gh(['pr', 'comment', String(pr.number), '--body', body])
+          const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
+          const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url }), scope)
+          return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'pr_view',
+        description:
+          'Read a pull request: title, state, author, branches, size and description. Names it by number, or takes the one open for the current branch.',
+        inputSchema: {
+          type: 'object',
+          properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' } },
+        },
+        execute: async (args: { number?: number }) => cap(describePullRequest(await pullRequestFor(args?.number))),
+      })
+
+      ctx.tools.register({
+        name: 'pr_checks',
+        description: 'The CI checks on a pull request, each with its state and link. Names it by number, or takes the one open for the current branch.',
+        inputSchema: {
+          type: 'object',
+          properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' } },
+        },
+        execute: async (args: { number?: number }) => {
+          const pr = await pullRequestFor(args?.number)
+          // `gh pr checks` exits non-zero when a check failed; the list is
+          // still the answer, so the exit code is read only when there is none.
+          const result = await ctx.shell.run(
+            'gh',
+            ['pr', 'checks', String(pr.number), '--json', 'name,state,bucket,link,workflow'],
+            { timeoutMs: 60_000 },
+          )
+          const raw = result.stdout.trim()
+          if (raw === '' && result.exitCode !== 0) {
+            throw new Error(ghFailure(['pr', 'checks'], `${result.stderr}\n${result.stdout}`))
+          }
+          const checks = raw === '' ? [] : (JSON.parse(raw) as readonly { name?: string; state?: string; bucket?: string; link?: string; workflow?: string }[])
+          if (checks.length === 0) return `No checks on pull request #${pr.number}.`
+          const mark = (bucket: string | undefined, state: string | undefined): string =>
+            bucket === 'pass' ? '✓' : bucket === 'fail' ? '✗' : bucket === 'pending' ? '…' : bucket === 'skipping' ? '–' : (state ?? '?')
+          return [
+            `Checks on pull request #${pr.number}:`,
+            ...checks.map(
+              (check) =>
+                `${mark(check.bucket, check.state)} ${check.name ?? '?'}${check.workflow ? ` (${check.workflow})` : ''}${check.link ? ` ${check.link}` : ''}`,
+            ),
+          ].join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'issue_view',
+        description: 'Read a GitHub issue: title, state, labels, body and discussion.',
+        inputSchema: {
+          type: 'object',
+          properties: { number: { type: 'number', description: 'The issue number.' } },
+          required: ['number'],
+        },
+        execute: async (args: { number: number }) => {
+          const selector = selectorOf(args?.number)
+          if (selector === '') throw new Error('Which issue? Give its number.')
+          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', ISSUE_FIELDS])) as GhIssue
+          const labels = (issue.labels ?? []).map((label) => label.name).filter((name): name is string => Boolean(name))
+          const head = [
+            `#${issue.number} ${issue.title}`,
+            `${issue.state.toLowerCase()} · ${repoOf(issue.url)}${issue.author?.login ? ` · opened by ${issue.author.login}` : ''}${labels.length > 0 ? ` · ${labels.join(', ')}` : ''}`,
+            issue.url,
+          ].join('\n')
+          const body = (issue.body ?? '').trim()
+          const discussion = (issue.comments ?? [])
+            .map((comment) => `${comment.author?.login ?? 'someone'}${comment.createdAt ? ` (${comment.createdAt})` : ''}:\n${(comment.body ?? '').trim()}`)
+            .join('\n\n')
+          return cap([head, body, discussion === '' ? '' : `Discussion:\n${discussion}`].filter((part) => part !== '').join('\n\n'))
+        },
+      })
+
+      ctx.tools.register({
+        name: 'issue_comment',
+        description: 'Leave a comment on a GitHub issue, through HarnessDesk. Comments are not signed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'The issue number.' },
+            body: { type: 'string', description: 'The comment, in GitHub Markdown.' },
+          },
+          required: ['number', 'body'],
+        },
+        execute: async (args: { number: number; body: string }, scope) => {
+          const selector = selectorOf(args?.number)
+          if (selector === '') throw new Error('Which issue? Give its number.')
+          const body = String(args.body ?? '').trim()
+          if (body === '') throw new Error('A comment needs a body.')
+          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
+          const posted = await gh(['issue', 'comment', String(issue.number), '--body', body])
+          const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url
+          const note = await publish(
+            {
+              kind: 'comment',
+              action: 'posted',
+              subject: 'issue',
+              repo: repoOf(issue.url),
+              number: issue.number,
+              url,
+              title: issue.title ?? null,
+              state: issue.state === 'OPEN' ? 'open' : issue.state === 'CLOSED' ? 'closed' : null,
+              author: issue.author?.login ?? null,
+              additions: null,
+              deletions: null,
+              files: null,
+              excerpt: excerptOf(body),
+              via: await viaOf(scope),
+              signature: null,
+            },
+            scope,
+          )
+          return [`Commented on issue #${issue.number}: ${issue.title}`, url, note]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
       // Chips: context the user attaches on purpose (docs/extending.md).
       // "Write the commit message", "review what I did", "why does this fail"
       // all start with the working tree; pasting it was the chore.
@@ -139,11 +809,6 @@ export const gitPlugin: HarnessPlugin = {
         resolve: async (_scope, ref) => {
           const target = (ref ?? '').trim()
           if (!target) throw new Error('Which issue or pull request? Give a URL or a number.')
-          const gh = async (args: readonly string[]): Promise<string> => {
-            const result = await ctx.shell.run('gh', args)
-            if (result.exitCode !== 0) throw new Error(result.stderr.trim() || `gh ${args[0]} failed`)
-            return result.stdout.trim()
-          }
           const kinds = target.includes('/pull/') ? ['pr'] : target.includes('/issues/') ? ['issue'] : ['issue', 'pr']
           let lastError: unknown = null
           for (const kind of kinds) {

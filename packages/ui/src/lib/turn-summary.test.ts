@@ -8,6 +8,35 @@ const turn = (items: unknown[], status: Turn['status'] = 'completed'): Turn =>
   ({ id: 't1', status, items }) as unknown as Turn
 
 describe('summariseTurn', () => {
+  it('reads what the turn put on the forge off its publication rows, and counts them as a summary worth drawing', () => {
+    const reference = {
+      kind: 'pullRequest',
+      action: 'opened',
+      repo: 'acme/widgets',
+      number: 7,
+      url: 'https://github.com/acme/widgets/pull/7',
+      title: 'Add widgets',
+      state: 'open',
+      author: 'octocat',
+      additions: 1,
+      deletions: 0,
+      files: 1,
+      excerpt: null,
+      via: 'gh',
+      signature: null,
+    }
+    const summary = summariseTurn(
+      turn([
+        { id: 'a', type: 'assistantMessage', text: 'Opened it.' },
+        { id: 'p', type: 'publication', reference },
+      ]),
+      '/w',
+    )!
+    expect(summary).not.toBeNull()
+    expect(summary.published).toEqual([reference])
+    expect(summary.files).toEqual([])
+  })
+
   it('reads files, commands, tests and failures off the items', () => {
     const summary = summariseTurn(
       turn([

@@ -73,6 +73,7 @@ never runs half-wired.
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
 | `ctx.editor` | The file the person is looking at — show it, mark it, edit it |
 | `ctx.team` | The shared board and messages between conversations |
+| `ctx.forge` | The seat a publication is signed as, and the record of it in the conversation |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
 | `ctx.workspace` | The open project root and its git branch |
@@ -547,6 +548,45 @@ Five things worth knowing:
   gate as your every other read. Opening a file in the editor is not a way to
   see files your manifest did not ask for.
 
+### The forge plane
+
+`ctx.forge` is what the desk adds around a git forge a plugin reaches on its
+own. The Git plugin talks to GitHub with the person's `gh` under its `shell`
+grant — that is deliberate, and it is where the credential stays — and asks
+the desk for the two things a shell cannot know:
+
+```ts
+// Which agent, on which model, at which effort, made this tool call.
+const seat = await ctx.forge.seat(scope) // null when the desk cannot say
+const line = seat ? `Generated with HarnessDesk (${seat.label})` : null
+
+// What was published, drawn in the transcript as the object it is.
+await ctx.forge.publish(
+  { kind: 'pullRequest', action: 'opened', repo: 'acme/widgets', number: 7, url, title, state: 'open', … },
+  scope,
+)
+
+// How the desk reaches the forge right now: the person's gh, as whom.
+const { via, login, available, reason } = await ctx.forge.identity(scope)
+```
+
+Three things worth knowing:
+
+- **Every verb rides the invocation it was called from**, so `seat`, `publish`
+  and `identity` take the `scope` your tool's `execute` was handed and refuse
+  a call that rides no live invocation of a plugin granted `forge` — the same
+  gate as `ctx.team`, and the two grants are checked apart: a plugin granted
+  one plane cannot reach the other while it runs. A plugin cannot sign as a
+  conversation it was not called from, and a reference that is not one — no
+  kind, repo, number, url or via, or the wrong types — is refused at the
+  boundary before it reaches any transcript.
+- **Null signs nothing.** A call the desk cannot place — no conversation
+  behind it, or a host with no forge plane — gets no seat, and a signature
+  built from a guess would be a false one. Say so in the result instead.
+- **Requires `forge: true`**, which is described to the person as “Sign pull
+  requests and reviews for the conversation, and put what it published in the
+  transcript”. The reach itself is `shell`'s.
+
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)
 has the argument. What caused a call travels with it across execution
@@ -629,7 +669,7 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
 | search | `ctx.fs` | content and filename search |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |
@@ -757,6 +797,16 @@ implement:
 
 Declare `pluginTools: true` when HarnessDesk's plugin tools reach this runtime's
 sessions via the tool gateway.
+
+Declare `instructions: true` when a standing instruction the desk hands the
+agent reaches it through the agent's own instruction layer — Codex takes it as
+`developerInstructions` on every thread verb; an ACP bridge that declares
+`instructions` in its `initialize` `_meta.harnessdesk` reads it from
+`session/new`'s and `session/load`'s `_meta.harnessdesk.instructions`. The desk
+never puts the sentence in the person's message; an agent with no such layer
+hears it only as the tool server's own `instructions`, if it accepted one — and
+an agent that declares the capability is answered nothing there, so it never
+hears the sentence twice.
 
 ### Conformance
 

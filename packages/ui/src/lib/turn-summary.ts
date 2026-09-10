@@ -1,4 +1,4 @@
-import type { AgentItem, Turn } from '@harnessdesk/protocol'
+import type { AgentItem, ForgeReference, Turn } from '@harnessdesk/protocol'
 
 import { SHELL_TOOLS, shellCommandOf } from './group-items'
 import { changedFiles } from './handoff'
@@ -23,6 +23,8 @@ export interface TurnSummary {
   readonly approvalsAsked: number
   /** The turn ended by asking the user something. */
   readonly question: boolean
+  /** What the turn put on the forge, in order: pull requests opened or updated, reviews and comments posted. */
+  readonly published: readonly ForgeReference[]
 }
 
 export const TEST_COMMAND =
@@ -119,6 +121,8 @@ export const summariseTurn = (turn: Turn, cwd: string): TurnSummary | null => {
   const lastProse = [...items].reverse().find((item) => item.type === 'assistantMessage' && item.phase !== 'commentary')
   const question = lastProse?.type === 'assistantMessage' && /\?\s*$/.test(lastProse.text.trim())
 
-  if (files.length === 0 && runs.length === 0 && failures.length === 0 && !question) return null
-  return { files, commands: runs.length, failures, tests, approvalsAsked, question }
+  const published = items.flatMap((item) => (item.type === 'publication' ? [item.reference] : []))
+
+  if (files.length === 0 && runs.length === 0 && failures.length === 0 && !question && published.length === 0) return null
+  return { files, commands: runs.length, failures, tests, approvalsAsked, question, published }
 }

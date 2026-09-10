@@ -84,6 +84,7 @@ import {
   type AcpTasksChanged,
   ACP_SESSION_DELETE,
   ACP_SESSION_DELETE_CAPABILITY,
+  ACP_INSTRUCTIONS_CAPABILITY,
   type AcpSessionDeleted,
   ACP_DELEGATION_NOTIFICATION,
   type AcpDelegation,
@@ -282,7 +283,23 @@ export interface AcpAgentConfig {
      * called over MCP finally knows which conversation called it.
      */
     readonly onSession?: (token: string, sessionId: string) => void
+    /**
+     * Told the token before the open is sent, when the session has no id
+     * yet. The agent spawns the bridge while the open is in flight and the
+     * bridge asks the gateway for its instructions at its own handshake, so
+     * whoever answers that question needs to know whose token it is first.
+     */
+    readonly onOpen?: (token: string) => void
   }
+  /**
+   * The desk's standing instruction for the agent, read when a session is
+   * opened and put in `session/new`'s and `session/load`'s `_meta` under
+   * `harnessdesk.instructions`. A bridge that declared the capability in its
+   * handshake folds it into the agent's own instruction layer; every other
+   * agent ignores the key, and hears the sentence only through the tool
+   * server's own `instructions`, if it accepted one.
+   */
+  readonly instructions?: () => string
   readonly logger?: {
     debug?(message: string, details?: unknown): void
     info?(message: string, details?: unknown): void
@@ -528,6 +545,8 @@ export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
+  /** The agent's bridge declared that it carries the desk's standing instruction. */
+  #briefs = false
 
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
@@ -697,6 +716,7 @@ export class AcpRuntime implements AgentRuntime {
             // which `start` opens eagerly for exactly this reason.
             pluginTools: Boolean(this.#config.toolServer) && !this.#toolServerRefused,
             backgroundTasks: this.#tasks !== null,
+            instructions: this.#briefs,
           }
         : {}),
     }
@@ -750,6 +770,7 @@ export class AcpRuntime implements AgentRuntime {
         ?.harnessdesk
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
+      this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -1554,6 +1575,20 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /**
+   * The open's `_meta` with the desk's standing instruction added under the
+   * `harnessdesk` key, when there is one — beside whatever else the caller
+   * put there, never in place of it. Sent whether or not the bridge declared
+   * it can use it: `_meta` is the slot an agent may ignore.
+   */
+  #briefed(params: Record<string, unknown>): { _meta?: Record<string, unknown> } {
+    const text = this.#config.instructions?.().trim() ?? ''
+    if (text === '') return {}
+    const meta = (params['_meta'] ?? {}) as Record<string, unknown>
+    const ours = (meta['harnessdesk'] ?? {}) as Record<string, unknown>
+    return { _meta: { ...meta, harnessdesk: { ...ours, [ACP_INSTRUCTIONS_CAPABILITY]: text } } }
+  }
+
+  /**
    * `session/new` or `session/load`, with the tool bridge offered unless this
    * agent has already refused it. A refusal is not a failure: retry once
    * without the bridge, remember, and log why the plugin tools are absent.
@@ -1561,6 +1596,8 @@ export class AcpRuntime implements AgentRuntime {
   async #openWithTools<T>(method: 'session/new' | 'session/load', params: Record<string, unknown>): Promise<T> {
     const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
+    // The token's runtime is known now; its session only once the open answers.
+    if (servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
     // The claim closes the loop: the bridge this open spawns carries the
     // token, and whoever built the runtime now learns which session it names.
     const claim = (result: T): T => {
@@ -1571,7 +1608,9 @@ export class AcpRuntime implements AgentRuntime {
       return result
     }
     try {
-      return this.#opened(claim(await this.#connection.request<T>(method, { ...params, mcpServers: servers })))
+      return this.#opened(
+        claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       // The tool-server refusal is answered first, by a retry without the

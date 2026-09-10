@@ -112,6 +112,12 @@ export class PermissionGate {
     }
   }
 
+  assertForge(): void {
+    if (!this.permissions.forge) {
+      throw new PermissionDenied('forge', 'this plugin cannot sign for a conversation or record what it published')
+    }
+  }
+
   assertIos(): void {
     if (!this.permissions.ios) {
       throw new PermissionDenied('ios', 'this plugin cannot control the iOS Simulator')

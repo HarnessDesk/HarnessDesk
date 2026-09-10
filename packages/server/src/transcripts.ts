@@ -9,7 +9,10 @@ import type {
   SessionUsage,
   TranscriptHit,
   Turn,
+  AgentItem,
 } from '@harnessdesk/protocol'
+
+import { publicationsIn, withPublications } from './publications.js'
 
 /**
  * The transcript the host watched, kept.
@@ -294,14 +297,29 @@ export class TranscriptStore {
     let changed = false
     const turns = session.turns.map((turn) => {
       const kept = pairs.get(turn)
-      if (!kept || kept.items.length <= turn.items.length) return turn
+      if (!kept) return turn
+      // What the host itself put in the turn. The backend has never heard of
+      // a publication, so a read that otherwise wins on count — a Codex
+      // rollout that stored more than it streamed — would drop the row the
+      // host recorded. Put back at its place, whichever list stands.
+      const published = publicationsIn(kept.items)
+      const carry = (items: readonly AgentItem[]): readonly AgentItem[] => withPublications(items, published)
+      if (kept.items.length <= turn.items.length) {
+        const items = carry(turn.items)
+        if (items.length === turn.items.length) return turn
+        changed = true
+        return { ...turn, items }
+      }
       if (
         kept.items.some((entry) => {
           const home = homes.get(String(entry.id))
           return home !== undefined && home !== turn
         })
       ) {
-        return turn
+        const items = carry(turn.items)
+        if (items.length === turn.items.length) return turn
+        changed = true
+        return { ...turn, items }
       }
       changed = true
       return {

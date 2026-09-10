@@ -337,13 +337,22 @@ Each vendor app hides its wrapper and no other client can; HarnessDesk strips
 the wrapper from the sentence and keeps it beside it as "Sent with your
 message" — one row per item, opening onto the block exactly as sent. It is never
 dropped: it is context the model was given, and a transcript that deletes it
-cannot explain what the agent knew. "Context added" is the same row for the
+cannot explain what the agent knew. "Context added" is the same row for an
 envelope HarnessDesk sends, kept worded apart because our name does not belong on
-someone else's text. One such envelope rides with the first turn of every
-conversation, and again when its model or effort changes: the pull-request
-signature — “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent
-model · effort)”, in the agent's own labels — that the agent is asked to end
-any pull request it opens with. Settings → General switches it off.
+someone else's text.
+
+**What the conversation put on the forge is a row of its own.** A pull request
+opened or updated through the desk's own tools, a review or a comment posted
+through them, appears as a publication row: a verb, then the thing as a chip —
+GitHub's mark and `owner/name #n` — then its state in a word. Hovering the chip
+opens a card with GitHub's own text on it: the title, the author and size, and
+the opening of the description as GitHub holds it, which is where the signature
+the desk wrote is read. Pressing it opens the page. The signature itself — by
+default “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent
+model · effort)”, in the agent's own labels — is a template in the Git plugin's
+settings, and a blank one signs nothing. Nothing about it rides in the
+conversation: the agent is told, through its own instruction layer, to use the
+tools; the desk does the rest.
 
 **Under every finished turn, a summary**: files changed (click → Changes),
 commands run, tests passed or failed, what broke, and "waiting for your

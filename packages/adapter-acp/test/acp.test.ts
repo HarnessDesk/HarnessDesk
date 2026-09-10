@@ -1328,3 +1328,49 @@ test('refreshCatalog still leaves an agent that is merely starting or blocked al
   assert.deepEqual(await runtime.refreshCatalog(), { refreshed: false, reason: 'It is not running.' })
   await runtime.dispose()
 })
+
+/**
+ * The token's runtime is told before the open is sent. The agent spawns the
+ * bridge while `session/new` is still in flight, and the bridge asks the
+ * gateway a question at its own handshake that only the runtime can answer —
+ * so the session-level claim, which arrives when the open answers, is too
+ * late for it. Same token, in that order.
+ */
+test('a bridge token is claimed for its runtime before the open, and for its session after', async () => {
+  const order: string[] = []
+  const tokens: string[] = []
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['--version'],
+      env: { HD_TOOLS_SOCKET: '/tmp/hd.sock' },
+      onOpen: (token) => {
+        order.push('open')
+        tokens.push(token)
+      },
+      onSession: (token) => {
+        order.push('session')
+        tokens.push(token)
+      },
+    },
+  })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: '/tmp/w' })
+    // The eager probe opens one session at start and the create another; each
+    // is told twice, open first. The control is the order itself: a claim
+    // made only at the answer would put every 'session' before its 'open'.
+    assert.ok(order.length >= 2)
+    assert.equal(order[0], 'open', 'the runtime is claimed before the open is sent')
+    const opened = tokens.filter((_token, index) => order[index] === 'open')
+    const named = tokens.filter((_token, index) => order[index] === 'session')
+    for (const token of named) assert.ok(opened.includes(token), 'every session claim names a token that was opened first')
+  } finally {
+    await runtime.dispose()
+  }
+})

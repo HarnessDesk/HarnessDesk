@@ -1168,3 +1168,50 @@ test('a scratch config that will not go into place is removed, and the turn stil
     await runtime.dispose()
   }
 })
+
+/**
+ * The client's standing instruction rides ahead of the first prompt of an
+ * opened session, and only there — but "first" means the first the agent
+ * read. A spawn that died before its first word and was not retried never
+ * showed it; the next prompt carries it again. A second turn after a turn
+ * that ran does not.
+ */
+test('the briefing goes ahead of the first prompt the agent reads, and not again after that', async () => {
+  const log = join(tempDir('cursor-acp-briefing-'), 'spawns')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME, FAKE_CURSOR_SPAWN_LOG: log },
+    instructions: () => 'Use the pr_create tool rather than gh.',
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    // A refusal the bridge does not retry: the agent died before reading anything.
+    await session.send([{ type: 'text', text: 'named-refusal first' }])
+    const refused = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    assert.notEqual(refused.status, 'completed', 'the first spawn died, as the fixture makes it')
+    // One entry per spawn: the prompt has newlines of its own, so the log is
+    // split where a timestamp starts a new line, not on every newline.
+    const entries = (): string[] =>
+      existsSync(log) ? readFileSync(log, 'utf8').trim().split(/\n(?=\d{13} )/).map((entry) => entry.replace(/^\d{13} /, '')) : []
+    const before = entries().length
+
+    await session.send([{ type: 'text', text: 'hello for real' }])
+    await tape.until((event) => event.type === 'turn/completed' && event.turn.status === 'completed')
+    const prompts = entries().slice(before)
+    assert.equal(prompts.length, 1)
+    assert.match(prompts[0] ?? '', /^Use the pr_create tool rather than gh\.\n\nhello for real/, 'the briefing is still ahead of the first prompt the agent reads')
+
+    await session.send([{ type: 'text', text: 'and again' }])
+    await tape.until((event) => event.type === 'turn/completed' && entries().length > before + 1)
+    const again = entries().at(-1) ?? ''
+    assert.doesNotMatch(again, /pr_create/, 'once read, the briefing is not repeated')
+    assert.match(again, /^and again/)
+  } finally {
+    await runtime.dispose()
+  }
+})

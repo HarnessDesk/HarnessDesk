@@ -470,6 +470,14 @@ export interface PluginPermissions {
    * — is the host's and applies regardless.
    */
   readonly team: boolean
+  /**
+   * Publish to the git forge as the desk, via `ctx.forge`: the seat of the
+   * calling conversation for a signature, and the record of what was
+   * published, drawn in the transcript. The forge itself is reached through
+   * the person's own `gh`, which the plugin runs with its `shell` grant; this
+   * grant is for what the desk adds around it.
+   */
+  readonly forge: boolean
   readonly secrets: readonly string[]
 }
 
@@ -484,6 +492,7 @@ export const NO_PERMISSIONS: PluginPermissions = {
   android: false,
   editor: false,
   team: false,
+  forge: false,
   secrets: [],
 }
 
