@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 
 import { ExtensionKernel, type HarnessContext } from '@harnessdesk/cordis-host'
 import { runtimeId, type ContributionId, type SessionId, type ToolResult } from '@harnessdesk/protocol'
@@ -238,20 +238,27 @@ test('the web plugin reaches nothing until a host is granted', async (t) => {
 
 // -------------------------------------------------------------------- search
 
+/**
+ * Whether ripgrep is here to test against, with a skip that says so when it
+ * is not. The search tools shell out to `rg`, CI's runner does not have it,
+ * and a search test without it would be testing the install message.
+ */
+const ripgrepOr = async (t: TestContext): Promise<boolean> => {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const found = await promisify(execFile)('which', ['rg']).then(
+    () => true,
+    () => false,
+  )
+  if (!found) t.skip('ripgrep is not installed on this machine')
+  return found
+}
+
 test('search finds real matches in a real directory', async (t) => {
   // Regression: ripgrep reads stdin when stdin is not a TTY, which it never is
   // for a spawned process. Without an explicit search path every query returned
   // "No matches" while looking completely healthy.
-  const { execFile } = await import('node:child_process')
-  const { promisify } = await import('node:util')
-  const hasRipgrep = await promisify(execFile)('which', ['rg']).then(
-    () => true,
-    () => false,
-  )
-  if (!hasRipgrep) {
-    t.skip('ripgrep is not installed on this machine')
-    return
-  }
+  if (!(await ripgrepOr(t))) return
 
   const { mkdtemp, writeFile, mkdir, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
@@ -300,6 +307,7 @@ test('search finds real matches in a real directory', async (t) => {
 
 test('search_text shows a file past its twentieth match, up to the result limit', async (t) => {
   // #53: `--max-count` is ripgrep's cap per file, and it was 20.
+  if (!(await ripgrepOr(t))) return
   const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
@@ -319,6 +327,7 @@ test('search_text shows a file past its twentieth match, up to the result limit'
 
 test('find_files says when ripgrep refused the glob, rather than that nothing matched', async (t) => {
   // #54: an exit of 2, with ripgrep's reason on stderr, read as "No files match."
+  if (!(await ripgrepOr(t))) return
   const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
