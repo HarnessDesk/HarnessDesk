@@ -43,16 +43,20 @@ const URL_TIMEOUT_MS = 30_000
 
 export class CliAccount {
   readonly #logins = new Map<string, ChildProcess>()
+  /** How each flow still in flight is ended by `cancel()`, before its child is killed. */
+  readonly #cancels = new Map<string, () => void>()
 
   constructor(
     private readonly commands: AcpAccountCommands,
     private readonly runtime: RuntimeId,
     private readonly emit: (event: AgentEvent) => void,
     private readonly log?: (message: string, details?: unknown) => void,
-    /* Seams for tests only. The ways a flow can end that a real CLI cannot
-       stage on demand — an `'error'` after its URL, two events in one tick, a
-       URL that never comes — are driven through a child the test controls,
-       with a timeout the test does not wait thirty seconds for. */
+    /**
+     * @internal Seams for tests only. The ways a flow can end that a real CLI
+     * cannot stage on demand — an `'error'` after its URL, two events in one
+     * tick, a URL that never comes — are driven through a child the test
+     * controls, with a timeout the test does not wait thirty seconds for.
+     */
     private readonly seams: { readonly spawn?: typeof spawn; readonly urlTimeoutMs?: number } = {},
   ) {}
 
@@ -105,11 +109,24 @@ export class CliAccount {
        fails, a pipe that breaks in teardown — finding no listener left is
        thrown, and takes the host down with it (review, round five). The
        promise settles on the first; the listener stays for the rest. */
+    /* A cancel ends the flow itself, at once, rather than leaving it to the
+       exit: a child that ignores SIGTERM would never report it (review,
+       round seven). Before the hand-out nobody holds the id to cancel with. */
+    this.#cancels.set(loginId, () => {
+      if (settled) return
+      settled = true
+      this.#logins.delete(loginId)
+      this.#cancels.delete(loginId)
+      if (handedOut) {
+        this.emit({ type: 'account/loginCompleted', runtime: this.runtime, loginId, success: false, error: 'Sign-in was cancelled.' })
+      }
+    })
     const failed = new Promise<Error>((resolve) => child.on('error', resolve))
     void failed.then((error) => {
       if (settled) return
       settled = true
       this.#logins.delete(loginId)
+      this.#cancels.delete(loginId)
       const said = `The sign-in command stopped: ${error.message}`
       if (!handedOut) {
         ending = said
@@ -139,12 +156,19 @@ export class CliAccount {
     child.stdout!.on('data', scan)
     child.stderr!.on('data', scan)
 
-    const exited = new Promise<number | null>((resolve) => child.once('exit', resolve))
-    void exited.then((code) => {
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+      child.once('exit', (code, signal) => resolve({ code, signal })),
+    )
+    void exited.then(({ code, signal }) => {
       if (settled) return
       settled = true
       this.#logins.delete(loginId)
-      const said = code === 0 ? null : lastWords(tail) || `The sign-in command exited with code ${String(code)}.`
+      this.#cancels.delete(loginId)
+      /* Its last words, but not the prompt it printed its URL in: after the
+         hand-out the tail always holds that line, and a flow killed by a
+         signal reported "Open https://… to sign in" as its error (review,
+         round seven). */
+      const said = code === 0 ? null : lastWords(tail, url) || stoppedBy(code, signal)
       if (handedOut) {
         this.emit({
           type: 'account/loginCompleted',
@@ -167,7 +191,7 @@ export class CliAccount {
     let urlTimer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
       sawUrl.then((found) => ({ kind: 'url' as const, found })),
-      exited.then((code) => ({ kind: 'exit' as const, code })),
+      exited.then(({ code }) => ({ kind: 'exit' as const, code })),
       failed.then((error) => ({ kind: 'error' as const, error })),
       new Promise<{ kind: 'timeout' }>((resolve) => {
         urlTimer = setTimeout(() => resolve({ kind: 'timeout' }), this.seams.urlTimeoutMs ?? URL_TIMEOUT_MS)
@@ -188,6 +212,7 @@ export class CliAccount {
       return { type: 'browser', loginId, url: outcome.found }
     }
     this.#logins.delete(loginId)
+    this.#cancels.delete(loginId)
     if (outcome.kind === 'error') {
       throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
     }
@@ -202,7 +227,9 @@ export class CliAccount {
 
   async cancel(loginId: string): Promise<void> {
     // Unknown ids are not an error — the flow may have settled already.
-    this.#logins.get(loginId)?.kill('SIGTERM')
+    const child = this.#logins.get(loginId)
+    this.#cancels.get(loginId)?.()
+    child?.kill('SIGTERM')
     this.#logins.delete(loginId)
   }
 
@@ -335,6 +362,12 @@ const statusRecords = (
   return { status: null, emailOnly, prose: prose + text.slice(from, end) }
 }
 
+/** A sentence saying nobody is signed in: a negation anywhere in the clause before the verb, or signed out. */
+const SIGNED_OUT = /\b(?:not|no longer)\b[^.\n]*?\b(?:logged|signed) in\b|\b(?:logged|signed) out\b/i
+
+/** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
+const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
+
 /** One account from whatever the status command printed, or null for signed out. */
 export const parseStatus = (
   stdout: string,
@@ -348,14 +381,17 @@ export const parseStatus = (
      signed in outranks a record that only names an email, which may be a log
      line's (review, round four); and "Not logged in as …" names someone to say
      the opposite (review, round six). */
-  const sentence = /(?<!\bnot\s+)\blogged in as[: ]+(\S+)/i.exec(prose)
-  if (sentence) {
-    const identity = sentence[1]!.replace(/^["'`]+|["'`.,]+$/g, '')
-    return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
-  }
-  /* A sentence that says the account is signed out is an answer as well, and
-     outranks a record that only names an email (review, round five). */
-  if (/\b(?:not (?:logged|signed) in|logged out|signed out)\b/i.test(prose)) return null
+  /* A sentence saying nobody is signed in is read first, and it wins, over a
+     record that only names an email (review, round five) and over a sentence
+     naming someone. A negation can sit anywhere before the verb ("not
+     currently logged in"), and one line can hold both ("Not signed in. Last
+     logged in as …"); guarded word by word, each read as signed in (review,
+     round seven). Signed out is the safer mistake: it asks for a sign-in,
+     where a wrong signed-in fails every request after it. */
+  if (SIGNED_OUT.test(prose)) return null
+  const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`]+|["'`.,]+$/g, '') ?? ''
+  // One that names nobody is no answer: `Logged in as ""` was an account with no name (review, round seven).
+  if (identity !== '') return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
   return emailOnly !== null ? fromRecord(emailOnly) : null
 }
 
@@ -376,11 +412,15 @@ const fromRecord = (record: Record<string, unknown>): { kind: string; label: str
   return null
 }
 
-const lastWords = (tail: readonly string[]): string =>
+/** How a sign-in command ended, when it said nothing else: a signal is not a code. */
+const stoppedBy = (code: number | null, signal: NodeJS.Signals | null): string =>
+  code !== null ? `The sign-in command exited with code ${code}.` : `The sign-in command was stopped${signal ? ` (${signal})` : ''}.`
+
+const lastWords = (tail: readonly string[], skip: string | null = null): string =>
   tail
     .join('')
     .split('\n')
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line !== '' && (skip === null || !line.includes(skip)))
     .slice(-2)
     .join(' · ')

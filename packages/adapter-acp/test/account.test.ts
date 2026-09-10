@@ -605,3 +605,46 @@ test('a stray brace in a line of prose does not hide the status after it', () =>
   assert.equal(parseStatus('status: {"wrap":{"loggedIn":true,"email":"a@b.c"}'), null)
 })
 
+test('a negation anywhere before the verb, or a past sign-in, is not a signed-in account', () => {
+  // Round 7 of #134: the guard looked at the one word before "logged", so each of these read as signed in.
+  for (const text of [
+    'Not currently logged in as user@example.com',
+    'You are not currently logged in as user@example.com.',
+    'Not signed in. Last logged in as user@example.com',
+    'Previously logged in as user@example.com',
+    'No longer signed in as user@example.com',
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
+  // "Signed in as" is a sentence too, and one that names nobody is no answer.
+  assert.deepEqual(parseStatus('Signed in as user@example.com'), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+  assert.equal(parseStatus('Logged in as ""'), null)
+})
+
+test('a cancelled sign-in says so at once, and a killed one says it was stopped, not what it printed', async () => {
+  // Round 7 of #134: a flow ended by a signal reported its URL prompt as the error, or "code null".
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const account = accountWith(child, events)
+  const login = account.login()
+  child.stdout.emit('data', Buffer.from('Open https://example.com/device to sign in\n'))
+  const started = (await login) as { loginId: string }
+  await account.cancel(started.loginId)
+  const ended = events.filter((event) => event.type === 'account/loginCompleted') as { error?: string; success: boolean }[]
+  assert.equal(ended.length, 1, 'said at once, before any exit')
+  assert.equal(ended[0]?.error, 'Sign-in was cancelled.')
+  child.emit('exit', null, 'SIGTERM')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(completions(events), 1, 'the exit after it adds nothing')
+
+  const killed = fakeChild()
+  const heard: AgentEvent[] = []
+  const second = accountWith(killed, heard).login()
+  killed.stdout.emit('data', Buffer.from('Open https://example.com/device to sign in\n'))
+  await second
+  killed.emit('exit', null, 'SIGKILL')
+  await new Promise((resolve) => setImmediate(resolve))
+  const stopped = heard.find((event) => event.type === 'account/loginCompleted') as { error?: string } | undefined
+  assert.equal(stopped?.error, 'The sign-in command was stopped (SIGKILL).')
+})
+
