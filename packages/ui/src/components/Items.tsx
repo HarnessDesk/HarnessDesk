@@ -23,7 +23,7 @@ import type {
 import { stripAnsi } from '../lib/ansi'
 import { instant } from '../lib/clock'
 import { formatTokensWithFloor } from '../lib/context-usage'
-import { countChanges } from '../lib/diff'
+import { countDrawn } from '../lib/diff'
 import {
   describedTitle,
   isSilentReasoning,
@@ -532,9 +532,9 @@ const Command = ({ item }: { item: CommandItem }) => (
 const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => {
   const totals = item.changes.reduce(
     (accumulator, change) => {
-      const counts = countChanges(change.diff)
+      const counts = countDrawn(change.diff, change.kind.type === 'add')
       return {
-        added: accumulator.added + (change.kind.type === 'add' ? change.diff.split('\n').length : counts.added),
+        added: accumulator.added + counts.added,
         removed: accumulator.removed + counts.removed,
       }
     },
@@ -583,8 +583,10 @@ const FileEntry = ({
   single: boolean
 }) => {
   const [open, setOpen] = useState(single)
-  const counts = countChanges(change.diff)
-  const added = change.kind.type === 'add' ? change.diff.split('\n').length : counts.added
+  // The rule the view below draws by — `wholeFile` for an added file — so the
+  // badge is what is drawn. See `countDrawn`.
+  const counts = countDrawn(change.diff, change.kind.type === 'add')
+  const added = counts.added
 
   return (
     <div className={styles.fileEntry}>

@@ -60,7 +60,14 @@ export const parseDiff = (diff: string): DiffLine[] => {
   let oldNumber = 0
   let newNumber = 0
 
-  for (const raw of diff.split('\n')) {
+  /* The empty string after a final newline is an artefact of the split, not
+     a line, and is dropped as what it is. It used to be dropped by what it
+     read as — any last line with empty text — and a last line that is an
+     added or removed blank is `+` or `-` with nothing after it: dropped from
+     the drawing while the count beside it kept it. */
+  const raws = diff.split('\n')
+  if (raws[raws.length - 1] === '') raws.pop()
+  for (const raw of raws) {
     const kind = classify(raw)
     if (kind === 'hunk') {
       const hunk = HUNK.exec(raw)
@@ -79,8 +86,6 @@ export const parseDiff = (diff: string): DiffLine[] => {
     }
   }
 
-  // The trailing blank from the final newline is an artefact, not a line.
-  if (lines.length > 0 && lines[lines.length - 1]?.text === '') lines.pop()
   return lines
 }
 
@@ -112,6 +117,22 @@ export const countChanges = (diff: string): { added: number; removed: number } =
   }
   return { added, removed }
 }
+
+/**
+ * The `+N −M` for one file change, counted from what its view draws.
+ *
+ * `DiffView` draws an added file's whole content as additions when it carries
+ * no hunks, and a diff otherwise; this counts by that rule, so the badge and
+ * the view beneath it cannot disagree. `Items` counted an added file's
+ * removals with `countChanges` — reading whole-file content as though it were
+ * a diff — so a markdown `- item` was a removal from a file that had just been
+ * created, and once headers were read positionally a front-matter `---` was
+ * one too. Review caught it. The addition count had an error of its own:
+ * `split('\n').length` counts the artefact after a final newline, which the
+ * view drops.
+ */
+export const countDrawn = (diff: string, wholeFile: boolean): { added: number; removed: number } =>
+  wholeFile && !diff.includes('@@') ? { added: asAdditions(diff).length, removed: 0 } : countChanges(diff)
 
 export interface DiffHunk {
   /** The `@@ …` line, verbatim. */
@@ -188,8 +209,10 @@ const readQuoted = (text: string, at: number): { value: string; end: number } | 
       bytes.push(Number.parseInt(octal, 8) & 0xff)
       i += octal.length
     } else {
-      // An escape git does not write. Kept as written rather than dropped.
-      bytes.push(...encoder.encode(next))
+      /* An escape git does not write, kept as written — the backslash too.
+         This used to say the same while keeping only the character after it,
+         which is the comment describing code it did not match. */
+      bytes.push(92, ...encoder.encode(next))
       i += 1
     }
   }
@@ -211,11 +234,16 @@ const readQuoted = (text: string, at: number): { value: string; end: number } | 
  * — and a lazy match splits it at the first ` b/`. When both sides are the
  * same name, which is every change but a rename, the line is `a/X b/X`, so
  * the halves are found by length. A rename between such names is ambiguous to
- * git as well, which is why it writes `rename to` beneath; the first ` b/` is
- * kept for that case, as before.
+ * git as well, which is why it writes the name again beneath — and
+ * `splitByFile` reads it there (`namedBelow`). The first ` b/` is only this
+ * line's last guess.
  */
 const headerPath = (line: string): string => {
-  const rest = line.slice(GIT_HEADER.length)
+  /* A diff that arrives with CRLF endings keeps the `\r` after `split('\n')`,
+     and on this line it breaks all three readings: a quoted b-side no longer
+     ends with `"`, the equal-halves arithmetic goes fractional, and a bare
+     path is returned with a carriage return on the end. Review caught it. */
+  const rest = line.slice(GIT_HEADER.length).replace(/\r$/, '')
   let a: string | null = null
   let b: string | null = null
   if (rest.startsWith('"')) {
@@ -255,6 +283,31 @@ const headerPath = (line: string): string => {
   return strip(b, 'b/') ?? strip(a, 'a/') ?? ''
 }
 
+/**
+ * The new path a line of a file's extended header names outright — `rename
+ * to`, `copy to`, or `+++ b/` — or null when the line names none.
+ *
+ * The `diff --git` line cannot always say: a rename between two names that
+ * each contain ` b/` is ambiguous to git itself, so git writes the answer
+ * underneath — `rename to Plan b/y.md` for every rename, and
+ * `+++ b/Plan b/y.md` wherever there is content. Measured against git, with
+ * two habits the reading has to know: a `+++` name containing a space is
+ * followed by a tab, so that patch(1) can find where it ends; and a
+ * `rename to` name is quoted by the header's rule, without the `b/`.
+ */
+const namedBelow = (line: string): string | null => {
+  const text = line.replace(/\r$/, '')
+  const token = (value: string): string | null =>
+    value.startsWith('"') ? (readQuoted(value, 0)?.value ?? null) : value.replace(/\t$/, '')
+  for (const lead of ['rename to ', 'copy to ']) {
+    if (text.startsWith(lead)) return token(text.slice(lead.length))
+  }
+  if (!text.startsWith('+++ ')) return null
+  const named = token(text.slice(4))
+  // `/dev/null` for a deletion, where the header's name is the one to keep.
+  return named !== null && named.startsWith('b/') ? named.slice(2) : null
+}
+
 export interface FileDiff {
   /** The new path, or the old one for a deletion. */
   readonly path: string
@@ -269,17 +322,24 @@ export interface FileDiff {
  */
 export const splitByFile = (diff: string): FileDiff[] => {
   const files: FileDiff[] = []
-  let current: { path: string; lines: string[] } | null = null
+  let current: { path: string; lines: string[]; introducing: boolean } | null = null
   for (const line of diff.split('\n')) {
     /* Every `diff --git` line is a boundary, whether or not its path can be
        read. One the old pattern could not match was taken as content, so a
        quoted file's whole diff was filed under the previous file's path. */
     if (line.startsWith(GIT_HEADER)) {
       if (current) files.push({ path: current.path, diff: current.lines.join('\n') })
-      current = { path: headerPath(line), lines: [line] }
+      current = { path: headerPath(line), lines: [line], introducing: true }
       continue
     }
-    if (!current) current = { path: '', lines: [] }
+    if (!current) current = { path: '', lines: [], introducing: false }
+    /* Until its first hunk a file is still being introduced, and what git
+       writes there names it better than its `diff --git` line can — see
+       `namedBelow`. From the first hunk on, a `+++` line is content. */
+    if (current.introducing) {
+      if (line.startsWith('@@')) current.introducing = false
+      else current.path = namedBelow(line) ?? current.path
+    }
     current.lines.push(line)
   }
   if (current && current.lines.some((line) => line.trim().length > 0)) {

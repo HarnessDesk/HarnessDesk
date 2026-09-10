@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { asAdditions, countChanges, parseDiff, splitByFile, splitHunks } from './diff'
+import { asAdditions, countChanges, countDrawn, parseDiff, splitByFile, splitHunks } from './diff'
 
 describe('parseDiff', () => {
   test('numbers both gutters from the hunk header', () => {
@@ -218,6 +218,8 @@ describe('countChanges agrees with what is drawn (#83)', () => {
       ['--- a/x', '+++ b/x', '@@ -1,2 +1,2 @@', '-old', '+new', ' same'].join('\n'),
       ['diff --git a/a b/a', '--- a/a', '+++ b/a', '@@ -1 +1 @@', '---x', '+++y'].join('\n'),
       ' unchanged\n context',
+      // No final newline, and the last line an added blank: drawn, so counted.
+      ['@@ -1 +1,2 @@', ' a', '+'].join('\n'),
     ]) {
       const drawn = parseDiff(diff)
       expect(countChanges(diff), diff).toEqual({
@@ -277,3 +279,172 @@ describe('splitByFile reads every header git writes (#84)', () => {
     expect(splitByFile(file('diff --git a/old.txt b/new.txt'))[0]?.path).toBe('new.txt')
   })
 })
+
+describe('splitByFile, the shapes review asked for', () => {
+  const file = (header: string): string => [header, '@@ -1 +1 @@', '-a', '+b'].join('\n')
+  const path = (header: string): string | undefined => splitByFile(file(header))[0]?.path
+
+  test('a rename from a quoted name to a plain one', () => {
+    // The inverse of the tab-name rename: only the old side needs quoting.
+    expect(path(String.raw`diff --git "a/tab\tname.txt" b/plain.txt`)).toBe('plain.txt')
+  })
+
+  test('a character outside the BMP, raw inside quotes and as octal bytes', () => {
+    // core.quotePath=false: raw, quoted only because the tab forces it.
+    expect(path(String.raw`diff --git "a/🎉\tx.txt" "b/🎉\tx.txt"`)).toBe('🎉\tx.txt')
+    // core.quotePath=true: U+1F389 is four UTF-8 bytes, F0 9F 8E 89.
+    expect(path(String.raw`diff --git "a/\360\237\216\211.txt" "b/\360\237\216\211.txt"`)).toBe('🎉.txt')
+  })
+
+  test('a header with CRLF endings reads the same as one without', () => {
+    expect(path('diff --git a/src/a.ts b/src/a.ts\r')).toBe('src/a.ts')
+    expect(path('diff --git a/x b/y.txt b/x b/y.txt\r')).toBe('x b/y.txt')
+    expect(path(String.raw`diff --git a/plain.txt "b/tab\tname.txt"` + '\r')).toBe('tab\tname.txt')
+  })
+
+  test('an escape git does not write keeps its backslash', () => {
+    expect(path(String.raw`diff --git "a/odd\qname" "b/odd\qname"`)).toBe('odd\\qname')
+  })
+
+  test('a quote that never closes is still a boundary, with no path', () => {
+    const files = splitByFile([file('diff --git a/first.txt b/first.txt'), file('diff --git "a/never-closes b/x')].join('\n'))
+    expect(files.map((entry) => entry.path)).toEqual(['first.txt', ''])
+    expect(files[0]?.diff).not.toContain('never-closes')
+  })
+})
+
+describe('a hunkless file in the middle of a multi-file diff', () => {
+  test('the file after it still has its header read as a header', () => {
+    const lines = parseDiff(
+      [
+        'diff --git a/a.ts b/a.ts',
+        '@@ -1 +1 @@',
+        '-x',
+        '+y',
+        'diff --git a/img.png b/img.png',
+        'index 1..2 100644',
+        'Binary files a/img.png and b/img.png differ',
+        'diff --git a/c.ts b/c.ts',
+        '--- a/c.ts',
+        '+++ b/c.ts',
+        '@@ -5 +5 @@',
+        '---x',
+      ].join('\n'),
+    )
+    const at = lines.findIndex((line) => line.text === 'diff --git a/c.ts b/c.ts')
+    expect(lines.slice(at, at + 3).map((line) => line.kind)).toEqual(['meta', 'meta', 'meta'])
+    expect(lines.find((line) => line.text === '--x')).toMatchObject({ kind: 'remove', oldNumber: 5 })
+  })
+})
+
+describe('countDrawn counts what the file view draws', () => {
+  test('an added file that arrives as its content has no removals, whatever its lines start with', () => {
+    // YAML front matter and a markdown list — a `---` and a `- item` — in a file just created.
+    const content = ['---', 'title: x', '---', '', '- item', '- another', ''].join('\n')
+    expect(countDrawn(content, true)).toEqual({ added: 6, removed: 0 })
+  })
+
+  test('the addition count is the lines drawn, not the artefact after a final newline', () => {
+    expect(countDrawn('one\ntwo\n', true)).toEqual({ added: 2, removed: 0 })
+    expect(countDrawn('one\ntwo', true)).toEqual({ added: 2, removed: 0 })
+  })
+
+  test('an added file that arrives as a real diff is counted as a diff', () => {
+    // DiffView draws whole content only when there are no hunks; the count follows it.
+    expect(countDrawn(['@@ -0,0 +1,2 @@', '+one', '+two'].join('\n'), true)).toEqual({ added: 2, removed: 0 })
+  })
+
+  test('a modified file is counted by the diff rule', () => {
+    expect(countDrawn(['@@ -1 +1 @@', '---count;', '+++count;'].join('\n'), false)).toEqual({ added: 1, removed: 1 })
+  })
+})
+
+describe('the last line of a diff that does not end in a newline', () => {
+  test('an added blank line there is drawn, as the count beside it says', () => {
+    const diff = ['@@ -1 +1,2 @@', ' a', '+'].join('\n')
+    expect(parseDiff(diff).map((line) => [line.kind, line.text])).toEqual([
+      ['hunk', '@@ -1 +1,2 @@'],
+      ['context', 'a'],
+      ['add', ''],
+    ])
+    expect(countChanges(diff)).toEqual({ added: 1, removed: 0 })
+  })
+
+  test('so is a removed blank, and a blank line of context', () => {
+    expect(parseDiff(['@@ -1,2 +1 @@', ' a', '-'].join('\n')).at(-1)).toMatchObject({ kind: 'remove', text: '' })
+    expect(parseDiff(['@@ -1,2 +1,2 @@', '-a', '+b', ' '].join('\n')).at(-1)).toMatchObject({ kind: 'context', text: '' })
+  })
+
+  test('the empty string after a final newline is still not a line', () => {
+    expect(parseDiff(['@@ -1 +1 @@', '-a', '+b', ''].join('\n'))).toHaveLength(3)
+  })
+})
+
+describe('a rename git had to spell out underneath', () => {
+  // Every shape here is what git wrote, measured, not what it might write.
+  const paths = (lines: readonly string[]): string[] => splitByFile(lines.join('\n')).map((file) => file.path)
+
+  test('two names that both contain " b/" are keyed by the name git wrote beneath', () => {
+    expect(
+      paths([
+        'diff --git a/Plan b/x.md b/Plan b/y.md',
+        'similarity index 79%',
+        'rename from Plan b/x.md',
+        'rename to Plan b/y.md',
+        'index b2f931a..17eb8c9 100644',
+        '--- a/Plan b/x.md\t',
+        '+++ b/Plan b/y.md\t',
+        '@@ -2,4 +2,4 @@ one',
+        '-five',
+        '+FIVE',
+      ]),
+    ).toEqual(['Plan b/y.md'])
+  })
+
+  test('a pure rename has no +++ line, and rename to still names it', () => {
+    expect(
+      paths([
+        'diff --git a/Plan b/keep.md b/Plan b/kept.md',
+        'similarity index 100%',
+        'rename from Plan b/keep.md',
+        'rename to Plan b/kept.md',
+      ]),
+    ).toEqual(['Plan b/kept.md'])
+  })
+
+  test('a quoted rename to is decoded like a quoted header', () => {
+    expect(
+      paths([
+        'diff --git a/plain.txt "b/tab\\tname.txt"',
+        'similarity index 100%',
+        'rename from plain.txt',
+        'rename to "tab\\tname.txt"',
+      ]),
+    ).toEqual(['tab\tname.txt'])
+  })
+
+  test('a name with a space ends where git put its tab', () => {
+    expect(
+      paths([
+        'diff --git a/my file.txt b/my file.txt',
+        'index 7898192..6178079 100644',
+        '--- a/my file.txt\t',
+        '+++ b/my file.txt\t',
+        '@@ -1 +1 @@',
+        '-a',
+        '+b',
+      ]),
+    ).toEqual(['my file.txt'])
+  })
+
+  test('from the first hunk on, a +++ line is content and names nothing', () => {
+    expect(paths(['diff --git a/x b/x', '--- a/x', '+++ b/x', '@@ -1,2 +1,2 @@', '-a', '+++ b/elsewhere'])).toEqual(['x'])
+  })
+
+  test('a deletion keeps the name its header gives, not /dev/null', () => {
+    expect(
+      paths(['diff --git a/gone.txt b/gone.txt', 'deleted file mode 100644', '--- a/gone.txt', '+++ /dev/null', '@@ -1 +0,0 @@', '-bye']),
+    ).toEqual(['gone.txt'])
+  })
+})
+
