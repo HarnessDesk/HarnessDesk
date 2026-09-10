@@ -64,3 +64,10 @@ test('a window whose title bar is above the display is refused, however much of 
   assert.equal(isVisibleOn({ x: 100, y: -10, width: 800, height: 840 }, [display]), true, 'a bar mostly on screen is enough')
   assert.equal(isVisibleOn({ x: 100, y: 1070, width: 800, height: 840 }, [display]), false, 'and one below the bottom edge is refused too')
 })
+
+test('under a menu bar, a title bar half on the work area is enough and less is not', () => {
+  // Round 1 of #165: the laptop's work area starts 25px down, below the menu bar.
+  assert.equal(isVisibleOn({ x: 100, y: 25, width: 800, height: 600 }, [laptop]), true)
+  assert.equal(isVisibleOn({ x: 100, y: 5, width: 800, height: 600 }, [laptop]), true, '20 of its 40px below the menu bar')
+  assert.equal(isVisibleOn({ x: 100, y: 4, width: 800, height: 600 }, [laptop]), false, '19px is not enough')
+})

@@ -111,15 +111,31 @@ export const attachAppUpdates = ({
         }
   const publish = () => onMenu(menu())
 
+  /* Every dialog goes through here. The shell treats an unhandled rejection
+     as a crash and relaunches, so a dialog that fails, say because its window
+     closed under it, is logged and read as no answer (review, round 1). */
+  const ask = (request, onAnswer = () => {}) => {
+    void showDialog(request).then(onAnswer, (error) => {
+      log('app update dialog failed', { error: String(error?.message ?? error) })
+    })
+  }
+
   /** What a downloaded update offers: restart now, or let it install at the next quit. */
   const offerRestart = () => {
-    void showDialog({
-      message: `HarnessDesk ${readyVersion} is ready`,
-      detail: 'Restart to finish updating, or keep working — it installs when you next quit.',
-      buttons: ['Restart Now', 'Later'],
-    }).then((choice) => {
-      if (choice === 0) updater.quitAndInstall()
-    })
+    ask(
+      {
+        message: `HarnessDesk ${readyVersion} is ready`,
+        detail: 'Restart to finish updating, or keep working — it installs when you next quit.',
+        buttons: ['Restart Now', 'Later'],
+        // Escape, or closing the dialog, is Later. With no cancel button named,
+        // Electron answers 0 for either, and 0 is Restart Now (review, round 1).
+        defaultId: 0,
+        cancelId: 1,
+      },
+      (choice) => {
+        if (choice === 0) updater.quitAndInstall()
+      },
+    )
   }
 
   const check = (wanted = false) => {
@@ -153,7 +169,7 @@ export const attachAppUpdates = ({
     publish()
     if (interactive) {
       interactive = false
-      void showDialog({
+      ask({
         message: 'You’re up to date',
         detail: `HarnessDesk ${version} is the newest version.`,
         buttons: ['OK'],
@@ -179,7 +195,7 @@ export const attachAppUpdates = ({
     publish()
     if (interactive) {
       interactive = false
-      void showDialog({
+      ask({
         message: 'The update check failed',
         detail: String(error?.message ?? error),
         buttons: ['OK'],

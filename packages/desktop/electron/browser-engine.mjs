@@ -149,6 +149,10 @@ export const createInlineBrowserEngine = ({ window: currentWindow, show }) => {
       const window = (await show()) ?? currentWindow()
       if (!window) throw new Error('HarnessDesk has no window to show a browser in.')
       const ready = waiters.wait(READY_TIMEOUT_MS, 'The browser pane did not open in time.')
+      // Handled now as well as awaited below: should `send` throw, this would
+      // reject later with nobody listening, and the shell reads an unhandled
+      // rejection as a crash (review, round 1).
+      ready.catch(() => {})
       window.webContents.send('harnessdesk:browser-show', { url: 'about:blank' })
       return attached(await ready)
     },
