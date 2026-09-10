@@ -427,3 +427,34 @@ it('opens beside a trigger with room beside it, and under one without', () => {
   expect(side()).toBe('bottom')
   vi.useRealTimers()
 })
+
+/**
+ * Only a scroll that moves the trigger closes the card.
+ *
+ * The room's chat follows every new message, and a listener that took any
+ * scroll in the window shut the card whenever an agent spoke. Measured in the
+ * real app: resting on a member's name while the room was answering, the
+ * stream scrolled three times in 1.4s and the card never stayed open.
+ */
+it('stays open through a scroll elsewhere, and closes when its own list scrolls', () => {
+  vi.useFakeTimers()
+  const elsewhere = document.createElement('div')
+  document.body.appendChild(elsewhere)
+  act(() => root.render(<div data-testid="list">{withAControl()}</div>))
+  rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  // The chat following a new message: a scroller the trigger is not inside.
+  act(() => {
+    elsewhere.dispatchEvent(new Event('scroll'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  // The control: the list the trigger sits in scrolls, and the card goes.
+  act(() => {
+    container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  elsewhere.remove()
+  vi.useRealTimers()
+})

@@ -240,11 +240,25 @@ export const AgentHoverCard = ({
   useDragging()
 
   /* A card anchored to a row that has scrolled away is pointing at somebody
-     else. Capture-phase, because the scroller is an ancestor of the trigger
-     and scroll does not bubble. */
+     else, so a scroll that moves the trigger closes it — and only that one.
+     The room's chat follows every new message, and a listener that took any
+     scroll in the window shut the card whenever an agent spoke: measured in
+     the real app, resting on a member's name while the room was answering,
+     the stream scrolled three times in 1.4s and the card never stayed open.
+     Capture-phase, because the scroller is an ancestor of the trigger and
+     scroll does not bubble. */
   useEffect(() => {
     if (!open) return undefined
-    const close = (): void => setOpen(false)
+    /* The trigger this card opened from, taken now: the card opens only for
+       a pointer at rest on it, and `resting` empties once the pointer moves
+       on to the card. Unknown, every scroll closes it, as all of them did. */
+    const trigger = resting.current
+    const close = (event: Event): void => {
+      const scroller = event.target
+      if (!trigger || scroller === document || (scroller instanceof Node && scroller.contains(trigger))) {
+        setOpen(false)
+      }
+    }
     window.addEventListener('scroll', close, true)
     return () => window.removeEventListener('scroll', close, true)
   }, [open])
