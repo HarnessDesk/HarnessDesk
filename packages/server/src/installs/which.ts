@@ -62,7 +62,7 @@ export const whichOnPath = (command: string, options: WhichOptions = {}): string
   const rules = platform === 'win32' ? win32 : posix
   for (const dir of (env['PATH'] ?? '').split(separator)) {
     if (dir.length === 0) continue
-    for (const suffix of suffixes(env, platform)) {
+    for (const suffix of suffixes(env, platform, command)) {
       const candidate = rules.join(dir, `${command}${suffix}`)
       if (runnable(candidate)) return candidate
     }
@@ -74,13 +74,28 @@ export const whichOnPath = (command: string, options: WhichOptions = {}): string
  * What Windows appends before a name is executable at all.
  *
  * `npx` on Windows is `npx.cmd`; a PATH walk that only tried the bare name
- * would find nothing and be the same bug in a new spelling. Elsewhere the
- * name is the name, which is what the empty string means here.
+ * would find nothing and be the same bug in a new spelling.
+ *
+ * **The bare name is not tried first, and usually not at all.** An official
+ * Node install on Windows puts *both* `npx` — a POSIX shell script, there for
+ * Git Bash — and `npx.cmd` in the same directory, and Windows has no execute
+ * bit to tell them apart. Trying the empty suffix first returns the shell
+ * script, which `CreateProcess` cannot run: *"%1 is not a valid Win32
+ * application"*. So the rule is cmd.exe's own — a name that already carries a
+ * PATHEXT extension is taken as written, and a name without one is only ever
+ * tried with an extension. Review found this; the first version had the
+ * empty suffix at the front and a test that asserted it belonged there.
+ *
+ * It also settles the other half: `whichOnPath('README.md')` cannot resolve
+ * to a file that merely exists, because `.md` is not in PATHEXT and the bare
+ * name is never tried.
  */
-const suffixes = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): readonly string[] =>
-  platform === 'win32'
-    ? ['', ...(env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)]
-    : ['']
+const suffixes = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform, command: string): readonly string[] => {
+  if (platform !== 'win32') return ['']
+  const known = (env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  const already = known.some((one) => command.toLowerCase().endsWith(one.toLowerCase()))
+  return already ? [''] : known
+}
 
 const isRunnable = (path: string, platform: NodeJS.Platform): boolean => {
   try {

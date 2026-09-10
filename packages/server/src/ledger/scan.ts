@@ -189,10 +189,16 @@ const readLines = async (
   } finally {
     stream.destroy()
   }
-  /* Whatever is left has no `\n` after it, so the writer is mid-line or the
-     file ends without one. Left unconsumed either way: the next pass reads it
-     whole, and a file that never gains a final newline is re-read rather than
-     half-parsed. */
+  /* What is left has no `\n` after it: the writer is mid-line, or the file
+     simply ends without one. Told apart the way the old implementation did —
+     by trying to parse it. A half-written line is not JSON and is left for
+     the next pass; a whole record that happens to end the file is taken.
+     Dropping it instead was a regression review caught: the caller commits
+     the file's size with the offset, so an unchanged file is skipped from
+     then on and that last record is never counted — not on the next pass,
+     and not on a full rescan either, because the newline it is waiting for
+     is never coming. */
+  if (pending.length > 0) take(pending.toString('utf8'), pending.length, onLine, (added) => (consumed += added))
   return consumed
 }
 

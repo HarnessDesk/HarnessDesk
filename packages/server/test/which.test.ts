@@ -137,13 +137,54 @@ test('on Windows PATH is split on semicolons, so a drive letter is not a separat
   assert.equal(found?.toLowerCase(), 'd:\\bin\\uvx.exe')
 })
 
-test('on Windows an exact name still wins over a suffixed one', () => {
-  const found = whichOnPath('tool', {
+test('on Windows a bare name never resolves to the extensionless file beside it', () => {
+  /* This test asserted the opposite in the first version of this change, and
+     the opposite was wrong. An official Node install on Windows ships *both*
+     `npx` — a POSIX shell script, for Git Bash — and `npx.cmd` in one
+     directory, and Windows has no execute bit to tell them apart. Returning
+     the script hands `CreateProcess` something it cannot run: "%1 is not a
+     valid Win32 application". Found in review. */
+  const found = whichOnPath('npx', {
     platform: 'win32',
-    env: { PATH: 'C:\\tools', PATHEXT: '.EXE' },
-    runnable: onlyCaseless('C:\\tools\\tool', 'C:\\tools\\tool.exe'),
+    env: { PATH: 'C:\\Program Files\\nodejs', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+    runnable: onlyCaseless('C:\\Program Files\\nodejs\\npx', 'C:\\Program Files\\nodejs\\npx.cmd'),
   })
-  assert.equal(found, 'C:\\tools\\tool')
+  assert.equal(found?.toLowerCase(), 'c:\\program files\\nodejs\\npx.cmd')
+})
+
+test('on Windows a name that already carries a PATHEXT extension is taken as written', () => {
+  const found = whichOnPath('tool.exe', {
+    platform: 'win32',
+    env: { PATH: 'C:\\tools', PATHEXT: '.COM;.EXE' },
+    runnable: onlyCaseless('C:\\tools\\tool.exe'),
+  })
+  assert.equal(found?.toLowerCase(), 'c:\\tools\\tool.exe')
+  // And not doubled up into `tool.exe.exe`.
+  assert.equal(
+    whichOnPath('tool.exe', {
+      platform: 'win32',
+      env: { PATH: 'C:\\tools', PATHEXT: '.EXE' },
+      runnable: onlyCaseless('C:\\tools\\tool.exe.exe'),
+    }),
+    null,
+  )
+})
+
+test('on Windows an ordinary file on PATH is not a command', () => {
+  /* Windows has no execute bit, so "is a file" is all `isRunnable` can ask.
+     What keeps `README.md` from resolving as a command is that `.md` is not
+     in PATHEXT and the bare name is never tried. */
+  for (const name of ['README.md', 'package.json', 'notes']) {
+    assert.equal(
+      whichOnPath(name, {
+        platform: 'win32',
+        env: { PATH: 'C:\\project', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+        runnable: onlyCaseless(`C:\\project\\${name}`),
+      }),
+      null,
+      name,
+    )
+  }
 })
 
 test('off Windows no suffix is tried, so `npx.cmd` is not mistaken for `npx`', () => {

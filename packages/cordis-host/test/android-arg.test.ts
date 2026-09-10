@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import test from 'node:test'
 
 import { deviceArg } from '../src/android.js'
@@ -19,15 +20,28 @@ import { deviceArg } from '../src/android.js'
  * my model of the shell against itself.
  */
 
-/** What `sh` actually receives as argument one, after parsing the line. */
+/**
+ * What `sh` actually receives as argument one, after parsing the line.
+ *
+ * `/bin/sh` is hardcoded here on purpose and the file skips itself where
+ * there is none — which is not the assumption this change is about. The
+ * *device* is Android and its shell is `mksh` or `toybox sh`, so a POSIX
+ * shell is the only stand-in available; running these on a machine that has
+ * none would be checking nothing. Review flagged the literal path in a change
+ * about POSIX assumptions, which is fair, so it says out loud which of the
+ * two shells it is standing in for.
+ */
+const SH = '/bin/sh'
+const posixShell = existsSync(SH)
+
 const throughShell = (quoted: string): string =>
-  execFileSync('/bin/sh', ['-c', `printf %s ${quoted}`], { encoding: 'utf8' })
+  execFileSync(SH, ['-c', `printf %s ${quoted}`], { encoding: 'utf8' })
 
 const survives = (raw: string): void => {
   assert.equal(throughShell(deviceArg(raw)), raw, `«${raw}» did not survive the shell intact`)
 }
 
-test('a command separator is text, not a command', () => {
+test('a command separator is text, not a command', { skip: !posixShell }, () => {
   survives('hello; rm -rf /tmp/nothing')
   survives('a && b')
   survives('a || b')
@@ -35,7 +49,7 @@ test('a command separator is text, not a command', () => {
   survives('a & b')
 })
 
-test('substitution is text, not substitution', () => {
+test('substitution is text, not substitution', { skip: !posixShell }, () => {
   /* The dangerous pair. If either of these came back as a user id, the shell
      had run it — which is the whole defect, on somebody's phone. */
   survives('$(id)')
@@ -44,7 +58,7 @@ test('substitution is text, not substitution', () => {
   survives('$HOME')
 })
 
-test('quotes and backslashes survive, including the one that cannot be quoted', () => {
+test('quotes and backslashes survive, including the one that cannot be quoted', { skip: !posixShell }, () => {
   // A single quote is the only character single-quoting cannot contain, so it
   // is the one the escaping exists for.
   survives("it's")
@@ -55,14 +69,14 @@ test('quotes and backslashes survive, including the one that cannot be quoted', 
   survives("mixed '\"` \\ $")
 })
 
-test('the ordinary case is unchanged text', () => {
+test('the ordinary case is unchanged text', { skip: !posixShell }, () => {
   survives('hello%sworld')
   survives('KEYCODE_ENTER')
   survives('com.example/.MainActivity')
   survives('')
 })
 
-test('the shell rig itself can catch an injection', () => {
+test('the shell rig itself can catch an injection', { skip: !posixShell }, () => {
   /* The control. Without it every assertion above could be passing because
      `throughShell` never runs anything, and a test that cannot fail is not
      evidence. Unquoted, `$(printf pwned)` becomes `pwned`. */
