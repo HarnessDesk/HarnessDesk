@@ -490,3 +490,19 @@ test('a sentence that says who is signed in outranks a record that only names an
   })
 })
 
+test('a sentence that says signed out outranks a record that only names an email', () => {
+  // Round five: a log line's email, then "Not logged in", read as signed in.
+  assert.equal(parseStatus('{"level":"info","email":"ops@example.com"}\nNot logged in'), null)
+  assert.equal(parseStatus('{"level":"info","email":"ops@example.com"}\nYou are logged out.'), null)
+})
+
+test('an error after the first from the sign-in child is heard, not thrown', async () => {
+  // Round five: `once` left no listener for a second error, and an unheard error throws.
+  const child = fakeChild()
+  const events: AgentEvent[] = []
+  const login = accountWith(child, events).login()
+  child.emit('error', Object.assign(new Error('spawn hd-missing ENOENT'), { code: 'ENOENT' }))
+  await assert.rejects(login)
+  assert.doesNotThrow(() => child.emit('error', new Error('and again, in teardown')))
+})
+

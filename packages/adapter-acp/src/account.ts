@@ -101,7 +101,11 @@ export class CliAccount {
     let handedOut = false
     let settled = false
     let ending: string | null = null
-    const failed = new Promise<Error>((resolve) => child.once('error', resolve))
+    /* `on`, not `once`: an error that comes after the first — a kill that
+       fails, a pipe that breaks in teardown — finding no listener left is
+       thrown, and takes the host down with it (review, round five). The
+       promise settles on the first; the listener stays for the rest. */
+    const failed = new Promise<Error>((resolve) => child.on('error', resolve))
     void failed.then((error) => {
       if (settled) return
       settled = true
@@ -313,6 +317,9 @@ export const parseStatus = (
     const identity = sentence[1]!.replace(/[.,]$/, '')
     return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
   }
+  /* A sentence that says the account is signed out is an answer as well, and
+     outranks a record that only names an email (review, round five). */
+  if (/\b(?:not (?:logged|signed) in|logged out|signed out)\b/i.test(text)) return null
   return emailOnly !== null ? fromRecord(emailOnly) : null
 }
 
