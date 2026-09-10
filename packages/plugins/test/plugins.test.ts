@@ -599,10 +599,12 @@ test('git_log takes a limit that is not a number as no limit, and never asks git
   const commits = async (args: Record<string, unknown>): Promise<number> => {
     const out = text(await kernel.invokeTool(toolNamed(kernel, 'git_log'), args, {}))
     assert.doesNotMatch(out, /NaN|fatal/, `git_log ${JSON.stringify(args)} answered: ${out}`)
-    return out.split('\n').filter((line) => /^[0-9a-f]{7,} c\d$/.test(line)).length
+    return out.split(/\r?\n/).filter((line) => /^[0-9a-f]{7,} c\d$/.test(line)).length
   }
   // Not a number, or nothing at all: the default, which is more than three.
   assert.equal(await commits({ limit: 'abc' }), 3)
+  // The issue's own reproduction: JSON cannot carry NaN, an in-process call can.
+  assert.equal(await commits({ limit: Number.NaN }), 3)
   assert.equal(await commits({ limit: '' }), 3)
   assert.equal(await commits({ limit: null }), 3)
   assert.equal(await commits({}), 3)
@@ -610,6 +612,36 @@ test('git_log takes a limit that is not a number as no limit, and never asks git
   assert.equal(await commits({ limit: '2' }), 2)
   assert.equal(await commits({ limit: 2.7 }), 2)
   assert.equal(await commits({ limit: 0 }), 1)
+})
+
+test('git_log falls back through the setting as it does through the argument', async (t) => {
+  // Review: the configured logLimit goes through the same reading, untested.
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { execFileSync } = await import('node:child_process')
+  const dir = mkdtempSync(join(tmpdir(), 'hd-git-log-config-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir })
+  git('init', '-q', '-b', 'main')
+  for (const n of [1, 2, 3]) git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', `c${n}`)
+
+  const configured = async (config: Record<string, unknown>) => {
+    const kernel = new ExtensionKernel()
+    t.after(() => kernel.dispose())
+    await kernel.load({ ...gitPlugin, config })
+    await settle()
+    kernel.setWorkspace({ root: dir, branch: 'main' })
+    return async (args: Record<string, unknown>): Promise<number> => {
+      const out = text(await kernel.invokeTool(toolNamed(kernel, 'git_log'), args, {}))
+      assert.doesNotMatch(out, /NaN|fatal/, out)
+      return out.split(/\r?\n/).filter((line) => /^[0-9a-f]{7,} c\d$/.test(line)).length
+    }
+  }
+  assert.equal(await (await configured({ logLimit: 'abc' }))({}), 3, 'a setting that is not a number is no setting')
+  const two = await configured({ logLimit: 2 })
+  assert.equal(await two({}), 2, 'a number setting is the default')
+  assert.equal(await two({ limit: 1 }), 1, 'and the asked limit still wins')
 })
 
 test('the last test run becomes a chip: nothing before a run, the verdict after', async (t) => {
