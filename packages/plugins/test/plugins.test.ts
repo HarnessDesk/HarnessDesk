@@ -1013,3 +1013,16 @@ test('the README counts the plugins and tools that actually ship', async (t) => 
     `README says ${claimedTools[1]} built-in plugin tools; the kernel registers ${tools}`,
   )
 })
+
+test('htmlToText decodes each entity once, so escaped markup stays escaped', () => {
+  // #59: `&amp;` went first, and the `&lt;` it uncovered was decoded again.
+  assert.equal(htmlToText('&amp;lt;div&amp;gt;'), '&lt;div&gt;')
+  assert.equal(htmlToText('Fish &amp; chips &lt;3 &#39;n&#39; &quot;more&quot;&nbsp;!'), `Fish & chips <3 'n' "more" !`)
+})
+
+test('htmlToText reads entities in any case, leaves unknown ones alone, and decodes each once', () => {
+  // Round 1 of #164.
+  assert.equal(htmlToText('&AMP; &Lt; &QUOT;x&quot;'), '& < "x"')
+  assert.equal(htmlToText('&copy; &bogus; &amp;&amp;'), '&copy; &bogus; &&')
+  assert.equal(htmlToText('&amp;amp;lt;'), '&amp;lt;')
+})

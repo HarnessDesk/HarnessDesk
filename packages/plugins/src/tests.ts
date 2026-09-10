@@ -75,13 +75,19 @@ export const detectFramework = async (
 /** The failing file:line pairs a stack trace or reporter line gives away. */
 export const extractFailures = (output: string): readonly string[] => {
   const found = new Set<string>()
-  const patterns = [
-    /(?:^|\s|\()([\w./-]+\.(?:ts|tsx|js|jsx|mjs|py|go|rs|swift|kt|java)):(\d+)/gm,
-    /^\s*(FAIL|FAILED|✗|✖|not ok)\s+(.+)$/gm,
+  /* Each pattern says what its entry is. One ternary served both, and for a
+     reporter's own failure line it put the keyword where the file goes
+     whenever the description held a digit: `FAIL src/auth.test.ts (15ms)`
+     came out `FAIL:src/auth.test.ts (15ms)` (#55). */
+  const patterns: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[] = [
+    // A file and a line, from a stack or a summary.
+    [/(?:^|\s|\()([\w./-]+\.(?:ts|tsx|js|jsx|mjs|py|go|rs|swift|kt|java)):(\d+)/gm, (match) => `${match[1]}:${match[2]}`],
+    // A reporter's failure line: what follows the keyword.
+    [/^\s*(FAIL|FAILED|✗|✖|not ok)\s+(.+)$/gm, (match) => (match[2] ?? '').trim()],
   ]
-  for (const pattern of patterns) {
+  for (const [pattern, entryOf] of patterns) {
     for (const match of output.matchAll(pattern)) {
-      const entry = match[2] && /\d+/.test(match[2]) ? `${match[1]}:${match[2]}` : (match[2] ?? match[0]).trim()
+      const entry = entryOf(match)
       if (entry && !entry.includes('node_modules')) found.add(entry.slice(0, 160))
       if (found.size >= 20) return [...found]
     }
