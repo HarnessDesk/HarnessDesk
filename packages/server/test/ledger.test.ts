@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { writeFileSync, appendFileSync } from 'node:fs'
+import { appendFileSync, createReadStream, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -261,4 +261,148 @@ test('a second scan reads only what was appended', async () => {
   await ledger.scan()
   assert.equal(ledger.query({ days: 30, groupBy: 'model' }).totalCost, 20, 'the first message is not read again')
   ledger.close()
+})
+
+/**
+ * A transcript written with `\r\n`, scanned twice.
+ *
+ * The offset a pass returns is where the next pass starts, so it has to be a
+ * byte count of what was actually read. It was `byteLength(line) + 1` — a
+ * guess that one `\n` had ended each line, made from a string `readline` had
+ * already stripped the terminator from. On a CRLF file the guess is short by
+ * a byte per line, and the error accumulates: the next pass starts inside a
+ * terminator, reads a fragment, fails to parse it, and breaks. That file then
+ * yields nothing ever again, because every later pass restarts from the same
+ * bad offset — a ledger that silently stops counting one agent's work.
+ */
+const crlf = (line: string): string => line.replace(/\n$/, '\r\n')
+
+test('a CRLF transcript is counted, and keeps being counted as it grows', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const usage = { input_tokens: 1, output_tokens: 10 }
+  const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+  writeFileSync(path, crlf(claudeLine('msg_1', usage)) + crlf(claudeLine('msg_2', usage)))
+  const first = await scanClaudeTranscript(target, 0, [])
+  assert.equal(first.rows[0]?.requests, 2)
+  /* The whole file, to the byte. A short answer here is the defect: it is
+     what makes the *next* pass start mid-terminator. */
+  assert.equal(first.offset, statSync(path).size, 'the offset is where the file actually ends')
+
+  appendFileSync(path, crlf(claudeLine('msg_3', usage)))
+  const second = await scanClaudeTranscript(target, first.offset, first.tail)
+  assert.equal(second.rows[0]?.requests, 1, 'the appended line is read')
+  assert.equal(second.offset, statSync(path).size)
+})
+
+test('an LF transcript is unchanged by the byte counting', async () => {
+  // The control: the ordinary case is the whole of what this code is for.
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const usage = { input_tokens: 1, output_tokens: 10 }
+  const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+  writeFileSync(path, claudeLine('msg_1', usage) + claudeLine('msg_2', usage))
+  const first = await scanClaudeTranscript(target, 0, [])
+  assert.equal(first.rows[0]?.requests, 2)
+  assert.equal(first.offset, statSync(path).size)
+
+  appendFileSync(path, claudeLine('msg_3', usage))
+  const second = await scanClaudeTranscript(target, first.offset, first.tail)
+  assert.equal(second.rows[0]?.requests, 1)
+})
+
+test('a CRLF file whose last line is half-written leaves it for the next pass', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const whole = crlf(claudeLine('msg_1', { input_tokens: 1, output_tokens: 10 }))
+  writeFileSync(path, `${whole}{"type":"assistant","mess`)
+  const result = await scanClaudeTranscript({ runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(result.offset, Buffer.byteLength(whole, 'utf8'), 'the partial line is not consumed')
+})
+
+test('a whole record that ends the file without a newline is still counted', () => {
+  /* A regression the first version of the byte counting introduced, and the
+     worst shape of it: the caller commits the file's size beside the offset,
+     so an unchanged file is skipped from then on and the record is never
+     counted — not on the next pass, and not on a full rescan either, because
+     the newline it is waiting for is never coming. The old implementation
+     took it, and the way it told a whole record from a half-written one was
+     to try to parse it. */
+  return (async () => {
+    const dir = scratch()
+    const path = join(dir, 'session.jsonl')
+    const usage = { input_tokens: 1, output_tokens: 10 }
+    const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+    const unterminated = claudeLine('msg_1', usage).replace(/\n$/, '')
+    writeFileSync(path, unterminated)
+    const result = await scanClaudeTranscript(target, 0, [])
+    assert.equal(result.rows[0]?.requests, 1, 'the last record counts')
+    assert.equal(result.offset, statSync(path).size, 'and the whole file is consumed')
+  })()
+})
+
+test('a CRLF file whose last record has no newline is counted too', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const usage = { input_tokens: 1, output_tokens: 10 }
+  const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+  writeFileSync(path, crlf(claudeLine('msg_1', usage)) + claudeLine('msg_2', usage).replace(/\n$/, '\r'))
+  const result = await scanClaudeTranscript(target, 0, [])
+  assert.equal(result.rows[0]?.requests, 2)
+  assert.equal(result.offset, statSync(path).size)
+})
+
+test('a chunk boundary that lands between the CR and the LF is still one line break', async () => {
+  /* The CRLF tests above write files small enough to arrive in one chunk, so
+     they never exercise the reassembly. This one forces it: a first line long
+     enough that the 64KiB default read boundary falls on the `\n` of its
+     terminator, with the `\r` in the chunk before. Raised in review as the
+     case the PR claimed and did not pin.
+
+     A line ending exactly at the boundary is arranged rather than hoped for —
+     the padding is computed from the boundary, so this cannot quietly stop
+     testing what it says if the fixture changes shape. */
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const usage = { input_tokens: 1, output_tokens: 10 }
+  const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+  const BOUNDARY = 64 * 1024
+  const base = JSON.parse(claudeLine('msg_1', usage)) as Record<string, unknown>
+  /* Pad the cwd so the record *plus its `\r`* is exactly the boundary: the
+     `\r` is then the last byte of the first chunk and the `\n` the first
+     byte of the second.
+
+     The first version of this arithmetic was a byte short — `${first}\r`
+     came to `BOUNDARY - 1`, which puts the `\n` at the last index of the
+     first chunk and splits nothing — and the assertion below locked that in.
+     Both reviewers found it. Twice now in this change a test of mine has
+     asserted its own error, which is why the split is no longer assumed
+     below but read off the stream. */
+  const bare = JSON.stringify({ ...base, cwd: '/tmp/project' })
+  const padding = BOUNDARY - Buffer.byteLength(bare, 'utf8') - 1
+  assert.ok(padding > 0, 'the fixture is smaller than the read boundary')
+  const first = JSON.stringify({ ...base, cwd: `/tmp/project${'x'.repeat(padding)}` })
+  assert.equal(Buffer.byteLength(`${first}\r`, 'utf8'), BOUNDARY)
+
+  writeFileSync(path, `${first}\r\n${crlf(claudeLine('msg_2', usage))}`)
+
+  /* And the premise, proved rather than assumed. A test named for a split
+     terminator that quietly stops splitting is worse than no test: it reports
+     that the case is covered. This reads the file the way `readLines` does
+     and asserts where the chunks actually fall — if Node's default read size
+     ever changes, this fails and says so instead of going green on nothing. */
+  const chunks: Buffer[] = []
+  for await (const chunk of createReadStream(path)) chunks.push(chunk as Buffer)
+  assert.ok(chunks.length >= 2, 'the fixture is read in more than one chunk')
+  assert.equal(chunks[0]?.at(-1), 0x0d, 'the first chunk ends on the CR')
+  assert.equal(chunks[1]?.at(0), 0x0a, 'and the LF opens the second')
+
+  const result = await scanClaudeTranscript(target, 0, [])
+  assert.equal(result.rows[0]?.requests, 2, 'both records survive the split terminator')
+  assert.equal(result.offset, statSync(path).size)
 })

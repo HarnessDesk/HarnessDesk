@@ -36,13 +36,41 @@ export interface SplitText {
 export const wrapContext = (label: string, text: string): string =>
   `<context source=${JSON.stringify(label)}>\n${text.replace(/<\/context>/g, '<\\/context>')}\n</context>`
 
+/**
+ * The label, back exactly as `wrapContext` was given it.
+ *
+ * `wrapContext` writes the label with `JSON.stringify`, which escapes far
+ * more than the quote: a backslash becomes `\\`, a newline `\n`, a tab
+ * `\t`, a control character `\u0000`. This reversed the quote alone, so
+ * everything else came back doubled or literal — a Windows path
+ * `C:\Users\foo` returned as `C:\\Users\\foo`, and a label with a line
+ * break in it returned with the two characters `\` and `n` where the break
+ * had been.
+ *
+ * The pattern captures what is between the quotes with its escapes intact, so
+ * putting the quotes back makes a JSON string literal and `JSON.parse` is the
+ * exact inverse — the same function, run backwards, rather than a second
+ * implementation of it that has to be kept in step.
+ */
+const unquote = (label: string): string => {
+  try {
+    const parsed: unknown = JSON.parse(`"${label}"`)
+    return typeof parsed === 'string' ? parsed : label
+  } catch {
+    /* An envelope this process did not write, or one a person edited by hand.
+       The old reversal is the better guess than nothing, and either way a
+       label is a caption: it must not be able to fail the send. */
+    return label.replace(/\\"/g, '"')
+  }
+}
+
 export const splitContext = (raw: string): SplitText => {
   if (!raw.includes(CONTEXT_OPEN)) return { injections: [], text: raw }
 
   const injections: ContextBlock[] = []
   const text = raw
     .replace(PATTERN, (_whole, label: string, body: string) => {
-      injections.push({ label: label.replace(/\\"/g, '"'), text: body.replace(/<\\\/context>/g, '</context>') })
+      injections.push({ label: unquote(label), text: body.replace(/<\\\/context>/g, '</context>') })
       return ''
     })
     .replace(/\n{3,}/g, '\n\n')

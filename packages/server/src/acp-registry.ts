@@ -17,6 +17,8 @@ import { pipeline } from 'node:stream/promises'
 import type { ReadableStream } from 'node:stream/web'
 import { promisify } from 'node:util'
 
+import { whichOnPath } from './installs/which.js'
+
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import type { AcpRegistryAgentInfo, AcpRegistryCatalogInfo } from '@harnessdesk/protocol'
 
@@ -215,7 +217,12 @@ export interface AcpRegistryOptions {
   readonly fetchJson?: (url: string) => Promise<unknown>
   /** Downloads one file to a path. Injectable for tests; defaults to global fetch. */
   readonly download?: (url: string, to: string) => Promise<void>
-  readonly which?: (command: string) => Promise<string | null>
+  /**
+   * Where a command on PATH is. Awaited by its callers, so the shared
+   * implementation can be — and is — synchronous: it walks PATH with a few
+   * `stat` calls rather than spawning anything. Tests still inject promises.
+   */
+  readonly which?: (command: string) => string | null | Promise<string | null>
   readonly platform?: string
   readonly freshMs?: number
   readonly warn?: Log
@@ -237,16 +244,6 @@ const downloadWith = async (url: string, to: string): Promise<void> => {
   renameSync(tmp, to)
 }
 
-const whichOnPath = async (command: string): Promise<string | null> => {
-  try {
-    const { stdout } = await run('/usr/bin/which', [command], { timeout: 5_000 })
-    const found = stdout.trim().split('\n')[0]
-    return found && found.length > 0 ? found : null
-  } catch {
-    return null
-  }
-}
-
 interface CacheFile {
   readonly fetchedAt: number
   readonly url: string
@@ -259,7 +256,7 @@ export class AcpRegistry {
   readonly #installDir: string
   readonly #fetchJson: (url: string) => Promise<unknown>
   readonly #download: (url: string, to: string) => Promise<void>
-  readonly #which: (command: string) => Promise<string | null>
+  readonly #which: (command: string) => string | null | Promise<string | null>
   readonly #platform: string
   readonly #freshMs: number
   readonly #warn: Log

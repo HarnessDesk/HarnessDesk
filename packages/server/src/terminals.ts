@@ -166,9 +166,30 @@ export class Terminals {
   }
 }
 
-/** The user's login shell, interactive; `sh` when the environment does not say. */
-const defaultShell = (): string[] => {
-  const shell = process.env['SHELL']
+/**
+ * The shell to open when the caller names none.
+ *
+ * `SHELL` and `/bin/sh -i` are both POSIX facts. Windows sets neither: there
+ * is no `SHELL` in a standard environment, `/bin/sh` is not a path that
+ * exists, and `-i` is not a flag `cmd.exe` or PowerShell has — so the
+ * fallback spawned `ENOENT` and the dock's Open a shell did nothing but
+ * throw. `COMSPEC` is the variable Windows does set, and it names the command
+ * processor, which is interactive already.
+ *
+ * `platform` and `env` are parameters so the Windows branch can be exercised
+ * from a machine that is not Windows. A rule that can only be checked on the
+ * platform it is about is a rule nothing checks, which is how the POSIX
+ * assumption survived in a file this long.
+ */
+export const defaultShell = (
+  options: { readonly env?: NodeJS.ProcessEnv; readonly platform?: NodeJS.Platform } = {},
+): string[] => {
+  const env = options.env ?? process.env
+  if ((options.platform ?? process.platform) === 'win32') {
+    const comspec = env['COMSPEC']
+    return [comspec && comspec.length > 0 ? comspec : 'cmd.exe']
+  }
+  const shell = env['SHELL']
   return shell && shell.length > 0 ? [shell, '-i'] : ['/bin/sh', '-i']
 }
 

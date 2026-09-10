@@ -43,6 +43,26 @@ const missingAdb = (error: Error): Error =>
       )
     : error
 
+/**
+ * One argument, safe for the shell **on the device**.
+ *
+ * `adb shell a b c` does not pass three arguments: it joins them and hands
+ * the line to the device's own shell, which then parses it. So every value a
+ * caller supplies is shell source over there, and `;`, `&`, `|`, `$`, a
+ * backtick or a parenthesis in it runs whatever follows — on the phone. An
+ * agent driving the device is the caller, and a page it read is where the
+ * text often comes from.
+ *
+ * Single quotes, because inside them the device shell expands nothing at all.
+ * The one character that cannot appear inside single quotes is a single
+ * quote, which is closed, escaped, and reopened — the standard `'\''`.
+ *
+ * Applied at every call site rather than the one that was reported: `text`
+ * was found, and `launch` and `key` are the same door. `tap` is not on this
+ * list because its arguments are numbers this file rounds itself.
+ */
+export const deviceArg = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`
+
 export class AndroidService extends Service {
   static [Service.tracker] = { associate: 'android', property: 'ctx' }
 
@@ -84,10 +104,10 @@ export class AndroidService extends Service {
   /** Launches an activity (`com.example/.MainActivity`) or a package's default. */
   async launch(target: string): Promise<void> {
     if (target.includes('/')) {
-      await this.adb(['shell', 'am', 'start', '-n', target], `Launching ${target}`, 60_000)
+      await this.adb(['shell', 'am', 'start', '-n', deviceArg(target)], `Launching ${target}`, 60_000)
     } else {
       await this.adb(
-        ['shell', 'monkey', '-p', target, '-c', 'android.intent.category.LAUNCHER', '1'],
+        ['shell', 'monkey', '-p', deviceArg(target), '-c', 'android.intent.category.LAUNCHER', '1'],
         `Launching ${target}`,
         60_000,
       )
@@ -113,12 +133,12 @@ export class AndroidService extends Service {
   /** `KEYCODE_*` names or bare names like ENTER, BACK, HOME. */
   async key(key: string): Promise<void> {
     const code = key.startsWith('KEYCODE_') ? key : `KEYCODE_${key.toUpperCase()}`
-    await this.adb(['shell', 'input', 'keyevent', code], `Pressing ${key}`)
+    await this.adb(['shell', 'input', 'keyevent', deviceArg(code)], `Pressing ${key}`)
   }
 
   async text(text: string): Promise<void> {
     // `input text` treats %s as space and chokes on raw spaces.
-    await this.adb(['shell', 'input', 'text', text.replaceAll(' ', '%s')], 'Typing')
+    await this.adb(['shell', 'input', 'text', deviceArg(text.replaceAll(' ', '%s'))], 'Typing')
   }
 
   /** The last `lines` of logcat, optionally filtered to a tag. */

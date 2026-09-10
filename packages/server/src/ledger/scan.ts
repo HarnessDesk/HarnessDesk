@@ -2,7 +2,6 @@ import { createReadStream, existsSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { createInterface } from 'node:readline'
 
 import type { UsageRow } from './store.js'
 
@@ -150,38 +149,89 @@ const parseTime = (value: unknown): number | null => {
  *
  * A partial trailing line — the agent was mid-write — is left unconsumed, so
  * the next pass reads it whole rather than dropping it.
+ *
+ * The offset is counted from **bytes**, not from the decoded line, and that
+ * is the whole reason this reads buffers rather than using `readline`.
+ * `readline` hands over a line with its terminator already removed and no way
+ * to say which terminator it was, so the old `byteLength(line) + 1` was a
+ * guess that `\n` had ended it. On a file written with `\r\n` the guess is
+ * short by one byte per line, the returned offset lags further with every
+ * line, and the next incremental pass starts mid-terminator: the first thing
+ * it reads is an empty line or a fragment, `JSON.parse` throws, the `catch`
+ * breaks — and that file never yields another record for as long as it
+ * exists, because every later pass restarts from the same bad offset.
+ *
+ * Counting the bytes we actually consumed cannot drift, whichever ending the
+ * file uses, and needs no guess about what wrote it.
  */
 const readLines = async (
   path: string,
   offset: number,
   onLine: (record: unknown, bytes: number) => void,
 ): Promise<number> => {
-  const stream = createReadStream(path, { start: offset, encoding: 'utf8' })
-  const lines = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY })
+  const stream = createReadStream(path, { start: offset })
   let consumed = offset
+  let pending: Buffer = Buffer.alloc(0)
   try {
-    for await (const line of lines) {
-      const bytes = Buffer.byteLength(line, 'utf8') + 1
-      const text = line.trim()
-      if (text === '') {
-        consumed += bytes
-        continue
+    for await (const chunk of stream) {
+      const next = chunk as Buffer
+      pending = pending.length === 0 ? next : Buffer.concat([pending, next])
+      let at = pending.indexOf(NEWLINE)
+      while (at !== -1) {
+        // Everything through the `\n`, which is what the next pass must skip.
+        const bytes = at + 1
+        const line = pending.subarray(0, at).toString('utf8')
+        pending = pending.subarray(bytes)
+        if (!take(line, bytes, onLine, (added) => (consumed += added))) return consumed
+        at = pending.indexOf(NEWLINE)
       }
-      let record: unknown
-      try {
-        record = JSON.parse(text)
-      } catch {
-        // A half-written final line: stop here and let the next pass have it.
-        break
-      }
-      onLine(record, bytes)
-      consumed += bytes
     }
   } finally {
-    lines.close()
     stream.destroy()
   }
+  /* What is left has no `\n` after it: the writer is mid-line, or the file
+     simply ends without one. Told apart the way the old implementation did —
+     by trying to parse it. A half-written line is not JSON and is left for
+     the next pass; a whole record that happens to end the file is taken.
+     Dropping it instead was a regression review caught: the caller commits
+     the file's size with the offset, so an unchanged file is skipped from
+     then on and that last record is never counted — not on the next pass,
+     and not on a full rescan either, because the newline it is waiting for
+     is never coming. */
+  if (pending.length > 0) take(pending.toString('utf8'), pending.length, onLine, (added) => (consumed += added))
   return consumed
+}
+
+const NEWLINE = 0x0a
+
+/**
+ * One line, and whether to keep going.
+ *
+ * `trim()` takes the `\r` off a CRLF line along with any other surrounding
+ * space — the bytes are already counted, so what the parser sees no longer
+ * has to be the same length as what the file held.
+ */
+const take = (
+  line: string,
+  bytes: number,
+  onLine: (record: unknown, bytes: number) => void,
+  advance: (bytes: number) => void,
+): boolean => {
+  const text = line.trim()
+  if (text === '') {
+    advance(bytes)
+    return true
+  }
+  let record: unknown
+  try {
+    record = JSON.parse(text)
+  } catch {
+    // A half-written final line: stop here and let the next pass have it.
+    return false
+  }
+  onLine(record, bytes)
+  advance(bytes)
+  return true
 }
 
 interface CodexRecord {
