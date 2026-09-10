@@ -870,3 +870,30 @@ test('a cancelled flow whose command signs in anyway still tells the desk to loo
   assert.equal(completions(events), 1, 'the cancel is the ending')
   assert.equal(events.filter((event) => event.type === 'account/changed').length, 1)
 })
+
+test('a sign-out denied anywhere in its clause is none', () => {
+  // Round 12 of #134: only a denial right before the verb counted.
+  const signedIn = { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }
+  for (const text of [
+    'Logged in as user@example.com; you have not yet logged out',
+    'Logged in as user@example.com. You are not currently signed out.',
+    "Logged in as user@example.com; you haven't ever logged out",
+  ]) {
+    assert.deepEqual(parseStatus(text), signedIn, text)
+  }
+  assert.equal(parseStatus('You were logged out.'), null, 'a sign-out that is the state now')
+})
+
+test('a JSON array is data, not a status, and a bracket in prose is only characters', () => {
+  // Round 12 of #134: an object inside a top-level array was taken for the status.
+  assert.equal(parseStatus('[{"level":"info","loggedIn":true,"email":"ops@example.com"}]\nNot logged in'), null)
+  assert.deepEqual(parseStatus('[1/3] Logged in as user@example.com'), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+})
+
+test('prose braces that never close are tried only so many times', () => {
+  // Round 12 of #134: each was scanned to the end, so noisy output cost the square of its length.
+  // Past the bound what is left is prose: a record after a hundred of them is not read as one...
+  assert.equal(parseStatus(`${'{cache '.repeat(100)}{"loggedIn":true,"email":"a@b.c"}`), null)
+  // ...and a sentence after them still is.
+  assert.deepEqual(parseStatus(`${'{cache '.repeat(100)}\nLogged in as user@example.com`), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+})

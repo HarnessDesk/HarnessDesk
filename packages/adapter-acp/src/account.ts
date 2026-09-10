@@ -280,7 +280,10 @@ export class CliAccount {
  * signed out. Strings are tracked because an email or a plan name may contain
  * a brace, and counting that one would end the object in the wrong place.
  */
-const firstObject = (text: string, from: number): string | null => {
+const firstBalanced = (text: string, from: number): string | null => {
+  // An array is closed by its bracket as an object is by its brace (review, round twelve).
+  const open = text[from] === '[' ? '[' : '{'
+  const close = open === '[' ? ']' : '}'
   let depth = 0
   let inString = false
   let escaped = false
@@ -293,8 +296,8 @@ const firstObject = (text: string, from: number): string | null => {
       continue
     }
     if (ch === '"') inString = true
-    else if (ch === '{') depth += 1
-    else if (ch === '}') {
+    else if (ch === open) depth += 1
+    else if (ch === close) {
       depth -= 1
       if (depth === 0) return text.slice(from, i + 1)
     }
@@ -326,9 +329,22 @@ const statusRecords = (
   let end = text.length
   /* Objects at the top level only: after a whole object the search goes on
      from its end, not from the brace after its start, so no object nested in
-     another is ever a candidate (round two). */
-  for (let at = text.indexOf('{'); at !== -1; ) {
-    const candidate = firstObject(text, at)
+     another is ever a candidate (round two). A JSON array is data and not a
+     status: it is cut from the prose whole, and no object inside it is a
+     candidate either, where one was taken for the status (review, round
+     twelve). */
+  const OPENING = /[{[]/g
+  const next = (from: number): number => {
+    OPENING.lastIndex = from
+    return OPENING.exec(text)?.index ?? -1
+  }
+  /* An opening that never closes is scanned to the end of the text, so
+     output full of prose braces cost the square of its length. Past a bound,
+     what is left is read as prose (review, round twelve). */
+  let unclosed = 0
+  for (let at = next(0); at !== -1; ) {
+    const start = at
+    const candidate = firstBalanced(text, at)
     if (candidate === null) {
       /* An object that never closes holds everything after it, so nothing
          after it is at the top level, and the scan stops. Resuming at the next
@@ -342,11 +358,24 @@ const statusRecords = (
         end = at
         break
       }
-      at = text.indexOf('{', at + 1)
+      if (++unclosed > 64) break
+      at = next(at + 1)
+      continue
+    }
+    if (text[start] === '[') {
+      // A bracket in prose, `[INFO]` or `[1/3]`, is only characters; a JSON array is data.
+      let data = false
+      try {
+        data = Array.isArray(JSON.parse(candidate))
+      } catch {
+        data = false
+      }
+      if (data) objects.push([start, start + candidate.length])
+      at = next(data ? start + candidate.length : start + 1)
       continue
     }
     objects.push([at, at + candidate.length])
-    at = text.indexOf('{', at + candidate.length)
+    at = next(at + candidate.length)
     let parsed: unknown
     try {
       parsed = JSON.parse(candidate)
@@ -388,10 +417,19 @@ const statusRecords = (
  * side, or a line break of either kind: "Not cached, logged in as …" is two
  * clauses, and a spinner's overwritten frame is a line of its own (review,
  * rounds nine to eleven). A sign-out said to be in the past ("last logged
- * out") or denied ("not logged out") is not the state now, where "you were
- * logged out" still is (rounds nine and eleven).
+ * out") or denied anywhere in its own clause ("not yet logged out") is not the
+ * state now, where "you were logged out" still is (rounds nine, eleven and
+ * twelve).
  */
-const SIGNED_OUT = /(?:\b(?:not|no longer|never)\b|n['’]t\b)(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?\b(?:logged|signed) in\b|(?<!\b(?:last|previously|formerly|not|never)\s+|n['’]t\s+)\b(?:logged|signed) out\b/i
+/** A negation: `not`, `no longer`, `never`, or a contraction of one, in either apostrophe. */
+const NEGATION = String.raw`(?:\b(?:not|no longer|never)\b|n['’]t\b)`
+/** The rest of a clause: anything short of what ends one. */
+const IN_CLAUSE = String.raw`(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?`
+const SIGNED_OUT = new RegExp(
+  `${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
+    `|(?<!\\b(?:last|previously|formerly)\\s+)(?<!${NEGATION}${IN_CLAUSE})\\b(?:logged|signed) out\\b`,
+  'i',
+)
 
 /** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
 const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
