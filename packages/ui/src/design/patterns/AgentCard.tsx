@@ -328,12 +328,12 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               and a picker that vanished the instant you chose would never show
               you what you had chosen. */}
           <span data-slot="agent-card-choice">
-          <Segmented
-            label={choice.label}
-            value={choice.value}
-            options={choice.options}
-            onChange={choice.onChange}
-          />
+            <Segmented
+              label={choice.label}
+              value={choice.value}
+              options={choice.options}
+              onChange={choice.onChange}
+            />
           </span>
         </Band>
       )}

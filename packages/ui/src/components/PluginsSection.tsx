@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { CapabilityContribution, PluginInstance, PluginState } from '@harnessdesk/protocol'
+import { splitSessionKey, type CapabilityContribution, type PluginInstance, type PluginState } from '@harnessdesk/protocol'
 
 import { livePlugins, supersededPlugins } from '../lib/plugins'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
@@ -485,10 +485,14 @@ export const PluginsSection = () => {
   const store = useStore()
   const workspaceRoot = snapshot.workspace?.path
   const activeRuntime = snapshot.activeRuntime
-  const activeSession = snapshot.activeSessionKey
-    ? snapshot.sessions.get(snapshot.activeSessionKey)
+  /* From the key, not from the session map. A conversation is the active one
+     before its session object has been read in, and the map's answer is
+     `undefined` for that whole window — so the scope went to the host without
+     a `sessionId` and session-scoped contributions were quietly left out of
+     the answer. The key carries the id; splitting it cannot be early. */
+  const activeSessionId = snapshot.activeSessionKey
+    ? splitSessionKey(snapshot.activeSessionKey).id
     : undefined
-  const activeSessionId = activeSession?.id
   useEffect(() => {
     if (capWhere !== 'here') {
       setCapHere(null)
@@ -516,7 +520,13 @@ export const PluginsSection = () => {
        drawing the wrong answer while the right one is in flight is how a
        filter comes to be distrusted. */
     let list = capWhere === 'here' ? (capHere ?? []) : snapshot.contributions
-    if (capWhere !== 'here' && capKind !== 'all') list = list.filter((c) => c.kind === capKind)
+    /* Filtered by kind either way. Skipping it under `here` on the grounds
+       that the host had already filtered was true only once the answer
+       landed: changing the kind leaves the *previous* kind's answer in hand
+       until the new request returns, and for that window the list showed
+       hooks and panels under "Tools". Both reviewers found it. Filtering
+       again is a no-op on a fresh answer and the whole fix on a stale one. */
+    if (capKind !== 'all') list = list.filter((c) => c.kind === capKind)
     if (capQuery.trim()) {
       const needle = capQuery.toLowerCase()
       list = list.filter((c) =>

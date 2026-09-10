@@ -138,8 +138,16 @@ export class CodexExtensions implements RuntimeExtensions {
   }
 }
 
-/** A plugin id is `name@marketplace`; the marketplace half is needed to reinstall. */
-/** Codex's reason an installed plugin will not run, in words. */
+/**
+ * Codex's reason an installed plugin will not run, in words.
+ *
+ * No `default`, deliberately: with none, a fifth reason added to
+ * `PluginDisabledReason` makes this fall through and the declared
+ * `string | null` no longer covers it, so the compiler says so
+ * (`TS2366: Function lacks ending return statement`). A `default` would
+ * silence exactly that. Review suggested adding one; measured by deleting a
+ * case and watching the build fail.
+ */
 const disabledBecause = (reason: CodexProtocol.v2.PluginDisabledReason | null): string | null => {
   switch (reason) {
     case 'disabled_by_admin':

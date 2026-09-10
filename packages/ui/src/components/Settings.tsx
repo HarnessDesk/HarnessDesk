@@ -332,6 +332,15 @@ const RoutesRows = () => {
  * Drawn only when there is something to draw. An empty "Stored keys" heading
  * under an empty endpoint list is a permanent reminder of a state that is
  * fine.
+ *
+ * **Route keys only.** The same store holds every agent's sign-in key, and
+ * review caught this section listing them: an active `agent:codex:
+ * OPENAI_API_KEY` drew here as "No endpoint uses it", because no endpoint
+ * ever does, with a Remove beside it — and `credentials/delete` is not the
+ * verb for one. `runtime/apiKey/clear` is, on the agent's own page, because
+ * it also reloads the runtime's secrets; a plain delete would take the key
+ * away and leave the agent running as though it still had one. The host says
+ * which is which (`CredentialBroker.agentOf`); this does not parse names.
  */
 const KeysRows = () => {
   const store = useStore()
@@ -353,6 +362,10 @@ const KeysRows = () => {
   // one may drop it, and both happen on the section directly above this.
   useEffect(() => reload(), [reload, snapshot.routes])
 
+  /* The endpoints' own keys. An agent's is a different thing with a different
+     verb, and it has a page of its own. */
+  const routeKeys = useMemo(() => (keys ?? []).filter((key) => key.agent === null), [keys])
+
   /* Which endpoint each key is for. A key is named by whoever refers to it,
      and the ones nobody refers to are exactly the leak this section exists
      to show — so an empty answer here is a fact worth printing, not a gap. */
@@ -364,13 +377,13 @@ const KeysRows = () => {
     return by
   }, [snapshot.routes])
 
-  if (keys === null || keys.length === 0) return null
+  if (keys === null || routeKeys.length === 0) return null
 
   return (
     <>
-      <SectionHead name={withCount('Stored keys', keys.length)} />
+      <SectionHead name={withCount('Stored keys', routeKeys.length)} />
       <Rows>
-        {keys.map((key) => {
+        {routeKeys.map((key) => {
           const owners = usedBy.get(key.ref) ?? []
           return (
             <Row

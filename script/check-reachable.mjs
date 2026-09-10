@@ -32,6 +32,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { withoutComments } from './check-layering.mjs'
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
@@ -69,7 +71,15 @@ const UNREACHED = {
  * pattern there would match fields as well as methods.
  */
 export const methodsIn = (source) => {
-  const table = source.slice(source.indexOf('paramsValidators'))
+  const from = source.indexOf('paramsValidators')
+  /* And stop at the table's own closing brace. Slicing to the end of the file
+     was one later object literal away from inventing methods no host answers
+     — review found it; the file has no such literal today, which is exactly
+     how long that kind of thing stays true. A top-level `}` closes it,
+     because the table is declared at column 0. */
+  const rest = source.slice(from)
+  const end = rest.search(/^\}/m)
+  const table = end === -1 ? rest : rest.slice(0, end)
   return [...new Set([...table.matchAll(/^ {2}'([a-z][\w]*\/[\w/]*)':/gim)].map((one) => one[1]))]
 }
 
@@ -89,11 +99,18 @@ const filesUnder = (dir) => {
  *
  * A quoted literal, because that is how `transport.request` is called
  * everywhere in this app and a method assembled from pieces could not be
- * validated by anything anyway. Tests are excluded: a test calling a method
- * is not a person being able to.
+ * validated by anything anyway. Tests are excluded by the caller: a test
+ * calling a method is not a person being able to.
+ *
+ * **Comments are stripped first.** Without that, `// 'team/state' has no
+ * caller` was itself a caller, and the gate could be made green by writing
+ * its own excuse — which is the one failure that turns a check into
+ * decoration. Review found it, with the reproduction. `withoutComments` is
+ * the layering gate's parser, tested in `gates.test.mjs` against the glob
+ * that once opened a three-hundred-line comment.
  */
 export const reachedBy = (methods, sources) => {
-  const text = sources.join('\n')
+  const text = sources.map((source) => withoutComments(source)).join('\n')
   return new Set(methods.filter((method) => text.includes(`'${method}'`)))
 }
 

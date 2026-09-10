@@ -31,7 +31,7 @@ beforeEach(() => {
   ) => {
     sent.push({ method, params })
     if (method === 'credentials/list') {
-      return [{ ref: 'cred_a', name: 'Proxy key', createdAt: 1_700_000_000_000 }]
+      return [{ ref: 'cred_a', name: 'Proxy key', createdAt: 1_700_000_000_000, agent: null }]
     }
     if (method === 'capability/list') return []
     return null
@@ -40,7 +40,7 @@ beforeEach(() => {
 
 it('forgetting a stored key names it by reference, and says whether it went', async () => {
   const keys = await store.listCredentials()
-  expect(keys).toEqual([{ ref: 'cred_a', name: 'Proxy key', createdAt: 1_700_000_000_000 }])
+  expect(keys).toEqual([{ ref: 'cred_a', name: 'Proxy key', createdAt: 1_700_000_000_000, agent: null }])
 
   expect(await store.deleteCredential('cred_a')).toBe(true)
   expect(sent.at(-1)).toEqual({ method: 'credentials/delete', params: { ref: 'cred_a' } })

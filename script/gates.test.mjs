@@ -478,3 +478,33 @@ test('a longer method name does not make a shorter one look called', () => {
   const reached = reachedBy(methods, ["await request('runtime/plugin/install', { runtime })"])
   assert.deepEqual([...reached], ['runtime/plugin/install'])
 })
+
+test('a method named in a comment is not a caller', () => {
+  /* The failure that turns a check into decoration: the gate could be made
+     green by writing its own excuse. Found in review, with this reproduction
+     — `reachedBy(['team/state'], ["// 'team/state' is not a call"])` used to
+     answer that it was. */
+  const methods = ['team/state']
+  assert.deepEqual([...reachedBy(methods, ["// 'team/state' is not a call"])], [])
+  assert.deepEqual([...reachedBy(methods, ["/* was 'team/state' */"])], [])
+  assert.deepEqual([...reachedBy(methods, ["const x = 1 // see 'team/state'"])], [])
+  // The control: an actual call still counts.
+  assert.deepEqual([...reachedBy(methods, ["await request('team/state', { room })"])], ['team/state'])
+})
+
+test('the method list stops at the validator table, not at the end of the file', () => {
+  /* `slice(indexOf('paramsValidators'))` ran to EOF, so any later two-space
+     object literal with a slash-separated key would be read as a method the
+     host answers. Review found it; nothing in the file does that today, which
+     is how long it would have stayed true. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "}",
+    "",
+    "const somethingElse = {",
+    "  'not/a/method': 1,",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list'])
+})

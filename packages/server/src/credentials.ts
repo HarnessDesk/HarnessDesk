@@ -36,6 +36,21 @@ export interface CredentialInfo {
   readonly ref: string
   readonly name: string
   readonly createdAt: number
+  /**
+   * The agent this secret signs in, when the broker minted it for one.
+   *
+   * The store holds two unrelated kinds: a key a *route* refers to, whose
+   * only owner is the route, and a key an *agent* authenticates with, minted
+   * by `secretName` and cleared through `runtime/apiKey/clear` — which also
+   * reloads the runtime's secrets, as a plain delete does not.
+   *
+   * Told apart here rather than by the reader, because the name's shape is
+   * this class's own invention. A surface that parsed it would be a second
+   * copy of `secretName`, and the first surface to list credentials did
+   * exactly that by accident: with no way to tell, it drew every agent's
+   * sign-in key as an unused leftover with a Remove beside it.
+   */
+  readonly agent: string | null
 }
 
 interface StoredEntry {
@@ -70,7 +85,12 @@ export class CredentialBroker {
   async describe(): Promise<readonly CredentialInfo[]> {
     const entries = await this.#load()
     return [...entries.entries()]
-      .map(([ref, entry]) => ({ ref, name: entry.name, createdAt: entry.createdAt }))
+      .map(([ref, entry]) => ({
+        ref,
+        name: entry.name,
+        createdAt: entry.createdAt,
+        agent: CredentialBroker.agentOf(entry.name),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }
 
@@ -107,6 +127,20 @@ export class CredentialBroker {
    */
   static secretName(runtime: string, env: string): string {
     return `agent:${runtime}:${env}`
+  }
+
+  /**
+   * The runtime a stored name belongs to, or `null` for anything else.
+   *
+   * The other half of `secretName`, and deliberately beside it: a caller that
+   * needs to know what a credential is asks this class, which is the one that
+   * decided. A runtime id has no colons, so the shape is exact — a route key
+   * a user happened to call `agent:something` is not two colons deep and does
+   * not match.
+   */
+  static agentOf(name: string): string | null {
+    const parts = name.split(':')
+    return parts.length === 3 && parts[0] === 'agent' && parts[1] ? parts[1] : null
   }
 
   /** Loads the file so `peek` can answer without awaiting. */

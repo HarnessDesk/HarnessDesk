@@ -176,3 +176,12 @@ it('the verbs row wraps, so a long label cannot leave the card', () => {
   const row = [...container.querySelectorAll('[data-slot="agent-card-band"]')].at(-1)
   expect(row?.className).toContain('flex-wrap')
 })
+
+it('a subject with no choice draws no band for one', () => {
+  /* The column head passes no `onInbound`, so its card must not offer the
+     control. True by construction — no prop, no band — and pinned so a
+     refactor that defaults the field has to say so. */
+  render({ ...BARE, actions: [{ label: 'Open', onSelect: () => {} }] })
+  expect(container.querySelector('[data-slot="agent-card-choice"]')).toBeNull()
+  expect(bands()).toBe(1)
+})

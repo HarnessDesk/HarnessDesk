@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
   PluginInstance,
@@ -100,7 +101,12 @@ type Asked = { readonly kind: string; readonly scope: object }
 
 const makeStore = (
   info: RuntimeInfo,
-  here?: { readonly answers: CapabilityContribution[]; readonly asked: Asked[]; readonly webScope?: CapabilityContribution['scope'] },
+  here?: {
+    readonly answers: CapabilityContribution[]
+    readonly asked: Asked[]
+    readonly webScope?: CapabilityContribution['scope']
+    readonly activeSessionKey?: SessionKey
+  },
 ): AppStore => {
   const git = plugin('git', 'Git', [tool('git', 'git_status', 'Show the working tree status.')])
   const guard = plugin('guardrails', 'Guardrails', [hook('guardrails', 'Checks every tool call')])
@@ -114,6 +120,9 @@ const makeStore = (
     runtimes: [info],
     plugins: [git, guard, web],
     contributions: [...git.contributions, ...guard.contributions, ...web.contributions],
+    /* A conversation is the active one before its session object has been
+       read in — the map is deliberately left empty for that case. */
+    ...(here?.activeSessionKey ? { activeSessionKey: here.activeSessionKey } : {}),
   }
   return {
     subscribe: () => () => {},
@@ -234,4 +243,57 @@ it('“applies here” is the host’s answer, not the pushed list filtered agai
   expect(asked.map((one) => one.kind)).toContain('hook')
   expect(container.textContent).toContain('Show the working tree status.')
   expect(container.textContent).not.toContain('Fetch a page from an allowed host.')
+})
+
+it('changing the kind under “applies here” does not show the last kind’s answer', async () => {
+  /* Found by both reviewers. The list skipped kind filtering under `here` on
+     the grounds that the host had already filtered — true of a fresh answer
+     and false of the one still in hand while the next request is in flight.
+     Selecting Tools left hooks and panels on screen until it landed. */
+  const asked: Asked[] = []
+  const answers = [
+    tool('git', 'git_status', 'Show the working tree status.'),
+    hook('guardrails', 'Checks every tool call'),
+  ]
+  mount(makeStore(runtime('codex', 'Codex', true), { answers, asked }))
+  openCapabilities()
+
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
+  setValue(where as HTMLSelectElement, 'here')
+  await act(async () => {})
+  expect(container.textContent).toContain('Checks every tool call')
+
+  /* The kind moves and the answer for it has not arrived. `setValue` does not
+     flush the effect's promise, so this is exactly the in-flight moment. */
+  const kind = container.querySelector<HTMLSelectElement>('select[aria-label="Filter by kind"]')
+  setValue(kind as HTMLSelectElement, 'tool')
+  expect(container.textContent).not.toContain('Checks every tool call')
+
+  await act(async () => {})
+  expect(container.textContent).toContain('Show the working tree status.')
+})
+
+it('the conversation’s id reaches the host before its session has been read in', async () => {
+  /* `snapshot.sessions.get(activeSessionKey)?.id` is `undefined` for the whole
+     window between a conversation becoming active and its session arriving, so
+     the scope went out without a `sessionId` and the host left session-scoped
+     contributions out of its answer. Found in review. The key carries the id;
+     splitting it cannot be early. */
+  const asked: Asked[] = []
+  mount(
+    makeStore(runtime('codex', 'Codex', true), {
+      answers: [],
+      asked,
+      activeSessionKey: sessionKey('codex' as never, '01a04ec8-90f2-70b0' as never),
+    }),
+  )
+  openCapabilities()
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
+  setValue(where as HTMLSelectElement, 'here')
+  await act(async () => {})
+
+  expect(asked.length).toBeGreaterThan(0)
+  for (const one of asked) {
+    expect(one.scope).toMatchObject({ sessionId: '01a04ec8-90f2-70b0' })
+  }
 })

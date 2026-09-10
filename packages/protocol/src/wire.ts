@@ -691,7 +691,13 @@ export interface HostMethods {
 
   'credentials/list': {
     params: Record<string, never>
-    result: readonly { readonly ref: string; readonly name: string; readonly createdAt: number }[]
+    result: readonly {
+      readonly ref: string
+      readonly name: string
+      readonly createdAt: number
+      /** The agent this signs in, when the broker minted it for one; else null. */
+      readonly agent: string | null
+    }[]
   }
   'credentials/store': {
     params: { readonly name: string; readonly value: string }
