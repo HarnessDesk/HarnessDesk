@@ -66,6 +66,13 @@ export interface Account {
   readonly email?: string | null
   /** Subscription tier, where the runtime has the concept. */
   readonly planType?: string | null
+  /**
+   * The runtime saw that it is signed in but cannot say as whom — an ACP
+   * agent whose session opened, with no status command to name the person.
+   * `label` is then a state ("Signed in") rather than an identity, and a
+   * surface that names accounts uses the agent's own name instead.
+   */
+  readonly anonymous?: boolean
 }
 
 /**

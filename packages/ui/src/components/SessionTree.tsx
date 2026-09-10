@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type DragEvent as ReactDragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 
-import { sessionKey, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { sessionKey, splitContext, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, projectRootOf, type ProjectGroup } from '../lib/projects'
@@ -114,6 +114,17 @@ const SessionRow = ({
   // one has something to look at — the Background tasks panel, once opened.
   const backgrounded = (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length
   const worktree = isWorktreeSession(summary)
+  const active = snapshot.activeSessionKey === key
+  const rowRef = useRef<HTMLButtonElement>(null)
+  /* Brought on screen when it becomes the active one. A list long enough to
+     hold a month of review rooms keeps the conversation being typed into
+     thousands of pixels below the fold, and a row nobody can see is a row
+     nobody can find. `nearest` moves nothing when it is already in view; a
+     row that is not rendered — a folded project — is not this effect's to
+     unfold. */
+  useEffect(() => {
+    if (active) rowRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [active])
 
   const commitRename = useCallback(() => {
     const title = draft.trim()
@@ -151,6 +162,7 @@ const SessionRow = ({
       ) : (
         <>
           <button
+            ref={rowRef}
             type="button"
             className={styles.row}
             data-density={snapshot.listPrefs.density}
@@ -783,8 +795,83 @@ const PROJECT_MIME = 'application/x-harnessdesk-project'
  * know which folders "all" means — and two answers to that question is one
  * too many.
  */
+/**
+ * A history row for a conversation that is open here and listed nowhere.
+ *
+ * The history is the agents' own stores read through them, and an agent with
+ * no `session/list` — Gemini CLI — lists nothing at all, so the conversation
+ * being typed into had no row anywhere in the tree. The same gap opens for a
+ * beat after any conversation starts, before the history catches up. The
+ * live map is the desk's own knowledge of what is open, and a row drawn from
+ * it says what the session says about itself. The repository is left unknown
+ * rather than guessed: the grouping already folds a worktree path onto its
+ * checkout, which is the case this was found in.
+ */
+const rowOf = (session: Session): SessionSummary => ({
+  id: session.id,
+  runtime: session.runtime,
+  title: session.title ?? null,
+  preview: session.preview ?? firstAsk(session),
+  cwd: session.cwd,
+  status: session.status,
+  createdAt: session.createdAt,
+  updatedAt: session.updatedAt,
+  git: session.git ?? null,
+  repo: null,
+})
+
+/**
+ * The first thing the person typed, for a row with no name yet — their words
+ * alone, with any envelope the desk sent beside them taken off here rather
+ * than left for every reader to strip. Every text block of a message is
+ * read, not the first: the composer puts attached context — a page, a
+ * plan — in blocks of its own *before* the typed words, so the first block
+ * of a message with chips is all envelope and strips to nothing.
+ */
+const firstAsk = (session: Session): string | null => {
+  for (const turn of session.turns) {
+    for (const item of turn.items) {
+      if (item.type !== 'userMessage') continue
+      for (const block of item.content) {
+        if (block.type !== 'text') continue
+        const words = splitContext(block.text).text.trim()
+        if (words.length > 0) return words
+      }
+    }
+  }
+  return null
+}
+
 export const useProjectGroups = (): ProjectGroup[] => {
   const snapshot = useSnapshot()
+  /* Open conversations the history does not list, as rows. Recomputed
+     whenever a session changes — cheap, a handful of entries — but the
+     grouping below is keyed on the facts a row is drawn from, so a token
+     streaming into one of them does not regroup a thousand rows. */
+  const liveRows = useMemo(() => {
+    const listed = new Set(snapshot.history.map((summary) => String(sessionKey(summary.runtime, summary.id))))
+    return [...snapshot.sessions.entries()]
+      .filter(([key]) => !listed.has(String(key)))
+      .map(([, session]) => rowOf(session))
+  }, [snapshot.history, snapshot.sessions])
+  /* The facts a live row is drawn from, as one string. The first ask is one
+     of them: a conversation opened empty is "Untitled session" until the
+     person types, and the row has to learn its name then — a key without
+     the preview kept the old label for as long as nothing else about the
+     row changed. Assistant tokens never move it, because `firstAsk` reads
+     the person's messages only. */
+  const liveKey = useMemo(
+    () =>
+      liveRows
+        .map(
+          (row) =>
+            `${row.runtime}\u0000${row.id}\u0000${row.title ?? ''}\u0000${row.preview ?? ''}\u0000${row.cwd}\u0000${row.status.type}`,
+        )
+        .join('\u0001'),
+    [liveRows],
+  )
+  const liveRef = useRef(liveRows)
+  liveRef.current = liveRows
   /* The roots the rooms declare, and not `teams` itself, because that map is
      replaced on every board mutation — a chat post, a claim, a rename — and
      re-grouping the whole history for a message nobody asked this list about
@@ -795,11 +882,12 @@ export const useProjectGroups = (): ProjectGroup[] => {
     [snapshot.teams],
   )
   return useMemo(() => {
+    const listed = [...liveRef.current, ...snapshot.history]
     const filtered = snapshot.listPrefs.agent
-      ? snapshot.history.filter(
+      ? listed.filter(
           (summary) => agentKeyOf(summary.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
         )
-      : snapshot.history
+      : listed
     // The open workspace leads, then what the user pinned in the order they
     // pinned it, then the rest by the chosen order. A worktree you have open
     // is the project it is a checkout of, so the row it leads is that one.
@@ -874,7 +962,7 @@ export const useProjectGroups = (): ProjectGroup[] => {
       if (snapshot.listPrefs.sort === 'name') return a.name.localeCompare(b.name)
       return b.updatedAt - a.updatedAt
     })
-  }, [snapshot.history, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.workspace, snapshot.workspaces, roomRoots])
+  }, [snapshot.history, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.workspace, snapshot.workspaces, roomRoots])
 }
 
 export const SessionTree = ({ now }: { now: number }) => {

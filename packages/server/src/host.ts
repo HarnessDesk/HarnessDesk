@@ -20,6 +20,8 @@ import {
   type AgentRuntime,
   type ArchiveFilter,
   type AgentSession,
+  type ConfigOption,
+  type TurnId,
   type CapabilityRegistry,
   type ContextImage,
   type BackupFile,
@@ -69,6 +71,7 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
+import { attributionLine, lastAttributionIn, seatLabel, withAttribution } from './attribution.js'
 import { SessionNames } from './names.js'
 import { redactorFor } from './diagnostics.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
@@ -404,7 +407,7 @@ export class Host {
       // word, which made a room's members vanish on every catalogue refresh.
       send: async (runtime, id, text) => {
         const live = await this.#teamLive(runtime, id)
-        await live.send([{ type: 'text', text }])
+        await this.#sendAttributed(runtime, makeSessionId(id), live, [{ type: 'text', text }])
       },
       steer: async (runtime, id, text) => {
         const live = await this.#teamLive(runtime, id)
@@ -861,6 +864,8 @@ export class Host {
       },
       sessions: {
         live: (params) => this.#live(params),
+        sendAttributed: (params, live, input) =>
+          this.#sendAttributed(params.runtime, makeSessionId(params.sessionId), live, input),
         record: (params) => this.#record(params),
         read: (runtime, id) => this.#read(runtime, id),
         attach: (runtime, id, live) => this.#attach(runtime, id, live),
@@ -1328,6 +1333,77 @@ export class Host {
   }
 
   /** The live handle a `(runtime, sessionId)` pair names, reconnecting if it must. */
+  /**
+   * The attribution line each conversation was last told, for the ones this
+   * host has sent to. A seat that has not changed is not told twice; one
+   * that has is told again, because the line names the model. Bounded, and
+   * not the only record: a conversation this host has not sent to yet — one
+   * resumed after a restart — is read from its own transcript, which is what
+   * the agent was actually told. See `attribution.ts`.
+   */
+  readonly #attributed = new Map<string, string>()
+
+  /**
+   * Sends a turn with the desk's attribution riding beside it — when the
+   * person has it on, and this conversation has not yet been told this
+   * seat's line. Every path that hands a person's or a room's words to an
+   * agent goes through here, so an agent asked by a room-mate to open a pull
+   * request signs it the same way as one asked by the person.
+   *
+   * The seat is recorded only once the agent has accepted the turn. A send
+   * that fails is a turn the agent never saw, and recording it first left
+   * the retry without the envelope — a conversation told nothing, and a
+   * pull request signed by nobody.
+   */
+  async #sendAttributed(
+    runtime: RuntimeId,
+    id: SessionId,
+    live: AgentSession,
+    input: readonly UserContent[],
+  ): Promise<TurnId> {
+    const line = this.#attributionOn() ? this.#attributionLine(runtime, live) : null
+    const key = sessionKey(runtime, id)
+    const told =
+      line === null
+        ? null
+        : (this.#attributed.get(key) ?? lastAttributionIn(this.registry.get(runtime, id)?.session.turns ?? []))
+    const carries = line !== null && told !== line
+    const turn = await live.send(carries ? withAttribution(input, line) : input)
+    if (line !== null) this.#rememberAttribution(key, line)
+    return turn
+  }
+
+  /** The line this seat signs with, from the agent's name and its own labels. */
+  #attributionLine(runtime: RuntimeId, live: AgentSession): string {
+    const agent = this.#runtimes.get(runtime)?.info.presentation.name ?? runtime
+    let options: readonly ConfigOption[] = []
+    try {
+      options = live.options()
+    } catch {
+      /* an adapter with nothing to declare signs with the agent's name alone */
+    }
+    return attributionLine(seatLabel(agent, options))
+  }
+
+  /** Bounded the way the tool gateway bounds its callers: past the cap the oldest entry goes, and the transcript still answers for it. */
+  #rememberAttribution(key: string, line: string): void {
+    if (this.#attributed.size >= 2000 && !this.#attributed.has(key)) {
+      const oldest = this.#attributed.keys().next().value
+      if (oldest !== undefined) this.#attributed.delete(oldest)
+    }
+    this.#attributed.set(key, line)
+  }
+
+  /**
+   * On unless the person switched it off. The preference is the renderer's,
+   * kept with the rest of them; it is read here, on every send, because the
+   * host is what writes the envelope and a switch must not need a restart.
+   */
+  #attributionOn(): boolean {
+    const raw = this.#state.state.preferences['attribution']
+    return !(typeof raw === 'object' && raw !== null && (raw as { pullRequests?: unknown }).pullRequests === false)
+  }
+
   async #live(params: {
     readonly runtime: RuntimeId
     readonly sessionId: SessionId
@@ -1694,7 +1770,7 @@ export class Host {
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
     try {
       const live = await this.#live({ runtime: record.runtime, sessionId: record.session.id })
-      await live.send(input)
+      await this.#sendAttributed(record.runtime, record.session.id, live, input)
     } finally {
       clearTimeout(deadline)
       release()
@@ -1741,7 +1817,7 @@ export class Host {
       if (!sending) return
       this.#pushQueue(record)
       try {
-        await live.send(sending.input)
+        await this.#sendAttributed(record.runtime, record.session.id, live, sending.input)
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
       } catch (error) {

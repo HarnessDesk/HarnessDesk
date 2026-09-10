@@ -8,7 +8,8 @@ import type { MethodsUnder } from './context.js'
  */
 export const turnMethods = {
   'turn/send': async (ctx, params) => {
-    const turnId = await (await ctx.sessions.live(params)).send(params.input)
+    const live = await ctx.sessions.live(params)
+    const turnId = await ctx.sessions.sendAttributed(params, live, params.input)
     return { turnId: String(turnId) }
   },
 

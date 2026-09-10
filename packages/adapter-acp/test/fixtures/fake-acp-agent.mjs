@@ -488,6 +488,34 @@ const handlers = {
     })
   },
   'session/new': (id, params) => {
+    // FAKE_ACP_AUTH_REQUIRED=1 plays an agent that wants a sign-in before it
+    // opens anything — ACP's auth_required, code and words both, as Google
+    // Antigravity's server answers it.
+    // FAKE_ACP_AUTH_REQUIRED_AFTER=<n> plays a sign-in that lapses: the first
+    // n opens succeed and every later one is refused the same way.
+    const opensSoFar = (globalThis.__opens = (globalThis.__opens ?? 0) + 1)
+    const lapsed =
+      process.env.FAKE_ACP_AUTH_REQUIRED_AFTER !== undefined &&
+      opensSoFar > Number(process.env.FAKE_ACP_AUTH_REQUIRED_AFTER)
+    // FAKE_ACP_SERVER_ERROR=1 plays an agent that fails to open a session
+    // for some other reason, under JSON-RPC's generic server-error code —
+    // the same number ACP gives auth_required, without the words.
+    if (process.env.FAKE_ACP_SERVER_ERROR === '1') {
+      send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Internal server error', data: { details: 'the model backend timed out' } } })
+      return
+    }
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed) {
+      send({
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32000,
+          message: 'Authentication required',
+          data: { message: 'No authentication method selected. Call `authenticate` with one of: device.' },
+        },
+      })
+      return
+    }
     // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness and
     // cursor-agent: it will not be handed an MCP tool server on the session
     // request, and says so in the words the caller learns from.

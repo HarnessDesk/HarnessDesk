@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { sessionId, type Session, type SessionQueue, type UserContent } from '@harnessdesk/protocol'
+import { sessionId, splitContext, type Session, type SessionQueue, type UserContent } from '@harnessdesk/protocol'
 
 import { QUEUE_LIMIT } from '../src/registry.js'
 import { FAKE_RUNTIME_ID, type FakeSession } from './fixtures/fake-runtime.js'
@@ -72,8 +72,12 @@ test('a message typed mid-turn waits, and goes out when the turn ends', async (t
   const prompts = record!.session.turns.flatMap((turn) =>
     turn.items.filter((item) => item.type === 'userMessage'),
   )
+  // The person's words: the desk's attribution envelope rides on the first
+  // turn, and it is not what this is measuring.
   assert.deepEqual(
-    prompts.map((item) => (item.type === 'userMessage' && item.content[0]?.type === 'text' ? item.content[0].text : '')),
+    prompts.map((item) =>
+      splitContext(item.type === 'userMessage' && item.content[0]?.type === 'text' ? item.content[0].text : '').text,
+    ),
     ['the first thing', 'and then run the tests'],
   )
 })

@@ -618,7 +618,7 @@ const AccountCardBody = ({
 
     return {
       kind: 'account',
-      name: account ? accountName(account, snapshot.accountPrefs[key]) : info.presentation.name,
+      name: account ? accountName(account, snapshot.accountPrefs[key], info.presentation.name) : info.presentation.name,
       identity: account
         ? `${info.presentation.name} · ${accountIdentity(account)}`
         : `${info.presentation.name} · not signed in`,

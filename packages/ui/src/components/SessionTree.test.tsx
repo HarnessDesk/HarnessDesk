@@ -677,3 +677,196 @@ it('a row shows the live session\'s title before the history list has it', () =>
   expect(container.textContent).toContain('/about')
   expect(container.textContent).not.toContain('Untitled session')
 })
+
+it('gives a conversation open in this window a row even when its agent lists no history', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const key = sessionKey(runtimeId('agent'), sessionId('live-1'))
+  const live = {
+    id: 'live-1',
+    runtime: 'agent',
+    title: null,
+    preview: null,
+    cwd: '/repo/.claude/worktrees/fix-107',
+    status: { type: 'active' },
+    createdAt: 1,
+    updatedAt: 2,
+    turns: [
+      {
+        id: 'turn-1',
+        items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Fix the countdown roll-over' }] }],
+      },
+    ],
+    itemsLoaded: true,
+  } as unknown as Session
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: key,
+    runtimes: [runtime],
+    // The agent lists nothing: no `session/list`, so the history is empty.
+    history: [],
+    sessions: new Map([[key, live]]),
+    // The checkout is open, which is what lets a worktree path name it: a
+    // guess read off a path may name a project, never invent one.
+    workspaces: [{ path: '/repo' }],
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  const row = [...container.querySelectorAll('button')].find((button) =>
+    button.textContent?.includes('Fix the countdown roll-over'),
+  )
+  expect(row, 'the open conversation has a row, named by its first ask').toBeDefined()
+  expect(row?.hasAttribute('data-active')).toBe(true)
+  // A worktree conversation is filed under the checkout it belongs to.
+  expect(container.textContent).toContain('repo')
+})
+
+it('names a live row after the person’s first ask as soon as it is typed', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const key = sessionKey(runtimeId('agent'), sessionId('live-2'))
+  const empty = {
+    id: 'live-2',
+    runtime: 'agent',
+    title: null,
+    preview: null,
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+  } as unknown as Session
+  // The same conversation once the first message went out: the status is
+  // back to idle — nothing but the transcript differs from the empty one.
+  const asked = {
+    ...empty,
+    turns: [
+      {
+        id: 'turn-1',
+        items: [
+          {
+            type: 'userMessage',
+            content: [{ type: 'text', text: 'Rename the branch\n\n<context source="HarnessDesk">\nsign it\n</context>' }],
+          },
+        ],
+      },
+    ],
+  } as unknown as Session
+  let snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: key,
+    runtimes: [runtime],
+    history: [],
+    sessions: new Map([[key, empty]]),
+    workspaces: [{ path: '/repo' }],
+  } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+  const rows = () => [...container.querySelectorAll('button[data-active]')].map((row) => row.textContent ?? '')
+  expect(rows()[0]).toContain('Untitled session')
+
+  act(() => {
+    snapshot = { ...snapshot, sessions: new Map([[key, asked]]) } as unknown as AppSnapshot
+    for (const listener of listeners) listener()
+  })
+  expect(rows()[0]).toContain('Rename the branch')
+  expect(rows()[0]).not.toContain('sign it')
+})
+
+it('reads the ask past the context blocks the composer puts before it', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const key = sessionKey(runtimeId('agent'), sessionId('live-3'))
+  // What the composer sends with a chip attached: the context in a text
+  // block of its own, then the typed words in another.
+  const live = {
+    id: 'live-3',
+    runtime: 'agent',
+    title: null,
+    preview: null,
+    cwd: '/repo',
+    status: { type: 'active' },
+    createdAt: 1,
+    updatedAt: 2,
+    turns: [
+      {
+        id: 'turn-1',
+        items: [
+          {
+            type: 'userMessage',
+            content: [
+              { type: 'text', text: '<context source="Page">\nthe page it was looking at\n</context>' },
+              { type: 'text', text: 'Make the header sticky' },
+            ],
+          },
+        ],
+      },
+    ],
+    itemsLoaded: true,
+  } as unknown as Session
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: key,
+    runtimes: [runtime],
+    history: [],
+    sessions: new Map([[key, live]]),
+    workspaces: [{ path: '/repo' }],
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+  const row = container.querySelector('button[data-active]')
+  expect(row?.textContent).toContain('Make the header sticky')
+  expect(row?.textContent).not.toContain('Untitled session')
+  expect(row?.textContent).not.toContain('the page it was looking at')
+})

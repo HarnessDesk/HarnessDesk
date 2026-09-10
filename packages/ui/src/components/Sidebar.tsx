@@ -450,7 +450,7 @@ export const AccountFooter = ({
         key,
         info,
         account,
-        name: accountName(account, snapshot.accountPrefs[key]),
+        name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
         figure,

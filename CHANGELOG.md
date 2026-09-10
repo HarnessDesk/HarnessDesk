@@ -5,6 +5,26 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Pull requests say which seat wrote them** — an agent asked to open or
+  update a pull request from a conversation ends its description with
+  “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent model ·
+  effort)”, in the agent's own labels. The instruction rides beside the turn
+  as “Context added”, once per conversation and again when the model or
+  effort changes. Off under Settings → General → Sign pull requests.
+- **An agent the desk cannot ask is no longer “Needs sign-in”** — an ACP
+  agent with no status command and no stored key (Gemini CLI, Google
+  Antigravity, Cline) read as signed out while it was opening pull requests.
+  Its state is now what its own answers showed: a conversation that opened
+  reads “Signed in”, a refusal for want of a sign-in offers the agent's
+  declared methods in its own words, and until either has happened the desk
+  claims nothing.
+- **Every open conversation has a row in the sidebar** — one whose agent
+  lists no history (Gemini CLI has no `session/list`) had no row anywhere,
+  and the active row is now scrolled into view when a long list would have
+  hidden it.
+
 ## 0.1.0 — 2026-09-07
 
 The first packaged build: signed and notarized for Apple Silicon and Intel,

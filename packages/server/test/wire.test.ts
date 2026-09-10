@@ -18,6 +18,7 @@ import {
   type HostMethodName,
   type HostToClient,
   type Session,
+  splitContext,
 } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
@@ -155,8 +156,10 @@ test('a full turn streams to the client and folds into session state', async (t)
   const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))
   const items = allItems(record!.session)
   assert.deepEqual(items.map((item) => item.type), ['userMessage', 'assistantMessage'])
+  // The person's words, echoed. The desk's attribution envelope rides on a
+  // conversation's first turn, and the fake echoes everything it was sent.
   assert.equal(
-    items[1]?.type === 'assistantMessage' && items[1].text,
+    splitContext(items[1]?.type === 'assistantMessage' ? items[1].text : '').text,
     'echo: hello',
   )
   assert.equal(record!.session.turns[0]?.status, 'completed')
@@ -177,6 +180,10 @@ test('a working conversation is still working, and still itself, when it is open
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
+
+  // This is about coming back to a running turn, not about what rides on
+  // the first one: the attribution envelope would only obscure the echo.
+  await client.call('app/state/set', { patch: { attribution: { pullRequests: false } } })
 
   const working = (await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
@@ -1365,4 +1372,131 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
   // Without the switch, a dirty tree is no reason not to mark a commit.
   await client.call('git/createBranch', { root: repo, name: 'marked', at })
   assert.equal((await gitIn(repo, 'rev-parse', 'marked')).trim(), at)
+})
+
+/**
+ * The pull-request attribution: told once, on a conversation's first turn,
+ * in the desk's own envelope; not again while the seat stands; and not at
+ * all once the person has switched it off. The fake echoes what it was sent,
+ * so the transcript's user message is the evidence.
+ */
+test('the first turn carries the desk’s attribution, the next does not, and the switch is honoured', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const open = async (): Promise<Session> =>
+    (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  const turn = async (session: Session, text: string): Promise<string> => {
+    const completed = client.events.filter((event) => event.type === 'turn/completed').length
+    await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text }] })
+    const live = harness.runtime.sessions.get(session.id) as FakeSession
+    live.finish()
+    await client.until(() => client.events.filter((event) => event.type === 'turn/completed').length > completed)
+    const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))
+    const asked = record!.session.turns.at(-1)?.items.find((item) => item.type === 'userMessage')
+    return asked?.type === 'userMessage' && asked.content[0]?.type === 'text' ? asked.content[0].text : ''
+  }
+
+  const session = await open()
+  const first = splitContext(await turn(session, 'hello'))
+  assert.equal(first.text, 'hello', 'the person’s words are kept whole')
+  assert.equal(first.injections[0]?.label, 'HarnessDesk', 'the envelope is the desk’s own')
+  assert.ok(
+    first.injections[0]?.text.includes('🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Fake Runtime Fake One)'),
+    'the line names the seat in the agent’s own labels',
+  )
+  const second = splitContext(await turn(session, 'again'))
+  assert.equal(second.injections.length, 0, 'the same seat is not told twice')
+
+  // The seat changed: the line names the model, so the new one is told.
+  await client.call('session/options/set', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    optionId: 'model',
+    value: 'fake-2',
+  })
+  const moved = splitContext(await turn(session, 'on the other model'))
+  assert.ok(
+    moved.injections[0]?.text.includes('(Fake Runtime Fake Two)'),
+    'a changed seat is told again, with the new line',
+  )
+  const settled = splitContext(await turn(session, 'and again'))
+  assert.equal(settled.injections.length, 0, 'and then not again')
+
+  // A turn the agent never accepted is a turn it was never told on: the
+  // retry carries the envelope, or the conversation is told nothing at all.
+  const fresh = await open()
+  const live = harness.runtime.sessions.get(fresh.id) as FakeSession
+  live.sendFailure = new Error('the agent fell over')
+  await assert.rejects(
+    client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: fresh.id, input: [{ type: 'text', text: 'hello' }] }),
+    /fell over/,
+  )
+  const retried = splitContext(await turn(fresh, 'hello again'))
+  assert.equal(retried.injections[0]?.label, 'HarnessDesk', 'the retry after a failed send still carries the envelope')
+
+  await client.call('app/state/set', { patch: { attribution: { pullRequests: false } } })
+  const quiet = splitContext(await turn(await open(), 'hello'))
+  assert.equal(quiet.injections.length, 0, 'off is off, without a restart')
+})
+
+/**
+ * The attribution across a host restart. The record of what a conversation
+ * was told is its own transcript, which the host keeps; a host that starts
+ * fresh on the same state reads it back rather than telling the agent again.
+ * The control is a conversation the new host has never seen, which is told.
+ */
+test('a host that restarted reads the attribution it already sent from the transcript', async (t) => {
+  const first = await start()
+  const client = await Client.connect(first.server)
+  const send = async (
+    harness: Awaited<ReturnType<typeof start>>,
+    who: Client,
+    session: Session,
+    text: string,
+  ): Promise<string> => {
+    const completed = who.events.filter((event) => event.type === 'turn/completed').length
+    await who.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text }] })
+    const live = harness.runtime.sessions.get(session.id) as FakeSession
+    live.finish()
+    await who.until(() => who.events.filter((event) => event.type === 'turn/completed').length > completed)
+    const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))
+    const asked = record!.session.turns.at(-1)?.items.find((item) => item.type === 'userMessage')
+    return asked?.type === 'userMessage' && asked.content[0]?.type === 'text' ? asked.content[0].text : ''
+  }
+  // Two conversations, and the attributed one second: the fake numbers its
+  // sessions per instance, so the second host's first `session/create` mints
+  // the first host's first id again. That id must belong to a conversation
+  // nothing was ever said in, or the control below inherits a transcript.
+  const untouched = (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  const session = (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  assert.notEqual(untouched.id, session.id)
+  const told = splitContext(await send(first, client, session, 'hello'))
+  assert.equal(told.injections[0]?.label, 'HarnessDesk', 'the first host told the conversation once')
+  client.close()
+  // Down, but not gone: `stop` would remove the state directory, and the
+  // state directory is the point.
+  await first.server.close()
+  await first.host.dispose()
+
+  const second = await start({ state: new StateStore(join(first.stateDir, 'state.json')) })
+  t.after(() => stop(second))
+  t.after(() => rm(first.stateDir, { recursive: true, force: true }))
+  const again = await Client.connect(second.server)
+  t.after(() => again.close())
+  // The agent's own store knows the conversation but holds nothing of it;
+  // the host's transcript is what fills it in on the read the renderer makes.
+  second.runtime.stored.set(sessionId(session.id), [])
+  const read = (await again.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })) as Session
+  assert.equal(read.turns.length, 1, 'the transcript came back from the host’s own store')
+
+  const resumed = splitContext(await send(second, again, session, 'after the restart'))
+  assert.equal(resumed.injections.length, 0, 'the new host read what the conversation was told and did not repeat it')
+
+  const fresh = (await again.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  assert.equal(fresh.id, untouched.id, 'the fake handed out the first id again — the control the comment above is about')
+  const control = splitContext(await send(second, again, fresh, 'hello'))
+  assert.equal(control.injections[0]?.label, 'HarnessDesk', 'a conversation nothing was said in is still told')
 })

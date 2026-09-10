@@ -3750,6 +3750,10 @@ export class AppStore {
         listPrefs,
         editorPrefs,
         browserPrefs,
+        attribution: {
+          pullRequests:
+            (preferences['attribution'] as { pullRequests?: unknown } | undefined)?.pullRequests !== false,
+        },
         usageOff,
         noticePolicy,
         systemNotifications: readSystemNotifications(preferences['systemNotifications']),
@@ -4132,6 +4136,12 @@ export class AppStore {
   #setNoticePolicy(noticePolicy: NoticePolicy): void {
     this.#patch({ noticePolicy })
     void this.transport.request('app/state/set', { patch: { noticePolicy } }).catch(() => {})
+  }
+
+  setAttribution(patch: Partial<AppSnapshot['attribution']>): void {
+    const attribution = { ...this.#snapshot.attribution, ...patch }
+    this.#patch({ attribution })
+    void this.transport.request('app/state/set', { patch: { attribution } }).catch(() => {})
   }
 
   setBrowserPrefs(patch: Partial<AppSnapshot['browserPrefs']>): void {
