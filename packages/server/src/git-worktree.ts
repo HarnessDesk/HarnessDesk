@@ -4,6 +4,8 @@ import { realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
+import { isRevisionName } from './git-revision.js'
+
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
 
 import { changes, worktreeHome, WorktreeDirtyError } from './worktree.js'
@@ -361,7 +363,7 @@ const checkBranchName = async (root: string, name: string): Promise<void> => {
 
 /** A revision this module will hand to git, confirmed to name a commit. */
 const resolveCommitish = async (root: string, ref: string): Promise<string> => {
-  if (!/^[\w][\w./@{}-]*$/.test(ref) || ref.includes('..')) {
+  if (!isRevisionName(ref)) {
     throw new Error(`"${ref}" is not a usable revision name.`)
   }
   try {

@@ -432,3 +432,36 @@ test('move obeys the same "beside the repository" rule an added worktree does', 
   await assert.rejects(() => move(repo, repo, 'anywhere', state), /main checkout is not moved/)
   assert.equal(at(await list(repo, state), '/here')?.path, made.path)
 })
+
+/**
+ * A worktree at a relative revision.
+ *
+ * `add` shares its revision gate with the git verbs, and that gate refused
+ * `HEAD~1` — so "a worktree at the commit before this one" was refused as
+ * "not a usable revision name". Pinned end to end here, through `add`,
+ * because a unit test of the gate cannot say that this caller reaches it.
+ * Raised in review.
+ */
+/* Two tests rather than one, because `at` and `base` reach the gate by
+   separate calls (`git-worktree.ts` resolves each on its own) and a failed
+   assertion ends a test: written as one, only the first half could ever be
+   shown to fail on the old gate, and the second was taken on trust. */
+const twoCommits = async () => {
+  const seeded = await seedRepo()
+  const first = (await git(seeded.repo, 'rev-parse', 'HEAD')).trim()
+  await writeFile(join(seeded.repo, 'a.txt'), 'two\n')
+  await git(seeded.repo, 'commit', '-qam', 'second')
+  return { ...seeded, first }
+}
+
+test('add detaches at a relative revision', async () => {
+  const { repo, state, first } = await twoCommits()
+  const loose = await add(repo, 'one-back', { kind: 'detach', at: 'HEAD~1' }, state)
+  assert.equal((await git(loose.path, 'rev-parse', 'HEAD')).trim(), first)
+})
+
+test('add starts a new branch from a relative revision', async () => {
+  const { repo, state, first } = await twoCommits()
+  const made = await add(repo, 'from-parent', { kind: 'new', branch: 'from-parent', base: 'HEAD^' }, state)
+  assert.equal((await git(made.path, 'rev-parse', 'HEAD')).trim(), first)
+})
