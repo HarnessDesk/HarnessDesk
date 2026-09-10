@@ -40,6 +40,72 @@ test('escape sequences strip and a carriage return keeps only what it left behin
   assert.equal(plainTerminalText(raw), 'green line\ndone\n\ntail')
 })
 
+/**
+ * A carriage return with nothing after it has overwritten nothing.
+ *
+ * The overwrite rule keeps what follows the last `\r` on a line, which is
+ * right for a bar that redrew itself and wrong for one that has not been
+ * redrawn yet: a line *ending* in `\r` has its last carriage return at the
+ * final index, the slice takes nothing, and a whole line of real output
+ * disappears. The cursor moved; the line stayed. Progress bars and status
+ * messages are the commonest shape, and they are exactly the output somebody
+ * opens a terminal to watch.
+ */
+test('a line ending in a carriage return keeps its text, because nothing overwrote it', () => {
+  assert.equal(plainTerminalText('Building… 40%\r'), 'Building… 40%')
+  // The cursor came back twice and still typed nothing.
+  assert.equal(plainTerminalText('Building… 40%\r\r'), 'Building… 40%')
+  // Mid-line returns still overwrite, and a trailing one still does not.
+  assert.equal(plainTerminalText('10%\r90%\r'), '90%')
+  // A line that is only a carriage return is an empty line, as it was.
+  assert.equal(plainTerminalText('\r'), '')
+})
+
+test('a trailing carriage return on one line does not eat the lines around it', () => {
+  /* The `\r\n` fold runs first, so the last line is the only one that can
+     end in a bare `\r` — but a file written by something that is not a PTY
+     can carry them anywhere, and none of those lines should vanish either. */
+  assert.equal(plainTerminalText('first\rsecond\nthird\r\nfourth\r'), 'second\nthird\nfourth')
+})
+
+/**
+ * The same rule, at the level a reader actually meets it.
+ *
+ * `lastOutput` re-runs `plainTerminalText` over the whole concatenated
+ * scrollback each time it is asked, so the transform above is the transform
+ * here — but that is a fact about the current implementation, and the chip
+ * that shows a terminal to an agent reads it *between* writes. A bar sitting
+ * at a bare `\r` waiting for its next frame is the ordinary state of a
+ * terminal somebody is watching, and it used to read as nothing at all.
+ *
+ * Raised in review as implied rather than pinned, which it was.
+ */
+test('a terminal read between frames shows the bar, and the next frame replaces it', async () => {
+  const { processes, print } = fakeProcesses()
+  const terminals = new Terminals(() => {})
+  await terminals.open({
+    runtime: runtimeId('fake'),
+    processes,
+    cwd: '/build',
+    size: { cols: 80, rows: 24 },
+  })
+
+  // The frame has been drawn and the cursor sent home; nothing has overwritten
+  // it yet. This is the moment the chip used to report as empty.
+  print(0, 'Building… 40%\r')
+  assert.equal(terminals.lastOutput()?.text, 'Building… 40%')
+
+  // The next frame lands on the same line and wins, as the overwrite rule says.
+  print(0, 'Building… 80%\r')
+  assert.equal(terminals.lastOutput()?.text, 'Building… 80%')
+
+  // And once the line is finished, the bar is history and the line below is
+  // its own.
+  print(0, 'Building… done\r\nlinking\n')
+  assert.equal(terminals.lastOutput()?.text, 'Building… done\nlinking\n')
+  await terminals.dispose()
+})
+
 test('lastOutput is the most recently printing terminal, and null before any prints', async () => {
   const { processes, print } = fakeProcesses()
   const terminals = new Terminals(() => {})

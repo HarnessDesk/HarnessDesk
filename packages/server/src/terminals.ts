@@ -210,6 +210,16 @@ export const plainTerminalText = (raw: string): string =>
     // below reads each whole line as overwritten by nothing and eats it.
     .replace(/\r\n/g, '\n')
     .split('\n')
+    /* A carriage return sends the cursor back to column 0, and what is typed
+       after it overwrites what was there — so the last one on a line wins.
+       A carriage return with *nothing* after it has overwritten nothing: the
+       cursor moved and the line stayed. Taking the slice from it anyway
+       returned the empty string, which deleted a whole line of real output —
+       the commonest shape being a progress bar or a status message that
+       returns to column 0 and is still waiting to be redrawn.
+       The `\r\n` fold above shows the authors had this exact shape in mind
+       and closed it for the pair only. */
+    .map((line) => line.replace(/\r+$/, ''))
     .map((line) => line.slice(line.lastIndexOf('\r') + 1))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
