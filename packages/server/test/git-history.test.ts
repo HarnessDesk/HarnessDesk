@@ -314,6 +314,12 @@ test('a repository that names its commits in SHA-256 opens them', async () => {
   assert.equal(head.length, 64, 'the control: this repository really is SHA-256')
   assert.equal((await commit(dir, head)).sha, head)
   assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
+  // And a commit after it, read against its 64-character parent.
+  await writeFile(join(dir, 'a.txt'), 'a\nb\n')
+  await git(dir, 'commit', '-qam', 'two')
+  const next = await sha(dir, 'HEAD')
+  assert.equal((await commit(dir, next)).parents[0], head)
+  assert.match(await commitDiff(dir, next, 'a.txt'), /^\+b$/m)
 })
 
 test('a renamed file opens as the rename it was, not as a file added from nothing', async () => {
@@ -360,3 +366,26 @@ test('a branch whose upstream was deleted says so, rather than reading as level'
   assert.equal(named('feat/merged')?.gone, true)
   assert.equal(named('main')?.gone, false, 'the control: level with a remote branch that exists')
 })
+
+test('a copied file opens as itself, without the edits made to its source', async () => {
+  // Round 1 of #150: a copy's source was paired into the pathspec like a
+  // rename's, and brought its own changes into the copy's patch.
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await git(dir, 'config', 'diff.renames', 'copies')
+  await writeFile(join(dir, 'old.txt'), 'one\ntwo\nthree\nfour\nfive\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await writeFile(join(dir, 'new.txt'), 'one\ntwo\nthree\nfour\nfive\n')
+  await writeFile(join(dir, 'old.txt'), 'one\ntwo\nthree\nfour\nFIVE\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'copy it, and edit the source')
+  const head = await sha(dir, 'HEAD')
+  const listedAs = (await commit(dir, head)).files.find((file) => file.path === 'new.txt')
+  assert.equal(listedAs?.oldPath, 'old.txt', 'the control: git lists it as a copy')
+
+  const patch = await commitDiff(dir, head, 'new.txt')
+  assert.match(patch, /new\.txt/)
+  assert.doesNotMatch(patch, /FIVE/, "the source's edit is not in the copy's patch")
+})
+

@@ -972,3 +972,17 @@ it('a branch whose upstream is gone says so, and Pull says why it cannot', async
   expect(current?.textContent).toContain('gone')
 })
 
+it("the branch menu's Pull says the upstream is gone, and Push stays", async () => {
+  // Round one: the toolbar's Pull was tested, and the branch menu's was not.
+  const [main, feature] = REFS.branches
+  await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
+  await rightClick(container.querySelector('[class*="_railRow_"][data-current]')!)
+  const item = (label: string) =>
+    [...document.querySelectorAll('button')].find((node) => node.textContent?.includes(label)) as HTMLButtonElement | undefined
+  const pull = item('Pull origin/main')
+  expect(pull?.disabled || pull?.getAttribute('aria-disabled') === 'true').toBe(true)
+  expect(pull?.textContent).toContain('origin/main is gone from its remote.')
+  const push = item('Push to origin/main')
+  expect(push?.disabled || push?.getAttribute('aria-disabled') === 'true').toBe(false)
+})
+

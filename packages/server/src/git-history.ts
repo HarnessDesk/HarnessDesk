@@ -275,8 +275,12 @@ const EMPTY_TREES: Readonly<Record<string, string>> = {
   sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
   sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
 }
-const emptyTree = async (root: string): Promise<string> =>
-  EMPTY_TREES[(await asked(root, ['rev-parse', '--show-object-format']))?.trim() ?? 'sha1'] ?? EMPTY_TREES['sha1']!
+const emptyTree = async (root: string): Promise<string> => {
+  // A git that does not know the flag — whether it refuses it or echoes it
+  // back — is a SHA-1 repository, the only format such a git has.
+  const format = await asked(root, ['rev-parse', '--show-object-format']).catch(() => null)
+  return EMPTY_TREES[format?.trim() ?? 'sha1'] ?? EMPTY_TREES['sha1']!
+}
 
 /**
  * One commit opened: full message, both identities, and its files with
@@ -386,7 +390,10 @@ export const commitDiff = async (root: string, sha: string, path: string): Promi
   const entry = listed(
     await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]),
   ).find((file) => file.path === path)
-  const paths = entry?.oldPath ? [entry.oldPath, path] : [path]
+  /* Renames only. A rename's two paths are one file; a copy's are two, and
+     naming the source brought the source's own edits into the copy's patch
+     (review, round 1). A copy opens as the file it made. */
+  const paths = entry?.letter === 'R' && entry.oldPath ? [entry.oldPath, path] : [path]
   return (await asked(root, ['diff', '--no-color', '--no-ext-diff', base, sha, '--', ...paths])) ?? ''
 }
 

@@ -1484,7 +1484,6 @@ const HeadCell = ({
   )
 }
 
-/** One toolbar verb: a glyph, its word when the pane is wide, and a count. */
 /**
  * Why Pull cannot run for this branch, or false when it can. A branch whose
  * upstream was deleted on its remote still names it, and a pull from it can
@@ -1497,6 +1496,7 @@ const pullRefusal = (branch: GitBranchRef | null | undefined): string | false =>
       ? `${branch.upstream} is gone from its remote.`
       : false
 
+/** One toolbar verb: a glyph, its word when the pane is wide, and a count. */
 const ActionBtn = ({
   icon,
   label,
