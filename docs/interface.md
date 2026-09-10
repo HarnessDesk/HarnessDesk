@@ -301,11 +301,13 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 **A worktree comes back as a branch.** "Bring it back to the main checkout"
 checks the worktree's branch out in the main checkout and removes the worktree
 — a checkout, not a merge, so nothing is folded into whatever the main tree was
-on. Uncommitted work stops it: the dialog lists the files and offers to ask the
-agent to commit them. If the main checkout will not take the switch, git's own
-sentence says why and the worktree is left where it was. The conversation
-cannot follow its folder, so a draft opens in the main checkout carrying it as
-a hand-off.
+on. It is offered on HarnessDesk's own worktrees; a checkout you made yourself
+is yours to move. Uncommitted work stops it: the dialog lists the files and
+offers to ask the agent to commit them. If the main checkout will not take the
+switch, git's own sentence says why and the worktree is put back where it was
+— and on the rare occasion git will not allow even that, the message says the
+folder is gone and the branch kept. The conversation cannot follow its folder,
+so a draft opens in the main checkout carrying it as a hand-off.
 
 **Background work has a chip, then a panel.** While an agent has work running
 that outlives the turn — a watcher, a test run sent to the background — the

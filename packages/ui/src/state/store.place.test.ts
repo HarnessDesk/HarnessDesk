@@ -175,4 +175,19 @@ describe('bringing a worktree back', () => {
     expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, sessionId('s-1')))
     expect(store.getSnapshot().draftHandoff).toBeNull()
   })
+
+  it('reads the worktree list again after a refusal, so a folder git could not put back is not offered', async () => {
+    await openIn(TREE)
+    answers['worktree/list'] = [{ path: TREE, branch: 'harnessdesk/parser-fix', head: 'abc', isMain: false, managed: true }]
+    await store.loadWorktrees()
+    expect(store.getSnapshot().worktrees.map((entry) => entry.path)).toContain(TREE)
+    // Git refused the switch and would not re-add the worktree either, so the
+    // host no longer lists it.
+    answers['worktree/list'] = []
+    refused['worktree/bringHome'] =
+      `repo could not switch to harnessdesk/parser-fix, and the worktree could not be put back at ${TREE}, so that folder is gone; the branch keeps every commit.`
+
+    expect(await store.bringWorktreeHome(TREE)).toContain('could not be put back')
+    expect(store.getSnapshot().worktrees.map((entry) => entry.path)).not.toContain(TREE)
+  })
 })

@@ -19,8 +19,9 @@ move is real work and is not news to a person weighing an upgrade.
   bring its branch back to the main checkout from the header's branch menu.
   Uncommitted work stops it (the dialog lists the files and can ask the agent
   to commit them); a main checkout that will not take the switch says why in
-  git's own words, and the worktree stays where it was. The conversation
-  carries on in the main checkout through a hand-off.
+  git's own words, and the worktree is put back where it was — or, if git will
+  not allow even that, the message says so. The conversation carries on in the
+  main checkout through a hand-off.
 - **Gemini CLI and Antigravity show the context ring** — Gemini CLI counts a
   turn's tokens in its own slot on the prompt response rather than ACP's
   `usage` field, and Antigravity's server puts none on the wire at all but

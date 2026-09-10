@@ -345,7 +345,12 @@ export const remove = async (
  * fail (the main tree has its own edits to a file the two branches disagree
  * about) with the worktree already gone, so the failure **puts it back**:
  * `worktree add <path> <branch>` restores exactly what was taken, because
- * what was taken was clean. Git's own refusal is what the caller then sees.
+ * what was taken was clean. Git's own refusal is what the caller then sees,
+ * and when git will not put it back either, the error says the folder is
+ * gone rather than that it was left in place.
+ *
+ * Only worktrees HarnessDesk created, as with `remove`: the person's own
+ * checkouts are theirs to move.
  */
 export const bringHome = async (
   path: string,
@@ -357,6 +362,11 @@ export const bringHome = async (
   const entry = (await list(main, options.stateDir)).find((candidate) => candidate.path === target)
   if (!entry) throw new Error(`${path} is not a worktree of ${main}.`)
   if (entry.isMain) throw new Error(`${path} is the main checkout; it is already home.`)
+  // The header offers this only on HarnessDesk's own worktrees, but this is
+  // the boundary, and anything that can name a path on the wire reaches it.
+  if (!entry.managed) {
+    throw new Error(`${path} was not created by HarnessDesk; move its branch to the main checkout with git yourself.`)
+  }
   if (!entry.branch) {
     throw new Error(
       `${path} is not on a branch, so there is nothing to check out in the main checkout. Make a branch there first.`,
@@ -375,15 +385,45 @@ export const bringHome = async (
   try {
     await git(main, ['checkout', entry.branch])
   } catch (error) {
-    // Put back exactly what was taken. The tree was clean, so `worktree add`
-    // on the same path and branch restores it whole.
-    await git(main, ['worktree', 'add', target, entry.branch]).catch(() => undefined)
-    throw new Error(
-      `${basename(main)} could not switch to ${entry.branch}, so the worktree was left where it was. ${gitSaid(error)}`,
-    )
+    // A post-checkout hook runs after the switch, and git returns its exit
+    // status as checkout's own: a failing hook reads as a refusal that did
+    // not happen. Where the main checkout is now is the answer.
+    if ((await currentBranchOf(main)) !== entry.branch) {
+      await putBack(main, target, entry.branch, error, options.stateDir)
+    }
   }
   await rm(target, { recursive: true, force: true })
   return { branch: entry.branch, from, root: main }
+}
+
+/**
+ * Puts a worktree back after the main checkout refused its branch, and throws
+ * what happened. The tree was clean, so `worktree add` on the same path and
+ * branch restores it whole — when git lets it. When it does not (a second
+ * worktree forced onto the branch holds it, the disk is full), the folder is
+ * gone, and the error says that rather than that it was left in place. The
+ * listing decides, not the exit status: `worktree add` reports a failing hook
+ * too, after it has done its work.
+ */
+const putBack = async (
+  main: string,
+  target: string,
+  branch: string,
+  refused: unknown,
+  stateDir: string,
+): Promise<never> => {
+  const failed = await git(main, ['worktree', 'add', target, branch]).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  const back = failed === null || (await list(main, stateDir).catch(() => [])).some((entry) => entry.path === target)
+  if (back) {
+    throw new Error(`${basename(main)} could not switch to ${branch}, so the worktree was left where it was. ${gitSaid(refused)}`)
+  }
+  throw new Error(
+    `${basename(main)} could not switch to ${branch}, and the worktree could not be put back at ${target}, so that ` +
+      `folder is gone; the branch keeps every commit. Switching: ${gitSaid(refused)} Putting it back: ${gitSaid(failed)}`,
+  )
 }
 
 /** The branch a checkout is on, or null when it is detached. */

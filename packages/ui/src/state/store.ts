@@ -2988,7 +2988,13 @@ export class AppStore {
     const home = await this.transport
       .request('worktree/bringHome', { path })
       .catch((error: unknown) => describe(error))
-    if (typeof home === 'string') return home
+    if (typeof home === 'string') {
+      // A refusal usually moves nothing, but a switch refused after the
+      // worktree had gone can leave its folder gone too, and the list must
+      // stop offering it.
+      await this.loadWorktrees()
+      return home
+    }
 
     const folder = home.root.split('/').filter(Boolean).at(-1) ?? home.root
     this.notice(

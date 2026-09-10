@@ -346,3 +346,74 @@ test('bringing home refuses the main checkout and a detached worktree', async (t
   await assert.rejects(worktrees.bringHome(tree.path), /not on a branch/)
   assert.equal((await worktrees.list(repo)).length, 2, 'and left it alone')
 })
+
+/**
+ * The host method is the boundary, not the menu. The header offers this verb
+ * only on HarnessDesk's own worktrees, but anything that can name a path on
+ * the wire reaches it, and a checkout the person made is theirs to move — the
+ * same line `remove` holds.
+ */
+test('bringing home refuses a worktree HarnessDesk did not create, and touches nothing', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const theirs = join(repo, '..', 'theirs')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'theirs', theirs)
+
+  await assert.rejects(worktrees.bringHome(theirs), /not created by HarnessDesk/)
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'the main checkout did not move')
+  assert.ok((await stat(theirs)).isDirectory(), 'their checkout is still there')
+  assert.equal((await worktrees.list(repo)).length, 2, 'and git still lists it')
+})
+
+/**
+ * When putting it back fails as well, the error says so. A second worktree
+ * forced onto the same branch (`git worktree add --force`) is the ordinary
+ * way there: git refuses the main checkout's switch because that tree holds
+ * the branch, then refuses to re-add the removed worktree for the same
+ * reason. The folder is gone by then, and "left where it was" would send the
+ * person looking for it.
+ */
+test('a worktree git will not put back is reported as gone, not as left in place', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'twice' })
+  await writeFile(join(tree.path, 'twice.txt'), 'the work\n')
+  await git(tree.path, 'add', '-A')
+  await git(tree.path, 'commit', '-q', '-m', 'the work')
+  const done = (await git(tree.path, 'rev-parse', 'HEAD')).trim()
+  await git(repo, 'worktree', 'add', '-q', '--force', join(repo, '..', 'twin'), 'harnessdesk/twice')
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /left where it was/, 'no recovery that did not happen')
+    assert.match(error.message, /could not be put back/)
+    assert.match(error.message, /already used by worktree|already checked out/, "git's own words")
+    return true
+  })
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'the main checkout did not move')
+  await assert.rejects(stat(tree.path), 'the folder is gone, as the error says')
+  assert.equal((await git(repo, 'rev-parse', 'harnessdesk/twice')).trim(), done, 'and the branch keeps its commit')
+})
+
+/**
+ * Git runs a post-checkout hook after the switch and returns the hook's exit
+ * status as checkout's own, so a failing hook reads as a refused checkout
+ * that has in fact happened. Where the main checkout is afterwards decides
+ * it: the branch is home, and there is nothing to put back.
+ */
+test('a failing post-checkout hook after the switch still brings the branch home', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'hooked' })
+  const hooks = join(repo, '..', 'hooks')
+  await mkdir(hooks)
+  await writeFile(join(hooks, 'post-checkout'), '#!/bin/sh\necho "the hook says no" >&2\nexit 1\n', { mode: 0o755 })
+  await git(repo, 'config', 'core.hooksPath', hooks)
+
+  const home = await worktrees.bringHome(tree.path)
+
+  assert.equal(home.branch, 'harnessdesk/hooked')
+  assert.equal(home.from, 'main')
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked', 'the switch happened')
+  await assert.rejects(stat(tree.path), 'the side checkout is gone')
+  assert.equal((await worktrees.list(repo)).length, 1, 'and git no longer lists it')
+})
