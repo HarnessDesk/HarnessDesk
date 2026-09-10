@@ -420,9 +420,13 @@ test('patch is mail-format text and diffRange compares two revisions', async () 
   assert.ok(text.includes('Subject: [PATCH] the patched change'))
   assert.ok(text.includes('+three'))
 
-  await git(dir, 'branch', 'marker', 'HEAD~1')
-  const diff = await diffRange(dir, 'marker', 'main')
+  /* `HEAD~1`, passed as it is. This test used to make a branch called
+     `marker` at `HEAD~1` and diff against that instead — a workaround for the
+     very defect #28 reported, since `HEAD~1` was refused as "not a usable
+     revision name". Found in review; the workaround was the evidence. */
+  const diff = await diffRange(dir, 'HEAD~1', 'main')
   assert.ok(diff.includes('+three'))
+  assert.equal(await diffRange(dir, 'HEAD^', 'main'), diff, 'HEAD^ names the same commit')
   await assert.rejects(diffRange(dir, 'no-such-ref', 'main'), /does not name a commit/)
 })
 
@@ -442,7 +446,20 @@ test('pullRequestUrl knows the forges and says null for the rest', async () => {
   )
 
   await git(dir, 'remote', 'set-url', 'origin', 'https://gitlab.com/openma/harnessdesk.git')
-  assert.match((await pullRequestUrl(dir, 'feat/thing')) ?? '', /merge_requests\/new/)
+  /* A query parameter keeps full encoding — `%2F` is right here, unlike in
+     GitHub's path. Pinned exactly, because a refactor that applied GitHub's
+     per-segment rule to every forge would still match `merge_requests/new`.
+     Raised in review, as was Bitbucket having no assertion at all. */
+  assert.equal(
+    await pullRequestUrl(dir, 'feat/thing'),
+    'https://gitlab.com/openma/harnessdesk/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fthing',
+  )
+
+  await git(dir, 'remote', 'set-url', 'origin', 'git@bitbucket.org:openma/harnessdesk.git')
+  assert.equal(
+    await pullRequestUrl(dir, 'feat/thing'),
+    'https://bitbucket.org/openma/harnessdesk/pull-requests/new?source=feat%2Fthing',
+  )
 
   await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@code.internal/team/repo.git')
   assert.equal(await pullRequestUrl(dir, 'feat/thing'), null)
@@ -513,4 +530,26 @@ test('a branch segment is still escaped, even though the separator is not', asyn
     await pullRequestUrl(dir, 'feat/a#c'),
     'https://github.com/openma/harnessdesk/compare/feat/a%23c?expand=1',
   )
+})
+
+test('an ssh remote under any user name resolves, not only git@', async () => {
+  /* The old pattern required `git@`. Parsing `ssh://` as a URL takes any user,
+     which is what deploy keys and self-hosted forges use — a widening, and
+     pinned as one. Raised in review as correct and untested. */
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'ssh://deploy@github.com/openma/harnessdesk.git')
+  assert.equal(await pullRequestUrl(dir, 'main'), 'https://github.com/openma/harnessdesk/compare/main?expand=1')
+})
+
+test('an ssh remote that names no repository, or cannot be parsed, has no pull-request page', async () => {
+  /* `https://github.com/compare/main` is a page that does not exist — the same
+     kind of wrong link #65 was about. Raised in review. */
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'ssh://git@github.com')
+  assert.equal(await pullRequestUrl(dir, 'main'), null)
+  await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@github.com:22')
+  assert.equal(await pullRequestUrl(dir, 'main'), null)
+  // One `new URL` refuses outright, which is the catch path.
+  await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@[not-a-host/openma/harnessdesk.git')
+  assert.equal(await pullRequestUrl(dir, 'main'), null)
 })

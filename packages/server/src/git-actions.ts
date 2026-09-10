@@ -576,6 +576,12 @@ export const diffRange = async (root: string, from: string, to: string): Promise
 const overSsh = (remote: string): string | null => {
   try {
     const url = new URL(remote)
+    /* A remote with no path — `ssh://git@github.com` — names no repository,
+       and `https://github.com/compare/…` built from it is a page that does
+       not exist: the same kind of wrong link this function was changed to
+       stop producing. Null, the answer for any remote it cannot name. `ssh:`
+       is not a WHATWG special scheme, so an absent path is `''`, not `/`. */
+    if (url.pathname.replace(/\/+$/, '') === '') return null
     return `https://${url.hostname}${url.pathname}`
   } catch {
     return null

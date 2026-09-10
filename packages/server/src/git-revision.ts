@@ -18,6 +18,15 @@
  *
  * One copy, because there were two: `git-actions.ts` and `git-worktree.ts`
  * carried the same expression, and the report named one of them.
+ *
+ * Admitting `^` admits two suffixes that are not one revision, and they are
+ * refused by name: `^-` (`HEAD^-1` is shorthand for the range
+ * `HEAD ^HEAD^1`) and `^@` (every parent — a set). Review caught the first.
+ * Both happen to be rejected downstream today, because the callers run
+ * `rev-parse --verify`, which demands a single object — but a gate whose
+ * contract holds only because of what its callers do next is not a gate, and
+ * the next caller may not verify. `^!` needs no rule: `!` was never in the
+ * set. `^{commit}`, `^{}` and `^2` are single revisions and still pass.
  */
 export const isRevisionName = (ref: string): boolean =>
-  /^[\w][\w./@{}~^-]*$/.test(ref) && !ref.includes('..')
+  /^[\w][\w./@{}~^-]*$/.test(ref) && !ref.includes('..') && !/\^[-@]/.test(ref)

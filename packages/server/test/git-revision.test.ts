@@ -65,3 +65,21 @@ test('and nothing that could reach a shell or a second argument', () => {
 test('empty is not a name', () => {
   assert.equal(isRevisionName(''), false)
 })
+
+test('the ^ suffixes that name more than one revision are refused', () => {
+  /* Admitting `^` admitted these two. `HEAD^-1` is shorthand for the range
+     `HEAD ^HEAD^1`, and `HEAD^@` is every parent — a set. The callers run
+     `rev-parse --verify`, which happens to reject both today, but a gate whose
+     contract holds only because of what its callers do next is not a gate.
+     Raised in review. */
+  for (const ref of ['HEAD^-1', 'HEAD^-', 'main^-2', 'HEAD^@', 'main^@']) {
+    assert.equal(isRevisionName(ref), false, ref)
+  }
+})
+
+test('the ^ suffixes that do name one revision still pass', () => {
+  // The control: peeling, a numbered parent, and a parent of an ancestor.
+  for (const ref of ['HEAD^{commit}', 'v1.0.0^{}', 'HEAD^2', 'HEAD^0', 'HEAD~2^2']) {
+    assert.equal(isRevisionName(ref), true, ref)
+  }
+})
