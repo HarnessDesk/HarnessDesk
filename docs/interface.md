@@ -192,6 +192,15 @@ says where it actually ran. Agents that report no git join the project another
 session placed their folder in. The current project stays open; the rest fold
 under **Other projects**.
 
+**Every open conversation has a row.** The rows are the agents' own history
+read through them, and an agent with no `session/list` — Gemini CLI — lists
+nothing, so the conversation being typed into had no row anywhere in the tree.
+A conversation open in this window is drawn from the desk's own knowledge of
+it, named by its title or its first ask and filed under the checkout its
+folder belongs to, until the agent's history catches up. The active row is
+scrolled into view when it changes: a list long enough to hold a month of
+rooms kept it thousands of pixels below the fold.
+
 The Workspaces row carries what you do to the list: a **funnel** that narrows
 it, the display controls (density, agent filter, collapse or expand all
 projects, sort), and the folder browse button. The funnel is the row's own
@@ -330,7 +339,11 @@ message" — one row per item, opening onto the block exactly as sent. It is nev
 dropped: it is context the model was given, and a transcript that deletes it
 cannot explain what the agent knew. "Context added" is the same row for the
 envelope HarnessDesk sends, kept worded apart because our name does not belong on
-someone else's text.
+someone else's text. One such envelope rides with the first turn of every
+conversation, and again when its model or effort changes: the pull-request
+signature — “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent
+model · effort)”, in the agent's own labels — that the agent is asked to end
+any pull request it opens with. Settings → General switches it off.
 
 **Under every finished turn, a summary**: files changed (click → Changes),
 commands run, tests passed or failed, what broke, and "waiting for your
@@ -417,7 +430,12 @@ no sentence explaining what they would do.
 **Agents** is a roster: every registered agent with its accounts beneath it,
 and a page per agent (health, update, the agent's own runtime-wide options) or
 per account. Extensions appears only for an agent with a store or MCP servers
-to show, which today means Codex alone.
+to show, which today means Codex alone. An agent whose sign-in the desk cannot
+ask about — an ACP agent with no status command and no stored key — is
+described by what its own answers showed: "Signed in" once a conversation has
+opened, its declared sign-in methods in its own words when it refused one for
+want of authentication, and nothing at all before either has happened. It is
+never "Needs sign-in" on the strength of an empty list.
 
 Which pages actually carry anything varies by agent, and the audit of that —
 along with what Settings still does not do — is recorded with the audit.

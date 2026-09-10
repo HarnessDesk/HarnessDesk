@@ -20,6 +20,7 @@ import {
   type AgentRuntime,
   type ArchiveFilter,
   type AgentSession,
+  type ConfigOption,
   type CapabilityRegistry,
   type ContextImage,
   type BackupFile,
@@ -69,6 +70,7 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
+import { attributionLine, seatLabel, withAttribution } from './attribution.js'
 import { SessionNames } from './names.js'
 import { redactorFor } from './diagnostics.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
@@ -404,7 +406,7 @@ export class Host {
       // word, which made a room's members vanish on every catalogue refresh.
       send: async (runtime, id, text) => {
         const live = await this.#teamLive(runtime, id)
-        await live.send([{ type: 'text', text }])
+        await live.send(this.#attribute(runtime, makeSessionId(id), live, [{ type: 'text', text }]))
       },
       steer: async (runtime, id, text) => {
         const live = await this.#teamLive(runtime, id)
@@ -861,6 +863,8 @@ export class Host {
       },
       sessions: {
         live: (params) => this.#live(params),
+        attribute: (params, live, input) =>
+          this.#attribute(params.runtime, makeSessionId(params.sessionId), live, input),
         record: (params) => this.#record(params),
         read: (runtime, id) => this.#read(runtime, id),
         attach: (runtime, id, live) => this.#attach(runtime, id, live),
@@ -1328,6 +1332,51 @@ export class Host {
   }
 
   /** The live handle a `(runtime, sessionId)` pair names, reconnecting if it must. */
+  /**
+   * The attribution line each conversation was last asked to sign with. A
+   * seat that has not changed is not asked twice; one that has is asked
+   * again, because the line names the model. See `attribution.ts`.
+   */
+  readonly #attributed = new Map<string, string>()
+
+  /**
+   * The turn with the desk's attribution riding beside it — when the person
+   * has it on, and this conversation has not yet been told this seat's line.
+   * Every path that hands a person's or a room's words to an agent goes
+   * through here, so an agent asked by a room-mate to open a pull request
+   * signs it the same way as one asked by the person.
+   */
+  #attribute(
+    runtime: RuntimeId,
+    id: SessionId,
+    live: AgentSession,
+    input: readonly UserContent[],
+  ): readonly UserContent[] {
+    if (!this.#attributionOn()) return input
+    const agent = this.#runtimes.get(runtime)?.info.presentation.name ?? runtime
+    let options: readonly ConfigOption[] = []
+    try {
+      options = live.options()
+    } catch {
+      /* an adapter with nothing to declare signs with the agent's name alone */
+    }
+    const line = attributionLine(seatLabel(agent, options))
+    const key = sessionKey(runtime, id)
+    if (this.#attributed.get(key) === line) return input
+    this.#attributed.set(key, line)
+    return withAttribution(input, line)
+  }
+
+  /**
+   * On unless the person switched it off. The preference is the renderer's,
+   * kept with the rest of them; it is read here, on every send, because the
+   * host is what writes the envelope and a switch must not need a restart.
+   */
+  #attributionOn(): boolean {
+    const raw = this.#state.state.preferences['attribution']
+    return !(typeof raw === 'object' && raw !== null && (raw as { pullRequests?: unknown }).pullRequests === false)
+  }
+
   async #live(params: {
     readonly runtime: RuntimeId
     readonly sessionId: SessionId
@@ -1694,7 +1743,7 @@ export class Host {
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
     try {
       const live = await this.#live({ runtime: record.runtime, sessionId: record.session.id })
-      await live.send(input)
+      await live.send(this.#attribute(record.runtime, record.session.id, live, input))
     } finally {
       clearTimeout(deadline)
       release()
@@ -1741,7 +1790,7 @@ export class Host {
       if (!sending) return
       this.#pushQueue(record)
       try {
-        await live.send(sending.input)
+        await live.send(this.#attribute(record.runtime, record.session.id, live, sending.input))
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
       } catch (error) {

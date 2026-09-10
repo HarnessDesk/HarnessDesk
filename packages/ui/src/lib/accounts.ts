@@ -58,9 +58,15 @@ export const tintOf = (key: string, prefs: AccountPrefsMap): Tint =>
  * is an identity, "olivia" is a name — and anything else is shown as the
  * runtime wrote it.
  */
-export const accountName = (account: Account, prefs: AccountPrefs | undefined): string => {
+export const accountName = (
+  account: Account,
+  prefs: AccountPrefs | undefined,
+  /** The agent's own name, which stands in for a person the runtime cannot name. */
+  agent?: string,
+): string => {
   const nickname = prefs?.nickname?.trim()
   if (nickname) return nickname
+  if (account.anonymous && agent) return agent
   const email = account.email ?? (account.label.includes('@') ? account.label : null)
   if (email) return email.slice(0, email.indexOf('@'))
   return account.label

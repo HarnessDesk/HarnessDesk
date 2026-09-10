@@ -182,3 +182,29 @@ means nothing to a runner that has never seen that laptop's disk. The rule
 below still holds; *which* machine answers it does not have an answer yet.
 
 **The rule:** the row is a fallback, not an instruction.
+
+## A pull request says which seat wrote it
+
+A vendor's own client signs the pull requests its agent opens — "Generated
+with Claude Code" — and the signature is what tells a reviewer which tool,
+on which model, wrote what they are reading. An agent driven from this desk
+signed as nothing, or as the client it was not running in.
+
+So the desk asks it to sign as the seat that did the work: HarnessDesk, then
+the agent, its model and its effort, in the agent's own labels — the host is
+the only party that knows all three, because the renderer never names a
+runtime and the agent does not reliably know what it is running on. The
+instruction travels as context beside the turn in the same envelope every
+other injection uses, so the transcript shows it as what it is rather than
+as something the person typed; once per conversation, and again only when
+the seat changes, because the line names the model. It is a preference, on
+by default, and the host reads it on every send so the switch needs no
+restart.
+
+*Not done here:* the desk does not detect the pull request itself. The
+agent is told the rule and follows it as it follows any other; a `gh pr
+create` the desk never sees, or an agent that ignores the instruction,
+produces an unsigned pull request. Watching the agent's commands for the
+verb would sign more reliably and would tie the feature to one CLI.
+
+**The rule:** the desk names the seat; the agent writes the line.

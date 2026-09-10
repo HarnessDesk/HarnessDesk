@@ -488,6 +488,21 @@ const handlers = {
     })
   },
   'session/new': (id, params) => {
+    // FAKE_ACP_AUTH_REQUIRED=1 plays an agent that wants a sign-in before it
+    // opens anything — ACP's auth_required, code and words both, as Google
+    // Antigravity's server answers it.
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1') {
+      send({
+        jsonrpc: '2.0',
+        id,
+        error: {
+          code: -32000,
+          message: 'Authentication required',
+          data: { message: 'No authentication method selected. Call `authenticate` with one of: device.' },
+        },
+      })
+      return
+    }
     // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness and
     // cursor-agent: it will not be handed an MCP tool server on the session
     // request, and says so in the words the caller learns from.

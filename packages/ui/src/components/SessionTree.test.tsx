@@ -677,3 +677,63 @@ it('a row shows the live session\'s title before the history list has it', () =>
   expect(container.textContent).toContain('/about')
   expect(container.textContent).not.toContain('Untitled session')
 })
+
+it('gives a conversation open in this window a row even when its agent lists no history', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const key = sessionKey(runtimeId('agent'), sessionId('live-1'))
+  const live = {
+    id: 'live-1',
+    runtime: 'agent',
+    title: null,
+    preview: null,
+    cwd: '/repo/.claude/worktrees/fix-107',
+    status: { type: 'active' },
+    createdAt: 1,
+    updatedAt: 2,
+    turns: [
+      {
+        id: 'turn-1',
+        items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Fix the countdown roll-over' }] }],
+      },
+    ],
+    itemsLoaded: true,
+  } as unknown as Session
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: key,
+    runtimes: [runtime],
+    // The agent lists nothing: no `session/list`, so the history is empty.
+    history: [],
+    sessions: new Map([[key, live]]),
+    // The checkout is open, which is what lets a worktree path name it: a
+    // guess read off a path may name a project, never invent one.
+    workspaces: [{ path: '/repo' }],
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  const row = [...container.querySelectorAll('button')].find((button) =>
+    button.textContent?.includes('Fix the countdown roll-over'),
+  )
+  expect(row, 'the open conversation has a row, named by its first ask').toBeDefined()
+  expect(row?.hasAttribute('data-active')).toBe(true)
+  // A worktree conversation is filed under the checkout it belongs to.
+  expect(container.textContent).toContain('repo')
+})

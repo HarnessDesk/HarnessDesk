@@ -451,7 +451,7 @@ const AgentBlock = ({
           // can step around, and this chip speaks for the whole account.
           const accountState: Readiness =
             report && isBlocked(report) ? 'limit' : state === 'broken' ? 'broken' : 'ready'
-          const name = accountName(account, snapshot.accountPrefs[key])
+          const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
           const identity = account.email ?? account.label
           return (
             <RowButton
@@ -1121,7 +1121,7 @@ const AccountDetail = ({
             <RuntimeMark runtime={info} size={20} />
           </span>
         }
-        name={accountName(account, prefs)}
+        name={accountName(account, prefs, info.presentation.name)}
         owner={info.presentation.name}
         blurb={accountIdentity(account)}
         actions={<Chip state={state} />}
@@ -1136,7 +1136,7 @@ const AccountDetail = ({
             <Input
               className={styles.nameField}
               value={name}
-              placeholder={accountName(account, undefined)}
+              placeholder={accountName(account, undefined, info.presentation.name)}
               aria-label="Account name"
               onChange={(event) => setName(event.target.value)}
               onBlur={() => store.setAccountPrefs(key, { nickname: name })}
@@ -1236,7 +1236,7 @@ const AccountDetail = ({
       </Rows>
       {confirmingSignOut && (
         <ConfirmDialog
-          title={info.slot?.removable ? `Remove ${accountName(account, prefs)}?` : `Sign out of ${accountName(account, prefs)}?`}
+          title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}
           confirmLabel={info.slot?.removable ? 'Remove account' : 'Sign out'}
           onCancel={() => setConfirmingSignOut(false)}
           onConfirm={() => {

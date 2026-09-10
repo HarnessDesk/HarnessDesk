@@ -631,10 +631,13 @@ export class AcpRuntime implements AgentRuntime {
       ...NO_CAPABILITIES,
       // ACP declares how to authenticate but never whether you already are
       // — so claiming an account from authMethods alone painted "not signed
-      // in" over agents that were. The surface exists exactly when the
-      // registry names CLI commands that can answer truthfully, or names a
-      // secret, which the credential broker can always answer about.
-      account: this.#account !== null || (this.#config.secrets?.length ?? 0) > 0,
+      // in" over agents that were. The surface exists when the registry
+      // names CLI commands that can answer truthfully, or names a secret,
+      // which the credential broker can always answer about — or once the
+      // agent's own answers have shown the state, a session that opened or
+      // one it refused for want of a sign-in.
+      account:
+        this.#account !== null || (this.#config.secrets?.length ?? 0) > 0 || this.#signIn.state !== 'unknown',
       ...(shaken
         ? {
             resume:
@@ -679,6 +682,9 @@ export class AcpRuntime implements AgentRuntime {
     // was, rather than reporting a runtime that is gone as `starting`.
     if (this.#disposed) throw shutDown(this.#config.name)
     this.#setHealth({ state: 'starting' })
+    // A fresh process is a fresh question: what the last one showed about
+    // its sign-in may be the very thing that changed between the two.
+    this.#signIn = { state: 'unknown' }
     if (!(await this.#decideLaunch())) {
       throw new Error(`${this.#config.name} will not start: ${(this.#health as { message?: string }).message ?? 'blocked'}`)
     }
@@ -1231,7 +1237,11 @@ export class AcpRuntime implements AgentRuntime {
         signInMethods: [...status.signInMethods, ...keyMethods],
       }
     }
-    return { accounts: keyAccounts, signInMethods: keyMethods }
+    const observed = this.#observedAccount(keyAccounts.length > 0)
+    return {
+      accounts: [...keyAccounts, ...observed.accounts],
+      signInMethods: [...keyMethods, ...observed.signInMethods],
+    }
   }
 
   async login(_method: string): Promise<LoginStart> {
@@ -1481,6 +1491,8 @@ export class AcpRuntime implements AgentRuntime {
   #probeId: SessionId | null = null
   /** The probe being opened right now, so concurrent askers share one. */
   #opening: Promise<AcpSession> | null = null
+  /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
+  #signIn: SignInObservation = { state: 'unknown' }
   /** The agent's models as last declared, for the settings catalogue. */
   #catalog: readonly ModelInfo[] = []
   /** The model the agent chose for itself, before any draft pick moved it. */
@@ -1526,8 +1538,9 @@ export class AcpRuntime implements AgentRuntime {
       return result
     }
     try {
-      return claim(await this.#connection.request<T>(method, { ...params, mcpServers: servers }))
+      return this.#opened(claim(await this.#connection.request<T>(method, { ...params, mcpServers: servers })))
     } catch (error) {
+      if (this.#refusedForSignIn(error)) throw error
       const message = error instanceof Error ? error.message : String(error)
       if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) throw error
       // Two opens can race into the same refusal — the eager probe and the
@@ -1544,8 +1557,65 @@ export class AcpRuntime implements AgentRuntime {
         // unrelated refresh happens to correct it.
         for (const listener of this.#infoListeners) listener()
       }
-      return this.#connection.request<T>(method, { ...params, mcpServers: [] })
+      try {
+        return this.#opened(await this.#connection.request<T>(method, { ...params, mcpServers: [] }))
+      } catch (again) {
+        this.#refusedForSignIn(again)
+        throw again
+      }
     }
+  }
+
+  /** A session opened: whoever the agent is signed in as, it is signed in. */
+  #opened<T>(result: T): T {
+    this.#noteSignIn({ state: 'observed' })
+    return result
+  }
+
+  /** An open the agent refused for want of a sign-in, noted; false for any other failure. */
+  #refusedForSignIn(error: unknown): boolean {
+    if (!isAuthRefusal(error)) return false
+    this.#noteSignIn({ state: 'required', message: describeAcp(error) })
+    return true
+  }
+
+  #noteSignIn(next: SignInObservation): void {
+    const before = this.#signIn
+    if (before.state === next.state && (next.state !== 'required' || before.state !== 'required' || before.message === next.message)) return
+    this.#signIn = next
+    // `account` was false until the first observation, and a window may
+    // already be drawn from that; and whoever holds the account surface
+    // open should hear that the answer changed.
+    if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
+    this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+  }
+
+  /**
+   * The account surface for an agent the desk cannot ask, from what it saw.
+   * A stored key already explains a session that opened, so beside one the
+   * observation adds nothing; without one it is the only evidence there is.
+   * A refusal is answered with the agent's declared methods, as `external`
+   * flows: the desk does not drive ACP's `authenticate` yet, so the honest
+   * offer is the agent's own words about how to sign in.
+   */
+  #observedAccount(hasKey: boolean): AccountStatus {
+    const seen = this.#signIn
+    if (seen.state === 'observed') {
+      return { accounts: hasKey ? [] : [{ kind: 'agent', label: 'Signed in', anonymous: true }], signInMethods: [] }
+    }
+    if (seen.state === 'required') {
+      const said = firstSentence(seen.message)
+      return {
+        accounts: [],
+        signInMethods: (this.#initialized?.authMethods ?? []).map((method) => ({
+          id: `acp:${method.id}`,
+          label: method.name,
+          flow: 'external' as const,
+          description: [method.description ?? '', said].filter((part) => part.length > 0).join(' — '),
+        })),
+      }
+    }
+    return { accounts: [], signInMethods: [] }
   }
 
   async createSession(options: SessionOptions): Promise<AgentSession> {
@@ -1947,6 +2017,38 @@ const contextBreakdownOf = (meta: AcpUpdateMeta | null | undefined): ContextBrea
 
 const describeAcp = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+/**
+ * What the agent's own answers have said about its sign-in. ACP has no
+ * account query, so this is never asked; it is observed. A session that
+ * opened is an agent that is signed in, whoever it is signed in as; a
+ * `session/new` refused for want of authentication is an agent that is not,
+ * in its own words. Until either has happened the answer is "unknown", which
+ * the account surface keeps apart from "signed out" — the two used to be one
+ * empty list, and the desk read it as the second.
+ */
+type SignInObservation =
+  | { readonly state: 'unknown' }
+  | { readonly state: 'observed' }
+  | { readonly state: 'required'; readonly message: string }
+
+/**
+ * ACP's own refusal for a session that needs a sign-in first: error code
+ * -32000, `auth_required`. The words are checked too, because Google
+ * Antigravity's server answers `session/new` with the code and the words
+ * while a bridge may answer with the words alone.
+ */
+const AUTH_REQUIRED_CODE = -32000
+const AUTH_REQUIRED_WORDS = /authentication required|not authenticated|unauthenticated|auth[_ -]required/i
+const isAuthRefusal = (error: unknown): boolean =>
+  error instanceof AcpError && (error.code === AUTH_REQUIRED_CODE || AUTH_REQUIRED_WORDS.test(error.message))
+
+/** The first sentence of what an agent said, for a line a person reads. */
+const firstSentence = (text: string): string => {
+  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+  const cut = line.search(/[.!?](\s|$)/)
+  return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
+}
 
 const textOf = (block: AcpContentBlock): string => (block.type === 'text' ? block.text : '')
 

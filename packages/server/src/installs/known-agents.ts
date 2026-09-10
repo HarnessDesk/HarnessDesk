@@ -452,10 +452,12 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       url: 'https://antigravity.google/docs',
     },
     home: {
-      path: '~/.gemini/antigravity',
+      // Measured 2026-09-09: the server writes `settings.json` (`auth.type`)
+      // and `conversations/` here, beside — not inside — the IDE's folder.
+      path: '~/.gemini/antigravity-acp',
       credentials: ['~/.gemini/google_accounts.json'],
-      config: [],
-      note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own.',
+      config: ['settings.json'],
+      note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own — neither the IDE’s nor the agy CLI’s keychain session counts.',
     },
     auth: {
       kind: 'browser',

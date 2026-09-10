@@ -142,3 +142,56 @@ test('logout runs the command and announces the change', async () => {
     await runtime.dispose()
   }
 })
+
+/**
+ * The other kind of agent: no status command, no stored key — nothing the
+ * desk can ask. Its sign-in is observed from its own answers, and until one
+ * has been given the desk claims nothing, which is what keeps "Needs sign-in"
+ * off an agent that is in the middle of opening pull requests.
+ */
+const bare = (env: Record<string, string> = {}): AcpRuntime =>
+  new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env,
+  })
+
+test('an agent the desk cannot ask claims nothing until a session opens, then reads as signed in', async () => {
+  const runtime = bare()
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    assert.equal(runtime.info.capabilities.account, false, 'no CLI, no key, nothing seen: no claim')
+    assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [] })
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.equal(runtime.info.capabilities.account, true, 'a session opened, so there is something to say')
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    assert.deepEqual(status.signInMethods, [])
+    assert.ok(events.some((event) => event.type === 'account/changed'), 'the surface was told to look again')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that refuses a session for want of a sign-in says so, in its declared methods', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1' })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    assert.equal(runtime.info.capabilities.account, true)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.signInMethods.length, 1)
+    assert.equal(status.signInMethods[0]?.id, 'acp:device')
+    assert.equal(status.signInMethods[0]?.label, 'Sign in on the agent side')
+    assert.equal(status.signInMethods[0]?.flow, 'external', 'the desk does not drive ACP authenticate')
+    assert.match(status.signInMethods[0]?.description ?? '', /Run the agent login\./)
+    assert.match(status.signInMethods[0]?.description ?? '', /Authentication required/)
+  } finally {
+    await runtime.dispose()
+  }
+})

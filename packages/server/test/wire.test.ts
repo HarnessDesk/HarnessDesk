@@ -18,6 +18,7 @@ import {
   type HostMethodName,
   type HostToClient,
   type Session,
+  splitContext,
 } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
@@ -155,8 +156,10 @@ test('a full turn streams to the client and folds into session state', async (t)
   const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))
   const items = allItems(record!.session)
   assert.deepEqual(items.map((item) => item.type), ['userMessage', 'assistantMessage'])
+  // The person's words, echoed. The desk's attribution envelope rides on a
+  // conversation's first turn, and the fake echoes everything it was sent.
   assert.equal(
-    items[1]?.type === 'assistantMessage' && items[1].text,
+    splitContext(items[1]?.type === 'assistantMessage' ? items[1].text : '').text,
     'echo: hello',
   )
   assert.equal(record!.session.turns[0]?.status, 'completed')
@@ -177,6 +180,10 @@ test('a working conversation is still working, and still itself, when it is open
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
+
+  // This is about coming back to a running turn, not about what rides on
+  // the first one: the attribution envelope would only obscure the echo.
+  await client.call('app/state/set', { patch: { attribution: { pullRequests: false } } })
 
   const working = (await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
@@ -1365,4 +1372,45 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
   // Without the switch, a dirty tree is no reason not to mark a commit.
   await client.call('git/createBranch', { root: repo, name: 'marked', at })
   assert.equal((await gitIn(repo, 'rev-parse', 'marked')).trim(), at)
+})
+
+/**
+ * The pull-request attribution: told once, on a conversation's first turn,
+ * in the desk's own envelope; not again while the seat stands; and not at
+ * all once the person has switched it off. The fake echoes what it was sent,
+ * so the transcript's user message is the evidence.
+ */
+test('the first turn carries the desk’s attribution, the next does not, and the switch is honoured', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const open = async (): Promise<Session> =>
+    (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  const turn = async (session: Session, text: string): Promise<string> => {
+    const completed = client.events.filter((event) => event.type === 'turn/completed').length
+    await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text }] })
+    const live = harness.runtime.sessions.get(session.id) as FakeSession
+    live.finish()
+    await client.until(() => client.events.filter((event) => event.type === 'turn/completed').length > completed)
+    const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))
+    const asked = record!.session.turns.at(-1)?.items.find((item) => item.type === 'userMessage')
+    return asked?.type === 'userMessage' && asked.content[0]?.type === 'text' ? asked.content[0].text : ''
+  }
+
+  const session = await open()
+  const first = splitContext(await turn(session, 'hello'))
+  assert.equal(first.text, 'hello', 'the person’s words are kept whole')
+  assert.equal(first.injections[0]?.label, 'HarnessDesk', 'the envelope is the desk’s own')
+  assert.ok(
+    first.injections[0]?.text.includes('🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Fake Runtime Fake One)'),
+    'the line names the seat in the agent’s own labels',
+  )
+  const second = splitContext(await turn(session, 'again'))
+  assert.equal(second.injections.length, 0, 'the same seat is not told twice')
+
+  await client.call('app/state/set', { patch: { attribution: { pullRequests: false } } })
+  const quiet = splitContext(await turn(await open(), 'hello'))
+  assert.equal(quiet.injections.length, 0, 'off is off, without a restart')
 })
