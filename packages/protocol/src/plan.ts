@@ -50,7 +50,23 @@ export const planLabel = (record: Record<string, unknown>): string | null => {
 
 const DONE = new Set(['done', 'complete', 'completed', 'finished', 'closed'])
 const RUNNING = new Set(['progress', 'active', 'running', 'started', 'working', 'doing'])
-const OPEN = new Set(['pending', 'todo', 'open', 'queued', 'waiting', 'new', 'blocked'])
+/* A negation spelled as one word never meets the check for `not` below:
+   `incomplete`, `unfinished` and `undone` read as nothing at all (#62), and
+   so did their past tenses (review, round 3). */
+const OPEN = new Set([
+  'pending',
+  'todo',
+  'open',
+  'queued',
+  'waiting',
+  'new',
+  'blocked',
+  'incomplete',
+  'incompleted',
+  'uncompleted',
+  'unfinished',
+  'undone',
+])
 const DROPPED = new Set(['cancelled', 'canceled', 'abandoned', 'skipped', 'dropped'])
 const NEGATIONS = new Set(['not', 'un', 'no', 'never'])
 
@@ -89,7 +105,11 @@ export const planStatus = (value: unknown): PlanStatus | null => {
     .split(/[^a-z]+/)
     .filter(Boolean)
   if (words.some((word) => DROPPED.has(word))) return 'cancelled'
-  if (words.some((word) => NEGATIONS.has(word))) return 'pending'
+  // `in` negates only the `complete` after it: split by case or a separator,
+  // `inComplete` is two words, and `in` alone is `in_progress`'s (review, round 1).
+  const negated = (word: string, at: number): boolean =>
+    NEGATIONS.has(word) || (word === 'in' && (words[at + 1] ?? '').startsWith('complete'))
+  if (words.some(negated)) return 'pending'
   if (words.some((word) => DONE.has(word))) return 'done'
   if (words.some((word) => RUNNING.has(word))) return 'inProgress'
   if (words.some((word) => OPEN.has(word))) return 'pending'
