@@ -7,6 +7,7 @@ import {
   type Intent,
   type TeamActor,
   type TeamEntry,
+  type TeamInbound,
   type RuntimeId,
   type SessionId,
   type SessionKey,
@@ -279,6 +280,44 @@ export const TeamRoomPane = ({
       )
       .catch(() =>
         setRailTrouble('The host did not take that; the member is still in the room.'),
+      )
+  }
+
+  /**
+   * What one member does with a message sent to it: accept, hold, refuse.
+   *
+   * The room already has board-only, which is this decision taken for
+   * everybody at once. A room is rarely that uniform — one member is mid-
+   * refactor and must not be interrupted while the other nine may talk — and
+   * until now saying so meant silencing the room. `team/inbound` has carried
+   * the per-conversation setting the whole time with nothing to press.
+   *
+   * Patched into the roster in hand rather than refetched, for the reason
+   * `leave` gives: the rail draws nothing for a `null` roster, so throwing
+   * the answer away to ask again empties the rail for the length of a round
+   * trip.
+   */
+  const setInbound = (key: SessionKey, mode: TeamInbound): void => {
+    const { runtime, id } = splitSessionKey(key)
+    setRailTrouble(null)
+    void store
+      .setTeamInbound(runtime, id, mode)
+      .then(() =>
+        setFetched((was) =>
+          was === null || was.room !== room
+            ? was
+            : {
+                room,
+                peers: was.peers.map((one) =>
+                  sessionKey(one.runtime, one.sessionId as SessionId) === key
+                    ? { ...one, inbound: mode }
+                    : one,
+                ),
+              },
+        ),
+      )
+      .catch(() =>
+        setRailTrouble('The host did not take that; the member is set as it was.'),
       )
   }
 
@@ -832,6 +871,7 @@ export const TeamRoomPane = ({
                 key={member.key}
                 member={member}
                 onRemove={() => leave(member.key)}
+                onInbound={(mode) => setInbound(member.key, mode)}
                 selected={columns.includes(member.key)}
                 /* Said before the press, not after. A pick that will take a
                    column away has to say which one while there is still time not
@@ -1023,12 +1063,38 @@ const cardFacts = (entry: Member): MemberCardFacts => ({
  * recipient rather than here, and a button that could not reach it would be
  * exactly the greyed verb the card refuses to draw.
  */
+/**
+ * The three things a member can do with a message addressed to it.
+ *
+ * A setting, not three verbs — which is a distinction the card had to learn.
+ * They went in as actions first, and the row of verbs does not wrap: with Open,
+ * Watch beside and Take out of the room already there, five of the seven were
+ * off the card's edge and one was cut mid-word. Photographed on the real app,
+ * which is how it was found. A thing with three states shows which state it is
+ * in, so it is a segmented band beside the other instruments now.
+ *
+ * `label` is one word each, because the band above them says what they are
+ * about. `state` is what the *row* says when the member is in that mode, and
+ * `accept` has none: it is the default, and a row that announced the ordinary
+ * case would announce it on every member of every room forever.
+ */
+const INBOUND_MODES: readonly {
+  readonly value: TeamInbound
+  readonly label: string
+  readonly state: string | null
+}[] = [
+  { value: 'accept', label: 'Accept', state: null },
+  { value: 'hold', label: 'Hold', state: 'messages held' },
+  { value: 'refuse', label: 'Refuse', state: 'messages refused' },
+]
+
 const MemberCard = ({
   entry,
   onOpen,
   onWatch,
   onClose,
   onRemove,
+  onInbound,
   children,
   side,
 }: {
@@ -1050,6 +1116,14 @@ const MemberCard = ({
    * accident.
    */
   readonly onRemove?: () => void
+  /**
+   * Set what this member does with messages addressed to it.
+   *
+   * On the card for the same reason Open and Watch are: a per-member verb
+   * belongs where the member is identified, not on a rail row that has one
+   * click and spends it on opening the conversation.
+   */
+  readonly onInbound?: (mode: TeamInbound) => void
   readonly children: ReactNode
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
 }) => {
@@ -1066,7 +1140,24 @@ const MemberCard = ({
     ...(onRemove ? [{ label: 'Take out of the room', onSelect: onRemove }] : []),
   ]
   return (
-    <MemberHoverCard member={cardFacts(entry)} actions={actions} {...(side ? { side } : {})}>
+    <MemberHoverCard
+      member={cardFacts(entry)}
+      actions={actions}
+      {...(onInbound
+        ? {
+            choice: {
+              /* "Messages", not "Inbound": the band names what it governs in
+                 the words the room already uses — the switch on the room's own
+                 header says "messaging on". */
+              label: 'Messages',
+              value: entry.peer.inbound,
+              options: INBOUND_MODES.map((mode) => ({ value: mode.value, label: mode.label })),
+              onChange: (next: string) => onInbound(next as TeamInbound),
+            },
+          }
+        : {})}
+      {...(side ? { side } : {})}
+    >
       {children}
     </MemberHoverCard>
   )
@@ -1106,6 +1197,7 @@ const MemberRow = ({
   onOpen,
   onWatch,
   onRemove,
+  onInbound,
 }: {
   member: Member
   selected: boolean
@@ -1117,8 +1209,11 @@ const MemberRow = ({
   onWatch: () => void
   /** Take this member out of the room. On the card, never on the row. */
   onRemove: () => void
+  /** Set what it does with messages sent to it. On the card, like the rest. */
+  onInbound: (mode: TeamInbound) => void
 }) => {
   const { peer } = member
+  const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null
   return (
     <ListRow
       size="sm"
@@ -1132,7 +1227,13 @@ const MemberRow = ({
            would fire on every keyboard step down the rail and would fight the
            row's own click. The mark already means "identity", which is what
            the card is about. */
-        <MemberCard entry={member} onOpen={onOpen} onWatch={onWatch} onRemove={onRemove}>
+        <MemberCard
+          entry={member}
+          onOpen={onOpen}
+          onWatch={onWatch}
+          onRemove={onRemove}
+          onInbound={onInbound}
+        >
           {/* A member the desk does not have open is drawn quieter — the mark
               loses its full weight, the way an unread row differs from a read
               one. Quieter, never absent: it is a member of this room, it holds
@@ -1181,6 +1282,15 @@ const MemberRow = ({
             <ShieldOffIcon size={11} />
             cannot take jobs — tools not reachable
           </span>
+        ) : inboundState ? (
+          /* Second, above every other second line, because it is the one that
+             changes what happens when you write to this member — and because
+             it is the only one somebody chose. A held or refused member that
+             also holds a job would otherwise show the job and hide the reason
+             the messages are going nowhere, which is the state this control
+             exists to make visible. `accept` says nothing at all: it is the
+             default on every member of every room. */
+          <span className={styles.memberInbound}>{inboundState}</span>
         ) : member.idleOnBoard ? (
           /* The lesser of the two cautions, and the reason both exist: the line
              above is what the harness says about itself, this is what the board

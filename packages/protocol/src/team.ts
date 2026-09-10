@@ -378,4 +378,16 @@ export interface TeamPeerInfo {
    * say on the row, never a reason to leave it out.
    */
   readonly here: boolean
+  /**
+   * What this member does with a message addressed to it: take it, keep it
+   * until somebody releases it, or turn it away.
+   *
+   * A room-wide switch already exists — board-only stops every message from
+   * every member — and the setting underneath it has always been
+   * per-conversation, defaulting to the board's own. It was reachable only
+   * from the wire: a room could hold one member that must not be interrupted
+   * mid-refactor and nine that may, and saying so meant stopping the whole
+   * room. Reported here so the roster can both show the state and change it.
+   */
+  readonly inbound: TeamInbound
 }

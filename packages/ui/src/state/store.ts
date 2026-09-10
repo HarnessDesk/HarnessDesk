@@ -12,7 +12,9 @@ import {
   type AgentItem,
   type ApprovalDecision,
   type ApprovalId,
+  type CapabilityContribution,
   type ConfigOption,
+  type ContributionKind,
   findOption,
   type EditorDocument,
   type EditorEvent,
@@ -21,6 +23,7 @@ import {
   type McpServer,
   type OptionValue,
   type ReviewRequest,
+  type ScopeQuery,
   type RuntimeCatalog,
   type RuntimePlugin,
   type LedgerQuery,
@@ -41,6 +44,7 @@ import {
   type SessionSettings,
   type SessionDeletion,
   type SessionSummary,
+  type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
   type TerminalSize,
@@ -170,9 +174,20 @@ import {
   type PendingApproval,
   type PolicyRule,
   type RouteInfo,
+  type StoredCredential,
 } from './snapshot'
 
-export type { AppSnapshot, AuditRow, DraftHandoff, Notice, NoticeAction, PendingApproval, PolicyRule, RouteInfo } from './snapshot'
+export type {
+  AppSnapshot,
+  AuditRow,
+  DraftHandoff,
+  Notice,
+  NoticeAction,
+  PendingApproval,
+  PolicyRule,
+  RouteInfo,
+  StoredCredential,
+} from './snapshot'
 export { emptySnapshot } from './snapshot'
 
 export class AppStore {
@@ -516,11 +531,37 @@ export class AppStore {
     }
   }
 
-  async listCredentials(): Promise<readonly { ref: string; name: string; createdAt: number }[]> {
+  async listCredentials(): Promise<readonly StoredCredential[]> {
     return this.transport
       .request('credentials/list', {})
       .then((list) => [...list])
       .catch(() => [])
+  }
+
+  /**
+   * What a plugin contributes **where you are** — the host's answer, not a
+   * filter over the pushed list.
+   *
+   * The renderer is sent every contribution on connect and again whenever a
+   * plugin's set changes, which is the right shape for drawing them and the
+   * wrong one for this question: a contribution carries a scope — this
+   * workspace, this agent, this conversation, this turn — and only the host
+   * evaluates it (`scopeApplies`). Everything the renderer filters by hand
+   * filters by *kind* alone, so a scoped contribution reads as global here.
+   * Asking is the only way to get the real answer.
+   *
+   * `kind` is required by the wire, so a caller wanting several asks for
+   * several; the calls are local and this is a settings surface, not a
+   * per-keystroke path.
+   */
+  async listCapabilities(
+    kind: ContributionKind,
+    scope: ScopeQuery,
+  ): Promise<readonly CapabilityContribution[]> {
+    return this.transport.request('capability/list', { kind, ...scope }).catch((error) => {
+      this.notice('error', describe(error))
+      return [] as readonly CapabilityContribution[]
+    })
   }
 
   /** The value goes host-ward once and is never readable back. */
@@ -531,6 +572,25 @@ export class AppStore {
     } catch (error) {
       this.notice('error', describe(error))
       return null
+    }
+  }
+
+  /**
+   * Forgets a stored secret.
+   *
+   * A key outlives the thing that made it: `routes/delete` drops the
+   * credential its route was the last owner of, but a route that never
+   * finished saving leaves one behind with no owner and — until this — no
+   * way to reach it. The value was never readable from here, so this is the
+   * only verb the renderer has ever had over one.
+   */
+  async deleteCredential(ref: string): Promise<boolean> {
+    try {
+      await this.transport.request('credentials/delete', { ref })
+      return true
+    } catch (error) {
+      this.notice('error', describe(error))
+      return false
     }
   }
 
@@ -2874,6 +2934,19 @@ export class AppStore {
     await this.transport.request('team/messaging', { room, enabled })
   }
 
+  /**
+   * What one member does with a message addressed to it.
+   *
+   * The narrow form of board-only: that switch governs every message in the
+   * room, this one governs the conversation you point at. `hold` is the
+   * interesting mode — nothing is lost, the messages pile up and the chat's
+   * "held" count releases them — and it is what a member mid-refactor wants
+   * rather than being cut off.
+   */
+  async setTeamInbound(runtime: RuntimeId, sessionId: SessionId, mode: TeamInbound): Promise<void> {
+    await this.transport.request('team/inbound', { runtime, sessionId, mode })
+  }
+
   /** Releases one held message to its receiver. */
   async teamDeliver(room: string, entryId: string): Promise<void> {
     await this.transport.request('team/deliver', { room, entryId })
@@ -3284,11 +3357,25 @@ export class AppStore {
       .catch(() => ({ apps: [] as readonly RuntimePlugin[] }))
   }
 
-  async setRuntimePluginEnabled(marketplace: string, pluginName: string, id: string, enabled: boolean): Promise<void> {
+  /**
+   * Adds a plugin from the runtime's catalogue, or takes it off disk.
+   *
+   * It was called `setRuntimePluginEnabled`, which is a different thing and
+   * the more dangerous of the two: `false` uninstalls. There is no
+   * enable/disable to be had here — `RuntimePlugin.enabled` is the runtime's
+   * own report and none of the agents this app drives offers a verb to
+   * change it — so the name that matched the behaviour was the one to keep.
+   */
+  async setRuntimePluginInstalled(
+    marketplace: string,
+    pluginName: string,
+    id: string,
+    installed: boolean,
+  ): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     try {
-      if (enabled) await this.transport.request('runtime/plugin/install', { runtime, marketplace, pluginName })
+      if (installed) await this.transport.request('runtime/plugin/install', { runtime, marketplace, pluginName })
       else await this.transport.request('runtime/plugin/uninstall', { runtime, pluginId: id })
     } catch (error) {
       this.notice('error', describe(error))

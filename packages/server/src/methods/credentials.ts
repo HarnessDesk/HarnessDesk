@@ -9,7 +9,31 @@ import type { MethodsUnder } from './context.js'
  * exchanges it for a loopback gateway when a session asks for the route.
  */
 export const credentialMethods = {
-  'credentials/list': (ctx) => ctx.credentials.describe(),
+  /**
+   * Every stored secret, each saying what owns it.
+   *
+   * Two sources, because there are two mechanisms. An agent's sign-in key is
+   * recorded as one when it is written (`CredentialBroker.store`), and read
+   * back out of its name for entries older than that field. A gateway
+   * account's key is named by the slot that holds it, so it is marked from
+   * live state and needs no migration at all.
+   */
+  'credentials/list': async (ctx) => {
+    const gateways = new Map(
+      ctx.accounts.gatewayCredentials().map((one) => [one.ref, one.name] as const),
+    )
+    return (await ctx.credentials.describe()).map(({ agent, ...rest }) => {
+      const gateway = gateways.get(rest.ref)
+      return {
+        ...rest,
+        owner: gateway
+          ? ({ kind: 'gateway', of: gateway } as const)
+          : agent
+            ? ({ kind: 'agent', of: agent } as const)
+            : null,
+      }
+    })
+  },
 
   'credentials/store': async (ctx, params) => ({ ref: await ctx.credentials.store(params.name, params.value) }),
 

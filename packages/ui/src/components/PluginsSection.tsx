@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { CapabilityContribution, PluginInstance, PluginState } from '@harnessdesk/protocol'
+import { splitSessionKey, type CapabilityContribution, type PluginInstance, type PluginState } from '@harnessdesk/protocol'
 
 import { livePlugins, supersededPlugins } from '../lib/plugins'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
@@ -391,6 +391,39 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
   )
 }
 
+/**
+ * Every kind of contribution, once.
+ *
+ * The kind filter's options and the list of kinds asked of the host are the
+ * same list, and were about to be two: a kind added to one and not the other
+ * is a kind that quietly stops being listed under "here".
+ */
+const CAP_KINDS: readonly { readonly value: CapabilityContribution['kind']; readonly label: string }[] = [
+  { value: 'tool', label: 'Tools' },
+  { value: 'hook', label: 'Hooks' },
+  { value: 'context', label: 'Context' },
+  { value: 'command', label: 'Commands' },
+  { value: 'ui', label: 'Panels' },
+  { value: 'agent', label: 'Agents' },
+  { value: 'resource', label: 'Resources' },
+]
+
+/** Where a contribution applies, as the words on the row. */
+const scopeSentence = (scope: CapabilityContribution['scope']): string => {
+  switch (scope.kind) {
+    case 'global':
+      return 'everywhere'
+    case 'workspace':
+      return `only in ${scope.root}`
+    case 'agent':
+      return `only for ${scope.runtime}`
+    case 'session':
+      return 'only in one conversation'
+    case 'turn':
+      return 'only for one turn'
+  }
+}
+
 /* --- the page ------------------------------------------------------------ */
 
 export const PluginsSection = () => {
@@ -399,6 +432,18 @@ export const PluginsSection = () => {
   const [query, setQuery] = useState('')
   const [capQuery, setCapQuery] = useState('')
   const [capKind, setCapKind] = useState<CapabilityContribution['kind'] | 'all'>('all')
+  /**
+   * Whether the list is everything plugins contribute or only what applies
+   * where you are standing.
+   *
+   * Two different questions, and until now only the first had an answer. A
+   * contribution carries a scope, and the renderer is pushed every one of
+   * them without regard to it — so a tool a plugin offers to one conversation
+   * has always been listed here as though every agent could call it. `here`
+   * asks the host, which is the only thing that evaluates a scope.
+   */
+  const [capWhere, setCapWhere] = useState<'anywhere' | 'here'>('anywhere')
+  const [capHere, setCapHere] = useState<readonly CapabilityContribution[] | null>(null)
   const [installing, setInstalling] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
 
@@ -433,8 +478,54 @@ export const PluginsSection = () => {
   const runtime = useRuntime()
   const pluginToolsReach = runtime.capabilities.pluginTools
 
+  /* The host's answer for "here", fetched when the question changes.
+     `capability/list` takes one kind, so "all kinds" is a fan-out — these are
+     local calls on a settings page, made when a filter moves rather than on
+     every render, and one refusal must not leave the list looking empty. */
+  const store = useStore()
+  const workspaceRoot = snapshot.workspace?.path
+  const activeRuntime = snapshot.activeRuntime
+  /* From the key, not from the session map. A conversation is the active one
+     before its session object has been read in, and the map's answer is
+     `undefined` for that whole window — so the scope went to the host without
+     a `sessionId` and session-scoped contributions were quietly left out of
+     the answer. The key carries the id; splitting it cannot be early. */
+  const activeSessionId = snapshot.activeSessionKey
+    ? splitSessionKey(snapshot.activeSessionKey).id
+    : undefined
+  useEffect(() => {
+    if (capWhere !== 'here') {
+      setCapHere(null)
+      return
+    }
+    let live = true
+    const scope = {
+      ...(workspaceRoot ? { workspaceRoot } : {}),
+      ...(activeRuntime ? { runtime: activeRuntime } : {}),
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+    }
+    const wanted = capKind === 'all' ? CAP_KINDS.map((one) => one.value) : [capKind]
+    void Promise.all(wanted.map((kind) => store.listCapabilities(kind, scope))).then((answers) => {
+      if (live) setCapHere(answers.flat())
+    })
+    return () => {
+      live = false
+    }
+  }, [store, capWhere, capKind, workspaceRoot, activeRuntime, activeSessionId])
+
   const filteredContributions = useMemo(() => {
-    let list = snapshot.contributions
+    /* `here` is the host's list, already scoped and already of the right
+       kind; `anywhere` is the pushed one, which has to be narrowed by kind
+       here. A pending `here` shows nothing rather than the unscoped list —
+       drawing the wrong answer while the right one is in flight is how a
+       filter comes to be distrusted. */
+    let list = capWhere === 'here' ? (capHere ?? []) : snapshot.contributions
+    /* Filtered by kind either way. Skipping it under `here` on the grounds
+       that the host had already filtered was true only once the answer
+       landed: changing the kind leaves the *previous* kind's answer in hand
+       until the new request returns, and for that window the list showed
+       hooks and panels under "Tools". Both reviewers found it. Filtering
+       again is a no-op on a fresh answer and the whole fix on a stale one. */
     if (capKind !== 'all') list = list.filter((c) => c.kind === capKind)
     if (capQuery.trim()) {
       const needle = capQuery.toLowerCase()
@@ -445,7 +536,7 @@ export const PluginsSection = () => {
       )
     }
     return list
-  }, [snapshot.contributions, capKind, capQuery])
+  }, [snapshot.contributions, capHere, capWhere, capKind, capQuery])
 
   const byKind = useMemo(() => {
     const groups = new Map<CapabilityContribution['kind'], CapabilityContribution[]>()
@@ -548,22 +639,35 @@ export const PluginsSection = () => {
             <Select
               label="Filter by kind"
               value={capKind}
-              options={[
-                { value: 'all', label: 'All kinds' },
-                { value: 'tool', label: 'Tools' },
-                { value: 'hook', label: 'Hooks' },
-                { value: 'context', label: 'Context' },
-                { value: 'command', label: 'Commands' },
-                { value: 'ui', label: 'Panels' },
-                { value: 'agent', label: 'Agents' },
-                { value: 'resource', label: 'Resources' },
-              ]}
+              options={[{ value: 'all', label: 'All kinds' }, ...CAP_KINDS]}
               onChange={setCapKind}
+            />
+            {/* The second question this list can answer, and the one it could
+                not: a contribution's scope is evaluated by the host, so
+                "what applies here" is a request rather than a filter. */}
+            <Select
+              label="Where it applies"
+              value={capWhere}
+              options={[
+                { value: 'anywhere', label: 'Anywhere' },
+                { value: 'here', label: 'Applies here' },
+              ]}
+              onChange={setCapWhere}
             />
           </div>
           {byKind.length === 0 && (
             <Rows>
-              <Row title={capQuery || capKind !== 'all' ? 'Nothing matches' : 'Nothing is contributed'} />
+              <Row
+                title={
+                  capWhere === 'here' && capHere === null
+                    ? 'Asking the host…'
+                    : capWhere === 'here'
+                      ? 'Nothing applies here'
+                      : capQuery || capKind !== 'all'
+                        ? 'Nothing matches'
+                        : 'Nothing is contributed'
+                }
+              />
             </Rows>
           )}
           {byKind.map(([kind, entries]) => (
@@ -581,7 +685,16 @@ export const PluginsSection = () => {
                     }}
                     mark={contributionIcon(contribution.kind, 15)}
                     title={contributionSentence(contribution)}
-                    desc={pluginName(contribution.owner)}
+                    /* Whose it is, and where it applies. The scope was on
+                       every contribution the whole time and on no row: a tool
+                       offered to one workspace read exactly like one offered
+                       to all of them. Only said when it narrows something —
+                       "everywhere" under every row is a word nobody reads. */
+                    desc={
+                      contribution.scope.kind === 'global'
+                        ? pluginName(contribution.owner)
+                        : `${pluginName(contribution.owner)} · ${scopeSentence(contribution.scope)}`
+                    }
                     control={
                       contribution.kind === 'tool' ? (
                         // 'available', not 'broken': an agent that refuses the

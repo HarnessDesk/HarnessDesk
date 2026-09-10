@@ -43,10 +43,6 @@ export class AcpExtensions implements RuntimeExtensions {
     throw new Error('Plugin uninstallation is not available for this agent.')
   }
 
-  async setEnabled(): Promise<void> {
-    throw new Error('Plugin enable/disable is not available for this agent.')
-  }
-
   async mcpServers(): Promise<readonly McpServer[]> {
     return this.mcp.list()
   }

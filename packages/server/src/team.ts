@@ -830,6 +830,10 @@ export class Team {
          member that is here. */
       usedBoard: this.#used.has(keyOf(peer.runtime, peer.sessionId)),
       here: peer.here,
+      /* The board's default until this conversation was given one of its
+         own, which is what `inboundFor` resolves — so the roster reports the
+         mode that will actually be applied rather than only the override. */
+      inbound: this.inboundFor(peer.runtime, peer.sessionId),
     }))
     // Naming is a write, and so is remembering: a member seen for the first
     // time has just been given a name and a photograph, and both have to

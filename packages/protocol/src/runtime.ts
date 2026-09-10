@@ -702,7 +702,17 @@ export interface RuntimePlugin {
   /** The marketplace it belongs to, for install and for grouping. */
   readonly marketplace?: string
   readonly installed: boolean
+  /**
+   * Whether the runtime will actually run it.
+   *
+   * Not the other half of a switch — nothing here can set it. Codex reports
+   * an installed plugin as disabled when an administrator, the account's
+   * plan, or a missing dependency has taken it away, and a row that drew
+   * only `installed` said "Installed" over a plugin that would never run.
+   */
   readonly enabled: boolean
+  /** Why it is off, in the runtime's own words, when it says. */
+  readonly disabledReason?: string | null
   /** True for an app-store listing that is authenticated/linked rather than installed on disk. */
   readonly external?: boolean
   /** Where to go to install or link it, when that happens outside HarnessDesk. */
@@ -760,7 +770,6 @@ export interface RuntimeExtensions {
   searchApps(query: string, cursor?: string | null): Promise<{ readonly apps: readonly RuntimePlugin[]; readonly nextCursor?: string | null }>
   install(marketplace: string, pluginName: string): Promise<void>
   uninstall(pluginId: string): Promise<void>
-  setEnabled(pluginId: string, enabled: boolean): Promise<void>
   mcpServers(cwd?: string): Promise<readonly McpServer[]>
   /** Starts a server's OAuth flow; the URL is opened in the browser. */
   mcpLogin(name: string): Promise<string>

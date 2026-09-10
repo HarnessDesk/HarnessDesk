@@ -89,6 +89,29 @@ export interface AuditRow {
   readonly backupPath?: string
 }
 
+/**
+ * One row of `credentials/list`. The value is never among the fields: the
+ * broker returns references, and the renderer has only ever been able to
+ * name a secret, not read one.
+ */
+export interface StoredCredential {
+  readonly ref: string
+  readonly name: string
+  readonly createdAt: number
+  /**
+   * What this key belongs to, when it belongs to something with a door of its
+   * own; `null` for the endpoint keys Settings lists.
+   *
+   * The store holds several unrelated kinds and only the host can tell them
+   * apart. An agent's key is cleared from that agent's sign-in page, through
+   * `runtime/apiKey/clear`, which also reloads the runtime's secrets; a
+   * gateway account's key is held by the account and goes when the account
+   * does. Deleting either as a route's leftover takes a credential away from
+   * something still using it.
+   */
+  readonly owner: { readonly kind: 'agent' | 'gateway'; readonly of: string } | null
+}
+
 /** One row of `routes/list`, as the wire returns it. */
 export interface RouteInfo {
   readonly id: string

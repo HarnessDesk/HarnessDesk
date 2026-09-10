@@ -7,6 +7,7 @@ import * as usage from './design-usage.mjs'
 import { squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands } from './check-verify-drift.mjs'
+import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { leadComment } from './design-doc.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -440,4 +441,95 @@ test('quoting style does not change what CI is seen to run', () => {
   // The comparison strips quotes on both sides; a formatter must not be able
   // to make a step disappear by rewriting them.
   assert.match(ciCommands(yaml), /node --test script\/\*\.test\.mjs/)
+})
+
+/**
+ * `check-reachable` decides which host methods a surface can call, and both of
+ * its halves fail silently in the same direction: a parser that finds fewer
+ * methods, or a matcher that finds more callers, makes the gate green. It
+ * would then be a check that cannot fail, which is the shape of thing this
+ * file exists for.
+ */
+
+test('the method list is the validator table\u2019s own keys, not the fields inside them', () => {
+  /* The trap this parser is written around. A params table nests its fields at
+     four spaces, and several of them are named with a slash in the value — so
+     a looser pattern reads `readonly runtime` or a nested `'a/b'` as a method
+     and the list grows entries no host answers. Two spaces and a slash is the
+     shape of a key. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  'team/room/join': shape({",
+    "    'not/a/method': isString,",
+    "    runtime: isString,",
+    "  }),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'team/room/join'])
+})
+
+test('a longer method name does not make a shorter one look called', () => {
+  /* `plugin/install` is a suffix of `runtime/plugin/install`, and both are
+     real methods on this wire. A substring match on the bare name reads the
+     one as the other — so the whole quoted literal is matched, quote
+     included. Without the quotes this assertion is the control: it fails. */
+  const methods = ['plugin/install', 'runtime/plugin/install']
+  const reached = reachedBy(methods, ["await request('runtime/plugin/install', { runtime })"])
+  assert.deepEqual([...reached], ['runtime/plugin/install'])
+})
+
+test('a method named in a comment is not a caller', () => {
+  /* The failure that turns a check into decoration: the gate could be made
+     green by writing its own excuse. Found in review, with this reproduction
+     — `reachedBy(['team/state'], ["// 'team/state' is not a call"])` used to
+     answer that it was. */
+  const methods = ['team/state']
+  assert.deepEqual([...reachedBy(methods, ["// 'team/state' is not a call"])], [])
+  assert.deepEqual([...reachedBy(methods, ["/* was 'team/state' */"])], [])
+  assert.deepEqual([...reachedBy(methods, ["const x = 1 // see 'team/state'"])], [])
+  // The control: an actual call still counts.
+  assert.deepEqual([...reachedBy(methods, ["await request('team/state', { room })"])], ['team/state'])
+})
+
+test('the method list stops at the validator table, not at the end of the file', () => {
+  /* `slice(indexOf('paramsValidators'))` ran to EOF, so any later two-space
+     object literal with a slash-separated key would be read as a method the
+     host answers. Review found it; nothing in the file does that today, which
+     is how long it would have stayed true. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "}",
+    "",
+    "const somethingElse = {",
+    "  'not/a/method': 1,",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list'])
+})
+
+test('a method name held in a variable is not a caller either', () => {
+  /* The half stripping comments did not reach, found in review round 2 with
+     its own reproduction: `const marker = 'team/inbound'` counted. A method
+     name has to be an argument to something — measured first, because a rule
+     that narrows can only be worth having if nothing real is written the
+     other way, and all 169 reachable methods are calls today. */
+  const methods = ['team/inbound']
+  assert.deepEqual([...reachedBy(methods, ["const marker = 'team/inbound'"])], [])
+  assert.deepEqual([...reachedBy(methods, ["const list = ['team/inbound']"])], [])
+  assert.deepEqual([...reachedBy(methods, ["export const NAME = 'team/inbound' as const"])], [])
+  /* And not any call either — round 3's finding. `reachable` means a
+     dispatch, so a name printed, logged, or passed to something else is not
+     one however it is punctuated. */
+  assert.deepEqual([...reachedBy(methods, ["console.log('team/inbound')"])], [])
+  assert.deepEqual([...reachedBy(methods, ["track('event', 'team/inbound')"])], [])
+  assert.deepEqual([...reachedBy(methods, ["describe('team/inbound', () => {})"])], [])
+
+  // The controls: both shapes a real call is written in.
+  assert.deepEqual([...reachedBy(methods, ["await request('team/inbound', { mode })"])], ['team/inbound'])
+  assert.deepEqual(
+    [...reachedBy(methods, ["await this.transport.request(\n  'team/inbound',\n  { mode },\n)"])],
+    ['team/inbound'],
+  )
 })

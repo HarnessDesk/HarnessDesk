@@ -169,7 +169,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
   const toggle = async (): Promise<void> => {
     setBusy(true)
     try {
-      await store.setRuntimePluginEnabled(
+      await store.setRuntimePluginInstalled(
         plugin.marketplace ?? '',
         plugin.name,
         plugin.id,
@@ -232,14 +232,26 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
             {plugin.installed ? 'Connected' : 'Connect'}
           </Btn>
         ) : (
-          <Btn
-            small
-            {...(plugin.installed ? { variant: 'quiet' as const } : {})}
-            disabled={busy}
-            onClick={() => void toggle()}
-          >
-            {busy ? '…' : plugin.installed ? 'Installed' : 'Install'}
-          </Btn>
+          <>
+            {/* Installed and yet it will not run. The runtime reports both
+                facts and this row drew only the first, so a plugin an
+                administrator had turned off — or one this plan does not
+                include — sat here reading "Installed" beside nine that
+                worked. Nothing to press: none of the agents this app drives
+                offers a verb that turns one back on, so the honest control
+                is a word, and the removal button beside it. */}
+            {plugin.installed && !plugin.enabled && (
+              <Chip state="broken" label={plugin.disabledReason ?? 'off'} />
+            )}
+            <Btn
+              small
+              {...(plugin.installed ? { variant: 'quiet' as const } : {})}
+              disabled={busy}
+              onClick={() => void toggle()}
+            >
+              {busy ? '…' : plugin.installed ? 'Installed' : 'Install'}
+            </Btn>
+          </>
         )
       }
     />

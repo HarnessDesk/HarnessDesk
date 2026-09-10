@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   ConfigOption,
@@ -38,6 +38,7 @@ import {
   GlobeIcon,
   HookIcon,
   KeyboardIcon,
+  KeyIcon,
   LibraryIcon,
   ModelIcon,
   RetryIcon,
@@ -94,7 +95,7 @@ import {
 } from '../design/primitives/Kit'
 import { Dialog } from '../design/primitives/Dialog'
 import { ConfirmDialog } from '../design/patterns/ConfirmDialog'
-import type { PolicyRule, RouteInfo } from '../state/store'
+import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { NewSessionDefaults } from './SettingsAgents'
 import styles from './Settings.module.css'
@@ -316,6 +317,122 @@ const RoutesRows = () => {
     </>
   )
 }
+
+/**
+ * The secrets themselves, under the endpoints that refer to them.
+ *
+ * A credential is stored by one flow and released by another: adding an
+ * endpoint puts a key in the keychain, and removing that endpoint takes the
+ * key with it — but only while the two stayed married. A save that failed
+ * after the key was stored, or an endpoint removed while a second one still
+ * named the same key, leaves a secret on this machine that nothing on screen
+ * mentions and nothing can remove. `credentials/delete` existed on the wire
+ * the whole time with nothing to press.
+ *
+ * Drawn only when there is something to draw. An empty "Stored keys" heading
+ * under an empty endpoint list is a permanent reminder of a state that is
+ * fine.
+ *
+ * **Route keys only, and the rule is "nothing else owns it".** The same store
+ * holds every agent's sign-in key and every gateway account's, and review
+ * caught this section listing each in turn — an active
+ * `agent:codex:OPENAI_API_KEY` drew as "No endpoint uses it", because no
+ * endpoint ever does, and then so did a gateway account's key. Both have
+ * doors of their own that do more than delete: the agent's page reloads the
+ * runtime's secrets, and an account's key goes with the account. Asking "is
+ * it an agent's" got the second class wrong, so the host answers "what owns
+ * it" and this lists the ones nothing does.
+ */
+const KeysRows = () => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [keys, setKeys] = useState<readonly StoredCredential[] | null>(null)
+  const [removing, setRemoving] = useState<StoredCredential | null>(null)
+
+  const reload = useCallback(() => {
+    let live = true
+    void store.listCredentials().then((list) => {
+      if (live) setKeys(list)
+    })
+    return () => {
+      live = false
+    }
+  }, [store])
+
+  // Re-read when the endpoints change: adding one stores a key and removing
+  // one may drop it, and both happen on the section directly above this.
+  useEffect(() => reload(), [reload, snapshot.routes])
+
+  /* The endpoints' own keys: the ones nothing else claims. An agent's key and
+     a gateway account's are different things with different verbs, and each
+     has a surface of its own. */
+  const routeKeys = useMemo(() => (keys ?? []).filter((key) => key.owner === null), [keys])
+
+  /* Which endpoint each key is for. A key is named by whoever refers to it,
+     and the ones nobody refers to are exactly the leak this section exists
+     to show — so an empty answer here is a fact worth printing, not a gap. */
+  const usedBy = useMemo(() => {
+    const by = new Map<string, string[]>()
+    for (const route of snapshot.routes) {
+      by.set(route.credentialRef, [...(by.get(route.credentialRef) ?? []), route.name])
+    }
+    return by
+  }, [snapshot.routes])
+
+  if (keys === null || routeKeys.length === 0) return null
+
+  return (
+    <>
+      <SectionHead name={withCount('Stored keys', routeKeys.length)} />
+      <Rows>
+        {routeKeys.map((key) => {
+          const owners = usedBy.get(key.ref) ?? []
+          return (
+            <Row
+              key={key.ref}
+              mark={<KeyIcon size={15} />}
+              title={key.name}
+              desc={
+                owners.length > 0
+                  ? `Used by ${owners.join(', ')} · stored ${storedOn(key.createdAt)}`
+                  : `No endpoint uses it · stored ${storedOn(key.createdAt)}`
+              }
+              control={
+                <Btn small variant="quiet" onClick={() => setRemoving(key)}>
+                  Remove…
+                </Btn>
+              }
+            />
+          )
+        })}
+      </Rows>
+      {removing && (
+        <ConfirmDialog
+          title={`Forget ${removing.name}?`}
+          confirmLabel="Forget key"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            const ref = removing.ref
+            setRemoving(null)
+            void store.deleteCredential(ref).then((gone) => {
+              if (gone) setKeys((was) => (was ?? []).filter((one) => one.ref !== ref))
+            })
+          }}
+        >
+          {/* The consequence, and it differs: an unused key is housekeeping, a
+              key an endpoint still names is that endpoint breaking. */}
+          {(usedBy.get(removing.ref) ?? []).length > 0
+            ? `${(usedBy.get(removing.ref) ?? []).join(' and ')} will stop working until given a new key. The value cannot be recovered.`
+            : 'The value is removed from the keychain and cannot be recovered.'}
+        </ConfirmDialog>
+      )}
+    </>
+  )
+}
+
+/** The day a key was stored — a date, never a time: nothing here turns on the hour. */
+const storedOn = (at: number): string =>
+  new Date(at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 
 /** What a rule applies to, as the words a person would use. */
 const RULE_KINDS = [
@@ -865,6 +982,7 @@ const ModelsSection = () => {
 
       <PresetsRows />
       <RoutesRows />
+      <KeysRows />
     </>
   )
 }

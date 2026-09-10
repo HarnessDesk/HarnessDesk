@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
   PluginInstance,
@@ -61,11 +62,22 @@ const plugin = (id: string, name: string, contributions: CapabilityContribution[
     enabled: true,
   }) as unknown as PluginInstance
 
-const tool = (owner: string, name: string, description: string): CapabilityContribution =>
+/* `scope` is on every contribution the host sends — `ContributionBase`
+   requires it — and these fixtures omitted it behind a cast, so the list
+   rendered here was a list the wire never produces. It cost a crash the
+   moment a row read the field. Global unless a test says otherwise, which is
+   what every contribution in this repository is today. */
+const tool = (
+  owner: string,
+  name: string,
+  description: string,
+  scope: CapabilityContribution['scope'] = { kind: 'global' },
+): CapabilityContribution =>
   ({
     id: `${owner}/${name}`,
     owner,
     revision: 1,
+    scope,
     kind: 'tool',
     namespace: owner,
     name,
@@ -78,15 +90,29 @@ const hook = (owner: string, name: string): CapabilityContribution =>
     id: `${owner}/${name}`,
     owner,
     revision: 1,
+    scope: { kind: 'global' },
     kind: 'hook',
     event: 'preToolUse',
     description: name,
   }) as unknown as CapabilityContribution
 
-const makeStore = (info: RuntimeInfo): AppStore => {
+/** What the host was asked, so a test can say the question was put to it. */
+type Asked = { readonly kind: string; readonly scope: object }
+
+const makeStore = (
+  info: RuntimeInfo,
+  here?: {
+    readonly answers: CapabilityContribution[]
+    readonly asked: Asked[]
+    readonly webScope?: CapabilityContribution['scope']
+    readonly activeSessionKey?: SessionKey
+  },
+): AppStore => {
   const git = plugin('git', 'Git', [tool('git', 'git_status', 'Show the working tree status.')])
   const guard = plugin('guardrails', 'Guardrails', [hook('guardrails', 'Checks every tool call')])
-  const web = plugin('web', 'Web', [tool('web', 'web_fetch', 'Fetch a page from an allowed host.')])
+  const web = plugin('web', 'Web', [
+    tool('web', 'web_fetch', 'Fetch a page from an allowed host.', here?.webScope),
+  ])
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -94,10 +120,17 @@ const makeStore = (info: RuntimeInfo): AppStore => {
     runtimes: [info],
     plugins: [git, guard, web],
     contributions: [...git.contributions, ...guard.contributions, ...web.contributions],
+    /* A conversation is the active one before its session object has been
+       read in — the map is deliberately left empty for that case. */
+    ...(here?.activeSessionKey ? { activeSessionKey: here.activeSessionKey } : {}),
   }
   return {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    listCapabilities: async (kind: string, scope: object) => {
+      here?.asked.push({ kind, scope })
+      return (here?.answers ?? []).filter((one) => one.kind === kind)
+    },
   } as unknown as AppStore
 }
 
@@ -168,4 +201,99 @@ it('an agent that refuses the server is not told the tools are lost', () => {
   expect(container.textContent).not.toContain('no reach')
   expect(container.textContent).toContain('does not take them in the session request')
   expect(container.textContent).not.toContain('cannot receive plugin tools')
+})
+
+it('a contribution that applies to one workspace says so; a global one says nothing', () => {
+  /* The scope has been on every contribution since the capability plane
+     landed and on no row: a tool a plugin offered to one checkout read here
+     exactly like one offered to every agent in the app. */
+  mount(
+    makeStore(runtime('codex', 'Codex', true), {
+      answers: [],
+      asked: [],
+      webScope: { kind: 'workspace', root: '/repo/api' },
+    }),
+  )
+  openCapabilities()
+  expect(container.textContent).toContain('only in /repo/api')
+  // The control: the other two are global, and a row saying "everywhere"
+  // under every entry is a word nobody reads.
+  expect(container.textContent).not.toContain('everywhere')
+})
+
+it('“applies here” is the host’s answer, not the pushed list filtered again', async () => {
+  /* The whole reason `capability/list` exists. The renderer is pushed every
+     contribution regardless of scope and filters by kind alone, so it cannot
+     answer this question at all — only the host evaluates a scope. */
+  const asked: Asked[] = []
+  const only = tool('git', 'git_status', 'Show the working tree status.')
+  mount(makeStore(runtime('codex', 'Codex', true), { answers: [only], asked }))
+  openCapabilities()
+
+  expect(container.textContent).toContain('Fetch a page from an allowed host.')
+
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
+  expect(where, 'the scope filter exists').toBeTruthy()
+  setValue(where as HTMLSelectElement, 'here')
+  await act(async () => {})
+
+  // Every kind was asked, and the answer replaced the list rather than
+  // narrowing it: `web_fetch` is in the pushed set and not in the host's.
+  expect(asked.map((one) => one.kind)).toContain('tool')
+  expect(asked.map((one) => one.kind)).toContain('hook')
+  expect(container.textContent).toContain('Show the working tree status.')
+  expect(container.textContent).not.toContain('Fetch a page from an allowed host.')
+})
+
+it('changing the kind under “applies here” does not show the last kind’s answer', async () => {
+  /* Found by both reviewers. The list skipped kind filtering under `here` on
+     the grounds that the host had already filtered — true of a fresh answer
+     and false of the one still in hand while the next request is in flight.
+     Selecting Tools left hooks and panels on screen until it landed. */
+  const asked: Asked[] = []
+  const answers = [
+    tool('git', 'git_status', 'Show the working tree status.'),
+    hook('guardrails', 'Checks every tool call'),
+  ]
+  mount(makeStore(runtime('codex', 'Codex', true), { answers, asked }))
+  openCapabilities()
+
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
+  setValue(where as HTMLSelectElement, 'here')
+  await act(async () => {})
+  expect(container.textContent).toContain('Checks every tool call')
+
+  /* The kind moves and the answer for it has not arrived. `setValue` does not
+     flush the effect's promise, so this is exactly the in-flight moment. */
+  const kind = container.querySelector<HTMLSelectElement>('select[aria-label="Filter by kind"]')
+  setValue(kind as HTMLSelectElement, 'tool')
+  expect(container.textContent).not.toContain('Checks every tool call')
+
+  await act(async () => {})
+  expect(container.textContent).toContain('Show the working tree status.')
+})
+
+it('the conversation’s id reaches the host before its session has been read in', async () => {
+  /* `snapshot.sessions.get(activeSessionKey)?.id` is `undefined` for the whole
+     window between a conversation becoming active and its session arriving, so
+     the scope went out without a `sessionId` and the host left session-scoped
+     contributions out of its answer. Found in review. The key carries the id;
+     splitting it cannot be early. */
+  const asked: Asked[] = []
+  mount(
+    makeStore(runtime('codex', 'Codex', true), {
+      answers: [],
+      asked,
+      activeSessionKey: sessionKey('codex' as never, '01a04ec8-90f2-70b0' as never),
+    }),
+  )
+  openCapabilities()
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')
+  setValue(where as HTMLSelectElement, 'here')
+  await act(async () => {})
+
+  expect(asked.length).toBeGreaterThan(0)
+  for (const one of asked) {
+    expect(one.scope).toMatchObject({ sessionId: '01a04ec8-90f2-70b0' })
+  }
 })

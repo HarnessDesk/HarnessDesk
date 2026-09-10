@@ -3339,3 +3339,38 @@ test('a board keeps a photograph only for the members it has', async (t) => {
   assert.deepEqual(moved.members.length, 1)
   assert.deepEqual(Object.keys(moved.roster).sort(), [...moved.members].sort())
 })
+
+/**
+ * The roster reports each member's inbound mode, resolved.
+ *
+ * `setInbound` and `inboundFor` were both here from the start and the roster
+ * carried neither, so `team/inbound` was a setting no surface could read back
+ * — and a control that cannot show its own state is a control nobody trusts.
+ * Resolved rather than raw: the map is sparse, and a member never given a mode
+ * of its own follows the board's default, which is the mode that will actually
+ * be applied.
+ */
+test('the roster says what each member does with a message, board default included', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+
+  const modeOf = async (id: string): Promise<string> => {
+    const roster = await team.peersFor(room)
+    const found = roster.find((entry) => entry.sessionId === id)
+    assert.ok(found, `${id} is in the roster`)
+    return found.inbound
+  }
+
+  // Nobody has been given one, so both follow the board.
+  assert.equal(await modeOf('c1'), 'accept')
+  assert.equal(await modeOf('k1'), 'accept')
+
+  team.setInbound('codex', 'c1', 'hold')
+  assert.equal(await modeOf('c1'), 'hold')
+  // And only that one: this is per-conversation, which is the whole
+  // distinction from board-only.
+  assert.equal(await modeOf('k1'), 'accept')
+
+  team.setInbound('codex', 'c1', 'refuse')
+  assert.equal(await modeOf('c1'), 'refuse')
+})

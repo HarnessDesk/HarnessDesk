@@ -327,6 +327,18 @@
   white-space: nowrap;
 }
 
+/* A state somebody chose, which is neither of the two above: not a fault to
+   warn about and not a doubt to hedge. Upright rather than italic — the
+   italic on `.memberIdle` is this app's mark for "we are not sure" — and
+   muted, because a member set to hold its messages is a setting, not an
+   alarm. */
+.memberInbound {
+  overflow: hidden;
+  color: var(--hd-muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Warning ink, because this is the one line on a member row that is about
    something being wrong rather than about what it is doing. */
 .memberWarn {

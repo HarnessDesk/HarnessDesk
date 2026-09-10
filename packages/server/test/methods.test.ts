@@ -171,3 +171,43 @@ test('a message on an idle conversation is sent; on a working one it is queued a
   assert.equal(queued.length, 1)
   assert.equal(announced.length, 1)
 })
+
+/**
+ * Every stored secret says what owns it, from both of the two places that
+ * know.
+ *
+ * The credential store holds three unrelated kinds and one list shows them.
+ * A key a *custom endpoint* refers to is removed here; a key an *agent* signs
+ * in with is cleared from that agent's page, which also reloads the runtime's
+ * secrets; a key a *gateway account* holds goes with the account. Settings
+ * lists the first kind only, so anything that fails to name its owner is
+ * offered for deletion as an orphan — which is exactly what happened to the
+ * agent's key, and then, a round later, to the gateway account's.
+ *
+ * The two are found differently and that is the point: an agent's is recorded
+ * on the entry when it is written, and a gateway account's is read from the
+ * slot holding it, live, so no stored key has to be migrated for it to be
+ * right.
+ */
+test('a credential names its owner — the agent that signs in with it, or the account that holds it', async () => {
+  const ctx = contextWith({
+    credentials: {
+      describe: async () => [
+        { ref: 'cred_route', name: 'Acme proxy key', createdAt: 1, agent: null },
+        { ref: 'cred_agent', name: 'agent:codex:OPENAI_API_KEY', createdAt: 2, agent: 'codex' },
+        // Named exactly like a route's, because that is how the host writes it.
+        { ref: 'cred_gw', name: 'Acme gateway key', createdAt: 3, agent: null },
+      ],
+    },
+    accounts: { gatewayCredentials: () => [{ ref: 'cred_gw', name: 'Acme gateway' }] },
+  })
+
+  const listed = await dispatch(ctx, 'credentials/list', {})
+  const owner = (ref: string) => listed.find((one) => one.ref === ref)?.owner
+  assert.equal(owner('cred_route'), null)
+  assert.deepEqual(owner('cred_agent'), { kind: 'agent', of: 'codex' })
+  assert.deepEqual(owner('cred_gw'), { kind: 'gateway', of: 'Acme gateway' })
+
+  // And no value rides along with any of it.
+  assert.equal(JSON.stringify(listed).includes('sk-'), false)
+})

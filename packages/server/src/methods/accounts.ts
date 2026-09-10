@@ -156,7 +156,7 @@ export const accountMethods = {
 
   'runtime/apiKey/store': async (ctx, params) => {
     const env = params.methodId.replace(/^apiKey:/, '')
-    await ctx.credentials.put(CredentialBroker.secretName(params.runtime, env), params.value)
+    await ctx.credentials.put(CredentialBroker.secretName(params.runtime, env), params.value, params.runtime)
     // The agent read its environment when it started, so storing a key
     // is only half the job: tell the runtime, which restarts to pick it
     // up. Without this a user stored a key and the very next turn failed
