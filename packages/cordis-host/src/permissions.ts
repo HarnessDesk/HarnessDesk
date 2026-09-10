@@ -33,7 +33,8 @@ const splitHost = (value: string): { readonly name: string; readonly port: strin
   const host = normaliseHost(value)
   if (host.startsWith('[')) {
     const bracketed = /^(\[[0-9a-f:.]+\])(?::(\d+))?$/.exec(host)
-    return bracketed ? { name: bracketed[1]!, port: bracketed[2] ?? null } : null
+    const name = bracketed ? ipv6(bracketed[1]!) : null
+    return name ? { name, port: bracketed?.[2] ?? null } : null
   }
   const parts = host.split(':')
   if (parts.length === 1) return host === '' ? null : { name: host, port: null }
@@ -42,7 +43,21 @@ const splitHost = (value: string): { readonly name: string; readonly port: strin
     return name !== '' && /^\d+$/.test(port) ? { name, port } : null
   }
   // More than one colon is an IPv6 address written without its brackets.
-  return /^[0-9a-f:.]+$/.test(host) ? { name: `[${host}]`, port: null } : null
+  const name = /^[0-9a-f:.]+$/.test(host) ? ipv6(`[${host}]`) : null
+  return name ? { name, port: null } : null
+}
+
+/**
+ * An IPv6 address as a URL writes it, `[::1]` for `[0:0:0:0:0:0:0:1]`, or null
+ * for one that is not an address. A URL compresses the address, and a pattern
+ * written out in full never matched it (review, round 2).
+ */
+const ipv6 = (bracketed: string): string | null => {
+  try {
+    return new URL(`http://${bracketed}/`).hostname
+  } catch {
+    return null
+  }
 }
 
 /** The port a URL leaves out because its scheme implies it. */

@@ -344,3 +344,13 @@ test('a record is taken only whole, and loading reads the same one the listing d
   await writeFile(record, JSON.stringify({ kind: 'npm', specifier: '@acme/sample@1.2.0' }))
   assert.deepEqual((await loadInstalled(join(root, 'sample'))).manifest.source, { kind: 'npm', specifier: '@acme/sample@1.2.0' })
 })
+
+test('a record calling an installed plugin built in is not taken', async (t) => {
+  // Round 2 of #160: install() never writes `builtin`, and taking it hid the plugin's Uninstall.
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  await writeFile(join(root, 'sample', '.harnessdesk-source.json'), JSON.stringify({ kind: 'builtin' }))
+  const copy = { kind: 'local', path: join(root, 'sample') }
+  assert.deepEqual((await listInstalled())[0]?.source, copy)
+  assert.deepEqual((await loadInstalled(join(root, 'sample'))).manifest.source, copy)
+})

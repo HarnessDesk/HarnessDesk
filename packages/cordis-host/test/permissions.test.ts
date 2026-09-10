@@ -395,3 +395,15 @@ test('an IPv6 address is reached by its bracketed name, through the gate', async
   assert.equal(text(await call('fetch_bare')), 'ok')
   assert.match(text(await call('fetch_other')), /is not in this plugin's allowed hosts/)
 })
+
+test('an IPv6 pattern is compared the way a URL writes the address, and a wildcard keeps to its port', () => {
+  // Round 2 of #160: a URL compresses an IPv6 address, and a pattern written out in full never matched it.
+  assert.equal(hostAllowed(['[0:0:0:0:0:0:0:1]'], '[::1]:80'), true)
+  assert.equal(hostAllowed(['0:0:0:0:0:0:0:1'], '[::1]:80'), true)
+  assert.equal(hostAllowed(['[::1::2]'], '[::1]:80'), false, 'not an address at all')
+  // A wildcard with a port keeps to it.
+  assert.equal(hostAllowed(['*.internal.net:8443'], 'api.internal.net:8443'), true)
+  assert.equal(hostAllowed(['*.internal.net:8443'], 'api.internal.net:443'), false)
+  assert.equal(hostAllowed(['*:3000'], 'anything.example:3000'), true)
+  assert.equal(hostAllowed(['*:3000'], 'anything.example:3001'), false)
+})

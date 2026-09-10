@@ -226,11 +226,15 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
   return { manifest: pkg.manifest, plugin }
 }
 
-/** One of the three origins whole: a record of the right kind with nothing in it is not one (review, round 1). */
+/**
+ * One of the two origins an install records, whole: a record of the right kind
+ * with nothing in it is not one (review, round 1). A plugin in the plugins
+ * directory was installed, so `builtin` is not one either: a record saying so
+ * made it look built in, with its Uninstall hidden (review, round 2).
+ */
 const isPluginSource = (value: unknown): value is PluginSource => {
   if (typeof value !== 'object' || value === null) return false
   const source = value as { kind?: unknown; path?: unknown; specifier?: unknown }
-  if (source.kind === 'builtin') return true
   if (source.kind === 'local') return typeof source.path === 'string' && source.path !== ''
   if (source.kind === 'npm') return typeof source.specifier === 'string' && source.specifier !== ''
   return false
