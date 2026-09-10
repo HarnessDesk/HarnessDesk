@@ -10,11 +10,14 @@ import { cn } from '@/lib/utils'
  * The app's `ConfirmDialog` was built on the ordinary dialog, which closes when
  * you press the backdrop or hit Escape &mdash; correct for a sheet you are
  * reading, wrong for a question you have to answer. An alert dialog refuses
- * both: the only ways out are the two buttons, which is the entire point of
- * asking.
+ * the press, so a stray click on the ground cannot answer for you. Escape
+ * still closes it, and `ConfirmDialog` hears that as its verb for leaving
+ * things alone.
  *
- * It also puts focus on the *safe* action rather than the first one in the DOM,
- * so a held Return does not delete a worktree.
+ * It does not pick the *safe* action for focus. Left to itself, Base UI
+ * focuses the first control in the DOM, and in a footer written the app's way
+ * that is the one that proceeds &mdash; so `ConfirmDialog` passes
+ * `initialFocus={false}`, and a held Return does not delete a worktree.
  */
 
 const AlertDialog = AlertDialogPrimitive.Root
@@ -60,12 +63,15 @@ const AlertDialogHeader = ({ className, ...props }: React.ComponentProps<'div'>)
  *
  * Right-aligned, with the escape to the left of the act &mdash; the order the
  * platform uses, and the one where the button nearest the pointer's resting
- * place is the one that does something.
+ * place is the one that does something. Write the act first: the row is
+ * reversed, as the app's own dialog footer is, so the act paints rightmost and
+ * is still the first control Tab reaches. The registry's `justify-end` wanted
+ * the escape written first, the opposite of every other footer in the app.
  */
 const AlertDialogFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="alert-dialog-footer"
-    className={cn('mt-1 flex items-center justify-end gap-2', className)}
+    className={cn('mt-1 flex flex-row-reverse items-center gap-2', className)}
     {...props}
   />
 )
