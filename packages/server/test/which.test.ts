@@ -238,3 +238,40 @@ test('elsewhere it is the login shell, interactive, and sh when unset', () => {
   // And `SHELL` is not read on Windows, where it would name a POSIX path.
   assert.deepEqual(defaultShell({ platform: 'win32', env: { SHELL: '/bin/bash' } }), ['cmd.exe'])
 })
+
+test('a quoted PATH entry on Windows names the directory, not a quote', () => {
+  /* Windows lets an installer write `"C:\Program Files\nodejs"` into PATH, and
+     `where.exe` reads that as the directory. Joining the quotes in looks for a
+     file that cannot exist. Raised in review. */
+  const found = whichOnPath('npx', {
+    platform: 'win32',
+    env: { PATH: '"C:\\Program Files\\nodejs";C:\\other', PATHEXT: '.CMD' },
+    runnable: onlyCaseless('C:\\Program Files\\nodejs\\npx.cmd'),
+  })
+  assert.equal(found?.toLowerCase(), 'c:\\program files\\nodejs\\npx.cmd')
+})
+
+test('a quote is only stripped as a surrounding pair, and never off Windows', () => {
+  /* An unpaired quote is a malformed entry, not a quoted one: it must not be
+     read as `C:\half`. What it produces instead is a path that cannot exist
+     — `win32.join` treats a leading quote as a relative segment — and that is
+     the right outcome for a PATH entry nothing can make sense of. */
+  assert.equal(
+    whichOnPath('tool', {
+      platform: 'win32',
+      env: { PATH: '"C:\\half', PATHEXT: '.EXE' },
+      runnable: onlyCaseless('C:\\half\\tool.exe'),
+    }),
+    null,
+  )
+  /* And a POSIX directory may legitimately be called `"quoted"`, so nothing is
+     stripped there — the spelling is a Windows convention, not a path rule. */
+  assert.equal(
+    whichOnPath('tool', {
+      platform: 'linux',
+      env: { PATH: '"/opt/quoted"' },
+      runnable: only('"/opt/quoted"/tool'),
+    }),
+    '"/opt/quoted"/tool',
+  )
+})

@@ -53,6 +53,16 @@ export const whichOnPath = (command: string, options: WhichOptions = {}): string
      PATH a PATH, and reading the host's would parse a Windows PATH by the
      rules of the machine doing the parsing. */
   const separator = platform === 'win32' ? ';' : ':'
+  /* Windows lets a PATH entry be quoted, and an installer that wrote
+     `"C:\\Program Files\\nodejs"` means the directory, not a directory whose
+     name begins with a quote. `where.exe` reads it that way; joining the
+     quotes into the candidate would look for a file that cannot exist.
+     Raised in review. Only the surrounding pair — a quote elsewhere in the
+     entry is part of a name, however unlikely. */
+  const unquoted = (dir: string): string =>
+    platform === 'win32' && dir.length > 1 && dir.startsWith('"') && dir.endsWith('"')
+      ? dir.slice(1, -1)
+      : dir
   /* And the path rules, from the same place. `join` is the host's, so on a
      Mac it joins `C:\\tools` and `npx.cmd` with a forward slash — which is
      right in production, where the Windows branch only ever runs on Windows,
@@ -60,7 +70,8 @@ export const whichOnPath = (command: string, options: WhichOptions = {}): string
      both from the platform makes the answer depend on the question rather
      than on the machine. Found by writing that test. */
   const rules = platform === 'win32' ? win32 : posix
-  for (const dir of (env['PATH'] ?? '').split(separator)) {
+  for (const entry of (env['PATH'] ?? '').split(separator)) {
+    const dir = unquoted(entry)
     if (dir.length === 0) continue
     for (const suffix of suffixes(env, platform, command)) {
       const candidate = rules.join(dir, `${command}${suffix}`)

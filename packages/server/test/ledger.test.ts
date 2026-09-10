@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, createReadStream, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -373,15 +373,35 @@ test('a chunk boundary that lands between the CR and the LF is still one line br
 
   const BOUNDARY = 64 * 1024
   const base = JSON.parse(claudeLine('msg_1', usage)) as Record<string, unknown>
-  // Pad the cwd so the record plus `\r` is exactly one byte short of the
-  // boundary, putting the `\n` at the first byte of the second chunk.
+  /* Pad the cwd so the record *plus its `\r`* is exactly the boundary: the
+     `\r` is then the last byte of the first chunk and the `\n` the first
+     byte of the second.
+
+     The first version of this arithmetic was a byte short — `${first}\r`
+     came to `BOUNDARY - 1`, which puts the `\n` at the last index of the
+     first chunk and splits nothing — and the assertion below locked that in.
+     Both reviewers found it. Twice now in this change a test of mine has
+     asserted its own error, which is why the split is no longer assumed
+     below but read off the stream. */
   const bare = JSON.stringify({ ...base, cwd: '/tmp/project' })
-  const padding = BOUNDARY - 1 - Buffer.byteLength(bare, 'utf8') - 1
+  const padding = BOUNDARY - Buffer.byteLength(bare, 'utf8') - 1
   assert.ok(padding > 0, 'the fixture is smaller than the read boundary')
   const first = JSON.stringify({ ...base, cwd: `/tmp/project${'x'.repeat(padding)}` })
-  assert.equal(Buffer.byteLength(`${first}\r`, 'utf8'), BOUNDARY - 1)
+  assert.equal(Buffer.byteLength(`${first}\r`, 'utf8'), BOUNDARY)
 
   writeFileSync(path, `${first}\r\n${crlf(claudeLine('msg_2', usage))}`)
+
+  /* And the premise, proved rather than assumed. A test named for a split
+     terminator that quietly stops splitting is worse than no test: it reports
+     that the case is covered. This reads the file the way `readLines` does
+     and asserts where the chunks actually fall — if Node's default read size
+     ever changes, this fails and says so instead of going green on nothing. */
+  const chunks: Buffer[] = []
+  for await (const chunk of createReadStream(path)) chunks.push(chunk as Buffer)
+  assert.ok(chunks.length >= 2, 'the fixture is read in more than one chunk')
+  assert.equal(chunks[0]?.at(-1), 0x0d, 'the first chunk ends on the CR')
+  assert.equal(chunks[1]?.at(0), 0x0a, 'and the LF opens the second')
+
   const result = await scanClaudeTranscript(target, 0, [])
   assert.equal(result.rows[0]?.requests, 2, 'both records survive the split terminator')
   assert.equal(result.offset, statSync(path).size)
