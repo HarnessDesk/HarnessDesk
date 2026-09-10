@@ -325,6 +325,60 @@ test('search_text shows a file past its twentieth match, up to the result limit'
   assert.equal(found.split('\n').filter((line) => /many\.txt:\d+:retry \d+$/.test(line)).length, 30)
 })
 
+test('a file with more matches than the result can show still says so', async (t) => {
+  // Round one: a per-file cap of exactly the limit cut one file there in silence.
+  if (!(await ripgrepOr(t))) return
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-full-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'full.txt'), Array.from({ length: 100 }, (_, n) => `retry ${n}`).join('\n') + '\n')
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(searchPlugin)
+  await settle()
+
+  const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
+  assert.equal(found.split('\n').filter((line) => /full\.txt:\d+:retry \d+$/.test(line)).length, 80)
+  assert.match(found, /\[at least \d+ more matches not shown/)
+})
+
+test('results ripgrep gave while failing say they may be incomplete', {
+  skip: process.platform === 'win32' || process.getuid?.() === 0,
+}, async (t) => {
+  // Round one: an exit of 2 with some output was shown as a whole answer.
+  if (!(await ripgrepOr(t))) return
+  const { mkdtemp, mkdir, writeFile, chmod, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-partial-'))
+  await mkdir(join(dir, 'open'))
+  await mkdir(join(dir, 'locked'))
+  await writeFile(join(dir, 'open', 'a.txt'), 'retry\n')
+  await writeFile(join(dir, 'locked', 'b.txt'), 'retry\n')
+  await chmod(join(dir, 'locked'), 0o000)
+  t.after(async () => {
+    await chmod(join(dir, 'locked'), 0o755)
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(searchPlugin)
+  await settle()
+
+  const files = text(await kernel.invokeTool(toolNamed(kernel, 'find_files'), { glob: '*.txt' }, {}))
+  assert.match(files, /a\.txt/)
+  assert.match(files, /\[ripgrep hit an error, so this may be incomplete: .*locked/)
+  const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
+  assert.match(found, /a\.txt:1:retry/)
+  assert.match(found, /\[ripgrep hit an error, so this may be incomplete/)
+})
+
 test('find_files says when ripgrep refused the glob, rather than that nothing matched', async (t) => {
   // #54: an exit of 2, with ripgrep's reason on stderr, read as "No files match."
   if (!(await ripgrepOr(t))) return

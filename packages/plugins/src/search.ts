@@ -18,6 +18,18 @@ interface Config {
 const DEFAULT_MAX_RESULTS = 80
 const DEFAULT_MAX_LINE = 300
 
+/**
+ * A note for results ripgrep gave while also failing — a folder it could not
+ * read beside files it could — so a partial answer is not read as a whole
+ * one (review, round one). Exit 1 is "nothing found", which is an answer;
+ * 2 is an error.
+ */
+const partial = (result: { readonly exitCode: number; readonly stderr: string }): string => {
+  if (result.exitCode < 2) return ''
+  const said = result.stderr.trim().split('\n').filter(Boolean).at(-1)
+  return `\n\n[ripgrep hit an error, so this may be incomplete${said ? `: ${said}` : ''}]`
+}
+
 export const searchPlugin: HarnessPlugin = {
   manifest: {
     id: 'search',
@@ -75,9 +87,12 @@ export const searchPlugin: HarnessPlugin = {
           /* `--max-count` is ripgrep's cap *per file*, not in total. At 20, a
              file with more matches than that was cut at twenty however high
              the caller's limit was, and whether or not anything else matched
-             (#53). A file may now give as many as the result can show, and
-             the total is still cut to `maxResults` below. */
-          const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', String(maxResults)]
+             (#53). A file may now give one more than the result can show —
+             the one more is what lets a file with too many matches still say
+             so below, where a cap of exactly `maxResults` cut it there in
+             silence (review, round one) — and the total is cut to
+             `maxResults`. */
+          const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', String(maxResults + 1)]
           if (args.ignoreCase) argv.push('--ignore-case')
           if (args.glob) argv.push('--glob', args.glob)
           argv.push('--regexp', args.pattern)
@@ -96,8 +111,8 @@ export const searchPlugin: HarnessPlugin = {
           const shown = lines.slice(0, maxResults).map(clip)
           return lines.length > maxResults
             ? // "At least": a file past the per-file cap above counts only up to it.
-              `${shown.join('\n')}\n\n[at least ${lines.length - maxResults} more matches not shown — narrow the pattern]`
-            : shown.join('\n') || 'No matches.'
+              `${shown.join('\n')}\n\n[at least ${lines.length - maxResults} more matches not shown — narrow the pattern]${partial(result)}`
+            : `${shown.join('\n')}${partial(result)}` || 'No matches.'
         },
       })
 
@@ -129,8 +144,8 @@ export const searchPlugin: HarnessPlugin = {
           const files = result.stdout.split('\n').filter(Boolean)
           if (files.length === 0) return 'No files match.'
           return files.length > maxResults
-            ? `${files.slice(0, maxResults).join('\n')}\n\n[${files.length - maxResults} more]`
-            : files.join('\n')
+            ? `${files.slice(0, maxResults).join('\n')}\n\n[${files.length - maxResults} more]${partial(result)}`
+            : `${files.join('\n')}${partial(result)}`
         },
       })
     },
