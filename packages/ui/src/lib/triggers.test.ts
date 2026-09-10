@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { cycle, detectTrigger, stripTrigger } from './triggers'
+import { cycle, detectTrigger, stripMention, stripTrigger } from './triggers'
 
 describe('detectTrigger', () => {
   test('a slash at the start opens commands', () => {
@@ -50,6 +50,22 @@ describe('stripTrigger', () => {
   test('removes the mention token but keeps the separating space', () => {
     expect(stripTrigger('check @rea', 'file')).toBe('check ')
     expect(stripTrigger('@rea', 'file')).toBe('')
+    expect(stripTrigger('hello @file', 'file')).toBe('hello ')
+    expect(stripTrigger('@file', 'file')).toBe('')
+  })
+
+  test('preserves preceding whitespace including newlines and tabs', () => {
+    expect(stripTrigger('line 1\n@file', 'file')).toBe('line 1\n')
+    expect(stripTrigger('a\t@x', 'file')).toBe('a\t')
+  })
+})
+
+describe('stripMention', () => {
+  test('preserves preceding whitespace including newlines and tabs', () => {
+    expect(stripMention('line 1\n@file')).toBe('line 1\n')
+    expect(stripMention('a\t@x')).toBe('a\t')
+    expect(stripMention('hello @file')).toBe('hello ')
+    expect(stripMention('@file')).toBe('')
   })
 })
 
