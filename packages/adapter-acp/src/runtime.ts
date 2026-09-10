@@ -1540,9 +1540,15 @@ export class AcpRuntime implements AgentRuntime {
     try {
       return this.#opened(claim(await this.#connection.request<T>(method, { ...params, mcpServers: servers })))
     } catch (error) {
-      if (this.#refusedForSignIn(error)) throw error
       const message = error instanceof Error ? error.message : String(error)
-      if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) throw error
+      // The tool-server refusal is answered first, by a retry without the
+      // server; only a failure that is not that refusal is read for what
+      // it says about the sign-in, so neither classification can hide the
+      // other.
+      if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) {
+        this.#refusedForSignIn(error)
+        throw error
+      }
       // Two opens can race into the same refusal — the eager probe and the
       // first real session — and the flag flips once, so the announcement
       // happens once: a second "info changed" for the same fact is noise.
@@ -2033,16 +2039,18 @@ type SignInObservation =
   | { readonly state: 'required'; readonly message: string }
 
 /**
- * ACP's own refusal for a session that needs a sign-in first: error code
- * -32000, `auth_required`. The words are checked too, because Google
- * Antigravity's server answers `session/new` with the code and the words
- * while a bridge may answer with the words alone.
+ * ACP's own refusal for a session that needs a sign-in first is `-32000
+ * auth_required` with the words "Authentication required" — but -32000 is
+ * also the head of JSON-RPC's reserved server-error range, and an agent's
+ * "internal server error" wears the same number. So the words decide, in
+ * the message or in the details the agent attached: Google Antigravity's
+ * server sends the code and the words, a bridge may send the words alone,
+ * and a bare -32000 is a failure of some other kind.
  */
-const AUTH_REQUIRED_CODE = -32000
 const AUTH_REQUIRED_WORDS =
   /authentication required|not authenticated|unauthenticated|auth[_ -]required|login required|sign[- ]?in required|not (?:signed|logged) in/i
 const isAuthRefusal = (error: unknown): boolean =>
-  error instanceof AcpError && (error.code === AUTH_REQUIRED_CODE || AUTH_REQUIRED_WORDS.test(error.message))
+  error instanceof AcpError && AUTH_REQUIRED_WORDS.test(`${error.message}\n${error.details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
 const firstSentence = (text: string): string => {

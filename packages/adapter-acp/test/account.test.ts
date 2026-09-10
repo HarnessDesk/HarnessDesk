@@ -213,3 +213,15 @@ test('a sign-in that lapses turns an observed agent back into one that needs sig
     await runtime.dispose()
   }
 })
+
+test('a -32000 that is not about signing in is not read as a sign-in refusal', async () => {
+  const runtime = bare({ FAKE_ACP_SERVER_ERROR: '1' })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Internal server error/)
+    assert.equal(runtime.info.capabilities.account, false, 'a server error says nothing about the sign-in')
+    assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [] })
+  } finally {
+    await runtime.dispose()
+  }
+})

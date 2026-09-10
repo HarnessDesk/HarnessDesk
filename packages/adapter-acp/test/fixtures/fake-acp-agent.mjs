@@ -497,6 +497,13 @@ const handlers = {
     const lapsed =
       process.env.FAKE_ACP_AUTH_REQUIRED_AFTER !== undefined &&
       opensSoFar > Number(process.env.FAKE_ACP_AUTH_REQUIRED_AFTER)
+    // FAKE_ACP_SERVER_ERROR=1 plays an agent that fails to open a session
+    // for some other reason, under JSON-RPC's generic server-error code —
+    // the same number ACP gives auth_required, without the words.
+    if (process.env.FAKE_ACP_SERVER_ERROR === '1') {
+      send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Internal server error', data: { details: 'the model backend timed out' } } })
+      return
+    }
     if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed) {
       send({
         jsonrpc: '2.0',
