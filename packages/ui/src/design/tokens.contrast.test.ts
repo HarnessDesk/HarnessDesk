@@ -353,8 +353,11 @@ describe('every accent can carry the ink on its own brand', () => {
   const accents = (): { face: string; fill: Rgb; ink: Rgb }[] => {
     const out: { face: string; fill: Rgb; ink: Rgb }[] = []
     const block = /body\[data-hd-accent='(\w+)'\](\[data-hd-dark-theme\])?\s*\{([^}]*)\}/g
-    /* A dark block inherits the light block's ink unless it sets its own, so
-       the light face is resolved first and carried forward. */
+    /* Where a dark block sets no ink of its own, the light block's is carried
+       forward here. The app does not do that on every palette: a palette's
+       own dark face outranks an accent's light block, so the test below holds
+       every dark block to declaring its own, and this carry-forward only ever
+       sees ink that is declared (#90). */
     const inherited = new Map<string, Rgb>()
     for (const match of accentSheet.matchAll(block)) {
       const name = match[1] ?? ''
@@ -401,3 +404,41 @@ describe('every accent can carry the ink on its own brand', () => {
     expect(failures, `accents whose muted ink falls under ${UI}:1`).toEqual([])
   })
 })
+
+describe("every accent's dark face declares its own ink, because the palette's dark face outranks the accent's light one", () => {
+  // #90: violet's dark block declared neither, so on shadcn the palette's #171717 inked a violet button,
+  // and on editorial the label ink was the palette's #262624. Measured in the app; the sheet is the cause.
+  const darkBlocks = [...accentSheet.matchAll(/body\[data-hd-accent='(\w+)'\]\[data-hd-dark-theme\]\s*\{([^}]*)\}/g)]
+
+  const lightNames = [...accentSheet.matchAll(/body\[data-hd-accent='(\w+)'\]\s*\{/g)].map((match) => match[1])
+
+  /* The ink each dark face declares. On violet's dark fill, white and #171717
+     both clear the checks above, at about 4.23:1 each, so those can't tell
+     the #90 ink from the right one; this can. Violet keeps the white its
+     light face and the desk's own palette give it (review, round 1). */
+  const DARK_INK: Record<string, string> = {
+    violet: 'rgb(255, 255, 255)',
+    green: '#171717',
+    rose: '#171717',
+    orange: '#171717',
+    mono: '#171717',
+  }
+
+  it('reads a dark block for every accent, and every accent has one', () => {
+    // Round 1 of #177: "at least four" passed with one of the five missing.
+    const names = Object.keys(DARK_INK).sort()
+    expect(darkBlocks.map((match) => match[1]).sort()).toEqual(names)
+    expect([...lightNames].sort()).toEqual(names)
+  })
+
+  for (const match of darkBlocks) {
+    const name = match[1] ?? ''
+    const body = match[2] ?? ''
+    const declared = (token: string) => new RegExp(`${token}:\\s*([^;]+);`).exec(body)?.[1]?.trim()
+    it(`${name} declares both inks in its dark face`, () => {
+      expect(declared('--hd-primary-foreground'), `${name}: --hd-primary-foreground`).toBe(DARK_INK[name])
+      expect(declared('--hdp-alias-label-primary-foreground'), `${name}: --hdp-alias-label-primary-foreground`).toBe(DARK_INK[name])
+    })
+  }
+})
+

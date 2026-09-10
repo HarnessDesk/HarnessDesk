@@ -286,6 +286,10 @@ body[data-hd-accent='violet'][data-hd-dark-theme] {
   --hd-accent-dim: rgba(139, 92, 246, 0.2);
   --hdp-alias-button-primary-fill: #8b5cf6;
   --hdp-alias-button-primary-hover: #a78bfa;
+  /* Declared, not inherited: a palette's own dark face outranks the light
+     block above, and on shadcn it inked this button #171717 (#90). */
+  --hd-primary-foreground: rgb(255, 255, 255);
+  --hdp-alias-label-primary-foreground: rgb(255, 255, 255);
 }
 
 body[data-hd-accent='green'] {
