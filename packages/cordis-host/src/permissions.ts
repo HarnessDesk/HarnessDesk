@@ -23,19 +23,65 @@ export class PermissionDenied extends Error {
 const normaliseHost = (value: string): string => value.trim().toLowerCase()
 
 /**
+ * A host, and the port written after it if there is one; null for a pattern
+ * that is not one. An IPv6 address is bracketed the way a URL writes it, so
+ * its own colons are never a port. Anything malformed matches nothing: read
+ * loosely, `[::1]evil` and `localhost:` were `[::1]` and `localhost` on every
+ * port, wider than anything the manifest said (review, round 1).
+ */
+const splitHost = (value: string): { readonly name: string; readonly port: string | null } | null => {
+  const host = normaliseHost(value)
+  if (host.startsWith('[')) {
+    const bracketed = /^(\[[0-9a-f:.]+\])(?::(\d+))?$/.exec(host)
+    const name = bracketed ? ipv6(bracketed[1]!) : null
+    return name ? { name, port: bracketed?.[2] ?? null } : null
+  }
+  const parts = host.split(':')
+  if (parts.length === 1) return host === '' ? null : { name: host, port: null }
+  if (parts.length === 2) {
+    const [name, port] = parts as [string, string]
+    return name !== '' && /^\d+$/.test(port) ? { name, port } : null
+  }
+  // More than one colon is an IPv6 address written without its brackets.
+  const name = /^[0-9a-f:.]+$/.test(host) ? ipv6(`[${host}]`) : null
+  return name ? { name, port: null } : null
+}
+
+/**
+ * An IPv6 address as a URL writes it, `[::1]` for `[0:0:0:0:0:0:0:1]`, or null
+ * for one that is not an address. A URL compresses the address, and a pattern
+ * written out in full never matched it (review, round 2).
+ */
+const ipv6 = (bracketed: string): string | null => {
+  try {
+    return new URL(`http://${bracketed}/`).hostname
+  } catch {
+    return null
+  }
+}
+
+/** The port a URL leaves out because its scheme implies it. */
+const DEFAULT_PORTS: Readonly<Record<string, string>> = { 'http:': '80', 'https:': '443', 'ws:': '80', 'wss:': '443' }
+
+/**
  * Host matching supports a single leading wildcard label (`*.example.com`),
  * which covers the common case without inviting the ambiguity of full globs.
+ * A pattern with no port allows every port on its host, and one with a port
+ * (`localhost:3000`) allows that port alone.
  */
 export const hostAllowed = (allowed: readonly string[], host: string): boolean => {
-  const target = normaliseHost(host)
+  const target = splitHost(host)
+  if (!target) return false
   return allowed.some((pattern) => {
-    const candidate = normaliseHost(pattern)
-    if (candidate === '*') return true
-    if (candidate.startsWith('*.')) {
-      const suffix = candidate.slice(1)
-      return target.endsWith(suffix) && target.length > suffix.length
+    const candidate = splitHost(pattern)
+    if (!candidate) return false
+    if (candidate.port !== null && candidate.port !== target.port) return false
+    if (candidate.name === '*') return true
+    if (candidate.name.startsWith('*.')) {
+      const suffix = candidate.name.slice(1)
+      return target.name.endsWith(suffix) && target.name.length > suffix.length
     }
-    return candidate === target
+    return candidate.name === target.name
   })
 }
 
@@ -131,14 +177,19 @@ export class PermissionGate {
   }
 
   assertNetwork(url: string): void {
-    let host: string
+    let parsed: URL
     try {
-      host = new URL(url).host
+      parsed = new URL(url)
     } catch {
       throw new PermissionDenied('network', `not a valid URL: ${url.slice(0, 80)}`)
     }
-    if (!hostAllowed(this.permissions.network.hosts, host)) {
-      throw new PermissionDenied('network', `${host} is not in this plugin's allowed hosts`)
+    /* `host` carries the port and a manifest names hosts, so `localhost` never
+       matched http://localhost:3000 (#21). The port is compared only where a
+       pattern names one, and a URL leaves its scheme's own port out, so that
+       is put back for the comparison. */
+    const port = parsed.port || DEFAULT_PORTS[parsed.protocol] || ''
+    if (!hostAllowed(this.permissions.network.hosts, port ? `${parsed.hostname}:${port}` : parsed.hostname)) {
+      throw new PermissionDenied('network', `${parsed.host} is not in this plugin's allowed hosts`)
     }
   }
 

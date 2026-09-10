@@ -59,7 +59,7 @@ const SH = '/bin/sh'
 const posixShell = existsSync(SH)
 
 /** An adb with these `adb devices` lines attached, that writes down how it was called. */
-const fakeAdb = (t: TestContext, attached: readonly string[]) => {
+const fakeAdb = (t: TestContext, attached: readonly string[], options: { readonly listingFails?: boolean } = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'hd-adb-'))
   const log = join(dir, 'calls.log')
   const listing = join(dir, 'devices.txt')
@@ -70,7 +70,9 @@ const fakeAdb = (t: TestContext, attached: readonly string[]) => {
     [
       `#!${SH}`,
       `printf '%s\\n' "$*" >> '${log}'`,
-      `if [ "$1" = devices ]; then cat '${listing}'; exit 0; fi`,
+      options.listingFails
+        ? `if [ "$1" = devices ]; then echo 'adb: cannot list devices' >&2; exit 1; fi`
+        : `if [ "$1" = devices ]; then cat '${listing}'; exit 0; fi`,
       // adb's own rule: with more than one attached, a command naming none is refused.
       `if [ "$1" != -s ] && [ ${attached.length} -gt 1 ]; then echo 'adb: error: more than one device/emulator' >&2; exit 1; fi`,
       `if [ "$1" = -s ] && ! grep -q "^$2[[:space:]]" '${listing}'; then echo "adb: device '$2' not found" >&2; exit 1; fi`,
@@ -205,3 +207,20 @@ test('with several attached and none ready, the refusal still says how to choose
   )
 })
 
+test("logcat on a named device with no tag carries the device's -s and no other", { skip: !posixShell }, async (t) => {
+  // Carried from #138's review: logcat's own -s belongs to a tag, and with none there is only the device's.
+  const adb = fakeAdb(t, ['emulator-5554\tdevice', 'emulator-5556\tdevice'])
+  const call = await withKernel(t)
+  assert.equal((await call('logcat', 5, undefined, 'emulator-5556')).error, undefined)
+  assert.deepEqual(adb.calls(), ['-s emulator-5556 logcat -d -t 5'])
+})
+
+test('when the refusal cannot list the devices either, it still says how to choose', { skip: !posixShell }, async (t) => {
+  // Carried from #138's review: the listing failing too falls back to the sentence with no list.
+  fakeAdb(t, ['emulator-5554\tdevice', 'emulator-5556\tdevice'], { listingFails: true })
+  const call = await withKernel(t)
+  assert.equal(
+    (await call('tap', 1, 2)).error,
+    'More than one Android device or emulator is connected. Name one with `serial`, or set ANDROID_SERIAL for the desk.',
+  )
+})

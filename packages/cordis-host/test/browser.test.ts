@@ -8,7 +8,7 @@ import {
   type BrowserEngine,
   type HarnessPlugin,
 } from '../src/index.js'
-import { KEY_NAMES, namedKey, unknownKeyMessage } from '../src/browser.js'
+import { KEY_NAMES, characterKey, namedKey, unknownKeyMessage } from '../src/browser.js'
 
 /**
  * The browser service against an engine that is not Chrome. What the
@@ -620,4 +620,73 @@ test('a modifier turns a named key into a shortcut, and folding its case does no
   assert.deepEqual(keys.slice(3).map((call) => call.params?.['type']), ['rawKeyDown', 'keyUp'])
   assert.equal(keys[3]?.params?.['key'], ' ')
   assert.equal(keys[3]?.params?.['modifiers'], 8)
+})
+
+test('the key under a character: its letter, its digit, or its place on a US layout', () => {
+  // #44: `Key${upper}` was right for letters alone.
+  assert.deepEqual(characterKey('a'), { code: 'KeyA', keyCode: 65 })
+  assert.deepEqual(characterKey('Z'), { code: 'KeyZ', keyCode: 90 })
+  assert.deepEqual(characterKey('7'), { code: 'Digit7', keyCode: 55 })
+  assert.deepEqual(characterKey(','), { code: 'Comma', keyCode: 188 })
+  assert.deepEqual(characterKey('?'), { code: 'Slash', keyCode: 191 }, 'a shifted character names the key it is typed on')
+  assert.deepEqual(characterKey('\\'), { code: 'Backslash', keyCode: 220 })
+  assert.equal(characterKey('é'), null)
+})
+
+test('a shortcut on a digit or a punctuation key goes out as that key', async (t) => {
+  // #44: ⌘1 went out as `Key1` and ⌘, as `Key,`, and a page reading `event.code` saw neither.
+  const { engine, calls } = recordingEngine()
+  setBrowserEngine(engine)
+  t.after(() => setBrowserEngine(null))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load({
+    manifest: { id: 'shortcuts', name: 'Shortcuts', permissions: { browser: true } },
+    plugin: {
+      name: 'shortcuts',
+      inject: ['tools', 'browser'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'press',
+          description: 'Presses each key with ⌘.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: async () => {
+            await ctx.browser.open('http://x/')
+            for (const key of ['1', ',', '?', 'a', 'é']) await ctx.browser.key(key, 1, ['meta'])
+            return 'pressed'
+          },
+        })
+      },
+    },
+  })
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'press')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  assert.equal(result.ok, true, JSON.stringify(result))
+  const downs = calls
+    .filter((call) => call.method === 'Input.dispatchKeyEvent' && call.params?.['type'] === 'rawKeyDown')
+    .map((call) => [call.params?.['key'], call.params?.['code'], call.params?.['windowsVirtualKeyCode']])
+  assert.deepEqual(downs, [
+    ['1', 'Digit1', 49],
+    [',', 'Comma', 188],
+    ['?', 'Slash', 191],
+    ['a', 'KeyA', 65],
+    // Off the layout: the key alone, which a page reading `event.key` still sees.
+    ['é', undefined, undefined],
+  ])
+})
+
+test('the shifted digits and the rest of the punctuation keys', () => {
+  // Round 1 of #160: the map's other entries, unasserted.
+  const cases: [string, string, number][] = [
+    ['!', 'Digit1', 49],
+    [')', 'Digit0', 48],
+    ['+', 'Equal', 187],
+    ['[', 'BracketLeft', 219],
+    [';', 'Semicolon', 186],
+    ["'", 'Quote', 222],
+    ['`', 'Backquote', 192],
+    ['~', 'Backquote', 192],
+  ]
+  for (const [character, code, keyCode] of cases) assert.deepEqual(characterKey(character), { code, keyCode }, character)
 })

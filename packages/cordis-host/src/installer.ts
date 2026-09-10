@@ -196,13 +196,7 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
   const info = await stat(directory).catch(() => null)
   if (!info?.isDirectory()) throw new InstallError(`${directory} is not an installed plugin`)
 
-  let source: PluginSource = { kind: 'local', path: directory }
-  try {
-    source = JSON.parse(await readFile(join(directory, SOURCE_FILENAME), 'utf8')) as PluginSource
-  } catch {
-    // Installed before origins were recorded; the copy is all we know.
-  }
-  const pkg = await readManifestAt(directory, source)
+  const pkg = await readManifestAt(directory, await recordedSource(directory))
   const entry = resolve(directory, pkg.entry)
   if (!pathWithin(directory, entry)) {
     throw new InstallError(`${pkg.manifest.id} points outside its own directory`)
@@ -232,6 +226,35 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
   return { manifest: pkg.manifest, plugin }
 }
 
+/**
+ * One of the two origins an install records, whole: a record of the right kind
+ * with nothing in it is not one (review, round 1). A plugin in the plugins
+ * directory was installed, so `builtin` is not one either: a record saying so
+ * made it look built in, with its Uninstall hidden (review, round 2).
+ */
+const isPluginSource = (value: unknown): value is PluginSource => {
+  if (typeof value !== 'object' || value === null) return false
+  const source = value as { kind?: unknown; path?: unknown; specifier?: unknown }
+  if (source.kind === 'local') return typeof source.path === 'string' && source.path !== ''
+  if (source.kind === 'npm') return typeof source.specifier === 'string' && source.specifier !== ''
+  return false
+}
+
+/**
+ * Where an installed copy came from, as `install()` wrote it down. One
+ * installed before origins were recorded, or whose record is not one, knows
+ * only itself.
+ */
+const recordedSource = async (directory: string): Promise<PluginSource> => {
+  try {
+    const recorded: unknown = JSON.parse(await readFile(join(directory, SOURCE_FILENAME), 'utf8'))
+    if (isPluginSource(recorded)) return recorded
+  } catch {
+    // Installed before origins were recorded.
+  }
+  return { kind: 'local', path: directory }
+}
+
 /** Every plugin currently installed, whether or not it loads. */
 export const listInstalled = async (): Promise<InstalledPlugin[]> => {
   const root = pluginsRoot()
@@ -246,12 +269,11 @@ export const listInstalled = async (): Promise<InstalledPlugin[]> => {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue
     const directory = join(root, entry.name)
     try {
-      const pkg = await readManifestAt(directory, { kind: 'local', path: directory })
-      out.push({
-        id: pkg.manifest.id,
-        directory,
-        source: pkg.manifest.source ?? { kind: 'local', path: directory },
-      })
+      // The origin the install wrote down, as loading reads it: the copy's
+      // own directory called every plugin a local one (#45).
+      const source = await recordedSource(directory)
+      const pkg = await readManifestAt(directory, source)
+      out.push({ id: pkg.manifest.id, directory, source: pkg.manifest.source ?? source })
     } catch {
       // A directory without a readable manifest is not an installed plugin.
       // Listing it would only produce an entry nothing can act on.
