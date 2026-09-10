@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 
 import { digestOf } from './digest.js'
 import { canHostMcp, canonicalMcp, decodeMcpEntry, dialectFor, type McpServerSpec } from './mcp.js'
@@ -981,7 +981,13 @@ export const readDefinition = (
       {
         files: [
           {
-            path: request.path.slice(request.path.lastIndexOf('/') + 1),
+            /* `basename`, not a slice at the last `/`. On Windows the
+               separator is `\\`, `lastIndexOf('/')` answers -1, and
+               `slice(0)` hands back the whole absolute path where a bare
+               filename was wanted — so the bundle manifest listed
+               `C:\\Users\\…\\skill.md` as the file's name. `basename`
+               is the platform's own rule for this and needs no branch. */
+            path: basename(request.path),
             bytes: Buffer.byteLength(text),
           },
         ],

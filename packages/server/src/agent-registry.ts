@@ -4,6 +4,8 @@ import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
+import { whichOnPath } from './installs/which.js'
+
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import type {
   AcpRegistryCatalogInfo,
@@ -207,16 +209,6 @@ const bridgeEntryOf = (template: AgentTemplate): string | null => {
   if (!template.bridge) return null
   const entry = siblingEntry(`${template.bridge}/dist/src/main.js`)
   return existsSync(entry) ? entry : null
-}
-
-const whichOnPath = async (command: string): Promise<string | null> => {
-  try {
-    const { stdout } = await run('/usr/bin/which', [command], { timeout: 5_000 })
-    const found = stdout.trim().split('\n')[0]
-    return found && found.length > 0 ? found : null
-  } catch {
-    return null
-  }
 }
 
 /** The full config a stored template entry stands for. Null when this build cannot serve it. */
@@ -464,7 +456,12 @@ export class AgentDirectory {
       readonly build: (config: AcpAgentConfig) => AgentRuntime
       /** The usage sources this agent's CLI earns, if any. See `localUsageFor`. */
       readonly usageFor: (config: AcpAgentConfig) => AgentUsageBinding | null
-      readonly which?: (command: string) => Promise<string | null>
+      /**
+   * Where a command on PATH is. Awaited by its callers, so the shared
+   * implementation can be — and is — synchronous: it walks PATH with a few
+   * `stat` calls rather than spawning anything. Tests still inject promises.
+   */
+  readonly which?: (command: string) => string | null | Promise<string | null>
       /** The public ACP registry; without one, its requests say so. */
       readonly registry?: Pick<AcpRegistry, 'catalog' | 'resolve' | 'uninstall'> &
         Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion'>>

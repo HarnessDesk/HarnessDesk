@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { writeFileSync, appendFileSync } from 'node:fs'
+import { appendFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -261,4 +261,63 @@ test('a second scan reads only what was appended', async () => {
   await ledger.scan()
   assert.equal(ledger.query({ days: 30, groupBy: 'model' }).totalCost, 20, 'the first message is not read again')
   ledger.close()
+})
+
+/**
+ * A transcript written with `\r\n`, scanned twice.
+ *
+ * The offset a pass returns is where the next pass starts, so it has to be a
+ * byte count of what was actually read. It was `byteLength(line) + 1` — a
+ * guess that one `\n` had ended each line, made from a string `readline` had
+ * already stripped the terminator from. On a CRLF file the guess is short by
+ * a byte per line, and the error accumulates: the next pass starts inside a
+ * terminator, reads a fragment, fails to parse it, and breaks. That file then
+ * yields nothing ever again, because every later pass restarts from the same
+ * bad offset — a ledger that silently stops counting one agent's work.
+ */
+const crlf = (line: string): string => line.replace(/\n$/, '\r\n')
+
+test('a CRLF transcript is counted, and keeps being counted as it grows', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const usage = { input_tokens: 1, output_tokens: 10 }
+  const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+  writeFileSync(path, crlf(claudeLine('msg_1', usage)) + crlf(claudeLine('msg_2', usage)))
+  const first = await scanClaudeTranscript(target, 0, [])
+  assert.equal(first.rows[0]?.requests, 2)
+  /* The whole file, to the byte. A short answer here is the defect: it is
+     what makes the *next* pass start mid-terminator. */
+  assert.equal(first.offset, statSync(path).size, 'the offset is where the file actually ends')
+
+  appendFileSync(path, crlf(claudeLine('msg_3', usage)))
+  const second = await scanClaudeTranscript(target, first.offset, first.tail)
+  assert.equal(second.rows[0]?.requests, 1, 'the appended line is read')
+  assert.equal(second.offset, statSync(path).size)
+})
+
+test('an LF transcript is unchanged by the byte counting', async () => {
+  // The control: the ordinary case is the whole of what this code is for.
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const usage = { input_tokens: 1, output_tokens: 10 }
+  const target = { runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 } as const
+
+  writeFileSync(path, claudeLine('msg_1', usage) + claudeLine('msg_2', usage))
+  const first = await scanClaudeTranscript(target, 0, [])
+  assert.equal(first.rows[0]?.requests, 2)
+  assert.equal(first.offset, statSync(path).size)
+
+  appendFileSync(path, claudeLine('msg_3', usage))
+  const second = await scanClaudeTranscript(target, first.offset, first.tail)
+  assert.equal(second.rows[0]?.requests, 1)
+})
+
+test('a CRLF file whose last line is half-written leaves it for the next pass', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const whole = crlf(claudeLine('msg_1', { input_tokens: 1, output_tokens: 10 }))
+  writeFileSync(path, `${whole}{"type":"assistant","mess`)
+  const result = await scanClaudeTranscript({ runtime: 'c', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(result.offset, Buffer.byteLength(whole, 'utf8'), 'the partial line is not consumed')
 })
