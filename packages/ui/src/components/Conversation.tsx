@@ -680,8 +680,11 @@ export const Conversation = ({
  * workspace it will start in; *choosing* somewhere else — a worktree — is
  * the composer's Work in control, because that is a decision about the
  * message being written, not a fact about a conversation that exists.
+ *
+ * Exported for its own test (`Conversation.git.test.tsx`); nothing else
+ * mounts it.
  */
-const GitControl = ({
+export const GitControl = ({
   onRemoveWorktree,
   onBringHome,
 }: {
