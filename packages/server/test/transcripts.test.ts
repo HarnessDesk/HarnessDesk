@@ -87,6 +87,37 @@ test('a turn the backend no longer lists is not brought back', async () => {
   })
 })
 
+/**
+ * A publication is the host's own item: no backend read ever carries one.
+ * So the rule that a read which knows as much is returned untouched has one
+ * exception — the host's rows are put back where they stood, whichever list
+ * stands. The control below it is the same read without a publication,
+ * which is still returned untouched.
+ */
+test('a publication the host recorded is carried into a read that already knows as much', async () => {
+  await withStore(async (store) => {
+    const publication = {
+      ...item('p', 'publication'),
+      reference: { kind: 'pullRequest', repo: 'acme/widgets', number: 7, url: 'https://github.com/acme/widgets/pull/7', via: 'gh' },
+    } as unknown as AgentItem
+    store.record(session([turn('t1', [item('u', 'userMessage'), publication, item('a', 'assistantMessage')])]), { now: true })
+    await store.flush()
+    // The backend knows three items too — one of them a step it stored and never streamed.
+    const asMuch = session([turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage'), item('x', 'reasoning')])])
+    const enriched = await store.enrich(asMuch)
+    assert.deepEqual(
+      enriched.turns[0]?.items.map((entry) => entry.type),
+      ['userMessage', 'publication', 'assistantMessage', 'reasoning'],
+      'the backend’s list, with the host’s row put back at its place',
+    )
+    // The control: without a publication, as much is as much.
+    store.record(session([turn('t2', [item('u2', 'userMessage'), item('a2', 'assistantMessage')])]), { now: true })
+    await store.flush()
+    const plain = session([turn('t2', [item('u2', 'userMessage'), item('a2', 'assistantMessage')])])
+    assert.equal(await store.enrich(plain), plain)
+  })
+})
+
 test('a read that already knows as much is returned untouched', async () => {
   await withStore(async (store) => {
     const full = session([turn('t1', [item('u', 'userMessage'), item('c', 'command')])])
@@ -388,5 +419,16 @@ test('a conversation the backend refuses is recovered from the store alone', asy
     assert.deepEqual(recovered.usage, usage)
 
     assert.equal(await store.recover(runtimeId('codex'), sessionId('never-seen')), null, 'nothing invents a transcript')
+  })
+})
+
+test('forgetting a session cancels the write still queued for it', async () => {
+  // #36: the queue was keyed with a NUL and forget() looked for a space, so a
+  // deleted conversation's transcript was written back a moment later.
+  await withStore(async (store, dir) => {
+    store.record(session([turn('t1', [item('i1', 'assistantMessage')])]))
+    await store.forget(runtimeId('codex'), sessionId('s1'))
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    assert.deepEqual(await readdir(dir, { recursive: true }), [])
   })
 })

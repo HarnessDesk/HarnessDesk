@@ -137,6 +137,7 @@ const FALLBACK_RUNTIME: RuntimeInfo = {
     extensionStore: false,
     hooks: false,
     pluginTools: false,
+    instructions: false,
     backgroundTasks: false,
     archiveHistory: false,
   nameHistory: false,

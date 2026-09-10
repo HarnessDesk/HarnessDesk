@@ -262,6 +262,88 @@ export interface ErrorItem extends ItemBase {
   readonly code?: string
 }
 
+/**
+ * Something on a git forge that a conversation published or touched through
+ * the desk — a pull request opened or updated, a review or a comment posted.
+ * Recorded by the host at the moment the desk's own tool did it, so the
+ * transcript can draw the object rather than a line of shell output, and the
+ * same shape the branch bar and the repository pane read for a pull request
+ * they found on their own.
+ */
+export interface ForgeReference {
+  readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'
+  /** What the conversation did to it; absent for something merely looked up. */
+  readonly action?: 'opened' | 'updated' | 'posted'
+  /**
+   * What a review or a comment is on, said rather than guessed: the row
+   * reads "Commented on the issue" because the plugin said so, never
+   * because the reference happened to carry no size.
+   */
+  readonly subject?: 'pullRequest' | 'issue'
+  /** `owner/name`, as the forge spells it. */
+  readonly repo: string
+  readonly number: number
+  readonly url: string
+  readonly title: string | null
+  readonly state: 'open' | 'draft' | 'merged' | 'closed' | null
+  /** The forge login of whoever it is authored as. */
+  readonly author: string | null
+  readonly additions: number | null
+  readonly deletions: number | null
+  readonly files: number | null
+  /** The opening of the body, as the forge holds it, for the card. */
+  readonly excerpt: string | null
+  /** How the desk reached the forge: the person's own `gh`, or the desk's app. */
+  readonly via: 'gh' | 'app'
+  /** The line the desk signed it with, when it signed. */
+  readonly signature: string | null
+}
+
+const FORGE_KINDS = new Set(['pullRequest', 'issue', 'review', 'comment'])
+const FORGE_STATES = new Set(['open', 'draft', 'merged', 'closed'])
+const FORGE_ACTIONS = new Set(['opened', 'updated', 'posted'])
+const FORGE_SUBJECTS = new Set(['pullRequest', 'issue'])
+
+/**
+ * Whether a value is a forge reference in its required parts and types.
+ * Checked where a reference crosses a trust boundary — a plugin in the
+ * child process handing one to the host — so that what lands in every
+ * window's transcript is at least the shape the renderer expects.
+ */
+export const isForgeReference = (value: unknown): value is ForgeReference => {
+  if (typeof value !== 'object' || value === null) return false
+  const ref = value as Record<string, unknown>
+  const optionalString = (field: unknown): boolean => field === null || field === undefined || typeof field === 'string'
+  const optionalNumber = (field: unknown): boolean =>
+    field === null || field === undefined || (typeof field === 'number' && Number.isFinite(field))
+  return (
+    typeof ref['kind'] === 'string' &&
+    FORGE_KINDS.has(ref['kind']) &&
+    typeof ref['repo'] === 'string' &&
+    typeof ref['number'] === 'number' &&
+    Number.isFinite(ref['number']) &&
+    typeof ref['url'] === 'string' &&
+    /^https?:\/\//.test(ref['url']) &&
+    (ref['via'] === 'gh' || ref['via'] === 'app') &&
+    (ref['state'] === null || ref['state'] === undefined || (typeof ref['state'] === 'string' && FORGE_STATES.has(ref['state']))) &&
+    (ref['action'] === undefined || (typeof ref['action'] === 'string' && FORGE_ACTIONS.has(ref['action']))) &&
+    (ref['subject'] === undefined || (typeof ref['subject'] === 'string' && FORGE_SUBJECTS.has(ref['subject']))) &&
+    optionalString(ref['title']) &&
+    optionalString(ref['author']) &&
+    optionalString(ref['excerpt']) &&
+    optionalString(ref['signature']) &&
+    optionalNumber(ref['additions']) &&
+    optionalNumber(ref['deletions']) &&
+    optionalNumber(ref['files'])
+  )
+}
+
+/** A publication: what a conversation put on the forge, through the desk. */
+export interface PublicationItem extends ItemBase {
+  readonly type: 'publication'
+  readonly reference: ForgeReference
+}
+
 export type AgentItem =
   | UserMessageItem
   | AssistantMessageItem
@@ -276,6 +358,7 @@ export type AgentItem =
   | CompactionItem
   | NoticeItem
   | ReviewItem
+  | PublicationItem
   | ErrorItem
 
 export type AgentItemType = AgentItem['type']

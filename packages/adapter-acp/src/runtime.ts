@@ -74,6 +74,7 @@ import {
   type AcpSessionModeState,
   type AcpToolCallUpdate,
   type AcpSessionRow,
+  type AcpPromptMeta,
   type AcpPromptResponse,
   type AcpSessionUpdate,
   type AcpStopReason,
@@ -83,6 +84,7 @@ import {
   type AcpTasksChanged,
   ACP_SESSION_DELETE,
   ACP_SESSION_DELETE_CAPABILITY,
+  ACP_INSTRUCTIONS_CAPABILITY,
   type AcpSessionDeleted,
   ACP_DELEGATION_NOTIFICATION,
   type AcpDelegation,
@@ -166,6 +168,17 @@ export type AcpLaunchDecision =
       }
     }
 
+/**
+ * Where an agent that puts no usage on the wire keeps its own count, read
+ * around a turn. See `AcpAgentConfig.usageRecord`.
+ */
+export interface AcpUsageRecord {
+  /** How far the session's record has got, taken before a turn; null where it cannot be read. */
+  mark(sessionId: string): number | null
+  /** What the record gained after `mark`, in ACP's usage shape; null where it gained nothing readable. */
+  since(sessionId: string, mark: number): AcpUsage | null
+}
+
 export interface AcpAgentConfig {
   /** Stable runtime id, e.g. `claude-code`. Shown nowhere; keyed everywhere. */
   readonly id: string
@@ -220,6 +233,27 @@ export interface AcpAgentConfig {
    */
   readonly resolveExecutable?: (spec: AcpExecutableSpec) => Promise<ResolvedExecutable | null>
   /**
+   * Who the agent is signed in as, from the agent's own files, for an agent
+   * with no status command to ask. ACP has no account query, and a session
+   * that opened proves only *that* the agent is signed in; this names the
+   * account the agent itself wrote down, or returns null when its record
+   * names nobody and "Signed in" is all that can be said. Supplied by the
+   * host, which knows where each agent keeps that record — never by the
+   * registry.
+   */
+  readonly resolveIdentity?: () => Account | null
+  /**
+   * Where an agent that puts no usage on the wire writes it down.
+   * Antigravity's server counts every model call in its own conversation
+   * store and sends none of it over ACP. Asked when a turn opens, for a mark
+   * of where the record stands, and when the turn closes, for what it gained
+   * since — so the turn's usage is the agent's own count, read and never
+   * estimated. Consulted only when the agent's answer carried no usage of
+   * its own. Supplied by the host, which knows where the agent keeps its
+   * store; never by the registry.
+   */
+  readonly usageRecord?: AcpUsageRecord
+  /**
    * How to ask the agent's own CLI who is signed in, and how to sign in and
    * out. ACP cannot answer any of that; the CLI can. See `account.ts`.
    */
@@ -249,7 +283,23 @@ export interface AcpAgentConfig {
      * called over MCP finally knows which conversation called it.
      */
     readonly onSession?: (token: string, sessionId: string) => void
+    /**
+     * Told the token before the open is sent, when the session has no id
+     * yet. The agent spawns the bridge while the open is in flight and the
+     * bridge asks the gateway for its instructions at its own handshake, so
+     * whoever answers that question needs to know whose token it is first.
+     */
+    readonly onOpen?: (token: string) => void
   }
+  /**
+   * The desk's standing instruction for the agent, read when a session is
+   * opened and put in `session/new`'s and `session/load`'s `_meta` under
+   * `harnessdesk.instructions`. A bridge that declared the capability in its
+   * handshake folds it into the agent's own instruction layer; every other
+   * agent ignores the key, and hears the sentence only through the tool
+   * server's own `instructions`, if it accepted one.
+   */
+  readonly instructions?: () => string
   readonly logger?: {
     debug?(message: string, details?: unknown): void
     info?(message: string, details?: unknown): void
@@ -495,6 +545,8 @@ export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
+  /** The agent's bridge declared that it carries the desk's standing instruction. */
+  #briefs = false
 
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
@@ -664,6 +716,7 @@ export class AcpRuntime implements AgentRuntime {
             // which `start` opens eagerly for exactly this reason.
             pluginTools: Boolean(this.#config.toolServer) && !this.#toolServerRefused,
             backgroundTasks: this.#tasks !== null,
+            instructions: this.#briefs,
           }
         : {}),
     }
@@ -717,6 +770,7 @@ export class AcpRuntime implements AgentRuntime {
         ?.harnessdesk
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
+      this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -1521,6 +1575,20 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /**
+   * The open's `_meta` with the desk's standing instruction added under the
+   * `harnessdesk` key, when there is one — beside whatever else the caller
+   * put there, never in place of it. Sent whether or not the bridge declared
+   * it can use it: `_meta` is the slot an agent may ignore.
+   */
+  #briefed(params: Record<string, unknown>): { _meta?: Record<string, unknown> } {
+    const text = this.#config.instructions?.().trim() ?? ''
+    if (text === '') return {}
+    const meta = (params['_meta'] ?? {}) as Record<string, unknown>
+    const ours = (meta['harnessdesk'] ?? {}) as Record<string, unknown>
+    return { _meta: { ...meta, harnessdesk: { ...ours, [ACP_INSTRUCTIONS_CAPABILITY]: text } } }
+  }
+
+  /**
    * `session/new` or `session/load`, with the tool bridge offered unless this
    * agent has already refused it. A refusal is not a failure: retry once
    * without the bridge, remember, and log why the plugin tools are absent.
@@ -1528,6 +1596,8 @@ export class AcpRuntime implements AgentRuntime {
   async #openWithTools<T>(method: 'session/new' | 'session/load', params: Record<string, unknown>): Promise<T> {
     const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
+    // The token's runtime is known now; its session only once the open answers.
+    if (servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
     // The claim closes the loop: the bridge this open spawns carries the
     // token, and whoever built the runtime now learns which session it names.
     const claim = (result: T): T => {
@@ -1538,7 +1608,9 @@ export class AcpRuntime implements AgentRuntime {
       return result
     }
     try {
-      return this.#opened(claim(await this.#connection.request<T>(method, { ...params, mcpServers: servers })))
+      return this.#opened(
+        claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       // The tool-server refusal is answered first, by a retry without the
@@ -1600,6 +1672,11 @@ export class AcpRuntime implements AgentRuntime {
    * The account surface for an agent the desk cannot ask, from what it saw.
    * A stored key already explains a session that opened, so beside one the
    * observation adds nothing; without one it is the only evidence there is.
+   * The observation says *that* the agent is signed in, and the agent's own
+   * record says who as — read through `resolveIdentity` where the host knows
+   * where the agent writes it, "Signed in" where it does not. Only after a
+   * session opened: a record on disk is what the agent will try, not proof
+   * that it still works, and a refusal outranks it.
    * A refusal is answered with the agent's declared methods, as `external`
    * flows: the desk does not drive ACP's `authenticate` yet, so the honest
    * offer is the agent's own words about how to sign in.
@@ -1607,7 +1684,11 @@ export class AcpRuntime implements AgentRuntime {
   #observedAccount(hasKey: boolean): AccountStatus {
     const seen = this.#signIn
     if (seen.state === 'observed') {
-      return { accounts: hasKey ? [] : [{ kind: 'agent', label: 'Signed in', anonymous: true }], signInMethods: [] }
+      if (hasKey) return { accounts: [], signInMethods: [] }
+      return {
+        accounts: [this.#identity() ?? { kind: 'agent', label: 'Signed in', anonymous: true }],
+        signInMethods: [],
+      }
     }
     if (seen.state === 'required') {
       const said = firstSentence(seen.message)
@@ -1622,6 +1703,23 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     return { accounts: [], signInMethods: [] }
+  }
+
+  /**
+   * Who the agent's own record says it is signed in as, or null. A reader
+   * that throws is a record the desk could not read, which says nothing
+   * about the sign-in — so it is logged, and the observation stands.
+   */
+  #identity(): Account | null {
+    try {
+      return this.#config.resolveIdentity?.() ?? null
+    } catch (error) {
+      this.#config.logger?.warn?.('could not read who the agent is signed in as', {
+        agent: this.#config.id,
+        error: String(error),
+      })
+      return null
+    }
   }
 
   async createSession(options: SessionOptions): Promise<AgentSession> {
@@ -1768,6 +1866,11 @@ export class AcpRuntime implements AgentRuntime {
     return this.#config.name
   }
 
+  /** Where this agent keeps its own count of usage, when it puts none on the wire. */
+  get usageRecord(): AcpUsageRecord | undefined {
+    return this.#config.usageRecord
+  }
+
   emit(event: AgentEvent): void {
     for (const listener of this.#listeners) listener(event)
   }
@@ -1889,6 +1992,31 @@ const tokenUsageOf = (usage: AcpUsage): TokenUsage => ({
   outputTokens: usage.outputTokens,
   reasoningOutputTokens: usage.thoughtTokens ?? 0,
 })
+
+/**
+ * A turn's tokens from the `_meta.quota` an agent answers a prompt with, in
+ * ACP's own usage shape. Gemini CLI reports its usage there and nowhere else
+ * — 0.59 sends no `usage` field and no `usage_update` — so until this was read
+ * its sessions had no ring at all. Read by shape, not by agent: whoever sends
+ * the same block is understood the same way.
+ *
+ * Both counts are sums over every model call the turn made, which is what
+ * ACP's `usage` means too. There is no cache or thinking split in the block,
+ * so none is claimed — the cache chip stays silent — and nothing in it says
+ * how big the window is, so the ring is the dashed one. A turn answered
+ * without a model call (a slash command the agent handles itself) reports
+ * zeros, and is recorded as exactly that.
+ */
+const quotaUsageOf = (meta: AcpPromptMeta | null | undefined): AcpUsage | null => {
+  const count = meta?.quota?.token_count
+  const input = count?.input_tokens
+  const output = count?.output_tokens
+  if (!isTokenCount(input) || !isTokenCount(output)) return null
+  return { totalTokens: input + output, inputTokens: input, outputTokens: output }
+}
+
+const isTokenCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
 
 /**
  * A delegation's counts in the protocol's shape.
@@ -2043,7 +2171,7 @@ type SignInObservation =
  * auth_required` with the words "Authentication required" — but -32000 is
  * also the head of JSON-RPC's reserved server-error range, and an agent's
  * "internal server error" wears the same number. So the words decide, in
- * the message or in the details the agent attached: Google Antigravity's
+ * the message or in the details the agent attached: Antigravity's
  * server sends the code and the words, a bridge may send the words alone,
  * and a bare -32000 is a failure of some other kind.
  */
@@ -2412,6 +2540,11 @@ class AcpSession implements AgentSession {
       return []
     })
 
+    // Where the agent's own usage record stands before the turn, for an agent
+    // that counts there rather than on the wire: what it gains from here on
+    // is this turn's.
+    const mark = this.#markRecord()
+
     // ACP's prompt resolves when the *turn* ends; the send contract resolves
     // on acceptance. Fire, return, and settle the turn when the agent does —
     // including when it dies, which must fail the turn, never strand it.
@@ -2419,8 +2552,15 @@ class AcpSession implements AgentSession {
       .request<AcpPromptResponse>('session/prompt', { sessionId: this.id, prompt })
       .then((response) => {
         // The turn's tokens land before the turn does, so the finished turn's
-        // tail already has them to show.
-        if (response.usage) this.#recordTurnUsage(response.usage)
+        // tail already has them to show. ACP's own field first; an agent that
+        // counts in the extension slot instead is read from there, and one
+        // that says nothing at all, from its own record if it keeps one.
+        const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
+        if (usage) this.#recordTurnUsage(usage)
+        // A turn the agent's own record could not account for is not the one
+        // before it: its figures are unknown, so the last turn shows none
+        // rather than the previous turn's under this one's name.
+        else if (this.#host.usageRecord) this.#forgetLastTurn()
         this.#finishTurn(turn, response.stopReason)
       })
       .catch((error: unknown) => this.#failTurn(turn, describeAcp(error)))
@@ -2863,6 +3003,32 @@ class AcpSession implements AgentSession {
       this.#usage = { ...(this.#usage ?? { total: NO_TOKENS, last: NO_TOKENS }), delegated: share }
       this.#emit({ type: 'usage/updated', sessionId: this.id, usage: this.#usage })
     }
+  }
+
+  /** How far the agent's own usage record has got; null where it keeps none the desk can read. */
+  #markRecord(): number | null {
+    try {
+      return this.#host.usageRecord?.mark(this.id) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** What the agent's own record gained since `mark`: the turn just closed, as the agent counted it. */
+  #recordedSince(mark: number | null): AcpUsage | null {
+    if (mark === null) return null
+    try {
+      return this.#host.usageRecord?.since(this.id, mark) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** The last turn's figures withdrawn: this turn's are unknown, and the ones before it are not its. */
+  #forgetLastTurn(): void {
+    if (!this.#usage) return
+    this.#usage = { ...this.#usage, last: NO_TOKENS }
+    this.#emit({ type: 'usage/updated', sessionId: this.id, usage: this.#usage })
   }
 
   /** A finished turn's tokens: they become `last`, and join the running total. */

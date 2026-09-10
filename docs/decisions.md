@@ -183,32 +183,46 @@ below still holds; *which* machine answers it does not have an answer yet.
 
 **The rule:** the row is a fallback, not an instruction.
 
-## A pull request says which seat wrote it
+## A pull request is published through the desk, and the desk signs it
 
 A vendor's own client signs the pull requests its agent opens — "Generated
 with Claude Code" — and the signature is what tells a reviewer which tool,
 on which model, wrote what they are reading. An agent driven from this desk
 signed as nothing, or as the client it was not running in.
 
-So the desk asks it to sign as the seat that did the work: HarnessDesk, then
-the agent, its model and its effort, in the agent's own labels — the host is
-the only party that knows all three, because the renderer never names a
-runtime and the agent does not reliably know what it is running on. The
-instruction travels as context beside the turn in the same envelope every
-other injection uses, so the transcript shows it as what it is rather than
-as something the person typed; once per conversation, and again only when
-the seat changes, because the line names the model. It is a preference, on
-by default, and the host reads it on every send so the switch needs no
-restart. "Once" is measured against what the agent actually received: the
-seat is recorded only after the agent accepts the turn, so a send that failed
-is retried with the envelope, and after a restart the conversation's own
-transcript — the last envelope it carries — says what it was told, so a
-resumed conversation is not told again.
+The first answer was to *tell* the agent: an instruction in the person's own
+message, once per conversation, asking it to end any pull request with the
+line. It was wrong as product design. The sentence was in the conversation
+as a block the person never wrote and had to read past; it relied on the
+agent obeying; and it named what it could see — "Gemini CLI Auto" is not a
+model. Nobody's client works that way. Claude Code signs a pull request
+because *Claude Code opens it*.
 
-*Not done here:* the desk does not detect the pull request itself. The
-agent is told the rule and follows it as it follows any other; a `gh pr
-create` the desk never sees, or an agent that ignores the instruction,
-produces an unsigned pull request. Watching the agent's commands for the
-verb would sign more reliably and would tie the feature to one CLI.
+So the desk opens it. The Git plugin's `pr_create`, `pr_update` and
+`pr_review` tools reach GitHub with the person's own `gh`, exactly as the
+agent's shell would, and add the two things a shell cannot: the signature,
+rendered for the seat that made the call, and the record of the publication
+in the transcript, drawn as the object it is. The seat — agent, model,
+effort, in the agent's own labels, with the agent's automatic choice counted
+as no model — is a fact about the conversation, and the host is the one party
+that knows it; a plugin reads it through `ctx.forge`, which stamps who asked
+and refuses a call that rides no live invocation, as the team plane does.
+The signature is a template in the Git plugin's settings, with placeholders
+for the seat and its parts and a default of “🤖 Generated with
+[HarnessDesk](https://harnessdesk.app) ({seat})”; a person who wants a
+different line writes it there, and a blank line signs nothing. The agent is
+told one sentence, through its own instruction layer — Codex's developer
+instructions, a bridge's system-prompt append, the MCP server's
+`instructions` — never through the conversation, and the sentence names the
+tools rather than the line.
 
-**The rule:** the desk names the seat; the agent writes the line.
+*Not done here:* an agent that reaches for `gh pr create` itself, ignoring
+the sentence, opens an unsigned pull request that the transcript does not
+record. Watching its commands for the verb would catch it, at the cost of
+tying the feature to one CLI; the honest fix is the same one the vendors
+made, which is to make the desk's way the easy way. A GitHub App the desk
+installs later is a second way to reach the forge (`ForgeIdentity.via`), and
+changes nothing above it.
+
+**The rule:** the party that publishes writes the signature; the desk
+publishes.

@@ -955,10 +955,15 @@ export class Team {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'released', intent, 'released by you')
     } else if (action === 'abandon') {
-      this.#patchIntent(board, id, { state: 'abandoned', claim: null })
+      /* The block goes with the work, as it does on release and reopen below.
+         Left standing, a card read done — or abandoned — and blocked at once,
+         and the board draws `blockedReason` ahead of the card's own note, so
+         the Done column showed why the work had once been stopped instead of
+         how it finished. */
+      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
     } else if (action === 'done') {
-      this.#patchIntent(board, id, { state: 'done', claim: null })
+      this.#patchIntent(board, id, { state: 'done', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'completed', intent, 'marked done by you')
       this.#unblock(board, by)
     } else {
@@ -3224,13 +3229,27 @@ export class Team {
       return done
     }
     this.#queuedFiles.add(file)
-    const finish = (outcome: Error | null): void => {
-      settle(outcome)
-      for (const waiting of this.#coalesced.get(file) ?? []) waiting(outcome)
-      this.#coalesced.delete(file)
-    }
     this.#writes = this.#writes.then(async () => {
+      /* The moment this pass stops accepting coalesced callers is the moment
+         it takes the ones it has — here, together, with nothing between.
+
+         They used to be drained at the *end* of the pass, from a list the
+         whole file shared, and a caller could join that list after this pass
+         had already started writing: `#queuedFiles` no longer named the file,
+         so the next write opened a new pass, and a write after *that*
+         coalesced into the new pass while sitting in the old list. The old
+         pass then settled it — told a caller its write was done while its
+         content was still waiting for the next pass, and told it *success*
+         even when that next pass went on to fail. Passes never overlapped on
+         disk; `#writes` is one chain. What was wrong was who each pass
+         reported to. #35. */
       this.#queuedFiles.delete(file)
+      const waiters = this.#coalesced.get(file) ?? []
+      this.#coalesced.delete(file)
+      const finish = (outcome: Error | null): void => {
+        settle(outcome)
+        for (const waiting of waiters) waiting(outcome)
+      }
       const latest = this.#queuedContent.get(file)
       this.#queuedContent.delete(file)
       if (latest === undefined) {

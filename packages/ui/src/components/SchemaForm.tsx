@@ -24,6 +24,14 @@ interface Property {
   readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'stringArray' | 'unsupported'
   readonly options?: readonly string[]
   readonly required: boolean
+  /**
+   * What the plugin uses when the field is left alone, shown as the field's
+   * placeholder — so an untouched setting reads as what it is rather than as
+   * empty, and clearing it is visibly a different act from never touching it.
+   */
+  readonly fallback?: string
+  /** A switch's resting position, for a boolean the plugin defaults on: shown as on until it is touched. */
+  readonly fallbackOn?: boolean
 }
 
 const readProperties = (schema: JsonSchema | undefined): Property[] => {
@@ -43,6 +51,7 @@ const readProperties = (schema: JsonSchema | undefined): Property[] => {
       description?: string
       enum?: unknown[]
       items?: { type?: string }
+      default?: unknown
     }
     const title = entry.title ?? key
     const base = {
@@ -50,6 +59,10 @@ const readProperties = (schema: JsonSchema | undefined): Property[] => {
       title,
       ...(entry.description ? { description: entry.description } : {}),
       required: required.has(key),
+      ...(typeof entry.default === 'string' || typeof entry.default === 'number'
+        ? { fallback: String(entry.default) }
+        : {}),
+      ...(typeof entry.default === 'boolean' ? { fallbackOn: entry.default } : {}),
     }
     if (Array.isArray(entry.enum)) {
       return { ...base, type: 'enum' as const, options: entry.enum.map(String) }
@@ -107,7 +120,7 @@ export const SchemaForm = ({
               property.type === 'boolean' ? (
                 <Toggle
                   label={property.title}
-                  on={Boolean(draft[property.key])}
+                  on={draft[property.key] === undefined ? (property.fallbackOn ?? false) : Boolean(draft[property.key])}
                   onChange={(next) => set(property.key, next)}
                 />
               ) : property.type === 'enum' ? (
@@ -119,8 +132,11 @@ export const SchemaForm = ({
                 />
               ) : property.type === 'string' ? (
                 <Input
-                  className={styles.text}
+                  /* A template is longer than a name: a field whose default
+                     would not fit the ordinary width is given room to read it. */
+                  className={(property.fallback?.length ?? 0) > 32 ? styles.textWide : styles.text}
                   aria-label={property.title}
+                  {...(property.fallback !== undefined ? { placeholder: property.fallback } : {})}
                   value={String(draft[property.key] ?? '')}
                   onChange={(event) => set(property.key, event.target.value)}
                 />
@@ -129,6 +145,7 @@ export const SchemaForm = ({
                   className={styles.number}
                   aria-label={property.title}
                   type="number"
+                  {...(property.fallback !== undefined ? { placeholder: property.fallback } : {})}
                   value={String(draft[property.key] ?? '')}
                   onChange={(event) =>
                     set(

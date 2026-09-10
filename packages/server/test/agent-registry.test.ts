@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import type { RuntimeId, WireNotification } from '@harnessdesk/protocol'
 
 import { AgentDirectory, AgentRegistryStore, slugOf } from '../src/agent-registry.js'
+import { currentNameOf, knownAgent } from '../src/installs/known-agents.js'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 
@@ -369,6 +370,60 @@ test('a registry id that resolves to nothing leaves no row behind', async (t) =>
     /no agent with the id/,
   )
   assert.equal(store.ids().length, 0)
+})
+
+test('a registry name the desk has retired is not the one it lists, shows or writes', async (t) => {
+  const stateDir = await tempDir()
+  const store = new AgentRegistryStore(join(stateDir, 'agents.json'))
+  // What the public registry calls Antigravity, which the desk no longer does.
+  const listed = { id: 'antigravity-acp', name: 'Google Antigravity', version: '1.1.1' }
+  const directory = new AgentDirectory({
+    store,
+    build: (config) => new FakeRuntime({ id: config.id as RuntimeId, name: config.name }),
+    usageFor: () => null,
+    which: async () => null,
+    registry: {
+      async catalog(isRegistered: (id: string) => boolean) {
+        return {
+          fetchedAt: 1,
+          agents: [{ ...listed, run: 'binary' as const, available: true, registered: isRegistered(listed.id) }],
+        }
+      },
+      async resolve() {
+        const entry = {
+          id: listed.id,
+          name: listed.name,
+          command: '/state/acp-agents/antigravity-acp/1.1.1/agy_acp_server.par',
+          registry: { id: listed.id, version: listed.version },
+        }
+        return { entry, config: entry as never }
+      },
+      uninstall() {},
+    },
+  })
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    agents: directory,
+    catalogRefreshMs: 0,
+  })
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+
+  assert.equal((await host.call('agents/registry', {})).agents[0]?.name, 'Antigravity')
+  const result = await host.call('agents/register', { registry: { id: 'antigravity-acp' } })
+  assert.equal(result.info.name, 'Antigravity')
+  assert.equal(store.entry('antigravity-acp')?.['name'], 'Antigravity', 'the file says what the screen says')
+})
+
+test('a retired name is replaced where it is read, and a name someone chose is left alone', () => {
+  const antigravity = knownAgent('antigravity-acp')
+  assert.equal(currentNameOf(antigravity, 'Google Antigravity'), 'Antigravity')
+  assert.equal(currentNameOf(antigravity, 'Work Antigravity'), 'Work Antigravity')
+  assert.equal(currentNameOf(knownAgent('gemini'), 'Gemini CLI'), 'Gemini CLI')
+  assert.equal(currentNameOf(undefined, 'Google Antigravity'), 'Google Antigravity', 'a row the desk cannot place keeps its name')
 })
 
 test('removing a registry-installed agent deletes its download; removing anything else never does', async (t) => {

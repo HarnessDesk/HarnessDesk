@@ -7,7 +7,7 @@ import type { AgentEvent } from '@harnessdesk/protocol'
 import { EventEmitter } from 'node:events'
 
 import { CliAccount } from '../src/account.js'
-import { AcpRuntime, parseStatus } from '../src/index.js'
+import { AcpRuntime, parseStatus, type AcpAgentConfig } from '../src/index.js'
 
 /**
  * The registry-declared account contract: identity from the agent's own CLI,
@@ -224,6 +224,69 @@ test('a -32000 that is not about signing in is not read as a sign-in refusal', a
     await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Internal server error/)
     assert.equal(runtime.info.capabilities.account, false, 'a server error says nothing about the sign-in')
     assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [] })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
+ * Who, not only whether. An agent with no status command may still write
+ * down who it signed in as, and the host hands the adapter a reader for
+ * that record; the observation still decides whether anything is shown.
+ */
+const recorded = (resolveIdentity: AcpAgentConfig['resolveIdentity'], env: Record<string, string> = {}): AcpRuntime =>
+  new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env,
+    ...(resolveIdentity ? { resolveIdentity } : {}),
+  })
+
+const DEV = { kind: 'agent', label: 'dev@example.com', email: 'dev@example.com' }
+
+test('once a session opens, the agent’s own record names the account', async () => {
+  const runtime = recorded(() => DEV)
+  await runtime.start()
+  try {
+    assert.deepEqual(
+      await runtime.getAccount(),
+      { accounts: [], signInMethods: [] },
+      'a record on disk is what the agent will try, not proof that it works',
+    )
+    assert.equal(runtime.info.capabilities.account, false)
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [DEV])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a record that names nobody, or cannot be read, leaves “Signed in” standing', async () => {
+  const unreadable = (): never => {
+    throw new Error('unreadable')
+  }
+  for (const resolveIdentity of [() => null, unreadable]) {
+    const runtime = recorded(resolveIdentity)
+    await runtime.start()
+    try {
+      await runtime.createSession({ cwd: process.cwd() })
+      assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    } finally {
+      await runtime.dispose()
+    }
+  }
+})
+
+test('a refusal outranks the record: the agent’s own answer is the newer evidence', async () => {
+  const runtime = recorded(() => DEV, { FAKE_ACP_AUTH_REQUIRED: '1' })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.signInMethods[0]?.id, 'acp:device')
   } finally {
     await runtime.dispose()
   }
