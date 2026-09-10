@@ -33,6 +33,9 @@ export interface PricingOptions {
 }
 
 const CATALOGUE_URL = 'https://models.dev/api.json'
+
+/** What a dated id adds to its undated name: `-20251001`, `-2024-11-20`, `@20240620`, `-latest`. */
+const DATED = /^[-@](?:\d{8}|\d{4}-\d{2}-\d{2}|latest)$/
 const DAY = 86_400_000
 const PER_MILLION = 1_000_000
 
@@ -189,7 +192,12 @@ export class Pricing {
     for (const [id, entry] of Object.entries(models)) {
       const candidate = id.toLowerCase()
       if (candidate.length <= bestLength) continue
-      if (key.startsWith(candidate) || candidate.startsWith(key)) {
+      /* A catalogue id that extends the asked one names another model unless
+         all it adds is a date: `gpt-4o-2024-11-20` is `gpt-4o`, `gpt-4o-mini`
+         is not. Taking any extension, longest first, priced a model the
+         catalogue lacks as its most specific variant — a `-mini`, a
+         `-turbo-preview` (#32) — and a wrong price is worse than none. */
+      if (key.startsWith(candidate) || (candidate.startsWith(key) && DATED.test(candidate.slice(key.length)))) {
         best = entry
         bestLength = candidate.length
       }

@@ -221,3 +221,27 @@ test('lists branches with the current one marked, and checks out only on a clean
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('a deletion recorded with no content is not put back as an empty file', async () => {
+  // #29: Codex reports a deleted file with an empty diff, and the undo wrote that back.
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'new.txt'), 'fresh\n')
+    await rm(join(dir, 'gone.txt'))
+    const turn = turnOf([
+      fileChange(dir, [
+        { path: join(dir, 'new.txt'), kind: { type: 'add' }, diff: 'fresh\n' },
+        { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: '' },
+      ]),
+    ])
+    await assert.rejects(
+      revertTurn(dir, turn),
+      (error: unknown) => error instanceof RevertError && /gone\.txt: the agent recorded no content/.test(error.message),
+    )
+    // Refused before anything was touched: no empty gone.txt, and the added file still there.
+    await assert.rejects(stat(join(dir, 'gone.txt')))
+    assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'fresh\n')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -252,10 +252,18 @@ interface CodexRecord {
   }
 }
 
-export const scanCodexRollout = async (target: ScanTarget, offset: number): Promise<ScanResult> => {
+export const scanCodexRollout = async (
+  target: ScanTarget,
+  offset: number,
+  tail: readonly string[] = [],
+): Promise<ScanResult> => {
   const into: Accumulator = { rows: new Map() }
-  let model = 'unknown'
-  let project = ''
+  /* The model and the project are said once near the top — `session_meta`,
+     then `turn_context` when they change — and a resumed scan starts after
+     them, so every row it found read 'unknown' with no project (#33). What
+     they were where the last scan stopped travels in the cursor's tail, the
+     slot the Claude scan uses for the message ids it has seen. */
+  let { model, project } = contextFrom(tail)
   const consumed = await readLines(target.path, offset, (raw) => {
     const record = raw as CodexRecord
     const payload = record.payload
@@ -282,7 +290,24 @@ export const scanCodexRollout = async (target: ScanTarget, offset: number): Prom
       reasoning: positive(last.reasoning_output_tokens),
     })
   })
-  return { rows: [...into.rows.values()], offset: consumed, tail: [] }
+  return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify({ model, project })] }
+}
+
+/** The model and project a Codex scan had reached, from the tail it left; nothing known, if none. */
+const contextFrom = (tail: readonly string[]): { model: string; project: string } => {
+  try {
+    const parsed: unknown = JSON.parse(tail[0] ?? '')
+    if (parsed !== null && typeof parsed === 'object') {
+      const { model, project } = parsed as Record<string, unknown>
+      return {
+        model: typeof model === 'string' && model !== '' ? model : 'unknown',
+        project: typeof project === 'string' ? project : '',
+      }
+    }
+  } catch {
+    // A cursor written before the tail carried this — or none at all.
+  }
+  return { model: 'unknown', project: '' }
 }
 
 interface ClaudeRecord {
@@ -339,7 +364,7 @@ export const scanClaudeTranscript = async (
 }
 
 export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[]): Promise<ScanResult> =>
-  target.kind === 'codex' ? scanCodexRollout(target, offset) : scanClaudeTranscript(target, offset, tail)
+  target.kind === 'codex' ? scanCodexRollout(target, offset, tail) : scanClaudeTranscript(target, offset, tail)
 
 /** Every `.jsonl` under a root, with the stats a cursor needs. */
 const walkJsonl = async (root: string, limit: number): Promise<{ path: string; size: number; mtime: number }[]> => {

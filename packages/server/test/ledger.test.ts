@@ -406,3 +406,54 @@ test('a chunk boundary that lands between the CR and the LF is still one line br
   assert.equal(result.rows[0]?.requests, 2, 'both records survive the split terminator')
   assert.equal(result.offset, statSync(path).size)
 })
+
+test('an id the catalogue lacks is priced by a dated extension of it, never by a variant', async () => {
+  // #32: any catalogue id that extended the asked one matched, and the longest won.
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-opus-5-20260101': { id: 'claude-opus-5-20260101', cost: { input: 5, output: 25 } },
+          'claude-opus-5-fast-preview': { id: 'claude-opus-5-fast-preview', cost: { input: 60, output: 300 } },
+          'claude-sonnet-5-mini': { id: 'claude-sonnet-5-mini', cost: { input: 0.1, output: 0.5 } },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  // The undated name of a dated id is that model.
+  assert.equal(pricing.rateFor('claude-opus-5')?.input, 5 / 1_000_000)
+  // A variant is another model: no price, rather than its price.
+  assert.equal(pricing.rateFor('claude-sonnet-5'), null)
+})
+
+test('a resumed Codex scan keeps the model and project it had read', async () => {
+  // #33: both are said near the top of a rollout, and a resumed scan starts after them.
+  const dir = scratch()
+  const path = join(dir, 'rollout.jsonl')
+  const line = (record: object): string => `${JSON.stringify(record)}\n`
+  const spent = (at: string): string =>
+    line({
+      type: 'event_msg',
+      timestamp: at,
+      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0 } } },
+    })
+  writeFileSync(
+    path,
+    line({ type: 'session_meta', timestamp: '2026-09-10T11:00:00Z', payload: { cwd: dir, model: 'gpt-5.5' } }) + spent('2026-09-10T11:01:00Z'),
+  )
+  const target = { path, runtime: 'codex', kind: 'codex', size: 0, mtime: 0 } as unknown as Parameters<typeof scanCodexRollout>[0]
+  const first = await scanCodexRollout(target, 0, [])
+  appendFileSync(path, spent('2026-09-10T11:02:00Z'))
+  const second = await scanCodexRollout(target, first.offset, first.tail)
+
+  const read = (row: unknown) => row as { model: string; project: string }
+  assert.equal(read(first.rows[0]).model, 'gpt-5.5', 'the control: the first scan saw the model')
+  assert.notEqual(read(first.rows[0]).project, '')
+  assert.equal(second.rows.length, 1, 'only the appended event')
+  assert.equal(read(second.rows[0]).model, 'gpt-5.5')
+  assert.equal(read(second.rows[0]).project, read(first.rows[0]).project)
+})
