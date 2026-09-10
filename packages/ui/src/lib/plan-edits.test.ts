@@ -139,3 +139,13 @@ describe('planEditNote', () => {
     expect(planEditNote(todos('A'), [{ from: 'Gone', to: 'Reworded' }])).toBeNull()
   })
 })
+
+describe('an edit to a duplicate task', () => {
+  it('retires an edit to a duplicate the plan no longer has', () => {
+    // #86: liveness asked only whether the label was there, so an edit to its second occurrence
+    // outlived that row and waited to reword the next duplicate the agent wrote.
+    const edits = [{ from: 'Run the tests', to: 'Run the tests again', at: 1 }]
+    expect(livePlanEdits(todos('Run the tests', 'Ship', 'Run the tests'), edits)).toEqual(edits)
+    expect(livePlanEdits(todos('Run the tests', 'Ship'), edits)).toEqual([])
+  })
+})

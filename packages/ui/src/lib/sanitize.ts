@@ -66,9 +66,17 @@ export const sanitizeHtml = (html: string): string => {
       // Unwrapping hoists children into a list this loop has already passed, so
       // cleaning them afterwards would never happen — which is exactly how an
       // unknown wrapper could smuggle an event handler through.
-      if (depth < MAX_DEPTH) walk(child, depth + 1)
+      /* Past the depth cap nothing below is walked, so nothing below may stay
+         an element. Hoisting its children kept them whole, attributes and
+         all, in a list this loop had already passed: an `<img onerror>` at
+         depth 101 went through (#38). Its text is all that is kept. */
+      if (depth >= MAX_DEPTH) {
+        child.replaceWith(document.createTextNode(child.textContent ?? ''))
+        continue
+      }
+      walk(child, depth + 1)
 
-      if (!ALLOWED_TAGS.has(tag) || depth >= MAX_DEPTH) {
+      if (!ALLOWED_TAGS.has(tag)) {
         // Keep the text, drop the element.
         child.replaceWith(...child.childNodes)
         continue

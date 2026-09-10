@@ -124,3 +124,13 @@ describe('sanitizeHtml', () => {
     )
   })
 })
+
+test('markup nested past the depth cap keeps its text and none of its elements', () => {
+  // #38: past the cap the children were hoisted unsanitised, so an event handler below depth 100 survived.
+  const deep = `${'<div>'.repeat(120)}<img src="x" onerror="alert(1)"><a href="javascript:alert(2)">link</a>text${'</div>'.repeat(120)}`
+  const out = sanitizeHtml(deep)
+  expect(out).not.toContain('<img')
+  expect(out).not.toContain('onerror')
+  expect(out).not.toContain('javascript:')
+  expect(out).toContain('linktext')
+})

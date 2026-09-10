@@ -29,7 +29,7 @@ import {
 export const THRESHOLDS = [80, 95] as const
 
 export interface UsageAlert {
-  /** Stable across re-renders: agent, lane, reset cycle, line crossed. */
+  /** Stable across re-renders: agent, account, lane, reset cycle, line crossed. */
   readonly key: string
   readonly runtime: RuntimeId
   readonly message: string
@@ -37,16 +37,20 @@ export interface UsageAlert {
 
 const cycleOf = (resetsAt: number | null): string => (resetsAt === null ? 'none' : String(resetsAt))
 
-const laneKey = (runtime: RuntimeId, laneId: string, resetsAt: number | null): string =>
-  `${runtime}:${laneId}:${cycleOf(resetsAt)}`
+/* The account is part of it, when a report names one: one agent can report
+   for two, a personal and a work Codex, and keyed without it the two readings
+   overwrote each other, so one account's reading was compared with the
+   other's (#88). A report that names none keys as it always did. */
+const laneKey = (report: UsageReport, laneId: string, resetsAt: number | null): string =>
+  `${report.runtime}${report.account === null ? '' : `@${report.account}`}:${laneId}:${cycleOf(resetsAt)}`
 
-/** Every known lane in a set of reports, by agent, lane and reset cycle. */
+/** Every known lane in a set of reports, by agent, account, lane and reset cycle. */
 const index = (reports: readonly UsageReport[]): Map<string, { report: UsageReport; usedPercent: number }> => {
   const map = new Map<string, { report: UsageReport; usedPercent: number }>()
   for (const report of reports) {
     for (const lane of report.lanes) {
       if (lane.usageKnown === false || lane.placeholder === true) continue
-      map.set(laneKey(report.runtime, lane.id, lane.resetsAt), { report, usedPercent: lane.usedPercent })
+      map.set(laneKey(report, lane.id, lane.resetsAt), { report, usedPercent: lane.usedPercent })
     }
   }
   return map
@@ -70,7 +74,7 @@ export const crossings = (
   for (const report of after) {
     for (const lane of report.lanes) {
       if (lane.usageKnown === false || lane.placeholder === true) continue
-      const key = laneKey(report.runtime, lane.id, lane.resetsAt)
+      const key = laneKey(report, lane.id, lane.resetsAt)
       const was = previous.get(key)
       // Nothing to compare against: the first sight of a lane is not an event.
       if (!was) continue
