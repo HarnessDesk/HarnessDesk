@@ -97,8 +97,20 @@ export const livePlanEdits = (
   edits: readonly PlanEdit[],
 ): PlanEdit[] => {
   if (todos.length === 0) return edits.slice(-MAX_EDITS)
-  const labels = new Set(todos.map((todo) => todo.label))
-  return edits.filter((edit) => labels.has(edit.from)).slice(-MAX_EDITS)
+  /* How many times the plan says each label: an edit to its second
+     occurrence lives only while there is a second one. Asked whether the
+     label was there at all, an edit outlived its row and waited to reword the
+     next duplicate the agent wrote (#86). */
+  const counts = new Map<string, number>()
+  for (const todo of todos) counts.set(todo.label, (counts.get(todo.label) ?? 0) + 1)
+  return edits
+    .filter((edit) => {
+      const at = edit.at ?? 0
+      // An occurrence is a count from zero; a stored one that is not was
+      // never written by an edit, and names no row (review, round 1).
+      return Number.isInteger(at) && at >= 0 && (counts.get(edit.from) ?? 0) > at
+    })
+    .slice(-MAX_EDITS)
 }
 
 /** Records one edit, replacing any the same task already had. */
