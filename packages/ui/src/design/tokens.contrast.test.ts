@@ -353,8 +353,11 @@ describe('every accent can carry the ink on its own brand', () => {
   const accents = (): { face: string; fill: Rgb; ink: Rgb }[] => {
     const out: { face: string; fill: Rgb; ink: Rgb }[] = []
     const block = /body\[data-hd-accent='(\w+)'\](\[data-hd-dark-theme\])?\s*\{([^}]*)\}/g
-    /* A dark block inherits the light block's ink unless it sets its own, so
-       the light face is resolved first and carried forward. */
+    /* Where a dark block sets no ink of its own, the light block's is carried
+       forward here. The app does not do that on every palette: a palette's
+       own dark face outranks an accent's light block, so the test below holds
+       every dark block to declaring its own, and this carry-forward only ever
+       sees ink that is declared (#90). */
     const inherited = new Map<string, Rgb>()
     for (const match of accentSheet.matchAll(block)) {
       const name = match[1] ?? ''
@@ -401,3 +404,23 @@ describe('every accent can carry the ink on its own brand', () => {
     expect(failures, `accents whose muted ink falls under ${UI}:1`).toEqual([])
   })
 })
+
+describe("every accent's dark face declares its own ink, because the palette's dark face outranks the accent's light one", () => {
+  // #90: violet's dark block declared neither, so on shadcn the palette's #171717 inked a violet button,
+  // and on editorial the label ink was the palette's #262624. Measured in the app; the sheet is the cause.
+  const darkBlocks = [...accentSheet.matchAll(/body\[data-hd-accent='(\w+)'\]\[data-hd-dark-theme\]\s*\{([^}]*)\}/g)]
+
+  it('reads the dark blocks', () => {
+    expect(darkBlocks.length).toBeGreaterThanOrEqual(4)
+  })
+
+  for (const match of darkBlocks) {
+    const name = match[1] ?? ''
+    const body = match[2] ?? ''
+    it(`${name} declares both inks in its dark face`, () => {
+      expect(body, `${name}: --hd-primary-foreground`).toMatch(/--hd-primary-foreground:/)
+      expect(body, `${name}: --hdp-alias-label-primary-foreground`).toMatch(/--hdp-alias-label-primary-foreground:/)
+    })
+  }
+})
+

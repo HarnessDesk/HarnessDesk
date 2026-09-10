@@ -40,6 +40,12 @@ describe('describeLimits', () => {
     expect(view?.credits?.label).toBe('1,200 credits')
   })
 
+  it('shows a prepaid balance of zero, rather than nothing', () => {
+    // #85: `hasCredits && balance` was false at 0, so an empty balance read as no balance at all.
+    expect(describeLimits({ hasCredits: true, balance: 0, windows: [] })?.credits).toEqual({ label: '0 credits', tone: 'bad' })
+    expect(describeLimits({ hasCredits: true, balance: 1200, windows: [] })?.credits).toEqual({ label: '1,200 credits', tone: 'good' })
+  })
+
   it('returns nothing for an unmetered runtime', () => {
     expect(describeLimits(null)).toBeNull()
   })
