@@ -198,6 +198,12 @@ const mapFunctionCallOutputContent = (
  * what it can't narrow as JSON.
  */
 const mapDynamicPart = (part: CodexProtocol.v2.DynamicToolCallOutputContentItem): ToolResultContent => {
+  /* The union says every part is an object with a type. One that isn't would
+     throw here, and on the live path a listener's throw is caught and logged,
+     so the whole item would leave the transcript without a word (review of
+     #210). The MCP reading keeps it as what it is instead. */
+  const raw: unknown = part
+  if (typeof raw !== 'object' || raw === null) return mapToolContent(raw)
   switch (part.type) {
     case 'inputText':
       return { type: 'text', text: part.text }
@@ -214,6 +220,17 @@ const mapDynamicContent = (
   if (!items) return undefined
   return items.map(mapDynamicPart)
 }
+
+/**
+ * What a failed dynamic call said, from its text parts, or nothing. The desk
+ * writes a plugin tool's failure as one text part (`toCodexToolResponse`): a
+ * hook's refusal, "no tool named …", a plugin reloaded mid-session.
+ */
+const failureOf = (content: readonly ToolResultContent[] | undefined): string =>
+  (content ?? [])
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join('\n')
+    .trim()
 
 export const mapItem = (item: ThreadItem): AgentItem => {
   const id = itemId(item.id)
@@ -298,7 +315,10 @@ export const mapItem = (item: ThreadItem): AgentItem => {
         status: mapStatus(item.status),
         args: item.arguments,
         ...(content ? { result: content } : {}),
-        ...(item.success === false ? { error: 'Tool reported failure' } : {}),
+        /* The reason it came with, where there is one. The transcript draws
+           a call's error in place of its result, so the constant alone hid
+           the one thing the person needed (#241). */
+        ...(item.success === false ? { error: failureOf(content) || 'Tool reported failure' } : {}),
         ...(item.durationMs !== null ? { durationMs: item.durationMs } : {}),
       }
     }
