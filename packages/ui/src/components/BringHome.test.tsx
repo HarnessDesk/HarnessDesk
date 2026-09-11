@@ -46,7 +46,8 @@ const rig = async ({
   changes = CLEAN,
   refusal = null,
   unread = null,
-}: { changes?: WorktreeChanges; refusal?: string | null; unread?: string | null } = {}) => {
+  mainChanges = CLEAN,
+}: { changes?: WorktreeChanges; refusal?: string | null; unread?: string | null; mainChanges?: WorktreeChanges } = {}) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -58,9 +59,9 @@ const rig = async ({
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: {
-      request: vi.fn(async () => {
+      request: vi.fn(async (_method: string, params: { path: string }) => {
         if (unread) throw new Error(unread)
-        return changes
+        return params.path === MAIN.path ? mainChanges : changes
       }),
     },
     bringWorktreeHome: vi.fn(async () => refusal),
@@ -152,4 +153,12 @@ it('says what it could not read, and offers no move it cannot back', async () =>
 
   expect(document.body.textContent).toContain('fatal: not a git repository')
   expect(button('Bring it back')?.disabled).toBe(true)
+})
+
+it('says what the main checkout has not committed, since git carries it onto the branch', async () => {
+  await rig({ mainChanges: { modified: 2, untracked: 0, unpushedCommits: 0, files: ['a.ts', 'b.ts'] } })
+
+  expect(document.body.textContent).toContain(
+    'repo has 2 modified files not committed. Git carries them onto harnessdesk/parser, or refuses the switch if they clash with it.',
+  )
 })

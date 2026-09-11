@@ -588,8 +588,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     setText('')
     setAttachments([])
     setTrigger({ kind: 'none' })
-    // The message has left the box; whatever is typed now is another one.
-    release()
+    // The message has left the box, and what is typed now is another one — to
+    // a conversation that exists. A draft's first send is still making one (a
+    // worktree, an agent), and a second send would make a second, so a draft
+    // holds until the first is through.
+    if (key) release()
 
     if (mode === 'now' && busy && canSteer) {
       await store.steer(content, key)
@@ -625,7 +628,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
      before the box is cleared, so a second Enter in that window sent the same
      message twice, and on a draft with a new worktree armed, cut two. The
      hold ends when the box is cleared: what is typed after that is a new
-     message, and a steer on ⌘Enter behind a queued one must still go. */
+     message, and a steer on ⌘Enter behind a queued one must still go — in a
+     conversation that exists. A draft holds until its first send has made one. */
   const sending = useRef<object | null>(null)
   const submit = useCallback(
     async (mode: 'auto' | 'now' = 'auto') => {

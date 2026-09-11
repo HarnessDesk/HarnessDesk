@@ -2995,14 +2995,18 @@ export class AppStore {
     if (typeof home === 'string') {
       // A refusal usually moves nothing. But a switch refused after the
       // worktree had gone, with git refusing to put it back, leaves the folder
-      // gone too — and the list, read again, is what says so.
+      // gone too — and git's own list is what says so. It is asked of the main
+      // checkout, which a refusal never moves (the worktree may have been the
+      // open folder, and gone), and only a list that was actually read counts:
+      // one that could not be read says nothing about the folder.
+      const now = main ? await this.transport.request('worktree/list', { root: main }).catch(() => null) : null
       await this.loadWorktrees()
-      if (listed && !this.#snapshot.worktrees.some((entry) => entry.path === path)) {
+      if (listed && now !== null && !now.some((entry) => entry.path === path)) {
         // What a removal does, and the words where they will stay: the dialog
         // that asked closes with the pane it belongs to.
         this.notice('warning', home)
         if (main && this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(main)
-        this.#closePanesWhere(inside)
+        this.#closeConversationsWhere(inside)
       }
       return home
     }
@@ -3020,18 +3024,28 @@ export class AppStore {
     if (key && session && inside(session.cwd)) {
       await this.handOff(splitSessionKey(key).runtime, 'summary', key, { cwd: home.root })
     }
-    this.#closePanesWhere(inside)
+    this.#closeConversationsWhere(inside)
     // The main checkout's branch changed under the window; read it again.
     await this.loadWorkspaces()
     return null
   }
 
-  /** Closes every pane whose conversation lives in a folder that is gone. */
-  #closePanesWhere(gone: (cwd: string) => boolean): void {
+  /**
+   * Closes every conversation that lives in a folder that is gone — in a pane,
+   * and in a panel. Docking a conversation is refused today, but a stored
+   * layout still restores one and `#resumeVisible` resumes it, so it is
+   * undocked the way a restore that could not reach its session undocks one.
+   */
+  #closeConversationsWhere(gone: (cwd: string) => boolean): void {
     for (const pane of panes(this.#snapshot.layout.root)) {
       const key = sessionOf(pane)
       const session = key ? this.#snapshot.sessions.get(key) : undefined
       if (session && gone(session.cwd)) this.closePane(pane.id)
+    }
+    for (const entry of mountedViewsIn(this.#snapshot.workbench)) {
+      const view = entry.mounted.view
+      const session = view.kind === 'conversation' && view.session ? this.#snapshot.sessions.get(view.session) : undefined
+      if (session && gone(session.cwd)) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
     }
   }
 

@@ -160,3 +160,26 @@ it('sends once when Enter comes again while the packet is still being built', as
     calls.handoffPacket.mockImplementation(async () => null)
   }
 })
+
+it("waits for a draft's first send to make its conversation before it takes another", async () => {
+  // A second send from the draft would cut a second worktree and start a second agent.
+  const queued: Array<(ok: boolean) => void> = []
+  calls.handoffPacket.mockImplementation(async () => '<context source="Handed off from OpenAI Codex — “Build pong”">…</context>')
+  calls.queue.mockImplementation(() => new Promise<boolean>((resolve) => queued.push(resolve)))
+  try {
+    mount()
+    type('Start the scoring.')
+    enter()
+    await act(async () => {})
+    type('And the sound.')
+    enter()
+    await act(async () => {})
+
+    expect(calls.queue).toHaveBeenCalledTimes(1)
+    expect(textarea().value).toBe('And the sound.')
+  } finally {
+    for (const finish of queued) finish(true)
+    calls.handoffPacket.mockImplementation(async () => null)
+    calls.queue.mockImplementation(async () => true)
+  }
+})

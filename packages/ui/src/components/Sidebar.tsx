@@ -304,7 +304,7 @@ const WorktreeMenu = () => {
           />
           {mine.length > 0 && (
             <>
-              <MenuLabel>Open one</MenuLabel>
+              <MenuLabel>Start in one</MenuLabel>
               {mine.map((worktree) => (
                 <MenuItem
                   key={worktree.path}

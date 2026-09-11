@@ -449,3 +449,44 @@ test('a worktree put back after a refused switch names what git ignores there, w
   assert.equal((await git(tree.path, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/configured', 'the worktree is back on its branch')
   await assert.rejects(stat(join(tree.path, '.env')), 'and the .env did not come back, as the error says')
 })
+
+/**
+ * The removal is the first thing that changes anything, and git can refuse it:
+ * a locked worktree, a submodule, a file the agent wrote in between. Its
+ * refusal is git's sentence like every other one this verb gives, not
+ * "Command failed: git -C /long/path", and nothing has moved yet.
+ */
+test('a removal git refuses is said in its own words, and nothing moves', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'held' })
+  await git(repo, 'worktree', 'lock', '--reason', 'kept for a reason', tree.path)
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /Command failed/)
+    assert.match(error.message, /could not remove the worktree/)
+    assert.match(error.message, /locked/, "git's own reason")
+    return true
+  })
+  await assert.rejects(worktrees.remove(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /Command failed/, 'and the same for a plain removal')
+    assert.match(error.message, /locked/)
+    return true
+  })
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'nothing moved')
+  assert.ok((await stat(tree.path)).isDirectory(), 'the worktree is still there')
+})
+
+/** A main checkout on no branch takes the worktree's, and `from` says it was on none. */
+test("a main checkout on no branch takes the worktree's branch, and says it was on none", async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'from detached' })
+  await git(repo, 'checkout', '-q', '--detach')
+
+  const home = await worktrees.bringHome(tree.path)
+
+  assert.equal(home.from, null)
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/from-detached')
+})

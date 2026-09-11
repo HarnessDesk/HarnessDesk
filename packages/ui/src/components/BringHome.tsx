@@ -45,10 +45,12 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
   const runtime = useRuntime()
   const [changes, setChanges] = useState<WorktreeChanges | null>(null)
   const [unread, setUnread] = useState<string | null>(null)
+  const [mainChanges, setMainChanges] = useState<WorktreeChanges | null>(null)
   const [refused, setRefused] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const main = snapshot.worktrees.find((entry) => entry.isMain)
   const folder = main?.path.split('/').filter(Boolean).at(-1) ?? 'the main checkout'
+  const mainPath = main?.path ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -65,7 +67,25 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
     }
   }, [store, worktree.path])
 
+  // The main checkout's own uncommitted work comes along: `git checkout`
+  // carries edits the two branches do not disagree about. Read so the dialog
+  // can say so; a read that fails says nothing rather than something wrong.
+  useEffect(() => {
+    if (!mainPath) return
+    let cancelled = false
+    void store.transport
+      .request('worktree/changes', { path: mainPath })
+      .then((result) => {
+        if (!cancelled) setMainChanges(result)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [store, mainPath])
+
   const dirty = changes !== null && changes.modified + changes.untracked > 0
+  const carried = mainChanges === null ? 0 : mainChanges.modified + mainChanges.untracked
 
   const confirm = async (): Promise<void> => {
     if (dirty) {
@@ -108,6 +128,14 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
         worktree's folder is removed, and with it anything git ignores there, such as an .env file
         or node_modules; the branch is not.
       </p>
+
+      {mainChanges && carried > 0 && (
+        <p>
+          {folder} has {describeUncommitted(mainChanges)} not committed. Git carries{' '}
+          {carried === 1 ? 'it' : 'them'} onto <span className="font-mono">{worktree.branch}</span>, or refuses the
+          switch if {carried === 1 ? 'it clashes' : 'they clash'} with it.
+        </p>
+      )}
 
       {unread && <WorktreeProblem className={RHYTHM}>{unread}</WorktreeProblem>}
       {changes === null && !unread && <p>Checking for uncommitted work…</p>}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 
@@ -103,8 +104,9 @@ test('a worktree is only created under an open workspace, and the service is not
 })
 
 /**
- * The two verbs that change a repository answer to the boundary the rest of
- * the git surface does: the folders the window has open. A worktree lives in
+ * The two verbs that change a repository, and the read both of their dialogs
+ * make first, answer to the boundary the rest of the git surface does: the
+ * folders the window has open. A worktree lives in
  * the state directory, outside every workspace, so what is checked is its
  * repository — open as its main checkout, or as the worktree itself.
  */
@@ -129,16 +131,28 @@ test('a worktree is brought home or removed only from a repository the window ha
           asked.push(`remove ${path}`)
           return { branch: 'wt' }
         },
+        changes: async (path: string) => {
+          asked.push(`changes ${path}`)
+          return { modified: 0, untracked: 0, unpushedCommits: 0, files: [] }
+        },
       },
     })
 
-  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/bringHome', { path: tree }), /not open/)
-  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/remove', { path: tree }), /not open/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/bringHome', { path: tree }), /not a project opened here/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/remove', { path: tree }), /not a project opened here/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/changes', { path: tree }), /not a project opened here/)
   assert.deepEqual(asked, [], 'the service is not asked about a repository the window does not have open')
 
+  const inside = join(repo, 'src')
+  mkdirSync(inside)
   await dispatch(ctx([repo]), 'worktree/bringHome', { path: tree })
   await dispatch(ctx([tree]), 'worktree/remove', { path: tree })
-  assert.deepEqual(asked, [`home ${tree}`, `remove ${tree}`], 'its main checkout open, or the worktree itself, is its repository open')
+  await dispatch(ctx([inside]), 'worktree/changes', { path: tree })
+  assert.deepEqual(
+    asked,
+    [`home ${tree}`, `remove ${tree}`, `changes ${tree}`],
+    'its main checkout open, a folder inside it, or the worktree itself, is its repository open',
+  )
 })
 
 test('deleting a route forgets its credential only when no other route still refers to it', async () => {

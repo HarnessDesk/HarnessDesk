@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, realpath, rm } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
@@ -308,10 +308,22 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
 export const confineToOpenRepository = async (path: string, roots: readonly string[]): Promise<void> => {
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
-  for (const root of roots) {
-    if ((await repositoryRoot(root).catch(() => null)) === main) return
-  }
-  throw new Error(`${path} belongs to ${main}, which is not open in this window. Open it first.`)
+  // Every checkout of the repository from one listing, then path arithmetic
+  // against the open roots: no git per root, and the roots are resolved
+  // together rather than one after another, so a refusal does not cost a
+  // probe for every project the desk remembers.
+  const porcelain = await git(main, ['worktree', 'list', '--porcelain'])
+  const checkouts = await Promise.all(
+    porcelain
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => canonical(line.slice('worktree '.length))),
+  )
+  const opened = await Promise.all(roots.map((root) => canonical(root)))
+  const within = (inner: string, outer: string): boolean =>
+    inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
+  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout)))) return
+  throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
 }
 
 /**
@@ -338,7 +350,9 @@ export const remove = async (
   if (!options.force && (pending.modified > 0 || pending.untracked > 0)) {
     throw new WorktreeDirtyError(target, pending)
   }
-  await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target])
+  await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target]).catch((error: unknown) => {
+    throw new Error(`Git would not remove the worktree at ${target}. ${gitSaid(error)}`)
+  })
   // `git worktree remove --force` leaves an empty directory behind on some
   // versions; nothing of value is in it by now.
   await rm(target, { recursive: true, force: true })
@@ -406,7 +420,11 @@ export const bringHome = async (
   // the folder. Named now, while the folder is still there, so a refusal can
   // say what putting the worktree back did not bring back.
   const ignored = await ignoredIn(target)
-  await git(main, ['worktree', 'remove', target])
+  await git(main, ['worktree', 'remove', target]).catch((error: unknown) => {
+    // The first thing this changes, and git can refuse it — a locked worktree,
+    // a submodule, a file written in between — before anything has moved.
+    throw new Error(`${basename(main)} could not remove the worktree at ${target}, so nothing moved. ${gitSaid(error)}`)
+  })
   let warning: string | undefined
   try {
     await git(main, ['checkout', entry.branch])

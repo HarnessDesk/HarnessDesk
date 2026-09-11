@@ -10,6 +10,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { panes, sessionOf } from './layout'
+import { mountedViews } from './workbench'
 import { AppStore } from './store'
 
 /**
@@ -258,5 +259,88 @@ describe('bringing a worktree back', () => {
     expect(await store.bringWorktreeHome(TREE)).toBeNull()
 
     expect(store.getSnapshot().notices.map((notice) => notice.message)).toContain(warning)
+  })
+
+  it('moves nothing after a refusal when the worktree list cannot be read again', async () => {
+    await openIn(TREE)
+    answers['worktree/list'] = [LISTED.main, LISTED.tree]
+    await store.loadWorktrees()
+    // The worktree was put back; it is the listing that fails, not the folder.
+    const refusal = 'repo could not switch to harnessdesk/parser-fix, so the worktree was put back from its branch.'
+    refused['worktree/list'] = 'fatal: unable to read the worktree list'
+    refused['worktree/bringHome'] = refusal
+
+    expect(await store.bringWorktreeHome(TREE)).toBe(refusal)
+
+    expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toContain(sessionKey(AGENT, sessionId('s-1')))
+    expect(store.getSnapshot().workspace?.path).toBe(REPO.path)
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).not.toContain(refusal)
+  })
+
+  it('says the main checkout is on the branch now when it was on none before', async () => {
+    await openIn(TREE)
+    answers['worktree/bringHome'] = { branch: 'harnessdesk/parser-fix', from: null, root: REPO.path }
+
+    expect(await store.bringWorktreeHome(TREE)).toBeNull()
+
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).toContain(
+      'repo is on harnessdesk/parser-fix now. The worktree folder is gone; the branch keeps every commit.',
+    )
+  })
+})
+
+/**
+ * A conversation docked to a panel is a stored shape the store still restores
+ * and resumes, so it goes with its worktree's folder like one in the main
+ * area — on a bring-back, and on a refusal that took the folder with it.
+ */
+describe('a conversation docked from a worktree', () => {
+  const inFront = sessionKey(AGENT, sessionId('s-1'))
+  const docked = sessionKey(AGENT, sessionId('s-2'))
+  const idOf = (params: unknown): string => {
+    const fields = params as Record<string, unknown>
+    return String(fields['sessionId'] ?? fields['id'] ?? '')
+  }
+  const seed = async (): Promise<void> => {
+    const read = (params: unknown) => conversation(idOf(params), idOf(params) === 's-2' ? TREE : REPO.path)
+    answers['session/read'] = read
+    answers['session/resume'] = read
+    answers['app/state/get'] = {
+      layouts: {
+        [REPO.path]: {
+          main: { root: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: inFront } }, focused: 'p1' },
+          right: { views: [{ id: 'v1', view: { kind: 'conversation', session: docked } }], active: 'v1', size: 400 },
+        },
+      },
+    }
+    answers['worktree/list'] = [LISTED.main, LISTED.tree]
+    await store.loadPreferences()
+    await store.loadWorktrees()
+    await vi.waitFor(() => expect(store.getSnapshot().sessions.get(docked)?.cwd).toBe(TREE))
+  }
+  const stillDocked = (): boolean =>
+    mountedViews(store.getSnapshot().workbench).some(
+      (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === docked,
+    )
+
+  it('closes it when its worktree is brought home', async () => {
+    await seed()
+    expect(stillDocked()).toBe(true)
+    answers['worktree/bringHome'] = { branch: 'harnessdesk/parser-fix', from: 'main', root: REPO.path }
+
+    expect(await store.bringWorktreeHome(TREE)).toBeNull()
+
+    expect(stillDocked()).toBe(false)
+  })
+
+  it('closes it when git could not put its worktree back', async () => {
+    await seed()
+    expect(stillDocked()).toBe(true)
+    answers['worktree/list'] = [LISTED.main]
+    refused['worktree/bringHome'] = GONE
+
+    await store.bringWorktreeHome(TREE)
+
+    expect(stillDocked()).toBe(false)
   })
 })

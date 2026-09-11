@@ -138,3 +138,27 @@ it('names the worktree a draft is armed to cut, not the folder it will be cut fr
   expect(chip()?.title).toBe(`New worktree — ${ROOT}`)
   expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
 })
+
+it('keeps its git verbs for a draft in the folder the window has open', () => {
+  rig({ worktrees: worktrees(true) })
+
+  expect(menu()).toContain('History')
+})
+
+it('offers no git verbs for a draft pointed at a worktree, which the host reads only once a conversation runs there', () => {
+  rig({ draftPlace: { kind: 'existing', path: TREE, branch: 'harnessdesk/checkout-retry' }, worktrees: worktrees(true) })
+
+  const rows = menu()
+  expect(rows).not.toContain('History')
+  expect(rows.some((row) => row.includes('harnessdesk/checkout-retry'))).toBe(false)
+  expect(rows).toContain('Starts in this worktree when the message goes')
+})
+
+it('offers no git verbs for a draft armed with a new worktree, which does not exist yet', () => {
+  rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
+
+  const rows = menu()
+  expect(rows).not.toContain('History')
+  expect(rows.some((row) => row.includes('harnessdesk/checkout-retry'))).toBe(false)
+  expect(rows).toContain('The worktree is made when the message goes')
+})

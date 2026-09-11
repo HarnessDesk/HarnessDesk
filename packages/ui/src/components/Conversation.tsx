@@ -703,6 +703,11 @@ export const GitControl = ({
   // places for one draft.
   const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : null
   const armed = !session && snapshot.draftPlace?.kind === 'worktree' ? snapshot.draftPlace : null
+  // A draft pointed at a worktree, or armed to cut one, names a folder the
+  // host will not read until a conversation runs there — or, armed, one that
+  // does not exist yet. Git verbs from here would act on some other folder,
+  // so the menu has none: where the draft starts is chosen in the composer.
+  const elsewhere = (pointed !== null && pointed !== snapshot.workspace?.path) || armed !== null
   const cwd = session?.cwd ?? pointed ?? armed?.root ?? snapshot.workspace?.path ?? null
   if (!cwd) return null
   const folder = cwd.split('/').filter(Boolean).at(-1) ?? cwd
@@ -786,21 +791,33 @@ export const GitControl = ({
               onSelect={() => store.setDetailsTab('changes')}
             />
           )}
-          <MenuItem
-            icon={<HistoryIcon size={16} />}
-            label="History"
-            title="The repository's commits, branches and tags, in a pane."
-            onSelect={() => store.openGitHistory(cwd)}
-          />
-          {/* The branch is one row, and the branches are behind it — Codex
-              hangs its list off the branch rather than repeating it as a
-              heading over a second list of the same names. */}
-          {branch ? (
-            <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
-              <BranchSwitcher root={cwd} onDone={close} />
-            </Submenu>
+          {elsewhere ? (
+            <MenuItem
+              icon={armed ? <NewWorktreeIcon size={16} /> : <BranchIcon size={16} />}
+              label={armed ? 'The worktree is made when the message goes' : 'Starts in this worktree when the message goes'}
+              title="Where it starts is chosen in the composer, under Work in."
+              disabled
+              onSelect={() => {}}
+            />
           ) : (
-            <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+            <>
+              <MenuItem
+                icon={<HistoryIcon size={16} />}
+                label="History"
+                title="The repository's commits, branches and tags, in a pane."
+                onSelect={() => store.openGitHistory(cwd)}
+              />
+              {/* The branch is one row, and the branches are behind it — Codex
+                  hangs its list off the branch rather than repeating it as a
+                  heading over a second list of the same names. */}
+              {branch ? (
+                <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
+                  <BranchSwitcher root={cwd} onDone={close} />
+                </Submenu>
+              ) : (
+                <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+              )}
+            </>
           )}
           {worktree?.branch && (
             <MenuItem
