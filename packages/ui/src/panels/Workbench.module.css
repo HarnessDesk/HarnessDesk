@@ -463,14 +463,29 @@
   inset: 0;
   z-index: var(--hd-z-drawer);
   background: var(--hd-scrim);
+  /* Hidden once it has faded, not as it starts to: until then it is still
+     drawn over the conversation, and a press on it must land on it. A press
+     straight after Escape reached the composer it was still dimming. */
   opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  visibility: hidden;
+  transition:
+    opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
+    visibility 0s linear var(--hdp-transition-duration-slow);
 }
 
 .scrim[data-open] {
   opacity: 1;
-  pointer-events: auto;
+  visibility: visible;
+  transition: opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+}
+
+/* The app shortens every transition's duration when motion is reduced, but
+   not a delay: with no fade to see, the dim goes at once rather than staying
+   in the way unseen. */
+@media (prefers-reduced-motion: reduce) {
+  .scrim {
+    transition: none;
+  }
 }
 
 .shell[data-narrow] .middle {

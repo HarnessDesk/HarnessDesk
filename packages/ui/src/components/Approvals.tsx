@@ -187,7 +187,7 @@ export const Approvals = () => {
   // An approval interrupts, so the window's attention moves onto the card and
   // goes back to whatever the user was doing once it is answered.
   //
-  // Not for the shortcuts — those are answered on `document` below and never
+  // Not for the shortcuts — those are answered on the window below and never
   // depended on this. It is for Tab and the screen reader, which until now
   // started at the top of the window rather than at the question; and it takes
   // the caret out of a composer the user has stopped looking at, where the

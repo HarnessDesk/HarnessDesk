@@ -230,6 +230,20 @@ it('pressing the dim puts it away, and focus goes back to what opened it', () =>
   expect(document.activeElement).toBe(opener)
 })
 
+it('a press on the dim keeps focus where it is: the dim is not a control', () => {
+  /* Pressed straight after Escape, while it still fades, the dim takes the
+     press rather than the composer under it — and its mousedown must not
+     drop the focus Escape has just given back. Measured in a real engine:
+     the press left focus on the page. */
+  const { store } = rig({ narrowWindow: true })
+  render(store)
+  const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+  act(() => {
+    scrim()?.dispatchEvent(press)
+  })
+  expect(press.defaultPrevented).toBe(true)
+})
+
 it('focus is given back even when the key was pressed on a control inside it', () => {
   /* React puts focus back on whatever held it before a commit's changes, after
      making them — so a focus() given back from the effect's cleanup was undone

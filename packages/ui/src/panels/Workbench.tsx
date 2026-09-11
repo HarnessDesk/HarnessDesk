@@ -214,6 +214,10 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           className={styles.scrim}
           {...(floating ? { 'data-open': '' } : {})}
           aria-hidden
+          /* Not a control, so a press on it keeps focus where it is: pressed
+             while it still fades after Escape, it would otherwise drop the
+             focus Escape has just given back. */
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => store.closeFloatingSidebar()}
         />
       )}

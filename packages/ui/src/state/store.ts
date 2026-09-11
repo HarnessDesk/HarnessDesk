@@ -2697,6 +2697,10 @@ export class AppStore {
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
+    // Unless the patch settled on something else: a panel saved expanded in a
+    // sidebar that opens put away comes back put away, and the document
+    // should say so rather than drop the zoom again on every open.
+    if (this.#snapshot.workbench !== workbench) this.#keepWorkbench(this.#snapshot.workbench)
     void this.#resumeVisible()
   }
 
