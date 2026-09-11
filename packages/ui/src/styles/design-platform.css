@@ -265,7 +265,6 @@ body {
   --hdp-alias-label-dimmed: var(--hdp-static-neutral-bluish-200);
   --hdp-alias-label-primary-bluish: var(--hdp-static-blue-900);
   --hdp-alias-label-primary-dimmed: var(--hdp-static-neutral-bluish-950);
-  --hdp-alias-label-primary-foreground: var(--hdp-static-neutral-bluish-00);
   --hdp-alias-label-primary-inverted: var(--hdp-static-neutral-bluish-00);
   --hdp-alias-label-primary: var(--hdp-static-neutral-bluish-900); /* desk: measured against the Codex desktop app */
   --hdp-alias-label-secondary: var(--hdp-static-neutral-bluish-700);
@@ -357,7 +356,6 @@ body[data-hd-dark-theme] {
   --hdp-alias-label-dimmed: var(--hdp-static-neutral-bluish-750);
   --hdp-alias-label-primary-bluish: var(--hdp-static-neutral-bluish-50);
   --hdp-alias-label-primary-dimmed: var(--hdp-static-neutral-bluish-100);
-  --hdp-alias-label-primary-foreground: var(--hdp-static-neutral-bluish-1000);
   --hdp-alias-label-primary-inverted: var(--hdp-static-neutral-bluish-800);
   --hdp-alias-label-primary: var(--hdp-static-neutral-bluish-150); /* desk: measured against the Codex desktop app */
   --hdp-alias-label-secondary: var(--hdp-static-neutral-bluish-300);

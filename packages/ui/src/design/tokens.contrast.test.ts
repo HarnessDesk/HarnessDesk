@@ -436,9 +436,11 @@ describe("every accent's dark face declares its own ink, because the palette's d
     const name = match[1] ?? ''
     const body = match[2] ?? ''
     const declared = (token: string) => new RegExp(`${token}:\\s*([^;]+);`).exec(body)?.[1]?.trim()
-    it(`${name} declares both inks in its dark face`, () => {
+    it(`${name} declares its ink in its dark face`, () => {
+      // Stands on its own: for an accent missing from the table both sides read undefined and the
+      // comparison passes, which left this green beside a failing guard (#226).
+      expect(DARK_INK[name], `${name} is not in the table`).toBeDefined()
       expect(declared('--hd-primary-foreground'), `${name}: --hd-primary-foreground`).toBe(DARK_INK[name])
-      expect(declared('--hdp-alias-label-primary-foreground'), `${name}: --hdp-alias-label-primary-foreground`).toBe(DARK_INK[name])
     })
   }
 })
@@ -448,16 +450,16 @@ describe("every accent's light face declares its own ink too", () => {
   // #184: the table above pins each dark face's ink by value, and nothing did the same for the light faces.
   const lightBlocks = [...accentSheet.matchAll(/body\[data-hd-accent='(\w+)'\]\s*\{([^}]*)\}/g)]
 
-  /* Mono's light face declares two inks, white for the desk's own primary
-     and shadcn's #fafafa for a primary button's label; both are pinned as
-     they are. The contrast checks above judge --hd-primary-foreground only:
-     no var() reads the label alias today (review, round 1). */
-  const LIGHT_INK: Record<string, { primary: string; label: string }> = {
-    violet: { primary: 'rgb(255, 255, 255)', label: 'rgb(255, 255, 255)' },
-    green: { primary: '#171717', label: '#171717' },
-    rose: { primary: 'rgb(255, 255, 255)', label: 'rgb(255, 255, 255)' },
-    orange: { primary: '#171717', label: '#171717' },
-    mono: { primary: 'rgb(255, 255, 255)', label: '#fafafa' },
+  /* Each light face's ink, pinned as it is written. A second column pinned
+     `--hdp-alias-label-primary-foreground` beside it, which no var() read and
+     which mono gave a different value from its primary ink; the alias is gone
+     and the column with it (#217, #226). */
+  const LIGHT_INK: Record<string, string> = {
+    violet: 'rgb(255, 255, 255)',
+    green: '#171717',
+    rose: 'rgb(255, 255, 255)',
+    orange: '#171717',
+    mono: 'rgb(255, 255, 255)',
   }
 
   it('reads a light block for every accent', () => {
@@ -468,11 +470,10 @@ describe("every accent's light face declares its own ink too", () => {
     const name = match[1] ?? ''
     const body = match[2] ?? ''
     const declared = (token: string) => new RegExp(`${token}:\\s*([^;]+);`).exec(body)?.[1]?.trim()
-    it(`${name} declares both inks in its light face`, () => {
-      expect(declared('--hd-primary-foreground'), `${name}: --hd-primary-foreground`).toBe(LIGHT_INK[name]?.primary)
-      expect(declared('--hdp-alias-label-primary-foreground'), `${name}: --hdp-alias-label-primary-foreground`).toBe(
-        LIGHT_INK[name]?.label,
-      )
+    it(`${name} declares its ink in its light face`, () => {
+      // As above: an accent the table forgot would pass this on undefined === undefined (#226).
+      expect(LIGHT_INK[name], `${name} is not in the table`).toBeDefined()
+      expect(declared('--hd-primary-foreground'), `${name}: --hd-primary-foreground`).toBe(LIGHT_INK[name])
     })
   }
 })
@@ -485,9 +486,15 @@ describe("an accent's light face outranks a palette's on source order alone, so 
   const sheets = import.meta.glob<string>('../**/*.css', { query: '?raw', import: 'default', eager: true })
   const fromSrc = (spec: string, dir: string) => new URL(spec, `file:///src/${dir}/`).pathname.replace(/^\/src\//, '')
   const bare = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '')
-  // Any quoting, and in a group of selectors too: the control below is there to find a face put somewhere unexpected (review, round 1).
+  /* Any quoting, and in a group of selectors too: the control below is there
+     to find a face put somewhere unexpected (review, round 1). The element
+     the face is written on is not part of the question either: `:root[…]` and
+     a bare `[…]` declare one just as `body[…]` does, and reading only `body`
+     left a sheet holding either invisible to `declaring` below (#226). */
   const faces = (css: string, kind: 'palette' | 'accent') => [
-    ...bare(css).matchAll(new RegExp(`body\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`, 'g')),
+    ...bare(css).matchAll(
+      new RegExp(`(?:[A-Za-z:][\\w-]*)?\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`, 'g'),
+    ),
   ]
   const declaring = (kind: 'palette' | 'accent') =>
     Object.entries(sheets)
@@ -502,6 +509,14 @@ describe("an accent's light face outranks a palette's on source order alone, so 
     expect(declaring('palette')).toEqual(['styles/editor.css', 'styles/editorial.css', 'styles/shadcn-themes.css'])
   })
 
+  /* A palette face in a CSS module fails the check below, and should: Vite
+     emits module CSS into the page's own bundle, and both built pages link
+     that bundle after `workbench-*.css`, which is where the imported sheets
+     and every face live today (measured in `packages/ui/dist` at f95c38d5:
+     index.html and design.html each link workbench first). So a face written
+     in a module would load after the accents and outrank them, which is the
+     thing this pins — the message says "the sheets app.css imports" because
+     that is the only place a face belongs (#226). */
   it('loads every sheet with a palette face no later than the one with the accents', () => {
     const accents = order.indexOf('styles/shadcn-themes.css')
     expect(accents, 'app.css does not import the accents').toBeGreaterThan(-1)
