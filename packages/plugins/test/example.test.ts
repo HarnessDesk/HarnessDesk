@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 
 import { ExtensionKernel, loadInstalled } from '@harnessdesk/cordis-host'
@@ -67,6 +67,30 @@ test('the example plugin loads in the real kernel', async (t) => {
      panel honest is the manifest test below: it still has to declare that it
      contributes UI at all. */
   assert.equal(loaded.state.type, 'active', 'the example loaded but did not become active')
+})
+
+test("the example's browse_page decodes a page's entities in one pass (#169)", async () => {
+  /* The example keeps its own `htmlToText`, and it decoded `&amp;` first and
+     then the `&lt;` that uncovered, so a page showing the markup `&lt;div&gt;`
+     read as a tag. The kernel's copy was fixed in #164; this is the copy an
+     author starts from. `&lt;b&gt;` and `&quot;` read the same either way. */
+  const entry = pathToFileURL(join(checkout(), 'examples/browser-plugin/index.js')).href
+  const { plugin } = (await import(entry)) as { plugin: { apply: (ctx: unknown, config: unknown) => void } }
+  type Tool = { name: string; execute: (args: Record<string, unknown>) => unknown }
+  const tools = new Map<string, Tool>()
+  const page = '<title>Escapes</title><p>&amp;lt;div&amp;gt; &lt;b&gt; &amp;amp; &quot;q&quot;&nbsp;end</p>'
+  plugin.apply(
+    {
+      tools: { register: (tool: Tool) => void tools.set(tool.name, tool) },
+      http: { fetch: async () => ({ status: 200, body: page }) },
+      commands: { register: () => () => {} },
+      ui: { register: () => () => {} },
+      harness: {},
+    },
+    {},
+  )
+  const read = String(await tools.get('browse_page')?.execute({ url: 'https://example.test/escapes' }))
+  assert.equal(read.split('\n').at(-1), 'Escapes &lt;div&gt; <b> &amp; "q" end')
 })
 
 test('the example manifest is the shape a plugin author would copy', async () => {

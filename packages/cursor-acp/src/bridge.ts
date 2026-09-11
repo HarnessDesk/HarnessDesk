@@ -463,11 +463,14 @@ export const titleOf = (text: string): string => {
  * a context block was stored under the envelope's first line,
  * `<context source="…">`, for good. That line is read as its label now, and an
  * envelope whose label can't be read as no name at all, so the next turn names
- * it (review, round 4).
+ * it (review, round 4). The envelope opens `<context` and then a space or `>`:
+ * a name that only starts with the word, a prompt about `<context-free
+ * grammars>`, is the user's own, and read as an envelope it was renamed by
+ * the next turn (#188).
  */
 const storedName = (stored: string | null | undefined): string | null => {
   if (!stored) return null
-  if (!/^<context\b/.test(stored)) return stored
+  if (!/^<context[\s>]/.test(stored)) return stored
   const quoted = /^<context\s+source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
   if (quoted === undefined) return null
   try {

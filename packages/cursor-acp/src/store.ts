@@ -214,11 +214,19 @@ export const findChatWorkspace = (
  * for the model, not a description of the conversation.
  */
 export const stripEnvelope = (value: string): string =>
-  value.replace(/<context\b[^>]*>[\s\S]*?<\/context>\s*/g, '').trim()
+  value.replace(/<context(?=[\s>])[^>]*>[\s\S]*?<\/context>\s*/g, '').trim()
+
+/**
+ * How much of a line names a chat: 120 characters, where the desk's other
+ * agents cut a conversation's opening too. A label was cut at 80 and the
+ * user's own words at 120, so how long a name was depended on which of the
+ * two it came from (#188).
+ */
+const NAME_WIDTH = 120
 
 /** The first line of `text` that says anything, cut to a row's width. */
 export const firstLine = (text: string): string =>
-  (text.split('\n').find((entry) => entry.trim() !== '') ?? '').trim().slice(0, 80)
+  (text.split('\n').find((entry) => entry.trim() !== '') ?? '').trim().slice(0, NAME_WIDTH)
 
 /**
  * What a message that is only a context block is called: the label the block
@@ -275,7 +283,7 @@ export const readChatPreview = (
   chatId: string,
   cwd: string,
   home = homedir(),
-  limit = 120,
+  limit = NAME_WIDTH,
 ): string | null => {
   const dir = join(chatsDir(cwd, home), chatId)
   const file = readChatFile(dir)

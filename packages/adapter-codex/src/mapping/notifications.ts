@@ -46,12 +46,22 @@ const mapWindow = (window: CodexProtocol.v2.RateLimitWindow | null): UsageWindow
       }
     : null
 
+/**
+ * A balance that is there, as a number. Codex sends it as a string, and read
+ * by truthiness only its being a string let `"0"` through: a numeric `0` from
+ * a changed payload or a fixture was dropped before `describeLimits` saw it,
+ * which is #85 one layer down (#184). What isn't a number is left `NaN`, for
+ * `describeLimits` to refuse.
+ */
+const balanceOf = (value: unknown): number | null =>
+  typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : null
+
 export const mapRateLimits = (
   snapshot: CodexProtocol.v2.RateLimitSnapshot,
 ): RateLimits => ({
   hasCredits: snapshot.credits?.hasCredits,
   unlimited: snapshot.credits?.unlimited,
-  balance: snapshot.credits?.balance ? Number(snapshot.credits.balance) : null,
+  balance: balanceOf(snapshot.credits?.balance),
   planType: snapshot.planType,
   windows: [mapWindow(snapshot.primary), mapWindow(snapshot.secondary)].filter(
     (window): window is UsageWindow => window !== null,
