@@ -1323,6 +1323,10 @@ const MemberRow = ({
            disappears is a verb nobody learns. */
         <button
           type="button"
+          /* Resting here asks about the column a pick will take — the title
+             says which — not about the agent, so it summons no card and puts
+             an open one away. See `AgentHoverCard`. */
+          data-no-card=""
           className="flex rounded-(--hd-radius-sm) p-1 text-(--hd-muted-foreground) opacity-0 group-hover/member:opacity-100 hover:bg-(--hd-active) hover:text-(--hd-foreground) focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
           aria-label={
             replaces
@@ -1358,11 +1362,11 @@ const MemberRow = ({
        line under it. It was the tile alone, and the words beside a mark are
        where a reader rests — resting on "Gemini" did nothing while the icon
        beside it opened the card. What made a whole row unsafe to bind is
-       carried by `AgentHoverCard`: focus never opens a card, so the + at the
-       row's end can be tabbed to in peace, and a press takes the card away, so
-       the click that opens this member does not leave a card floating over
-       it. Anchored to the row, the card also opens beside the rail rather than
-       over the names in it. */
+       carried by `AgentHoverCard`: a `div` trigger ignores focus, so the + at
+       the row's end can be tabbed to without a card opening or closing, and a
+       press takes the card away, so the click that opens this member does not
+       leave a card floating over it. Anchored to the row, the card also opens
+       beside the rail rather than over the names in it. */
     <MemberCard
       as="div"
       entry={member}

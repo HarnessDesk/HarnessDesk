@@ -296,14 +296,15 @@ it('starts exactly one clock when a card opens, and stops it when it closes', ()
 /* ── What opens a card, and where ─────────────────────────────────────── */
 
 /**
- * A trigger with a control inside it, the way a rail row holds its +.
+ * A row, the way a rail draws a member: a mark, a name, and a control of its
+ * own — the +, whose title says which column a pick will take.
  *
- * Triggers grew from a mark to the whole of an identity — a rail row, edge to
- * edge — so they now hold things focus lands on, and Radix opens a card for
- * focus as readily as for a pointer.
+ * Triggers grew from a mark to the whole of an identity, so a row's trigger
+ * now holds things focus lands on, and things with tooltips of their own.
  */
 const withAControl = (): React.ReactNode => (
   <AgentHoverCard
+    as="div"
     body={() => (
       <AgentCard
         subject={{ kind: 'session', name: 'A chat about the limiter', tint: 'blue', mark: <svg /> }}
@@ -311,26 +312,49 @@ const withAControl = (): React.ReactNode => (
     )}
   >
     <span>mark</span> <span>Codex</span>
-    <button type="button">Watch beside</button>
+    <button type="button" data-no-card="">
+      Watch beside
+    </button>
   </AgentHoverCard>
 )
 
-const press = (target: Element): void => {
+/** A chip, the way a publication is drawn: one thing to focus — a link. */
+const chip = (): React.ReactNode => (
+  <AgentHoverCard
+    body={() => (
+      <AgentCard
+        subject={{ kind: 'session', name: 'A chat about the limiter', tint: 'blue', mark: <svg /> }}
+      />
+    )}
+  >
+    <a href="#pr">acme/widgets #7</a>
+  </AgentHoverCard>
+)
+
+const press = (target: Element, pointerType = 'mouse'): void => {
   act(() => {
-    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType }))
   })
 }
 
-const leave = (target: Element): void => {
+const leave = (target: Element, pointerType = 'mouse'): void => {
   act(() => {
-    target.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }))
+    target.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType }))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
   })
 }
 
-it('never opens for focus — only for a pointer at rest', () => {
+/** Focus moved to something outside every trigger. */
+const focusElsewhere = (): void => {
+  const away = document.createElement('button')
+  document.body.appendChild(away)
+  act(() => away.focus())
+  away.remove()
+}
+
+it('a row’s own controls take focus without opening its card — or closing it', () => {
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
@@ -345,10 +369,119 @@ it('never opens for focus — only for a pointer at rest', () => {
   expect(document.activeElement).toBe(control)
   expect(openCard()).toBeNull()
 
-  // The same trigger still opens for the pointer, so the refusal above is the
-  // focus being refused and not the card being broken.
+  // And the other way: a card the pointer is resting on stays when Tab moves on
+  // out of the row. The pointer has not moved, and nothing would reopen it.
   rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  act(() => control.focus())
+  focusElsewhere()
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  vi.useRealTimers()
+})
+
+it('a chip — one thing to focus — opens its card for a keyboard, and closes it when focus leaves', () => {
+  vi.useFakeTimers()
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+
+  act(() => link.focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  focusElsewhere()
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  vi.useRealTimers()
+})
+
+it('a tap never opens a card, not even by the focus it leaves behind', () => {
+  vi.useFakeTimers()
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+
+  // A tap, in the order a touch screen sends it: the pointer arrives, presses,
+  // lifts and leaves at once — and only then does focus land on what it hit.
+  act(() => {
+    link.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'touch' }))
+  })
+  press(link, 'touch')
+  act(() => {
+    link.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }))
+  })
+  leave(link, 'touch')
+  act(() => link.focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(openCard()).toBeNull()
+
+  // The hold ends with that focus: the next time a keyboard arrives, it opens.
+  focusElsewhere()
+  act(() => link.focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
   expect(openCard()).not.toBeNull()
+  vi.useRealTimers()
+})
+
+it('a press on a chip holds its card shut, even against the focus the press leaves', () => {
+  vi.useFakeTimers()
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+
+  rest(link)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  // A click focuses the link it lands on, and focus opens a chip's card — so
+  // without the hold the card would be back 420ms after the click.
+  press(link)
+  act(() => link.focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+
+  leave(link)
+  rest(link)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  vi.useRealTimers()
+})
+
+it('a control marked data-no-card opens no card, and reaching one puts an open card away', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
+  const name = [...container.querySelectorAll('span')].find((s) => s.textContent === 'Codex')
+  if (!control || !name) throw new Error('the row is missing its parts')
+
+  // Arriving straight on the control: its own tooltip is what that rest asks for.
+  rest(control)
+  expect(openCard()).toBeNull()
+  leave(control)
+
+  // Resting on the name opens the card; moving on to the control puts it away,
+  // and it stays away until the pointer leaves the row.
+  rest(name)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  act(() => {
+    control.dispatchEvent(
+      new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: name }),
+    )
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
   vi.useRealTimers()
 })
 
@@ -419,11 +552,63 @@ it('opens beside a trigger with room beside it, and under one without', () => {
   expect(side()).toBe('right')
   leave(trigger())
 
+  // No room on the right but plenty on the left: still asked for beside, and
+  // the positioner makes the trade to the left itself. Only when neither side
+  // has room is the answer taken away from it.
+  spans(window.innerWidth - 60, window.innerWidth - 20)
+  rest(trigger())
+  expect(side()).toBe('right')
+  leave(trigger())
+
   // A row the whole window wide — the rail of a narrow room. Beside it is off
   // the window on both sides, and the positioner only ever trades a side for
   // its opposite, so the card goes under.
   spans(0, window.innerWidth)
   rest(trigger())
+  expect(side()).toBe('bottom')
+  vi.useRealTimers()
+})
+
+it('settles its side again when the window changes size under an open card', async () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  const spans = (left: number, right: number): void => {
+    vi.spyOn(trigger(), 'getBoundingClientRect').mockReturnValue({
+      left,
+      right,
+      top: 100,
+      bottom: 140,
+      width: right - left,
+      height: 40,
+      x: left,
+      y: 100,
+      toJSON: () => ({}),
+    } as DOMRect)
+  }
+  const side = (): string | null | undefined =>
+    document.querySelector('[data-slot="hover-card-content"]')?.getAttribute('data-side')
+
+  /* The positioner measures the viewport off the root element, which jsdom
+     never lays out — a 0×0 viewport, where every side overflows and a card
+     asked to open below is flipped above. The window's own size stands in,
+     so what is read below is the decision rather than the missing layout. */
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(window.innerWidth)
+  vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(window.innerHeight)
+
+  spans(20, 60)
+  rest(trigger())
+  expect(side()).toBe('right')
+
+  // The window narrows while the card is open, until the row is all of it.
+  spans(0, window.innerWidth)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  /* The positioner answers the same resize for the side it was on, and both
+     answers are promises: let them all land before reading which one won.
+     Before the content was keyed by its side, the stale one did — the card was
+     re-settled to bottom and drawn on the left. */
+  for (let i = 0; i < 5; i += 1) await act(async () => {})
   expect(side()).toBe('bottom')
   vi.useRealTimers()
 })
@@ -436,7 +621,7 @@ it('opens beside a trigger with room beside it, and under one without', () => {
  * real app: resting on a member's name while the room was answering, the
  * stream scrolled three times in 1.4s and the card never stayed open.
  */
-it('stays open through a scroll elsewhere, and closes when its own list scrolls', () => {
+it('stays open through a scroll elsewhere, and closes when its own list or the page scrolls', () => {
   vi.useFakeTimers()
   const elsewhere = document.createElement('div')
   document.body.appendChild(elsewhere)
@@ -453,6 +638,16 @@ it('stays open through a scroll elsewhere, and closes when its own list scrolls'
   // The control: the list the trigger sits in scrolls, and the card goes.
   act(() => {
     container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+
+  // And the page: the document holds every trigger, so its scroll moves this
+  // one too — it needs no case of its own.
+  leave(trigger())
+  rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  act(() => {
+    document.dispatchEvent(new Event('scroll'))
   })
   expect(trigger().getAttribute('data-state')).toBe('closed')
   elsewhere.remove()

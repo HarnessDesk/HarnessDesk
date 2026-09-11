@@ -116,4 +116,24 @@ describe('the publication row', () => {
     render(item({ state: null }))
     expect(container.querySelector('[data-slot="publication-state"]')).toBeNull()
   })
+
+  /* The chip is one thing to focus, so a keyboard reaches its card the way a
+     pointer does. #148 made every name card pointer-only for a while — right
+     for a rail row full of controls, wrong here — and both reviewers of that
+     round found this row had quietly lost its card for anyone tabbing to it. */
+  it('opens its card for a keyboard that tabs to the chip, as for a pointer resting on it', () => {
+    vi.useFakeTimers()
+    try {
+      render(item())
+      const link = container.querySelector('a')!
+      act(() => link.focus())
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(document.activeElement).toBe(link)
+      expect(document.querySelector('[data-slot="hover-card-content"]')?.textContent).toContain('Add widgets')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

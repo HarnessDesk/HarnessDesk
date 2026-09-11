@@ -1460,6 +1460,51 @@ it('pressing a member opens it and takes its card away', async () => {
 
   expect(trigger?.getAttribute('data-state')).toBe('closed')
   expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain('k1')
+
+  // And it comes back for the next rest: leaving the row ends the hold.
+  leave(name)
+  rest(name)
+  expect(trigger?.getAttribute('data-state')).toBe('open')
+  vi.useRealTimers()
+})
+
+/**
+ * The + is the row's other verb, and resting on it asks about that verb.
+ *
+ * Its title says which column a pick will take away, and a card opened beside
+ * that sentence would be saying something else. So resting on it summons no
+ * card, reaching it puts an open one away — and pressing it still watches.
+ */
+it('the plus beside a member opens no card, puts an open one away, and still watches', async () => {
+  vi.useFakeTimers()
+  const { store } = rig()
+  await render(store)
+
+  const opus = row('Opus')
+  const name = textAt(opus, 'Opus')
+  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
+  const watch = opus.querySelector('button[aria-label^="Watch Opus"]')
+  if (!watch) throw new Error('no watch control on the row')
+
+  rest(name)
+  expect(trigger?.getAttribute('data-state')).toBe('open')
+  act(() => {
+    watch.dispatchEvent(
+      new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: name }),
+    )
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger?.getAttribute('data-state')).toBe('closed')
+
+  act(() => (watch as HTMLButtonElement).click())
+  await act(async () => {})
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
   vi.useRealTimers()
 })
 
