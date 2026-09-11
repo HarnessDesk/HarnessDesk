@@ -1058,3 +1058,85 @@ test('telling an array from its opening is a trade, and this is the side it lose
     assert.equal(parseStatus(text), null, text)
   }
 })
+
+test('a URL split across two reads is handed out whole (#178)', async () => {
+  const child = fakeChild()
+  const login = accountWith(child, []).login()
+  child.stdout.emit('data', Buffer.from('Open https://example.com/dev'))
+  child.stdout.emit('data', Buffer.from('ice?code=42 to sign in\n'))
+  assert.equal((await login).url, 'https://example.com/device?code=42')
+})
+
+test('a URL with nothing after it is handed out once the command goes quiet (#178)', async () => {
+  const child = fakeChild()
+  const account = new CliAccount(
+    { status: { command: 'unused' }, login: { command: 'hd-missing' } },
+    'fake-acp' as never,
+    () => {},
+    undefined,
+    // Bounded, so a URL that is never handed out fails in a second rather than at the thirty-second timeout.
+    { spawn: (() => child) as never, urlSettleMs: 20, urlTimeoutMs: 1_000 },
+  )
+  const login = account.login()
+  // No line break after it, and the command waits: a URL at the end of what has arrived is still one.
+  child.stdout.emit('data', Buffer.from('Open https://example.com/device'))
+  assert.equal((await login).url, 'https://example.com/device')
+})
+
+test('advice beside a status is not a status: a clause that opens with if says what to do (#178)', () => {
+  assert.deepEqual(parseStatus('✓ Logged in as dev@example.com\nIf not logged in, run: agent login'), {
+    kind: 'cli',
+    label: 'dev@example.com',
+    email: 'dev@example.com',
+  })
+  assert.equal(parseStatus('Logged in as dev@example.com\nIf you are not logged in, run agent login')?.email, 'dev@example.com')
+  assert.equal(parseStatus("Logged in as dev@example.com\nIf you aren't signed in, run agent login")?.email, 'dev@example.com')
+  assert.equal(parseStatus('Logged in as dev@example.com\nIf you get logged out, run agent login')?.email, 'dev@example.com')
+  assert.equal(parseStatus('Logged in as dev@example.com. Run agent logout if you want to be logged out')?.email, 'dev@example.com')
+  // The status still decides: advice beside a sign-out leaves it signed out, and advice alone names nobody.
+  assert.equal(parseStatus('Not logged in. If not logged in, run agent login'), null)
+  assert.equal(parseStatus('If you are not logged in, run agent login'), null)
+  assert.equal(parseStatus('You were logged out when the token expired. Logged in as dev@example.com'), null, 'when tells what happened')
+})
+
+test('a sign-in command that ignores SIGTERM is killed after a grace, not left running (#178)', async () => {
+  const { spawn } = await import('node:child_process')
+  let child: import('node:child_process').ChildProcess | undefined
+  const script = "process.on('SIGTERM', () => {}); console.log('Open https://example.com/device'); setInterval(() => {}, 1000)"
+  const account = new CliAccount(
+    { status: { command: 'unused' }, login: { command: process.execPath, args: ['-e', script] } },
+    'fake-acp' as never,
+    () => {},
+    undefined,
+    { spawn: ((...args: Parameters<typeof spawn>) => (child = spawn(...args))) as never, killGraceMs: 100 },
+  )
+  try {
+    const start = await account.login()
+    const exited = new Promise<string | null>((resolve) => child!.once('exit', (_code, signal) => resolve(signal)))
+    await account.cancel(start.loginId)
+    const how = await Promise.race([exited, new Promise<string>((resolve) => setTimeout(() => resolve('still running'), 3_000))])
+    assert.equal(how, 'SIGKILL')
+  } finally {
+    child?.kill('SIGKILL')
+  }
+})
+
+test('a status probe whose binary is missing is signed out with the reason logged, not a rejection (#178)', async () => {
+  const logged: unknown[] = []
+  const account = new CliAccount(
+    { status: { command: '/nonexistent/hd-no-such-cli' }, login: { command: 'unused' } },
+    'fake-acp' as never,
+    () => {},
+    (message, details) => logged.push([message, details]),
+  )
+  const status = await account.status()
+  assert.deepEqual(status.accounts, [])
+  assert.equal(status.signInMethods.length, 1, 'sign-in is still offered')
+  assert.match(JSON.stringify(logged), /ENOENT/)
+})
+
+test('a brace inside quotes in prose hides neither a record nor a sentence after it (#178)', () => {
+  // Found by an early round of #134's review; later rounds' scan passes such a brace over, and this pins it.
+  assert.equal(parseStatus('[INFO] running "{task"\n{"loggedIn":true,"email":"dev@example.com"}')?.email, 'dev@example.com')
+  assert.equal(parseStatus('[INFO] running "{task"\nLogged in as dev@example.com')?.email, 'dev@example.com')
+})

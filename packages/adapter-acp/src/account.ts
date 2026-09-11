@@ -40,6 +40,10 @@ export interface AcpAccountCommands {
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/
 /** How long the login command gets to print its URL before that is an answer. */
 const URL_TIMEOUT_MS = 30_000
+/** How long a URL at the very end of what a command has printed waits for more of itself. */
+const URL_SETTLE_MS = 250
+/** How long a sign-in command gets to leave after SIGTERM before it is killed outright. */
+const KILL_GRACE_MS = 3_000
 
 export class CliAccount {
   readonly #logins = new Map<string, ChildProcess>()
@@ -57,7 +61,12 @@ export class CliAccount {
      * tick, a URL that never comes — are driven through a child the test
      * controls, with a timeout the test does not wait thirty seconds for.
      */
-    private readonly seams: { readonly spawn?: typeof spawn; readonly urlTimeoutMs?: number } = {},
+    private readonly seams: {
+      readonly spawn?: typeof spawn
+      readonly urlTimeoutMs?: number
+      readonly urlSettleMs?: number
+      readonly killGraceMs?: number
+    } = {},
   ) {}
 
   async status(): Promise<AccountStatus> {
@@ -144,17 +153,39 @@ export class CliAccount {
       resolveUrl = resolve
     })
     const tail: string[] = []
+    /* The URL is read from what the command has printed so far, not from each
+       read on its own: a pipe can split a URL between two reads, and the first
+       half was handed out (#178). A URL is whole once something that cannot be
+       part of one follows it. One at the very end of what has arrived waits a
+       moment for the rest, and is taken if nothing comes: a command may print
+       its URL with no line break and wait. */
+    let heard = ''
+    let settleTimer: ReturnType<typeof setTimeout> | undefined
+    const take = (found: string): void => {
+      if (url !== null || settled) return
+      url = found
+      resolveUrl?.(url)
+    }
     const scan = (chunk: Buffer): void => {
       const text = chunk.toString()
       tail.push(text)
       if (tail.length > 40) tail.shift()
-      if (url === null) {
-        const match = URL_PATTERN.exec(text)
-        if (match) {
-          url = match[0]
-          resolveUrl?.(url)
-        }
+      if (url !== null) return
+      heard += text
+      const match = URL_PATTERN.exec(heard)
+      if (!match) {
+        // Only the end can still become a URL, a scheme cut after `https:/`.
+        heard = heard.slice(-8)
+        return
       }
+      clearTimeout(settleTimer)
+      const found = match[0]
+      if (match.index + found.length < heard.length) {
+        take(found)
+        return
+      }
+      settleTimer = setTimeout(() => take(found), this.seams.urlSettleMs ?? URL_SETTLE_MS)
+      settleTimer.unref()
     }
     child.stdout!.on('data', scan)
     child.stderr!.on('data', scan)
@@ -210,6 +241,7 @@ export class CliAccount {
     ])
     // Over, whichever way it went: a flow that has ended keeps no timer (review, round six).
     clearTimeout(urlTimer)
+    clearTimeout(settleTimer)
     if (outcome.kind === 'url') {
       /* The URL won the race, but the flow can have ended in the same tick:
          an error or an exit emitted with it, whose handler ran before this
@@ -227,7 +259,7 @@ export class CliAccount {
       throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
     }
     // The exit this causes finds the flow never handed out, and reports nothing.
-    if (outcome.kind === 'timeout') child.kill('SIGTERM')
+    if (outcome.kind === 'timeout') this.#stop(child)
     /* A command that ended before printing a URL, having said nothing, says
        how it ended: an exit with code 1 is not "printed no URL" (review,
        round ten). That sentence is for the one ending it is true of, the
@@ -246,8 +278,22 @@ export class CliAccount {
     // Unknown ids are not an error — the flow may have settled already.
     const child = this.#logins.get(loginId)
     this.#cancels.get(loginId)?.()
-    child?.kill('SIGTERM')
+    if (child) this.#stop(child)
     this.#logins.delete(loginId)
+  }
+
+  /**
+   * SIGTERM, then SIGKILL when the child is still there after a grace. A cancel
+   * ended the flow at once, but a child that ignores SIGTERM lingered until the
+   * host exited (#178).
+   */
+  #stop(child: ChildProcess): void {
+    child.kill('SIGTERM')
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    }, this.seams.killGraceMs ?? KILL_GRACE_MS)
+    timer.unref()
+    child.once('exit', () => clearTimeout(timer))
   }
 
   async logout(): Promise<void> {
@@ -505,9 +551,16 @@ const IN_CLAUSE = String.raw`(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?`
 // The gaps are spaces and tabs and nothing else: a line break ends a clause here as everywhere, and across one, "Last sync: never" denied the "Logged out." below it (review, round fourteen); a form feed or a vertical tab did the same (round fifteen).
 const DENIED = String.raw`${NEGATION}(?:[ \t]+(?:yet|ever|currently|already|actually|really|be|been|being|get|got|gotten|getting)){0,2}[ \t]+`
 // The past marker before a sign-out keeps to the same line too: across a break, "Updated last" kept an account the next line signed out (review, round fifteen).
+/**
+ * Advice rather than a status: a clause that opens with `if`, `unless` or
+ * `whether` says what to do in a case, not which case this is. `If not logged
+ * in, run login` beside `Logged in as …` read as signed out (#178). Not `when`,
+ * which as often tells what happened: "you were logged out when it expired".
+ */
+const ADVICE = String.raw`(?<!\b(?:if|unless|whether)\b${IN_CLAUSE})`
 const SIGNED_OUT = new RegExp(
-  `${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
-    `|(?<!\\b(?:last|previously|formerly)[ \\t]+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
+  `${ADVICE}${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
+    `|${ADVICE}(?<!\\b(?:last|previously|formerly)[ \\t]+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
   'i',
 )
 
