@@ -14,6 +14,7 @@ export {
   agentMessageSource,
   isAgentMessageSource,
   noteKey,
+  openingOf,
   splitContext,
   wrapContext,
   type ContextBlock,

@@ -13,6 +13,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { publicationsIn, withPublications } from './publications.js'
+import { openingOf } from '@harnessdesk/protocol'
 
 /**
  * The transcript the host watched, kept.
@@ -533,6 +534,18 @@ export class TranscriptStore {
   }
 }
 
+/** The first thing the person sent: its text parts in order, a block each and their own words. */
+const firstMessage = (turns: readonly Turn[]): string => {
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.type === 'userMessage' && Array.isArray(item.content)) {
+        return item.content.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('\n')
+      }
+    }
+  }
+  return ''
+}
+
 /** The conversation's spoken words: what the person typed, what the agent said. */
 const spokenText = function* (turns: readonly Turn[]): Generator<string> {
   for (const turn of turns) {
@@ -578,8 +591,8 @@ const firstMatch = (
  * honest status for a conversation nobody has opened this session.
  */
 const summaryOf = (stored: Stored): SessionSummary => {
-  const preview =
-    stored.preview ?? [...spokenText(stored.turns)][0]?.split('\n')[0]?.slice(0, 120) ?? null
+  // The first message whole, its blocks included: its first text part alone was often a block, and its first line the envelope's (#186).
+  const preview = stored.preview ?? (openingOf(firstMessage(stored.turns)).slice(0, 120) || null)
   return {
     id: stored.id,
     runtime: stored.runtime,

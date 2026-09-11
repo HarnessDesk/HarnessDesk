@@ -1,10 +1,13 @@
-import { splitContext } from './context-envelope'
+import { openingOf } from './context-envelope'
 
 /**
  * A conversation's display name. Titles win; otherwise the preview — the
  * first thing the user wrote — with any context block HarnessDesk prepended
  * (a hand-off packet, a referenced conversation) stripped, since that block
- * was written for the model, not for the list.
+ * was written for the model, not for the list. A message that is only blocks —
+ * a hand-off sent with nothing typed — is called by its first block's label,
+ * the hand-off's, which is how the host, the adapters and the Cursor bridge
+ * name it too (`openingOf`, #186).
  */
 export const sessionLabel = (
   title: string | null | undefined,
@@ -12,7 +15,7 @@ export const sessionLabel = (
   fallback = 'Untitled session',
 ): string => {
   const firstLine = (raw: string): string => {
-    const text = splitContext(raw).text.trim()
+    const text = openingOf(raw)
     // An agent's own title may be a truncated block with no closing tag —
     // the splitter leaves it whole: all envelope, no name. An envelope opens
     // `<context source="` or `<context>`; words that only start with the

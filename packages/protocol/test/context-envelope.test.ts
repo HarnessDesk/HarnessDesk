@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { splitContext, wrapContext } from '../src/context-envelope.js'
+import { openingOf, splitContext, wrapContext } from '../src/context-envelope.js'
 
 /**
  * A label survives the envelope exactly, whatever is in it.
@@ -70,4 +70,17 @@ test('text outside the envelope is what the user typed, with the block gone', ()
      go with it and `\n{3,}` only collapses a longer run. */
   assert.equal(split.text, 'before\n\nafter')
   assert.equal(split.injections[0]?.label, 'C:\\x')
+})
+
+test('a message is called by its own words, or by its first block when that is all it is (#186)', () => {
+  assert.equal(openingOf(`${wrapContext('Git', 'On branch main.')}\n\nFix the bug\nand more`), 'Fix the bug')
+  // The composer sends a hand-off's packet first, and a context chip after it.
+  assert.equal(
+    openingOf(`${wrapContext('Handed off from Claude Code', '## Goal\nfinish')}\n${wrapContext('Git', 'On branch main.')}`),
+    'Handed off from Claude Code',
+  )
+  // A label as wrapContext writes it, a quote escaped and a line break ending the name.
+  assert.equal(openingOf(wrapContext('Handed off from "Claude"\nsecond line', 'goal')), 'Handed off from "Claude"')
+  assert.equal(openingOf('plain words'), 'plain words')
+  assert.equal(openingOf(''), '')
 })

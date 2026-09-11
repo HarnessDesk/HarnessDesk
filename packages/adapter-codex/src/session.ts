@@ -1,24 +1,5 @@
 import type { CodexAppServer, CodexProtocol } from '@harnessdesk/codex'
-import {
-  findOption,
-  refuseOptionValue,
-  sessionId as makeSessionId,
-  turnId as makeTurnId,
-  type AgentEvent,
-  type AgentSession,
-  type ApprovalDecision,
-  type ApprovalId,
-  type ConfigOption,
-  type OptionValue,
-  type RuntimeId,
-  type SessionId,
-  type CapabilityRegistry,
-  type SessionSettings,
-  type SessionSummary,
-  type SessionUsage,
-  type TurnId,
-  type UserContent,
-} from '@harnessdesk/protocol'
+import { findOption, refuseOptionValue, sessionId as makeSessionId, turnId as makeTurnId, type AgentEvent, type AgentSession, type ApprovalDecision, type ApprovalId, type ConfigOption, type OptionValue, type RuntimeId, type SessionId, type CapabilityRegistry, type SessionSettings, type SessionSummary, type SessionUsage, type TurnId, type UserContent, openingOf } from '@harnessdesk/protocol'
 
 import { contextPreamble, type ToolProjection } from './capabilities.js'
 import type { ApprovalRouter } from './approvals.js'
@@ -136,7 +117,7 @@ export class CodexSession implements AgentSession {
     return {
       ...mapSummary(this.deps.thread, this.runtime),
       title: this.#name === null ? null : stripContext(this.#name) || null,
-      preview: stripContext(this.deps.thread.preview ?? '') || this.#opening,
+      preview: openingOf(this.deps.thread.preview ?? '') || this.#opening,
       cwd: this.#state.cwd,
       status: this.#currentTurnId === null ? { type: 'idle' } : { type: 'active' },
       updatedAt: this.#touchedAt,
@@ -300,9 +281,7 @@ export class CodexSession implements AgentSession {
     // on a resumed thread it is a follow-up, and Codex's stored preview is
     // the opening.
     if (!this.deps.created || this.#opening !== null) return
-    const text = stripContext(
-      input.map((part) => (part.type === 'text' ? part.text : '')).join('\n').trim(),
-    )
+    const text = openingOf(input.map((part) => (part.type === 'text' ? part.text : '')).join('\n').trim())
     this.#opening = text.slice(0, 120) || null
   }
 

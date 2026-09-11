@@ -4,15 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import {
-  runtimeId,
-  sessionId,
-  turnId,
-  type AgentItem,
-  type Session,
-  type SessionUsage,
-  type Turn,
-} from '@harnessdesk/protocol'
+import { runtimeId, sessionId, turnId, type AgentItem, type Session, type SessionUsage, type Turn, wrapContext } from '@harnessdesk/protocol'
 
 import { TranscriptStore } from '../src/transcripts.js'
 
@@ -445,5 +437,22 @@ test('dropping turns trims what the store kept from the end, after a write still
     assert.equal((await store.recover(three.runtime, three.id))?.turns.length, 2)
     await store.dropTurns(three.runtime, three.id, 2)
     assert.equal(await store.recover(three.runtime, three.id), null)
+  })
+})
+
+test('a file from before the metadata, opened with only context blocks, is called by the first one (#186)', async () => {
+  await withStore(async (store, dir) => {
+    const opening = `${wrapContext('Handed off from Claude Code', '## Goal\nfinish')}\n${wrapContext('Git', 'On branch main.')}`
+    store.record(talk('codex', 'blocks', [['userMessage', opening]]), { now: true })
+    await store.flush()
+    const file = join(dir, 'codex', 'blocks.json')
+    const { readFile: read, writeFile: write } = await import('node:fs/promises')
+    const parsed = JSON.parse(await read(file, 'utf8')) as Record<string, unknown>
+    delete parsed['preview']
+    await write(file, JSON.stringify(parsed))
+    const [hit] = await store.search('Handed off')
+    assert.ok(hit)
+    // Its first text part's first line was the envelope's own.
+    assert.equal(hit.summary.preview, 'Handed off from Claude Code')
   })
 })

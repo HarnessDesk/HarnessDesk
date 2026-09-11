@@ -80,6 +80,24 @@ export const splitContext = (raw: string): SplitText => {
 }
 
 /**
+ * What a conversation's first message is called, before it's cut to a row's
+ * width: the first line of the person's own words after any context blocks,
+ * or, for a message that's only blocks, the first block's label. The composer
+ * sends a hand-off's packet first, before referenced conversations and
+ * context chips (`Composer.tsx`), so the first block says what the
+ * conversation is; the Cursor bridge has named such a message that way since
+ * #167.
+ * Read where the preview is made, from the whole message: a preview cut at
+ * 120 characters holds no whole block to read a label from, and one stripped
+ * of its blocks holds nothing at all (#186).
+ */
+export const openingOf = (raw: string): string => {
+  const { text, injections } = splitContext(raw)
+  const lineOf = (value: string): string => value.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
+  return lineOf(text) || lineOf(injections[0]?.label ?? '')
+}
+
+/**
  * A stable identity for a block the desk composed itself — a page's
  * annotations, on their way to the composer as a chip rather than as text in
  * the box. Derived from the content, so the same block handed over twice is

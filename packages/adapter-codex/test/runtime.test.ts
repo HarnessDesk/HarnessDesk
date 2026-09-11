@@ -2,18 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import {
-  allItems,
-  approvalId,
-  reduceAll,
-  sessionId,
-  type AgentEvent,
-  type Approval,
-  type Session,
-} from '@harnessdesk/protocol'
+import { allItems, approvalId, reduceAll, sessionId, type AgentEvent, type Approval, type Session, wrapContext } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
-import { nameFromMessage } from '../src/mapping/session.js'
+import { nameFromMessage, mapSummary } from '../src/mapping/session.js'
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
@@ -835,4 +827,42 @@ test('checkInstallation moves an idle runtime onto an upgraded binary, and waits
     else process.env['FAKE_CODEX_VERSION'] = saved
     await runtime.dispose()
   }
+})
+
+test('a conversation that opened with only context blocks is called by the first one (#186)', async (t) => {
+  // Listed: Codex's stored preview is the raw first message, blocks and all.
+  const opening = `${wrapContext('Handed off from Claude Code', '## Goal\nfinish the migration')}\n${wrapContext('Git', 'On branch main.')}`
+  const thread = {
+    id: 'thread-9',
+    sessionId: 'thread-9',
+    forkedFromId: null,
+    preview: opening,
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    path: '/tmp/rollout.jsonl',
+    cwd: '/w',
+    cliVersion: '0.149.0',
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
+    name: null,
+    turns: [],
+  } as unknown as Parameters<typeof mapSummary>[0]
+  assert.equal(mapSummary(thread).preview, 'Handed off from Claude Code')
+  // Live: the opening kept when the first message is sent had its blocks stripped and nothing left.
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/w' })
+  await session.send([
+    { type: 'text', text: wrapContext('Handed off from Claude Code', '## Goal\nfinish the migration') },
+    { type: 'text', text: wrapContext('Git', 'On branch main.') },
+  ])
+  // The session the runtime hands back is Codex's own, whose summary the list is made from.
+  assert.equal((session as unknown as { summary(): { preview: string | null } }).summary().preview, 'Handed off from Claude Code')
 })

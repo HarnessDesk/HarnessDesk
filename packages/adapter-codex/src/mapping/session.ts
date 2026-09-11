@@ -1,20 +1,4 @@
-import {
-  runtimeId,
-  sessionId,
-  turnId,
-  type ConfigOption,
-  type PlanStep,
-  type RuntimeId,
-  type Session,
-  type SessionGoal,
-  type SessionSettings,
-  type SessionStatus,
-  type SessionSummary,
-  type SessionUsage,
-  type TokenUsage,
-  type Turn,
-  type TurnStatus,
-} from '@harnessdesk/protocol'
+import { runtimeId, sessionId, turnId, type ConfigOption, type PlanStep, type RuntimeId, type Session, type SessionGoal, type SessionSettings, type SessionStatus, type SessionSummary, type SessionUsage, type TokenUsage, type Turn, type TurnStatus, openingOf, splitContext } from '@harnessdesk/protocol'
 import type { CodexProtocol } from '@harnessdesk/codex'
 
 import { mapTurnError } from './errors.js'
@@ -84,7 +68,8 @@ const gitInfo = (thread: CodexThread) =>
  * That context is plumbing, not what the person said, so labels strip it.
  */
 export const stripContext = (text: string): string =>
-  text.replace(/<context source="[^"]*">[\s\S]*?<\/context>/g, '').trim()
+  // The protocol's own reader: a pattern of this file's stopped at the first quote, so a label with an escaped one stayed in (#186).
+  splitContext(text).text
 
 /**
  * A thread's name from the message that opened it, for a thread Codex will
@@ -111,7 +96,7 @@ export const mapSummary = (thread: CodexThread, runtime: RuntimeId = CODEX_RUNTI
   id: sessionId(thread.id),
   runtime,
   title: thread.name === null ? null : stripContext(thread.name) || null,
-  preview: stripContext(thread.preview) || null,
+  preview: openingOf(thread.preview) || null,
   cwd: thread.cwd,
   status: mapStatus(thread.status),
   createdAt: toMillis(thread.createdAt),

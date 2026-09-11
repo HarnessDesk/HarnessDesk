@@ -3,61 +3,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  approvalId,
-  itemId,
-  runtimeId,
-  sessionId as makeSessionId,
-  turnId,
-  type Account,
-  type AccountStatus,
-  type AuthMethod,
-  type LoginStart,
-  type AgentEvent,
-  type AgentItem,
-  type AgentRuntime,
-  type CatalogRefresh,
-  type AgentSession,
-  type Approval,
-  type ApprovalDecision,
-  type ApprovalId,
-  type ConfigOption,
-  type OptionConfirm,
-  type ContextBreakdown,
-  type ContextSegment,
-  type ItemId,
-  type ItemStatus,
-  type OptionCategory,
-  type ListSessionsQuery,
-  type ModelInfo,
-  type OptionValue,
-  type Page,
-  type RateLimits,
-  type RuntimeHealth,
-  type SecretReload,
-  type RuntimeInfo,
-  NO_CAPABILITIES,
-  type InstallationCheck,
-  type Session,
-  type SessionId,
-  type SessionOptions,
-  type SessionSettings,
-  type SessionDeletion,
-  type SessionSummary,
-  type SessionUsage,
-  type SkillInfo,
-  type TokenUsage,
-  type Turn,
-  type TurnId,
-  type Unsubscribe,
-  type UserContent,
-  type UserMessageItem,
-  type PeelOptions,
-  findOption,
-  peelUserContent,
-  refuseOptionValue,
-  SessionGoneError,
-} from '@harnessdesk/protocol'
+import { approvalId, itemId, runtimeId, sessionId as makeSessionId, turnId, type Account, type AccountStatus, type AuthMethod, type LoginStart, type AgentEvent, type AgentItem, type AgentRuntime, type CatalogRefresh, type AgentSession, type Approval, type ApprovalDecision, type ApprovalId, type ConfigOption, type OptionConfirm, type ContextBreakdown, type ContextSegment, type ItemId, type ItemStatus, type OptionCategory, type ListSessionsQuery, type ModelInfo, type OptionValue, type Page, type RateLimits, type RuntimeHealth, type SecretReload, type RuntimeInfo, NO_CAPABILITIES, type InstallationCheck, type Session, type SessionId, type SessionOptions, type SessionSettings, type SessionDeletion, type SessionSummary, type SessionUsage, type SkillInfo, type TokenUsage, type Turn, type TurnId, type Unsubscribe, type UserContent, type UserMessageItem, type PeelOptions, findOption, peelUserContent, refuseOptionValue, SessionGoneError, openingOf } from '@harnessdesk/protocol'
 import {
   AcpConnection,
   AcpError,
@@ -2627,7 +2573,8 @@ class AcpSession implements AgentSession {
       title: this.#host.titleOf(this.id),
       preview:
         preview?.type === 'userMessage'
-          ? preview.content.map((part) => (part.type === 'text' ? part.text : '')).join(' ').slice(0, 120)
+          ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
+            openingOf(preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')).slice(0, 120) || null
           : // Loaded, not replayed: the agent's own record of how this
             // conversation opened stands in for turns this process never saw.
             this.#host.previewOf(this.id),
