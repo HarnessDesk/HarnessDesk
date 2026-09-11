@@ -24,7 +24,7 @@ import {
   PanelSeam,
 } from '../design/patterns/DockPanel'
 import { Menu, MenuItem, MenuLabel } from '../components/Menu'
-import { Popover } from '../components/Popover'
+import { Popover, dismissOverlays } from '../components/Popover'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
@@ -38,6 +38,7 @@ import {
   cornerArea,
   dockLimits,
   dockViews,
+  sidebarPlacement,
   stackOf,
   stackView,
   type AreaId,
@@ -45,6 +46,7 @@ import {
   type DockId,
   type DockNode,
   type DockStack,
+  type Workbench as WorkbenchModel,
 } from '../state/workbench'
 import { hasTrafficLights } from '../lib/desktop'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
@@ -151,15 +153,37 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const [dragging, setDragging] = useState<Dragging>(null)
   const shell = useRef<HTMLDivElement>(null)
 
-  const showSidebar = !snapshot.sidebarCollapsed && areaVisible(workbench, 'sidebar')
+  /*
+   * Where the sidebar is, and whether it is on screen at all. A narrow window
+   * floats it over the conversation instead of standing it beside; see
+   * `sidebarPlacement`. The column is the only placement that takes room from
+   * the content, so it is the only one with a seam and the only one that holds
+   * the window's corner — a floating sidebar lies over the corner's row rather
+   * than taking its place. A panel given the whole window makes it `away`
+   * whatever its own state says.
+   */
+  const narrow = snapshot.narrowWindow
+  const placement = sidebarPlacement(snapshot)
+  const showSidebar = placement !== 'away'
+  const floating = placement === 'floating'
+  const column = placement === 'column'
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
    * so the stylesheet can hand that area — and only that area — the room they
    * need. Absent in the browser build, where there are no buttons and no row
    * should be indented for them. See `--titlebar-inset` in `app.css`.
+   *
+   * A floating sidebar lies over that corner too — the desktop app zoomed in
+   * can cross the narrow line — and the stylesheet gives it the same room
+   * whenever there are buttons at all, while the area named here keeps it for
+   * the row underneath.
    */
-  const corner = hasTrafficLights() ? cornerArea(workbench, showSidebar) : null
+  const corner = hasTrafficLights() ? cornerArea(workbench, column) : null
+
+  const sidebarBox = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  useFloatingSidebar(floating, sidebarBox, content)
 
   return (
     <DragContext.Provider value={{ dragging, setDragging }}>
@@ -179,8 +203,26 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
       {...(zoom ? { 'data-zoom': zoom.scope } : {})}
       {...(corner ? { 'data-lights': corner } : {})}
       {...(dragging ? { 'data-dragging': '' } : {})}
+      {...(narrow ? { 'data-narrow': '' } : {})}
     >
+      {/* The dim behind a floating sidebar. Pressing it is the plainest way
+          to put the sidebar away, and it is what keeps a press meant for the
+          sidebar from landing on the conversation underneath. Before the
+          sidebar in the markup, so the sidebar paints over it at one layer. */}
+      {narrow && (
+        <div
+          className={styles.scrim}
+          {...(floating ? { 'data-open': '' } : {})}
+          aria-hidden
+          /* Not a control, so a press on it keeps focus where it is: pressed
+             while it still fades after Escape, it would otherwise drop the
+             focus Escape has just given back. */
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => store.closeFloatingSidebar()}
+        />
+      )}
       <div
+        ref={sidebarBox}
         className={styles.sidebar}
         /* The column animates to nothing; its contents keep the width they had
            and are clipped by it. Letting them reflow instead turns every
@@ -191,9 +233,19 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
            without going anywhere near React — see `AreaSeam`. Still inline,
            though, and not moved into the stylesheet: a zoom already sets these
            boxes from `.shell[data-zoom] …`, which outranks a plain class rule,
-           and the two would then be arguing about who decides a width. */
-        style={{ width: showSidebar ? 'var(--panel-sidebar)' : 0 }}
+           and the two would then be arguing about who decides a width.
+
+           Floating, it keeps its width either way and slides instead: it
+           covers the conversation rather than sharing the window with it, so
+           there is nothing for a changing width to hand back. */
+        style={{ width: showSidebar || narrow ? 'var(--panel-sidebar)' : 0 }}
         {...(showSidebar ? {} : { 'data-hidden': '' })}
+        /* Floating, it is a surface laid over the page and it takes focus as
+           one, so it says what it is — its role and its name — rather than
+           arriving as an unnamed group. Not flagged as modal for assistive
+           technology: what it covers is really inert, which is all that flag
+           would say. */
+        {...(floating ? { 'data-floating': '', tabIndex: -1, role: 'dialog', 'aria-label': 'Sidebar' } : {})}
       >
         {/* The sidebar's own panels are rendered from inside `Sidebar`, at the
             `sidebar.panel` slot it has always had — between the session list
@@ -204,11 +256,11 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
         {sidebar}
         <DropZone area="sidebar" />
       </div>
-      {showSidebar && (
+      {column && (
         <AreaSeam area="sidebar" orientation="vertical" label="Resize the sidebar" direction={1} />
       )}
 
-      <div className={styles.content}>
+      <div ref={content} className={styles.content}>
         {/* The row holding the split tree and the right panel. It collapses as
             a unit when neither is on screen — a zoomed bottom panel would
             otherwise sit under the empty space where they were, which reads as
@@ -222,6 +274,11 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           <div
             className={styles.main}
             {...(areaVisible(workbench, 'main') ? {} : { 'data-hidden': '' })}
+            /* Covered by a right panel that took a narrow window's width, the
+               conversation is out of reach as well as out of sight, as it is
+               under the floating sidebar: Tab from the panel walked into the
+               composer and the header behind it. */
+            {...(narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main') ? { inert: true } : {})}
           >
             <Panes />
             <DropZone area="main" />
@@ -236,11 +293,14 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   )
 }
 
+/** Whether the right panel draws a panel at all, rather than only its drop zone. */
+const rightPanelDrawn = (workbench: WorkbenchModel): boolean =>
+  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
+
 const RightPanel = () => {
   const store = useStore()
-  const workbench = useSnapshot().workbench
-  const dock = workbench.right
-  const shown = areaVisible(workbench, 'right')
+  const snapshot = useSnapshot()
+  const workbench = snapshot.workbench
   // A panel with nothing in it is not a panel. Its seam, its strip and its
   // border would all be furniture around an empty box — and the way back is
   // the control that put something there in the first place.
@@ -252,17 +312,21 @@ const RightPanel = () => {
   // An area with nothing in it draws no panel — but it must still be a place
   // you can drag something to, or the only way to fill it is the ⋯ menu and
   // the drag is a gesture that silently does nothing.
-  if (dockViews(dock).length === 0 || !shown || dock.collapsed) return <EdgeDropZone area="right" />
+  if (!rightPanelDrawn(workbench)) return <EdgeDropZone area="right" />
   // A zoomed panel takes the room rather than its remembered width, and the
   // seam goes with it: there is nothing on the other side of it to resize
   // against, and a handle that moves nothing is a handle that looks broken.
   const zoomed = workbench.zoom?.area === 'right'
+  // A narrow window has no room for a panel beside the conversation, so the
+  // panel takes the conversation's width while it is open, and the seam goes
+  // for the same reason it goes in a zoom: nothing beside it to trade with.
+  const sized = !zoomed && !snapshot.narrowWindow
   return (
     <>
-      {!zoomed && (
+      {sized && (
         <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} />
       )}
-      <div className={styles.right} style={zoomed ? undefined : { width: 'var(--panel-right)' }}>
+      <div className={styles.right} style={sized ? { width: 'var(--panel-right)' } : undefined}>
         <PanelArea area="right" />
       </div>
     </>
@@ -287,6 +351,100 @@ const BottomPanel = () => {
       </div>
     </>
   )
+}
+
+/**
+ * A sidebar floating over a narrow window behaves like the thing on top that
+ * it is: focus goes into it, what it covers cannot be reached until it goes,
+ * Escape puts it away, and focus comes back to where it was.
+ *
+ * Escape is heard on the window, in the bubble phase — after everything inside
+ * the sidebar has had its turn. A menu, a filter field or a rename that spends
+ * the key says so with `preventDefault`, and then the sidebar stays: one press
+ * closes one thing. A dialog opened from the sidebar never lets the key get
+ * this far at all (see `Dialog`).
+ */
+const useFloatingSidebar = (
+  floating: boolean,
+  sidebar: RefObject<HTMLDivElement | null>,
+  content: RefObject<HTMLDivElement | null>,
+): void => {
+  const store = useStore()
+  const opener = useRef<HTMLElement | null>(null)
+  // So that putting it away is told apart from never having opened it.
+  const floated = useRef(false)
+  useLayoutEffect(() => {
+    if (floating) {
+      floated.current = true
+      /*
+       * A menu the conversation had open goes first, as it does for a dialog.
+       * Menus are drawn above the modal layer, so one left open lay over the
+       * sidebar, in reach, with its trigger inert beneath it — and ⌘B is not
+       * a press outside it, so nothing else closed it. First, and asking for
+       * focus back: a menu holding focus then gives it to its trigger as it
+       * goes, and that trigger is what focus should come back to.
+       */
+      dismissOverlays({ returnFocus: true })
+      // Taken before the content goes inert: making the focused control inert
+      // moves focus to the page, and then there is nothing to come back to.
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      /*
+       * Everything it lies over: the workbench's own content, and whatever the
+       * app marks as floating over the conversation — the standing notices,
+       * drawn under the dim, whose buttons Tab would otherwise walk into
+       * behind it. Found by that mark, not by where they sit, so wrapping the
+       * workbench or giving the page another layer cannot quietly uncover
+       * them or cover something else. A toast is not so marked and stays in
+       * reach, drawn above the sidebar: it is so often the answer to something
+       * done in the sidebar itself — an archive's Undo. Most leave on their
+       * own; an error stays until it is dismissed, and its × is in reach for
+       * the same reason.
+       *
+       * Only what this makes inert is given back: something already inert
+       * for its own reasons stays so.
+       */
+      const beside = Array.from(document.querySelectorAll('[data-over-conversation]'))
+      const covered = [content.current, ...beside].filter(
+        (element): element is HTMLElement => element instanceof HTMLElement && !element.hasAttribute('inert'),
+      )
+      for (const element of covered) element.setAttribute('inert', '')
+      // The surface, as a dialog does, rather than the first row in it: landing
+      // on a row means a stray Return opens a conversation nobody chose.
+      sidebar.current?.focus({ preventScroll: true })
+      const onKeyDown = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return
+        event.preventDefault()
+        store.closeFloatingSidebar()
+      }
+      window.addEventListener('keydown', onKeyDown)
+      return () => {
+        window.removeEventListener('keydown', onKeyDown)
+        for (const element of covered) element.removeAttribute('inert')
+      }
+    }
+    if (!floated.current) return
+    floated.current = false
+    /*
+     * Put away: its own menus go with it — one left open hung over the
+     * conversation with nothing under it that had opened it — and focus goes
+     * back to what opened it. Both here, once the commit has settled, and not
+     * in the cleanup above: React puts focus back on whatever held it before a
+     * commit's changes once they are made, which is after a cleanup runs, so a
+     * cleanup's `focus()` came straight back undone whenever the key had been
+     * pressed on a control inside the sidebar, or inside one of its menus.
+     *
+     * Only when nothing else has taken focus in the meantime: a row that opened
+     * a conversation has already said where the reader is. A menu that held
+     * focus has just given it to its trigger, which is in the sidebar.
+     */
+    dismissOverlays({ returnFocus: true })
+    const back = opener.current
+    opener.current = null
+    if (!back) return
+    const active = document.activeElement
+    const stranded = active === null || active === document.body || sidebar.current?.contains(active) === true
+    if (stranded && back.isConnected) back.focus({ preventScroll: true })
+  }, [floating, sidebar, content, store])
 }
 
 /**

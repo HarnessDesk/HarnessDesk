@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import appSheet from '../styles/app.css?raw'
 import accentSheet from '../styles/shadcn-themes.css?raw'
 import snapshot from './tokens.snapshot.txt?raw'
 
@@ -442,3 +443,81 @@ describe("every accent's dark face declares its own ink, because the palette's d
   }
 })
 
+
+describe("every accent's light face declares its own ink too", () => {
+  // #184: the table above pins each dark face's ink by value, and nothing did the same for the light faces.
+  const lightBlocks = [...accentSheet.matchAll(/body\[data-hd-accent='(\w+)'\]\s*\{([^}]*)\}/g)]
+
+  /* Mono's light face declares two inks, white for the desk's own primary
+     and shadcn's #fafafa for a primary button's label; both are pinned as
+     they are. The contrast checks above judge --hd-primary-foreground only:
+     no var() reads the label alias today (review, round 1). */
+  const LIGHT_INK: Record<string, { primary: string; label: string }> = {
+    violet: { primary: 'rgb(255, 255, 255)', label: 'rgb(255, 255, 255)' },
+    green: { primary: '#171717', label: '#171717' },
+    rose: { primary: 'rgb(255, 255, 255)', label: 'rgb(255, 255, 255)' },
+    orange: { primary: '#171717', label: '#171717' },
+    mono: { primary: 'rgb(255, 255, 255)', label: '#fafafa' },
+  }
+
+  it('reads a light block for every accent', () => {
+    expect(lightBlocks.map((match) => match[1]).sort()).toEqual(Object.keys(LIGHT_INK).sort())
+  })
+
+  for (const match of lightBlocks) {
+    const name = match[1] ?? ''
+    const body = match[2] ?? ''
+    const declared = (token: string) => new RegExp(`${token}:\\s*([^;]+);`).exec(body)?.[1]?.trim()
+    it(`${name} declares both inks in its light face`, () => {
+      expect(declared('--hd-primary-foreground'), `${name}: --hd-primary-foreground`).toBe(LIGHT_INK[name]?.primary)
+      expect(declared('--hdp-alias-label-primary-foreground'), `${name}: --hdp-alias-label-primary-foreground`).toBe(
+        LIGHT_INK[name]?.label,
+      )
+    })
+  }
+})
+
+describe("an accent's light face outranks a palette's on source order alone, so the order is pinned", () => {
+  /* #184: `body[data-hd-accent=…]` and `body[data-hd-palette=…]` are both
+     (0, 1, 1), so the later rule wins. The accent does only because every
+     sheet with a palette face loads before the sheet with the accents, and in
+     that sheet the accents come last. Nothing held either order until this. */
+  const sheets = import.meta.glob<string>('../**/*.css', { query: '?raw', import: 'default', eager: true })
+  const fromSrc = (spec: string, dir: string) => new URL(spec, `file:///src/${dir}/`).pathname.replace(/^\/src\//, '')
+  const bare = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '')
+  // Any quoting, and in a group of selectors too: the control below is there to find a face put somewhere unexpected (review, round 1).
+  const faces = (css: string, kind: 'palette' | 'accent') => [
+    ...bare(css).matchAll(new RegExp(`body\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`, 'g')),
+  ]
+  const declaring = (kind: 'palette' | 'accent') =>
+    Object.entries(sheets)
+      .filter(([, css]) => faces(css, kind).length > 0)
+      .map(([file]) => fromSrc(file, 'design'))
+      .sort()
+  const order = [...bare(appSheet).matchAll(/@import\s+['"]([^'"]+)['"]/g)].map((match) => fromSrc(match[1] ?? '', 'styles'))
+
+  it('knows which sheets hold the faces', () => {
+    // The control: the two order checks below pass on nothing if these read nothing.
+    expect(declaring('accent')).toEqual(['styles/shadcn-themes.css'])
+    expect(declaring('palette')).toEqual(['styles/editor.css', 'styles/editorial.css', 'styles/shadcn-themes.css'])
+  })
+
+  it('loads every sheet with a palette face no later than the one with the accents', () => {
+    const accents = order.indexOf('styles/shadcn-themes.css')
+    expect(accents, 'app.css does not import the accents').toBeGreaterThan(-1)
+    for (const file of declaring('palette')) {
+      const at = order.indexOf(file)
+      expect(at, `${file} holds a palette face, and only the sheets app.css imports have an order to check`).toBeGreaterThan(-1)
+      expect(at, `${file} loads after the accents`).toBeLessThanOrEqual(accents)
+    }
+  })
+
+  it('declares the accents after every palette face in their own sheet', () => {
+    const palettes = faces(accentSheet, 'palette').map((match) => match.index ?? 0)
+    const accents = faces(accentSheet, 'accent').map((match) => match.index ?? 0)
+    expect(palettes.length).toBeGreaterThan(0)
+    // Math.min of nothing is Infinity, which passes; the accents have to be there to be after anything (review, round 1).
+    expect(accents.length).toBeGreaterThan(0)
+    expect(Math.min(...accents)).toBeGreaterThan(Math.max(...palettes))
+  })
+})

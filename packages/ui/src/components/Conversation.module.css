@@ -193,6 +193,42 @@
   color: var(--hd-accent);
 }
 
+/* --- a narrow header ------------------------------------------------------
+   The title is the one elastic thing in this row, so everything else folds
+   before it does — by the header's own width, so a narrow pane in a wide
+   window folds too. Each step keeps what the row says and gives up only how
+   much of it is spelled out: a word folds to its mark, and a door to a view
+   folds into ⋯, whose View group lists it already. A folded word is still
+   read out and still on hover; the one fact that stops the next Send — the
+   plan strip's sign-in chip — never folds at all.
+
+   The same two widths the plan strip folds on (`PlanMeters.module.css`), and
+   like it, measured against the header's content box. */
+@container hd-header (max-width: 520px) {
+  .statusLabel,
+  .tasksLabel,
+  .gitLabel,
+  .gitTag {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* A phone's width: a resting status says nothing its absence does not, and a
+   door to a view folds into ⋯ › View. The header marks the doors that have a
+   ⋯ to fold into (`data-folds`); a draft has none, and keeps its browser. */
+@container hd-header (max-width: 400px) {
+  .status[data-status='idle'],
+  .headerRule,
+  .headerButton[data-folds] {
+    display: none;
+  }
+}
+
 /* Inside the reading column with everything else: a notice that runs the
    full width of the pane reads as a page-level alarm, not as this turn's. */
 .turnError {

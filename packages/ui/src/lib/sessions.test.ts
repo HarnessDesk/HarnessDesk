@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { sessionLabel, shortLabel } from './sessions'
 
 describe('sessionLabel', () => {
+  it('keeps words that only start with <context as the name (review of #207)', () => {
+    // The bridge keeps such a name now, and this is where the row is drawn from it.
+    expect(sessionLabel(null, '<context-free grammars, explained')).toBe('<context-free grammars, explained')
+    expect(sessionLabel('<context switching in Go', null)).toBe('<context switching in Go')
+  })
+
   it('prefers the title', () => {
     expect(sessionLabel('Pong', 'build pong')).toBe('Pong')
   })

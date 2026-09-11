@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ContextMenu, Menu, MenuItem, MenuToggle, Submenu, useContextMenu } from './Menu'
+import { dismissOverlays } from './Popover'
 
 /**
  * The menu's contract, exercised through the DOM: a row closes the menu or
@@ -267,6 +268,32 @@ describe('ContextMenu', () => {
     click(row('Pin'))
     expect(pin).toHaveBeenCalledOnce()
     expect(onClose).toHaveBeenCalledTimes(3)
+  })
+
+  it('asked to give focus back, it gives it to what had it before the menu took it — and only when asked', () => {
+    /* It opens at a point, with no trigger to return to. The floating sidebar
+       keeps what had focus as the place to come back to, and a row unmounted
+       in between is nowhere. */
+    const before = document.body.appendChild(document.createElement('button'))
+    act(() => before.focus())
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <ContextMenu at={{ x: 10, y: 10 }} label="Actions" onClose={onClose}>
+          <MenuItem label="Pin" onSelect={() => {}} />
+        </ContextMenu>,
+      )
+    })
+    expect(document.activeElement).toBe(row('Pin'))
+
+    act(() => dismissOverlays())
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(row('Pin'))
+
+    act(() => dismissOverlays({ returnFocus: true }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+    expect(document.activeElement).toBe(before)
+    before.remove()
   })
 
   it('useContextMenu opens at the pointer and blocks the native menu', () => {

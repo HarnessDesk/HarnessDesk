@@ -5,6 +5,9 @@
  * `tsc` only emits what it compiles, and some fixtures are deliberately not
  * TypeScript — the fake Codex binary has to be an executable script that
  * `spawn` can run, so the tests exercise the real process path.
+ *
+ * It only ever adds. A fixture deleted from `test/fixtures` is taken out of
+ * `dist` by `prune-dist.mjs`, which runs after this.
  */
 import { chmodSync, cpSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'

@@ -8,6 +8,9 @@
   padding: 24px;
   background: var(--hd-scrim);
   backdrop-filter: blur(2px);
+  /* The card is as wide as the pane allows, so the pane's width is the one
+     that decides whether its answers fit side by side. */
+  container: hd-approval / inline-size;
 }
 
 .dialog {
@@ -213,4 +216,23 @@
   margin-left: 0;
   opacity: 0.7;
   font-size: var(--hd-text-xs);
+}
+
+/* A pane too narrow for the answers side by side lets them wrap, and each one
+   takes its share of its line. Held in one row, a phone's width wrapped the
+   middle answer to three lines and pushed the approving one — the answer the
+   agent is waiting for — half off the card. */
+@container hd-approval (max-width: 460px) {
+  .footer {
+    flex-wrap: wrap;
+  }
+
+  .spacer {
+    display: none;
+  }
+
+  .button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
 }

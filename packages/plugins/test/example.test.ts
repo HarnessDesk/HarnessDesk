@@ -69,6 +69,41 @@ test('the example plugin loads in the real kernel', async (t) => {
   assert.equal(loaded.state.type, 'active', 'the example loaded but did not become active')
 })
 
+test("the example's browse_page decodes a page's entities in one pass (#169)", async (t) => {
+  /* The example keeps its own `htmlToText`, and it decoded `&amp;` first and
+     then the `&lt;` that uncovered, so a page showing the markup `&lt;div&gt;`
+     read as a tag. The kernel's copy was fixed in #164; this is the copy an
+     author starts from. `&lt;b&gt;` and `&quot;` read the same either way.
+     Through the kernel and a real fetch, as a plugin's tool runs: a context
+     built by hand would have stayed green whatever `ctx.http.fetch` became
+     (review of #207, round 1). The manifest allows any host. */
+  const { createServer } = await import('node:http')
+  const page = '<title>Escapes</title><p>&amp;lt;div&amp;gt; &lt;b&gt; &amp;amp; &quot;q&quot;&nbsp;end</p>'
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' })
+    response.end(page)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(
+    () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
+  )
+  const { port } = server.address() as { port: number }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(await loadInstalled(join(checkout(), 'examples/browser-plugin')))
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'browse_page')
+  assert.ok(tool, 'the example registers browse_page')
+  const result = await kernel.invokeTool(tool.id, { url: `http://127.0.0.1:${port}/` }, {})
+  if (!result.ok) throw new Error(result.error)
+  const read = result.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+  assert.equal(read.split('\n').at(-1), 'Escapes &lt;div&gt; <b> &amp; "q" end')
+})
+
 test('the example manifest is the shape a plugin author would copy', async () => {
   const dir = join(checkout(), 'examples/browser-plugin')
   const manifest = JSON.parse(await readFile(join(dir, 'harnessdesk.plugin.json'), 'utf8'))

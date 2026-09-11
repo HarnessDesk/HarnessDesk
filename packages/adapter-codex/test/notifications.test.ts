@@ -111,6 +111,34 @@ test('rate limits are lifted to a runtime-level event', () => {
   assert.equal(event?.type === 'limits/updated' && event.limits.planType, 'team')
 })
 
+test('a balance that is there is read, a zero included, and one that is not is none (#184)', () => {
+  const balance = (value: unknown) => {
+    const event = mapNotification(
+      n('account/rateLimits/updated', {
+        rateLimits: {
+          limitId: 'premium',
+          limitName: null,
+          primary: null,
+          secondary: null,
+          credits: { hasCredits: true, unlimited: false, balance: value as string | null },
+          planType: 'team',
+          rateLimitReachedType: null,
+        },
+      }),
+    )[0]
+    return event?.type === 'limits/updated' ? event.limits.balance : 'no event'
+  }
+  assert.equal(balance('0'), 0)
+  // Read by truthiness, only a string zero came through (#85, one layer down).
+  assert.equal(balance(0), 0, 'a numeric zero is a balance, not none')
+  assert.equal(balance('12.5'), 12.5)
+  assert.equal(balance(null), null)
+  assert.equal(balance(''), null, 'an empty string is no balance, not a zero')
+  // Round 1 of #207: none at the boundary, for every reader, not only describeLimits.
+  assert.equal(balance('plenty'), null, 'what is not a number is none')
+  assert.equal(balance('1e500'), null, 'nor is a number too large to be finite')
+})
+
 test('unmodelled notifications produce nothing rather than noise', () => {
   assert.deepEqual(mapNotification(n('mcpServer/startupStatus/updated', { name: 'figma' })), [])
   assert.deepEqual(mapNotification(n('remoteControl/status/changed', { status: 'disabled' })), [])

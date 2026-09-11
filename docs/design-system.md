@@ -168,7 +168,7 @@ The values below are Desk's, and they are the app's own: a hard 2px ring in the 
 
 ### Layer
 
-Stacking is a system, not a race. A component that needs to sit above another takes the next name up; it never writes a number.
+Stacking is a system, not a race. A component that needs to sit above another takes the next name up; it never writes a number. The drawer is a panel floated over the window's content — the sidebar, in a window too narrow for its column — so it sits over the notices it covers and under the menus opened from it.
 
 | token | value |
 | --- | --- |
@@ -176,6 +176,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-sticky` | `10` |
 | `--hd-z-header` | `30` |
 | `--hd-z-notice` | `35` |
+| `--hd-z-drawer` | `40` |
 | `--hd-z-popover` | `50` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |

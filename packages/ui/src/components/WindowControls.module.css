@@ -27,3 +27,12 @@
   opacity: 0.35;
   cursor: default;
 }
+
+/* A narrow header keeps the toggle and folds the arrows: they are on the
+   sidebar's own row too, and the toggle is the one press that reaches it. The
+   same width at which the header's plan strip gives up its figure. */
+@container hd-header (max-width: 520px) {
+  .nav {
+    display: none;
+  }
+}

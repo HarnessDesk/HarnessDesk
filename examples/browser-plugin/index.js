@@ -13,6 +13,14 @@
  * thing, and gives an agent two tools with one name.
  */
 
+/**
+ * The entities markup escapes text with, and the space. Decoded in one pass,
+ * as the kernel's copy is: decoding `&amp;` first uncovered a `&lt;` that was
+ * then decoded too, so a page showing the markup `&lt;div&gt;` read as a tag
+ * (#169).
+ */
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
+
 /** Minimal HTML → readable text. Deliberately dumb; readability is the agent's job. */
 const htmlToText = (html) =>
   html
@@ -22,12 +30,7 @@ const htmlToText = (html) =>
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/gi, (entity, name) => ENTITIES[name.toLowerCase()] ?? entity)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s+/g, '\n')
     .trim()
