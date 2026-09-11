@@ -11,9 +11,9 @@ import type {
   Turn,
   AgentItem,
 } from '@harnessdesk/protocol'
+import { openingOf } from '@harnessdesk/protocol'
 
 import { publicationsIn, withPublications } from './publications.js'
-import { openingOf } from '@harnessdesk/protocol'
 
 /**
  * The transcript the host watched, kept.

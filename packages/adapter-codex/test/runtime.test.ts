@@ -2,10 +2,22 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { allItems, approvalId, reduceAll, sessionId, type AgentEvent, type Approval, type Session, wrapContext } from '@harnessdesk/protocol'
+import {
+  allItems,
+  approvalId,
+  reduceAll,
+  sessionId,
+  type AgentEvent,
+  type Approval,
+  runtimeId,
+  type Session,
+  wrapContext,
+} from '@harnessdesk/protocol'
+import { ExtensionKernel } from '@harnessdesk/cordis-host'
 
+import { automaticContext } from '../src/capabilities.js'
 import { CodexRuntime } from '../src/index.js'
-import { nameFromMessage, mapSummary } from '../src/mapping/session.js'
+import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/session.js'
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
@@ -865,4 +877,69 @@ test('a conversation that opened with only context blocks is called by the first
   ])
   // The session the runtime hands back is Codex's own, whose summary the list is made from.
   assert.equal((session as unknown as { summary(): { preview: string | null } }).summary().preview, 'Handed off from Claude Code')
+})
+
+/** A stored Codex thread, as `thread/list` returns one. */
+const storedThread = (preview: string): Parameters<typeof mapSummary>[0] =>
+  ({
+    id: 'thread-10',
+    sessionId: 'thread-10',
+    forkedFromId: null,
+    preview,
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    path: '/tmp/rollout.jsonl',
+    cwd: '/w',
+    cliVersion: '0.149.0',
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: null,
+    turns: [],
+  }) as unknown as Parameters<typeof mapSummary>[0]
+
+test('a hand-off to Codex is called by the hand-off, not by the block the adapter puts in front of it (review of #231)', async (t) => {
+  /* A real kernel with a context provider that is not a chip, the way the Git
+     plugin registers its block: the adapter prepends it to every message. */
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load({
+    manifest: { id: 'branch', name: 'branch' },
+    plugin: {
+      name: 'branch',
+      inject: ['context'],
+      apply: (ctx: { context: { register(entry: { label: string; resolve: () => Promise<string> }): void } }) =>
+        ctx.context.register({ label: 'Git', resolve: async () => 'On branch main.' }),
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const previewOf = (session: unknown): string | null => (session as { summary(): { preview: string | null } }).summary().preview
+
+  const handed = await runtime.createSession({ cwd: '/w' })
+  await handed.send([{ type: 'text', text: wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish the migration') }])
+  assert.equal(previewOf(handed), 'Handed off from Claude Code — “Migrate webhooks”')
+
+  const chipped = await runtime.createSession({ cwd: '/w' })
+  await chipped.send([{ type: 'text', text: wrapContext('Uncommitted changes', 'M src/a.ts') }])
+  assert.equal(previewOf(chipped), 'Uncommitted changes')
+
+  // Listed: Codex stored the message with the adapter's block in front of the chip.
+  const listed = storedThread(`${wrapContext('Git', 'On branch main.')}\n\n${wrapContext('Uncommitted changes', 'M src/a.ts')}`)
+  assert.equal(mapSummary(listed, runtimeId('codex'), automaticContext(kernel)).preview, 'Uncommitted changes')
+  // The control: the same stored message, read without the kernel, starts with the adapter's block.
+  assert.equal(mapSummary(listed).preview, 'Git')
+})
+
+test('the listed preview is cut where the live one is, and a stripped name is trimmed (review of #231)', () => {
+  assert.equal(mapSummary(storedThread(`Retry the checkout call ${'on a 502 '.repeat(40)}`)).preview?.length, 120)
+  assert.equal(stripContext('  Retry the checkout call  '), 'Retry the checkout call')
+  assert.equal(stripContext(`${wrapContext('Git', 'On branch main.')}\n  Retry it  `), 'Retry it')
 })

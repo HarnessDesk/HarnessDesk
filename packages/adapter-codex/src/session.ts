@@ -1,7 +1,27 @@
 import type { CodexAppServer, CodexProtocol } from '@harnessdesk/codex'
-import { findOption, refuseOptionValue, sessionId as makeSessionId, turnId as makeTurnId, type AgentEvent, type AgentSession, type ApprovalDecision, type ApprovalId, type ConfigOption, type OptionValue, type RuntimeId, type SessionId, type CapabilityRegistry, type SessionSettings, type SessionSummary, type SessionUsage, type TurnId, type UserContent, openingOf } from '@harnessdesk/protocol'
+import {
+  findOption,
+  refuseOptionValue,
+  sessionId as makeSessionId,
+  turnId as makeTurnId,
+  type AgentEvent,
+  type AgentSession,
+  type ApprovalDecision,
+  type ApprovalId,
+  type ConfigOption,
+  type OptionValue,
+  type RuntimeId,
+  type SessionId,
+  type CapabilityRegistry,
+  type SessionSettings,
+  type SessionSummary,
+  type SessionUsage,
+  type TurnId,
+  type UserContent,
+  openingOf,
+} from '@harnessdesk/protocol'
 
-import { contextPreamble, type ToolProjection } from './capabilities.js'
+import { automaticContext, contextPreamble, type ToolProjection } from './capabilities.js'
 import type { ApprovalRouter } from './approvals.js'
 import {
   sessionOptions,
@@ -115,9 +135,9 @@ export class CodexSession implements AgentSession {
    */
   summary(): SessionSummary {
     return {
-      ...mapSummary(this.deps.thread, this.runtime),
+      ...mapSummary(this.deps.thread, this.runtime, automaticContext(this.deps.capabilities)),
       title: this.#name === null ? null : stripContext(this.#name) || null,
-      preview: openingOf(this.deps.thread.preview ?? '') || this.#opening,
+      preview: openingOf(this.deps.thread.preview ?? '', { skip: automaticContext(this.deps.capabilities) }).slice(0, 120) || this.#opening,
       cwd: this.#state.cwd,
       status: this.#currentTurnId === null ? { type: 'idle' } : { type: 'active' },
       updatedAt: this.#touchedAt,
@@ -265,7 +285,8 @@ export class CodexSession implements AgentSession {
       ...overrides,
     })
     this.#currentTurnId = response.turn.id
-    this.#noteOpening(enriched)
+    // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
+    this.#noteOpening(input)
     void this.#nameFromOpeningMessage(enriched)
     return makeTurnId(response.turn.id)
   }

@@ -44,7 +44,7 @@ import {
   type Unsubscribe,
 } from '@harnessdesk/protocol'
 
-import { contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
+import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
 import { CodexExtensions } from './extensions.js'
@@ -705,7 +705,7 @@ export class CodexRuntime implements AgentRuntime {
       // archived threads and nothing else, which is what `only` means.
       archived: onlyArchived,
     })
-    const stored = response.data.map((thread) => mapSummary(thread, this.#id))
+    const stored = response.data.map((thread) => mapSummary(thread, this.#id, automaticContext(this.#capabilities)))
     const live =
       query.cursor
         ? []
@@ -726,7 +726,7 @@ export class CodexRuntime implements AgentRuntime {
   async searchSessions(query: string): Promise<Page<SessionSummary>> {
     const response = await this.#server.request('thread/search', { searchTerm: query })
     return {
-      data: response.data.map((result) => mapSummary(result.thread, this.#id)),
+      data: response.data.map((result) => mapSummary(result.thread, this.#id, automaticContext(this.#capabilities))),
       nextCursor: response.nextCursor,
     }
   }

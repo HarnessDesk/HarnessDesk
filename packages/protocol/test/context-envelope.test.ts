@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { openingOf, splitContext, wrapContext } from '../src/context-envelope.js'
+import { agentMessageSource, openingOf, opensEnvelope, splitContext, wrapContext } from '../src/context-envelope.js'
 
 /**
  * A label survives the envelope exactly, whatever is in it.
@@ -83,4 +83,31 @@ test('a message is called by its own words, or by its first block when that is a
   assert.equal(openingOf(wrapContext('Handed off from "Claude"\nsecond line', 'goal')), 'Handed off from "Claude"')
   assert.equal(openingOf('plain words'), 'plain words')
   assert.equal(openingOf(''), '')
+})
+
+test('a hand-off or a message from an agent names the conversation wherever it sits (review of #231)', () => {
+  // An adapter puts its own block in front of the composer's: Codex's Git block, ahead of the packet.
+  const git = wrapContext('Git', 'On branch main.')
+  const packet = wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish the migration')
+  assert.equal(openingOf(`${git}\n${packet}`), 'Handed off from Claude Code — “Migrate webhooks”')
+  const message = agentMessageSource('Codex', 'Review the migration')
+  assert.equal(openingOf(`${git}\n${wrapContext(message, 'Look at the queue first.')}`), message)
+  // What the person typed still outranks every block.
+  assert.equal(openingOf(`${git}\n${packet}\nPick it up from the queue`), 'Pick it up from the queue')
+})
+
+test('an adapter passes over the blocks it wrote itself (review of #231)', () => {
+  const opening = `${wrapContext('Git', 'On branch main.')}\n${wrapContext('Uncommitted changes', 'M src/a.ts')}`
+  assert.equal(openingOf(opening, { skip: (label) => label === 'Git' }), 'Uncommitted changes')
+  // The control: not told, the first block is the first block.
+  assert.equal(openingOf(opening), 'Git')
+})
+
+test('a block cut off before it closed names nothing (review of #231)', () => {
+  assert.equal(openingOf('<context source="Handed off from Claude Code — “Migrate'), '')
+  assert.equal(openingOf(`${wrapContext('Git', 'On branch main.')}\n<context source="Handed off from Cla`), '')
+  assert.equal(opensEnvelope('<context source="x'), true)
+  assert.equal(opensEnvelope('<context>'), true)
+  // A word that only starts with it is a word.
+  assert.equal(opensEnvelope('<context-free grammars'), false)
 })

@@ -58,7 +58,7 @@ import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { openExternal } from '../lib/desktop'
-import { splitContext, wrapContext } from '../lib/context-envelope'
+import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
@@ -1663,8 +1663,8 @@ export class AppStore {
     const firstAsk = open?.turns
       .flatMap((turn) => turn.items)
       .filter((item): item is Extract<AgentItem, { type: 'userMessage' }> => item.type === 'userMessage')
-      .flatMap((item) => item.content)
-      .map((part) => (part.type === 'text' ? splitContext(part.text).text.trim() : ''))
+      // By the rule every adapter's preview follows (review of #231).
+      .map((item) => openingOf(item.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')))
       .find((text) => text.length > 0)
     const title = shortLabel(sessionLabel(summary?.title ?? open?.title, summary?.preview || firstAsk), 120)
     this.#parkedHandoff = null

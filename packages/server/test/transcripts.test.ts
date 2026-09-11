@@ -4,7 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { runtimeId, sessionId, turnId, type AgentItem, type Session, type SessionUsage, type Turn, wrapContext } from '@harnessdesk/protocol'
+import {
+  runtimeId,
+  sessionId,
+  turnId,
+  type AgentItem,
+  type Session,
+  type SessionUsage,
+  type Turn,
+  wrapContext,
+} from '@harnessdesk/protocol'
 
 import { TranscriptStore } from '../src/transcripts.js'
 
@@ -454,5 +463,21 @@ test('a file from before the metadata, opened with only context blocks, is calle
     assert.ok(hit)
     // Its first text part's first line was the envelope's own.
     assert.equal(hit.summary.preview, 'Handed off from Claude Code')
+  })
+})
+
+test('a name read from the opening survives a restart, and a block cut short names nothing (review of #231)', async () => {
+  await withStore(async (store, dir) => {
+    const packet = wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish')
+    store.record(talk('codex', 'handed', [['userMessage', `${wrapContext('Git', 'On branch main.')}\n${packet}`]]), { now: true })
+    store.record(talk('codex', 'cut', [['userMessage', '<context source="Handed off from Claude Code — “Queue work']]), { now: true })
+    await store.flush()
+    // A second store over the same folder is the desk after a restart.
+    const again = new TranscriptStore(dir)
+    const [handed] = await again.search('finish')
+    assert.equal(handed?.summary.preview, 'Handed off from Claude Code — “Migrate webhooks”')
+    const [cut] = await again.search('Queue work')
+    assert.ok(cut)
+    assert.equal(cut.summary.preview, null)
   })
 })

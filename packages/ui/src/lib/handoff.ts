@@ -1,6 +1,6 @@
 import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
-import { splitContext, wrapContext } from './context-envelope'
+import { HANDOFF_PREFIX, isHandoffSource, splitContext, wrapContext } from './context-envelope'
 import { countFileChange } from './diff'
 import { applyPlanEdits, type PlanEdit } from './plan-edits'
 import { sessionPlan } from './todos'
@@ -180,7 +180,7 @@ const carriedGoal = (session: Session): string | null => {
       for (const part of item.content) {
         if (part.type !== 'text') continue
         for (const block of splitContext(part.text).injections) {
-          if (!block.label.startsWith('Handed off from ')) continue
+          if (!isHandoffSource(block.label)) continue
           const goal = /## Goal\n([\s\S]*?)(?=\n## |$)/.exec(block.text)?.[1]?.trim()
           if (goal) return goal
         }
@@ -194,7 +194,7 @@ const carriedGoal = (session: Session): string | null => {
 
 /** The one-line lineage a reader sees first, in the draft and in the packet. */
 export const lineageLine = (source: HandoffSource): string =>
-  `Handed off from ${source.agentName} — “${titleOf(source.session)}”`
+  `${HANDOFF_PREFIX}${source.agentName} — “${titleOf(source.session)}”`
 
 export const buildHandoff = (source: HandoffSource, carry: Carry): string | null => {
   const { session } = source

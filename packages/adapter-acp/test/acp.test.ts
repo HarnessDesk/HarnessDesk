@@ -1415,3 +1415,30 @@ test('a conversation opened with only context blocks is called by the first one,
     await runtime.dispose()
   }
 })
+
+test('a first message cut off inside a block names nothing (review of #231)', async (t) => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-cut-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: join(dir, 'store.json') },
+  })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: '<context source="Handed off from Claude Code — “Migrate the web' }])
+    await tape.until((event) => event.type === 'turn/completed')
+    const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
+    assert.ok(row)
+    assert.equal(row.preview, null)
+  } finally {
+    await runtime.dispose()
+  }
+})

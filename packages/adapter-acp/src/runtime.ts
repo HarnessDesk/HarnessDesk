@@ -3,7 +3,62 @@ import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { approvalId, itemId, runtimeId, sessionId as makeSessionId, turnId, type Account, type AccountStatus, type AuthMethod, type LoginStart, type AgentEvent, type AgentItem, type AgentRuntime, type CatalogRefresh, type AgentSession, type Approval, type ApprovalDecision, type ApprovalId, type ConfigOption, type OptionConfirm, type ContextBreakdown, type ContextSegment, type ItemId, type ItemStatus, type OptionCategory, type ListSessionsQuery, type ModelInfo, type OptionValue, type Page, type RateLimits, type RuntimeHealth, type SecretReload, type RuntimeInfo, NO_CAPABILITIES, type InstallationCheck, type Session, type SessionId, type SessionOptions, type SessionSettings, type SessionDeletion, type SessionSummary, type SessionUsage, type SkillInfo, type TokenUsage, type Turn, type TurnId, type Unsubscribe, type UserContent, type UserMessageItem, type PeelOptions, findOption, peelUserContent, refuseOptionValue, SessionGoneError, openingOf } from '@harnessdesk/protocol'
+import {
+  approvalId,
+  itemId,
+  runtimeId,
+  sessionId as makeSessionId,
+  turnId,
+  type Account,
+  type AccountStatus,
+  type AuthMethod,
+  type LoginStart,
+  type AgentEvent,
+  type AgentItem,
+  type AgentRuntime,
+  type CatalogRefresh,
+  type AgentSession,
+  type Approval,
+  type ApprovalDecision,
+  type ApprovalId,
+  type ConfigOption,
+  type OptionConfirm,
+  type ContextBreakdown,
+  type ContextSegment,
+  type ItemId,
+  type ItemStatus,
+  type OptionCategory,
+  type ListSessionsQuery,
+  type ModelInfo,
+  type OptionValue,
+  type Page,
+  type RateLimits,
+  type RuntimeHealth,
+  type SecretReload,
+  type RuntimeInfo,
+  NO_CAPABILITIES,
+  type InstallationCheck,
+  type Session,
+  type SessionId,
+  type SessionOptions,
+  type SessionSettings,
+  type SessionDeletion,
+  type SessionSummary,
+  type SessionUsage,
+  type SkillInfo,
+  type TokenUsage,
+  type Turn,
+  type TurnId,
+  type Unsubscribe,
+  type UserContent,
+  type UserMessageItem,
+  type PeelOptions,
+  findOption,
+  peelUserContent,
+  refuseOptionValue,
+  SessionGoneError,
+  openingOf,
+} from '@harnessdesk/protocol'
 import {
   AcpConnection,
   AcpError,
@@ -1293,7 +1348,8 @@ export class AcpRuntime implements AgentRuntime {
         // loaded here has no turns of its own to take one from — the agent
         // keeps the transcript — and a row with neither name nor ask reads
         // as "Untitled session" while the agent knows exactly what it is.
-        const preview = row.preview?.trim()
+        // By the rule every producer's preview follows (review of #231).
+        const preview = openingOf(row.preview ?? '').slice(0, 120)
         if (preview) this.#previews.set(makeSessionId(row.sessionId), preview)
       }
       const named = live.map((summary) => {
@@ -1313,7 +1369,7 @@ export class AcpRuntime implements AgentRuntime {
             // What the conversation opened with, for the rows an agent
             // leaves unnamed — the same split a live session has, where the
             // title is the agent's name and the preview is the ask.
-            preview: row.preview?.trim() || null,
+            preview: openingOf(row.preview ?? '').slice(0, 120) || null,
             cwd: row.cwd,
             status: { type: 'notLoaded' },
             createdAt: row.updatedAt ? Date.parse(row.updatedAt) : 0,
