@@ -63,6 +63,10 @@ test('a runtime announcing tasks reaches every window, and a new window is caugh
   // still running is exactly what a window must not forget on ⌘R.
   const second = await Client.connect(harness.server)
   t.after(() => second.close())
+  /* Waited for, not read at once: `connect` resolves on the socket's open, and
+     the host sends `sync` as a message of its own once the connection is up.
+     On a slow runner the read came first and found nothing (#149). */
+  await second.until(() => second.notifications.some((entry) => 'method' in entry && entry.method === 'sync'))
   const sync = second.notifications.find(
     (notification): notification is Extract<typeof notification, { method: 'sync' }> =>
       'method' in notification && notification.method === 'sync',

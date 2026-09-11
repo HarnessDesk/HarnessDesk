@@ -522,7 +522,8 @@ test('an agent that refuses the tool server says so, and says it out loud', asyn
     name: 'Refuser',
     command: process.execPath,
     args: [FAKE],
-    env: { FAKE_ACP_REFUSE_TOOLS: '1' },
+    // The retry without the tool server answered late, as under load (#215).
+    env: { FAKE_ACP_REFUSE_TOOLS: '1', FAKE_ACP_SLOW_OPEN_MS: '50' },
     toolServer: {
       name: 'harnessdesk',
       command: process.execPath,
@@ -534,11 +535,20 @@ test('an agent that refuses the tool server says so, and says it out loud', asyn
   const off = runtime.onInfoChange?.(() => {
     announced += 1
   })
+  // The probe's retry opens a session, which observes the sign-in and announces that too.
+  let observed = false
+  const unsubscribe = runtime.subscribe((event) => {
+    if (event.type === 'account/changed') observed = true
+  })
   await runtime.start()
   try {
-    // The eager probe observes the refusal without any session being asked for.
+    /* The eager probe observes the refusal without any session being asked
+       for. Waited out to its end, the retry's sign-in included: settled on the
+       refusal alone, the sign-in's announcement landed during the session
+       below whenever the retry answered late, and read as the refusal
+       announced twice (#215, 3 !== 2 under load). */
     const deadline = Date.now() + 5_000
-    while (runtime.info.capabilities.pluginTools && Date.now() < deadline) {
+    while ((runtime.info.capabilities.pluginTools || !observed) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     assert.equal(
@@ -555,6 +565,7 @@ test('an agent that refuses the tool server says so, and says it out loud', asyn
     assert.equal(runtime.info.capabilities.pluginTools, false, 'the refusal is remembered')
     assert.equal(announced, settled, 'a remembered refusal is not announced twice')
     off?.()
+    unsubscribe()
   } finally {
     await runtime.dispose()
   }
