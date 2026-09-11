@@ -21,13 +21,16 @@ import type { AvatarId } from './avatars'
  * dropped on the way in, so "Reset" is offered exactly when there is
  * something to reset.
  *
- * What a later build stores, this one keeps. The profile is written whole
- * (`setProfile`), so a read that dropped what it does not know — a face added
- * after this build, a picture of your own, a field an account brings — would
- * lose it for good on the next edit of the name, and a profile synced between
- * copies of different ages would lose it on a loop. So the read keeps every
- * field and whatever `avatar` holds; only drawing falls back, and `Face` draws
- * the house mark for anything this build does not ship.
+ * What a later build stores, this one keeps: every field it does not know,
+ * and whatever `avatar` holds. The profile is written whole (`setProfile`), so
+ * a read that dropped them — a face added after this build, a picture of your
+ * own, a field an account brings — would lose them for good on the next edit
+ * of the name, and a profile synced between copies of different ages would
+ * lose them on a loop. So the read keeps them, the write puts them back, and
+ * only drawing falls back: `Face` draws the house mark for a face this build
+ * does not ship. The one field the read does not carry is a `name` that is not
+ * a string — the name stays a string, and an account is expected to supply a
+ * string there too.
  */
 export interface Profile {
   /** What you are called. Absent means the default. */
@@ -38,8 +41,14 @@ export interface Profile {
    * house mark.
    */
   readonly avatar?: unknown
-  /** Fields a later build stores, kept as they were so a whole write cannot drop them. */
-  readonly [field: string]: unknown
+  /**
+   * Every other field the stored profile had — a later build's — kept as it
+   * was and written back beside the two this build knows (`storedProfile`). In
+   * a bag of its own rather than under an index signature, so the interface
+   * stays closed: a misspelled read of `name` or `avatar` fails to compile,
+   * where it would otherwise draw the default forever.
+   */
+  readonly later?: Readonly<Record<string, unknown>>
 }
 
 /** A change to the profile. `null` puts that field back to its default. */
@@ -54,24 +63,33 @@ export const DEFAULT_PROFILE_NAME = 'HarnessDesk'
 /**
  * Long enough for a full name, short enough that the seat's row cuts it with
  * an ellipsis rather than the name crowding out the agent badge beside it.
- * Counted in characters, not UTF-16 units, so an emoji is never cut in half —
- * here, and by the field that types it.
+ * Counted in characters as a person sees them — a flag or a family emoji is
+ * one, and none is cut in half — here, and by the field that types it.
  */
 export const PROFILE_NAME_MAX = 40
 
+const graphemes =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
+
+/**
+ * A string as the characters a person sees: grapheme clusters, so 🇺🇸 is one
+ * and not two. Code points where `Intl.Segmenter` is missing.
+ */
+export const characters = (text: string): string[] =>
+  graphemes ? Array.from(graphemes.segment(text), (part) => part.segment) : Array.from(text)
+
 const tidyName = (name: string): string =>
-  Array.from(name.replace(/\s+/g, ' ').trim())
+  characters(name.replace(/\s+/g, ' ').trim())
     .slice(0, PROFILE_NAME_MAX)
     .join('')
     .trim()
 
-const clean = (base: Readonly<Record<string, unknown>>, name: unknown, avatar: unknown): Profile => {
-  const kept = Object.fromEntries(Object.entries(base).filter(([field]) => field !== 'name' && field !== 'avatar'))
+const clean = (later: Readonly<Record<string, unknown>> | undefined, name: unknown, avatar: unknown): Profile => {
   const tidy = typeof name === 'string' ? tidyName(name) : ''
   return {
-    ...kept,
     ...(tidy !== '' && tidy !== DEFAULT_PROFILE_NAME ? { name: tidy } : {}),
     ...(avatar !== undefined && avatar !== null && avatar !== '' ? { avatar } : {}),
+    ...(later && Object.keys(later).length > 0 ? { later } : {}),
   }
 }
 
@@ -83,7 +101,7 @@ const clean = (base: Readonly<Record<string, unknown>>, name: unknown, avatar: u
  */
 export const applyProfile = (profile: Profile, patch: ProfilePatch): Profile =>
   clean(
-    profile,
+    profile.later,
     patch.name === undefined ? profile.name : patch.name,
     patch.avatar === undefined ? profile.avatar : patch.avatar,
   )
@@ -97,8 +115,20 @@ export const applyProfile = (profile: Profile, patch: ProfilePatch): Profile =>
 export const readProfile = (raw: unknown): Profile => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
   const record = raw as Readonly<Record<string, unknown>>
-  return clean(record, record['name'], record['avatar'])
+  const later = Object.fromEntries(Object.entries(record).filter(([field]) => field !== 'name' && field !== 'avatar'))
+  return clean(later, record['name'], record['avatar'])
 }
+
+/**
+ * The profile as the preferences file holds it: what a later build stored,
+ * back at the top level beside the two fields this build knows — the shape
+ * `readProfile` reads, so a profile passes through this build unchanged.
+ */
+export const storedProfile = (profile: Profile): Readonly<Record<string, unknown>> => ({
+  ...profile.later,
+  ...(profile.name !== undefined ? { name: profile.name } : {}),
+  ...(profile.avatar !== undefined ? { avatar: profile.avatar } : {}),
+})
 
 /** What to call you on screen. */
 export const profileName = (profile: Profile): string =>
@@ -108,5 +138,6 @@ export const profileName = (profile: Profile): string =>
 export const isDefaultProfile = (profile: Profile): boolean =>
   profile.name === undefined && profile.avatar === undefined
 
+/** Whether two profiles would store the same thing — the store's gate on writing at all. */
 export const sameProfile = (a: Profile, b: Profile): boolean =>
-  a.name === b.name && a.avatar === b.avatar
+  a.name === b.name && a.avatar === b.avatar && a.later === b.later

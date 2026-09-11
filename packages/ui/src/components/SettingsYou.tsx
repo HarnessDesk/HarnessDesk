@@ -9,6 +9,7 @@ import { formatAge } from '../lib/usage'
 import { AVATARS, isAvatarId, type AvatarId } from '../lib/avatars'
 import {
   applyProfile,
+  characters,
   DEFAULT_PROFILE_NAME,
   isDefaultProfile,
   PROFILE_NAME_MAX,
@@ -135,7 +136,10 @@ export const ProfileSection = () => {
               aria-label="Your name"
               /* Capped by character, the count the store keeps. `maxLength`
                  counts UTF-16 units, and stopped an emoji name at twenty. */
-              onChange={(event) => setDraft(Array.from(event.target.value).slice(0, PROFILE_NAME_MAX).join(''))}
+              onChange={(event) => {
+                const next = event.target.value
+                setDraft((was) => cappedName(was, next))
+              }}
               onBlur={commit}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') event.currentTarget.blur()
@@ -153,9 +157,27 @@ export const ProfileSection = () => {
       </Rows>
 
       <SectionHead name="Picture" />
-      <FacePicker value={isAvatarId(profile.avatar) ? profile.avatar : null} onChange={(avatar) => store.setProfile({ avatar })} />
+      <FacePicker value={profile.avatar} onChange={(avatar) => store.setProfile({ avatar })} />
+      {profile.avatar !== undefined && !isAvatarId(profile.avatar) && (
+        <p className={styles.pageNote}>
+          Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
+          as it is until you choose one here.
+        </p>
+      )}
     </>
   )
+}
+
+/**
+ * The field's text after an edit, held to the cap by character. A full field
+ * refuses an insert rather than dropping its own last character, which is
+ * what cutting the end off did; an edit that crosses the cap — a paste into a
+ * shorter name — keeps what fits.
+ */
+const cappedName = (was: string, next: string): string => {
+  const typed = characters(next)
+  if (typed.length <= PROFILE_NAME_MAX) return next
+  return characters(was).length >= PROFILE_NAME_MAX ? was : typed.slice(0, PROFILE_NAME_MAX).join('')
 }
 
 /** Eight to a row: Default and the twenty-three faces make three even rows. */
@@ -176,19 +198,23 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  * would be a silent reset. A face's name is its label and its description the
  * hover, because twenty-four captions under twenty-four pictures would turn a
  * glance into a read.
+ *
+ * A face this build cannot draw — one a later build stored — checks no tile at
+ * all. Default is not what you have, and checking it would make pressing it
+ * look like nothing while erasing what is kept; with nothing checked, the
+ * first tile holds the tab stop, and whatever you choose is a visible choice.
  */
 const FacePicker = ({
   value,
   onChange,
 }: {
-  value: AvatarId | null
+  /** Whatever the profile stores; anything but a shipped id or nothing checks no tile. */
+  value: unknown
   onChange: (next: AvatarId | null) => void
 }) => {
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
-  const current = Math.max(
-    0,
-    FACE_CHOICES.findIndex((choice) => choice.id === value),
-  )
+  const current = FACE_CHOICES.findIndex((choice) => choice.id === (value ?? null))
+  const stop = current === -1 ? 0 : current
   const last = FACE_CHOICES.length - 1
   const step = (from: number, key: string): number | null => {
     switch (key) {
@@ -220,7 +246,7 @@ const FacePicker = ({
             aria-checked={on}
             aria-label={choice.label}
             title={`${choice.label} — ${choice.about}`}
-            tabIndex={on ? 0 : -1}
+            tabIndex={index === stop ? 0 : -1}
             className={styles.faceChoice}
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}

@@ -10,6 +10,7 @@ import {
   Chip,
   ConfirmDialog,
   DetailHead,
+  Face,
   Dialog,
   Dot,
   IconBtn,
@@ -238,6 +239,27 @@ const HeadBoard = () => (
       20px and 600 weight name the app and a sheet; a page title is 16px at 500. That is the whole
       heading scale — a screen that wants a third size is asking for a size the system does not
       have.
+    </p>
+  </>
+)
+
+const FaceBoard = () => (
+  <>
+    <div className={styles.stack}>
+      <div>
+        <Face avatar={null} size={24} /> <Face avatar="astronaut" size={24} /> <Face avatar="pirate" size={24} />{' '}
+        <Face avatar={null} size={44} /> <Face avatar="wizard" size={44} />
+      </div>
+      <DetailHead
+        mark={<Face avatar="wizard" size={44} />}
+        name="Jane Doe"
+        blurb="A person's head: the face they chose, drawn as Kit's avatar squared."
+      />
+    </div>
+    <p className={styles.rule}>
+      A person is a squared tile; an account is a ring. The tile is Kit's avatar — one plate, one
+      hairline — its corner stepping up the radius scale as it grows, and the house mark for any
+      face this build does not ship: the third tile is an id no build has.
     </p>
   </>
 )
@@ -472,6 +494,7 @@ const ChannelBoard = () => (
         />
         <ChannelMessage
           from="You"
+          face={<Face avatar="astronaut" />}
           tint="blue"
           to="Reviewer"
           at="03:42 PM"
@@ -536,6 +559,12 @@ export const BOARDS: Board[] = [
     title: 'PageHead · DetailHead',
     about: 'Naming the screen you are on, and the thing you drilled into.',
     render: HeadBoard,
+  },
+  {
+    id: 'face',
+    title: 'Face',
+    about: 'A person, drawn: the face they chose, or the house mark.',
+    render: FaceBoard,
   },
   {
     id: 'banner',

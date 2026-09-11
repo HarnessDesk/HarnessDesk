@@ -55,7 +55,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
-import { applyProfile, readProfile, sameProfile, type ProfilePatch } from '../lib/profile'
+import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { openExternal } from '../lib/desktop'
 import { splitContext, wrapContext } from '../lib/context-envelope'
@@ -3998,7 +3998,7 @@ export class AppStore {
     const profile = applyProfile(this.#snapshot.profile, patch)
     if (sameProfile(profile, this.#snapshot.profile)) return
     this.#patch({ profile })
-    void this.transport.request('app/state/set', { patch: { profile } }).catch(() => {})
+    void this.transport.request('app/state/set', { patch: { profile: storedProfile(profile) } }).catch(() => {})
   }
 
   /**

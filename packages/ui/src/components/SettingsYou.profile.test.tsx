@@ -236,3 +236,41 @@ it('writes a held name when the window goes away', () => {
   })
   expect(profile()).toEqual({ name: 'Jane' })
 })
+
+it('checks no face when it holds one it cannot draw, says so, and keeps it until you choose', () => {
+  for (const kept of ['pirate', { kind: 'image', src: 'a.png' }]) {
+    const { profile } = mount({ name: 'Jane', avatar: kept })
+    expect(container.querySelector('[role="radio"][aria-checked="true"]')).toBeNull()
+    // Still one stop on the tab order, on the first face.
+    expect(tiles().filter((tile) => tile.tabIndex === 0).map((tile) => tile.getAttribute('aria-label'))).toEqual([
+      'Default',
+    ])
+    expect(container.textContent).toContain('cannot draw')
+    expect(button('Reset to default')).not.toBeNull()
+    const wizard = tiles().find((tile) => tile.getAttribute('aria-label') === 'Wizard')
+    if (!wizard) throw new Error('no Wizard')
+    click(wizard)
+    expect(profile()).toEqual({ name: 'Jane', avatar: 'wizard' })
+    expect(container.textContent).not.toContain('cannot draw')
+    act(() => root.unmount())
+    root = createRoot(container)
+  }
+})
+
+it('refuses an insert into a full field rather than dropping its last character', () => {
+  const { profile } = mount()
+  const full = '🐳'.repeat(40)
+  type(full)
+  const whales = Array.from(full)
+  type([...whales.slice(0, 20), 'X', ...whales.slice(20)].join(''))
+  expect(field().value).toBe(full)
+  act(() => field().blur())
+  expect(profile()).toEqual({ name: full })
+})
+
+it('counts a flag in the field as one character, as the store does', () => {
+  const { profile } = mount()
+  type('🇺🇸'.repeat(45))
+  act(() => field().blur())
+  expect(profile()).toEqual({ name: '🇺🇸'.repeat(40) })
+})

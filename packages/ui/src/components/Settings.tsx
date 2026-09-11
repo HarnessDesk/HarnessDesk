@@ -1953,13 +1953,18 @@ export const Settings = ({
     },
   ]
 
-  // You, first — found by the page's name, the words someone looking for it
-  // would type, or your own name.
+  // You, first — found the way every row is: by its label, which is your own
+  // name, and by the words someone looking for the page would type.
   const yourName = profileName(snapshot.profile)
-  const showYou = [yourName, 'profile you me name picture avatar photo face identity account reset']
-    .join(' ')
-    .toLowerCase()
-    .includes(query.trim().toLowerCase())
+  const showYou = matches(
+    {
+      id: 'profile',
+      label: yourName,
+      icon: null,
+      keywords: ['profile', 'you', 'me', 'name', 'picture', 'avatar', 'photo', 'face', 'identity', 'account', 'reset'],
+    },
+    query,
+  )
 
   const filtered = groups
     .map((group) => ({ ...group, entries: group.entries.filter((entry) => matches(entry, query)) }))

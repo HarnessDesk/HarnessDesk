@@ -39,13 +39,18 @@ them.
 `packages/ui/src/lib/profile.ts`:
 
 ```ts
-interface Profile { readonly name?: string; readonly avatar?: AvatarId }
+interface Profile {
+  readonly name?: string
+  readonly avatar?: unknown                           // an id this build ships, or whatever a later build stored
+  readonly later?: Readonly<Record<string, unknown>> // every other stored field, written back as it was
+}
 ```
 
 - A patch uses `null` to put a field back; `{ name: null, avatar: null }` is
   Reset.
 - Names are tidied on the way in — trimmed, runs of spaces folded, capped at
-  40 characters by code point so an emoji is never cut in half — and a name
+  40 characters as a person counts them — grapheme clusters, so a flag is one
+  and none is cut in half — and a name
   equal to "HarnessDesk" is dropped, not stored.
 - A stored profile is read defensively and forward: a hand edit this build
   cannot read is the default rather than a broken seat, and whatever a later
@@ -90,7 +95,7 @@ own messages are bubbles with no avatar, as in Codex and Claude.
 
 ### The face
 
-`Face` (`design/primitives/Face.tsx` — Kit's avatar, squared) is one squared tile
+`Face` (in `design/primitives/Kit.tsx` — Kit's avatar, squared) is one squared tile
 wherever a person is drawn, so the footprint never changes when the face
 does. Squared because the avatars were drawn as squared tiles and a room
 draws every sender in one; the corner is a step of the radius scale per size
@@ -115,7 +120,9 @@ which is how a room row's own tile holds it.
   choose as they go. Home and End are left out on purpose: in a group that
   chooses as it moves, a stray Home would be a silent reset. A face's name is its label
   and its line from the catalogue is the hover: twenty-four captions would
-  turn a glance into a read.
+  turn a glance into a read. A face this build cannot draw — one a later build
+  stored — checks no tile at all, and a note under the grid says it is kept
+  until another is chosen.
 
 ## Later
 

@@ -57,7 +57,7 @@ export type AvatarId = (typeof AVATARS)[number]['id']
  * are, and `avatars.test.ts` holds the two to each other.
  *
  * 128px — the README's working size — for every place a face is drawn. It
- * covers the largest one (56px, the profile page's own head) at 2x and the
+ * covers the largest one (44px, the profile page's head and the picker's tiles) at nearly 3x and the
  * seat's 24px at better than 3x, and one file per face means the seat, the
  * menu and the picker share a single download. `black` is kept out of the
  * build as well as out of the table: a file nothing can draw is only weight.

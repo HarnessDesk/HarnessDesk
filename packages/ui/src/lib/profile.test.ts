@@ -8,6 +8,7 @@ import {
   profileName,
   readProfile,
   sameProfile,
+  storedProfile,
 } from './profile'
 
 /**
@@ -46,6 +47,10 @@ describe('a change', () => {
     expect(isDefaultProfile(profile)).toBe(true)
   })
 
+  it('counts a flag as one character, the way a person does', () => {
+    expect(applyProfile({}, { name: '🇺🇸'.repeat(45) }).name).toBe('🇺🇸'.repeat(PROFILE_NAME_MAX))
+  })
+
   it('cuts a long name at a character, never inside one', () => {
     const profile = applyProfile({}, { name: '🐳'.repeat(PROFILE_NAME_MAX + 10) })
     expect(profile.name).toBe('🐳'.repeat(PROFILE_NAME_MAX))
@@ -78,15 +83,14 @@ describe('what was stored', () => {
   })
 
   it('keeps what a later build stored through an edit, because the write is whole', () => {
-    const later = readProfile({ name: 'Jane', avatar: { kind: 'image', src: 'a.png' }, account: { id: 'a1' } })
-    expect(later).toEqual({ name: 'Jane', avatar: { kind: 'image', src: 'a.png' }, account: { id: 'a1' } })
-    expect(applyProfile(later, { name: 'JD' })).toEqual({
-      name: 'JD',
-      avatar: { kind: 'image', src: 'a.png' },
-      account: { id: 'a1' },
-    })
+    const stored = { name: 'Jane', avatar: { kind: 'image', src: 'a.png' }, account: { id: 'a1' } }
+    const later = readProfile(stored)
+    expect(later).toEqual({ name: 'Jane', avatar: { kind: 'image', src: 'a.png' }, later: { account: { id: 'a1' } } })
+    // Written back as it was read, flat.
+    expect(storedProfile(later)).toEqual(stored)
+    expect(storedProfile(applyProfile(later, { name: 'JD' }))).toEqual({ ...stored, name: 'JD' })
     // Choosing a face here replaces theirs — a choice, not a loss.
-    expect(applyProfile(later, { avatar: 'dj' })).toEqual({ name: 'Jane', avatar: 'dj', account: { id: 'a1' } })
+    expect(storedProfile(applyProfile(later, { avatar: 'dj' }))).toEqual({ ...stored, avatar: 'dj' })
   })
 
   it('reads a real one back as it was written', () => {
@@ -99,4 +103,10 @@ it('tells two profiles apart by what they show', () => {
   expect(sameProfile({ name: 'A', avatar: 'dj' }, { name: 'A', avatar: 'dj' })).toBe(true)
   expect(sameProfile({ name: 'A' }, { name: 'A', avatar: 'dj' })).toBe(false)
   expect(isDefaultProfile({ avatar: 'dj' })).toBe(false)
+})
+
+it('sees what a later build stored when it decides whether anything changed', () => {
+  const later = { account: { id: 'a1' } }
+  expect(sameProfile({ name: 'A', later }, { name: 'A', later })).toBe(true)
+  expect(sameProfile({ name: 'A', later }, { name: 'A', later: { account: { id: 'a2' } } })).toBe(false)
 })
