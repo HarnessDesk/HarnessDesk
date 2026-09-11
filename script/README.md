@@ -36,7 +36,7 @@ to run one is when its input changed.
 | [`social-preview.mjs`](social-preview.mjs) | The 1280×640 card GitHub shows when a link to the repo is shared. One image, dark — Open Graph has no light/dark mechanism. |
 | [`build-icons.mjs`](build-icons.mjs) · [`cut-avatars.mjs`](cut-avatars.mjs) · [`vendor-fonts.mjs`](vendor-fonts.mjs) | App icons, avatar parts, and the self-hosted font files. |
 | [`copy-fixtures.mjs`](copy-fixtures.mjs) | Copies non-TypeScript test fixtures into `dist/`. Part of `build`, not a thing to run alone. |
-| [`prune-dist.mjs`](prune-dist.mjs) | Removes from `dist/` whatever the compiler built from a source that is gone, since `tsc -b` never does and the test glob would go on running a deleted test. Fails when an output the compiler writes is missing, since `tsc -b` will not put that back either. The last step of `build`. |
+| [`prune-dist.mjs`](prune-dist.mjs) | Removes from `dist/` whatever the compiler built from a source that is gone, since `tsc -b` never does and the test glob would go on running a deleted test. Fails when an output the compiler writes is missing, since `tsc -b` will not put that back either, and when a package the build no longer compiles still holds compiled tests. The last step of `build:node`. |
 
 ## Measuring the interface
 

@@ -7,7 +7,7 @@ import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { main, prune } from './prune-dist.mjs'
+import { audit, main, projectsOf, prune, remove } from './prune-dist.mjs'
 
 /**
  * `prune-dist` deletes files, which makes it the one build step whose bugs
@@ -71,6 +71,9 @@ const sink = () => ({ text: '', write(chunk) { this.text += chunk; return true }
 
 /** The step run the way the build runs it: its own process, handed a checkout. */
 const command = (script, repo) => spawnSync(process.execPath, [script, repo], { encoding: 'utf8' })
+
+/** What `prune` answers for a one-package checkout it finds nothing wrong with. */
+const CLEAN = { projects: 1, removed: [], missing: [], rebuild: [], unowned: [] }
 
 test('a compiled test whose source is gone goes, with its map and declarations', (t) => {
   const repo = checkout(t, [
@@ -151,12 +154,13 @@ test('a package the compiler does not build is never read, whatever its dist hol
   // The shape of packages/ui: a Vite bundle, hashed `.js` with no source of
   // that name. Reading it the way a compiled package is read removes all of
   // it. This one is even configured like a compiled package, so that nothing
-  // but the root's reference list keeps it out.
+  // but the root's reference list keeps it out. And with no compiled tests in
+  // it, it is nothing the test glob runs either, so it is not refused.
   const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
   write(join(repo, 'packages/ui/tsconfig.json'), JSON.stringify(PACKAGE))
   write(join(repo, 'packages/ui/src/main.ts'))
   write(join(repo, 'packages/ui/dist/assets/index-3f2a1c.js'))
-  prune(repo)
+  assert.deepEqual(prune(repo).unowned, [])
   assert.ok(existsSync(join(repo, 'packages/ui/dist/assets/index-3f2a1c.js')))
 })
 
@@ -166,7 +170,7 @@ test('what only the compiler knows it writes stays: a JavaScript source under al
   const repo = checkout(t, ['src/legacy.js', ...outputs('dist/src/legacy')])
   const allowJs = { ...PACKAGE, compilerOptions: { ...PACKAGE.compilerOptions, allowJs: true }, include: ['src/**/*.js'] }
   write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify(allowJs))
-  assert.deepEqual(prune(repo), { projects: 1, removed: [], missing: [] })
+  assert.deepEqual(prune(repo), CLEAN)
 })
 
 test('a package reached only through another package’s references is pruned too', (t) => {
@@ -193,7 +197,10 @@ test('the step fails on a missing output and names the way back; it passes on a 
   const err = sink()
   assert.equal(main(lost, out, err), 1)
   assert.match(err.text, /packages\/demo\/dist\/test\/lost\.test\.js\n/)
-  assert.match(err.text, /pnpm exec tsc -b --force/)
+  // A compiled test is among what is missing, so the failure says what that
+  // costs, and the way back names the one project to rebuild.
+  assert.match(err.text, /the test\s+glob just stops matching it/)
+  assert.match(err.text, /`pnpm exec tsc -b --force packages\/demo`/)
   // It still prunes, and says so, when it is about to fail.
   assert.match(out.text, /packages\/demo\/dist\/test\/orphan\.test\.js\n/)
 
@@ -201,6 +208,16 @@ test('the step fails on a missing output and names the way back; it passes on a 
   const quiet = sink()
   assert.equal(main(whole, sink(), quiet), 0)
   assert.equal(quiet.text, '')
+})
+
+test('the failure explains a skipped test only when a compiled test is among what is missing', (t) => {
+  // A missing map or declaration is not a test the glob will skip, and the
+  // failure should not say it is.
+  const repo = checkout(t, ['test/kept.test.ts', 'dist/test/kept.test.js', 'dist/test/kept.test.d.ts', 'dist/test/kept.test.d.ts.map'])
+  const err = sink()
+  assert.equal(main(repo, sink(), err), 1)
+  assert.match(err.text, /^ {2}packages\/demo\/dist\/test\/kept\.test\.js\.map$/m)
+  assert.doesNotMatch(err.text, /test\s+glob/)
 })
 
 test('a package that has never been built has everything missing and nothing to remove', (t) => {
@@ -219,6 +236,19 @@ test('dist itself stays when the last thing in it goes', (t) => {
   assert.ok(has(repo, 'dist'))
 })
 
+test('what another build has already removed is not an error', (t) => {
+  // Several agents build in one checkout here. Two builds pruning the same
+  // dist at once find the same orphans; whichever reaches one first removes
+  // it, and the other must not die on its absence.
+  const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index'), ...outputs('dist/src/retired/old')])
+  const [project] = projectsOf(repo)
+  const { orphans } = audit(project)
+  assert.equal(orphans.length, 4)
+  rmSync(join(repo, 'packages/demo/dist/src/retired'), { recursive: true })
+  assert.doesNotThrow(() => remove(orphans, join(repo, 'packages/demo/dist')))
+  assert.ok(has(repo, 'dist/src/index.js'))
+})
+
 test('every removal is named; a long list of missing outputs is cut at twenty and counted', (t) => {
   // What was deleted is always said in full. What is missing can be a whole
   // package's worth, where twenty names and a count say as much.
@@ -229,6 +259,19 @@ test('every removal is named; a long list of missing outputs is cut at twenty an
   assert.equal((out.text.match(/^ {2}packages\/demo\/dist\/src\/gone\d/gm) ?? []).length, 24)
   assert.equal((err.text.match(/^ {2}packages\/demo\/dist\/src\/m\d/gm) ?? []).length, 20)
   assert.match(err.text, /^ {2}… and 4 more$/m)
+})
+
+test('compiled tests in a package the build no longer compiles are refused, and left where they are', (t) => {
+  // The runners glob every package's dist/test, and this step reads only the
+  // reference graph, so a package dropped from the references, or deleted
+  // with its ignored dist left behind, would run its compiled tests for ever.
+  // Nothing here wrote them, so they are named rather than deleted.
+  const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
+  write(join(repo, 'packages/retired/dist/test/old.test.js'))
+  const err = sink()
+  assert.equal(main(repo, sink(), err), 1)
+  assert.match(err.text, /^ {2}packages\/retired\/dist$/m)
+  assert.ok(existsSync(join(repo, 'packages/retired/dist/test/old.test.js')))
 })
 
 test('a project that sets outDir and not rootDir is refused, not guessed at', (t) => {
@@ -244,6 +287,15 @@ test('a config the compiler cannot parse is refused, naming it', (t) => {
   const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
   write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify({ ...PACKAGE, compilerOptions: { ...PACKAGE.compilerOptions, notAnOption: true } }))
   assert.throws(() => prune(repo), /packages\/demo\/tsconfig\.json does not parse:\n.*notAnOption/)
+})
+
+test('a refusal reaches the build as a sentence, not a stack trace', (t) => {
+  const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
+  write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify({ ...PACKAGE, compilerOptions: { ...PACKAGE.compilerOptions, notAnOption: true } }))
+  const run = command(SCRIPT, repo)
+  assert.equal(run.status, 1, run.stderr)
+  assert.match(run.stderr, /^packages\/demo\/tsconfig\.json does not parse:$/m)
+  assert.doesNotMatch(run.stderr, /^\s+at /m)
 })
 
 test('run as a command, it prunes the checkout it is handed and exits 1 on what is missing', (t) => {
@@ -304,5 +356,5 @@ test('against the real compiler: what tsc -b leaves behind goes, and what it wil
   assert.equal(has(repo, 'dist/test/kept.test.js'), false, 'tsc -b now re-emits a missing output; the failure message can say less')
   assert.deepEqual(inDemo(repo, prune(repo).missing), ['dist/test/kept.test.js'])
   execFileSync(process.execPath, [TSC, '-b', '--force', repo], { stdio: 'pipe' })
-  assert.deepEqual(prune(repo), { projects: 1, removed: [], missing: [] })
+  assert.deepEqual(prune(repo), CLEAN)
 })

@@ -103,8 +103,8 @@ step('node tests', () =>
     '--test-timeout=120000',
     // The same glob CI runs, so a package that gains tests is covered here the
     // day it does. A hand-kept list of packages once left one out. It matches
-    // what was built rather than what exists, which is why `build` ends by
-    // pruning dist of every output whose source is gone (script/prune-dist.mjs).
+    // what was built rather than what exists, which is why `build:node` ends
+    // by pruning dist of every output whose source is gone (script/prune-dist.mjs).
     'packages/*/dist/test/**/*.test.js',
   ]),
 )

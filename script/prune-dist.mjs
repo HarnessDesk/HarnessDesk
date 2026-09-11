@@ -31,7 +31,9 @@
  *   fixture is known: `copy-fixtures.mjs` copies each one to its own path;
  * - it is something this build writes at all: a kind of file `tsc` emits, or
  *   a copy under `test/fixtures`. Anything else in `dist` belongs to someone
- *   else and is left where it is, `.tsbuildinfo` included.
+ *   else and is left where it is, `.tsbuildinfo` included. (A copied fixture
+ *   that still exists is kept by the rule before this one, whatever its kind;
+ *   this one only says which of the files nothing keeps are this build's.)
  *
  * And the other direction, because a gap there is silent too. A glob that
  * matches less still passes — `node --test` over a glob that matches nothing
@@ -41,6 +43,16 @@
  * test output deleted by hand, or by a mistake in this file, would stop
  * running without a word and stay stopped. So every output the compiler lists
  * for the sources it was given has to be on disk, or this fails and names it.
+ * It never repairs one instead: a prune that rebuilt what it found missing
+ * would be a second build hidden inside the first, erasing the one trace of
+ * its own mistakes. This check is what makes a build step that deletes files
+ * acceptable at all.
+ *
+ * One thing more reaches the test glob than the reference graph: a package
+ * dropped from the references, or deleted with its `dist` left behind (`dist`
+ * is ignored, so deleting a package leaves it), keeps compiled tests that the
+ * glob runs and nothing rebuilds. Nothing here wrote them, so this does not
+ * delete them either. It fails, and names the directory.
  *
  * The build runs it as `node script/prune-dist.mjs`. Handed a path, it prunes
  * that checkout instead of its own, which is how to put right one whose
@@ -70,10 +82,19 @@ const EMITS = [
 /** Where `copy-fixtures.mjs` copies to: the same path under `dist` as under the package. */
 const COPIED = join('test', 'fixtures') + sep
 
+/** A path, relative to the repo, that the test runners' glob runs: a `.test.js` under a package's `dist/test`. */
+const runByTheGlob = (path) => /^packages[\\/][^\\/]+[\\/]dist[\\/]test[\\/].+\.test\.js$/.test(path)
+
+/**
+ * Something this cannot decide, said as a sentence for whoever runs the
+ * build. Anything else thrown from here is a bug, and keeps its stack.
+ */
+class Refusal extends Error {}
+
 const host = {
   ...ts.sys,
   onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
-    throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
+    throw new Refusal(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
   },
 }
 
@@ -106,7 +127,7 @@ export function projectsOf(repo) {
     const project = ts.getParsedCommandLineOfConfigFile(file, undefined, host)
     if (project.errors.length > 0) {
       const detail = project.errors.map((one) => ts.flattenDiagnosticMessageText(one.messageText, '\n'))
-      throw new Error(`${relative(repo, file)} does not parse:\n${detail.join('\n')}`)
+      throw new Refusal(`${relative(repo, file)} does not parse:\n${detail.join('\n')}`)
     }
     parsed.set(file, project)
     for (const reference of project.projectReferences ?? []) queue.push(configOf(reference.path))
@@ -114,7 +135,7 @@ export function projectsOf(repo) {
   const built = [...parsed].filter(([, project]) => project.options.outDir != null && !project.options.noEmit)
   for (const [file, project] of built) {
     if (project.options.rootDir == null) {
-      throw new Error(`${relative(repo, file)} sets outDir and not rootDir, and dist is read back to its sources through both`)
+      throw new Refusal(`${relative(repo, file)} sets outDir and not rootDir, and dist is read back to its sources through both`)
     }
   }
   return built.map(([, project]) => project)
@@ -147,25 +168,62 @@ export function audit(project) {
   return { orphans: orphans.sort(), missing }
 }
 
-/** A directory the prune emptied goes too, up to `dist` itself. */
+/** Walks up from a directory the prune emptied, removing each one left empty, and stops below `dist`. */
 const removeEmpty = (dir, outDir) => {
-  for (let at = dir; at.startsWith(outDir + sep) && readdirSync(at).length === 0; at = dirname(at)) rmdirSync(at)
+  for (let at = dir; at.startsWith(outDir + sep); at = dirname(at)) {
+    try {
+      if (readdirSync(at).length > 0) return
+      rmdirSync(at)
+    } catch {
+      // Gone already, or filled again: another build has this walk.
+      return
+    }
+  }
+}
+
+/**
+ * Removes what `audit` found, and the directories that leaves empty. A file
+ * or directory that is already gone is not an error: several agents build in
+ * one checkout here, and two builds pruning the same `dist` at once find the
+ * same orphans. Whichever gets to one first has done the job.
+ */
+export function remove(files, outDir) {
+  for (const file of files) {
+    rmSync(file, { force: true })
+    removeEmpty(dirname(file), outDir)
+  }
+}
+
+/**
+ * Every package `dist` the test runners' glob reaches into: one whose `test`
+ * holds a compiled test. The glob runs over every package directory, which
+ * is wider than the reference graph this step trusts for everything else.
+ */
+const distsTheGlobReaches = (repo) => {
+  const packages = join(repo, 'packages')
+  if (!existsSync(packages)) return []
+  return readdirSync(packages, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(packages, entry.name, 'dist'))
+    .filter((dist) => existsSync(join(dist, 'test')) && filesUnder(join(dist, 'test')).some((file) => file.endsWith('.test.js')))
+    .sort()
 }
 
 export function prune(repo) {
   const projects = projectsOf(repo)
   const removed = []
   const missing = []
+  const rebuild = []
   for (const project of projects) {
     const found = audit(project)
-    for (const file of found.orphans) {
-      rmSync(file)
-      removeEmpty(dirname(file), native(project.options.outDir))
-      removed.push(file)
-    }
+    remove(found.orphans, native(project.options.outDir))
+    removed.push(...found.orphans)
     missing.push(...found.missing)
+    if (found.missing.length > 0) rebuild.push(relative(repo, dirname(project.options.configFilePath)))
   }
-  return { projects: projects.length, removed, missing }
+  const owned = new Set(projects.map((project) => native(project.options.outDir)))
+  const unowned = distsTheGlobReaches(repo).filter((dist) => !owned.has(dist))
+  return { projects: projects.length, removed, missing, rebuild, unowned }
 }
 
 const listed = (repo, files, cap = 20) =>
@@ -174,24 +232,37 @@ const listed = (repo, files, cap = 20) =>
     .map((file) => `  ${relative(repo, file)}\n`)
     .join('') + (files.length > cap ? `  … and ${files.length - cap} more\n` : '')
 
-/** The build step: prune, say what went, and fail on anything missing. Returns the exit code. */
+/** The build step: prune, say what went, and fail on anything missing or unowned. Returns the exit code. */
 export function main(repo, out = process.stdout, err = process.stderr) {
-  const { projects, removed, missing } = prune(repo)
+  const { projects, removed, missing, rebuild, unowned } = prune(repo)
   if (removed.length === 0) {
     out.write(`Pruned dist for ${projects} package(s): nothing had outlived its source.\n`)
   } else {
     out.write(`Pruned dist for ${projects} package(s), removing what no source builds any more:\n`)
     out.write(listed(repo, removed, Infinity))
   }
-  if (missing.length === 0) return 0
-  err.write(
-    'The compiler writes these for sources that exist, and they are not in dist:\n\n' +
-      listed(repo, missing) +
-      '\n`tsc -b` will not put them back: it reads each project as up to date from its\n' +
-      '.tsbuildinfo. And a compiled test that is not there does not fail anything —\n' +
-      'the test glob just stops matching it. Rebuild with `pnpm exec tsc -b --force`.\n',
-  )
-  return 1
+  if (missing.length > 0) {
+    const tests = missing.some((file) => runByTheGlob(relative(repo, file)))
+    err.write(
+      'The compiler writes these for sources that exist, and they are not in dist:\n\n' +
+        listed(repo, missing) +
+        '\n`tsc -b` will not put them back: it reads each project as up to date from its\n' +
+        (tests
+          ? '.tsbuildinfo. And a compiled test that is not there fails nothing: the test\nglob just stops matching it. '
+          : '.tsbuildinfo. ') +
+        `Rebuild with \`pnpm exec tsc -b --force ${rebuild.join(' ')}\`.\n`,
+    )
+  }
+  if (unowned.length > 0) {
+    err.write(
+      'These hold compiled tests the test glob runs, and no project the build compiles\nwrites them:\n\n' +
+        listed(repo, unowned, Infinity) +
+        '\nNothing rebuilds them, so their tests run against code that has moved on. If the\n' +
+        'package is gone, delete its dist; if it should still be built, add it back to the\n' +
+        'references in tsconfig.json.\n',
+    )
+  }
+  return missing.length > 0 || unowned.length > 0 ? 1 : 0
 }
 
 /* Imported by its test, so importing it must not prune the checkout — the
@@ -208,4 +279,12 @@ const real = (path) => {
 }
 const isMain = process.argv[1] != null && real(resolve(process.argv[1])) === real(fileURLToPath(import.meta.url))
 
-if (isMain) process.exitCode = main(process.argv[2] == null ? root : resolve(process.argv[2]))
+if (isMain) {
+  try {
+    process.exitCode = main(process.argv[2] == null ? root : resolve(process.argv[2]))
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error
+    process.stderr.write(`${error.message}\n`)
+    process.exitCode = 1
+  }
+}
