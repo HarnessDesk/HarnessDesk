@@ -558,6 +558,40 @@ it('an account row says its plan and which way its figure counts', async () => {
   expect(container.textContent).not.toMatch(/\b73%/)
 })
 
+it('a pin on a copy that has gone says so, and names the copy that runs (#219)', async () => {
+  const chosen = {
+    path: '/opt/homebrew/bin/opencode',
+    version: '1.18.29',
+    channel: 'homebrew' as const,
+    channelLabel: 'Homebrew',
+    standing: 'chosen' as const,
+    managed: false,
+    updateCommand: 'brew upgrade opencode',
+  }
+  // A pin is still recorded, on a copy that is no longer on the machine.
+  const install = { copies: [chosen], chosen, policy: 'pinned' as const, fallback: null, checkedAt: 0 }
+  const info = runtime({
+    id: 'opencode',
+    name: 'OpenCode',
+    presentation: { name: 'OpenCode' },
+    origin: 'registry',
+    capabilities: { ...NO_CAPABILITIES },
+    install,
+  })
+  await mountList({
+    runtimes: [info],
+    accountsByRuntime: { opencode: signedIn([], []) },
+    store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
+  })
+  const open = [...container.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as HTMLButtonElement
+  await act(async () => open.click())
+  expect(container.textContent).toContain('Running 1.18.29 · via Homebrew')
+  expect(container.textContent).not.toContain('Pinned to')
+  expect(container.textContent).toContain('The pinned copy is gone or too old')
+  // The pin is recorded, so it can still be cleared.
+  expect(container.textContent).toContain('Use newest')
+})
+
 it("an agent's own page shows every copy on the machine, and offers the two verbs", async () => {
   const install = {
     copies: [

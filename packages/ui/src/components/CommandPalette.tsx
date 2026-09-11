@@ -220,6 +220,10 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   }, [query, snapshot.workspace?.path, snapshot.activeRuntime, store])
 
   const entries = useMemo((): Entry[] => {
+    /* The Skills page is headed with the runtime's own word for it, "Skills &
+       commands" on an ACP agent, and so is its row in the Settings nav. Offered
+       under the fixed word alone, typing what the nav says found nothing (#219). */
+    const skillsLabel = snapshot.runtimes.find((one) => one.id === snapshot.activeRuntime)?.presentation.skillsLabel ?? null
     const close = host.close
     const actions: Entry[] = [
       {
@@ -338,10 +342,10 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         (entry): Entry => ({
           id: `settings-${entry.section}`,
           group: 'Actions',
-          label: `Settings › ${entry.label}`,
+          label: `Settings › ${entry.section === 'skills' && skillsLabel ? skillsLabel : entry.label}`,
           hint: entry.section === 'agents' ? '⌘,' : undefined,
           icon: entry.icon,
-          keywords: `settings ${entry.keywords}`,
+          keywords: `settings ${entry.keywords}${entry.section === 'skills' && skillsLabel ? ` ${skillsLabel}` : ''}`,
           run: () => {
             close()
             host.openSettings(entry.section)

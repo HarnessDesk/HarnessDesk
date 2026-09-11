@@ -37,7 +37,7 @@ import { codeSpans, splitHealth, type Unavailable } from '../lib/health'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { describeUpdate, describeVersion } from '../lib/versions'
-import { copyReason, describeCopy, describeFallback, installSummary, standingChip } from '../lib/installs'
+import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
@@ -1469,9 +1469,11 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
         <Row
           title={installSummary(install)}
           desc={
-            install.policy === 'pinned'
+            pinHolds(install)
               ? 'A pinned copy answers even when a newer one is installed.'
-              : 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
+              : install.policy === 'pinned'
+                ? 'The pinned copy is gone or too old, so the newest copy that is new enough answers until you pin another.'
+                : 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
           }
           control={
             install.policy === 'pinned' ? (

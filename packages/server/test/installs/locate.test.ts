@@ -120,6 +120,10 @@ test('the newest copy that meets the floor is chosen; a pin wins; unreadable is 
   assert.equal(pinned.chosen?.path, '/b')
   assert.equal(pinned.copies.find((one) => one.path === '/b')?.standing, 'pinned')
   assert.equal(pinned.copies.find((one) => one.path === '/a')?.standing, 'older')
+  /* Newest first under a pin too: the pinned copy isn't moved to the front.
+     The settings page finds "the copy newest-wins would run" as the first
+     usable one in this order (copyReason, #106), so the order is load-bearing (#219). */
+  assert.deepEqual(pinned.copies.map((one) => one.path), ['/a', '/b', '/c', '/d'])
 
   // A pin on a copy that is too old, or gone, falls back to the rule.
   assert.equal(judgeInstalls(found, { minVersion: '1.0.0', pinnedPath: '/c' }).chosen?.path, '/a')

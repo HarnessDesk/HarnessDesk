@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { McpServer, RuntimeCatalog, RuntimePlugin } from '@harnessdesk/protocol'
 
 import { openExternal } from '../lib/desktop'
+import { shortPath } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, ExtensionIcon, PluginIcon, ServerIcon } from './Icons'
 import { Btn, Chip, Note, PageHead, Row, Rows, Search, SectionHead } from '../design/primitives/Kit'
@@ -21,6 +22,8 @@ import styles from './Settings.module.css'
  */
 /** How many marketplace entries to show before asking. */
 const PAGE = 12
+/** How many failed marketplaces to show before asking: five pushed the tabs below the fold (#219). */
+const FAILURES = 3
 
 export const ExtensionsSection = () => {
   const store = useStore()
@@ -32,6 +35,7 @@ export const ExtensionsSection = () => {
     runtime.capabilities.extensionStore ? 'plugins' : 'mcp',
   )
   const [shown, setShown] = useState(PAGE)
+  const [failuresShown, setFailuresShown] = useState(FAILURES)
 
   const reload = useCallback(() => {
     void store.loadCatalog().then(setCatalog)
@@ -79,17 +83,28 @@ export const ExtensionsSection = () => {
           counted them all and showed the first message, so with three
           failures two reasons were never seen (#105). */}
       {(catalog?.loadErrors.length ?? 0) > 0 && (
-        <Rows>
-          {catalog!.loadErrors.map((error) => (
-            <Row
-              key={`${error.source}\n${error.message}`}
-              mark={<AlertIcon size={15} />}
-              title={`${error.source} failed to load`}
-              desc={error.message}
-              control={<Chip state="broken" label="Failed" />}
-            />
-          ))}
-        </Rows>
+        <>
+          <Rows>
+            {catalog!.loadErrors.slice(0, failuresShown).map((error, index) => (
+              <Row
+                /* By position. The list is never sorted or filtered and no row
+                   holds state, and two failures can share a source and a
+                   message, which as a key made them one row to React (#219). */
+                key={index}
+                mark={<AlertIcon size={15} />}
+                // Under the home folder as `~`, the way paths are shown elsewhere; in full it ran to three lines.
+                title={`${shortPath(error.source, snapshot.home)} failed to load`}
+                desc={error.message}
+                control={<Chip state="broken" label="Failed" />}
+              />
+            ))}
+          </Rows>
+          {catalog!.loadErrors.length > failuresShown && (
+            <Btn onClick={() => setFailuresShown(catalog!.loadErrors.length)}>
+              Show {catalog!.loadErrors.length - failuresShown} more
+            </Btn>
+          )}
+        </>
       )}
 
       {tabs.length > 1 && (

@@ -37,13 +37,14 @@ const runtime = {
   presentation: { name: 'Codex' },
 } as unknown as RuntimeInfo
 
-const mount = (loadErrors: RuntimeCatalog['loadErrors']) => {
+const mount = (loadErrors: RuntimeCatalog['loadErrors'], home: string | null = null) => {
   const catalog: RuntimeCatalog = { plugins: [], marketplaces: ['openai'], loadErrors, featured: [] }
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: runtime.id,
     runtimes: [runtime],
+    home,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -63,15 +64,51 @@ const mount = (loadErrors: RuntimeCatalog['loadErrors']) => {
   return store
 }
 
-it('says what went wrong with every marketplace that failed, not only the first', async () => {
+/** The row whose title names this marketplace, and what that row alone says. */
+const rowFor = (title: string): string | undefined =>
+  [...container.querySelectorAll('span')].find((node) => node.textContent === title)?.parentElement?.textContent ?? undefined
+
+it('says what went wrong with every marketplace that failed, each in its own row', async () => {
   mount([
     { source: '/broken/one/marketplace.json', message: 'could not parse' },
     { source: '/broken/two/marketplace.json', message: 'no such file' },
   ])
   await act(async () => {})
-  const text = container.textContent ?? ''
-  expect(text).toContain('/broken/one/marketplace.json failed to load')
-  expect(text).toContain('could not parse')
-  expect(text).toContain('/broken/two/marketplace.json failed to load')
-  expect(text).toContain('no such file')
+  // Row by row (#219): read as the whole page's text, one row carrying both failures passed.
+  const one = rowFor('/broken/one/marketplace.json failed to load')
+  const two = rowFor('/broken/two/marketplace.json failed to load')
+  expect(one).toContain('could not parse')
+  expect(one).not.toContain('no such file')
+  expect(two).toContain('no such file')
+  expect(two).not.toContain('could not parse')
+})
+
+it('two failures with the same source and message are two rows, without a key clash (#219)', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    mount([
+      { source: '/broken/marketplace.json', message: 'could not parse' },
+      { source: '/broken/marketplace.json', message: 'could not parse' },
+    ])
+    await act(async () => {})
+    expect([...container.querySelectorAll('span')].filter((node) => node.textContent === '/broken/marketplace.json failed to load')).toHaveLength(2)
+    expect(errors.mock.calls.some((call) => String(call[0]).includes('same key'))).toBe(false)
+  } finally {
+    errors.mockRestore()
+  }
+})
+
+it('shows three failures and offers the rest, and shortens a path under the home folder (#219)', async () => {
+  mount(
+    Array.from({ length: 5 }, (_, index) => ({ source: `/home/dev/.codex/marketplaces/m${index}/marketplace.json`, message: `failure ${index}` })),
+    '/home/dev',
+  )
+  await act(async () => {})
+  const titles = (): string[] =>
+    [...container.querySelectorAll('span')].map((node) => node.textContent ?? '').filter((text) => text.endsWith('failed to load'))
+  expect(titles()).toEqual([0, 1, 2].map((index) => `~/.codex/marketplaces/m${index}/marketplace.json failed to load`))
+  const more = [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Show 2 more')
+  expect(more, 'the rest are offered').toBeTruthy()
+  await act(async () => more!.click())
+  expect(titles()).toHaveLength(5)
 })
