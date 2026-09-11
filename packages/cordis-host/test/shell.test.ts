@@ -34,6 +34,21 @@ test('a command that never finished is not exit 1, and says why (#161)', { skip:
   const missing = await run('no-such-command-harnessdesk')
   assert.equal(missing.exitCode, -1)
   assert.match(missing.stderr, /ENOENT/)
+  // Review of #239, round 1: named, so a sentence about it says what stopped. By its first argument too when
+  // that is a word, a subcommand; never one that could carry a value, as `5` or a path or a URL could.
+  assert.match(stopped.stderr, /^sleep stopped after 0\.1 s$/m)
+  assert.match((await run('yes', ['word'])).stderr, /^yes word's output passed 16 MB and was cut there$/m)
+  // A child that traps SIGTERM exits with its own code, 0 included, and is still a command cut off at its deadline.
+  const trapped = await run('sh', ['-c', 'trap "exit 7" TERM; sleep 5 >/dev/null 2>&1 & wait'], { timeoutMs: 150 })
+  assert.equal(trapped.exitCode, -1)
+  assert.match(trapped.stderr, /^sh stopped after 0\.15 s$/m)
+  const quiet = await run('sh', ['-c', 'trap "exit 0" TERM; sleep 5 >/dev/null 2>&1 & wait'], { timeoutMs: 150 })
+  assert.equal(quiet.exitCode, -1)
+  assert.match(quiet.stderr, /^sh stopped after 0\.15 s$/m)
+  // A signal that is not the deadline's is said once, by name, after the child's own words.
+  const crashed = await run('sh', ['-c', 'echo boom >&2; kill -SEGV $$'])
+  assert.equal(crashed.exitCode, -1)
+  assert.equal(crashed.stderr, 'boom\nsh was killed by SIGSEGV')
   // The control: a command's own exit keeps its number.
   assert.equal((await run('sh', ['-c', 'exit 1'])).exitCode, 1)
   assert.equal((await run('sh', ['-c', 'exit 2'])).exitCode, 2)

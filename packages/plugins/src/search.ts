@@ -68,7 +68,11 @@ export const searchPlugin: HarnessPlugin = {
       const finite = (value: number | undefined, fallback: number): number =>
         typeof value === 'number' && Number.isFinite(value) ? value : fallback
       const maxResults = Math.trunc(Math.min(Math.max(finite(config?.maxResults, DEFAULT_MAX_RESULTS), 1), 500))
-      const maxLine = Math.trunc(Math.max(finite(config?.maxLineLength, DEFAULT_MAX_LINE), 40))
+      /* And at most 100,000 characters, since it is ripgrep's `--max-columns`
+         too: ripgrep refuses a number past a u64 and reads `1e+21` as no
+         number at all, so a large setting failed every search (review of #239,
+         round 1). */
+      const maxLine = Math.trunc(Math.min(Math.max(finite(config?.maxLineLength, DEFAULT_MAX_LINE), 40), 100_000))
 
       const requireRoot = (): string => {
         const root = ctx.workspace.root

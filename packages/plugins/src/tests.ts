@@ -134,7 +134,8 @@ export const testsPlugin: HarnessPlugin = {
         } else {
           const failures = extractFailures(output)
           report = [
-            `FAIL — ${framework.name} exited ${result.exitCode}.`,
+            // No process exits -1: that is the shell saying it has no exit to report, and why is in the tail (review of #239, round 1).
+            `FAIL — ${framework.name} ${result.exitCode === -1 ? 'did not finish' : `exited ${result.exitCode}`}.`,
             failures.length > 0 ? `\nFailing locations:\n${failures.map((f) => `  ${f}`).join('\n')}` : '',
             `\nOutput tail:\n${tail}`,
           ].join('\n')

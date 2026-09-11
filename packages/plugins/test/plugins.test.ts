@@ -1193,7 +1193,7 @@ test('a search whose output passed the shell limit says it is incomplete (#161)'
   // It came back as exit 1, ripgrep's "nothing found", with the cut-off output read as a whole answer.
   await fakeRipgrep(t, "head -c 17000000 /dev/zero | tr '\\000' 'x'")
   const call = await searchWith(t)
-  assert.match(await call('search_text', { pattern: 'x' }), /\[ripgrep hit an error, so this may be incomplete: its output passed 16 MB and was cut there\]$/)
+  assert.match(await call('search_text', { pattern: 'x' }), /\[ripgrep hit an error, so this may be incomplete: rg's output passed 16 MB and was cut there\]$/)
 })
 
 test('ripgrep cuts a long line itself, so minified files do not fill the output (#161)', async (t) => {
@@ -1215,4 +1215,44 @@ test('ripgrep cuts a long line itself, so minified files do not fill the output 
   assert.doesNotMatch(found, /may be incomplete/)
   assert.equal(found.split('\n').filter((l) => /bundle-\d+\.js:1:retry x+…$/.test(l)).length, 80)
   assert.match(found, /\[at least 20 more matches not shown/)
+})
+
+test('a longest-line setting past what ripgrep can read is held to 100,000 (review of #239, round 1)', async (t) => {
+  await fakeRipgrep(t, 'echo "$*"')
+  const call = await searchWith(t, { maxLineLength: 1e308 })
+  assert.match(await call('search_text', { pattern: 'x' }), /--max-columns 100000 /)
+})
+
+test('ripgrep reads the bound on the longest line as a number, and not the setting it replaces (review of #239, round 1)', async (t) => {
+  if (!(await ripgrepOr(t))) return
+  const { execFile } = await import('node:child_process')
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-rg-bound-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // Exit 1 is "no match", so the flag was read; exit 2 is a flag ripgrep could not read.
+  const exit = (value: string) =>
+    new Promise<unknown>((resolve) => execFile('rg', ['--max-columns', value, 'needle', dir], (error) => resolve(error ? error.code : 0)))
+  assert.equal(await exit('100000'), 1)
+  assert.equal(await exit(String(1e308)), 2, 'the control: the value the bound replaces is refused')
+})
+
+test('a test run the shell cut short says it did not finish, not that it exited -1 (review of #239, round 1)', async (t) => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'hd-tests-flood-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  // More than the shell keeps, 16 MB, so the run is cut off rather than finished.
+  writeFileSync(join(dir, 'flood.js'), "process.stdout.write('x\\n'.repeat(9_000_000))")
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { test: 'node flood.js' } }))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(testsPlugin)
+  await settle()
+  kernel.setWorkspace({ root: dir, branch: null })
+  const verdict = text(await kernel.invokeTool(toolNamed(kernel, 'run_tests'), {}, {}))
+  assert.match(verdict, /^FAIL — .+ did not finish\./)
+  assert.doesNotMatch(verdict, /exited -1/)
 })

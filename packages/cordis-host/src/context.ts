@@ -30,6 +30,7 @@ import type {
  * the whole API surface a plugin is allowed to reach.
  */
 import type { ForgeIdentity, ForgeSeat } from './forge.js'
+import type { ShellResult } from './capabilities.js'
 
 export interface HarnessContext {
   /** Tools any agent can call. */
@@ -58,13 +59,13 @@ export interface HarnessContext {
     ): Promise<{ status: number; headers: Record<string, string>; body: string }>
     json<T = unknown>(url: string, init?: HttpRequestInit): Promise<T>
   }
-  /** Run a program. Requires the `shell` permission; arguments are never shell-interpreted. */
+  /**
+   * Run a program. Requires the `shell` permission; arguments are never
+   * shell-interpreted. `exitCode` is -1 for a command with no exit of its own,
+   * with `stderr` saying why: see `ShellResult` (review of #239, round 1).
+   */
   readonly shell: {
-    run(
-      command: string,
-      args?: readonly string[],
-      options?: { cwd?: string; timeoutMs?: number },
-    ): Promise<{ stdout: string; stderr: string; exitCode: number }>
+    run(command: string, args?: readonly string[], options?: { cwd?: string; timeoutMs?: number }): Promise<ShellResult>
   }
   readonly workspace: { readonly root: string | null; readonly branch: string | null }
   /**
