@@ -86,3 +86,9 @@ test('a failure line keeps its place through the escapes runners write around it
   assert.deepEqual(extractFailures(`${ESC}[?25l${ESC}[31m FAIL ${ESC}[39m src/auth.test.ts`), ['src/auth.test.ts'])
   assert.deepEqual(extractFailures(`FAIL ${ESC}]8;;file:///w/src/auth.test.ts${ESC}\\src/auth.test.ts:42${ESC}]8;;${ESC}\\`), ['src/auth.test.ts:42'])
 })
+
+test('a failure line keeps its place through the charset escape `tput sgr0` resets with (review of #221, round 2)', () => {
+  // ncurses writes ESC ( B before its SGR reset, and the `(B` it left held the keyword off the start of its line.
+  assert.deepEqual(extractFailures('\x1b(B\x1b[mFAIL\x1b(B\x1b[m auth > signs in'), ['auth > signs in'])
+  assert.deepEqual(extractFailures('\x1b(0qqq\x1b(B'), [], 'a line-drawing switch and back is no failure')
+})

@@ -73,15 +73,24 @@ export const detectFramework = async (
 }
 
 /** The failing file:line pairs a stack trace or reporter line gives away. */
-export const extractFailures = (output: string): readonly string[] => {
+export const extractFailures = (output: string): readonly string[] => failuresIn(withoutEscapes(output))
+
+/**
+ * A runner's output without its escape codes. A runner that forces colour
+ * wraps the keyword in them, and a `FAIL` behind one never matched (#174).
+ * Every shape a runner writes goes: CSI with any parameters, the cursor's
+ * `?25l` among them; OSC to BEL or to ESC-backslash, which is how vitest and
+ * jest write a file link; the charset escapes, `ESC ( B` among them, which is
+ * how `tput sgr0` resets; and the two-byte escapes. Plain SGR alone left a
+ * hidden cursor in front of `FAIL` and a link's bytes in the entry (review of
+ * #221, rounds 1 and 2).
+ */
+export const withoutEscapes = (output: string): string =>
+  output.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[ -/]+[0-~]|\x1b[@-Z\\-_]/g, '')
+
+/** The failures in output whose escapes are out already. */
+const failuresIn = (plain: string): readonly string[] => {
   const found = new Set<string>()
-  /* A runner that forces colour wraps the keyword in escape codes, and a
-     `FAIL` behind one never matched (#174). Every shape a runner writes goes:
-     CSI with any parameters, the cursor's `?25l` among them; OSC to BEL or to
-     ESC-backslash, which is how vitest and jest write a file link; and the
-     two-byte escapes. Plain SGR alone left a hidden cursor in front of `FAIL`
-     and a link's bytes in the entry (review of #221, round 1). */
-  const plain = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g, '')
   /* Each pattern says what its entry is. One ternary served both, and for a
      reporter's own failure line it put the keyword where the file goes
      whenever the description held a digit: `FAIL src/auth.test.ts (15ms)`
@@ -133,13 +142,15 @@ export const testsPlugin: HarnessPlugin = {
         }
         const args = [...framework.args, ...(filter && framework.filter ? framework.filter(filter) : [])]
         const result = await ctx.shell.run(framework.command, args, { timeoutMs: 300_000 })
-        const output = `${result.stdout}\n${result.stderr}`.trim()
+        // Read once without its escapes, for the failure list and the tail both. The tail is what the model and
+        // the person read, and a runner forcing colour wrote its escapes into it verbatim (review of #221, round 2).
+        const output = withoutEscapes(`${result.stdout}\n${result.stderr}`).trim()
         const tail = output.split('\n').slice(-30).join('\n')
         let report: string
         if (result.exitCode === 0) {
           report = `PASS — ${framework.name} exited 0.\n\n${tail}`
         } else {
-          const failures = extractFailures(output)
+          const failures = failuresIn(output)
           report = [
             `FAIL — ${framework.name} exited ${result.exitCode}.`,
             failures.length > 0 ? `\nFailing locations:\n${failures.map((f) => `  ${f}`).join('\n')}` : '',

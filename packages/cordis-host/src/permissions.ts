@@ -31,27 +31,34 @@ const normaliseHost = (value: string): string => value.trim().toLowerCase()
  */
 const splitHost = (value: string): { readonly name: string; readonly port: string | null } | null => {
   const host = normaliseHost(value)
+  /* A port a pattern writes with leading zeros is the same port, compared as
+     its digits, since a number can't tell two long ones apart. `URL`
+     normalises a target's port itself. An IPv6 address's port too: the
+     bracketed form kept its zeros (review of #221, round 2). */
+  const digits = (port: string): string => port.replace(/^0+(?=\d)/, '')
   if (host.startsWith('[')) {
     const bracketed = /^(\[[0-9a-f:.]+\])(?::(\d+))?$/.exec(host)
     const name = bracketed ? ipv6(bracketed[1]!) : null
-    return name ? { name, port: bracketed?.[2] ?? null } : null
+    const port = bracketed?.[2]
+    return name ? { name, port: port === undefined ? null : digits(port) } : null
   }
   const parts = host.split(':')
   /* A name written with the root's trailing dot is the same host: `URL` keeps
      a typed dot, so a pattern without it matched nothing, and the other way
      round (#172). Not `*.`, which is no host with a dot on it, and stripped
-     read as `*`, every host (review of #221, round 1). A port a pattern writes
-     with leading zeros is the same port, compared as its digits, since a
-     number can't tell two long ones apart. `URL` normalises a target's port
-     itself. */
+     read as `*`, every host (review of #221, round 1). */
   const named = (name: string) => {
     const bare = name.replace(/\.$/, '')
     return bare === '*' && bare !== name ? '' : bare
   }
-  if (parts.length === 1) return named(host) === '' ? null : { name: named(host), port: null }
+  if (parts.length === 1) {
+    const name = named(host)
+    return name === '' ? null : { name, port: null }
+  }
   if (parts.length === 2) {
-    const [name, port] = parts as [string, string]
-    return named(name) !== '' && /^\d+$/.test(port) ? { name: named(name), port: port.replace(/^0+(?=\d)/, '') } : null
+    const [written, port] = parts as [string, string]
+    const name = named(written)
+    return name !== '' && /^\d+$/.test(port) ? { name, port: digits(port) } : null
   }
   // More than one colon is an IPv6 address written without its brackets.
   const name = /^[0-9a-f:.]+$/.test(host) ? ipv6(`[${host}]`) : null

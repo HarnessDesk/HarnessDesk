@@ -98,6 +98,9 @@ test('a past-tense negation spelled as one word is pending too', () => {
 test('`uncomplete` is pending, and `in` before `completely` negates nothing (#173)', () => {
   assert.equal(planStatus('uncomplete'), 'pending')
   assert.equal(planStatus('in completely wrong state'), null)
+  // `completes` alone is no status, so after `in` it is none either (review of #221, round 2).
+  assert.equal(planStatus('completes'), null)
+  assert.equal(planStatus('in completes'), null)
   // The words it did negate still are.
   assert.equal(planStatus('in_complete'), 'pending')
   assert.equal(planStatus('inCompleted'), 'pending')

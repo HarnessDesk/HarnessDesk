@@ -109,8 +109,9 @@ export const planStatus = (value: unknown): PlanStatus | null => {
   // `in` negates only the `complete` after it: split by case or a separator,
   // `inComplete` is two words, and `in` alone is `in_progress`'s (review, round 1).
   const negated = (word: string, at: number): boolean =>
-    // `complete` and its tenses, not `completely`: "in completely wrong state" isn't a status (#173).
-    NEGATIONS.has(word) || (word === 'in' && /^complete[ds]?$/.test(words[at + 1] ?? ''))
+    // `complete` and `completed`, as `DONE` spells them. Not `completely`: "in completely wrong state" isn't a
+    // status (#173). Nor `completes`, which no status spells (review of #221, round 2).
+    NEGATIONS.has(word) || (word === 'in' && /^completed?$/.test(words[at + 1] ?? ''))
   if (words.some(negated)) return 'pending'
   if (words.some((word) => DONE.has(word))) return 'done'
   if (words.some((word) => RUNNING.has(word))) return 'inProgress'

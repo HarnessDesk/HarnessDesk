@@ -98,6 +98,10 @@ export const attachAppUpdates = ({
   // Whether the person is waiting on the current check — only then do results
   // get a dialog. Background checks keep to the menu item.
   let interactive = false
+  // Whether an install was asked for and has had no answer. electron-updater
+  // answers a failed one with an `error` event, and nothing sets `interactive`
+  // on the way to an install (review of #221, round 2).
+  let installing = false
 
   const menu = () =>
     menuFor(phase, readyVersion) === null
@@ -124,19 +128,28 @@ export const attachAppUpdates = ({
       })
   }
 
-  /* The one way an update is installed, from the menu or from the offer.
-     `quitAndInstall` can throw, and from the menu nothing caught it: the shell
-     read it as a crash and relaunched, the update was still there, and a
-     second click inside a minute made the crash policy give up (#175, review
-     of #221, round 1). A failure is logged under its own name and said,
-     because silence after a click reads as broken. */
+  /* The one way an update is installed, from the menu or from the offer. A
+     failure is logged under its own name and said, because silence after a
+     click reads as broken. It comes two ways. electron-updater 6.8.9 turns
+     most into an `error` event: `BaseUpdater.install` catches its installer's
+     throw and emits it, and `MacUpdater` forwards the native updater's. The
+     handler below answers those while `installing` is set (review of #221,
+     round 2). And `quitAndInstall` can still throw: from the menu nothing
+     caught that, the shell read it as a crash and relaunched, and a second
+     click inside a minute made the crash policy give up (#175, review of
+     #221, round 1). */
+  const installFailed = (error) => {
+    installing = false
+    const reason = String(error?.message ?? error)
+    log('app update install failed', { error: reason })
+    ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] })
+  }
   const install = () => {
+    installing = true
     try {
       updater.quitAndInstall()
     } catch (error) {
-      const reason = String(error?.message ?? error)
-      log('app update install failed', { error: reason })
-      ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] })
+      installFailed(error)
     }
   }
 
@@ -209,6 +222,11 @@ export const attachAppUpdates = ({
   })
 
   updater.on('error', (error) => {
+    // An install that was asked for is answered as an install, not as a check.
+    if (installing) {
+      installFailed(error)
+      return
+    }
     // A downloaded update stays downloaded; anything earlier starts over.
     if (phase !== 'ready') phase = 'idle'
     log('app update check failed', { error: String(error?.message ?? error) })
