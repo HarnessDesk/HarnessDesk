@@ -40,15 +40,33 @@ export interface AcpAccountCommands {
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/
 /** How long the login command gets to print its URL before that is an answer. */
 const URL_TIMEOUT_MS = 30_000
+/** How long a URL at the very end of what a command has printed waits for more of itself. */
+const URL_SETTLE_MS = 250
+/** How long a sign-in command gets to leave after SIGTERM before it is killed outright. */
+const KILL_GRACE_MS = 3_000
 
 export class CliAccount {
   readonly #logins = new Map<string, ChildProcess>()
+  /** How each flow still in flight is ended by `cancel()`, before its child is killed. */
+  readonly #cancels = new Map<string, () => void>()
 
   constructor(
     private readonly commands: AcpAccountCommands,
     private readonly runtime: RuntimeId,
     private readonly emit: (event: AgentEvent) => void,
     private readonly log?: (message: string, details?: unknown) => void,
+    /**
+     * @internal Seams for tests only. The ways a flow can end that a real CLI
+     * cannot stage on demand — an `'error'` after its URL, two events in one
+     * tick, a URL that never comes — are driven through a child the test
+     * controls, with a timeout the test does not wait thirty seconds for.
+     */
+    private readonly seams: {
+      readonly spawn?: typeof spawn
+      readonly urlTimeoutMs?: number
+      readonly urlSettleMs?: number
+      readonly killGraceMs?: number
+    } = {},
   ) {}
 
   async status(): Promise<AccountStatus> {
@@ -61,8 +79,11 @@ export class CliAccount {
       return { accounts: parsed ? [parsed] : [], signInMethods: methods }
     } catch (error) {
       // A status probe that fails is "signed out" with the reason logged, not
-      // a broken settings page: `cursor-agent status` exits non-zero when
-      // nobody is signed in.
+      // a broken settings page. `claude auth status` exits 1 when nobody is
+      // signed in, and the record it prints then goes with the exit, so this
+      // is what answers for it; `cursor-agent status` exits 0 and prints `Not
+      // logged in`, which is read (both measured with an empty HOME, review,
+      // round fifteen).
       this.log?.('account status probe failed', { error: String(error) })
       return { accounts: [], signInMethods: methods }
     }
@@ -72,11 +93,59 @@ export class CliAccount {
     const spec = this.commands.login
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
-    const child = spawn(spec.command, [...(spec.args ?? [])], {
+    const child = (this.seams.spawn ?? spawn)(spec.command, [...(spec.args ?? [])], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, ...spec.env },
     })
     this.#logins.set(loginId, child)
+
+    /* A command that cannot be started — not installed, not on PATH, not
+       executable — is reported by `spawn` as an `'error'` event, not as an
+       exit. With no listener Node throws it, and an unhandled `'error'` takes
+       the whole host process down, and every conversation on the desk with
+       it. A missing sign-in binary is the ordinary state of an agent that is
+       not installed yet, so it has to be a sentence rather than a crash.
+       Node may or may not emit `'exit'` after an error, so the race below
+       learns about it from here rather than waiting out its timeout. */
+    /* One ending per flow, whichever way it ends: an error, an exit, or no
+       URL in time. Before the URL is handed out nobody holds the flow's id, so
+       the ending is `login()`'s to report, by rejecting, and `ending` keeps it
+       for the one case the race below cannot see. After, it is the completion
+       event the caller is waiting for. Every handler claims `settled` *first*:
+       an `'exit'` can be queued in the same tick behind an error, and its
+       handler runs before `login()`'s race hands back control. */
+    let handedOut = false
+    let settled = false
+    let ending: string | null = null
+    /* `on`, not `once`: an error that comes after the first — a kill that
+       fails, a pipe that breaks in teardown — finding no listener left is
+       thrown, and takes the host down with it (review, round five). The
+       promise settles on the first; the listener stays for the rest. */
+    /* A cancel ends the flow itself, at once, rather than leaving it to the
+       exit: a child that ignores SIGTERM would never report it (review,
+       round seven). Before the hand-out nobody holds the id to cancel with. */
+    this.#cancels.set(loginId, () => {
+      if (settled) return
+      settled = true
+      this.#logins.delete(loginId)
+      this.#cancels.delete(loginId)
+      if (handedOut) {
+        this.emit({ type: 'account/loginCompleted', runtime: this.runtime, loginId, success: false, error: 'Sign-in was cancelled.' })
+      }
+    })
+    const failed = new Promise<Error>((resolve) => child.on('error', resolve))
+    void failed.then((error) => {
+      if (settled) return
+      settled = true
+      this.#logins.delete(loginId)
+      this.#cancels.delete(loginId)
+      const said = `The sign-in command stopped: ${error.message}`
+      if (!handedOut) {
+        ending = said
+        return
+      }
+      this.emit({ type: 'account/loginCompleted', runtime: this.runtime, loginId, success: false, error: said })
+    })
 
     let url: string | null = null
     let resolveUrl: ((url: string) => void) | null = null
@@ -84,55 +153,147 @@ export class CliAccount {
       resolveUrl = resolve
     })
     const tail: string[] = []
+    /* The URL is read from what the command has printed so far, not from each
+       read on its own: a pipe can split a URL between two reads, and the first
+       half was handed out (#178). A URL is whole once something that cannot be
+       part of one follows it. One at the very end of what has arrived waits a
+       moment for the rest, and is taken if nothing comes: a command may print
+       its URL with no line break and wait. */
+    let heard = ''
+    let settleTimer: ReturnType<typeof setTimeout> | undefined
+    const take = (found: string): void => {
+      if (url !== null || settled) return
+      url = found
+      resolveUrl?.(url)
+    }
     const scan = (chunk: Buffer): void => {
       const text = chunk.toString()
       tail.push(text)
       if (tail.length > 40) tail.shift()
-      if (url === null) {
-        const match = URL_PATTERN.exec(text)
-        if (match) {
-          url = match[0]
-          resolveUrl?.(url)
-        }
+      if (url !== null) return
+      heard += text
+      const match = URL_PATTERN.exec(heard)
+      if (!match) {
+        // Only the end can still become a URL, a scheme cut after `https:/`.
+        heard = heard.slice(-8)
+        return
       }
+      clearTimeout(settleTimer)
+      const found = match[0]
+      if (match.index + found.length < heard.length) {
+        take(found)
+        return
+      }
+      settleTimer = setTimeout(() => take(found), this.seams.urlSettleMs ?? URL_SETTLE_MS)
+      settleTimer.unref()
     }
     child.stdout!.on('data', scan)
     child.stderr!.on('data', scan)
 
-    const exited = new Promise<number | null>((resolve) => child.once('exit', resolve))
-    void exited.then((code) => {
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+      child.once('exit', (code, signal) => resolve({ code, signal })),
+    )
+    void exited.then(({ code, signal }) => {
+      if (settled) {
+        /* A flow that already ended, cancelled or failed, whose command went
+           on to sign in: the account changed although nobody is waiting on
+           the flow, and the desk should look again (review, round eleven). */
+        if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
+        return
+      }
+      settled = true
       this.#logins.delete(loginId)
-      this.emit({
-        type: 'account/loginCompleted',
-        runtime: this.runtime,
-        loginId,
-        success: code === 0,
-        ...(code === 0 ? {} : { error: lastWords(tail) || `The sign-in command exited with code ${String(code)}.` }),
-      })
+      this.#cancels.delete(loginId)
+      /* Its last words, but not the prompt it printed its URL in: after the
+         hand-out the tail always holds that line, and a flow killed by a
+         signal reported "Open https://… to sign in" as its error (review,
+         round seven). Everything up to the URL is the prompt: one over two
+         lines left its first line as the error (round eleven). */
+      const said = code === 0 ? null : lastWords(tail, url) || stoppedBy(code, signal)
+      if (handedOut) {
+        this.emit({
+          type: 'account/loginCompleted',
+          runtime: this.runtime,
+          loginId,
+          success: code === 0,
+          ...(said ? { error: said } : {}),
+        })
+      } else {
+        /* An exit before the URL was handed out — "already signed in", or no
+           URL printed — is `login()`'s to report. It used to be reported here
+           as well, as a completion for an id nobody held: two endings for one
+           flow. */
+        ending = said ?? (lastWords(tail, url) || 'The sign-in command finished before its URL could be opened.')
+      }
+      // Signed in or not, the account may have changed under the desk.
       if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
     })
 
+    let urlTimer: ReturnType<typeof setTimeout> | undefined
     const outcome = await Promise.race([
       sawUrl.then((found) => ({ kind: 'url' as const, found })),
-      exited.then((code) => ({ kind: 'exit' as const, code })),
-      new Promise<{ kind: 'timeout' }>((resolve) =>
-        setTimeout(() => resolve({ kind: 'timeout' }), URL_TIMEOUT_MS).unref(),
-      ),
+      exited.then(({ code, signal }) => ({ kind: 'exit' as const, code, signal })),
+      failed.then((error) => ({ kind: 'error' as const, error })),
+      new Promise<{ kind: 'timeout' }>((resolve) => {
+        urlTimer = setTimeout(() => resolve({ kind: 'timeout' }), this.seams.urlTimeoutMs ?? URL_TIMEOUT_MS)
+        urlTimer.unref()
+      }),
     ])
-    if (outcome.kind === 'url') return { type: 'browser', loginId, url: outcome.found }
+    // Over, whichever way it went: a flow that has ended keeps no timer (review, round six).
+    clearTimeout(urlTimer)
+    clearTimeout(settleTimer)
+    if (outcome.kind === 'url') {
+      /* The URL won the race, but the flow can have ended in the same tick:
+         an error or an exit emitted with it, whose handler ran before this
+         line. Handing out its id would name a finished flow whose ending
+         nobody will report, so the ending is reported here instead. A real
+         child's events arrive in separate turns and cannot do this; a flow's
+         state should not rest on that. Review asked. */
+      if (settled) throw new Error(ending ?? 'The sign-in command stopped before its URL could be opened.')
+      handedOut = true
+      return { type: 'browser', loginId, url: outcome.found }
+    }
     this.#logins.delete(loginId)
-    if (outcome.kind === 'timeout') child.kill('SIGTERM')
-    throw new Error(
-      outcome.kind === 'exit' && outcome.code === 0
-        ? lastWords(tail) || 'Already signed in.'
-        : lastWords(tail) || 'The sign-in command printed no URL to open.',
-    )
+    this.#cancels.delete(loginId)
+    if (outcome.kind === 'error') {
+      throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
+    }
+    // The exit this causes finds the flow never handed out, and reports nothing.
+    if (outcome.kind === 'timeout') this.#stop(child)
+    /* A command that ended before printing a URL, having said nothing, says
+       how it ended: an exit with code 1 is not "printed no URL" (review,
+       round ten). That sentence is for the one ending it is true of, the
+       timeout. */
+    if (outcome.kind === 'exit') {
+      throw new Error(
+        outcome.code === 0
+          ? lastWords(tail) || 'Already signed in.'
+          : lastWords(tail) || stoppedBy(outcome.code, outcome.signal),
+      )
+    }
+    throw new Error(lastWords(tail) || 'The sign-in command printed no URL to open.')
   }
 
   async cancel(loginId: string): Promise<void> {
     // Unknown ids are not an error — the flow may have settled already.
-    this.#logins.get(loginId)?.kill('SIGTERM')
+    const child = this.#logins.get(loginId)
+    this.#cancels.get(loginId)?.()
+    if (child) this.#stop(child)
     this.#logins.delete(loginId)
+  }
+
+  /**
+   * SIGTERM, then SIGKILL when the child is still there after a grace. A cancel
+   * ended the flow at once, but a child that ignores SIGTERM lingered until the
+   * host exited (#178).
+   */
+  #stop(child: ChildProcess): void {
+    child.kill('SIGTERM')
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    }, this.seams.killGraceMs ?? KILL_GRACE_MS)
+    timer.unref()
+    child.once('exit', () => clearTimeout(timer))
   }
 
   async logout(): Promise<void> {
@@ -157,45 +318,324 @@ export class CliAccount {
   }
 }
 
+/**
+ * The first whole JSON object in `text`, from `from` — braces counted, and
+ * ignored inside strings — or null when it never closes.
+ *
+ * `JSON.parse(text.slice(start))` needed the object to be the last thing a
+ * CLI printed. One that answered `{"loggedIn":true,…}` and then `Session
+ * active.` made the parse throw; the catch fell through to the sentence form,
+ * the sentence form found nothing, and a signed-in account was reported as
+ * signed out. Strings are tracked because an email or a plan name may contain
+ * a brace, and counting that one would end the object in the wrong place.
+ */
+const firstBalanced = (text: string, from: number): string | null => {
+  // An array is closed by its bracket as an object is by its brace (review, round twelve).
+  const open = text[from] === '[' ? '[' : '{'
+  const close = open === '[' ? ']' : '}'
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = from; i < text.length; i += 1) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === open) depth += 1
+    else if (ch === close) {
+      depth -= 1
+      if (depth === 0) return text.slice(from, i + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * The first object in `text` that parses as JSON **and says something about
+ * sign-in** — `loggedIn`, `logged_in` or `email`.
+ *
+ * Not simply the first brace. A CLI can print `info {cache}` before its
+ * status, or log in NDJSON, and anchoring on the first `{` read that preface:
+ * it failed to parse, or parsed and said nothing, and a signed-in account was
+ * reported as signed out — the very outcome #39 was about, one line earlier
+ * in the output. Found in review. Each opening brace is tried in turn; a run
+ * that closes but is not JSON, or is JSON about something else, is passed
+ * over rather than ending the search.
+ */
+/** A brace that opens a JSON record: the brace, then its first key. */
+const RECORD_OPENING = /\{\s*"/y
+/**
+ * A bracket that opens data: an array whose first element is a whole string,
+ * number, `true`, `false` or `null` followed by the next element or the end,
+ * or a record or an array. A two-character peek let `[1, {…}` through as prose
+ * and took `["--json" for machine output` for data (review, round fourteen);
+ * `[1/3]` and `[INFO]` still open prose.
+ *
+ * A bracket that closes is data only when its first record or array is whole
+ * and followed by the next element or the end: taken from its opening alone,
+ * `[{…} current account]` was cut as data with the status inside it (review,
+ * round fifteen). One that never closes is data from the opening, because an
+ * array of records cut short, `[{"loggedIn":true,…}`, is exactly that (round
+ * thirteen). Told from so little, it is a trade: a bracket in prose that
+ * never closes and whose first element looks whole, `Tags: [1, 2`, holds
+ * everything after it (round fifteen; the tests record the shapes).
+ */
+const SCALAR_FIRST =
+  /\[\s*(?:"(?:[^"\\\r\n]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*[,\]]/y
+const NESTED_FIRST = /\[\s*(?=\{\s*"|\[)/y
+// After a whole element: the next one, with or without a comma as NDJSON has it, or the end.
+const AFTER_ELEMENT = /\s*[,\]{[]/y
+const opens = (pattern: RegExp, text: string, at: number): boolean => {
+  pattern.lastIndex = at
+  return pattern.test(text)
+}
+const opensArray = (text: string, at: number, closes: boolean): boolean => {
+  if (opens(SCALAR_FIRST, text, at)) return true
+  if (!opens(NESTED_FIRST, text, at)) return false
+  if (!closes) return true
+  const first = NESTED_FIRST.lastIndex
+  const element = firstBalanced(text, first)
+  return element !== null && opens(AFTER_ELEMENT, text, first + element.length)
+}
+
+const statusRecords = (
+  text: string,
+): { status: Record<string, unknown> | null; emailOnly: Record<string, unknown> | null; prose: string } => {
+  let emailOnly: Record<string, unknown> | null = null
+  // Where each object was, so that what is left is the prose a sentence is read from.
+  const objects: (readonly [number, number])[] = []
+  let end = text.length
+  /* Objects at the top level only: after a whole object the search goes on
+     from its end, not from the brace after its start, so no object nested in
+     another is ever a candidate (round two). A JSON array is data and not a
+     status: it is cut from the prose whole, and no object inside it is a
+     candidate either, where one was taken for the status (review, round
+     twelve). */
+  const OPENING = /[{[]/g
+  const next = (from: number): number => {
+    OPENING.lastIndex = from
+    return OPENING.exec(text)?.index ?? -1
+  }
+  /* A brace or bracket in prose is passed over and the scan goes on inside
+     it, so each one is read to its end, or to the end of the text when it
+     never closes: unclosed or nested, the output was read over and over, the
+     square of its length (review, rounds twelve and thirteen). What the scan
+     reads again is counted, and past 64 readings of the whole text the rest
+     isn't read, as after data cut short: a sentence there can't be told from
+     one inside a record the scan never reached, and read as prose, a log
+     line's `"msg":"logged in as warmup"` named an account (review, round
+     thirteen). The bound is on reading, not on openings: one that never
+     closes costs what is left of the text after it. Where the output
+     begins, 122 of them are read past and 123 are not; after 50 kB of prose
+     a thousand are read past and two thousand are not (measured, review,
+     rounds fourteen and fifteen). */
+  const budget = 64 * text.length
+  let reread = 0
+  for (let at = next(0); at !== -1; ) {
+    const start = at
+    const candidate = firstBalanced(text, at)
+    // A record's opening, a brace and then a key, or an array's.
+    const data = opens(RECORD_OPENING, text, at) || opensArray(text, at, candidate !== null)
+    if (candidate === null) {
+      /* Data that never closes holds everything after it, so nothing after it
+         is at the top level, and the scan stops. Resuming at the next brace
+         walked into it: truncated output such as `{"wrap":{"loggedIn":true,…}`
+         read as signed in (review, round four), and so did an array of records
+         cut short, `[{"loggedIn":true,…}` (review, round thirteen). A brace in
+         a line of prose is only a character: `[INFO] {cache-init` ahead of the
+         status took the status down with it (review, round six). */
+      if (data) {
+        end = at
+        break
+      }
+      reread += text.length - at
+      if (reread > budget) {
+        end = at
+        break
+      }
+      at = next(at + 1)
+      continue
+    }
+    if (text[start] === '[') {
+      /* A JSON array is data, cut from the prose whole, and so is one that
+         opens like data and doesn't parse: a trailing comma, or lines of NDJSON
+         in brackets, put the records inside back on the list (review, round
+         thirteen). A bracket in prose, `[INFO]` or `[1/3]`, is only
+         characters, and the scan goes on inside it. */
+      let array = data
+      if (!array) {
+        try {
+          array = Array.isArray(JSON.parse(candidate))
+        } catch {
+          array = false
+        }
+      }
+      if (array) {
+        objects.push([start, start + candidate.length])
+        at = next(start + candidate.length)
+        continue
+      }
+      reread += candidate.length
+      if (reread > budget) {
+        end = at
+        break
+      }
+      at = next(start + 1)
+      continue
+    }
+    objects.push([at, at + candidate.length])
+    at = next(at + candidate.length)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(candidate)
+    } catch {
+      continue
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    const record = parsed as Record<string, unknown>
+    /* A record that says, in a boolean, whether the account is signed in is
+       the status. A log line's field that is there with nothing in it
+       (`"loggedIn": null`) is not, and must not stand in for the status after
+       it (review, round six). One that only names an email may be the status
+       of a CLI that answers that way, or a log line that happens to carry one
+       (round three), so it is kept as the answer of last resort. */
+    if (typeof record['loggedIn'] === 'boolean' || typeof record['logged_in'] === 'boolean') {
+      return { status: record, emailOnly, prose: '' }
+    }
+    if (emailOnly === null && typeof record['email'] === 'string' && record['email'] !== '') emailOnly = record
+  }
+  /* The text around the objects, and nothing after a record cut short. An
+     object is cut out of the sentence it sits in, not made a break in it: a
+     break ends a clause, and `Not {cache} logged in as …` read as signed in
+     (review, round nine). */
+  let prose = ''
+  let from = 0
+  for (const [start, stop] of objects) {
+    prose += `${text.slice(from, start)} `
+    from = stop
+  }
+  return { status: null, emailOnly, prose: prose + text.slice(from, end) }
+}
+
+/**
+ * A sentence saying nobody is signed in: a negation anywhere in the clause
+ * before the verb, or signed out. A negation is `not`, `no longer`, `never`,
+ * or a contraction of one, `aren't` or `isn't`, in either apostrophe
+ * (review, round eight). A clause ends at a full stop, `!`, `?`, `;`, `:`,
+ * a comma, a parenthesis, an en or em dash, a hyphen with a space either
+ * side, or a line break of either kind: "Not cached, logged in as …" is two
+ * clauses, and a spinner's overwritten frame is a line of its own (review,
+ * rounds nine to eleven). A sign-out said to be in the past ("last logged
+ * out") or denied right before it ("not yet logged out") is not the state
+ * now, where "you were logged out" still is, and so is "the token was not
+ * accepted so you were logged out" (rounds nine, eleven, twelve and
+ * thirteen). The two halves reach differently on purpose: a negation anywhere
+ * in the clause denies a sign-in, which errs toward signed out, and only one
+ * right before it denies a sign-out, which would err the other way.
+ */
+/** A negation: `not`, `no longer`, `never`, or a contraction of one, in either apostrophe. */
+const NEGATION = String.raw`(?:\b(?:not|no longer|never)\b|n['’]t\b)`
+/** The rest of a clause: anything short of what ends one. */
+const IN_CLAUSE = String.raw`(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?`
+/**
+ * A negation that denies the verb after it: the negation, then at most two of
+ * the few words a denial puts between them, as in `not yet`, `haven't ever`
+ * or `not been`. Not the whole clause, as for `logged in`: there a negation
+ * that reaches too far errs toward signed out, and here it kept an account a
+ * sentence said was signed out (review, round thirteen).
+ */
+// The gaps are spaces and tabs and nothing else: a line break ends a clause here as everywhere, and across one, "Last sync: never" denied the "Logged out." below it (review, round fourteen); a form feed or a vertical tab did the same (round fifteen).
+const DENIED = String.raw`${NEGATION}(?:[ \t]+(?:yet|ever|currently|already|actually|really|be|been|being|get|got|gotten|getting)){0,2}[ \t]+`
+// The past marker before a sign-out keeps to the same line too: across a break, "Updated last" kept an account the next line signed out (review, round fifteen).
+/**
+ * Advice rather than a status: a clause that opens with `if`, `unless` or
+ * `whether` says what to do in a case, not which case this is. `If not logged
+ * in, run login` beside `Logged in as …` read as signed out (#178). Not `when`,
+ * which as often tells what happened: "you were logged out when it expired".
+ */
+const ADVICE = String.raw`(?<!\b(?:if|unless|whether)\b${IN_CLAUSE})`
+const SIGNED_OUT = new RegExp(
+  `${ADVICE}${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
+    `|${ADVICE}(?<!\\b(?:last|previously|formerly)[ \\t]+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
+  'i',
+)
+
+/**
+ * A sentence saying who is signed in now: not "last", "previously" or "was"
+ * signed in. Here the marker may sit across a line break, where the
+ * sign-out's may not: a wrapped "You were\nlogged in as …" is one sentence,
+ * and missing a sign-in errs toward signed out, the safe way (review, round
+ * fifteen).
+ */
+const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
+
 /** One account from whatever the status command printed, or null for signed out. */
 export const parseStatus = (
   stdout: string,
 ): { kind: string; label: string; email?: string; planType?: string } | null => {
   const text = stdout.trim()
-  const jsonStart = text.indexOf('{')
-  if (jsonStart !== -1) {
-    try {
-      const record = JSON.parse(text.slice(jsonStart)) as Record<string, unknown>
-      const loggedIn = record['loggedIn'] ?? record['logged_in']
-      if (loggedIn === false) return null
-      const email = typeof record['email'] === 'string' ? record['email'] : undefined
-      const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
-      if (loggedIn === true || email) {
-        return {
-          kind: 'cli',
-          label: email ?? 'Signed in',
-          ...(email ? { email } : {}),
-          ...(typeof plan === 'string' ? { planType: plan } : {}),
-        }
-      }
-      return null
-    } catch {
-      // Not JSON after all; fall through to the sentence form.
+  const { status, emailOnly, prose } = statusRecords(text)
+  if (status !== null) return fromRecord(status)
+  /* Sentences are read from the prose alone: a JSON log line's text is not the
+     CLI saying who is signed in, and `{"msg":"logged in as warmup"}` read as
+     the account `warmup"}` (review, round six). A sentence that says who is
+     signed in outranks a record that only names an email, which may be a log
+     line's (review, round four); and "Not logged in as …" names someone to say
+     the opposite (review, round six). */
+  /* A sentence saying nobody is signed in is read first, and it wins, over a
+     record that only names an email (review, round five) and over a sentence
+     naming someone. A negation can sit anywhere before the verb ("not
+     currently logged in"), and one line can hold both ("Not signed in. Last
+     logged in as …"); guarded word by word, each read as signed in (review,
+     round seven). Signed out is the safer mistake: it asks for a sign-in,
+     where a wrong signed-in fails every request after it. */
+  if (SIGNED_OUT.test(prose)) return null
+  // The name without the quotes or punctuation around it: "…; you haven't logged out" named `user@example.com;` (review, round eleven).
+  // And without the angle or square brackets round an address, `<user@example.com>` (review, round fourteen). Only the first word is read, so `Name <email>` names Name; neither CLI prints a name before the address (round fifteen).
+  const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`(<[]+|["'`.,;:!?)>\]]+$/g, '') ?? ''
+  // One that names nobody is no answer: `Logged in as ""` was an account with no name (review, round seven).
+  if (identity !== '') return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
+  return emailOnly !== null ? fromRecord(emailOnly) : null
+}
+
+/** An account from a status record, or null when it says signed out or says nothing. */
+const fromRecord = (record: Record<string, unknown>): { kind: string; label: string; email?: string; planType?: string } | null => {
+  const loggedIn = record['loggedIn'] ?? record['logged_in']
+  if (loggedIn === false) return null
+  // An empty email names nobody: `"email": ""` was an account called nothing (review, round ten).
+  const email = typeof record['email'] === 'string' && record['email'] !== '' ? record['email'] : undefined
+  const plan = record['planType'] ?? record['plan'] ?? record['subscriptionType']
+  if (loggedIn === true || email) {
+    return {
+      kind: 'cli',
+      label: email ?? 'Signed in',
+      ...(email ? { email } : {}),
+      ...(typeof plan === 'string' ? { planType: plan } : {}),
     }
-  }
-  const sentence = /logged in(?: as[: ]+)(\S+)/i.exec(text)
-  if (sentence) {
-    const identity = sentence[1]!.replace(/[.,]$/, '')
-    return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
   }
   return null
 }
 
-const lastWords = (tail: readonly string[]): string =>
-  tail
-    .join('')
+/** How a sign-in command ended, when it said nothing else: a signal is not a code. */
+const stoppedBy = (code: number | null, signal: NodeJS.Signals | null): string =>
+  code !== null ? `The sign-in command exited with code ${code}.` : `The sign-in command was stopped${signal ? ` (${signal})` : ''}.`
+
+/**
+ * What a sign-in command said last: its last two lines, after the prompt it
+ * printed its URL in, when it printed one.
+ */
+const lastWords = (tail: readonly string[], url: string | null = null): string => {
+  const text = tail.join('')
+  const at = url === null ? -1 : text.lastIndexOf(url)
+  const after = at === -1 ? text : text.slice(text.indexOf('\n', at) + 1 || text.length)
+  return after
     .split('\n')
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line !== '')
     .slice(-2)
     .join(' · ')
+}
