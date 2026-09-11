@@ -7,7 +7,7 @@ import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { audit, main, projectsOf, prune, remove } from './prune-dist.mjs'
+import { audit, filesUnder, main, projectsOf, prune, remove } from './prune-dist.mjs'
 
 /**
  * `prune-dist` deletes files, which makes it the one build step whose bugs
@@ -75,6 +75,9 @@ const command = (script, repo) => spawnSync(process.execPath, [script, repo], { 
 /** What `prune` answers for a one-package checkout it finds nothing wrong with. */
 const CLEAN = { projects: 1, removed: [], missing: [], rebuild: [], unowned: [] }
 
+/** A directory entry the way `readdirSync(…, { withFileTypes: true })` hands one back. */
+const dirent = (name, kind) => ({ name, isFile: () => kind === 'file', isDirectory: () => kind === 'dir' })
+
 test('a compiled test whose source is gone goes, with its map and declarations', (t) => {
   const repo = checkout(t, [
     'test/kept.test.ts',
@@ -119,6 +122,23 @@ test('a copied fixture stays while its original does, and goes when it does not'
   for (const kept of ['dist/test/fixtures/fake-agent.mjs', 'dist/test/fixtures/plugin/manifest.json', 'dist/test/fixtures/harness.js']) {
     assert.ok(has(repo, kept), kept)
   }
+})
+
+test('a test rewritten by hand from .ts to .js does not keep its stale compiled output alive', (t) => {
+  // Outside the fixtures a same-path twin is a source, not the original of a
+  // copy: the hand-written test/foo.test.js does not make the compiled
+  // dist/test/foo.test.js, built from a foo.test.ts that is gone, its copy.
+  // The fixture copy beside it is the control.
+  const repo = checkout(t, [
+    'test/kept.test.ts',
+    ...outputs('dist/test/kept.test'),
+    'test/foo.test.js',
+    ...outputs('dist/test/foo.test'),
+    'test/fixtures/agent.mjs',
+    'dist/test/fixtures/agent.mjs',
+  ])
+  assert.deepEqual(inDemo(repo, prune(repo).removed), outputs('dist/test/foo.test').sort())
+  assert.ok(has(repo, 'dist/test/fixtures/agent.mjs'))
 })
 
 test('a source the compiler reaches without `include` still keeps what it compiles to', (t) => {
@@ -220,6 +240,18 @@ test('the failure explains a skipped test only when a compiled test is among wha
   assert.doesNotMatch(err.text, /test\s+glob/)
 })
 
+test('among many missing outputs, the compiled tests are the ones named first', (t) => {
+  // The list is cut at twenty, and dist/src sorts before dist/test. Without
+  // the ordering, the sentence about a skipped test would stand under twenty
+  // paths, none of which is a test.
+  const repo = checkout(t, [...Array.from({ length: 8 }, (_, n) => `src/m${n}.ts`), 'test/only.test.ts'])
+  const err = sink()
+  assert.equal(main(repo, sink(), err), 1)
+  assert.equal(err.text.split('\n').find((line) => line.startsWith('  packages/')), '  packages/demo/dist/test/only.test.js')
+  assert.match(err.text, /the test\s+glob just stops matching it/)
+  assert.match(err.text, /^ {2}… and 16 more$/m)
+})
+
 test('a package that has never been built has everything missing and nothing to remove', (t) => {
   const repo = checkout(t, ['src/index.ts'])
   const { removed, missing } = prune(repo)
@@ -236,10 +268,25 @@ test('dist itself stays when the last thing in it goes', (t) => {
   assert.ok(has(repo, 'dist'))
 })
 
-test('what another build has already removed is not an error', (t) => {
-  // Several agents build in one checkout here. Two builds pruning the same
-  // dist at once find the same orphans; whichever reaches one first removes
-  // it, and the other must not die on its absence.
+test('a directory another build removes while this one lists dist is read as empty, and any other error is not', () => {
+  // Listing dist names a directory, and reading it comes after. A second
+  // build's prune can remove it in between: with real files that is a coin
+  // toss, so the listing is played here. `retired` is named, then gone.
+  const failing = (code) => Object.assign(new Error(code), { code })
+  const listing = (then) => (at) => {
+    if (at === join('/d')) return [dirent('kept.js', 'file'), dirent('retired', 'dir')]
+    if (at === join('/d', 'retired')) throw then
+    throw new Error(`nothing else is read: ${at}`)
+  }
+  assert.deepEqual(filesUnder('/d', listing(failing('ENOENT'))), [join('/d', 'kept.js')])
+  // The control: a directory that is there and cannot be read is a real
+  // failure, and still says so.
+  assert.throws(() => filesUnder('/d', listing(failing('EACCES'))), /EACCES/)
+})
+
+test('what another build has already removed is not an error when this one comes to remove it', (t) => {
+  // The other half of the same race: both builds listed the same orphans, and
+  // the other got to them first.
   const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index'), ...outputs('dist/src/retired/old')])
   const [project] = projectsOf(repo)
   const { orphans } = audit(project)

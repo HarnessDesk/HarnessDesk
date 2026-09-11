@@ -27,8 +27,11 @@
  * - no source that compiles to it is on disk — `x.js` from `x.ts` or `x.tsx`,
  *   `x.mjs` from `x.mts` — which is the net under the first, for a file the
  *   compiler reaches by an import rather than through `include`;
- * - nothing sits at the same path in the package, which is how a copied
- *   fixture is known: `copy-fixtures.mjs` copies each one to its own path;
+ * - it is not the copy of a fixture that still exists: a file under
+ *   `test/fixtures` whose original sits at the same path in the package,
+ *   which is where `copy-fixtures.mjs` puts each one. Only there: elsewhere a
+ *   same-path twin is a source, and a test rewritten by hand from `.ts` to
+ *   `.js` must not keep its stale compiled output alive;
  * - it is something this build writes at all: a kind of file `tsc` emits, or
  *   a copy under `test/fixtures`. Anything else in `dist` belongs to someone
  *   else and is left where it is, `.tsbuildinfo` included. (A copied fixture
@@ -53,6 +56,11 @@
  * is ignored, so deleting a package leaves it), keeps compiled tests that the
  * glob runs and nothing rebuilds. Nothing here wrote them, so this does not
  * delete them either. It fails, and names the directory.
+ *
+ * Several agents build in one checkout here, so two of these can run over the
+ * same `dist` at once. Whichever reaches a file or directory first removes
+ * it, and the other reads it as already gone: when listing `dist`, when
+ * removing what it found, and when walking up from what it emptied.
  *
  * The build runs it as `node script/prune-dist.mjs`. Handed a path, it prunes
  * that checkout instead of its own, which is how to put right one whose
@@ -141,10 +149,33 @@ export function projectsOf(repo) {
   return built.map(([, project]) => project)
 }
 
-const filesUnder = (dir) =>
-  readdirSync(dir, { withFileTypes: true, recursive: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => join(entry.parentPath, entry.name))
+/**
+ * Every file under a directory. One that is not there is read as empty: a
+ * package never built has no `dist` yet, and a second build in the same
+ * checkout can remove a directory between this listing it and reading it.
+ * That under-prunes, which is the safe direction and the one `removeEmpty`
+ * already takes; any other error still throws. `readdir` is there so a test
+ * can play that race deterministically.
+ */
+export const filesUnder = (dir, readdir = readdirSync) => {
+  const files = []
+  const walk = (at) => {
+    let entries
+    try {
+      entries = readdir(at, { withFileTypes: true })
+    } catch (error) {
+      if (error.code === 'ENOENT') return
+      throw error
+    }
+    for (const entry of entries) {
+      const path = join(at, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile()) files.push(path)
+    }
+  }
+  walk(dir)
+  return files
+}
 
 /** What one project's `dist` holds that nothing accounts for, and what the compiler writes there that it does not hold. */
 export function audit(project) {
@@ -153,12 +184,10 @@ export function audit(project) {
   const ignoreCase = !ts.sys.useCaseSensitiveFileNames
   const expected = new Set(project.fileNames.flatMap((file) => ts.getOutputFileNames(project, file, ignoreCase)).map(native))
   const missing = [...expected].filter((file) => !existsSync(file)).sort()
-  if (!existsSync(outDir)) return { orphans: [], missing }
-
   const orphans = filesUnder(outDir).filter((file) => {
     if (expected.has(file)) return false
     const path = relative(outDir, file)
-    if (existsSync(join(rootDir, path))) return false
+    if (path.startsWith(COPIED) && existsSync(join(rootDir, path))) return false
     const emitted = EMITS.find(([output]) => path.endsWith(output))
     if (emitted == null) return path.startsWith(COPIED)
     const [output, sources] = emitted
@@ -183,9 +212,9 @@ const removeEmpty = (dir, outDir) => {
 
 /**
  * Removes what `audit` found, and the directories that leaves empty. A file
- * or directory that is already gone is not an error: several agents build in
- * one checkout here, and two builds pruning the same `dist` at once find the
- * same orphans. Whichever gets to one first has done the job.
+ * or directory that is already gone is not an error: two builds pruning the
+ * same `dist` at once find the same orphans, and whichever gets to one first
+ * has done the job.
  */
 export function remove(files, outDir) {
   for (const file of files) {
@@ -242,10 +271,13 @@ export function main(repo, out = process.stdout, err = process.stderr) {
     out.write(listed(repo, removed, Infinity))
   }
   if (missing.length > 0) {
-    const tests = missing.some((file) => runByTheGlob(relative(repo, file)))
+    // Compiled tests first: the list is cut at twenty, and the sentence about
+    // a skipped test has to stand under one the reader can see.
+    const shown = [...missing].sort((a, b) => Number(runByTheGlob(relative(repo, b))) - Number(runByTheGlob(relative(repo, a))))
+    const tests = runByTheGlob(relative(repo, shown[0]))
     err.write(
       'The compiler writes these for sources that exist, and they are not in dist:\n\n' +
-        listed(repo, missing) +
+        listed(repo, shown) +
         '\n`tsc -b` will not put them back: it reads each project as up to date from its\n' +
         (tests
           ? '.tsbuildinfo. And a compiled test that is not there fails nothing: the test\nglob just stops matching it. '
@@ -258,8 +290,8 @@ export function main(repo, out = process.stdout, err = process.stderr) {
       'These hold compiled tests the test glob runs, and no project the build compiles\nwrites them:\n\n' +
         listed(repo, unowned, Infinity) +
         '\nNothing rebuilds them, so their tests run against code that has moved on. If the\n' +
-        'package is gone, delete its dist; if it should still be built, add it back to the\n' +
-        'references in tsconfig.json.\n',
+        'package is gone, delete its dist; if it should still be built, put it back in the\n' +
+        'build: in the references of tsconfig.json, or of a package the build compiles.\n',
     )
   }
   return missing.length > 0 || unowned.length > 0 ? 1 : 0
