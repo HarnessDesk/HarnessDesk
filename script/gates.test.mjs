@@ -8,6 +8,7 @@ import { squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands } from './check-verify-drift.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
+import { TEST_GLOB } from './prune-dist.mjs'
 import { leadComment } from './design-doc.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -532,4 +533,22 @@ test('a method name held in a variable is not a caller either', () => {
     [...reachedBy(methods, ["await this.transport.request(\n  'team/inbound',\n  { mode },\n)"])],
     ['team/inbound'],
   )
+})
+
+test('the test glob is written one way everywhere it is run (#256)', () => {
+  // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  for (const file of ['package.json', 'script/verify.mjs', '.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+    const text = fs.readFileSync(path.join(repo, file), 'utf8')
+    assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
+  }
+})
+
+test('the step that reads what the build writes says that it needs it (#208)', () => {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const verify = fs.readFileSync(path.join(repo, 'script/verify.mjs'), 'utf8')
+  const at = verify.indexOf("step('node tests'")
+  assert.notEqual(at, -1, 'verify.mjs still has a node tests step')
+  const declared = verify.slice(at, verify.indexOf('\n)', at))
+  assert.match(declared, /\{ needs: 'build' \}/, 'the node tests would otherwise run over the dist a failed build left')
 })

@@ -41,8 +41,11 @@
  * And the other direction, because a gap there is silent too. A glob that
  * matches less still passes — `node --test` over a glob that matches nothing
  * says "tests 0" and exits 0 — and `tsc -b` does not put back an output that
- * went missing: it reads the project as up to date from its `.tsbuildinfo`,
- * and touching the source does not help while its content is unchanged. A
+ * went missing while nothing in its project has changed: it reads the project
+ * as up to date from its `.tsbuildinfo`, and touching the source does not help
+ * while its content is unchanged. It does rebuild the file when something it
+ * imports changes what it declares, and it compiles a source that arrived
+ * after the build; this step's test measures both (review of #191). A
  * test output deleted by hand, or by a mistake in this file, would stop
  * running without a word and stay stopped. So every output the compiler lists
  * for the sources it was given has to be on disk, or this fails and names it.
@@ -63,7 +66,10 @@
  * Several agents build in one checkout here, so two of these can run over the
  * same `dist` at once. Whichever reaches a file or directory first removes
  * it, and the other reads it as already gone: when listing `dist`, when
- * removing what it found, and when walking up from what it emptied.
+ * removing what it found, and when walking up from what it emptied. And in
+ * the other direction: an output the compiler named for a source another
+ * build has deleted since is not reported as missing, because nothing on disk
+ * compiles to it any more (review of #191).
  *
  * The build runs it as `node script/prune-dist.mjs`. Handed a path, it prunes
  * that checkout instead of its own, which is how to put right one whose
@@ -75,6 +81,8 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import ts from 'typescript'
+
+import { FIXTURES } from './copy-fixtures.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -90,11 +98,40 @@ const EMITS = [
   [['.cts'], ['.cjs', '.cjs.map', '.d.cts', '.d.cts.map']],
 ].flatMap(([sources, outputs]) => outputs.map((output) => [output, sources]))
 
-/** Where `copy-fixtures.mjs` copies to: the same path under `dist` as under the package. */
-const COPIED = join('test', 'fixtures') + sep
+/** Where `copy-fixtures.mjs` copies to: the same path under `dist` as under the package, from that step's own constant (#222). */
+const COPIED = FIXTURES + sep
 
-/** A path, relative to the repo, that the test runners' glob runs: a `.test.js` under a package's `dist/test`. */
-const runByTheGlob = (path) => /^packages[\\/][^\\/]+[\\/]dist[\\/]test[\\/].+\.test\.js$/.test(path)
+/**
+ * The glob every test runner here is given, in one place: `package.json`'s
+ * `test` script, `script/verify.mjs` and both workflows write it out, and this
+ * file reads `dist` by it twice. A gate test holds those four to this one, so
+ * widening the glob cannot quietly narrow what is checked (#256).
+ */
+export const TEST_GLOB = 'packages/*/dist/test/**/*.test.js'
+
+/**
+ * A glob of the shape the test globs take, as a regular expression over
+ * repo-relative paths in either separator: `*` is a run of anything within one
+ * segment, `**` is any number of segments, and everything else is literal.
+ */
+export const globToRegExp = (glob) => {
+  const parts = glob.split('/')
+  let source = '^'
+  parts.forEach((part, index) => {
+    if (part === '**') {
+      source += '(?:[^\\\\/]+[\\\\/])*'
+      return
+    }
+    source += part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^\\\\/]*')
+    if (index < parts.length - 1) source += '[\\\\/]'
+  })
+  return new RegExp(`${source}$`)
+}
+
+const TEST_PATHS = globToRegExp(TEST_GLOB)
+
+/** A path, relative to the repo, that the test runners' glob runs. */
+const runByTheGlob = (path) => TEST_PATHS.test(path)
 
 /**
  * Something this cannot decide, said as a sentence for whoever runs the
@@ -190,16 +227,35 @@ export function audit(project) {
   const rootDir = native(project.options.rootDir)
   const ignoreCase = !ts.sys.useCaseSensitiveFileNames
   const expected = new Set(project.fileNames.flatMap((file) => ts.getOutputFileNames(project, file, ignoreCase)).map(native))
-  const missing = [...expected].filter((file) => !existsSync(file)).sort()
+  /** Whether nothing `tsc` compiles to this output is on disk: `x.ts` or `x.tsx` for an `x.js`, `x.mts` for an `x.mjs`. */
+  const sourceGone = (path) => {
+    const emitted = EMITS.find(([output]) => path.endsWith(output))
+    if (emitted == null) return false
+    const [output, sources] = emitted
+    const stem = path.slice(0, -output.length)
+    return !sources.some((source) => existsSync(join(rootDir, stem + source)))
+  }
+  /* An output that is not there and has no source left is not missing: its
+     source went between the compiler's answer and this check, which is
+     another build's prune at work (review of #191). Here, and not in the
+     orphan rule below, a file of the same name counts as a source — a
+     JavaScript source under `allowJs` compiles to its own name — so an
+     output this build cannot read back to a source stays missing rather
+     than excused. */
+  const missing = [...expected]
+    .filter((file) => {
+      if (existsSync(file)) return false
+      const path = relative(outDir, file)
+      return existsSync(join(rootDir, path)) || !sourceGone(path)
+    })
+    .sort()
   const orphans = filesUnder(outDir).filter((file) => {
     if (expected.has(file)) return false
     const path = relative(outDir, file)
     if (path.startsWith(COPIED) && existsSync(join(rootDir, path))) return false
     const emitted = EMITS.find(([output]) => path.endsWith(output))
     if (emitted == null) return path.startsWith(COPIED)
-    const [output, sources] = emitted
-    const stem = path.slice(0, -output.length)
-    return !sources.some((source) => existsSync(join(rootDir, stem + source)))
+    return sourceGone(path)
   })
   return { orphans: orphans.sort(), missing }
 }
@@ -236,12 +292,14 @@ export function remove(files, outDir) {
  * is wider than the reference graph this step trusts for everything else.
  */
 const distsTheGlobReaches = (repo) => {
-  const packages = join(repo, 'packages')
+  // Read off the glob itself — packages/*/dist/test/… — so the walk and the runners look in one place (#256).
+  const [top, , dist, tests] = TEST_GLOB.split('/')
+  const packages = join(repo, top)
   if (!existsSync(packages)) return []
   return readdirSync(packages, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => join(packages, entry.name, 'dist'))
-    .filter((dist) => existsSync(join(dist, 'test')) && filesUnder(join(dist, 'test')).some((file) => file.endsWith('.test.js')))
+    .map((entry) => join(packages, entry.name, dist))
+    .filter((out) => existsSync(join(out, tests)) && filesUnder(join(out, tests)).some((file) => file.endsWith('.test.js')))
     .sort()
 }
 
@@ -285,9 +343,10 @@ export function main(repo, out = process.stdout, err = process.stderr) {
     err.write(
       'The compiler writes these for sources that exist, and they are not in dist:\n\n' +
         listed(repo, shown) +
-        '\nA plain `tsc -b` will not put back one whose source was already built: it reads the\n' +
-        'project as up to date from its .tsbuildinfo. (A source that arrived after the build\n' +
-        'started is compiled by the next one.) ' +
+        '\nA plain `tsc -b` will not put back one whose source was already built, while nothing\n' +
+        'in its project has changed: it reads the project as up to date from its .tsbuildinfo.\n' +
+        '(A source that arrived after the build started is compiled by the next one, and a\n' +
+        'change in what an import declares rebuilds the files that import it.) ' +
         (tests ? 'And a compiled test that is not there fails\nnothing: the test glob just stops matching it. ' : '') +
         `\`pnpm exec tsc -b --force ${rebuild.join(' ')}\` rebuilds them either way.\n`,
     )
