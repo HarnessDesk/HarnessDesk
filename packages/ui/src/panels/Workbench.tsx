@@ -364,11 +364,11 @@ const useFloatingSidebar = (
        * A menu the conversation had open goes first, as it does for a dialog.
        * Menus are drawn above the modal layer, so one left open lay over the
        * sidebar, in reach, with its trigger inert beneath it — and ⌘B is not
-       * a press outside it, so nothing else closed it. First, because a menu
-       * holding focus gives it to its trigger as it goes, and that trigger is
-       * what focus should come back to.
+       * a press outside it, so nothing else closed it. First, and asking for
+       * focus back: a menu holding focus then gives it to its trigger as it
+       * goes, and that trigger is what focus should come back to.
        */
-      dismissOverlays()
+      dismissOverlays({ returnFocus: true })
       // Taken before the content goes inert: making the focused control inert
       // moves focus to the page, and then there is nothing to come back to.
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -419,7 +419,7 @@ const useFloatingSidebar = (
      * a conversation has already said where the reader is. A menu that held
      * focus has just given it to its trigger, which is in the sidebar.
      */
-    dismissOverlays()
+    dismissOverlays({ returnFocus: true })
     const back = opener.current
     opener.current = null
     if (!back) return

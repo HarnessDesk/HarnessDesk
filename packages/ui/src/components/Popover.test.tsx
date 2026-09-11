@@ -98,24 +98,37 @@ describe('Popover', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 
-  it('taken from under focus, it gives focus to its trigger — and takes it from nothing else', () => {
-    // A sidebar laid over a narrow window's conversation gives focus back,
-    // when it goes, to what had it when it came: the trigger, then, and not
-    // a row unmounted in between.
+  it('asked to give focus back, it gives it to its trigger — and takes it from nothing else', () => {
+    // The floating sidebar gives focus back, when it goes, to what had it
+    // when it came: the trigger, then, and not a row unmounted in between.
     render()
     click(trigger())
     act(() => (document.querySelector('[role="menu"] button') as HTMLButtonElement).focus())
-    act(dismissOverlays)
+    act(() => dismissOverlays({ returnFocus: true }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
     expect(document.activeElement).toBe(trigger())
 
     const elsewhere = document.body.appendChild(document.createElement('button'))
     click(trigger())
     act(() => elsewhere.focus())
-    act(dismissOverlays)
+    act(() => dismissOverlays({ returnFocus: true }))
     expect(document.querySelector('[role="menu"]')).toBeNull()
     expect(document.activeElement).toBe(elsewhere)
     elsewhere.remove()
+  })
+
+  it('dismissed by a window that gives nothing back, it leaves focus off its trigger', () => {
+    /* Settings and Usage take no focus when they open. Handed to a trigger
+       behind the window, focus answered Enter by opening the menu again,
+       above the window — measured in a real engine. */
+    render()
+    click(trigger())
+    const row = document.querySelector('[role="menu"] button') as HTMLButtonElement
+    act(() => row.focus())
+    expect(document.activeElement).toBe(row)
+    act(() => dismissOverlays())
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).not.toBe(trigger())
   })
 
   /**

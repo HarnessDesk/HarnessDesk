@@ -10,9 +10,12 @@ export const DISMISS_OVERLAYS = 'hd:dismiss-overlays'
 /**
  * Called by anything that takes the whole window — a dialog, a palette — and
  * by a sidebar laid over a narrow window's conversation, both ways.
+ *
+ * `returnFocus` is for a caller that gives focus back, when it goes, to what
+ * had it when it came: a menu holding focus hands it to its trigger first.
  */
-export const dismissOverlays = (): void => {
-  document.dispatchEvent(new Event(DISMISS_OVERLAYS))
+export const dismissOverlays = ({ returnFocus = false }: { readonly returnFocus?: boolean } = {}): void => {
+  document.dispatchEvent(new CustomEvent(DISMISS_OVERLAYS, { detail: { returnFocus } }))
 }
 import { createPortal } from 'react-dom'
 
@@ -149,13 +152,17 @@ export const Popover = ({
       which reads as a broken window. Nothing else dismisses it: a dialog
       opened from the keyboard is not a pointerdown and not an Escape.
 
-      Holding focus, it gives it to its trigger on the way out, as Escape
-      does. A sidebar laid over the conversation gives focus back, when it
-      goes, to whatever had it when it came — and a row unmounted in between
-      is nowhere to give it back to. Focus held anywhere else stays put.
+      Asked to (`returnFocus`), a menu holding focus gives it to its trigger
+      on the way out, as Escape does. The floating sidebar asks: it gives
+      focus back, when it goes, to whatever had it when it came, and a row
+      unmounted in between is nowhere to give it back to. Settings and Usage
+      do not — they take no focus of their own, and focus handed to a trigger
+      behind them answered Enter by opening the menu again, above the window.
+      Focus held anywhere else stays put either way.
     */
-    const onDismiss = (): void => {
-      if (panel.current?.contains(document.activeElement)) trigger.current?.focus()
+    const onDismiss = (event: Event): void => {
+      const asked = (event as CustomEvent<{ readonly returnFocus?: boolean } | null>).detail?.returnFocus === true
+      if (asked && panel.current?.contains(document.activeElement)) trigger.current?.focus()
       setOpen(false)
     }
     document.addEventListener('pointerdown', onPointerDown)
