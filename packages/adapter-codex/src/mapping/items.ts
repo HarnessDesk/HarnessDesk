@@ -190,11 +190,29 @@ const mapFunctionCallOutputContent = (
   }
 }
 
+/**
+ * A dynamic tool's result, as Codex hands it back: the v2 protocol's own
+ * parts, `inputText`, `inputImage` and `inputAudio`, not MCP content. Read as
+ * MCP content, every part missed `text` and `image` and was drawn as its JSON
+ * (#205). A part in neither shape still gets the MCP reading, which keeps
+ * what it can't narrow as JSON.
+ */
+const mapDynamicPart = (part: CodexProtocol.v2.DynamicToolCallOutputContentItem): ToolResultContent => {
+  switch (part.type) {
+    case 'inputText':
+      return { type: 'text', text: part.text }
+    case 'inputImage':
+      return { type: 'image', url: part.imageUrl, mimeType: '' }
+    default:
+      return mapToolContent(part)
+  }
+}
+
 const mapDynamicContent = (
   items: readonly CodexProtocol.v2.DynamicToolCallOutputContentItem[] | null,
 ): ToolResultContent[] | undefined => {
   if (!items) return undefined
-  return items.map((item) => mapToolContent(item))
+  return items.map(mapDynamicPart)
 }
 
 export const mapItem = (item: ThreadItem): AgentItem => {
