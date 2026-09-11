@@ -36,16 +36,23 @@ const CATALOGUE_URL = 'https://models.dev/api.json'
 
 /**
  * What a dated id adds to its undated name: `-20251001`, `-2024-11-20`,
- * `@20240620`, `-latest`. A real month and day: any eight digits made
- * `-99991301` a date (review of #153).
+ * `@20240620`, `-latest`. A date that exists: any eight digits made
+ * `-99991301` one (review of #153), and a real month with a day it doesn't
+ * have made `-20260231` one (review of #238, round 1).
  */
-const MONTH = '(?:0[1-9]|1[0-2])'
-const DAY_OF_MONTH = '(?:0[1-9]|[12]\\d|3[01])'
-const DATED = new RegExp(`^[-@](?:\\d{4}${MONTH}${DAY_OF_MONTH}|\\d{4}-${MONTH}-${DAY_OF_MONTH}|latest)$`)
+const DATED = /^[-@](?:(\d{4})(\d{2})(\d{2})|(\d{4})-(\d{2})-(\d{2})|latest)$/
+const isDate = (suffix: string): boolean => {
+  const match = DATED.exec(suffix)
+  if (!match) return false
+  if (match[0].endsWith('latest')) return true
+  const [year, month, day] = (match[1] !== undefined ? match.slice(1, 4) : match.slice(4, 7)).map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
 
 /** Whether `long` is `short` with nothing added but a date. */
 const datedFormOf = (long: string, short: string): boolean =>
-  long.length > short.length && long.startsWith(short) && DATED.test(long.slice(short.length))
+  long.length > short.length && long.startsWith(short) && isDate(long.slice(short.length))
 const DAY = 86_400_000
 const PER_MILLION = 1_000_000
 

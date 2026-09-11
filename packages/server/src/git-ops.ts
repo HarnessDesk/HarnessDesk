@@ -144,20 +144,22 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
       } else if (removes) {
         const current = await readFile(absolute, 'utf8').catch(() => null)
         if (current === null) continue // already gone
-        if (current !== change.diff) {
-          /* A deletion the agent recorded nothing of can't be checked: what's
-             there now can't be told from what it deleted (review of #153). */
+        /* A deletion the agent recorded nothing of can't be checked: what's
+           there now can't be told from what it deleted (review of #153). Not
+           an empty file either, which matched the nothing recorded and went
+           (review of #238, round 1). Said of "it": the sentence around it
+           names the file. */
+        if (change.kind.type === 'delete' && change.diff === '') {
           throw new Error(
-            change.kind.type === 'delete' && change.diff === ''
-              ? `${path} can't be deleted again: the agent recorded nothing of it, so what's there now can't be told from what it deleted`
-              : `${path} has been edited since the agent wrote it`,
+            "it can't be deleted again: the agent recorded nothing of it, so what's there now can't be told from what it deleted",
           )
         }
+        if (current !== change.diff) throw new Error('it has been edited since the agent wrote it')
         await unlink(absolute)
       } else {
         const current = await readFile(absolute, 'utf8').catch(() => null)
         if (current === change.diff) continue // already there
-        if (current !== null) throw new Error(`${path} exists again; not overwriting it`)
+        if (current !== null) throw new Error('it exists again; not overwriting it')
         await writeFile(absolute, change.diff)
       }
       if (!done.includes(path)) done.push(path)

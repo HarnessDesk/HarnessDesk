@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import type {
@@ -29,10 +31,18 @@ import { isSha } from './git-revision.js'
 
 const run = promisify(execFile)
 
+/* Commits as they are recorded, not as `git replace` would show them. A
+   replacement gives a commit another tree and other parents under the same
+   id, and what `commit` keeps for a commit's files would then pair a base
+   from before the replacement with a patch from after it (review of #238,
+   round 1). The history reads the objects themselves, as
+   `git --no-replace-objects` does. The environment is built per call, since
+   PATH is read at the call. */
 const git = async (root: string, args: readonly string[]): Promise<string> => {
   const { stdout } = await run('git', ['-C', root, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
+    env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' },
   })
   return stdout
 }
@@ -275,17 +285,28 @@ const EMPTY_TREES: Readonly<Record<string, string>> = {
   sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
   sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
 }
-/** Each repository's answer: its object format never changes, and it was asked again for every root-commit file opened (review of #150). */
+/**
+ * Each repository's answer: its object format never changes, and it was asked
+ * again for every root-commit file opened (review of #150). By the `.git` the
+ * folder holds, not by the folder: a repository made again at the same path,
+ * perhaps in the other format, is another `.git` and is asked again (review of
+ * #238, round 1).
+ */
 const formats = new Map<string, string>()
+const repositoryAt = async (root: string): Promise<string> => {
+  const found = await stat(join(root, '.git')).catch(() => null)
+  return found ? `${root}\0${found.ino}\0${found.birthtimeMs}` : root
+}
 const emptyTree = async (root: string): Promise<string> => {
   // A git that does not know the flag — whether it refuses it or echoes it
   // back — is a SHA-1 repository, the only format such a git has.
-  let format = formats.get(root)
+  const repository = await repositoryAt(root)
+  let format = formats.get(repository)
   if (format === undefined) {
     const answer = await asked(root, ['rev-parse', '--show-object-format']).catch(() => null)
     format = answer?.trim() ?? 'sha1'
     // A git that couldn't answer this time is asked again next time.
-    if (answer !== null) formats.set(root, format)
+    if (answer !== null) formats.set(repository, format)
   }
   return EMPTY_TREES[format] ?? EMPTY_TREES['sha1']!
 }
@@ -294,11 +315,19 @@ const emptyTree = async (root: string): Promise<string> => {
  * What `commit` worked out for a commit, its base and its file list, kept for
  * the files it opens next: each file ran a whole-commit `--name-status` of its
  * own, 64 ms on a 2,032-file commit (review of #150). A commit's files never
- * change; only the last few commits are kept.
+ * change; only the last few commits are kept. Sixteen commits whatever their
+ * size, so a commit of a hundred thousand files keeps its list until fifteen
+ * others have been opened after it.
+ *
+ * Kept by a full object id only. Four to 63 hex characters can name a branch
+ * as well, `beef` or `2024`, which git reads as the branch, and a branch moves
+ * (review of #238, round 1).
  */
 type Opened = { readonly base: string; readonly entries: ReturnType<typeof listed> }
 const opened = new Map<string, Opened>()
+const FULL_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
 const remember = (root: string, sha: string, value: Opened): void => {
+  if (!FULL_ID.test(sha)) return
   const key = `${root}\0${sha}`
   opened.delete(key)
   opened.set(key, value)
@@ -306,6 +335,12 @@ const remember = (root: string, sha: string, value: Opened): void => {
     if (opened.size <= 16) break
     opened.delete(oldest)
   }
+}
+
+/** Forgets what was kept, for a test that needs a cold read (review of #238, round 1). */
+export const forgetKnown = (): void => {
+  formats.clear()
+  opened.clear()
 }
 
 /**

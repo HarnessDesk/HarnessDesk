@@ -634,3 +634,26 @@ test('a cursor tail that cannot be read, past the start of the file, reads the c
   assert.equal(resumed.rows.length, 1, 'only the appended event')
   assert.equal((resumed.rows[0] as { model: string }).model, 'gpt-5.5')
 })
+
+test('a dated id carries a date that exists, in either spelling (review of #238, round 1)', async () => {
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-opus-5-20260231': { id: 'claude-opus-5-20260231', cost: { input: 9, output: 9 } },
+          'claude-opus-4-20250229': { id: 'claude-opus-4-20250229', cost: { input: 9, output: 9 } },
+          'claude-sonnet-5-2024-11-20': { id: 'claude-sonnet-5-2024-11-20', cost: { input: 3, output: 3 } },
+          'claude-haiku-5-20240229': { id: 'claude-haiku-5-20240229', cost: { input: 1, output: 1 } },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-opus-5'), null, 'the thirty-first of February is no date')
+  assert.equal(pricing.rateFor('claude-opus-4'), null, 'nor the twenty-ninth, in a year that has none')
+  assert.equal(pricing.rateFor('claude-sonnet-5')?.input, 3 / 1_000_000, 'the hyphenated spelling is a date')
+  assert.equal(pricing.rateFor('claude-haiku-5')?.input, 1 / 1_000_000, 'the control: a leap day is one')
+})
