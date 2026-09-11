@@ -258,6 +258,34 @@ const classesOf = (cssPath) => {
 }
 
 /**
+ * The stylesheets one file draws from, by the binding each is imported as, and
+ * the imports that reach into another screen.
+ *
+ * A file may draw from its own stylesheet, or from the one named after the
+ * folder it lives in. The second case is a screen that outgrew one file —
+ * `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
+ * `explorer.module.css`, which is the right arrangement, not drift. The rule
+ * being enforced is that a screen may not reach into a DIFFERENT screen.
+ *
+ * It takes the UI's source root rather than reading the checkout's, so a test
+ * can drive it over a tree holding the import shapes this one does not: a
+ * `../` import, and one behind the `@/` alias (#185).
+ */
+export const sheetsOf = (dir, file, name, source, uiSrc) => {
+  const sheets = new Map()
+  const crossImports = []
+  // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
+  for (const { binding, file: spec } of stylesheetImports(source)) {
+    const sheet = resolveStylesheet(dir, spec, uiSrc)
+    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
+    if (!ownsStylesheet(file, sheet)) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
+    const target = path.join(dir, sheet)
+    if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
+  }
+  return { sheets, crossImports }
+}
+
+/**
  * WCAG 2.2 SC 2.5.8 asks 24×24 CSS pixels of a control.
  *
  * There is an exception for an undersized target with clearance — a 24px
@@ -269,6 +297,52 @@ const classesOf = (cssPath) => {
  */
 const TARGET_FLOOR = 24
 
+/**
+ * The pieces of a selector list, or of one selector, split on `separators` at
+ * the top level only: a comma inside `:not(…)` or a space inside `[data-x=" "]`
+ * separates nothing.
+ */
+const outside = (text, separators) => {
+  const parts = []
+  let depth = 0
+  let at = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (character === '(' || character === '[') depth += 1
+    else if (character === ')' || character === ']') depth -= 1
+    else if (depth === 0 && separators.includes(character)) {
+      parts.push(text.slice(at, index))
+      at = index + 1
+    }
+  }
+  parts.push(text.slice(at))
+  return parts.map((part) => part.trim()).filter((part) => part !== '')
+}
+
+/**
+ * The class one selector is about: the last class of its *subject*, the
+ * compound at the end.
+ *
+ * `.tray .tabClose` is a rule about `tabClose`; taking the first class filed
+ * it under `tray`, so the button carrying `styles.tabClose` found nothing and
+ * an undersized target went uncounted. And when that last compound carries no
+ * class — `.onTask svg`, `.grid [data-mark]` — the rule is about something
+ * inside the class, not about it: 13px of icon inside a button was counted as
+ * a 13px button (#185).
+ */
+const subjectClass = (selector) => {
+  let subject = outside(selector, ' \t\n>+~').pop() ?? ''
+  // What a `:not(…)` or `:has(…)` holds is about other elements, not this one:
+  // `.mark:not(.a .b)` is a rule about `mark`. Innermost first, for nesting.
+  let shorter = subject.replace(/\([^()]*\)/g, '')
+  while (shorter !== subject) {
+    subject = shorter
+    shorter = subject.replace(/\([^()]*\)/g, '')
+  }
+  const classes = [...subject.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)]
+  return classes.length > 0 ? classes[classes.length - 1][1] : null
+}
+
 /** `class` → the px of a rule that declares an equal literal width and height. */
 export const squaresOf = (cssPath) => {
   const out = new Map()
@@ -276,13 +350,11 @@ export const squaresOf = (cssPath) => {
     const width = /(?:^|;|\s)width:\s*(\d+)px/.exec(rule[2])
     const height = /(?:^|;|\s)height:\s*(\d+)px/.exec(rule[2])
     if (!width || !height || width[1] !== height[1]) continue
-    // The selector's *subject*, which is its last class: `.tray .tabClose`
-    // is a rule about `tabClose`. Taking the first match filed it under
-    // `tray`, so the button carrying `styles.tabClose` found nothing and an
-    // undersized target went uncounted.
-    const classes = [...rule[1].trim().split('\n').pop().matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)]
-    const name = classes[classes.length - 1]
-    if (name) out.set(name[1], Number(height[1]))
+    // Every selector in the list, since `.a, .b` is one rule about two things.
+    for (const selector of outside(rule[1], ',')) {
+      const name = subjectClass(selector)
+      if (name) out.set(name, Number(height[1]))
+    }
   }
   return out
 }
@@ -344,20 +416,8 @@ for (const file of tsxFiles()) {
   for (const hit of slotOffenders(code, name)) findings.wrongVariant.push(hit)
 
   /** Local binding → the classes that stylesheet declares. */
-  const sheets = new Map()
-  // A file may draw from its own stylesheet, or from the one named after the
-  // folder it lives in. The second case is a screen that outgrew one file —
-  // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
-  // `explorer.module.css`, which is the right arrangement, not drift. The rule
-  // being enforced is that a screen may not reach into a DIFFERENT screen.
-  // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
-  for (const { binding, file: spec } of stylesheetImports(source)) {
-    const sheet = resolveStylesheet(dir, spec, UI_SRC)
-    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
-    if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
-    const target = path.join(dir, sheet)
-    if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
-  }
+  const { sheets, crossImports } = sheetsOf(dir, file, name, source, UI_SRC)
+  findings.crossImport.push(...crossImports)
 
   // A glyph control drawn smaller than a finger.
   //

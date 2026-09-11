@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { withoutComments } from './check-layering.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { squaresOf } from './design-audit.mjs'
+import { sheetsOf, squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands } from './check-verify-drift.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
@@ -551,4 +551,56 @@ test('the step that reads what the build writes says that it needs it (#208)', (
   assert.notEqual(at, -1, 'verify.mjs still has a node tests step')
   const declared = verify.slice(at, verify.indexOf('\n)', at))
   assert.match(declared, /\{ needs: 'build' \}/, 'the node tests would otherwise run over the dist a failed build left')
+})
+
+test('a rule about what is inside a control is not a rule about the control (#185)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-subject-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'x.module.css')
+  fs.writeFileSync(
+    file,
+    [
+      '.onTask svg { width: 13px; height: 13px; }',
+      '.card > .dot, .list .dot { width: 8px; height: 8px; }',
+      '.pill:hover { width: 24px; height: 24px; }',
+      '.grid [data-mark] { width: 9px; height: 9px; }',
+      '.mark:not(.a .b) { width: 10px; height: 10px; }',
+    ].join('\n'),
+  )
+  const found = squaresOf(file)
+  assert.equal(found.has('onTask'), false, 'the 13px is the icon inside the button')
+  assert.equal(found.get('dot'), 8, 'both selectors of the list are about the dot')
+  assert.equal(found.has('card'), false)
+  assert.equal(found.has('list'), false)
+  assert.equal(found.get('pill'), 24, 'a pseudo-class is part of the subject')
+  assert.equal(found.has('grid'), false, 'an attribute subject is about no class')
+  assert.equal(found.get('mark'), 10, 'a space inside :not() separates nothing')
+})
+
+test('the audit reads a stylesheet imported from another folder, and one behind the alias (#185)', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-sheets-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const write = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
+    fs.writeFileSync(path.join(root, rel), text)
+  }
+  write('design/ui/kit.module.css', '.pill { width: 20px; height: 20px; }\n')
+  write('screens/one/one.module.css', '.own { color: red; }\n')
+  const source = [
+    "import own from './one.module.css'",
+    "import kit from '../../design/ui/kit.module.css'",
+    "import aliased from '@/design/ui/kit.module.css'",
+  ].join('\n')
+  const dir = path.join(root, 'screens/one')
+  const { sheets, crossImports } = sheetsOf(dir, path.join(dir, 'One.tsx'), 'screens/one/One.tsx', source, root)
+  assert.deepEqual([...sheets.keys()], ['own', 'kit', 'aliased'])
+  // Both spellings land on the same file on disk, which is what the audit reads classes from.
+  assert.deepEqual([...sheets.get('kit').classes], ['pill'])
+  assert.deepEqual([...sheets.get('aliased').classes], ['pill'])
+  assert.equal(sheets.get('own').file, 'one.module.css')
+  // And both are another screen's, the alias resolved beside what was written.
+  assert.deepEqual(crossImports, [
+    'screens/one/One.tsx imports ../../design/ui/kit.module.css',
+    'screens/one/One.tsx imports @/design/ui/kit.module.css (../../design/ui/kit.module.css)',
+  ])
 })

@@ -244,8 +244,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  /* 24px, the target SC 2.5.8 asks: these sit side by side in the strip, so
+     the clearance exception is not open to them (#181). The playground's copy
+     and the panel's own change together. */
+  width: 24px; /* desk: 22 → 24 */
+  height: 24px; /* desk: 22 → 24 */
   padding: 0;
   border: 0;
   border-radius: var(--hd-radius-sm);
