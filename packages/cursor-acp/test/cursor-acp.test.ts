@@ -629,6 +629,12 @@ test('a preview an older bridge stored as the envelope’s first line reads as i
   assert.equal(previewFor('<context source="Handed off from Claude Code — \\"x\\"">', 'Fix the bug'), 'Handed off from Claude Code — "x"')
   assert.equal(previewFor('<context>', 'Fix the bug'), 'Fix the bug', 'an envelope with no label is no name')
   assert.equal(previewFor('<context source="Handed off', 'Fix the bug'), 'Fix the bug', 'nor is a label cut short')
+  // #188: the envelope opens `<context` and a space or `>`, so words that only start with it are the user's own.
+  assert.equal(previewFor('<context-free grammars, explained', 'Fix the bug'), '<context-free grammars, explained')
+  assert.equal(titleOf('<context-free> grammar </context> is what I mean'), '<context-free> grammar </context> is what I mean')
+  // Nor is a space after it: the envelope is `<context source="…">` or `<context>` (review of #207, round 1).
+  assert.equal(previewFor('<context switching in Go', 'Fix the bug'), '<context switching in Go')
+  assert.equal(titleOf('<context switching in Go'), '<context switching in Go')
 })
 
 test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {
@@ -688,6 +694,40 @@ test('a conversation is named through a turn: by its block\'s label, or by the n
     assert.equal(named(ids[1]), 'Fix the bug', 'and the unlabelled one by its next turn')
   } finally {
     await later.dispose()
+  }
+})
+
+test('the list reads a stored name as a turn does: an old envelope by its label, one cut short as none, and <context- as the words it is (#188)', async () => {
+  const dir = tempDir('cursor-acp-legacy-')
+  const at = new Date().toISOString()
+  // Rows as an index written before #47's fix left them, and a prompt that only starts with the word.
+  writeFileSync(
+    join(dir, 'sessions.json'),
+    JSON.stringify({
+      sessions: [
+        { sessionId: 'legacy-whole', cwd: WORKDIR, preview: '<context source="Handed off from Claude Code">', updatedAt: at },
+        { sessionId: 'legacy-cut', cwd: WORKDIR, preview: '<context source="Handed off from Claude Code — the packet for the wid', updatedAt: at },
+        { sessionId: 'grammar', cwd: WORKDIR, preview: '<context-free grammars, explained', updatedAt: at },
+      ],
+    }),
+  )
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir },
+  })
+  await runtime.start()
+  try {
+    const listed = await runtime.listSessions({ cwd: WORKDIR })
+    const row = (id: string) => listed.data.find((one) => String(one.id) === id)
+    assert.ok(row('legacy-cut'), 'the row cut short is listed')
+    assert.equal(row('legacy-whole')?.preview, 'Handed off from Claude Code')
+    assert.equal(row('legacy-cut')?.preview ?? null, null, 'a label cut short is no name')
+    assert.equal(row('grammar')?.preview, '<context-free grammars, explained')
+  } finally {
+    await runtime.dispose()
   }
 })
 
@@ -879,6 +919,26 @@ test('a chat that opened with only a context block is named by its label, in Cur
     ],
   })
   assert.equal(readChatPreview('unlabelled', cwd, home), 'Fix the bug')
+})
+
+test('a label written escaped is read whole in Cursor’s transcript, and a name is one width wherever it came from (#188)', () => {
+  const home = tempDir('cursor-store-')
+  const cwd = '/tmp/escaped-workspace'
+  // wrapContext writes the label with JSON.stringify: a quote, a backslash and a line break arrive escaped.
+  writeChat(home, cwd, 'escaped', {
+    messages: [{ role: 'user', text: `<user_query>\n${wrapContext('Handed off from "Claude" \\ Code\nsecond line', 'goal')}\n</user_query>` }],
+  })
+  assert.equal(readChatPreview('escaped', cwd, home), 'Handed off from "Claude" \\ Code')
+
+  // A label was cut at 80 and the user's words at 120; the words through Cursor's transcript are the control.
+  const words = 'w'.repeat(150)
+  const label = 'l'.repeat(150)
+  writeChat(home, cwd, 'words', { messages: [{ role: 'user', text: `<user_query>\n${words}\n</user_query>` }] })
+  writeChat(home, cwd, 'label', { messages: [{ role: 'user', text: `<user_query>\n${wrapContext(label, 'goal')}\n</user_query>` }] })
+  assert.equal(readChatPreview('words', cwd, home)?.length, 120)
+  assert.equal(readChatPreview('label', cwd, home)?.length, 120)
+  assert.equal(titleOf(words).length, 120)
+  assert.equal(titleOf(wrapContext(label, 'goal')).length, 120)
 })
 
 /**

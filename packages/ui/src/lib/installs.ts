@@ -53,12 +53,16 @@ export const copyReason = (copy: InstallCopy, info: InstallInfo): string | null 
     }
     case 'unreadable':
       return 'Did not answer for its version, so it is never run.'
-    case 'older':
-      return info.policy === 'pinned'
-        ? 'Would run under the newest-wins rule; a pin overrides it.'
-        : copy.updateCommand
-          ? `Outranked by a newer copy. Update it with \`${copy.updateCommand}\`, or remove it.`
-          : 'Outranked by a newer copy.'
+    case 'older': {
+      /* Under a pin, only the copy newest-wins would run is overridden by it:
+         any other is outranked by a newer copy, pin or no pin (#106). The
+         copies come newest first, in the order the host sorted them. */
+      const newest = info.copies.find((one) => one.standing === 'older' || one.standing === 'chosen' || one.standing === 'pinned')
+      if (info.policy === 'pinned' && newest?.path === copy.path) return 'Would run under the newest-wins rule; a pin overrides it.'
+      return copy.updateCommand
+        ? `Outranked by a newer copy. Update it with \`${copy.updateCommand}\`, or remove it.`
+        : 'Outranked by a newer copy.'
+    }
     case 'chosen':
     case 'pinned':
       return copy.path

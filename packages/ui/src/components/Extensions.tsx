@@ -75,16 +75,20 @@ export const ExtensionsSection = () => {
         blurb={`What ${runtime.presentation.name} can connect to: its plugins, apps and MCP servers.`}
       />
 
+      {/* A row per marketplace that failed, each with its own words. One row
+          counted them all and showed the first message, so with three
+          failures two reasons were never seen (#105). */}
       {(catalog?.loadErrors.length ?? 0) > 0 && (
         <Rows>
-          <Row
-            mark={<AlertIcon size={15} />}
-            title={`${catalog!.loadErrors.length} marketplace${
-              catalog!.loadErrors.length === 1 ? '' : 's'
-            } failed to load`}
-            desc={catalog!.loadErrors[0]?.message}
-            control={<Chip state="broken" label="Failed" />}
-          />
+          {catalog!.loadErrors.map((error) => (
+            <Row
+              key={`${error.source}\n${error.message}`}
+              mark={<AlertIcon size={15} />}
+              title={`${error.source} failed to load`}
+              desc={error.message}
+              control={<Chip state="broken" label="Failed" />}
+            />
+          ))}
         </Rows>
       )}
 
