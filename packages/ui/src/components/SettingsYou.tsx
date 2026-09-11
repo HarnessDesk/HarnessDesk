@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordOf, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
@@ -73,6 +73,9 @@ export const ProfileSection = () => {
   const kept = useRef(stored)
   kept.current = stored
   const commit = (): void => {
+    // Let go without an edit, the field writes nothing: a name a later build
+    // wrote to its own rules survives being looked at.
+    if (latest.current === kept.current) return
     store.setProfile({ name: latest.current })
     setDraft(applyProfile({}, { name: latest.current }).name ?? '')
   }
@@ -106,8 +109,11 @@ export const ProfileSection = () => {
     }
   }, [store])
 
-  // The head previews what is typed, before it is let go.
-  const live = applyProfile(profile, { name: draft })
+  // The head previews what is typed, before it is let go — and while nothing
+  // is, shows what is kept, as it is kept.
+  const live = draft === stored ? profile : applyProfile(profile, { name: draft })
+  const noteId = useId()
+  const keeps = profile.avatar !== undefined && !isAvatarId(profile.avatar)
 
   return (
     <>
@@ -137,8 +143,14 @@ export const ProfileSection = () => {
               /* Capped by character, the count the store keeps. `maxLength`
                  counts UTF-16 units, and stopped an emoji name at twenty. */
               onChange={(event) => {
-                const next = event.target.value
-                setDraft((was) => cappedName(was, next))
+                const node = event.target
+                const edit = editName(latest.current, node.value, node.selectionEnd)
+                latest.current = edit.value
+                setDraft(edit.value)
+                // Setting a value puts the caret at its end, and React sets
+                // one whenever the edit was cut: put the caret back after
+                // what was kept of the edit, once React is done.
+                if (edit.value !== node.value) queueMicrotask(() => node.setSelectionRange(edit.caret, edit.caret))
               }}
               onBlur={commit}
               onKeyDown={(event) => {
@@ -157,9 +169,13 @@ export const ProfileSection = () => {
       </Rows>
 
       <SectionHead name="Picture" />
-      <FacePicker value={profile.avatar} onChange={(avatar) => store.setProfile({ avatar })} />
-      {profile.avatar !== undefined && !isAvatarId(profile.avatar) && (
-        <p className={styles.pageNote}>
+      <FacePicker
+        value={profile.avatar}
+        describedBy={keeps ? noteId : undefined}
+        onChange={(avatar) => store.setProfile({ avatar })}
+      />
+      {keeps && (
+        <p id={noteId} className={styles.pageNote}>
           Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
           as it is until you choose one here.
         </p>
@@ -169,15 +185,34 @@ export const ProfileSection = () => {
 }
 
 /**
- * The field's text after an edit, held to the cap by character. A full field
- * refuses an insert rather than dropping its own last character, which is
- * what cutting the end off did; an edit that crosses the cap — a paste into a
- * shorter name — keeps what fits.
+ * What an edit leaves in the name field, held to the cap by character.
+ *
+ * The part of the old name the edit did not touch is kept whole, and only what
+ * the edit put in is cut to fit — what a field's own length limit does, counted
+ * in characters as a person sees them rather than in UTF-16 units. So typing
+ * into a full field changes nothing, a paste over a selection keeps as much of
+ * the paste as fits, a paste at the front never pushes the end of the name
+ * out, and an edit that only takes characters away always goes through, even
+ * on a name a later build let run longer. Where the edit ended is the caret:
+ * comparing the two strings alone cannot tell which of two identical
+ * characters was the one typed. `caret` is where to put it back, in the
+ * field's own units, when the text was cut.
  */
-const cappedName = (was: string, next: string): string => {
-  const typed = characters(next)
-  if (typed.length <= PROFILE_NAME_MAX) return next
-  return characters(was).length >= PROFILE_NAME_MAX ? was : typed.slice(0, PROFILE_NAME_MAX).join('')
+const editName = (was: string, next: string, caret: number | null): { value: string; caret: number } => {
+  const after = characters(next)
+  if (after.length <= PROFILE_NAME_MAX) return { value: next, caret: caret ?? next.length }
+  const before = characters(was)
+  const end = characters(next.slice(0, caret ?? next.length)).length
+  // After the caret is the old name's end; before the edit, its start.
+  let tail = 0
+  const tailMost = Math.min(before.length, after.length - end)
+  while (tail < tailMost && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1
+  let head = 0
+  const headMost = Math.min(before.length - tail, end)
+  while (head < headMost && before[head] === after[head]) head += 1
+  const room = Math.max(0, PROFILE_NAME_MAX - head - tail)
+  const kept = [...after.slice(0, head), ...after.slice(head, after.length - tail).slice(0, room)]
+  return { value: [...kept, ...after.slice(after.length - tail)].join(''), caret: kept.join('').length }
 }
 
 /** Eight to a row: Default and the twenty-three faces make three even rows. */
@@ -195,21 +230,28 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  * and the arrow keys walk the grid — across, and down a row of eight — the
  * way a radio group has always moved, choosing as they go. Home and End are
  * left out on purpose: in a group that chooses as it moves, a stray Home
- * would be a silent reset. A face's name is its label and its description the
+ * would be a silent reset. For the same reason an arrow with nowhere to go
+ * does nothing, at every edge — on the first tile, holding a face this build
+ * keeps with nothing checked, a Left that chose would be that same silent
+ * reset. A face's name is its label and its description the
  * hover, because twenty-four captions under twenty-four pictures would turn a
  * glance into a read.
  *
  * A face this build cannot draw — one a later build stored — checks no tile at
  * all. Default is not what you have, and checking it would make pressing it
  * look like nothing while erasing what is kept; with nothing checked, the
- * first tile holds the tab stop, and whatever you choose is a visible choice.
+ * first tile holds the tab stop, whatever you choose is a visible choice, and
+ * the note that says why is the group's description.
  */
 const FacePicker = ({
   value,
+  describedBy,
   onChange,
 }: {
   /** Whatever the profile stores; anything but a shipped id or nothing checks no tile. */
   value: unknown
+  /** The note that explains the group, while there is one. */
+  describedBy?: string | undefined
   onChange: (next: AvatarId | null) => void
 }) => {
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
@@ -219,9 +261,9 @@ const FacePicker = ({
   const step = (from: number, key: string): number | null => {
     switch (key) {
       case 'ArrowRight':
-        return Math.min(last, from + 1)
+        return from + 1 <= last ? from + 1 : null
       case 'ArrowLeft':
-        return Math.max(0, from - 1)
+        return from - 1 >= 0 ? from - 1 : null
       case 'ArrowDown':
         return from + FACE_COLUMNS <= last ? from + FACE_COLUMNS : null
       case 'ArrowUp':
@@ -232,7 +274,12 @@ const FacePicker = ({
   }
 
   return (
-    <div className={styles.faces} role="radiogroup" aria-label="Picture">
+    <div
+      className={styles.faces}
+      role="radiogroup"
+      aria-label="Picture"
+      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
+    >
       {FACE_CHOICES.map((choice, index) => {
         const on = index === current
         return (

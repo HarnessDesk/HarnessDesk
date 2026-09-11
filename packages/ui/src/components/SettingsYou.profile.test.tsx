@@ -68,13 +68,19 @@ const field = (): HTMLInputElement => {
   return found
 }
 
-/** Types into the field the way a person does: focused, one value at a time. */
-const type = (value: string): void => {
+/**
+ * Types into the field the way a person does: focused, one value at a time,
+ * and the caret where the edit left it — the end, unless said. A browser puts
+ * it after what went in; setting a value in jsdom puts it at the end, which
+ * for an edit in the middle would be a caret no browser reports.
+ */
+const type = (value: string, caret = value.length): void => {
   const input = field()
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
   act(() => {
     input.focus()
     setValue?.call(input, value)
+    input.setSelectionRange(caret, caret)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
@@ -246,12 +252,17 @@ it('checks no face when it holds one it cannot draw, says so, and keeps it until
       'Default',
     ])
     expect(container.textContent).toContain('cannot draw')
+    // The note is the group's description, so a screen reader landing on an
+    // unchecked group hears why.
+    const group = container.querySelector('[role="radiogroup"]')
+    expect(document.getElementById(group?.getAttribute('aria-describedby') ?? '')?.textContent).toContain('cannot draw')
     expect(button('Reset to default')).not.toBeNull()
     const wizard = tiles().find((tile) => tile.getAttribute('aria-label') === 'Wizard')
     if (!wizard) throw new Error('no Wizard')
     click(wizard)
     expect(profile()).toEqual({ name: 'Jane', avatar: 'wizard' })
     expect(container.textContent).not.toContain('cannot draw')
+    expect(container.querySelector('[role="radiogroup"]')?.hasAttribute('aria-describedby')).toBe(false)
     act(() => root.unmount())
     root = createRoot(container)
   }
@@ -262,7 +273,8 @@ it('refuses an insert into a full field rather than dropping its last character'
   const full = '🐳'.repeat(40)
   type(full)
   const whales = Array.from(full)
-  type([...whales.slice(0, 20), 'X', ...whales.slice(20)].join(''))
+  // X typed after the twentieth whale: the caret sits just after it.
+  type([...whales.slice(0, 20), 'X', ...whales.slice(20)].join(''), whales.slice(0, 20).join('').length + 1)
   expect(field().value).toBe(full)
   act(() => field().blur())
   expect(profile()).toEqual({ name: full })
@@ -273,4 +285,64 @@ it('counts a flag in the field as one character, as the store does', () => {
   type('🇺🇸'.repeat(45))
   act(() => field().blur())
   expect(profile()).toEqual({ name: '🇺🇸'.repeat(40) })
+})
+
+it('chooses nothing with an arrow that has nowhere to go', () => {
+  // Holding a face this build cannot draw, the tab stop is the first tile and
+  // nothing is checked: a Left there that chose would reset the kept face with
+  // a key that moved nowhere.
+  const { setProfile, profile } = mount({ avatar: 'pirate' })
+  const first = tiles()[0]
+  if (!first) throw new Error('no first face')
+  press(first, 'ArrowLeft')
+  press(first, 'ArrowUp')
+  expect(setProfile).not.toHaveBeenCalled()
+  expect(profile()).toEqual({ avatar: 'pirate' })
+  // The control: a key with somewhere to go still chooses as it moves.
+  press(first, 'ArrowRight')
+  expect(profile()).toEqual({ avatar: 'blue' })
+})
+
+it('chooses nothing with Right or Down on the last face', () => {
+  const { setProfile } = mount({ avatar: 'beach' })
+  press(worn(), 'ArrowRight')
+  press(worn(), 'ArrowDown')
+  expect(setProfile).not.toHaveBeenCalled()
+})
+
+it('keeps as much of a paste over the whole name as fits, rather than putting the old name back', () => {
+  const { profile } = mount({ name: 'x'.repeat(40) })
+  // Select all, paste: one input event carrying a value past the cap.
+  type('y'.repeat(45))
+  expect(field().value).toBe('y'.repeat(40))
+  act(() => field().blur())
+  expect(profile()).toEqual({ name: 'y'.repeat(40) })
+})
+
+it('keeps the end of the name when a paste lands at its front, and the caret after what went in', async () => {
+  const name = 'Jane Doe'.padEnd(39, '.')
+  mount({ name })
+  // Three characters pasted before a thirty-nine-character name: room for one.
+  type(`XYZ${name}`, 3)
+  expect(field().value).toBe(`X${name}`)
+  // Setting a value puts the caret at its end; the field puts it back.
+  await act(async () => {})
+  expect(field().selectionStart).toBe(1)
+})
+
+it('leaves a name it was given as it is, unless you edit it', () => {
+  // A later build may allow more than forty. Looking at the field is not an edit.
+  const long = 'x'.repeat(60)
+  const { setProfile, profile } = mount({ name: long })
+  expect(field().value).toBe(long)
+  expect(heading()).toBe(long)
+  act(() => field().focus())
+  act(() => field().blur())
+  expect(setProfile).not.toHaveBeenCalled()
+  // Taking a character away is an edit, and always goes through; what is kept
+  // is held to this build's cap.
+  type('x'.repeat(59))
+  expect(field().value).toBe('x'.repeat(59))
+  act(() => field().blur())
+  expect(profile()).toEqual({ name: 'x'.repeat(40) })
 })

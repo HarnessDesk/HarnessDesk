@@ -71,7 +71,7 @@ describe('a change', () => {
 
 describe('what was stored', () => {
   it('reads anything unreadable as the default', () => {
-    for (const raw of [undefined, null, 'Jane', 3, [], {}, { name: 7 }, { avatar: '' }, { avatar: null }]) {
+    for (const raw of [undefined, null, 'Jane', 3, [], {}, { name: 7 }, { name: '' }, { name: ' \n ' }, { avatar: '' }, { avatar: null }]) {
       expect(readProfile(raw)).toEqual({})
     }
   })
@@ -91,6 +91,19 @@ describe('what was stored', () => {
     expect(storedProfile(applyProfile(later, { name: 'JD' }))).toEqual({ ...stored, name: 'JD' })
     // Choosing a face here replaces theirs — a choice, not a loss.
     expect(storedProfile(applyProfile(later, { avatar: 'dj' }))).toEqual({ ...stored, avatar: 'dj' })
+  })
+
+  it('keeps a name as a later build wrote it — only an edit made here is held to this build’s rules', () => {
+    // Its cap, its spacing, even the default's own spelling are that build's
+    // business. Cutting, folding or dropping them on the read would lose them
+    // on the next write of anything else, because the write is whole.
+    const long = 'x'.repeat(PROFILE_NAME_MAX + 20)
+    for (const name of [long, 'Jane  Doe', DEFAULT_PROFILE_NAME]) {
+      const read = readProfile({ name, avatar: 'wizard' })
+      expect(read).toEqual({ name, avatar: 'wizard' })
+      expect(storedProfile(applyProfile(read, { avatar: 'dj' }))).toEqual({ name, avatar: 'dj' })
+    }
+    expect(applyProfile(readProfile({ name: long }), { name: long })).toEqual({ name: 'x'.repeat(PROFILE_NAME_MAX) })
   })
 
   it('reads a real one back as it was written', () => {

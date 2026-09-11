@@ -1315,14 +1315,8 @@
   font-weight: 500;
 }
 
-/* "Local" is a chip because it is one word, and one word does not need a
-   sentence under it. The line here used to read "Local only — nothing syncs
-   between machines", set nowrap in a fixed-width menu, so it arrived as
-   "nothing syncs betwe…" — paying a full row of height to say half a thing.
-   The chip says it at a glance and cannot be cut; the whole sentence is on
-   the row's title, and in full on Settings › Account. Same metrics as the
-   tag beside an agent's name in Settings, because it is the same idea. */
-/* A chosen name can be longer than the menu is wide: cut, never wrapped. */
+/* A chosen name can be longer than the menu is wide: cut, never wrapped, and
+   whole on its own title. */
 .youLabel {
   min-width: 0;
   overflow: hidden;
@@ -1330,6 +1324,13 @@
   white-space: nowrap;
 }
 
+/* "Local" is a chip because it is one word, and one word does not need a
+   sentence under it. The line here used to read "Local only — nothing syncs
+   between machines", set nowrap in a fixed-width menu, so it arrived as
+   "nothing syncs betwe…" — paying a full row of height to say half a thing.
+   The chip says it at a glance and cannot be cut; the sentence is on the
+   row's title. Same metrics as the tag beside an agent's name in Settings,
+   because it is the same idea. */
 .youTag {
   flex: none;
   display: inline-flex;

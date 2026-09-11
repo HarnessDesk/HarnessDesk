@@ -275,3 +275,12 @@ it('opens your profile from the top of the menu', () => {
   expect(onOpenSettings).toHaveBeenCalledWith('profile')
   expect(container.querySelector('[role="menu"]')).toBeNull()
 })
+
+it('carries your whole name where the row cuts it', () => {
+  // Forty characters is wider than the seat: the label ellipsises, and says it all on hover.
+  const name = 'Jane Doe, Keeper of Several Long Names'
+  mount({ profile: { name } })
+  expect(row().querySelector('[class*="accountLabel"]')?.getAttribute('title')).toBe(name)
+  click(row())
+  expect(container.querySelector('[role="menu"] [class*="youLabel"]')?.getAttribute('title')).toBe(name)
+})

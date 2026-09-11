@@ -233,8 +233,9 @@ house mark's family, twenty-three whales from `assets/avatars`; the one drawn
 in black is left out because a dark surface swallows it, and the default is
 the mark itself, drawn in the theme's own ink. A face is a squared tile
 everywhere you appear, so its footprint never changes when the face does.
-Clearing the name, picking the first face, or **Reset to default** each put
-the desk back. It stays on this Mac. What an avatar stores is its id — a short
+Clearing the name puts "HarnessDesk" back, picking the first face puts the
+mark back, and **Reset to default** puts back both. It stays on this Mac.
+What an avatar stores is its id — a short
 string every copy of the app draws the same — which is what an account will
 sync. The same face marks your own messages in a room, where the header still
 says "You".

@@ -17,23 +17,27 @@ import type { AvatarId } from './avatars'
  * and ring (`lib/accounts.ts`).
  *
  * Only what differs from the default is stored. `{}` is the default desk —
- * "HarnessDesk" and the house mark — and a name equal to the default is
- * dropped on the way in, so "Reset" is offered exactly when there is
- * something to reset.
+ * "HarnessDesk" and the house mark — and a name typed equal to the default,
+ * or typed empty, is dropped on the way in, so "Reset" is offered exactly
+ * when there is something to reset.
  *
  * What a later build stores, this one keeps: every field it does not know,
- * and whatever `avatar` holds. The profile is written whole (`setProfile`), so
- * a read that dropped them — a face added after this build, a picture of your
- * own, a field an account brings — would lose them for good on the next edit
- * of the name, and a profile synced between copies of different ages would
- * lose them on a loop. So the read keeps them, the write puts them back, and
- * only drawing falls back: `Face` draws the house mark for a face this build
- * does not ship. The one field the read does not carry is a `name` that is not
- * a string — the name stays a string, and an account is expected to supply a
- * string there too.
+ * whatever `avatar` holds, and the name exactly as it was written. The profile
+ * is written whole (`setProfile`), so a read that dropped any of them — a face
+ * added after this build, a picture of your own, a field an account brings —
+ * or held the name to this build's rules — a longer cap, its own spacing —
+ * would lose them for good on the next write of anything, and a profile
+ * synced between copies of different ages would lose them on a loop. So the
+ * read keeps them, the write puts them back, and only two things fall back:
+ * drawing, where `Face` draws the house mark for a face this build does not
+ * ship, and an edit made here, which `applyProfile` holds to this build's
+ * rules — the name it is given is tidied, never the one it keeps. What the read
+ * does not carry is a name that says nothing — blank, every build's spelling
+ * of the default — and a `name` that is not a string: the name stays a
+ * string, and an account is expected to supply a string there too.
  */
 export interface Profile {
-  /** What you are called. Absent means the default. */
+  /** What you are called, as stored: tidied when typed here, as written when not. Absent means the default. */
   readonly name?: string
   /**
    * Which face, as stored: one of the ids this build ships, or whatever a
@@ -64,7 +68,9 @@ export const DEFAULT_PROFILE_NAME = 'HarnessDesk'
  * Long enough for a full name, short enough that the seat's row cuts it with
  * an ellipsis rather than the name crowding out the agent badge beside it.
  * Counted in characters as a person sees them — a flag or a family emoji is
- * one, and none is cut in half — here, and by the field that types it.
+ * one, and none is cut in half — here, and by the field that types it. It
+ * holds what is typed here: a name a later build let run longer is kept as it
+ * is until it is edited.
  */
 export const PROFILE_NAME_MAX = 40
 
@@ -84,25 +90,36 @@ const tidyName = (name: string): string =>
     .join('')
     .trim()
 
-const clean = (later: Readonly<Record<string, unknown>> | undefined, name: unknown, avatar: unknown): Profile => {
-  const tidy = typeof name === 'string' ? tidyName(name) : ''
-  return {
-    ...(tidy !== '' && tidy !== DEFAULT_PROFILE_NAME ? { name: tidy } : {}),
-    ...(avatar !== undefined && avatar !== null && avatar !== '' ? { avatar } : {}),
-    ...(later && Object.keys(later).length > 0 ? { later } : {}),
-  }
+/**
+ * A name as typed here, as this build keeps it: tidied, and nothing at all
+ * when that leaves it empty or the default.
+ */
+const typedName = (name: string | null): string | undefined => {
+  const tidy = name === null ? '' : tidyName(name)
+  return tidy === '' || tidy === DEFAULT_PROFILE_NAME ? undefined : tidy
 }
+
+const settle = (
+  later: Readonly<Record<string, unknown>> | undefined,
+  name: string | undefined,
+  avatar: unknown,
+): Profile => ({
+  ...(name !== undefined ? { name } : {}),
+  ...(avatar !== undefined && avatar !== null && avatar !== '' ? { avatar } : {}),
+  ...(later && Object.keys(later).length > 0 ? { later } : {}),
+})
 
 /**
  * The profile with `patch` applied. A field the patch does not mention is
- * kept — including any this build does not know; an empty name is the way
- * back to the default, because clearing the field is what a person does to
- * mean it.
+ * kept exactly — including any this build does not know, and a name no edit
+ * here has touched; the name a patch brings is tidied. An empty name is the
+ * way back to the default, because clearing the field is what a person does
+ * to mean it.
  */
 export const applyProfile = (profile: Profile, patch: ProfilePatch): Profile =>
-  clean(
+  settle(
     profile.later,
-    patch.name === undefined ? profile.name : patch.name,
+    patch.name === undefined ? profile.name : typedName(patch.name),
     patch.avatar === undefined ? profile.avatar : patch.avatar,
   )
 
@@ -110,13 +127,14 @@ export const applyProfile = (profile: Profile, patch: ProfilePatch): Profile =>
  * A stored profile, read defensively and forward. The preferences file is the
  * user's: a hand edit this build cannot read must not take the seat down, so
  * an unreadable name is simply the default — and what a later build stored is
- * kept, so the next whole write carries it back.
+ * kept as it was, the name untidied, so the next whole write carries it back.
  */
 export const readProfile = (raw: unknown): Profile => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
   const record = raw as Readonly<Record<string, unknown>>
   const later = Object.fromEntries(Object.entries(record).filter(([field]) => field !== 'name' && field !== 'avatar'))
-  return clean(later, record['name'], record['avatar'])
+  const name = record['name']
+  return settle(later, typeof name === 'string' && name.trim() !== '' ? name : undefined, record['avatar'])
 }
 
 /**

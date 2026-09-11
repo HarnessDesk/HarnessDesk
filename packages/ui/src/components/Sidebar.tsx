@@ -506,7 +506,9 @@ export const AccountFooter = ({
               <ProfileFace size={30} />
               <span className={styles.youText}>
                 <span className={styles.youName}>
-                  <span className={styles.youLabel}>{yourName}</span>
+                  <span className={styles.youLabel} title={yourName}>
+                    {yourName}
+                  </span>
                   <span className={styles.youTag}>Local</span>
                 </span>
               </span>
@@ -677,10 +679,14 @@ export const AccountFooter = ({
           setConfirmingSignOut(false)
         }}
       >
-        {/* You. The same face as the menu's top row, at the row's size. */}
+        {/* You. The same face as the menu's top row, at the row's size, and
+            the name — cut when the row is narrower than it, so it carries
+            itself whole as its title; the row's own title is about the pen. */}
         <ProfileFace size={24} />
         <span className={styles.accountName}>
-          <span className={styles.accountLabel}>{yourName}</span>
+          <span className={styles.accountLabel} title={yourName}>
+            {yourName}
+          </span>
         </span>
         {here?.figure && here.tone !== 'good' && (
           <span className={styles.accountMeta} data-tone={here.tone}>

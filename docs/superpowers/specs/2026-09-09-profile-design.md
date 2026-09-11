@@ -48,14 +48,16 @@ interface Profile {
 
 - A patch uses `null` to put a field back; `{ name: null, avatar: null }` is
   Reset.
-- Names are tidied on the way in — trimmed, runs of spaces folded, capped at
-  40 characters as a person counts them — grapheme clusters, so a flag is one
-  and none is cut in half — and a name
-  equal to "HarnessDesk" is dropped, not stored.
+- A name typed here is tidied — trimmed, runs of spaces folded, capped at 40
+  characters as a person counts them: grapheme clusters, so a flag is one and
+  none is cut in half — and a name typed equal to "HarnessDesk" is dropped,
+  not stored. A name read from the file is kept as it was written: tidying it
+  on the read would lose a later build's longer cap, or its own spacing, on
+  the next whole write of anything.
 - A stored profile is read defensively and forward: a hand edit this build
   cannot read is the default rather than a broken seat, and whatever a later
   build stored — a face this build does not ship, a picture, a field an
-  account brings — is kept and written back whole. Only drawing falls back, to
+  account brings, the name as written — is kept and written back whole. Only drawing falls back, to
   the house mark. (Review of #137: a whitelist read under a whole write lost a
   newer build's face on the next name edit.)
 - The store writes the *whole* profile on every change
@@ -113,16 +115,21 @@ which is how a room row's own tile holds it.
 - **Name**: a field whose placeholder is "HarnessDesk". It keeps its own text
   until it is let go — Enter, a click elsewhere, or the page closing — because
   tidying under the caret would eat the space between two words as they are
-  typed (the account nickname field makes the same choice). The first Escape
-  takes an edit back; the next one is the window's.
+  typed (the account nickname field makes the same choice). Let go without an
+  edit, it writes nothing. It holds forty characters, judged by what an edit
+  put in rather than by lengths: typing into a full field changes nothing, a
+  paste keeps as much of itself as fits and never pushes the end of the name
+  out, a deletion always goes through, and the caret goes back after what went
+  in. The first Escape takes an edit back; the next one is the window's.
 - **Picture**: Default and the twenty-three faces as one radio group, eight to
   a row — three even rows. One tab stop, the arrow keys walk the grid and
   choose as they go. Home and End are left out on purpose: in a group that
-  chooses as it moves, a stray Home would be a silent reset. A face's name is its label
+  chooses as it moves, a stray Home would be a silent reset — and for the same
+  reason an arrow with nowhere to go does nothing, at every edge. A face's name is its label
   and its line from the catalogue is the hover: twenty-four captions would
   turn a glance into a read. A face this build cannot draw — one a later build
-  stored — checks no tile at all, and a note under the grid says it is kept
-  until another is chosen.
+  stored — checks no tile at all, and a note under the grid, which is the
+  group's description, says it is kept until another is chosen.
 
 ## Later
 
@@ -140,17 +147,20 @@ which is how a room row's own tile holds it.
 
 - `lib/profile.test.ts` — default name, tidying, empty and default names not
   stored, the character-safe cap, patches keeping unmentioned fields, reading
-  unreadable files as the default.
+  unreadable files as the default, a later build's name kept as written.
 - `lib/avatars.test.ts` — the table equals the folder minus `black`; every
   offered face resolves to its file; ids recognised only when shipped.
 - `state/store.profile.test.ts` — whole-profile writes; no write for no
   change; Reset writes `{}`; the profile comes back through `loadPreferences`.
 - `components/SettingsYou.profile.test.tsx` — the head previews typing; the
   store hears a name only when let go; Enter, Escape, emptying, and closing
-  mid-edit; picking and arrow-walking faces; Reset.
+  mid-edit; picking and arrow-walking faces, and arrows at the edges choosing
+  nothing; Reset; the cap by edit — a full field, a paste over it, a paste at
+  its front and where the caret lands; a name left alone unless edited; the
+  note as the picker's description.
 - `components/Sidebar.account.test.tsx` — the seat reads your name and wears
   your face beside the unchanged agent badge; the menu's top row opens
-  Settings › Profile.
+  Settings › Profile; both name labels carry the whole name as their title.
 - `components/Settings.route.test.tsx` — the rail starts with you and routes
   to the page; search keeps you only while it could mean you.
 - `design/patterns/ChannelMessage.test.tsx`, `components/Channel.test.tsx` —
