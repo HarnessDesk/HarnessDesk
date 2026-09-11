@@ -373,9 +373,12 @@
   min-height: 0;
 }
 
-/* Collapsed to its tabs, a panel gives up its share, whether it is a lone
-   stack or a split's strips, as in the workbench (review of #183, round 5). */
-.panel[data-collapsed],
-.strips:has([data-collapsed]) {
+/* Collapsed to its tabs, a panel in the sidebar gives up its share, whether it
+   is a lone stack or a split's strips, as in the workbench (review of #183,
+   round 5). Only in the sidebar, as there: the right and bottom docks are
+   rows, where `flex: none` gives back width, and the collapsed bottom strip
+   shrank to 174 px of a 909 px band (round 6). */
+.sidebar .panel[data-collapsed],
+.sidebar .strips:has([data-collapsed]) {
   flex: none;
 }

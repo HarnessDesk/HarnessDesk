@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 
 import { ResizeHandle } from '../ui/resize-handle'
 import {
@@ -25,6 +25,7 @@ import {
   TerminalIcon,
   type IconProps,
 } from '../../components/Icons'
+import { beginResize, endResize, markDragging } from '../../lib/resizing'
 import { panes, sessionOf, type PaneView } from '../../state/layout'
 import {
   AREA_EDGE,
@@ -375,23 +376,33 @@ const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
   const ratio = preview ?? branch.ratio
   const box = useRef<HTMLDivElement>(null)
   /* The seam's pointer half, as the workbench wires it: a delta from where
-     the pointer went down, clamped as the workbench clamps it. Without it the
+     the pointer went down, clamped as the workbench clamps it, and the window
+     marked as resizing while the drag lasts, so the cursor holds and nothing
+     animates under it, as on this page's other three seams. Without it the
      seam wore the resize cursor and moved only for the keyboard (review of
-     #183, round 5). */
+     #183, rounds 5 and 6). One difference is kept on purpose: the preview is
+     React state, so each move re-renders the split. The workbench writes a
+     CSS variable instead, because its halves hold real views; these hold
+     stubs. */
   const grab = useRef<{ at: number; ratio: number; span: number; live: number } | null>(null)
   const along = (event: { clientX: number; clientY: number }) => (branch.direction === 'row' ? event.clientX : event.clientY)
   const commit = (next: number) => {
     rest.setWorkbench((c) => resizeDockSplit(c, rest.area, branch.id, next))
     setPreview(null)
   }
-  const stop = (seam: HTMLElement, keep: boolean) => {
+  const stop = (seam: Element | null, keep: boolean) => {
     const held = grab.current
     if (!held) return
     grab.current = null
-    seam.removeAttribute('data-dragging')
+    markDragging(seam, false)
+    endResize()
     if (keep) commit(held.live)
     else setPreview(null)
   }
+  // A split that goes away under the pointer still gives the window back: `endResize` is counted.
+  const onUnmount = useRef(stop)
+  onUnmount.current = stop
+  useEffect(() => () => onUnmount.current(null, false), [])
   return (
     <div ref={box} className={styles.split} data-direction={branch.direction}>
       <div className={styles.half} style={{ flexBasis: `${ratio * 100}%` }}>
@@ -409,7 +420,8 @@ const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
           if (!bounds) return
           event.preventDefault()
           event.currentTarget.setPointerCapture(event.pointerId)
-          event.currentTarget.setAttribute('data-dragging', '')
+          markDragging(event.currentTarget, true)
+          beginResize(branch.direction === 'row' ? 'vertical' : 'horizontal')
           const span = branch.direction === 'row' ? bounds.width : bounds.height
           grab.current = { at: along(event), ratio, span, live: ratio }
         }}

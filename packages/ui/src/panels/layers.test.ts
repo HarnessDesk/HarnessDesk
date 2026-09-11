@@ -62,3 +62,19 @@ it('and the panel body clips, or moving the layer out achieves nothing', () => {
   expect(host).toContain('.layers')
   expect(hiddenLayerRule(host)).toContain('translateX(-101%)')
 })
+
+it('collapses a panel to its tabs in the sidebar only, and the two sheets agree (review of #183, rounds 5 and 6)', () => {
+  // The rule matcher below is flat: a [data-collapsed] rule inside an at-rule would drop out of the
+  // comparison without a word. Neither sheet has an at-rule, and this line fails the day one arrives.
+  for (const sheet of [host, prototype]) expect(sheet).not.toMatch(/@(?:media|supports|container|layer|keyframes)\b/)
+  const collapsing = (sheet: string) =>
+    [...sheet.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter((rule) => /flex:\s*none/.test(rule[2] ?? ''))
+      .flatMap((rule) => (rule[1] ?? '').split(',').map((selector) => selector.trim()))
+      .filter((selector) => selector.includes('[data-collapsed]'))
+  expect(collapsing(host).length).toBeGreaterThan(0)
+  expect(collapsing(prototype)).toEqual(collapsing(host))
+  // Only the sidebar lays its panels out in a column. In the row docks, flex: none gives back width,
+  // and a collapsed bottom strip shrank to its tabs (353 px of 1199 in the app).
+  for (const selector of collapsing(host)) expect(selector.startsWith('.sidebar ')).toBe(true)
+})

@@ -351,9 +351,10 @@ for (const file of tsxFiles()) {
   // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
   // `explorer.module.css`, which is the right arrangement, not drift. The rule
   // being enforced is that a screen may not reach into a DIFFERENT screen.
-  for (const { binding, file: spec } of stylesheetImports(source)) {
+  for (const { binding, file: spec } of stylesheetImports(code)) {
     const sheet = resolveStylesheet(dir, spec, UI_SRC)
-    if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${sheet}`)
+    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
+    if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
     const target = path.join(dir, sheet)
     if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
   }

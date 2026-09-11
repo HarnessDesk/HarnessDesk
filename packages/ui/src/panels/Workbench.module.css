@@ -192,18 +192,21 @@
 }
 
 /*
- * Collapsed, a panel is its strip and nothing else — so it must stop claiming
- * the room its body had.
+ * Collapsed, a panel is its strip and nothing else — so in the sidebar it must
+ * stop claiming the room its body had.
  *
  * `flex: 1` alone left the sidebar's stack holding its whole share of the
  * column with nothing in it: the tab row sat in mid-air with a hundred and
  * fifty pixels of blank between it and the account row, and "Collapse to the
- * tabs" appeared to do nothing at all. The bottom panel got away with it
- * because its own box is sized by its content once collapsed; the sidebar's
- * is not, because it is one flex child among three.
+ * tabs" appeared to do nothing at all. Only the sidebar, though. It lays its
+ * panels out in a column, where `flex: none` gives back height; the right and
+ * bottom docks lay theirs out in a row, where the same rule gives back width,
+ * and a collapsed bottom strip shrank to its tabs, 353 px of a 1199 px band
+ * (review of #183, round 6). There the band is sized by its content once
+ * collapsed, so the panel keeps `flex: 1` and its width.
  */
-.panel[data-collapsed],
-.strips:has([data-collapsed]) {
+.sidebar .panel[data-collapsed],
+.sidebar .strips:has([data-collapsed]) {
   flex: none;
 }
 

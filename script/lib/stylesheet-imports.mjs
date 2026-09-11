@@ -82,7 +82,9 @@ export const ownsStylesheet = (file, sheet) => {
 /**
  * An import's path relative to the importing file's folder, with the UI's
  * `@/` alias resolved against its source root first (review of #183, round
- * 4). A relative path comes back as it is.
+ * 4). A relative path comes back normalised, so `parts/../x.module.css` is
+ * `x.module.css` and "another folder never matches" in `ownsStylesheet` holds
+ * however the path is spelled (review of #183, round 5).
  */
 export const resolveStylesheet = (dir, spec, uiSrc) =>
-  spec.startsWith('@/') ? path.relative(dir, path.join(uiSrc, spec.slice(2))) : spec
+  spec.startsWith('@/') ? path.relative(dir, path.join(uiSrc, spec.slice(2))) : path.normalize(spec)

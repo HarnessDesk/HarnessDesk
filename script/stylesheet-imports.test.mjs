@@ -78,3 +78,11 @@ test('a trailing line comment is not code, and a URL is', () => {
   assert.equal(bareSource("const url = 'https://example.com/a' // a link"), "const url = 'https://example.com/a' ")
   assert.equal(bareSource('<p>see http://example.com</p>'), '<p>see http://example.com</p>')
 })
+
+test('a relative import is normalised before it is compared, so a detour is not another folder (review of #183, round 5)', () => {
+  const src = '/repo/packages/ui/src'
+  assert.equal(resolveStylesheet(`${src}/design/showcase`, 'parts/../panel-playground.module.css', src), 'panel-playground.module.css')
+  assert.equal(ownsStylesheet('design/showcase/PanelPlayground.tsx', resolveStylesheet(`${src}/design/showcase`, 'parts/../panel-playground.module.css', src)), true)
+  // Control: a real other folder still does not match.
+  assert.equal(ownsStylesheet('design/showcase/PanelPlayground.tsx', resolveStylesheet(`${src}/design/showcase`, '../panel-playground.module.css', src)), false)
+})
