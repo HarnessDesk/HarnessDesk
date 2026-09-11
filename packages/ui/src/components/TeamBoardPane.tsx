@@ -938,7 +938,14 @@ const IntentCard = ({
           <button
             type="button"
             onClick={onOpenHolder}
-            title={`Open the conversation ${holderName} is holding this in`}
+            /* Said once. With the conversation loaded, the card on the names
+               says who holds this and opens it, and a native tooltip on the
+               same rest stacks a second box on the card — so there the
+               sentence is the description a screen reader reads instead. With
+               no card to show, it stays the tooltip. */
+            {...(session
+              ? { 'aria-description': `Open the conversation ${holderName} is holding this in` }
+              : { title: `Open the conversation ${holderName} is holding this in` })}
             className="flex w-full items-center gap-1.5 rounded-(--hd-radius-sm) bg-(--hd-muted) px-1.5 py-1 text-left hover:bg-(--hd-hover)"
           >
             {/* The face and the names, as one trigger: the holder is who a

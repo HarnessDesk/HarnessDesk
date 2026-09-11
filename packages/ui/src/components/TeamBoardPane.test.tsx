@@ -594,6 +594,33 @@ it('opens the holder’s card from its name as well as its face', async () => {
   vi.useRealTimers()
 })
 
+/**
+ * The holder button says where it goes once.
+ *
+ * Its tooltip and the card on its names answer the same rest. With the
+ * conversation loaded, the card says who holds this and opens it, so the
+ * sentence becomes the description a screen reader reads; with nothing loaded
+ * there is no card, and it stays the tooltip.
+ */
+it('says where the holder goes once: on the card when the conversation is loaded, as a tooltip when it is not', async () => {
+  const { store } = rig([
+    intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
+    intent({ id: 2, title: 'Cap the backoff', state: 'claimed', claim: { runtime: 'codex', sessionId: 'c9', at: 1 } }),
+  ])
+  await render(store)
+
+  const holders = [...container.querySelectorAll('button')].filter((one) =>
+    (one.getAttribute('title') ?? one.getAttribute('aria-description') ?? '').startsWith('Open the conversation'),
+  )
+  expect(holders).toHaveLength(2)
+  const loaded = holders.find((one) => one.textContent?.includes('API migration'))
+  const unloaded = holders.find((one) => one !== loaded)
+  expect(loaded?.getAttribute('title')).toBeNull()
+  expect(loaded?.getAttribute('aria-description')).toMatch(/^Open the conversation /)
+  expect(unloaded?.getAttribute('title')).toMatch(/^Open the conversation /)
+  expect(unloaded?.hasAttribute('aria-description')).toBe(false)
+})
+
 it('separates work waiting on its dependencies from work somebody stopped', async () => {
   const waiting = {
     id: 1,

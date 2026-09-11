@@ -1100,15 +1100,17 @@ it('closes when the positioner trades its side, whatever moved', async () => {
 })
 
 /**
- * A trade is the positioner disagreeing with this code about the same
- * geometry, and measuring again only disagrees again. So the card is asked
- * for once more on the side the positioner chose, and a card traded again
- * before it has settled is not asked for again until the pointer comes back —
- * rather than opened, traded, closed and asked for, unseen, for as long as the
+ * A trade is not asked for again.
+ *
+ * It would be the positioner and this code disagreeing about the same
+ * geometry, and measuring again only disagrees again. So a traded card is
+ * closed and waits for the pointer to come back, whatever passes meanwhile,
+ * rather than being opened, traded and closed, unseen, for as long as the
  * pointer rests.
  */
-it('opens on the side the positioner insists on, after one retry, and does not cycle', async () => {
+it('closes a card the positioner trades, and does not ask for it again until the pointer comes back', async () => {
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const hand = observeByHand()
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   viewport(1024)
@@ -1116,31 +1118,90 @@ it('opens on the side the positioner insists on, after one retry, and does not c
   spans(400, 440)
   rest(trigger())
   expect(side()).toBe('right')
-  const trade = async (to: string): Promise<void> => {
-    await act(async () => {
-      document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', to)
-    })
-  }
 
   // The positioner draws it on the left instead.
-  await trade('left')
-  expect(trigger().getAttribute('data-state')).toBe('closed')
-  wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
-  expect(side()).toBe('left')
-
-  // Traded again before it has settled: closed, and left closed.
-  await trade('right')
-  expect(trigger().getAttribute('data-state')).toBe('closed')
-  wait(1000)
+  await act(async () => {
+    document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
+  })
   expect(trigger().getAttribute('data-state')).toBe('closed')
 
-  // A new visit starts afresh, on the side this code measures.
+  // Nothing brings it back while the pointer rests: not the delay of a rest,
+  // and not the trigger measured again in the meantime.
+  wait(500)
+  hand.resized(trigger())
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+
+  // A new visit asks afresh, on the side this code measures.
   leave(trigger())
   rest(trigger())
   expect(trigger().getAttribute('data-state')).toBe('open')
   expect(side()).toBe('right')
   expect(errors).not.toHaveBeenCalled()
+})
+
+it('a card that settled below, then came back beside its trigger, is still asked for again when it loses its room', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
+  const name = [...container.querySelectorAll('span')].find((s) => s.textContent === 'Codex')
+  if (!control || !name) throw new Error('the row is missing its parts')
+  viewport(1024)
+  spans(20, 60)
+  rest(name)
+  expect(side()).toBe('right')
+
+  // Narrowed until the row is all of it: closed, and back below.
+  viewport(400)
+  spans(0, 400)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  wait(1000)
+  expect(side()).toBe('bottom')
+
+  // Wider again; the pointer crosses the + and comes back to the name, and the
+  // card is asked for beside the row. Nothing watched it while it was below.
+  viewport(1024)
+  spans(20, 60)
+  move(name, control)
+  move(control, name)
+  wait(1000)
+  expect(side()).toBe('right')
+
+  // Narrowed once more: closed, and asked for again, as the first time.
+  viewport(400)
+  spans(0, 400)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('bottom')
+})
+
+it('measures the room on the right against the visual viewport where that is narrower than the root', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  /* The positioner keeps a card inside the visual viewport. Where that is a
+     little narrower than the root element — a zoom that rounds the root's width
+     up — the room has to be found there too, or the positioner trades a side
+     this code chose. Here the root is 1024 wide and the visual viewport 1000:
+     300px to the root's edge, 276 to the viewport's. */
+  viewport(1024)
+  vi.stubGlobal('visualViewport', {
+    width: 1000,
+    height: 768,
+    offsetLeft: 0,
+    offsetTop: 0,
+    scale: 1,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })
+  spans(0, 724)
+  rest(trigger())
+  expect(side()).toBe('bottom')
 })
 
 it('a re-ask opens on the side asked for now, not the side asked for when it was armed', () => {
