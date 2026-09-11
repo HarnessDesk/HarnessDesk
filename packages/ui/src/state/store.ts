@@ -4627,13 +4627,17 @@ export class AppStore {
     next.navCanBack = this.#visitedBack.length > 0
     next.navCanForward = this.#visitedForward.length > 0
     next.activeSessionKey = activeSessionKey
-    // A hand-off belongs to the draft it was handed to; once a conversation
-    // is in front — the draft sent, or another one opened — it has served.
-    if (activeSessionKey && next.draftHandoff && !patch.draftHandoff) next.draftHandoff = null
+    // A hand-off belongs to the draft it was handed to, and the draft is the
+    // main area's conversation pane: once that shows a conversation — the
+    // draft sent, or another one opened — it has served. Not whichever
+    // conversation holds the focus: a docked one taking it is not the draft
+    // being sent, and must not clear what the draft carries.
+    const inFront = panes(next.layout.root).map(sessionOf).find((key) => key !== null) ?? null
+    if (inFront && next.draftHandoff && !patch.draftHandoff) next.draftHandoff = null
     // So does the place it was to start in — it is now the session's fact,
     // and the header says it. A switch of workspace ends it too: a worktree
     // armed for one repository would be cut from a folder the window left.
-    if (activeSessionKey && next.draftPlace && !patch.draftPlace) next.draftPlace = null
+    if (inFront && next.draftPlace && !patch.draftPlace) next.draftPlace = null
     if ('workspace' in patch && !('draftPlace' in patch) && next.workspace?.path !== this.#snapshot.workspace?.path) {
       next.draftPlace = null
     }

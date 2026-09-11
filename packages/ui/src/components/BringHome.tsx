@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
+import { isBusy, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
@@ -86,6 +86,11 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
 
   const dirty = changes !== null && changes.modified + changes.untracked > 0
   const carried = mainChanges === null ? 0 : mainChanges.modified + mainChanges.untracked
+  // A conversation mid-turn in the worktree would lose whatever it writes after
+  // the folder goes, so the move waits for the turn to end.
+  const working = [...snapshot.sessions.values()].some(
+    (session) => (session.cwd === worktree.path || session.cwd.startsWith(`${worktree.path}/`)) && isBusy(session),
+  )
 
   const confirm = async (): Promise<void> => {
     if (dirty) {
@@ -112,7 +117,7 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
       cancelLabel="Keep it there"
       busyLabel="Bringing it back…"
       busy={busy}
-      pending={changes === null}
+      pending={changes === null || working}
       onConfirm={() => void confirm()}
       onCancel={onClose}
     >
@@ -134,6 +139,13 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
           {folder} has {describeUncommitted(mainChanges)} not committed. Git carries{' '}
           {carried === 1 ? 'it' : 'them'} onto <span className="font-mono">{worktree.branch}</span>, or refuses the
           switch if {carried === 1 ? 'it clashes' : 'they clash'} with it.
+        </p>
+      )}
+
+      {working && (
+        <p>
+          A conversation in this worktree is still working. Bring it back once its turn ends: the
+          folder goes, and anything the turn writes after that goes with it.
         </p>
       )}
 

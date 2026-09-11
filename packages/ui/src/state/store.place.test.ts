@@ -362,3 +362,42 @@ describe('a conversation docked from a worktree', () => {
     expect(stillDocked()).toBe(false)
   })
 })
+
+/**
+ * A draft's choices belong to the draft — the main area's conversation pane —
+ * and not to whichever conversation holds the focus. A docked one taking it
+ * is not the draft being sent, so an unrelated patch must clear neither the
+ * worktree it is armed with nor the hand-off it carries.
+ */
+describe('a draft beside a docked conversation', () => {
+  const docked = sessionKey(AGENT, sessionId('s-2'))
+
+  it('keeps its armed worktree and its hand-off while the docked conversation holds the focus', async () => {
+    answers['session/read'] = conversation('s-2', TREE)
+    answers['session/resume'] = conversation('s-2', TREE)
+    answers['app/state/get'] = {
+      layouts: {
+        [REPO.path]: {
+          main: { root: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: null } }, focused: 'p1' },
+          right: { views: [{ id: 'v1', view: { kind: 'conversation', session: docked } }], active: 'v1', size: 400 },
+        },
+      },
+    }
+    await store.loadPreferences()
+    await vi.waitFor(() => expect(store.getSnapshot().sessions.get(docked)).toBeDefined())
+    await store.handOff(AGENT, 'summary', docked, { cwd: REPO.path })
+    expect(await store.armWorktree(REPO.path, 'parser fix')).toBe(true)
+    const id = mountedViews(store.getSnapshot().workbench).find(
+      (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === docked,
+    )?.mounted.id
+    expect(id).toBeDefined()
+
+    store.focusView(id!)
+    expect(store.getSnapshot().activeSessionKey).toBe(docked)
+    // The New worktree dialog's own close: a patch that carries neither.
+    store.askNewWorktree(null)
+
+    expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'worktree', root: REPO.path, name: 'parser fix' })
+    expect(store.getSnapshot().draftHandoff).toMatchObject({ runtime: AGENT, sessionId: 's-2' })
+  })
+})

@@ -74,7 +74,7 @@ const rig = (over: Partial<AppSnapshot>): void => {
 }
 
 const chip = (): HTMLButtonElement | null =>
-  document.querySelector<HTMLButtonElement>('button[title^="Worktree — "], button[title^="Local — "], button[title^="New worktree — "]')
+  document.querySelector<HTMLButtonElement>('button[title^="Worktree — "], button[title^="Local — "], button[title^="New worktree off "]')
 
 const glyph = (): string => chip()?.querySelector('svg')?.getAttribute('class') ?? ''
 
@@ -135,7 +135,7 @@ it('names the worktree a draft is armed to cut, not the folder it will be cut fr
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
 
   expect(glyph()).toContain('lucide-git-branch-plus')
-  expect(chip()?.title).toBe(`New worktree — ${ROOT}`)
+  expect(chip()?.title).toBe(`New worktree off ${ROOT}`)
   expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
 })
 
@@ -161,4 +161,13 @@ it('offers no git verbs for a draft armed with a new worktree, which does not ex
   expect(rows).not.toContain('History')
   expect(rows.some((row) => row.includes('harnessdesk/checkout-retry'))).toBe(false)
   expect(rows).toContain('The worktree is made when the message goes')
+})
+
+it('names the branch a draft is pointed at from the draft, though the worktree list could not be read', () => {
+  // The list is emptied on any failed read; the draft carries its own branch.
+  rig({ draftPlace: { kind: 'existing', path: TREE, branch: 'harnessdesk/checkout-retry' }, worktrees: [] })
+
+  expect(chip()?.title).toBe(`Worktree — ${TREE}`)
+  expect(glyph()).toMatch(/lucide-git-branch(\s|$)/)
+  expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
 })

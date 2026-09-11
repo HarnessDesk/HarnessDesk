@@ -155,6 +155,31 @@ test('a worktree is brought home or removed only from a repository the window ha
   )
 })
 
+/** A repository inside an open folder is open, as it is to every other git read. */
+test('a repository inside an open folder counts as open for the worktree verbs', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const parent = tempDir('hd-methods-parent-')
+  const app = join(parent, 'app')
+  execFileSync('git', ['init', '-q', '-b', 'main', app], quiet)
+  execFileSync('git', ['-C', app, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', app, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  let asked = 0
+  const ctx = contextWith({
+    workspaces: { openRoots: () => [parent] },
+    worktrees: {
+      bringHome: async () => {
+        asked += 1
+        return { branch: 'wt', from: 'main', root: app }
+      },
+    },
+  })
+
+  await dispatch(ctx, 'worktree/bringHome', { path: tree })
+
+  assert.equal(asked, 1)
+})
+
 test('deleting a route forgets its credential only when no other route still refers to it', async () => {
   const routes = [
     { id: 'a', name: 'A', endpoint: 'https://a', wireProtocol: 'responses', credentialRef: 'cred-shared' },

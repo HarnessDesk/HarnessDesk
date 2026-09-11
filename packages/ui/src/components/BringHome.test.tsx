@@ -47,13 +47,21 @@ const rig = async ({
   refusal = null,
   unread = null,
   mainChanges = CLEAN,
-}: { changes?: WorktreeChanges; refusal?: string | null; unread?: string | null; mainChanges?: WorktreeChanges } = {}) => {
+  sessions = new Map(),
+}: {
+  changes?: WorktreeChanges
+  refusal?: string | null
+  unread?: string | null
+  mainChanges?: WorktreeChanges
+  sessions?: Map<string, unknown>
+} = {}) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [{ id: 'codex', capabilities: {}, presentation: { name: 'Codex' } } as unknown as RuntimeInfo],
     activeRuntime: 'codex',
     worktrees: [MAIN, TREE],
+    sessions,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -161,4 +169,13 @@ it('says what the main checkout has not committed, since git carries it onto the
   expect(document.body.textContent).toContain(
     'repo has 2 modified files not committed. Git carries them onto harnessdesk/parser, or refuses the switch if they clash with it.',
   )
+})
+
+it('holds the move while a conversation in the worktree is still working', async () => {
+  // The folder goes on the move, and whatever the turn writes after that with it.
+  const working = { id: 's-1', runtime: 'codex', cwd: TREE.path, status: { type: 'active' }, turns: [] }
+  await rig({ sessions: new Map([['codex:s-1', working]]) })
+
+  expect(document.body.textContent).toContain('A conversation in this worktree is still working.')
+  expect(button('Bring it back')?.disabled).toBe(true)
 })

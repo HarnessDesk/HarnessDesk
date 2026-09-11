@@ -707,7 +707,8 @@ export const GitControl = ({
   // host will not read until a conversation runs there — or, armed, one that
   // does not exist yet. Git verbs from here would act on some other folder,
   // so the menu has none: where the draft starts is chosen in the composer.
-  const elsewhere = (pointed !== null && pointed !== snapshot.workspace?.path) || armed !== null
+  const pointedAway = pointed !== null && pointed !== snapshot.workspace?.path
+  const elsewhere = pointedAway || armed !== null
   const cwd = session?.cwd ?? pointed ?? armed?.root ?? snapshot.workspace?.path ?? null
   if (!cwd) return null
   const folder = cwd.split('/').filter(Boolean).at(-1) ?? cwd
@@ -720,6 +721,9 @@ export const GitControl = ({
   const checkout = snapshot.worktrees.find((entry) => entry.path === cwd)
   const branch =
     (armed ? worktreeBranch(armed.name) : null) ??
+    // A pointed draft carries its worktree's branch. The list it was chosen
+    // from is emptied by any failed read, and the chip must not lose it then.
+    (pointedAway && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.branch : null) ??
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.git?.branch ?? null : null) ??
     checkout?.branch ??
     session?.git?.branch ??
@@ -733,6 +737,7 @@ export const GitControl = ({
     : undefined
   const linked =
     armed !== null ||
+    pointedAway ||
     Boolean(worktree) ||
     (checkout !== undefined && !checkout.isMain) ||
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.repo?.worktree === true : summary?.repo?.worktree === true)
@@ -752,7 +757,7 @@ export const GitControl = ({
 
   return (
     <Popover
-      title={`${armed ? 'New worktree' : linked ? 'Worktree' : 'Local'} — ${cwd}`}
+      title={armed ? `New worktree off ${cwd}` : `${linked ? 'Worktree' : 'Local'} — ${cwd}`}
       align="right"
       label={
         <>

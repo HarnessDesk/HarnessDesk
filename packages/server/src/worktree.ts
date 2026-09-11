@@ -303,7 +303,8 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
  * checkout's branch — answer to the boundary the rest of the git surface does:
  * the folders the window has open. A worktree lives in the state directory,
  * outside every workspace, so what is confined is its repository, open as its
- * main checkout, as a folder inside it, or as the worktree itself.
+ * main checkout, as a folder inside it, or as the worktree itself — or sitting
+ * inside an open folder, as it does for every other git read.
  */
 export const confineToOpenRepository = async (path: string, roots: readonly string[]): Promise<void> => {
   const main = await repositoryRoot(path)
@@ -322,7 +323,7 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
   const opened = await Promise.all(roots.map((root) => canonical(root)))
   const within = (inner: string, outer: string): boolean =>
     inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
-  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout)))) return
+  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return
   throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
 }
 
