@@ -1,4 +1,4 @@
-import { isAvatarId, type AvatarId } from './avatars'
+import type { AvatarId } from './avatars'
 
 /**
  * Who you are on this desk: a name and a face.
@@ -17,15 +17,29 @@ import { isAvatarId, type AvatarId } from './avatars'
  * and ring (`lib/accounts.ts`).
  *
  * Only what differs from the default is stored. `{}` is the default desk —
- * "HarnessDesk" and the house mark — and a value equal to the default is
+ * "HarnessDesk" and the house mark — and a name equal to the default is
  * dropped on the way in, so "Reset" is offered exactly when there is
  * something to reset.
+ *
+ * What a later build stores, this one keeps. The profile is written whole
+ * (`setProfile`), so a read that dropped what it does not know — a face added
+ * after this build, a picture of your own, a field an account brings — would
+ * lose it for good on the next edit of the name, and a profile synced between
+ * copies of different ages would lose it on a loop. So the read keeps every
+ * field and whatever `avatar` holds; only drawing falls back, and `Face` draws
+ * the house mark for anything this build does not ship.
  */
 export interface Profile {
   /** What you are called. Absent means the default. */
   readonly name?: string
-  /** Which face. Absent means the house mark. */
-  readonly avatar?: AvatarId
+  /**
+   * Which face, as stored: one of the ids this build ships, or whatever a
+   * later build wrote there — kept, and drawn as the house mark. Absent is the
+   * house mark.
+   */
+  readonly avatar?: unknown
+  /** Fields a later build stores, kept as they were so a whole write cannot drop them. */
+  readonly [field: string]: unknown
 }
 
 /** A change to the profile. `null` puts that field back to its default. */
@@ -40,7 +54,8 @@ export const DEFAULT_PROFILE_NAME = 'HarnessDesk'
 /**
  * Long enough for a full name, short enough that the seat's row cuts it with
  * an ellipsis rather than the name crowding out the agent badge beside it.
- * Counted in characters, not UTF-16 units, so an emoji is never cut in half.
+ * Counted in characters, not UTF-16 units, so an emoji is never cut in half —
+ * here, and by the field that types it.
  */
 export const PROFILE_NAME_MAX = 40
 
@@ -50,34 +65,39 @@ const tidyName = (name: string): string =>
     .join('')
     .trim()
 
-const clean = (name: string | null | undefined, avatar: unknown): Profile => {
+const clean = (base: Readonly<Record<string, unknown>>, name: unknown, avatar: unknown): Profile => {
+  const kept = Object.fromEntries(Object.entries(base).filter(([field]) => field !== 'name' && field !== 'avatar'))
   const tidy = typeof name === 'string' ? tidyName(name) : ''
   return {
+    ...kept,
     ...(tidy !== '' && tidy !== DEFAULT_PROFILE_NAME ? { name: tidy } : {}),
-    ...(isAvatarId(avatar) ? { avatar } : {}),
+    ...(avatar !== undefined && avatar !== null && avatar !== '' ? { avatar } : {}),
   }
 }
 
 /**
  * The profile with `patch` applied. A field the patch does not mention is
- * kept; an empty name is the way back to the default, because clearing the
- * field is what a person does to mean it.
+ * kept — including any this build does not know; an empty name is the way
+ * back to the default, because clearing the field is what a person does to
+ * mean it.
  */
 export const applyProfile = (profile: Profile, patch: ProfilePatch): Profile =>
   clean(
+    profile,
     patch.name === undefined ? profile.name : patch.name,
     patch.avatar === undefined ? profile.avatar : patch.avatar,
   )
 
 /**
- * A stored profile, read defensively. The preferences file is the user's: a
- * hand edit, an older build, or a face a later build no longer ships must not
- * take the seat down, so anything unreadable is simply the default.
+ * A stored profile, read defensively and forward. The preferences file is the
+ * user's: a hand edit this build cannot read must not take the seat down, so
+ * an unreadable name is simply the default — and what a later build stored is
+ * kept, so the next whole write carries it back.
  */
 export const readProfile = (raw: unknown): Profile => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
-  const record = raw as { readonly name?: unknown; readonly avatar?: unknown }
-  return clean(typeof record.name === 'string' ? record.name : null, record.avatar)
+  const record = raw as Readonly<Record<string, unknown>>
+  return clean(record, record['name'], record['avatar'])
 }
 
 /** What to call you on screen. */

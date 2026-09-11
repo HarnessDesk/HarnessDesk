@@ -47,9 +47,12 @@ interface Profile { readonly name?: string; readonly avatar?: AvatarId }
 - Names are tidied on the way in — trimmed, runs of spaces folded, capped at
   40 characters by code point so an emoji is never cut in half — and a name
   equal to "HarnessDesk" is dropped, not stored.
-- A stored profile is read defensively: a hand edit, an older build, or a face
-  this build no longer ships reads as the default rather than breaking the
-  seat.
+- A stored profile is read defensively and forward: a hand edit this build
+  cannot read is the default rather than a broken seat, and whatever a later
+  build stored — a face this build does not ship, a picture, a field an
+  account brings — is kept and written back whole. Only drawing falls back, to
+  the house mark. (Review of #137: a whitelist read under a whole write lost a
+  newer build's face on the next name edit.)
 - The store writes the *whole* profile on every change
   (`app/state/set { patch: { profile } }`), because the host merges
   preferences one level deep — a name sent alone would replace the profile
@@ -87,11 +90,11 @@ own messages are bubbles with no avatar, as in Codex and Claude.
 
 ### The face
 
-`Face` / `ProfileFace` (`components/ProfileFace.tsx`) is one squared tile
+`Face` (`design/primitives/Face.tsx` — Kit's avatar, squared) is one squared tile
 wherever a person is drawn, so the footprint never changes when the face
 does. Squared because the avatars were drawn as squared tiles and a room
 draws every sender in one; the corner is a step of the radius scale per size
-(6px at the seat's 24, 10px mid, 14px at the page's 56) so one object does not
+(6px up to 32px, 10px up to 48px — the page's head is 44 — and 14px beyond) so one object does not
 look sharper the larger it is drawn. The plate is the one the seat's disc
 always wore: the platform module fill inside `--hd-hairline`. Without a
 `size`, the tile fills the box it is put in and takes that box's corner —
@@ -99,7 +102,7 @@ which is how a room row's own tile holds it.
 
 ### Settings › Profile
 
-- **Head**: your face at 56px, your name as you type it, one line on where it
+- **Head**: your face at 44px, the size an account's detail page draws its mark, your name as you type it, one line on where it
   appears and that it stays on this Mac, and **Reset to default** while there
   is anything to reset.
 - **Name**: a field whose placeholder is "HarnessDesk". It keeps its own text
@@ -109,7 +112,8 @@ which is how a room row's own tile holds it.
   takes an edit back; the next one is the window's.
 - **Picture**: Default and the twenty-three faces as one radio group, eight to
   a row — three even rows. One tab stop, the arrow keys walk the grid and
-  choose as they go, Home and End reach the ends. A face's name is its label
+  choose as they go. Home and End are left out on purpose: in a group that
+  chooses as it moves, a stray Home would be a silent reset. A face's name is its label
   and its line from the catalogue is the hover: twenty-four captions would
   turn a glance into a read.
 
@@ -121,8 +125,9 @@ which is how a room row's own tile holds it.
 - **A picture of your own.** Not in this change, and deliberately: the
   preferences file is the wrong place for an image (a data URL is written on
   every preference change), and with an account it wants an upload endpoint.
-  `avatar` becomes a union with a third member — `{ kind: 'image', … }` — and
-  `Face` gains the one branch that draws it.
+  `avatar` already keeps whatever a build stores, so the build that adds a
+  picture gives `Face` the one branch that draws it and nothing is lost on the
+  way.
 
 ## Tests
 

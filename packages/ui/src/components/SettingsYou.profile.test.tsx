@@ -182,11 +182,11 @@ it('wears the face you pick, and walks the faces with the arrow keys', () => {
   expect(profile().avatar).toBe('alien')
   press(worn(), 'ArrowUp')
   expect(profile().avatar).toBe('samurai')
-  press(worn(), 'End')
-  expect(profile().avatar).toBe('beach')
+  // Home and End choose nothing: in a group that chooses as it moves, a stray
+  // Home would be a silent reset.
   press(worn(), 'Home')
-  expect(profile()).toEqual({})
-  expect(worn().getAttribute('aria-label')).toBe('Default')
+  press(worn(), 'End')
+  expect(profile().avatar).toBe('samurai')
 })
 
 it('offers a reset only while there is something to reset, and it resets both', () => {
@@ -200,4 +200,39 @@ it('offers a reset only while there is something to reset, and it resets both', 
   expect(field().value).toBe('')
   expect(worn().getAttribute('aria-label')).toBe('Default')
   expect(button('Reset to default')).toBeNull()
+})
+
+it('takes back a name nobody committed when Reset is pressed', () => {
+  const { profile } = mount({ avatar: 'dj' })
+  // Typed and still held — no blur has committed it.
+  type('Jane')
+  const reset = button('Reset to default')
+  if (!reset) throw new Error('no reset')
+  click(reset)
+  expect(profile()).toEqual({})
+  expect(field().value).toBe('')
+  expect(heading()).toBe('HarnessDesk')
+  // Leaving afterwards writes nothing back.
+  act(() => root.unmount())
+  root = createRoot(container)
+  expect(profile()).toEqual({})
+})
+
+it('holds forty characters, counted the way a person counts them', () => {
+  const { profile } = mount()
+  // No `maxLength`: it counts UTF-16 units, and would stop an emoji name at twenty.
+  expect(field().maxLength).toBe(-1)
+  type('🐳'.repeat(45))
+  expect(Array.from(field().value)).toHaveLength(40)
+  act(() => field().blur())
+  expect(profile()).toEqual({ name: '🐳'.repeat(40) })
+})
+
+it('writes a held name when the window goes away', () => {
+  const { profile } = mount()
+  type('Jane')
+  act(() => {
+    window.dispatchEvent(new Event('pagehide'))
+  })
+  expect(profile()).toEqual({ name: 'Jane' })
 })

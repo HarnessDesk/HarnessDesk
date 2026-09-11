@@ -66,8 +66,15 @@ it('comes back on the next launch, and a file it cannot read is the default desk
   await store.loadPreferences()
   expect(store.getSnapshot().profile).toEqual({ name: 'Jane', avatar: 'wizard' })
 
-  // A hand edit, or a face this build does not ship: the seat still draws.
-  answers['app/state/get'] = { profile: { name: 42, avatar: 'black' } }
+  // A hand edit this build cannot read: the seat still draws.
+  answers['app/state/get'] = { profile: { name: 42 } }
   await store.loadPreferences()
   expect(store.getSnapshot().profile).toEqual({})
+})
+
+it('writes back what a later build stored, whatever this one changes', async () => {
+  answers['app/state/get'] = { profile: { name: 'Jane', avatar: 'pirate', account: { id: 'a1' } } }
+  await store.loadPreferences()
+  store.setProfile({ name: 'JD' })
+  expect(writes().at(-1)).toEqual({ patch: { profile: { name: 'JD', avatar: 'pirate', account: { id: 'a1' } } } })
 })

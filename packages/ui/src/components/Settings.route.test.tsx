@@ -88,6 +88,8 @@ const makeStore = (runtimes: readonly RuntimeInfo[]): AppStore => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request },
+    // The Profile page writes the name when it is let go.
+    setProfile: vi.fn(),
     // The Agents page reads the machine on mount; these are the verbs it asks
     // for, answered emptily so the redirect can be watched landing on it.
     loadAccounts: vi.fn(async () => {}),
@@ -287,4 +289,44 @@ it('keeps you in the rail while a search could mean you, and only then', async (
   find('permissions')
   expect(navRow('HarnessDesk')).toBeUndefined()
   expect(navRow('Permissions')).toBeDefined()
+})
+
+it('takes a typed name back on the first Escape, and closes the window on the second', async () => {
+  const drive = await mount()
+  const you = navRow('HarnessDesk')
+  if (!you) throw new Error('no identity row')
+  act(() => you.click())
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="Your name"]')
+  if (!input) throw new Error('no name field')
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    input.focus()
+    setValue?.call(input, 'Jane')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(drive.held()).toBe('profile')
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe('')
+  act(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(drive.held()).toBe(false)
+})
+
+it('keeps the profile page up while a search hides its row, as every other row behaves', async () => {
+  const drive = await mount()
+  const you = navRow('HarnessDesk')
+  if (!you) throw new Error('no identity row')
+  act(() => you.click())
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
+  if (!search) throw new Error('no rail search')
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'permissions')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(drive.held()).toBe('profile')
+  expect(container.querySelector('input[aria-label="Your name"]')).not.toBeNull()
 })

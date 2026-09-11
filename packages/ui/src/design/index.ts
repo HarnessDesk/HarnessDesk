@@ -71,6 +71,7 @@ export {
   RowChoice,
   BackLink,
   DetailHead,
+  Face,
 } from './primitives/Kit'
 export { Dialog } from './primitives/Dialog'
 export { Banner, BannerAction, bannerStyles, type BannerTone } from './primitives/Banner'

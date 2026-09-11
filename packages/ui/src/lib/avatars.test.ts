@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { AVATARS, avatarOf, avatarSrc, isAvatarId } from './avatars'
+import { AVATARS, SHIPPED_FACES, avatarOf, avatarSrc, isAvatarId } from './avatars'
 
 /**
  * The picker's table against the folder it draws from.
@@ -39,4 +39,13 @@ it('recognises a stored id only when this build ships it', () => {
   expect(isAvatarId('black')).toBe(false)
   expect(isAvatarId('Wizard')).toBe(false)
   expect(isAvatarId(42)).toBe(false)
+})
+
+it('ships exactly the faces it offers, and not the one it leaves out', () => {
+  expect(SHIPPED_FACES).toEqual(AVATARS.map((entry) => entry.id).sort())
+  expect(SHIPPED_FACES).not.toContain('black')
+})
+
+it('answers anything it does not ship with no picture', () => {
+  for (const stored of ['black', 'pirate', { kind: 'image' }, 42, undefined, null]) expect(avatarSrc(stored)).toBeNull()
 })

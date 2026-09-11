@@ -159,10 +159,11 @@ them in `docs/decisions.md`.
       `packages/adapter-codex/test/fixtures/fake-codex.mjs` signs in as
       `dev@example.com`) or the preview harness (`preview.html`).
     - **Identities are placeholders or the project's public demo persona** —
-      `Jane Doe`, `dev@example.com`, or the `@harnessdesk.app` persona the
-      website's demo and the preview fixture already use — in screenshots,
-      tests, fixtures, docs and commit messages alike. Never a real account's
-      address or handle, and no real person's name beyond that persona.
+      `Jane Doe`, addresses at `example.com` or `acme.dev`, or the persona at
+      `harnessdesk.app` that `packages/ui/src/preview/sidebar-fixture.ts`
+      defines and the website's demo shares — in screenshots, tests, fixtures,
+      docs and commit messages alike. Never a real account's address or
+      handle, and no real person's name beyond that persona.
     - **Check before anything is pushed or posted**: grep the text *and your
       own added lines* for `@`, names, handles and `/Users/` paths, and read
       every image yourself — the seat, the menu, the strip, the name cards. A

@@ -76,11 +76,22 @@ export const isAvatarId = (value: unknown): value is AvatarId =>
   typeof value === 'string' && IDS.has(value)
 
 /**
- * The face's picture. Null only for an id the folder has lost — which the
- * test forbids, and which a caller answers with the default mark rather than
- * a broken image.
+ * The face's picture, for whatever the profile stores. Null for anything this
+ * build does not ship — a later build's face, a picture it keeps, an id the
+ * folder has lost — and a caller answers null with the house mark, never a
+ * broken image.
  */
-export const avatarSrc = (id: AvatarId): string | null => FILES[`${FOLDER}${id}.png`] ?? null
+export const avatarSrc = (id: unknown): string | null =>
+  isAvatarId(id) ? (FILES[`${FOLDER}${id}.png`] ?? null) : null
+
+/**
+ * The faces the bundle carries, by id: what the glob above actually kept.
+ * The test holds it to the table, which is how the `black` exclusion is
+ * checked rather than trusted.
+ */
+export const SHIPPED_FACES: readonly string[] = Object.keys(FILES)
+  .map((file) => file.slice(FOLDER.length, -'.png'.length))
+  .sort()
 
 /** The catalogue entry, for the words that go with a face. */
 export const avatarOf = (id: AvatarId): (typeof AVATARS)[number] | undefined =>

@@ -66,15 +66,27 @@ describe('a change', () => {
 
 describe('what was stored', () => {
   it('reads anything unreadable as the default', () => {
-    for (const raw of [undefined, null, 'Jane', 3, [], {}, { name: 7, avatar: {} }]) {
+    for (const raw of [undefined, null, 'Jane', 3, [], {}, { name: 7 }, { avatar: '' }, { avatar: null }]) {
       expect(readProfile(raw)).toEqual({})
     }
   })
 
-  it('forgets a face this build does not ship', () => {
-    // `black` is in the folder and deliberately not on offer.
-    expect(readProfile({ name: 'Jane', avatar: 'black' })).toEqual({ name: 'Jane' })
-    expect(readProfile({ avatar: 'dragon' })).toEqual({})
+  it('keeps a face this build does not ship, for the build that does', () => {
+    // `black` is in the folder and not on offer here; `pirate` is a later build's.
+    expect(readProfile({ name: 'Jane', avatar: 'black' })).toEqual({ name: 'Jane', avatar: 'black' })
+    expect(readProfile({ avatar: 'pirate' })).toEqual({ avatar: 'pirate' })
+  })
+
+  it('keeps what a later build stored through an edit, because the write is whole', () => {
+    const later = readProfile({ name: 'Jane', avatar: { kind: 'image', src: 'a.png' }, account: { id: 'a1' } })
+    expect(later).toEqual({ name: 'Jane', avatar: { kind: 'image', src: 'a.png' }, account: { id: 'a1' } })
+    expect(applyProfile(later, { name: 'JD' })).toEqual({
+      name: 'JD',
+      avatar: { kind: 'image', src: 'a.png' },
+      account: { id: 'a1' },
+    })
+    // Choosing a face here replaces theirs — a choice, not a loss.
+    expect(applyProfile(later, { avatar: 'dj' })).toEqual({ name: 'Jane', avatar: 'dj', account: { id: 'a1' } })
   })
 
   it('reads a real one back as it was written', () => {

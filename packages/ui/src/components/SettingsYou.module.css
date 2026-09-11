@@ -76,10 +76,10 @@
     0 0 0 4px var(--hd-ring);
 }
 
-/* The name field: room for a first and a last name without the row turning
-   into a form. */
+/* The name field: the width the account nickname field has, so the two Name
+   rows line up from one page to the other. */
 .nameField {
-  width: 240px;
+  width: 220px;
 }
 
 /*

@@ -614,3 +614,30 @@ it('draws you in the face the seat wears — the one you chose, or the house mar
   expect(mark?.querySelector('img')).toBeNull()
   expect(mark?.querySelector('.brand-harnessdesk')).not.toBeNull()
 })
+
+it('draws your face at the cost of anyone else’s row — no subscription of its own', async () => {
+  // Every row already subscribes once, for the theme its Markdown is drawn in;
+  // what is pinned is that your face adds nothing on top of that, so a row of
+  // yours costs what an agent's row costs.
+  const subscriptions = async (from: 'user' | 'agent'): Promise<number> => {
+    const subscribe = vi.fn(() => () => {})
+    const snapshot = { ...emptySnapshot(), status: 'open', profile: { avatar: 'astronaut' } } as AppSnapshot
+    const store = { subscribe, getSnapshot: () => snapshot } as unknown as AppStore
+    // Ten minutes apart, so no row is grouped under another and every one draws a face.
+    const said = Array.from({ length: 3 }, (_, index) => ({
+      id: `m${index}`,
+      at: 20 + index * 600_000,
+      kind: 'message',
+      from: from === 'user' ? { kind: 'user' } : { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' },
+      text: `line ${index}`,
+      state: 'delivered',
+      reason: null,
+    })) as unknown as TeamEntry[]
+    await render(store, said)
+    if (from === 'user') expect(container.querySelectorAll('[data-slot="avatar"] img')).toHaveLength(3)
+    act(() => root.unmount())
+    root = createRoot(container)
+    return subscribe.mock.calls.length
+  }
+  expect(await subscriptions('user')).toBe(await subscriptions('agent'))
+})

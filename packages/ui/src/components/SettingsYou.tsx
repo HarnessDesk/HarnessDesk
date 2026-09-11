@@ -6,7 +6,7 @@ import { NOTICE_KINDS } from '../lib/notice-policy'
 import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-notifications'
 import { FONT_SIZES, installedFaces, TAB_SIZES } from '../lib/editor-prefs'
 import { formatAge } from '../lib/usage'
-import { AVATARS, type AvatarId } from '../lib/avatars'
+import { AVATARS, isAvatarId, type AvatarId } from '../lib/avatars'
 import {
   applyProfile,
   DEFAULT_PROFILE_NAME,
@@ -15,10 +15,10 @@ import {
   profileName,
 } from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
-import { Face } from './ProfileFace'
 import {
   Btn,
   DetailHead,
+  Face,
   Input,
   kit,
   PageHead,
@@ -75,16 +75,35 @@ export const ProfileSection = () => {
     store.setProfile({ name: latest.current })
     setDraft(applyProfile({}, { name: latest.current }).name ?? '')
   }
-  // A reset, or any change from outside the field, puts the field back.
+  // Reset puts the field back itself rather than waiting for the store to
+  // answer. A draft nobody committed would otherwise outlive it — the stored
+  // profile did not change, so nothing would tell the field to — and the
+  // write on the way out below would read the stale draft back into the store.
+  const reset = (): void => {
+    latest.current = ''
+    setDraft('')
+    store.setProfile({ name: null, avatar: null })
+  }
+  // Any change from outside the field puts the field back.
   useEffect(() => setDraft(stored), [stored])
-  // Closing the window, or leaving for another page, is letting go — of an
-  // edit, if there is one. A page opened and closed again writes nothing.
-  useEffect(
-    () => () => {
+  // Leaving is letting go — of an edit, if there is one; a page opened and
+  // closed again writes nothing. Leaving for another page unmounts this one.
+  // A quit or a reload tears the page down without running React's cleanups,
+  // so `pagehide` writes it on the way out too: best effort, because the write
+  // is a message that has to leave before the page does, and a crash writes
+  // nothing at all.
+  useEffect(() => {
+    const letGo = (): void => {
       if (latest.current !== kept.current) store.setProfile({ name: latest.current })
-    },
-    [store],
-  )
+    }
+    window.addEventListener('pagehide', letGo)
+    window.addEventListener('beforeunload', letGo)
+    return () => {
+      window.removeEventListener('pagehide', letGo)
+      window.removeEventListener('beforeunload', letGo)
+      letGo()
+    }
+  }, [store])
 
   // The head previews what is typed, before it is let go.
   const live = applyProfile(profile, { name: draft })
@@ -92,12 +111,12 @@ export const ProfileSection = () => {
   return (
     <>
       <DetailHead
-        mark={<Face avatar={profile.avatar} size={56} />}
+        mark={<Face avatar={profile.avatar} size={44} />}
         name={profileName(live)}
         blurb="Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."
         actions={
           isDefaultProfile(live) ? undefined : (
-            <Btn variant="outline" onClick={() => store.setProfile({ name: null, avatar: null })}>
+            <Btn variant="outline" onClick={reset}>
               Reset to default
             </Btn>
           )
@@ -113,9 +132,10 @@ export const ProfileSection = () => {
               className={styles.nameField}
               value={draft}
               placeholder={DEFAULT_PROFILE_NAME}
-              maxLength={PROFILE_NAME_MAX}
               aria-label="Your name"
-              onChange={(event) => setDraft(event.target.value)}
+              /* Capped by character, the count the store keeps. `maxLength`
+                 counts UTF-16 units, and stopped an emoji name at twenty. */
+              onChange={(event) => setDraft(Array.from(event.target.value).slice(0, PROFILE_NAME_MAX).join(''))}
               onBlur={commit}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') event.currentTarget.blur()
@@ -133,7 +153,7 @@ export const ProfileSection = () => {
       </Rows>
 
       <SectionHead name="Picture" />
-      <FacePicker value={profile.avatar ?? null} onChange={(avatar) => store.setProfile({ avatar })} />
+      <FacePicker value={isAvatarId(profile.avatar) ? profile.avatar : null} onChange={(avatar) => store.setProfile({ avatar })} />
     </>
   )
 }
@@ -151,9 +171,11 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  *
  * One stop on the tab order, not twenty-four: Tab lands on the face you wear,
  * and the arrow keys walk the grid — across, and down a row of eight — the
- * way a radio group has always moved, choosing as they go. A face's name is
- * its label and its description the hover, because twenty-four captions
- * under twenty-four pictures would turn a glance into a read.
+ * way a radio group has always moved, choosing as they go. Home and End are
+ * left out on purpose: in a group that chooses as it moves, a stray Home
+ * would be a silent reset. A face's name is its label and its description the
+ * hover, because twenty-four captions under twenty-four pictures would turn a
+ * glance into a read.
  */
 const FacePicker = ({
   value,
@@ -178,10 +200,6 @@ const FacePicker = ({
         return from + FACE_COLUMNS <= last ? from + FACE_COLUMNS : null
       case 'ArrowUp':
         return from - FACE_COLUMNS >= 0 ? from - FACE_COLUMNS : null
-      case 'Home':
-        return 0
-      case 'End':
-        return last
       default:
         return null
     }
