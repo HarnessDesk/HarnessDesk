@@ -159,6 +159,24 @@ describe('where a draft starts', () => {
     expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'worktree', root: REPO.path, name: 'parser fix' })
     expect(store.getSnapshot().notices.some((notice) => notice.message.includes('already exists'))).toBe(true)
   })
+
+  it('starts a retry in the worktree the first send made, when the agent could not start there', async () => {
+    // The worktree exists once `worktree/create` answers; an agent that then
+    // fails to start must not leave the retry to cut a second one beside it.
+    answers['worktree/create'] = { path: TREE, branch: 'harnessdesk/parser-fix', head: 'abc', isMain: false, managed: true }
+    refused['session/create'] = 'the agent could not start'
+    await store.armWorktree(REPO.path, 'parser fix')
+
+    await store.send([{ type: 'text', text: 'Fix the parser' }])
+    expect(calls('worktree/create')).toHaveLength(1)
+
+    delete refused['session/create']
+    answers['session/create'] = conversation('s-2', TREE)
+    await store.send([{ type: 'text', text: 'Fix the parser' }])
+
+    expect(calls('worktree/create')).toHaveLength(1)
+    expect(calls('session/create').at(-1)).toMatchObject({ options: { cwd: TREE } })
+  })
 })
 
 describe('bringing a worktree back', () => {

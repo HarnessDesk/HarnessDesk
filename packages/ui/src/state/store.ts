@@ -1543,6 +1543,14 @@ export class AppStore {
         })
         cwd = created.path
         void this.loadWorktrees()
+        // The worktree exists now. When it is the draft's armed place, the
+        // draft points at it: an agent that fails to start leaves the draft as
+        // it was, and a retry must start in this worktree, not cut a second
+        // one beside it. A race cuts its own worktrees and touches no draft.
+        const place = this.#snapshot.draftPlace
+        if (place?.kind === 'worktree' && place.root === workspace && place.name === options.worktree) {
+          this.#patch({ draftPlace: { kind: 'existing', path: created.path, branch: created.branch } })
+        }
       }
       // The picks that ride along belong to the runtime the session starts
       // on. The snapshot's draftValues follow the *active* runtime, and a
