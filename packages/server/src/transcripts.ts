@@ -496,6 +496,33 @@ export class TranscriptStore {
     }
   }
 
+  /**
+   * Drops a conversation's last `count` turns from what the store kept,
+   * because the conversation itself dropped them: a rollback. Untold, the
+   * store filled a later read in from the turns it had, and a relaunch
+   * brought the dropped ones back (#156). A write still waiting goes out
+   * first, so the turns counted from the end are the conversation's last,
+   * and a transcript with no turn left is forgotten. It trims the file rather
+   * than writing the host's copy over it, since that copy can be thinner
+   * than the file, or not loaded (review of #236, round 1).
+   */
+  async dropTurns(runtime: RuntimeId, id: SessionId, count: number): Promise<void> {
+    if (!(count > 0)) return
+    const key = keyOf(runtime, id)
+    const pending = this.#pending.get(key)
+    if (pending) {
+      clearTimeout(pending.timer)
+      this.#pending.delete(key)
+      await this.#write(pending.session)
+    }
+    await this.#writes.get(key)?.catch(() => {})
+    const stored = await this.recover(runtime, id)
+    if (!stored) return
+    const kept = Math.max(0, stored.turns.length - count)
+    if (kept === 0) await this.forget(runtime, id)
+    else await this.#write({ ...stored, turns: stored.turns.slice(0, kept) })
+  }
+
   /** Writes whatever is still waiting. Call on shutdown. */
   async flush(): Promise<void> {
     const waiting = [...this.#pending.values()]

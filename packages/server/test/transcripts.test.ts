@@ -432,3 +432,18 @@ test('forgetting a session cancels the write still queued for it', async () => {
     assert.deepEqual(await readdir(dir, { recursive: true }), [])
   })
 })
+
+test('dropping turns trims what the store kept from the end, after a write still waiting, and forgets one with none left (review of #236, round 1)', async () => {
+  await withStore(async (store) => {
+    const three = session([turn('t1', [item('a', 'assistantMessage')]), turn('t2', [item('b', 'assistantMessage')]), turn('t3', [item('c', 'assistantMessage')])])
+    // Recorded and not yet written: the settle delay is still running.
+    store.record(three)
+    await store.dropTurns(three.runtime, three.id, 1)
+    assert.deepEqual((await store.recover(three.runtime, three.id))?.turns.map((entry) => String(entry.id)), ['t1', 't2'])
+    // A rollback of nothing changes nothing.
+    await store.dropTurns(three.runtime, three.id, 0)
+    assert.equal((await store.recover(three.runtime, three.id))?.turns.length, 2)
+    await store.dropTurns(three.runtime, three.id, 2)
+    assert.equal(await store.recover(three.runtime, three.id), null)
+  })
+})

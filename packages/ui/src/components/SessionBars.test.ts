@@ -25,4 +25,16 @@ describe('deliverablesOf', () => {
       { path: 'count.ts', kind: 'update', added: 1, removed: 0 },
     ])
   })
+
+  it('leaves out a file the session made and then removed, as the turn card does (review of #236, round 1)', () => {
+    expect(
+      deliverablesOf(
+        withChanges([
+          { path: 'scratch.cjs', kind: { type: 'add' }, diff: 'x\n' },
+          { path: 'kept.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b\n' },
+          { path: 'scratch.cjs', kind: { type: 'delete' }, diff: 'x\n' },
+        ]),
+      ),
+    ).toEqual([{ path: 'kept.ts', kind: 'update', added: 1, removed: 1 }])
+  })
 })
