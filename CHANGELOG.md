@@ -13,6 +13,20 @@ move is real work and is not news to a person weighing an upgrade.
   settings rail and is one press from the seat's menu. The same face marks
   what you say in a room. “HarnessDesk” and the house mark stay the default,
   and Reset to default puts them back. Kept on this Mac; nothing syncs.
+- **A phone's width has a layout** — in a window narrower than 720px (a
+  browser, or the desktop app zoomed in), the sidebar floats over the
+  conversation instead of leaving it 135px. The header's sidebar button, ⌘B
+  and the palette open it; Escape, a press on the dimmed conversation or
+  choosing somewhere to go puts it away. A panel on the right takes the
+  conversation's width while it is open. Headers fold by their own width —
+  in a narrow pane of a wide window too — so a title keeps room: about 165px
+  at 375px, where it had one. The composer's model control folds its name
+  with the other controls' words instead of clipping it, a banner's actions
+  move under its words, and an approval's answers wrap rather than running
+  off the card. A room's top row now carries the sidebar button and the
+  back and forward arrows when the sidebar is away, and a conversation
+  docked beside the middle no longer draws a second set; a sidebar that is
+  put away can no longer be reached with Tab.
 - **Gemini CLI and Antigravity show the context ring** — Gemini CLI counts a
   turn's tokens in its own slot on the prompt response rather than ACP's
   `usage` field, and Antigravity's server puts none on the wire at all but

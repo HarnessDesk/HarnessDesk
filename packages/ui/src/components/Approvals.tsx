@@ -187,7 +187,7 @@ export const Approvals = () => {
   // An approval interrupts, so the window's attention moves onto the card and
   // goes back to whatever the user was doing once it is answered.
   //
-  // Not for the shortcuts — those are answered on `document` below and never
+  // Not for the shortcuts — those are answered on the window below and never
   // depended on this. It is for Tab and the screen reader, which until now
   // started at the top of the window rather than at the question; and it takes
   // the caret out of a composer the user has stopped looking at, where the
@@ -242,6 +242,18 @@ export const Approvals = () => {
     if (!approval || !focused) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      /* Not for a key something else already spent. This listens on the
+         window, after everything on the document, so a menu open anywhere —
+         the sidebar's account menu, a popover — takes Escape first and says
+         so; on the document, whichever registered first answered, and the
+         Escape that closed a menu also denied the command. A denial cannot
+         be taken back. */
+      if (event.defaultPrevented) return
+      // Not while something covers the card: a sidebar floating over a narrow
+      // window makes the pane inert, and the keys are the sidebar's then —
+      // Escape puts it away rather than denying a command nobody can see, and
+      // a digit typed into its filter is a digit, not an answer.
+      if (surface.current?.closest('[inert]')) return
       if (event.key === 'Escape') {
         event.preventDefault()
         const deny = options.find((option) => option.intent === 'deny') ?? options[options.length - 1]
@@ -255,8 +267,8 @@ export const Approvals = () => {
         if (option) choose(option)
       }
     }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [approval, choose, focused, options])
 
   if (!approval) return null

@@ -465,6 +465,8 @@ export const ContextMenu = ({
   children: ReactNode
 }) => {
   const panel = useRef<HTMLDivElement>(null)
+  // What had focus before the menu took it — see the dismissal below.
+  const previous = useRef<HTMLElement | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const scope = useMemo<Scope>(() => ({ close: onClose, openId, setOpenId }), [onClose, openId])
 
@@ -481,7 +483,11 @@ export const ContextMenu = ({
     }
     el.style.left = `${left}px`
     el.style.top = `${top}px`
-    // The first row takes focus so the keyboard works from the first key.
+    // The first row takes focus so the keyboard works from the first key,
+    // once what had it is noted.
+    if (!el.contains(document.activeElement)) {
+      previous.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
     rowsOf(el)[0]?.focus({ preventScroll: true })
   }, [at])
 
@@ -496,15 +502,27 @@ export const ContextMenu = ({
         onClose()
       }
     }
+    /*
+      Asked to (`returnFocus`), a menu holding focus gives it back on its way
+      out. This one opens at a point, not from a trigger, so it gives focus to
+      whatever had it before the menu took it: the floating sidebar keeps what
+      had focus as the place to come back to, and a row unmounted in between
+      is nowhere.
+    */
+    const onDismiss = (event: Event): void => {
+      const asked = (event as CustomEvent<{ readonly returnFocus?: boolean } | null>).detail?.returnFocus === true
+      if (asked && panel.current?.contains(document.activeElement)) previous.current?.focus({ preventScroll: true })
+      onClose()
+    }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown, true)
-    document.addEventListener(DISMISS_OVERLAYS, onClose)
+    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
     window.addEventListener('resize', onClose)
     window.addEventListener('blur', onClose)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown, true)
-      document.removeEventListener(DISMISS_OVERLAYS, onClose)
+      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
       window.removeEventListener('resize', onClose)
       window.removeEventListener('blur', onClose)
     }

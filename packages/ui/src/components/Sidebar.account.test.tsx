@@ -7,6 +7,7 @@ import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeInfo 
 import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { dismissOverlays } from './Popover'
 import { AccountFooter } from './Sidebar'
 
 /**
@@ -133,6 +134,39 @@ it('ticks the default in the menu, chooses on a seat’s press, and signs out of
   if (!codexSeat) throw new Error('no Codex seat in the menu')
   click(codexSeat)
   expect(selectRuntime).toHaveBeenCalledWith(CODEX)
+})
+
+it('closes when something takes the screen, and a sign-out it was asking about is not waiting when it opens again', () => {
+  /* The floating sidebar sends the event as it is put away. Left open, the
+     menu came back with the sidebar, the sign-out still asking to be
+     confirmed — measured in a real engine. */
+  mount()
+  click(row())
+  const ask = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('Sign out of'),
+  )
+  if (!ask) throw new Error('no sign-out row')
+  click(ask)
+  expect(container.textContent).toContain('need to sign in again')
+
+  act(() => dismissOverlays())
+  expect(container.querySelector('[role="menu"]')).toBeNull()
+
+  click(row())
+  expect(container.querySelector('[role="menu"]')).not.toBeNull()
+  expect(container.textContent).toContain('Sign out of')
+  expect(container.textContent).not.toContain('need to sign in again')
+})
+
+it('Escape closes the menu and says so, so a sidebar floating under it stays', () => {
+  mount()
+  click(row())
+  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => {
+    document.dispatchEvent(event)
+  })
+  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(event.defaultPrevented).toBe(true)
 })
 
 it('dims the badge and colours the dot when the default has no account', () => {

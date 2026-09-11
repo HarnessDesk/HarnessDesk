@@ -6,7 +6,7 @@
  * token for the rest. Growth is absorbed by the token, so the widths below are
  * about the header being narrow — not about how many agents are installed.
  *
- * Two widths, decided by the header itself rather than by the window: the
+ * Three widths, decided by the header itself rather than by the window: the
  * header is the container, so the strip gives way to the session's name in a
  * narrow column even on a wide screen. Each step *folds* rather than trims —
  * the chips go because the token already carries their count, so no width
@@ -159,10 +159,25 @@
 
 /* Narrow: the session's name needs the room. The anchor's bar and the token's
    tone survive; the anchor's figure stays only where it is the whole point.
-   This is a floor for a header in a three-way split, not an ordinary width. */
+   A header in a three-way split, or a window a little narrower than the
+   desktop app can be. */
 @container hd-header (max-width: 520px) {
   .meter:not([data-low]) .figure {
     display: none;
+  }
+}
+
+/* A phone's width. The bar and its tone still say whether the agent is
+   working; the number, low or not, is one press away in the panel the bar
+   opens, and the title would otherwise be the thing that paid for it. */
+@container hd-header (max-width: 400px) {
+  .meter .figure,
+  .rest .figure {
+    display: none;
+  }
+
+  .strip[data-anchored] > *:first-child {
+    margin-right: 0;
   }
 }
 

@@ -11,7 +11,7 @@ import { SessionListControls, SessionTree } from './SessionTree'
 // `sidebar.panel` slot rendered below.
 import './TaskPanel'
 import { Menu, MenuItem, MenuLabel } from './Menu'
-import { Popover } from './Popover'
+import { DISMISS_OVERLAYS, Popover } from './Popover'
 import { accountKey, accountName, accountIdentity, tintOf } from '../lib/accounts'
 import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
@@ -191,6 +191,11 @@ export const Sidebar = ({
             onBlur={() => setFilterFocused(false)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
+                // Spent on the words it clears, and said so: a sidebar floating
+                // over a narrow window stays open for the list the filter just
+                // gave back. An empty filter has nothing to clear, and lets the
+                // key go on to whatever it would have closed.
+                if (query) event.preventDefault()
                 setQuery('')
                 event.currentTarget.blur()
               }
@@ -400,15 +405,31 @@ export const AccountFooter = ({
     }
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        // Spent on the menu, so a sidebar floating over a narrow window stays.
+        event.preventDefault()
         setOpen(false)
         setConfirmingSignOut(false)
       }
     }
+    /*
+      Whatever takes the screen closes it, as it closes every other menu —
+      Settings, Usage, and the sidebar itself as it is put away in a narrow
+      window. Left open, it came back with the sidebar, a sign-out still
+      waiting on its answer. Its rows are inside the sidebar, and a sidebar
+      that finds focus in one gives it back itself, so there is nothing here
+      to hand back.
+    */
+    const onDismiss = (): void => {
+      setOpen(false)
+      setConfirmingSignOut(false)
+    }
     document.addEventListener('pointerdown', close)
     document.addEventListener('keydown', onKey)
+    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
     return () => {
       document.removeEventListener('pointerdown', close)
       document.removeEventListener('keydown', onKey)
+      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
     }
   }, [open])
 

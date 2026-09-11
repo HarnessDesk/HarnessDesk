@@ -155,7 +155,11 @@ const SessionRow = ({
             onBlur={commitRename}
             onKeyDown={(event) => {
               if (event.key === 'Enter') commitRename()
-              if (event.key === 'Escape') setRenaming(false)
+              if (event.key === 'Escape') {
+                // Spent on the rename, so a floating sidebar stays open.
+                event.preventDefault()
+                setRenaming(false)
+              }
             }}
           />
         </div>

@@ -36,6 +36,7 @@ to run one is when its input changed.
 | [`social-preview.mjs`](social-preview.mjs) | The 1280×640 card GitHub shows when a link to the repo is shared. One image, dark — Open Graph has no light/dark mechanism. |
 | [`build-icons.mjs`](build-icons.mjs) · [`cut-avatars.mjs`](cut-avatars.mjs) · [`vendor-fonts.mjs`](vendor-fonts.mjs) | App icons, avatar parts, and the self-hosted font files. |
 | [`copy-fixtures.mjs`](copy-fixtures.mjs) | Copies non-TypeScript test fixtures into `dist/`. Part of `build`, not a thing to run alone. |
+| [`prune-dist.mjs`](prune-dist.mjs) | Removes from `dist/` whatever the compiler built from a source that is gone, since `tsc -b` never does and the test glob would go on running a deleted test. Fails when an output the compiler writes is missing (`tsc -b` will not put back one deleted from under a source it has built), and when a package the build no longer compiles still holds compiled tests. The last step of `build:node`. |
 
 ## Measuring the interface
 
@@ -69,7 +70,9 @@ architecture diagram and the social card all go through it.
 ## Tests
 
 `gates.test.mjs` — run by `pnpm verify` and by CI under
-`node --test "script/*.test.mjs"`.
+`node --test "script/*.test.mjs"`. `prune-dist.test.mjs` runs under the same
+glob: that step deletes files, so each of its tests pairs a removal with
+something that must stay, and one of them drives the real compiler.
 
 They test the **parsers**, which is where these scripts go wrong: a check that
 reads its input incorrectly passes loudly and proves nothing. Two of them have

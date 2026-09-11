@@ -139,8 +139,14 @@ Zed on the way.
 ## Window chrome
 
 Hide-sidebar, back and forward sit on the title-bar row beside the macOS
-traffic lights, and move into the conversation header when the sidebar is
-hidden.
+traffic lights, and move into the header of whatever the middle shows — a
+conversation or a room — whenever the sidebar is not standing beside it: put
+away, floating over a narrow window, or hidden by a panel given the whole
+window, where showing it gives the panel the content area instead. Only the
+middle's own header takes them; a conversation docked beside it, or a member's
+column in a room, does not draw a second set. A header too narrow for all
+three keeps the toggle and folds the arrows, which are still on the sidebar's
+own row.
 
 **Nothing renders under the window buttons**, and *which* row that constrains
 moves: the sidebar's title bar while the sidebar is up, a conversation's header
@@ -487,6 +493,46 @@ up with ten sizes.
 
 ## Windows that are not wide
 
-Below 980px the inspector floats over the conversation instead of taking a
-column it cannot afford, and the sidebar caps at 240px. The reading column
-never collapses.
+The desktop window stops at 720px, and at its ordinary zoom every width it can
+take keeps the layout above. A browser goes narrower — a phone, a tab dragged
+thin — and so does the desktop app zoomed in, whose window is measured in CSS
+pixels. Below that line (`NARROW_WINDOW` in `state/workbench.ts`) a 240px
+column left the conversation 135px, so a narrow window stops standing things
+beside the conversation and lays them over it instead:
+
+- **The sidebar floats.** It leaves the row and the conversation takes the
+  whole width. The header's sidebar button, ⌘B and the palette open it over
+  the conversation, which dims — with the notices floating over it — and
+  cannot be reached until it goes. A menu the conversation had open closes as
+  it opens, as one does for a dialog, and its own menus go with it when it
+  goes. A toast raised meanwhile is drawn above it and stays in reach, as it
+  does over the Settings window; most leave on their own, and an error stays
+  until its × is pressed. Pressing the dim, Escape, or choosing somewhere to
+  go — a conversation, a room, New session — puts it away, and focus comes
+  back to what opened it; an Escape that a menu or a field inside it spent
+  closes only that. It is closed whichever way the line is crossed, and the
+  column comes back as it was left: put away in a wide window, it is still
+  put away when the window is wide again. Open, it clears the macOS window
+  buttons as the row under it does.
+- **A panel on the right takes the conversation's width** while it is open,
+  with no seam to drag, and the conversation beneath it is out of reach as it
+  is under the floating sidebar. Putting it away gives the conversation back.
+- **A header folds by its own width, not the window's**, so a narrow pane in
+  a wide window folds the same way. At 520px the branch's name, the status's
+  word and the tasks chip's words fold to their marks — still read out, and
+  on hover — while the back and forward arrows go, the sidebar's own pair
+  being the way back, and the plan meter shows its figure only when the
+  agent is running low. At 400px a resting status goes, the browser and
+  terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
+  and keeps its browser button — and the plan meter keeps its bar alone, low
+  or not. The title is what all of it protects: at a 375px window it keeps
+  about 165px.
+- **The composer's controls fold to their glyphs** below a 560px toolbar,
+  the model's name with the rest of the words, and below a 320px toolbar —
+  any phone's — their chevrons go too.
+- A banner's actions take a line of their own under its words, and an
+  approval's answers wrap onto as many lines as the card needs.
+
+The reading column never collapses, and nothing is unmounted on the way: the
+floating sidebar is the same sidebar, and a panel over the conversation leaves
+it exactly where it was.
