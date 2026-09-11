@@ -373,6 +373,9 @@
   min-height: 0;
 }
 
+/* Collapsed to its tabs, a panel gives up its share, whether it is a lone
+   stack or a split's strips, as in the workbench (review of #183, round 5). */
+.panel[data-collapsed],
 .strips:has([data-collapsed]) {
   flex: none;
 }

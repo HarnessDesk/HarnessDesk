@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 
 import { ResizeHandle } from '../ui/resize-handle'
 import {
@@ -373,8 +373,27 @@ const Node = (props: NodeProps) =>
 const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
   const [preview, setPreview] = useState<number | null>(null)
   const ratio = preview ?? branch.ratio
+  const box = useRef<HTMLDivElement>(null)
+  /* The seam's pointer half, as the workbench wires it: a delta from where
+     the pointer went down, clamped as the workbench clamps it. Without it the
+     seam wore the resize cursor and moved only for the keyboard (review of
+     #183, round 5). */
+  const grab = useRef<{ at: number; ratio: number; span: number; live: number } | null>(null)
+  const along = (event: { clientX: number; clientY: number }) => (branch.direction === 'row' ? event.clientX : event.clientY)
+  const commit = (next: number) => {
+    rest.setWorkbench((c) => resizeDockSplit(c, rest.area, branch.id, next))
+    setPreview(null)
+  }
+  const stop = (seam: HTMLElement, keep: boolean) => {
+    const held = grab.current
+    if (!held) return
+    grab.current = null
+    seam.removeAttribute('data-dragging')
+    if (keep) commit(held.live)
+    else setPreview(null)
+  }
   return (
-    <div className={styles.split} data-direction={branch.direction}>
+    <div ref={box} className={styles.split} data-direction={branch.direction}>
       <div className={styles.half} style={{ flexBasis: `${ratio * 100}%` }}>
         <Node {...rest} node={branch.first} collapsed={false} />
       </div>
@@ -384,10 +403,25 @@ const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
         label="Resize these panels"
         value={ratio}
         onChange={setPreview}
-        onCommit={(next) => {
-          rest.setWorkbench((c) => resizeDockSplit(c, rest.area, branch.id, next))
-          setPreview(null)
+        onCommit={commit}
+        onPointerDown={(event) => {
+          const bounds = box.current?.getBoundingClientRect()
+          if (!bounds) return
+          event.preventDefault()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          event.currentTarget.setAttribute('data-dragging', '')
+          const span = branch.direction === 'row' ? bounds.width : bounds.height
+          grab.current = { at: along(event), ratio, span, live: ratio }
         }}
+        onPointerMove={(event) => {
+          const held = grab.current
+          if (!held || held.span === 0) return
+          held.live = Math.min(0.85, Math.max(0.15, held.ratio + (along(event) - held.at) / held.span))
+          setPreview(held.live)
+        }}
+        onPointerUp={(event) => stop(event.currentTarget, true)}
+        onPointerCancel={(event) => stop(event.currentTarget, false)}
+        onLostPointerCapture={(event) => stop(event.currentTarget, true)}
       />
       <div className={styles.half} style={{ flexBasis: `${(1 - ratio) * 100}%` }}>
         <Node {...rest} node={branch.second} collapsed={false} />
