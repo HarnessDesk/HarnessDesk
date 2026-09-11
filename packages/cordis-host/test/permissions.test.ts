@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { ExtensionKernel, hostAllowed, pathWithin } from '../src/index.js'
+import { PermissionDenied, PermissionGate } from '../src/permissions.js'
 
 /**
  * The permission engine is the boundary between "plugin system" and "arbitrary
@@ -33,6 +34,19 @@ test('a trailing dot and leading zeros name the same host and port (#172)', () =
   assert.equal(hostAllowed(['localhost:03000'], 'localhost:3000'), true, 'a port written with leading zeros')
   assert.equal(hostAllowed(['*.example.com'], 'example.com.'), false, 'the apex is still not the wildcard')
   assert.equal(hostAllowed(['.'], 'example.com'), false, 'a dot alone names nothing')
+  // Review of #221, round 1: `*.` is not `*` with a dot on it, and a port is its digits, however long.
+  assert.equal(hostAllowed(['*.'], 'evil.com'), false)
+  assert.equal(hostAllowed(['*.'], 'anything.at.all'), false)
+  assert.equal(hostAllowed(['example.com:99999999999999999999'], 'example.com:100000000000000000000'), false)
+})
+
+test("a URL written with the root's trailing dot reaches the gate as its host (review of #221, round 1)", () => {
+  // The dot only ever arrives through URL.hostname: new URL('http://localhost./').hostname is 'localhost.'.
+  const gate = (hosts: string[]) =>
+    new PermissionGate({ network: { hosts } } as unknown as ConstructorParameters<typeof PermissionGate>[0], () => null)
+  assert.doesNotThrow(() => gate(['localhost']).assertNetwork('http://localhost.:3000/'))
+  assert.doesNotThrow(() => gate(['localhost:3000']).assertNetwork('http://localhost.:3000/'))
+  assert.throws(() => gate(['example.com']).assertNetwork('http://localhost.:3000/'), PermissionDenied)
 })
 
 test('ws and wss have their own default ports at the gate (#172)', async (t) => {

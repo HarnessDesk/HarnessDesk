@@ -37,15 +37,21 @@ const splitHost = (value: string): { readonly name: string; readonly port: strin
     return name ? { name, port: bracketed?.[2] ?? null } : null
   }
   const parts = host.split(':')
-  /* A name written with the root's trailing dot is the same host, and a port
-     written with leading zeros is the same port. `URL` keeps the one's dot and
-     drops the other's zeros, so either side spelled that way matched nothing
-     (#172). */
-  const named = (name: string) => name.replace(/\.$/, '')
+  /* A name written with the root's trailing dot is the same host: `URL` keeps
+     a typed dot, so a pattern without it matched nothing, and the other way
+     round (#172). Not `*.`, which is no host with a dot on it, and stripped
+     read as `*`, every host (review of #221, round 1). A port a pattern writes
+     with leading zeros is the same port, compared as its digits, since a
+     number can't tell two long ones apart. `URL` normalises a target's port
+     itself. */
+  const named = (name: string) => {
+    const bare = name.replace(/\.$/, '')
+    return bare === '*' && bare !== name ? '' : bare
+  }
   if (parts.length === 1) return named(host) === '' ? null : { name: named(host), port: null }
   if (parts.length === 2) {
     const [name, port] = parts as [string, string]
-    return named(name) !== '' && /^\d+$/.test(port) ? { name: named(name), port: String(Number(port)) } : null
+    return named(name) !== '' && /^\d+$/.test(port) ? { name: named(name), port: port.replace(/^0+(?=\d)/, '') } : null
   }
   // More than one colon is an IPv6 address written without its brackets.
   const name = /^[0-9a-f:.]+$/.test(host) ? ipv6(`[${host}]`) : null

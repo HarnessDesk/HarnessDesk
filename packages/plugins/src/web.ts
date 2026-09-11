@@ -16,7 +16,21 @@ interface Config {
 const DEFAULT_MAX = 40_000
 
 /** The entities markup escapes text with, and the space. Decoded in one pass: `&amp;` first uncovered a `&lt;` that was then decoded too (#59). */
-const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", '#x27': "'", nbsp: ' ' }
+const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+/**
+ * One entity's text: a named one from the table, or any character by its
+ * number, decimal or hex. `&#x27;` was decoded and `&#38;` wasn't, though the
+ * same argument carried both (review of #221, round 1). A number that names no
+ * character, a surrogate or one past Unicode, stays as written.
+ */
+const decodeEntity = (entity: string, name: string): string => {
+  const lower = name.toLowerCase()
+  const named = ENTITIES[lower]
+  if (named !== undefined) return named
+  const code = lower.startsWith('#x') ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10)
+  return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : entity
+}
 
 /**
  * HTML to readable text.
@@ -33,8 +47,8 @@ export const htmlToText = (html: string): string =>
     .replace(/<\/(p|div|section|article|li|h[1-6]|tr|br)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    // `&apos;` and `&#x27;` are the same quote as `&#39;`, spelled as HTML5 and in hex (#174).
-    .replace(/&(amp|lt|gt|quot|apos|#39|#x27|nbsp);/gi, (entity: string, name: string) => ENTITIES[name.toLowerCase()] ?? entity)
+    // Named or by number, still in one pass: `&apos;` and `&#x27;` are the quote `&#39;` is (#174).
+    .replace(/&(amp|lt|gt|quot|apos|nbsp|#\d{1,7}|#x[0-9a-f]{1,6});/gi, decodeEntity)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()

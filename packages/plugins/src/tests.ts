@@ -75,8 +75,13 @@ export const detectFramework = async (
 /** The failing file:line pairs a stack trace or reporter line gives away. */
 export const extractFailures = (output: string): readonly string[] => {
   const found = new Set<string>()
-  // A runner that forces colour wraps the keyword in escape codes, and a `FAIL` behind one never matched (#174).
-  const plain = output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+  /* A runner that forces colour wraps the keyword in escape codes, and a
+     `FAIL` behind one never matched (#174). Every shape a runner writes goes:
+     CSI with any parameters, the cursor's `?25l` among them; OSC to BEL or to
+     ESC-backslash, which is how vitest and jest write a file link; and the
+     two-byte escapes. Plain SGR alone left a hidden cursor in front of `FAIL`
+     and a link's bytes in the entry (review of #221, round 1). */
+  const plain = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g, '')
   /* Each pattern says what its entry is. One ternary served both, and for a
      reporter's own failure line it put the keyword where the file goes
      whenever the description held a digit: `FAIL src/auth.test.ts (15ms)`

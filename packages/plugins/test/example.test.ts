@@ -78,7 +78,7 @@ test("the example's browse_page decodes a page's entities in one pass (#169)", a
      built by hand would have stayed green whatever `ctx.http.fetch` became
      (review of #207, round 1). The manifest allows any host. */
   const { createServer } = await import('node:http')
-  const page = '<title>Escapes</title><p>&amp;lt;div&amp;gt; &lt;b&gt; &amp;amp; &quot;q&quot;&nbsp;end</p>'
+  const page = '<title>Escapes</title><p>&amp;lt;div&amp;gt; &lt;b&gt; &amp;amp; &quot;q&quot;&nbsp;end it&apos;s &#x27;x&#38;y&#39;</p>'
   const server = createServer((_request, response) => {
     response.writeHead(200, { 'content-type': 'text/html' })
     response.end(page)
@@ -101,7 +101,8 @@ test("the example's browse_page decodes a page's entities in one pass (#169)", a
   const result = await kernel.invokeTool(tool.id, { url: `http://127.0.0.1:${port}/` }, {})
   if (!result.ok) throw new Error(result.error)
   const read = result.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
-  assert.equal(read.split('\n').at(-1), 'Escapes &lt;div&gt; <b> &amp; "q" end')
+  // Review of #221, round 1: the example reads `&apos;` and any character by its number, as the kernel does.
+  assert.equal(read.split('\n').at(-1), 'Escapes &lt;div&gt; <b> &amp; "q" end it\'s \'x&y\'')
 })
 
 test('the example manifest is the shape a plugin author would copy', async () => {

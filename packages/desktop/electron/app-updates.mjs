@@ -105,7 +105,7 @@ export const attachAppUpdates = ({
       : {
           ...menuFor(phase, readyVersion),
           click: () => {
-            if (menuFor(phase, readyVersion).action === 'install') updater.quitAndInstall()
+            if (menuFor(phase, readyVersion).action === 'install') install()
             else check(true)
           },
         }
@@ -124,6 +124,22 @@ export const attachAppUpdates = ({
       })
   }
 
+  /* The one way an update is installed, from the menu or from the offer.
+     `quitAndInstall` can throw, and from the menu nothing caught it: the shell
+     read it as a crash and relaunched, the update was still there, and a
+     second click inside a minute made the crash policy give up (#175, review
+     of #221, round 1). A failure is logged under its own name and said,
+     because silence after a click reads as broken. */
+  const install = () => {
+    try {
+      updater.quitAndInstall()
+    } catch (error) {
+      const reason = String(error?.message ?? error)
+      log('app update install failed', { error: reason })
+      ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] })
+    }
+  }
+
   /** What a downloaded update offers: restart now, or let it install at the next quit. */
   const offerRestart = () => {
     ask(
@@ -137,7 +153,7 @@ export const attachAppUpdates = ({
         cancelId: 1,
       },
       (choice) => {
-        if (choice === 0) updater.quitAndInstall()
+        if (choice === 0) install()
       },
     )
   }

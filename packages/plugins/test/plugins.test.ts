@@ -1018,6 +1018,9 @@ test('htmlToText decodes each entity once, so escaped markup stays escaped', () 
   // #59: `&amp;` went first, and the `&lt;` it uncovered was decoded again.
   assert.equal(htmlToText('&amp;lt;div&amp;gt;'), '&lt;div&gt;')
   assert.equal(htmlToText('Fish &amp; chips &lt;3 &#39;n&#39; &quot;more&quot;&nbsp;!'), `Fish & chips <3 'n' "more" !`)
+  // Review of #221, round 1: any character by its number, decimal or hex, still once, and a number that names none stays.
+  assert.equal(htmlToText('&#38;lt; &#x3C;b&#x3e; &#x27;q&apos;'), `&lt; <b> 'q'`)
+  assert.equal(htmlToText('&#xD800; &#1114112;'), '&#xD800; &#1114112;')
 })
 
 test('htmlToText reads entities in any case, leaves unknown ones alone, and decodes each once', () => {

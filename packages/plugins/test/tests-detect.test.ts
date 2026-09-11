@@ -79,3 +79,10 @@ test('failure lines are read through colour, cut at 160 characters, and stop at 
   // A line both patterns read gives both: its file and line, and its description.
   assert.deepEqual(extractFailures('FAIL src/auth.test.ts:42 (15ms)'), ['src/auth.test.ts:42', 'src/auth.test.ts:42 (15ms)'])
 })
+
+test('a failure line keeps its place through the escapes runners write around it (review of #221, round 1)', () => {
+  const ESC = String.fromCharCode(27)
+  // The cursor hidden before the colour, and a file written as an OSC 8 link, as vitest and jest write one.
+  assert.deepEqual(extractFailures(`${ESC}[?25l${ESC}[31m FAIL ${ESC}[39m src/auth.test.ts`), ['src/auth.test.ts'])
+  assert.deepEqual(extractFailures(`FAIL ${ESC}]8;;file:///w/src/auth.test.ts${ESC}\\src/auth.test.ts:42${ESC}]8;;${ESC}\\`), ['src/auth.test.ts:42'])
+})

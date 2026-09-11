@@ -268,9 +268,37 @@ test('an answer that throws is logged, not left to crash the shell (#175)', asyn
     await new Promise((resolve) => setImmediate(resolve))
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(unhandled, [])
-    assert.ok(logged.includes('app update dialog failed'))
+    assert.ok(logged.includes('app update install failed'), 'logged as the install, not the dialog')
     flow.dispose()
   } finally {
     process.off('unhandledRejection', onUnhandled)
   }
+})
+
+test('Restart to Update from the menu that fails is logged and said, not left to crash the shell (review of #221, round 1)', () => {
+  // The menu is the usual way to install, and its click called quitAndInstall with nothing around it.
+  const updater = fakeUpdater()
+  updater.quitAndInstall = () => {
+    throw new Error('the bundle is gone')
+  }
+  const logged = []
+  const dialogs = []
+  const flow = attachAppUpdates({
+    updater,
+    env: {},
+    packaged: true,
+    version: '0.1.0',
+    onMenu: () => {},
+    showDialog: (request) => {
+      dialogs.push(request)
+      return Promise.resolve(0)
+    },
+    log: (message) => logged.push(message),
+  })
+  updater.emit('update-downloaded', { version: '0.2.0' })
+  assert.equal(flow.menu().label, 'Restart to Update (0.2.0)')
+  assert.doesNotThrow(() => flow.menu().click())
+  assert.ok(logged.includes('app update install failed'))
+  assert.equal(dialogs.at(-1)?.type, 'error')
+  flow.dispose()
 })
