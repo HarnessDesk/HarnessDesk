@@ -1067,7 +1067,12 @@ test('a URL split across two reads is handed out whole (#178)', async () => {
   assert.equal((await login).url, 'https://example.com/device?code=42')
 })
 
-test('a URL with nothing after it is handed out once the command goes quiet (#178)', async () => {
+test('a URL with nothing after it is handed out once the command goes quiet (#178)', async (t) => {
+  /* The settle timer is unref'd, like the URL timeout, so a stuck sign-in never holds the host open, and this
+     fake holds nothing: on Node 22 the loop emptied before the timer fired, and the runner cancelled this test
+     and every one after it (CI did, on 7b3461f9). The test holds the loop open, as a real child's pipes would. */
+  const hold = setInterval(() => {}, 1_000)
+  t.after(() => clearInterval(hold))
   const child = fakeChild()
   const account = new CliAccount(
     { status: { command: 'unused' }, login: { command: 'hd-missing' } },
