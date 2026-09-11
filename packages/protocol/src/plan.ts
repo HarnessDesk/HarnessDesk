@@ -63,6 +63,7 @@ const OPEN = new Set([
   'blocked',
   'incomplete',
   'incompleted',
+  'uncomplete',
   'uncompleted',
   'unfinished',
   'undone',
@@ -108,7 +109,8 @@ export const planStatus = (value: unknown): PlanStatus | null => {
   // `in` negates only the `complete` after it: split by case or a separator,
   // `inComplete` is two words, and `in` alone is `in_progress`'s (review, round 1).
   const negated = (word: string, at: number): boolean =>
-    NEGATIONS.has(word) || (word === 'in' && (words[at + 1] ?? '').startsWith('complete'))
+    // `complete` and its tenses, not `completely`: "in completely wrong state" isn't a status (#173).
+    NEGATIONS.has(word) || (word === 'in' && /^complete[ds]?$/.test(words[at + 1] ?? ''))
   if (words.some(negated)) return 'pending'
   if (words.some((word) => DONE.has(word))) return 'done'
   if (words.some((word) => RUNNING.has(word))) return 'inProgress'

@@ -242,3 +242,35 @@ test('a dialog that fails is logged, not left to crash the shell', async () => {
     process.off('unhandledRejection', onUnhandled)
   }
 })
+
+test('an answer that throws is logged, not left to crash the shell (#175)', async () => {
+  // The dialog answered Restart Now, and quitAndInstall threw.
+  const updater = fakeUpdater()
+  updater.quitAndInstall = () => {
+    throw new Error('the installer is gone')
+  }
+  const logged = []
+  const unhandled = []
+  const onUnhandled = (reason) => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const flow = attachAppUpdates({
+      updater,
+      env: {},
+      packaged: true,
+      version: '0.1.0',
+      onMenu: () => {},
+      showDialog: () => Promise.resolve(0),
+      log: (message) => logged.push(message),
+    })
+    updater.emit('update-downloaded', { version: '0.2.0' })
+    flow.check(true)
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(unhandled, [])
+    assert.ok(logged.includes('app update dialog failed'))
+    flow.dispose()
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})

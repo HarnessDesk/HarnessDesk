@@ -75,6 +75,8 @@ export const detectFramework = async (
 /** The failing file:line pairs a stack trace or reporter line gives away. */
 export const extractFailures = (output: string): readonly string[] => {
   const found = new Set<string>()
+  // A runner that forces colour wraps the keyword in escape codes, and a `FAIL` behind one never matched (#174).
+  const plain = output.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
   /* Each pattern says what its entry is. One ternary served both, and for a
      reporter's own failure line it put the keyword where the file goes
      whenever the description held a digit: `FAIL src/auth.test.ts (15ms)`
@@ -86,7 +88,7 @@ export const extractFailures = (output: string): readonly string[] => {
     [/^\s*(FAIL|FAILED|✗|✖|not ok)\s+(.+)$/gm, (match) => (match[2] ?? '').trim()],
   ]
   for (const [pattern, entryOf] of patterns) {
-    for (const match of output.matchAll(pattern)) {
+    for (const match of plain.matchAll(pattern)) {
       const entry = entryOf(match)
       if (entry && !entry.includes('node_modules')) found.add(entry.slice(0, 160))
       if (found.size >= 20) return [...found]

@@ -127,7 +127,9 @@ export const applyLineEdits = (source: string, edits: readonly EditorEdit[]): st
        they always had, the later one last (review, round 3). */
     .sort(
       (a, b) =>
-        b.from - a.from || (a.to < a.from && b.to < b.from ? b.asked - a.asked || b.index - a.index : 0),
+        // Equal lines tie by ===: `Infinity - Infinity` is NaN, and the tie held only because NaN is falsy (#173).
+        b.from - a.from ||
+        (a.to < a.from && b.to < b.from ? (a.asked === b.asked ? 0 : b.asked - a.asked) || b.index - a.index : 0),
     )
   for (const edit of ordered) {
     // `text: ''` deletes; anything else replaces, and a multi-line

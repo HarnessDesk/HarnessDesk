@@ -115,9 +115,13 @@ export const attachAppUpdates = ({
      as a crash and relaunches, so a dialog that fails, say because its window
      closed under it, is logged and read as no answer (review, round 1). */
   const ask = (request, onAnswer = () => {}) => {
-    void showDialog(request).then(onAnswer, (error) => {
-      log('app update dialog failed', { error: String(error?.message ?? error) })
-    })
+    /* An answer that throws is caught the same way: the only one calls
+       quitAndInstall, and a throw from it read as a crash too (#175). */
+    void showDialog(request)
+      .then(onAnswer)
+      .catch((error) => {
+        log('app update dialog failed', { error: String(error?.message ?? error) })
+      })
   }
 
   /** What a downloaded update offers: restart now, or let it install at the next quit. */

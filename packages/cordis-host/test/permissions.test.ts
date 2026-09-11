@@ -27,6 +27,43 @@ test('host matching allows exact names and one wildcard label', () => {
   assert.equal(hostAllowed([], 'api.example.com'), false, 'empty list denies')
 })
 
+test('a trailing dot and leading zeros name the same host and port (#172)', () => {
+  assert.equal(hostAllowed(['example.com'], 'example.com.'), true, "a name written with the root's dot")
+  assert.equal(hostAllowed(['example.com.'], 'example.com'), true)
+  assert.equal(hostAllowed(['localhost:03000'], 'localhost:3000'), true, 'a port written with leading zeros')
+  assert.equal(hostAllowed(['*.example.com'], 'example.com.'), false, 'the apex is still not the wildcard')
+  assert.equal(hostAllowed(['.'], 'example.com'), false, 'a dot alone names nothing')
+})
+
+test('ws and wss have their own default ports at the gate (#172)', async (t) => {
+  // Only http had been tried through the gate. A fetch of a ws: URL fails after the gate, which is all this needs.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  const fetcher = (id: string, hosts: string[], url: string) =>
+    kernel.load({
+      manifest: { id, name: id, permissions: { network: { hosts } } },
+      plugin: {
+        name: id,
+        inject: ['tools', 'http'],
+        apply(ctx: any) {
+          ctx.tools.register({ name: id, description: '', inputSchema: {}, execute: async () => (await ctx.http.fetch(url)).body })
+        },
+      },
+    })
+  await fetcher('ws_80', ['127.0.0.1:80'], 'ws://127.0.0.1/')
+  await fetcher('wss_80', ['127.0.0.1:80'], 'wss://127.0.0.1/')
+  await fetcher('wss_443', ['127.0.0.1:443'], 'wss://127.0.0.1/')
+  await settle()
+  const call = async (tool: string) => {
+    const result = await kernel.invokeTool(kernel.list('tool').find((entry) => entry.name === tool)!.id, {}, {})
+    return result.ok ? 'ok' : result.error
+  }
+  const denied = /is not in this plugin's allowed hosts/
+  assert.doesNotMatch(await call('ws_80'), denied, 'ws: is port 80 to the gate')
+  assert.match(await call('wss_80'), denied, 'and wss: is not')
+  assert.doesNotMatch(await call('wss_443'), denied, 'wss: is port 443')
+})
+
 test('path containment rejects lookalike siblings and escapes', () => {
   assert.equal(pathWithin('/work', '/work/src/a.ts'), true)
   assert.equal(pathWithin('/work', '/work'), true)

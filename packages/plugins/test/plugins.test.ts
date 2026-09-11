@@ -1025,4 +1025,6 @@ test('htmlToText reads entities in any case, leaves unknown ones alone, and deco
   assert.equal(htmlToText('&AMP; &Lt; &QUOT;x&quot;'), '& < "x"')
   assert.equal(htmlToText('&copy; &bogus; &amp;&amp;'), '&copy; &bogus; &&')
   assert.equal(htmlToText('&amp;amp;lt;'), '&amp;lt;')
+  // #174: the HTML5 and hex spellings of the same quote.
+  assert.equal(htmlToText('it&apos;s &#x27;quoted&#X27;'), "it's 'quoted'")
 })

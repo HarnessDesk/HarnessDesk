@@ -130,3 +130,12 @@ test('a line JavaScript would coerce is refused as well, and replacements on one
   assert.equal(applyLineEdits('one\n', [{ fromLine: 1, toLine: null as unknown as number, text: 'x' }]), 'x\n', 'a null toLine is no toLine')
   assert.equal(applyLineEdits('one\ntwo\n', [{ fromLine: 0, text: 'FIRST' }, { fromLine: 1, text: 'SECOND' }]), 'SECOND\ntwo\n')
 })
+
+test('two appends at Infinity keep the order given (#173)', () => {
+  // They tied as Infinity - Infinity, which is NaN; the order held only because NaN is falsy.
+  const edits = [
+    { fromLine: Number.POSITIVE_INFINITY, text: 'A' },
+    { fromLine: Number.POSITIVE_INFINITY, text: 'B' },
+  ]
+  assert.equal(applyLineEdits('one\n', edits), 'one\nA\nB\n')
+})
