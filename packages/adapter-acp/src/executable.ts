@@ -1,8 +1,6 @@
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
-import { promisify } from 'node:util'
 import { whichOnPath as findOnPath } from './which.js'
-
 
 /**
  * The agent CLI behind a bridge.

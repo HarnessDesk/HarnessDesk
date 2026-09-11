@@ -128,7 +128,7 @@ const CALL_BEFORE = /\brequest\(\s*$/
 /** `sources` are texts, or `{ file, text }` so that each is parsed as what it is. */
 export const reachedBy = (methods, sources) => {
   const text = sources
-    .map((source) => (typeof source === 'string' ? withoutComments(source) : withoutComments(source.text, source.file)))
+    .map((source) => (typeof source === 'string' ? withoutComments(source) : withoutComments(source.text, source.file, { strict: true })))
     .join('\n')
   return new Set(
     methods.filter((method) => {

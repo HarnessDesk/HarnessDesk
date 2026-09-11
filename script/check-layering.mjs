@@ -181,11 +181,31 @@ const DOCUMENTATION = /packages\/ui\/src\/design\/(explorer|showcase)\//
  *
  * A block comment keeps its line breaks, so a line number read from the result
  * is the file's own. Pass the file's name: `.ts` and `.tsx` parse differently,
- * and `<T>(x: T) => x` is a generic arrow in one and a JSX tag in the other.
+ * and `<T>(x: T) => x` is a generic arrow in one and a JSX tag in the other. A
+ * `.js`, `.mjs` or `.cjs` is read as JavaScript, JSX allowed: as TypeScript,
+ * `</p> // note` was a regex literal, and the comment stayed (review of #228,
+ * round 1).
+ *
+ * A gate reading a real file asks for `strict`, which refuses a file the parser
+ * could not read, by name, rather than strip what it guessed: a recovered
+ * parse can leave a comment inside a token, where nothing here reaches it.
  */
-export const withoutComments = (source, fileName = 'source.ts') => {
-  const kind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind)
+const kindOf = (fileName) =>
+  /\.tsx$/.test(fileName)
+    ? ts.ScriptKind.TSX
+    : /\.jsx$/.test(fileName)
+      ? ts.ScriptKind.JSX
+      : /\.[cm]?js$/.test(fileName)
+        ? ts.ScriptKind.JS
+        : ts.ScriptKind.TS
+
+export const withoutComments = (source, fileName = 'source.ts', { strict = false } = {}) => {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kindOf(fileName))
+  const problem = strict ? file.parseDiagnostics?.[0] : undefined
+  if (problem) {
+    const { line } = file.getLineAndCharacterOfPosition(problem.start ?? 0)
+    throw new Error(`${fileName}:${line + 1}: TypeScript could not parse this file (${ts.flattenDiagnosticMessageText(problem.messageText, ' ')}), so its comments can't be told from its code`)
+  }
   const comments = new Map()
   const visit = (node) => {
     // A doc comment's own nodes sit inside the comment; the token it documents
@@ -223,7 +243,7 @@ export const withoutComments = (source, fileName = 'source.ts') => {
 /** Each file is parsed once, however many rules read it. */
 const stripped = new Map()
 const codeOf = (file) => {
-  if (!stripped.has(file)) stripped.set(file, withoutComments(readFileSync(file, 'utf8'), file))
+  if (!stripped.has(file)) stripped.set(file, withoutComments(readFileSync(file, 'utf8'), file, { strict: true }))
   return stripped.get(file)
 }
 

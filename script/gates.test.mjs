@@ -716,3 +716,20 @@ test("a .tsx caller is parsed as TSX, so a call after a // in JSX text still cou
   const source = "const A = () => <p>see // {request('team/state')}</p>\n"
   assert.deepEqual([...reachedBy(['team/state'], [{ file: 'a.tsx', text: source }])], ['team/state'])
 })
+
+test('a .js file is read as JavaScript, JSX and all, so a comment after a tag goes (review of #228, round 1)', () => {
+  // Read as TypeScript, `</p> // Codex` was a regex literal and the comment stayed.
+  assert.doesNotMatch(withoutComments('const A = () => <p>x</p> // Codex\n', 'r.js'), /Codex/)
+  assert.doesNotMatch(withoutComments('const a = 1 // Codex\n', 'r.cjs'), /Codex/)
+})
+
+test('a file TypeScript could not parse is refused by name when a gate reads it (review of #228, round 1)', () => {
+  assert.throws(() => withoutComments('const = ;\n', 'bad.ts', { strict: true }), /bad\.ts:1: TypeScript could not parse this file/)
+  // Leniently, what a test hands it is still stripped: an unterminated comment at the end is a comment.
+  assert.doesNotMatch(withoutComments('const a = 1 /* Codex', 'fine.ts'), /Codex/)
+})
+
+test("code the old pattern deleted stays: a // in a regex literal, and a comment in a template's text (review of #228, round 1)", () => {
+  assert.ok(withoutComments("const path = uri.replace(/^file:\\/\\//, '')\n").includes("/^file:\\/\\//, '')"))
+  assert.ok(withoutComments('const page = `/** Fields whose value must never leave the page */ keep`\n').includes('Fields whose value'))
+})

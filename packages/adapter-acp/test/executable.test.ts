@@ -61,7 +61,9 @@ test('a CLI that cannot print a version is still driven', async () => {
   assert.deepEqual(found, { path: '/x/agent', version: null })
 })
 
-test('with no lookup given, a CLI on PATH is found by walking PATH (#129)', async (t) => {
+// The fake CLI has no extension and is marked executable, and Windows reads neither: there the walk rightly
+// looks only for PATHEXT names, as the server's own test of it says (review of #228, round 1).
+test('with no lookup given, a CLI on PATH is found by walking PATH (#129)', { skip: process.platform === 'win32' }, async (t) => {
   const { chmodSync, mkdtempSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
