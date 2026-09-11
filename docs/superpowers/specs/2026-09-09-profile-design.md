@@ -120,12 +120,16 @@ which is how a room row's own tile holds it.
   put in rather than by lengths: typing into a full field changes nothing, a
   paste keeps as much of itself as fits and never pushes the end of the name
   out, a deletion always goes through, and the caret goes back after what went
-  in. The first Escape takes an edit back; the next one is the window's.
+  in. A name a later build let run past forty can be shortened any way in the
+  field, and what is kept when it is let go is cut to forty — so a single
+  Backspace on a sixty-character name keeps its first forty. The first Escape takes an edit back; the next one is the window's.
 - **Picture**: Default and the twenty-three faces as one radio group, eight to
   a row — three even rows. One tab stop, the arrow keys walk the grid and
   choose as they go. Home and End are left out on purpose: in a group that
   chooses as it moves, a stray Home would be a silent reset — and for the same
-  reason an arrow with nowhere to go does nothing, at every edge. A face's name is its label
+  reason an arrow with nowhere to go — Left on the first face, Right on the
+  last, Up on the top row, Down on the bottom one — does nothing, and keeps the
+  key from the page; otherwise Left and Right run on across the rows. A face's name is its label
   and its line from the catalogue is the hover: twenty-four captions would
   turn a glance into a read. A face this build cannot draw — one a later build
   stored — checks no tile at all, and a note under the grid, which is the

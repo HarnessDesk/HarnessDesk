@@ -74,7 +74,10 @@ export const ProfileSection = () => {
   kept.current = stored
   const commit = (): void => {
     // Let go without an edit, the field writes nothing: a name a later build
-    // wrote to its own rules survives being looked at.
+    // wrote to its own rules survives being looked at. An edit is held to
+    // this build's: the field lets a longer name be shortened any way — from
+    // the middle, say — and whatever is left when it is let go is cut to
+    // forty, so a single Backspace on a sixty-character name keeps forty.
     if (latest.current === kept.current) return
     store.setProfile({ name: latest.current })
     setDraft(applyProfile({}, { name: latest.current }).name ?? '')
@@ -218,6 +221,8 @@ const editName = (was: string, next: string, caret: number | null): { value: str
 /** Eight to a row: Default and the twenty-three faces make three even rows. */
 const FACE_COLUMNS = 8
 
+const ARROWS: ReadonlySet<string> = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
+
 const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: string; readonly about: string }[] = [
   { id: null, label: 'Default', about: 'The HarnessDesk mark' },
   ...AVATARS,
@@ -230,10 +235,12 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  * and the arrow keys walk the grid — across, and down a row of eight — the
  * way a radio group has always moved, choosing as they go. Home and End are
  * left out on purpose: in a group that chooses as it moves, a stray Home
- * would be a silent reset. For the same reason an arrow with nowhere to go
- * does nothing, at every edge — on the first tile, holding a face this build
- * keeps with nothing checked, a Left that chose would be that same silent
- * reset. A face's name is its label and its description the
+ * would be a silent reset. For the same reason an arrow with nowhere to go —
+ * Left on the first face, Right on the last, Up on the top row, Down on the
+ * bottom one — does nothing, and keeps the key from the page: on the first
+ * tile, holding a face this build keeps with nothing checked, a Left that
+ * chose would be that same silent reset. Otherwise Left and Right run on
+ * across the rows, in reading order. A face's name is its label and its description the
  * hover, because twenty-four captions under twenty-four pictures would turn a
  * glance into a read.
  *
@@ -298,10 +305,13 @@ const FacePicker = ({
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}
             onKeyDown={(event) => {
+              if (!ARROWS.has(event.key)) return
+              // The arrows are the group's even with nowhere to go: left to
+              // the page, one would scroll it under the tile.
+              event.preventDefault()
               const next = step(index, event.key)
               const target = next === null ? undefined : FACE_CHOICES[next]
               if (next === null || !target) return
-              event.preventDefault()
               onChange(target.id)
               buttons.current[next]?.focus()
             }}

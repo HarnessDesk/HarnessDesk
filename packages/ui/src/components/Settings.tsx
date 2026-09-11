@@ -1954,14 +1954,15 @@ export const Settings = ({
   ]
 
   // You, first — found the way every row is: by its label, which is your own
-  // name, and by the words someone looking for the page would type.
+  // name, and by the words someone looking for the page would type. Not
+  // "account": there is no HarnessDesk account, and the word is the agents'.
   const yourName = profileName(snapshot.profile)
   const showYou = matches(
     {
       id: 'profile',
       label: yourName,
       icon: null,
-      keywords: ['profile', 'you', 'me', 'name', 'picture', 'avatar', 'photo', 'face', 'identity', 'account', 'reset'],
+      keywords: ['profile', 'you', 'me', 'name', 'picture', 'avatar', 'photo', 'face', 'identity', 'reset'],
     },
     query,
   )

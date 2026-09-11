@@ -102,3 +102,26 @@ test('a corrupt file still starts fresh — refusal is only for versions', async
   assert.deepEqual(state.workspaces, [])
   assert.ok(store.installId)
 })
+
+test('a preference is replaced whole — the merge is one level deep — and a reload reads the same', async (t) => {
+  // The UI leans on this: the profile is written whole because a name sent
+  // alone replaces the stored profile, and Reset writes `{}` because `{}`
+  // replaces it. A merge one level deeper would keep a face the user reset.
+  const dir = await dirFor()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'state.json')
+  const store = new StateStore(file)
+  await store.load()
+  await store.setPreferences({ theme: 'dark', profile: { name: 'Jane', avatar: 'dj' } })
+  await store.setPreferences({ profile: { name: 'JD' } })
+  assert.deepEqual(store.state.preferences['profile'], { name: 'JD' })
+  await store.setPreferences({ profile: {} })
+  assert.deepEqual(store.state.preferences['profile'], {})
+  // The control: a preference the patch does not name is untouched.
+  assert.equal(store.state.preferences['theme'], 'dark')
+
+  const again = new StateStore(file)
+  await again.load()
+  assert.deepEqual(again.state.preferences['profile'], {})
+  assert.equal(again.state.preferences['theme'], 'dark')
+})

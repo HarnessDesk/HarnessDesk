@@ -289,6 +289,11 @@ it('keeps you in the rail while a search could mean you, and only then', async (
   find('permissions')
   expect(navRow('HarnessDesk')).toBeUndefined()
   expect(navRow('Permissions')).toBeDefined()
+  // There is no HarnessDesk account, so the word finds the pages that do
+  // mean one — an agent's — and not you.
+  find('account')
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(container.textContent).not.toContain('Nothing in settings matches')
 })
 
 it('takes a typed name back on the first Escape, and closes the window on the second', async () => {

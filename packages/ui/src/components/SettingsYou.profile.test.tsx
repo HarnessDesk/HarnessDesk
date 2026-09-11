@@ -91,6 +91,15 @@ const press = (element: Element, key: string): void => {
   })
 }
 
+/** Presses a key as a browser does, cancelable, and says whether the page kept it from its default. */
+const pressed = (element: Element, key: string): boolean => {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+  act(() => {
+    element.dispatchEvent(event)
+  })
+  return event.defaultPrevented
+}
+
 const click = (element: Element): void => {
   act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -243,6 +252,17 @@ it('writes a held name when the window goes away', () => {
   expect(profile()).toEqual({ name: 'Jane' })
 })
 
+it('writes a held name when the window goes with beforeunload alone', () => {
+  // A quit and a navigation do not fire the same event on every platform, so
+  // the page listens for both.
+  const { profile } = mount()
+  type('Jane')
+  act(() => {
+    window.dispatchEvent(new Event('beforeunload'))
+  })
+  expect(profile()).toEqual({ name: 'Jane' })
+})
+
 it('checks no face when it holds one it cannot draw, says so, and keeps it until you choose', () => {
   for (const kept of ['pirate', { kind: 'image', src: 'a.png' }]) {
     const { profile } = mount({ name: 'Jane', avatar: kept })
@@ -294,9 +314,13 @@ it('chooses nothing with an arrow that has nowhere to go', () => {
   const { setProfile, profile } = mount({ avatar: 'pirate' })
   const first = tiles()[0]
   if (!first) throw new Error('no first face')
-  press(first, 'ArrowLeft')
-  press(first, 'ArrowUp')
+  // The group keeps the key even so: an arrow it has no use for would
+  // otherwise scroll the page under the tile, in a window short enough to.
+  expect(pressed(first, 'ArrowLeft')).toBe(true)
+  expect(pressed(first, 'ArrowUp')).toBe(true)
   expect(setProfile).not.toHaveBeenCalled()
+  // A key the group does not use is still the page's.
+  expect(pressed(first, 'Home')).toBe(false)
   expect(profile()).toEqual({ avatar: 'pirate' })
   // The control: a key with somewhere to go still chooses as it moves.
   press(first, 'ArrowRight')
@@ -305,8 +329,8 @@ it('chooses nothing with an arrow that has nowhere to go', () => {
 
 it('chooses nothing with Right or Down on the last face', () => {
   const { setProfile } = mount({ avatar: 'beach' })
-  press(worn(), 'ArrowRight')
-  press(worn(), 'ArrowDown')
+  expect(pressed(worn(), 'ArrowRight')).toBe(true)
+  expect(pressed(worn(), 'ArrowDown')).toBe(true)
   expect(setProfile).not.toHaveBeenCalled()
 })
 
