@@ -252,6 +252,17 @@ test('among many missing outputs, the compiled tests are the ones named first', 
   assert.match(err.text, /^ {2}… and 16 more$/m)
 })
 
+test('a source that arrived after the build is not said to be one the compiler will never rebuild', (t) => {
+  // Measured: build, then add a source, then prune. Its output is missing, and
+  // a plain `tsc -b` compiles it, so the failure must not claim that only
+  // --force can. It names both routes, and the command that covers both.
+  const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index'), 'test/fresh.test.ts'])
+  const err = sink()
+  assert.equal(main(repo, sink(), err), 1)
+  assert.match(err.text, /A source that arrived after the build\s+started is compiled by the next one/)
+  assert.match(err.text, /`pnpm exec tsc -b --force packages\/demo` rebuilds them either way/)
+})
+
 test('a package that has never been built has everything missing and nothing to remove', (t) => {
   const repo = checkout(t, ['src/index.ts'])
   const { removed, missing } = prune(repo)

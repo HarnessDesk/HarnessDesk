@@ -46,10 +46,13 @@
  * test output deleted by hand, or by a mistake in this file, would stop
  * running without a word and stay stopped. So every output the compiler lists
  * for the sources it was given has to be on disk, or this fails and names it.
- * It never repairs one instead: a prune that rebuilt what it found missing
- * would be a second build hidden inside the first, erasing the one trace of
- * its own mistakes. This check is what makes a build step that deletes files
- * acceptable at all.
+ * (An output can also be missing because its source arrived after the
+ * compiler ran: another agent, or a checkout in the middle of a build. The
+ * next build compiles that one. It is named all the same, since until then
+ * `dist` is not what a fresh build writes.) It never repairs one instead: a
+ * prune that rebuilt what it found missing would be a second build hidden
+ * inside the first, erasing the one trace of its own mistakes. This check is
+ * what makes a build step that deletes files acceptable at all.
  *
  * One thing more reaches the test glob than the reference graph: a package
  * dropped from the references, or deleted with its `dist` left behind (`dist`
@@ -106,8 +109,6 @@ const host = {
   },
 }
 
-const configOf = (path) => (path.endsWith('.json') ? path : join(path, 'tsconfig.json'))
-
 /**
  * TypeScript hands back every path with forward slashes, on every platform,
  * and the paths it is compared with here are built by Node with the
@@ -115,6 +116,12 @@ const configOf = (path) => (path.endsWith('.json') ? path : join(path, 'tsconfig
  * and changes nothing where the two already agree.
  */
 const native = (path) => resolve(path)
+
+/**
+ * A reference names a directory or a tsconfig file. Both come back in the
+ * one form, so a project reached both ways is still read once.
+ */
+const configOf = (path) => native(path.endsWith('.json') ? path : join(path, 'tsconfig.json'))
 
 /**
  * Every project `tsc -b` builds from the repo's `tsconfig.json`, its
@@ -278,11 +285,11 @@ export function main(repo, out = process.stdout, err = process.stderr) {
     err.write(
       'The compiler writes these for sources that exist, and they are not in dist:\n\n' +
         listed(repo, shown) +
-        '\n`tsc -b` will not put them back: it reads each project as up to date from its\n' +
-        (tests
-          ? '.tsbuildinfo. And a compiled test that is not there fails nothing: the test\nglob just stops matching it. '
-          : '.tsbuildinfo. ') +
-        `Rebuild with \`pnpm exec tsc -b --force ${rebuild.join(' ')}\`.\n`,
+        '\nA plain `tsc -b` will not put back one whose source was already built: it reads the\n' +
+        'project as up to date from its .tsbuildinfo. (A source that arrived after the build\n' +
+        'started is compiled by the next one.) ' +
+        (tests ? 'And a compiled test that is not there fails\nnothing: the test glob just stops matching it. ' : '') +
+        `\`pnpm exec tsc -b --force ${rebuild.join(' ')}\` rebuilds them either way.\n`,
     )
   }
   if (unowned.length > 0) {
