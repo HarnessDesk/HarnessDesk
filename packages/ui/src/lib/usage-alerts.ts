@@ -1,4 +1,4 @@
-import type { Account, RuntimeId, UsageReport } from '@harnessdesk/protocol'
+import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import {
   bindingLane,
@@ -9,7 +9,7 @@ import {
   pace,
   remainingOf,
 } from './usage'
-import { accountKey, accountName, type AccountPrefsMap } from './accounts'
+import { accountKey, accountName, agentKeyOf, type AccountPrefsMap } from './accounts'
 
 /**
  * When a plan is worth interrupting someone about.
@@ -80,16 +80,27 @@ export const crossings = (
   after: readonly UsageReport[],
   /** The agent's name, and the account's where one is given. */
   nameFor: (runtime: RuntimeId, account: string | null) => string,
+  /** Which agent each runtime belongs to: an account of an agent is a runtime of its own. */
+  runtimes: readonly RuntimeInfo[],
   now: number,
 ): readonly UsageAlert[] => {
   const previous = index(before)
   const alerts: UsageAlert[] = []
   /* An account is named only where its agent reports more than one. A lone
      account's toast reads as it always did, rather than carrying an address
-     in the common case to settle the rare one (review of #216). */
+     in the common case to settle the rare one (review of #216).
+
+     By agent, not by runtime id. A second account of one agent *is* a second
+     runtime — `accounts.add` returns a runtime of its own, and the host caches
+     one report per runtime id — so a set keyed by the runtime id always held
+     exactly one account and this gate could never open. Two Codex accounts
+     crossing the same line both said "Codex — …", and `notice()` drops the
+     second as a repeat (round 2 of #216). `agentKey` is how `runtimeLabel`
+     answers the same question for the sidebar. */
   const accounts = new Map<RuntimeId, Set<string>>()
   for (const report of after) {
-    accounts.set(report.runtime, (accounts.get(report.runtime) ?? new Set<string>()).add(usageAccount(report)))
+    const agent = agentKeyOf(report.runtime, runtimes)
+    accounts.set(agent, (accounts.get(agent) ?? new Set<string>()).add(usageAccount(report)))
   }
 
   for (const report of after) {
@@ -110,7 +121,7 @@ export const crossings = (
           // Named by account as well as agent when the agent has two: two
           // accounts crossing one line said the same sentence, and the toasts
           // dedupe on it (#179).
-          message: `${nameFor(report.runtime, (accounts.get(report.runtime)?.size ?? 0) > 1 && usageAccount(report) ? usageAccount(report) : null)} — ${view.title} is ${threshold}% used${left ? `, ${left}` : ''}${back}.`,
+          message: `${nameFor(report.runtime, (accounts.get(agentKeyOf(report.runtime, runtimes))?.size ?? 0) > 1 && usageAccount(report) ? usageAccount(report) : null)} — ${view.title} is ${threshold}% used${left ? `, ${left}` : ''}${back}.`,
         })
       }
     }
@@ -132,9 +143,14 @@ export const toastName = (
   accounts: readonly Account[],
   prefs: AccountPrefsMap,
 ): string => {
-  if (account === null) return agent
+  if (!account) return agent
   const known = accounts.find((one) => one.label.trim() === account)
-  return `${agent} (${known ? accountName(known, prefs[accountKey(runtime, known)], agent) : account})`
+  const shown = known ? accountName(known, prefs[accountKey(runtime, known)], agent) : account
+  /* An account the runtime cannot name is not an address. `accountName` hands
+     back the agent's own name for an anonymous one, so the toast read "Claude
+     Code (Claude Code)" — the agent twice and the account never (round 2 of
+     #216). A nickname still wins, because then `shown` is the nickname. */
+  return shown === agent ? agent : `${agent} (${shown})`
 }
 
 export interface UsageCondition {

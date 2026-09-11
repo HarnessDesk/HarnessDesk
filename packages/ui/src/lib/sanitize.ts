@@ -38,6 +38,10 @@ const ALLOWED_ATTRIBUTES: Record<string, ReadonlySet<string>> = {
  */
 const DROP_WITH_CONTENT = new Set(['script', 'style', 'iframe', 'object', 'embed', 'noscript'])
 
+/* Built once. The sweep below asks for it at every element past the depth
+   cap, and the set never changes (round 2 of #216). */
+const DROP_SELECTOR = [...DROP_WITH_CONTENT].join(',')
+
 const SAFE_URL = /^(?:https?:|mailto:|file:|#|\/)/i
 
 /** Blocks `expression()`, `url(javascript:…)`, and CSS-driven navigation. */
@@ -75,7 +79,7 @@ export const sanitizeHtml = (html: string): string => {
            script's or a style's content went into the document as visible
            text, the one thing DROP_WITH_CONTENT is there to prevent (review of
            #216). */
-        for (const dropped of child.querySelectorAll([...DROP_WITH_CONTENT].join(','))) dropped.remove()
+        for (const dropped of child.querySelectorAll(DROP_SELECTOR)) dropped.remove()
         child.replaceWith(document.createTextNode(child.textContent ?? ''))
         continue
       }

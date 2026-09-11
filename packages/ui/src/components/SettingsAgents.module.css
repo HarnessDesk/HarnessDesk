@@ -314,6 +314,14 @@
   padding: 16px;
 }
 
+/* The meters are a row of this card, and Kit draws a hairline under every row
+   but the last. This block is not a Kit row, so nothing fell between it and
+   the Credits row and the card read as a meter block with a row stuck to the
+   bottom — the thing the one-card restructure was for (round 2 of #216). */
+.meters:not(:last-child) {
+  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+}
+
 .meter {
   display: flex;
   flex-direction: column;
@@ -349,12 +357,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.credits[data-tone='warn'] {
-  color: var(--hd-warning);
-}
-
+/* `describeLimits` grades a balance good or bad and nothing else, so a `warn`
+   rule here could never match: it is gone rather than left as a colour nobody
+   can reach. And the ink token rather than the fill — `--hd-danger` is a
+   surface colour, and as 13px text on the card it falls under AA, which is
+   what the ink family is for (round 2 of #216). */
 .credits[data-tone='bad'] {
-  color: var(--hd-danger);
+  color: var(--hd-danger-ink);
 }
 
 .meterTrack {

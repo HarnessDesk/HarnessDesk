@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Account, RuntimeId, UsageLane, UsageReport } from '@harnessdesk/protocol'
+import type { Account, RuntimeId, RuntimeInfo, UsageLane, UsageReport } from '@harnessdesk/protocol'
 
 import { accountKey } from './accounts'
 import { conditionFor, crossings, toastName } from './usage-alerts'
@@ -20,7 +20,22 @@ const DAY = 24 * HOUR
 
 const id = (value: string): RuntimeId => value as RuntimeId
 const nameFor = (runtime: RuntimeId, account: string | null = null): string =>
-  `${runtime === id('codex') ? 'OpenAI Codex' : 'Claude Code'}${account ? ` (${account})` : ''}`
+  `${String(runtime).startsWith('codex') ? 'OpenAI Codex' : 'Claude Code'}${account ? ` (${account})` : ''}`
+
+/*
+ * Two accounts of one agent are two runtimes, which is the shape the host
+ * emits: `accounts.add` returns a runtime of its own and the host caches one
+ * report per runtime id. A fixture giving two reports the *same* id is a shape
+ * nothing can produce, and it was the only shape the account tests had (round
+ * 2 of #216).
+ */
+const runtime = (runtimeId: string, agent: string): RuntimeInfo =>
+  ({ id: id(runtimeId), name: 'OpenAI Codex', slot: { agent: id(agent) } }) as unknown as RuntimeInfo
+const RUNTIMES: readonly RuntimeInfo[] = [
+  runtime('codex', 'codex'),
+  runtime('codex-2', 'codex'),
+  runtime('claude', 'claude'),
+]
 
 const lane = (over: Partial<UsageLane> = {}): UsageLane => ({
   id: 'weekly',
@@ -51,7 +66,7 @@ describe('crossings', () => {
   it('announces a line the desk watched being crossed', () => {
     const before = [report('claude', [lane({ usedPercent: 70 })])]
     const after = [report('claude', [lane({ usedPercent: 82 })])]
-    const alerts = crossings(before, after, nameFor, NOON)
+    const alerts = crossings(before, after, nameFor, RUNTIMES, NOON)
     expect(alerts).toHaveLength(1)
     expect(alerts[0]?.message).toBe('Claude Code — Weekly is 80% used, 18% left, back in 2d.')
   })
@@ -60,25 +75,25 @@ describe('crossings', () => {
     const near = NOON + 23 * HOUR + 59 * MINUTE + 40_000
     const before = [report('claude', [lane({ usedPercent: 70, resetsAt: near })])]
     const after = [report('claude', [lane({ usedPercent: 82, resetsAt: near })])]
-    const alerts = crossings(before, after, nameFor, NOON)
+    const alerts = crossings(before, after, nameFor, RUNTIMES, NOON)
     expect(alerts[0]?.message).toBe('Claude Code — Weekly is 80% used, 18% left, back in 1d.')
   })
 
   it('says nothing about a lane it is seeing for the first time', () => {
-    const alerts = crossings([], [report('claude', [lane({ usedPercent: 97 })])], nameFor, NOON)
+    const alerts = crossings([], [report('claude', [lane({ usedPercent: 97 })])], nameFor, RUNTIMES, NOON)
     expect(alerts).toEqual([])
   })
 
   it('says nothing twice: the second reading is already over the line', () => {
     const before = [report('claude', [lane({ usedPercent: 82 })])]
     const after = [report('claude', [lane({ usedPercent: 88 })])]
-    expect(crossings(before, after, nameFor, NOON)).toEqual([])
+    expect(crossings(before, after, nameFor, RUNTIMES, NOON)).toEqual([])
   })
 
   it('crosses both lines at once when a reading jumps past them', () => {
     const before = [report('claude', [lane({ usedPercent: 40 })])]
     const after = [report('claude', [lane({ usedPercent: 96 })])]
-    expect(crossings(before, after, nameFor, NOON).map((alert) => alert.key)).toEqual([
+    expect(crossings(before, after, nameFor, RUNTIMES, NOON).map((alert) => alert.key)).toEqual([
       `claude:weekly:${NOON + 2 * DAY}:80`,
       `claude:weekly:${NOON + 2 * DAY}:95`,
     ])
@@ -87,13 +102,29 @@ describe('crossings', () => {
   it('treats a reset window as a lane it has not seen, not as a fall from 90 to 0', () => {
     const before = [report('claude', [lane({ usedPercent: 90, resetsAt: NOON })])]
     const after = [report('claude', [lane({ usedPercent: 5, resetsAt: NOON + 7 * DAY })])]
-    expect(crossings(before, after, nameFor, NOON)).toEqual([])
+    expect(crossings(before, after, nameFor, RUNTIMES, NOON)).toEqual([])
   })
 
   it('ignores a lane whose usage the source never reported', () => {
     const before = [report('claude', [lane({ usedPercent: 0, usageKnown: false })])]
     const after = [report('claude', [lane({ usedPercent: 99, usageKnown: false })])]
-    expect(crossings(before, after, nameFor, NOON)).toEqual([])
+    expect(crossings(before, after, nameFor, RUNTIMES, NOON)).toEqual([])
+  })
+})
+
+describe('how a toast names an anonymous account (round 2 of #216)', () => {
+  it('names the agent once, not twice', () => {
+    const anonymous = [{ label: 'Signed in', anonymous: true } as unknown as Account]
+    // `accountName` hands back the agent's name for an account the runtime cannot name,
+    // so the address this built was the agent again: "Claude Code (Claude Code)".
+    expect(toastName('Claude Code', id('claude'), 'Signed in', anonymous, {})).toBe('Claude Code')
+    // The controls: a named account still rides along, and so does a nickname.
+    expect(toastName('Claude Code', id('claude'), 'olivia@acme.dev', [], {})).toBe('Claude Code (olivia@acme.dev)')
+    expect(
+      toastName('Claude Code', id('claude'), 'Signed in', anonymous, {
+        [accountKey(id('claude'), anonymous[0] as Account)]: { nickname: 'the work one' },
+      }),
+    ).toBe('Claude Code (the work one)')
   })
 })
 
@@ -101,9 +132,9 @@ describe('crossings for an agent with more than one account (#179)', () => {
   it('names the account, so two accounts crossing one line are two toasts', () => {
     const at = (usedPercent: number) => [
       report('codex', [lane({ usedPercent })], { account: 'work' }),
-      report('codex', [lane({ usedPercent })], { account: 'personal' }),
+      report('codex-2', [lane({ usedPercent })], { account: 'personal' }),
     ]
-    const alerts = crossings(at(70), at(85), nameFor, NOON)
+    const alerts = crossings(at(70), at(85), nameFor, RUNTIMES, NOON)
     expect(alerts.map((alert) => alert.message.split(' — ')[0])).toEqual(['OpenAI Codex (work)', 'OpenAI Codex (personal)'])
     expect(new Set(alerts.map((alert) => alert.message)).size).toBe(2)
   })
@@ -113,6 +144,7 @@ describe('crossings for an agent with more than one account (#179)', () => {
       [report('codex', [lane({ usedPercent: 70 })], { account: null })],
       [report('codex', [lane({ usedPercent: 85 })], { account: '  ' })],
       nameFor,
+      RUNTIMES,
       NOON,
     )
     expect(alerts.map((alert) => alert.message.split(' — ')[0])).toEqual(['OpenAI Codex'])
@@ -124,6 +156,7 @@ describe('crossings for an agent with more than one account (#179)', () => {
       [report('codex', [lane({ id: 'c', usedPercent: 70 })], { account: 'a:b' })],
       [report('codex', [lane({ id: 'b:c', usedPercent: 85 })], { account: 'a' })],
       nameFor,
+      RUNTIMES,
       NOON,
     )
     expect(alerts).toEqual([])
@@ -229,9 +262,9 @@ describe('two accounts on one agent', () => {
     const personal = (usedPercent: number) => report('codex', [lane({ usedPercent })], { account: 'personal' })
     const work = (usedPercent: number) => report('codex', [lane({ usedPercent })], { account: 'work' })
     // Nothing changed for either: nothing to say, although work's 50 came last and personal sits at 90.
-    expect(crossings([personal(90), work(50)], [personal(90), work(50)], nameFor, NOON)).toEqual([])
+    expect(crossings([personal(90), work(50)], [personal(90), work(50)], nameFor, RUNTIMES, NOON)).toEqual([])
     // Personal crossed 80 while work stayed at 90: one alert, and it is personal's.
-    const alerts = crossings([personal(50), work(90)], [personal(85), work(90)], nameFor, NOON)
+    const alerts = crossings([personal(50), work(90)], [personal(85), work(90)], nameFor, RUNTIMES, NOON)
     expect(alerts).toHaveLength(1)
     // The account is quoted in the key (#179).
     expect(alerts[0]?.key).toContain('codex@"personal":')
@@ -243,7 +276,7 @@ describe('a report that names no account', () => {
     // Round 1 of #170: tested against null alone, a payload that left the field out keyed as `codex@undefined`.
     const before = [report('codex', [lane({ usedPercent: 50 })])]
     const after = [{ ...report('codex', [lane({ usedPercent: 85 })]), account: undefined as unknown as null }]
-    expect(crossings(before, after, nameFor, NOON)).toHaveLength(1)
+    expect(crossings(before, after, nameFor, RUNTIMES, NOON)).toHaveLength(1)
   })
 })
 
@@ -253,6 +286,7 @@ describe('which toasts name the account (review of #216)', () => {
       [report('codex', [lane({ usedPercent: 70 })], { account: 'olivia@acme.dev' })],
       [report('codex', [lane({ usedPercent: 85 })], { account: 'olivia@acme.dev' })],
       nameFor,
+      RUNTIMES,
       NOON,
     )
     expect(alerts.map((alert) => alert.message.split(' — ')[0])).toEqual(['OpenAI Codex'])

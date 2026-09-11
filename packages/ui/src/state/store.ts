@@ -1267,7 +1267,7 @@ export class AppStore {
         this.#snapshot.accountsByRuntime[runtime]?.accounts ?? [],
         this.#snapshot.accountPrefs,
       )
-    for (const alert of crossings(before, after, nameFor, Date.now())) {
+    for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, Date.now())) {
       this.notice('warning', alert.message)
     }
   }
@@ -1279,10 +1279,15 @@ export class AppStore {
         'usage/refresh',
         runtime ? { runtime } : {},
       )
-      // One account however it is spelled, as in `usage/updated` (review of #216).
-      const touched = new Set(reports.map((report) => `${report.runtime}:${usageAccount(report)}`))
+      /* One account however it is spelled, as in `usage/updated` (review of
+         #216). The account is quoted, for the reason `laneKey` quotes it: a
+         `:` in a name would otherwise let one account's key read as another's
+         — `a:b` with no account and `a` with account `b` are one string
+         (round 2 of #216). */
+      const keyOf = (report: UsageReport): string => `${report.runtime}:${JSON.stringify(usageAccount(report))}`
+      const touched = new Set(reports.map(keyOf))
       const before = this.#snapshot.usage
-      const kept = before.filter((entry) => !touched.has(`${entry.runtime}:${usageAccount(entry)}`))
+      const kept = before.filter((entry) => !touched.has(keyOf(entry)))
       const usage = [...kept, ...reports]
       this.#patch({ usage })
       this.#announceUsage(before, usage)
