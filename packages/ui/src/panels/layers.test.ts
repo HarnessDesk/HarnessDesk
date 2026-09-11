@@ -66,16 +66,40 @@ it('and the panel body clips, or moving the layer out achieves nothing', () => {
 /** A stylesheet without its comments. */
 const bare = (sheet: string): string => sheet.replace(/\/\*[\s\S]*?\*\//g, '')
 
+/** Each block at-rule in a sheet, whole from its `@` to the brace that closes it. */
+const atRules = (sheet: string): string[] => {
+  const blocks: string[] = []
+  for (let at = sheet.indexOf('@'); at !== -1; at = sheet.indexOf('@', at + 1)) {
+    const open = sheet.indexOf('{', at)
+    // A statement at-rule, `@import` or `@charset`, ends at its semicolon and holds no rules.
+    if (open === -1 || sheet.slice(at, open).includes(';')) continue
+    let depth = 0
+    for (let i = open; i < sheet.length; i += 1) {
+      if (sheet[i] === '{') depth += 1
+      else if (sheet[i] === '}' && --depth === 0) {
+        blocks.push(sheet.slice(at, i + 1))
+        at = i
+        break
+      }
+    }
+  }
+  return blocks
+}
+
+/** A sheet as the flat matcher can read it: no comments, and no at-rule blocks, which it would read into. */
+const flat = (sheet: string): string => atRules(bare(sheet)).reduce((rest, block) => rest.replace(block, ''), bare(sheet))
+
 it('collapses a panel to its tabs in the sidebar only, and the two sheets agree (review of #183, rounds 5 and 6)', () => {
   // The rule matcher below is flat: a [data-collapsed] rule inside an at-rule, or nested in another rule,
-  // would drop out of the comparison without a word. Neither sheet has either, and these lines fail the day
-  // one arrives. Read without comments, so a comment that only mentions an at-rule isn't one (round 7).
+  // would drop out of the comparison without a word. An at-rule holding one fails here, and the rest are taken
+  // out before the matcher reads, as the workbench's reduced-motion block is (#192); nesting fails outright.
+  // Read without comments, so a comment that only mentions an at-rule isn't one (round 7).
   for (const sheet of [host, prototype]) {
-    expect(bare(sheet)).not.toMatch(/@(?:media|supports|container|layer|keyframes)\b/)
-    expect(bare(sheet)).not.toMatch(/\{[^}]*\{|&/)
+    for (const block of atRules(bare(sheet))) expect(block).not.toContain('[data-collapsed]')
+    expect(flat(sheet)).not.toMatch(/\{[^}]*\{|&/)
   }
   const collapsing = (sheet: string) =>
-    [...bare(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    [...flat(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
       .filter((rule) => /flex:\s*none/.test(rule[2] ?? ''))
       .flatMap((rule) => (rule[1] ?? '').split(',').map((selector) => selector.trim()))
       .filter((selector) => selector.includes('[data-collapsed]'))
@@ -88,7 +112,7 @@ it('collapses a panel to its tabs in the sidebar only, and the two sheets agree 
 
 it('both splits give the seam a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {
   const hitArea = (sheet: string) =>
-    [...bare(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    [...flat(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
       .filter((rule) => (rule[1] ?? '').includes('.splitSeam::after'))
       .map((rule) => `${(rule[1] ?? '').trim()} { ${(rule[2] ?? '').trim().replace(/\s+/g, ' ')} }`)
   expect(hitArea(host)).toHaveLength(3)
