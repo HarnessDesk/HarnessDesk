@@ -74,8 +74,8 @@ const run = (command, args) =>
  * longer described. `git merge` had nothing to conflict about, every check
  * here passed against the `node_modules` already on disk, and `main` spent a
  * day where a fresh checkout could not install. CI has run this since it was
- * written — and CI is switched off for this repository, which is what makes
- * this gate the only one.
+ * written, on every pull request, and this is the same command, so a lockfile
+ * that cannot install fails here before it fails there.
  *
  * **It repairs as well as reports**, and that is not a side effect to hide:
  * a working tree that has drifted from the lockfile is brought back to what
@@ -108,10 +108,12 @@ step('node tests', () =>
     'packages/*/dist/test/**/*.test.js',
   ]),
 )
-/* The gates' own parsers. `script/` had no test runner, so the two functions
-   that decide what the layering check and the doc generator *see* were the
-   only code in the repo that nothing could hold — and both were silently
-   wrong. Beside their subject, the way packages/desktop already does it. */
+/* The gates' own parsers, and whatever else in `script/` has a test beside
+   it. `script/` had no test runner, so the two functions that decide what the
+   layering check and the doc generator *see* were the only code in the repo
+   that nothing could hold — and both were silently wrong. Beside their
+   subject, the way packages/desktop already does it. `diagram-pages.test.mjs`
+   runs here too: it holds the rendered diagram pages to their hand patch. */
 step('gate tests', () => run('node', ['--test', 'script/*.test.mjs']))
 step('ui typecheck', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'typecheck']))
 step('ui tests', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'test']))

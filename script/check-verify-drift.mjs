@@ -18,9 +18,10 @@
  * off on the repository until 2026-09-07, and for the fortnight before that
  * every run died in about four seconds on "the job was not started because
  * recent account payments have failed" — which looks identical to a failing
- * build in the UI and is an entirely different fix. While the gate is the only
- * thing running, its list has to stay honest: a command that only ever ran
- * locally is a command that was never really checked.
+ * build in the UI and is an entirely different fix. CI runs on every pull
+ * request now, and the list still has to stay honest: the day it goes dark
+ * again the same way, the gate is the only thing running, and a command that
+ * only ever ran locally is a command that was never really checked.
  */
 
 import { readFileSync } from 'node:fs'

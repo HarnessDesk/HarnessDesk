@@ -195,7 +195,7 @@ every cross-boundary dispatch resolves `namespace/name` against the registry
 and adb are engines a plugin *uses* through `ctx`, each behind its own
 manifest permission with its own install-time sentence ("Control the iOS
 Simulator on this machine"). They share one discipline in
-`cordis-host/src/device-exec.ts`: `execFile` only, mandatory timeouts,
+`packages/cordis-host/src/device-exec.ts`: `execFile` only, mandatory timeouts,
 PNG-to-data-URL screenshots — a hung device must never hang a turn, and every
 screenshot rides the already-proven image-result pipeline.
 
@@ -590,10 +590,10 @@ Three things worth knowing:
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)
 has the argument. What caused a call travels with it across execution
-(`cordis-host/src/provenance.ts`): `tool/invoke` is reached only by agents, and
-`applyEdits` refuses when the cause is an agent. A plugin may write through the
-editor plane on its own initiative or on behalf of the person who installed it,
-never for an agent.
+(`packages/cordis-host/src/provenance.ts`): `tool/invoke` is reached only by
+agents, and `applyEdits` refuses when the cause is an agent. A plugin may write
+through the editor plane on its own initiative or on behalf of the person who
+installed it, never for an agent.
 
 ## Shipping and testing plugins
 
