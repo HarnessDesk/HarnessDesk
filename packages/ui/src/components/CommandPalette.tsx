@@ -8,6 +8,7 @@ import { extractHit } from '../lib/search-highlight'
 import { sessionLabel } from '../lib/sessions'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
+import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
   ArchiveIcon,
@@ -30,26 +31,30 @@ import { summonable } from '../panels/views'
 import type { Section } from './Settings'
 
 /**
- * Every settings page ⌘K can open, by the name on its nav row. The list
- * used to hold four of the fourteen, so "Appearance" typed into the palette
- * found nothing while "Settings › Preferences" opened a page nobody had
- * called that.
+ * Every settings page ⌘K can open, by the name on its nav row, except the
+ * Archive, which the Actions group offers under its own name: people type what
+ * they want back, not where it is filed. The list used to hold four of the
+ * fourteen, so "Appearance" typed into the palette found nothing while
+ * "Settings › Preferences" opened a page nobody had called that. It is keyed by
+ * section now, so a page added to Settings and left out here doesn't compile
+ * (#104).
  */
-const SETTINGS_PAGES: readonly { section: Section; label: string; icon: React.ReactNode; keywords: string }[] = [
-  { section: 'agents', label: 'Agents', icon: <AgentIcon size={14} />, keywords: 'agents accounts sign in' },
-  { section: 'general', label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
-  { section: 'appearance', label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
-  { section: 'notifications', label: 'Notifications', icon: <SlidersIcon size={14} />, keywords: 'notifications banners alerts mute' },
-  { section: 'shortcuts', label: 'Keyboard shortcuts', icon: <SlidersIcon size={14} />, keywords: 'keyboard shortcuts keys bindings' },
-  { section: 'workspaces', label: 'Workspaces', icon: <SlidersIcon size={14} />, keywords: 'workspaces folders projects worktrees' },
-  { section: 'models', label: 'Models', icon: <SlidersIcon size={14} />, keywords: 'models endpoints presets routes' },
-  { section: 'skills', label: 'Skills', icon: <SlidersIcon size={14} />, keywords: 'skills commands hooks' },
-  { section: 'extensions', label: 'Extensions', icon: <SlidersIcon size={14} />, keywords: 'extensions mcp servers apps' },
-  { section: 'library', label: 'Library', icon: <LibraryIcon size={14} />, keywords: 'library skills mcp servers import capabilities across agents' },
-  { section: 'plugins', label: 'Plugins', icon: <PluginIcon size={14} />, keywords: 'plugins tools capabilities' },
-  { section: 'permissions', label: 'Permissions', icon: <SlidersIcon size={14} />, keywords: 'permissions approvals sandbox rules deny allow' },
-  { section: 'browser', label: 'Browser', icon: <SlidersIcon size={14} />, keywords: 'browser pane window profile cookies' },
-]
+const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: React.ReactNode; keywords: string }> = {
+  agents: { label: 'Agents', icon: <AgentIcon size={14} />, keywords: 'agents accounts sign in' },
+  general: { label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
+  appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
+  notifications: { label: 'Notifications', icon: <SlidersIcon size={14} />, keywords: 'notifications banners alerts mute' },
+  shortcuts: { label: 'Keyboard shortcuts', icon: <SlidersIcon size={14} />, keywords: 'keyboard shortcuts keys bindings' },
+  workspaces: { label: 'Workspaces', icon: <SlidersIcon size={14} />, keywords: 'workspaces folders projects worktrees' },
+  models: { label: 'Models', icon: <SlidersIcon size={14} />, keywords: 'models endpoints presets routes' },
+  skills: { label: 'Skills', icon: <SlidersIcon size={14} />, keywords: 'skills commands hooks' },
+  extensions: { label: 'Extensions', icon: <SlidersIcon size={14} />, keywords: 'extensions mcp servers apps' },
+  library: { label: 'Library', icon: <LibraryIcon size={14} />, keywords: 'library skills mcp servers import capabilities across agents' },
+  plugins: { label: 'Plugins', icon: <PluginIcon size={14} />, keywords: 'plugins tools capabilities' },
+  permissions: { label: 'Permissions', icon: <SlidersIcon size={14} />, keywords: 'permissions approvals sandbox rules deny allow' },
+  browser: { label: 'Browser', icon: <SlidersIcon size={14} />, keywords: 'browser pane window profile cookies' },
+}
+const SETTINGS_PAGES = (Object.keys(SETTINGS_PAGE) as Exclude<Section, 'archive'>[]).map((section) => ({ section, ...SETTINGS_PAGE[section] }))
 import styles from './CommandPalette.module.css'
 
 /**
@@ -278,7 +283,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       {
         id: 'sidebar',
         group: 'Actions',
-        label: snapshot.sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar',
+        label: sidebarPlacement(snapshot) === 'away' ? 'Show sidebar' : 'Hide sidebar',
         hint: '⌘B',
         icon: <SidebarIcon size={14} />,
         run: () => {

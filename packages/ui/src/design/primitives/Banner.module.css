@@ -31,6 +31,14 @@
   width: min(400px, calc(100vw - 32px));
 }
 
+/* The room the card is given. Whether its actions fit beside its words is a
+   question about the card's own width, which the card cannot ask of itself —
+   so it is asked of this, a box exactly as wide as the card. */
+.frame {
+  container: hd-banner / inline-size;
+  width: min(var(--hd-column), 100%);
+}
+
 .banner {
   display: flex;
   align-items: center;
@@ -195,4 +203,24 @@
 .banner[data-compact] .dismiss {
   width: 24px;
   height: 24px;
+}
+
+/* Too narrow for the words and the actions side by side, the actions take a
+   line of their own under the words, at the end where they always sit —
+   rather than the words going down to a letter a line beside them, which is
+   what a phone's width got. The icon, the words and the dismiss keep the one
+   centre line. A toast keeps its single row: it carries one line and at most
+   one short action, and its stack is never wider than this anyway. */
+@container hd-banner (max-width: 600px) {
+  .banner:not([data-compact]) {
+    flex-wrap: wrap;
+    row-gap: var(--hd-space-3);
+  }
+
+  .banner:not([data-compact]) .actions {
+    order: 1;
+    flex-basis: 100%;
+    justify-content: flex-end;
+    padding-left: 0;
+  }
 }

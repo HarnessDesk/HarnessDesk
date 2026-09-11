@@ -7,9 +7,15 @@ import { isValidElement, useEffect, useLayoutEffect, useRef, useState, type Reac
  */
 export const DISMISS_OVERLAYS = 'hd:dismiss-overlays'
 
-/** Called by anything that takes the whole window — a dialog, a palette. */
-export const dismissOverlays = (): void => {
-  document.dispatchEvent(new Event(DISMISS_OVERLAYS))
+/**
+ * Called by anything that takes the whole window — a dialog, a palette — and
+ * by a sidebar laid over a narrow window's conversation, both ways.
+ *
+ * `returnFocus` is for a caller that gives focus back, when it goes, to what
+ * had it when it came: a menu holding focus hands it to its trigger first.
+ */
+export const dismissOverlays = ({ returnFocus = false }: { readonly returnFocus?: boolean } = {}): void => {
+  document.dispatchEvent(new CustomEvent(DISMISS_OVERLAYS, { detail: { returnFocus } }))
 }
 import { createPortal } from 'react-dom'
 
@@ -132,6 +138,10 @@ export const Popover = ({
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
+      // Spent here, and said so: whatever this menu opened over — a sidebar
+      // floating over a narrow window — hears that the key was taken, and one
+      // press closes one thing.
+      event.preventDefault()
       setOpen(false)
       trigger.current?.focus()
     }
@@ -141,15 +151,27 @@ export const Popover = ({
       menu left open behind a dialog paints over it and cannot be clicked,
       which reads as a broken window. Nothing else dismisses it: a dialog
       opened from the keyboard is not a pointerdown and not an Escape.
+
+      Asked to (`returnFocus`), a menu holding focus gives it to its trigger
+      on the way out, as Escape does. The floating sidebar asks: it gives
+      focus back, when it goes, to whatever had it when it came, and a row
+      unmounted in between is nowhere to give it back to. Settings and Usage
+      do not — they take no focus of their own, and focus handed to a trigger
+      behind them answered Enter by opening the menu again, above the window.
+      Focus held anywhere else stays put either way.
     */
-    const onDialog = (): void => setOpen(false)
+    const onDismiss = (event: Event): void => {
+      const asked = (event as CustomEvent<{ readonly returnFocus?: boolean } | null>).detail?.returnFocus === true
+      if (asked && panel.current?.contains(document.activeElement)) trigger.current?.focus()
+      setOpen(false)
+    }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener(DISMISS_OVERLAYS, onDialog)
+    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener(DISMISS_OVERLAYS, onDialog)
+      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
     }
   }, [open])
 

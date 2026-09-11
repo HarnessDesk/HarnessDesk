@@ -176,7 +176,11 @@ from rotting.
 ## Testing conventions
 
 - TypeScript Node packages use `node:test` and compile to `dist/test`. The
-  desktop package and gate scripts run `node:test` directly against source `.mjs`.
+  runners glob what was built, and `tsc -b` never deletes an output whose
+  source is gone, so `build:node` ends with `script/prune-dist.mjs`: the
+  next build takes a deleted test out of `dist`, rather than leaving it to
+  go on running against code that has moved on. The desktop package and
+  gate scripts run `node:test` directly against source `.mjs`.
 - The UI uses Vitest with jsdom.
 - Agent tests (Codex, ACP, Claude Code, Cursor) run against scripted fake
   services and peers, never real vendor endpoints: the suite must not need

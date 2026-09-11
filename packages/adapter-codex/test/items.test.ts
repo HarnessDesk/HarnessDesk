@@ -105,6 +105,35 @@ test('dynamic tool calls are tagged with their namespace', () => {
   )
 })
 
+test('a dynamic tool’s result reads as its text and its picture, not as the JSON of its parts (#205)', () => {
+  // The protocol's own parts. Read as MCP content, each fell through to JSON and was drawn as that.
+  const mapped = map({
+    type: 'dynamicToolCall',
+    id: 'call-dyn-2',
+    namespace: 'reports',
+    tool: 'browser_open',
+    arguments: { url: 'http://reports.test/q3' },
+    status: 'completed',
+    contentItems: [
+      { type: 'inputText', text: 'Opened: Quarterly report' },
+      { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+      { type: 'inputAudio', audioUrl: 'https://example.test/brief.mp3' },
+    ],
+    success: true,
+    durationMs: 12,
+  })
+  assert.deepEqual(mapped.type === 'toolCall' ? mapped.result : null, [
+    { type: 'text', text: 'Opened: Quarterly report' },
+    { type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: '' },
+    // Nothing on the desk plays audio, so that part stays as it came, both before and after.
+    { type: 'json', value: { type: 'inputAudio', audioUrl: 'https://example.test/brief.mp3' } },
+  ])
+  assert.deepEqual(map(fixtures.dynamicToolCall).type === 'toolCall' && map(fixtures.dynamicToolCall), {
+    ...map(fixtures.dynamicToolCall),
+    result: [{ type: 'text', text: 'formatted 1 file' }],
+  })
+})
+
 test('compaction and review markers keep their own item types', () => {
   assert.equal(map(fixtures.compaction).type, 'compaction')
   const review = map(fixtures.enteredReview)

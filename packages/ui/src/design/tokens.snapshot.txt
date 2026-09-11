@@ -200,6 +200,7 @@
 --hd-weight-semibold = 600
 --hd-z-base = 0
 --hd-z-dialog = 100
+--hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
 --hd-z-popover = 50
@@ -582,6 +583,7 @@
 --hd-weight-semibold = 600
 --hd-z-base = 0
 --hd-z-dialog = 100
+--hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
 --hd-z-popover = 50
@@ -983,6 +985,7 @@
 --hd-weight-semibold = 600
 --hd-z-base = 0
 --hd-z-dialog = 100
+--hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
 --hd-z-popover = 50
@@ -1384,6 +1387,7 @@
 --hd-weight-semibold = 600
 --hd-z-base = 0
 --hd-z-dialog = 100
+--hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
 --hd-z-popover = 50

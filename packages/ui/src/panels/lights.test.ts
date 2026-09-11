@@ -75,6 +75,15 @@ describe('the row under the macOS window buttons', () => {
     expect(appCss).toMatch(/--hd-titlebar-lights:\s*78px/)
   })
 
+  it('a floating sidebar lies over the corner, so it is given the room whenever there are buttons', () => {
+    // The desktop app zoomed in is narrower than the line in CSS pixels, and
+    // then the sidebar floats over the window's top-left as the column stood
+    // in it — its own toggle and arrows would otherwise sit under the buttons.
+    expect(workbenchCss).toMatch(
+      /\.shell\[data-lights\] \.sidebar\[data-floating\]\s*{\s*--titlebar-inset:\s*var\(--hd-titlebar-lights\)/,
+    )
+  })
+
   it('and only the area holding the corner is given it', () => {
     for (const area of ['sidebar', 'main', 'right', 'bottom']) {
       expect(workbenchCss).toContain(`.shell[data-lights='${area}']`)

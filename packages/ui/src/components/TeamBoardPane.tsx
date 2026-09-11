@@ -938,19 +938,29 @@ const IntentCard = ({
           <button
             type="button"
             onClick={onOpenHolder}
-            title={`Open the conversation ${holderName} is holding this in`}
+            /* Said once. With the conversation loaded, the card on the names
+               says who holds this and opens it, and a native tooltip on the
+               same rest stacks a second box on the card — so there the
+               sentence is the description a screen reader reads instead. With
+               no card to show, it stays the tooltip. */
+            {...(session
+              ? { 'aria-description': `Open the conversation ${holderName} is holding this in` }
+              : { title: `Open the conversation ${holderName} is holding this in` })}
             className="flex w-full items-center gap-1.5 rounded-(--hd-radius-sm) bg-(--hd-muted) px-1.5 py-1 text-left hover:bg-(--hd-hover)"
           >
-            {/* The face is the trigger, as everywhere else. A *session* card
-                rather than a member's: the board knows which conversation
-                holds this and nothing about the room's roster, and the one
-                fact a member card would add — the job — is the card this
-                mark is sitting on. Only when the conversation is open here;
-                a claim by one this renderer has never loaded has nothing to
-                report, and an invented card is worse than none. */}
+            {/* The face and the names, as one trigger: the holder is who a
+                reader rests on, and the name is where they rest. A *session*
+                card rather than a member's: the board knows which
+                conversation holds this and nothing about the room's roster,
+                and the one fact a member card would add — the job — is the
+                card this holder is sitting on. Only when the conversation is
+                open here; a claim by one this renderer has never loaded has
+                nothing to report, and an invented card is worse than none —
+                and then the three fall back into the button's own row, which
+                lays them out the same. */}
             <SessionHoverCard
               session={session ?? null}
-              className="flex"
+              className="flex min-w-0 flex-1 items-center gap-1.5"
               actions={[{ label: 'Open', primary: true, onSelect: onOpenHolder }]}
             >
               <IconTile size="sm" tint={holderTint}>
@@ -960,39 +970,44 @@ const IntentCard = ({
                   <AgentIcon />
                 )}
               </IconTile>
-            </SessionHoverCard>
-            {/* Two names, and neither is allowed to starve the other.
-                `flex-1` on the left with `shrink-0` on the right meant the
-                right one kept every pixel it asked for and the left one paid
-                for all of it — so a Cursor conversation called "checkout
-                tests" drew as `Curs… checkout tests`, with the *harness* cut
-                to four letters to make room for a title that is the less
-                important of the two. Half the row each, both truncating, is
-                the only split that cannot produce that: when either is short
-                the other takes the slack, and when both are long they lose
-                the same amount. */}
-            <span className="min-w-0 flex-1 basis-1/2 truncate text-xs font-medium">
-              {holderName}
-            </span>
-            {/* The conversation's own title, when it is not already the name
-                on the left. Compared against what is *drawn*, not against the
-                nickname: with no nickname the left falls back to the title,
-                and comparing to the nickname printed it twice. */}
-            {session?.title && session.title !== holderName && (
-              /* And below a column width of about thirteen rems it is not
-                 drawn at all. Half a row each is the right split while there
-                 is a row to split; at 176px — five columns inside a room —
-                 half of one is four letters, and `Gam… check…` tells a reader
-                 neither of the two things it was trying to say. The column is
-                 the container that decides, because the pane's width is not
-                 the card's width on a board of five. */
-              <span
-                className="hidden min-w-0 flex-1 basis-1/2 truncate text-right text-xs text-(--hd-muted-foreground) @[13rem]/board-column:inline"
-                title={session.title}
-              >
-                {session.title}
+              {/* Two names, and neither is allowed to starve the other.
+                  `flex-1` on the left with `shrink-0` on the right meant the
+                  right one kept every pixel it asked for and the left one paid
+                  for all of it — so a Cursor conversation called "checkout
+                  tests" drew as `Curs… checkout tests`, with the *harness* cut
+                  to four letters to make room for a title that is the less
+                  important of the two. Half the row each, both truncating, is
+                  the only split that cannot produce that: when either is short
+                  the other takes the slack, and when both are long they lose
+                  the same amount. */}
+              <span className="min-w-0 flex-1 basis-1/2 truncate text-xs font-medium">
+                {holderName}
               </span>
-            )}
+              {/* The conversation's own title, when it is not already the name
+                  on the left. Compared against what is *drawn*, not against the
+                  nickname: with no nickname the left falls back to the title,
+                  and comparing to the nickname printed it twice. No tooltip of
+                  its own, though it truncates: it is drawn only when the
+                  conversation is loaded, so always inside the card's trigger,
+                  and the card's heading is this title, with a card's width to
+                  draw it in — a tooltip as well would be the second box on one
+                  rest that the button's sentence stopped being. The whole of a
+                  long one is in the conversation the button opens. */}
+              {session?.title && session.title !== holderName && (
+                /* And below a column width of about thirteen rems it is not
+                   drawn at all. Half a row each is the right split while there
+                   is a row to split; at 176px — five columns inside a room —
+                   half of one is four letters, and `Gam… check…` tells a reader
+                   neither of the two things it was trying to say. The column is
+                   the container that decides, because the pane's width is not
+                   the card's width on a board of five. */
+                <span
+                  className="hidden min-w-0 flex-1 basis-1/2 truncate text-right text-xs text-(--hd-muted-foreground) @[13rem]/board-column:inline"
+                >
+                  {session.title}
+                </span>
+              )}
+            </SessionHoverCard>
           </button>
         ) : undefined
       }

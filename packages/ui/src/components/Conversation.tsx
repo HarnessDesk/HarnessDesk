@@ -12,7 +12,8 @@ import {
   useSnapshot,
   useStore,
 } from '../state/context'
-import { shownView, terminals } from '../state/workbench'
+import { findPane } from '../state/layout'
+import { shownView, sidebarPlacement, terminals } from '../state/workbench'
 import { summonable } from '../panels/views'
 import { Slot } from '../slots/registry'
 import { Composer } from './Composer'
@@ -392,15 +393,17 @@ const TasksChip = () => {
       data-testid="tasks-chip"
       {...(live ? { 'data-live': '' } : {})}
       aria-pressed={open}
-      title={
+      /* Led by the chip's own words, which a narrow header folds down to its
+         mark: hover is where they are still read. */
+      title={`${tasksChipLabel(split)}. ${
         live
           ? 'Work that keeps going after the turn. Opens the Background tasks panel, with the output.'
           : 'Work that ran after a turn ended. Opens the Background tasks panel, with the output.'
-      }
+      }`}
       onClick={() => store.showView('tasks')}
     >
       {live ? <span className={styles.tasksSpinner} aria-hidden="true" /> : <CheckIcon size={11} />}
-      {tasksChipLabel(split)}
+      <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
     </button>
   )
 }
@@ -411,8 +414,11 @@ const TasksChip = () => {
  * while the first shell is still opening, which is what the second half of a
  * double click is. A second shell is the dock's own + tab; this button never
  * means "one more terminal", so no press of it can leave one behind.
+ *
+ * `folds` lets a narrow header fold it into ⋯ › View. The header says so,
+ * because only the header knows whether there is a ⋯ beside it to fold into.
  */
-export const TerminalToggle = () => {
+export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [opening, setOpening] = useState(false)
@@ -423,6 +429,7 @@ export const TerminalToggle = () => {
     <button
       type="button"
       className={`${styles.headerButton} hd-no-drag`}
+      {...(folds ? { 'data-folds': '' } : {})}
       {...(on ? { 'data-active': '' } : {})}
       onClick={() => {
         if (on) {
@@ -530,12 +537,19 @@ export const Conversation = ({
           a tool pane was in the corner instead, and it left every other header
           in the app printing its title under the buttons. */}
       <header className={`${styles.header} hd-drag`}>
-        {snapshot.sidebarCollapsed && <WindowControls />}
+        {/* The window's own controls, whenever the sidebar is not standing
+            beside this header to carry them: put away, or floating over the
+            conversation in a narrow window. Only the middle's own header takes
+            them — a conversation docked beside it, or a member's column in a
+            room, drew a second set a few inches from the first. */}
+        {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
+          <WindowControls />
+        )}
         <span className={styles.title}>{titleOf(session)}</span>
         {session && (
           <span className={`${styles.status} hd-no-drag`} data-status={status} title={STATUS_LABEL[status]}>
             <span className={styles.statusDot} />
-            {status !== 'idle' && STATUS_LABEL[status]}
+            {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
           </span>
         )}
         {session && <TasksChip />}
@@ -558,10 +572,14 @@ export const Conversation = ({
             right does something. Without the rule they ran together as one
             undifferentiated row of chrome. */}
         {pane && <span className={styles.headerRule} />}
+        {/* A door to a view folds into ⋯ › View at a phone's width — where
+            there is a ⋯ to fold into. A draft has none, so its browser button
+            stays: folded, it was a door closed with nothing in its place. */}
         {pane && (
           <button
             type="button"
             className={`${styles.headerButton} hd-no-drag`}
+            {...(session ? { 'data-folds': '' } : {})}
             onClick={() => store.openBrowser()}
             title="Open the browser beside this conversation — the page agents' browser tools drive"
             aria-label="Open browser"
@@ -569,7 +587,7 @@ export const Conversation = ({
             <GlobeIcon size={14} />
           </button>
         )}
-        {pane && session && <TerminalToggle />}
+        {pane && session && <TerminalToggle folds />}
         {session && <ConversationMenu />}
       </header>
 
@@ -757,7 +775,15 @@ export const GitControl = ({
 
   return (
     <Popover
-      title={armed ? `New worktree off ${cwd}` : `${linked ? 'Worktree' : 'Local'} — ${cwd}`}
+      /* What the chip says, then where it is. The words fold to the glyph in a
+         narrow header, and hover is where they are still read — the path alone
+         was not the word that folded. The place is said in words as well: a
+         folded chip has only its glyph left to say it with. */
+      title={
+        armed
+          ? `${branch} · new worktree off ${cwd}`
+          : `${branch ?? folder} · ${linked ? 'worktree' : 'local'} — ${cwd}`
+      }
       align="right"
       label={
         <>

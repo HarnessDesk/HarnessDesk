@@ -70,6 +70,9 @@ export const Banner = ({
   const [menuAt, setMenuAt] = useState<MenuPoint | null>(null)
 
   return (
+    /* The frame is the card's width, given a name a query can ask: see
+       `.frame` in the stylesheet. */
+    <div className={styles.frame}>
     <Alert
       tone="neutral"
       className={styles.banner}
@@ -122,6 +125,7 @@ export const Banner = ({
         </ContextMenu>
       )}
     </Alert>
+    </div>
   )
 }
 

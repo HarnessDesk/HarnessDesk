@@ -98,6 +98,39 @@ describe('Popover', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 
+  it('asked to give focus back, it gives it to its trigger — and takes it from nothing else', () => {
+    // The floating sidebar gives focus back, when it goes, to what had it
+    // when it came: the trigger, then, and not a row unmounted in between.
+    render()
+    click(trigger())
+    act(() => (document.querySelector('[role="menu"] button') as HTMLButtonElement).focus())
+    act(() => dismissOverlays({ returnFocus: true }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(trigger())
+
+    const elsewhere = document.body.appendChild(document.createElement('button'))
+    click(trigger())
+    act(() => elsewhere.focus())
+    act(() => dismissOverlays({ returnFocus: true }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(elsewhere)
+    elsewhere.remove()
+  })
+
+  it('dismissed by a window that gives nothing back, it leaves focus off its trigger', () => {
+    /* Settings and Usage take no focus when they open. Handed to a trigger
+       behind the window, focus answered Enter by opening the menu again,
+       above the window — measured in a real engine. */
+    render()
+    click(trigger())
+    const row = document.querySelector('[role="menu"] button') as HTMLButtonElement
+    act(() => row.focus())
+    expect(document.activeElement).toBe(row)
+    act(() => dismissOverlays())
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).not.toBe(trigger())
+  })
+
   /**
    * The room is the window's, not a number. A fixed 400px ceiling scrolled
    * the browser pane's fourteen-row settings menu with half the window empty
@@ -191,5 +224,28 @@ describe('the trigger’s accessible name', () => {
 
   it('is left alone for a plain string label too', () => {
     expect(nameOf('Menu').aria).toBeNull()
+  })
+})
+
+/**
+ * One Escape, one thing closed.
+ *
+ * A menu can be open over something that also answers Escape — a sidebar
+ * floating over a narrow window is the case that made it matter — and the
+ * surface underneath can only stand aside if the menu says it took the key.
+ */
+describe('Escape', () => {
+  it('closes the menu and marks the key as spent', () => {
+    render()
+    click(trigger())
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull()
+
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => {
+      document.dispatchEvent(escape)
+    })
+
+    expect(escape.defaultPrevented).toBe(true)
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
   })
 })

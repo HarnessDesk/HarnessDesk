@@ -29,6 +29,10 @@
  * in the browser build, or on the preview page, that is nothing.
  */
 .bar {
+  /* A pane's top row, under the name every top row folds by — so the window's
+     own controls fold their arrows here at the width they do in a
+     conversation's header (`WindowControls.module.css`). */
+  container: hd-header / inline-size;
   display: flex;
   align-items: center;
   gap: var(--hd-space-2); /* desk: 10 → 8, one row rather than the rail head's two-line block */
@@ -630,6 +634,18 @@
   .columns[data-columns='1'] .columnHead {
     display: flex;
   }
+}
+
+/* The member, as one card trigger: the mark, the name and what it runs. It
+   takes the head's slack itself, which keeps the ✕ beside it at the far end —
+   the job `.columnSub` did while the three sat loose in the head, and still
+   does inside this. */
+.columnWho {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
 }
 
 .columnName {
