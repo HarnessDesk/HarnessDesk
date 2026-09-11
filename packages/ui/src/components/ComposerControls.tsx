@@ -3,8 +3,10 @@ import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SelectOption }
 import { optionsIn } from '@harnessdesk/protocol'
 
 import { Btn, Dialog } from '../design'
+import { Badge } from '../design/ui/badge'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
+import { worktreeBranch } from '../lib/worktree-branch'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
@@ -14,14 +16,17 @@ import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/co
 import {
   AlertIcon,
   BrainIcon,
+  BranchIcon,
   ChevronIcon,
   DiffIcon,
   HandoffIcon,
+  LocalIcon,
   EffortHighIcon,
   EffortLowIcon,
   EffortMaxIcon,
   EffortMediumIcon,
   ModelIcon,
+  NewWorktreeIcon,
   PlanIcon,
   PresetIcon,
   RetryIcon,
@@ -871,5 +876,136 @@ const HandoffSheet = ({
         ))}
       </div>
     </Dialog>
+  )
+}
+
+/**
+ * Where the conversation being written will run: the open folder, or a
+ * worktree of it.
+ *
+ * Codex and Claude both put this beside the composer, and here it was made
+ * invisibly. The header's git control already says where a *session* runs —
+ * the branch, the changes, the worktree tag — and says it better than a chip
+ * could. What it cannot do is let a draft choose, because until the first
+ * message there is no session to be anywhere; the only door to a worktree
+ * was a bare glyph in the sidebar that made one the moment it was pressed.
+ * So this control exists exactly as long as the choice does: on a draft,
+ * never on a conversation.
+ *
+ * "Local" is the word both apps use and the one a person asks the question
+ * in. A folder that is itself a linked worktree is never called that — it
+ * wears its branch and a worktree tag, because "Local" on a worktree is the
+ * exact confusion this control is here to end. A worktree armed here is
+ * drawn in the primary ink: it is something that will happen on send, not a
+ * description of a folder, and nothing exists on disk until that message
+ * goes.
+ *
+ * Each place has a glyph of its own — a laptop, a branch, a branch with a
+ * plus — because a narrow toolbar keeps the glyph and drops the word, and
+ * an armed worktree used to differ from an existing one by colour alone.
+ */
+export const PlaceControl = () => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const session = useActiveSession()
+  const { ref, narrow } = useNarrowToolbar()
+  const workspace = snapshot.workspace
+  if (session || !workspace) return null
+
+  const place = snapshot.draftPlace
+  const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path
+  const branch = workspace.git?.branch ?? null
+  const linked = workspace.repo?.worktree === true
+  const armed = place?.kind === 'worktree' ? place : null
+  const chosen = place?.kind === 'existing' ? place : null
+  const armedBranch = armed ? worktreeBranch(armed.name) : null
+  // HarnessDesk's own worktrees of this project, the ones a conversation is
+  // started in from here and from the sidebar alike. The folder already open
+  // is the first row, not one of these.
+  const others = snapshot.worktrees.filter((entry) => entry.managed && entry.path !== workspace.path)
+
+  const title = armed
+    ? `Starts in a new worktree on ${armedBranch}, made when you send`
+    : chosen
+      ? `Starts in the worktree on ${chosen.branch ?? 'a detached HEAD'}`
+      : linked
+        ? `Starts in this worktree${branch ? `, on ${branch}` : ''}`
+        : `Starts in ${folder}${branch ? `, on ${branch}` : ''}`
+  // A branch by its last segment: the prefix is a namespace a person's
+  // worktrees share (`claude/…`, `harnessdesk/…`) and the end is what tells
+  // them apart. Written whole, a long one squeezed the agent and the model
+  // off the row, and the ellipsis cut the very end that differs. The whole
+  // name is on hover and in the menu.
+  const leaf = (name: string | null): string => name?.split('/').filter(Boolean).at(-1) ?? 'Worktree'
+  const word = armed ? 'New worktree' : chosen ? leaf(chosen.branch) : linked ? leaf(branch) : 'Local'
+  const tagged = !armed && (chosen !== null || linked)
+
+  return (
+    <InToolbar refer={ref}>
+      <Popover
+        title={title}
+        drop="up"
+        align="left"
+        onOpenChange={(open) => open && void store.loadWorktrees()}
+        label={
+          <>
+            {armed ? (
+              <NewWorktreeIcon size={13} className={sheet.armed} />
+            ) : tagged ? (
+              <BranchIcon size={13} />
+            ) : (
+              <LocalIcon size={13} />
+            )}
+            {!narrow && <span className={`${sheet.word} ${armed ? sheet.armed : styles.strong}`}>{word}</span>}
+            {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
+            <Chevron />
+          </>
+        }
+      >
+        {(close) => (
+          <Menu close={close}>
+            <MenuLabel>Work in</MenuLabel>
+            <MenuItem
+              icon={linked ? <BranchIcon size={14} /> : <LocalIcon size={14} />}
+              label={linked ? 'This worktree' : 'Local'}
+              value={branch ?? undefined}
+              title={branch ? `${branch} — ${workspace.path}` : workspace.path}
+              selected={place === null}
+              onSelect={() => store.startDraftIn(null)}
+            />
+            <MenuItem
+              icon={<NewWorktreeIcon size={14} />}
+              label={armed ? 'New worktree' : 'New worktree…'}
+              value={armedBranch ?? undefined}
+              hint={armed ? `Made when you send, from ${armed.base ?? 'HEAD'}.` : undefined}
+              title={armedBranch ?? 'A checkout of its own, on a branch of its own.'}
+              selected={armed !== null}
+              disabled={branch ? false : 'Worktrees need a git repository. This folder is not one.'}
+              onSelect={() => {
+                close()
+                store.askNewWorktree(workspace.path)
+              }}
+            />
+            {others.length > 0 && (
+              <>
+                <MenuLabel>Worktrees</MenuLabel>
+                {others.map((entry) => (
+                  <MenuItem
+                    key={entry.path}
+                    icon={<BranchIcon size={14} />}
+                    label={entry.branch ?? '(detached)'}
+                    title={`${entry.branch ?? '(detached)'} — ${entry.path}`}
+                    selected={chosen?.path === entry.path}
+                    onSelect={() =>
+                      store.startDraftIn({ kind: 'existing', path: entry.path, branch: entry.branch ?? null })
+                    }
+                  />
+                ))}
+              </>
+            )}
+          </Menu>
+        )}
+      </Popover>
+    </InToolbar>
   )
 }

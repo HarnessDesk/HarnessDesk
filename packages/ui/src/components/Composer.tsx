@@ -46,7 +46,7 @@ import {
   SparkIcon,
   StopIcon,
 } from './Icons'
-import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { Lightbox } from './Lightbox'
 import { Popover, popoverStyles } from './Popover'
@@ -456,7 +456,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * call to make: it sends at once when nothing is running and holds it when
    * something is, so the two states cannot disagree across a round trip.
    */
-  const submit = useCallback(async (mode: 'auto' | 'now' = 'auto') => {
+  const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
     // happens to start with a slash — and that holds however the draft is
     // submitted. The send button must not deliver to the agent what the
@@ -588,6 +588,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     setText('')
     setAttachments([])
     setTrigger({ kind: 'none' })
+    // The message has left the box, and what is typed now is another one — to
+    // a conversation that exists. A draft's first send is still making one (a
+    // worktree, an agent), and a second send would make a second, so a draft
+    // holds until the first is through.
+    if (key) release()
 
     if (mode === 'now' && busy && canSteer) {
       await store.steer(content, key)
@@ -617,6 +622,31 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     store,
     text,
   ])
+
+  /* Each message is sent once. What has to be read before a message goes — a
+     hand-off packet, a conversation's summary, a context chip — is awaited
+     before the box is cleared, so a second Enter in that window sent the same
+     message twice, and on a draft with a new worktree armed, cut two. The
+     hold ends when the box is cleared: what is typed after that is a new
+     message, and a steer on ⌘Enter behind a queued one must still go — in a
+     conversation that exists. A draft holds until its first send has made one. */
+  const sending = useRef<object | null>(null)
+  const submit = useCallback(
+    async (mode: 'auto' | 'now' = 'auto') => {
+      if (sending.current) return
+      const mine = {}
+      sending.current = mine
+      const release = (): void => {
+        if (sending.current === mine) sending.current = null
+      }
+      try {
+        await deliver(mode, release)
+      } finally {
+        release()
+      }
+    },
+    [deliver],
+  )
 
   /**
    * Attaches images from a picker, a paste, or a drop — the same way each
@@ -1095,6 +1125,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               </>
             )}
           </Popover>
+          {/* Where it runs, first: the one decision here that cannot be
+              changed once the message has gone. Drafts only. */}
+          <PlaceControl />
           <AgentControl />
           <PermissionControl />
           <ModeControl />

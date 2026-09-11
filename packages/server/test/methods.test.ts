@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 
@@ -99,6 +101,85 @@ test('a worktree is only created under an open workspace, and the service is not
   assert.equal(created, 0)
   await dispatch(ctx, 'worktree/create', { root: open, name: 'wt' })
   assert.equal(created, 1)
+})
+
+/**
+ * The two verbs that change a repository, and the read both of their dialogs
+ * make first, answer to the boundary the rest of the git surface does: the
+ * folders the window has open. A worktree lives in
+ * the state directory, outside every workspace, so what is checked is its
+ * repository — open as its main checkout, or as the worktree itself.
+ */
+test('a worktree is brought home or removed only from a repository the window has open', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const repo = tempDir('hd-methods-repo-')
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+  execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  const elsewhere = tempDir('hd-methods-elsewhere-')
+  const asked: string[] = []
+  const ctx = (roots: string[]): HostContext =>
+    contextWith({
+      workspaces: { openRoots: () => roots },
+      registry: { snapshot: () => [] },
+      worktrees: {
+        bringHome: async (path: string) => {
+          asked.push(`home ${path}`)
+          return { branch: 'wt', from: 'main', root: repo }
+        },
+        remove: async (path: string) => {
+          asked.push(`remove ${path}`)
+          return { branch: 'wt' }
+        },
+        changes: async (path: string) => {
+          asked.push(`changes ${path}`)
+          return { modified: 0, untracked: 0, unpushedCommits: 0, files: [] }
+        },
+      },
+    })
+
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/bringHome', { path: tree }), /not a project opened here/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/remove', { path: tree }), /not a project opened here/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/changes', { path: tree }), /not a project opened here/)
+  assert.deepEqual(asked, [], 'the service is not asked about a repository the window does not have open')
+
+  const inside = join(repo, 'src')
+  mkdirSync(inside)
+  await dispatch(ctx([repo]), 'worktree/bringHome', { path: tree })
+  await dispatch(ctx([tree]), 'worktree/remove', { path: tree })
+  await dispatch(ctx([inside]), 'worktree/changes', { path: tree })
+  assert.deepEqual(
+    asked,
+    [`home ${tree}`, `remove ${tree}`, `changes ${tree}`],
+    'its main checkout open, a folder inside it, or the worktree itself, is its repository open',
+  )
+})
+
+/** A repository inside an open folder is open, as it is to every other git read. */
+test('a repository inside an open folder counts as open for the worktree verbs', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const parent = tempDir('hd-methods-parent-')
+  const app = join(parent, 'app')
+  execFileSync('git', ['init', '-q', '-b', 'main', app], quiet)
+  execFileSync('git', ['-C', app, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', app, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  let asked = 0
+  const ctx = contextWith({
+    workspaces: { openRoots: () => [parent] },
+    registry: { snapshot: () => [] },
+    worktrees: {
+      bringHome: async () => {
+        asked += 1
+        return { branch: 'wt', from: 'main', root: app }
+      },
+    },
+  })
+
+  await dispatch(ctx, 'worktree/bringHome', { path: tree })
+
+  assert.equal(asked, 1)
 })
 
 test('deleting a route forgets its credential only when no other route still refers to it', async () => {
@@ -210,4 +291,37 @@ test('a credential names its owner — the agent that signs in with it, or the a
 
   // And no value rides along with any of it.
   assert.equal(JSON.stringify(listed).includes('sk-'), false)
+})
+
+/**
+ * The dialog holds the move while a conversation in the worktree is working,
+ * but a turn can start between the dialog and the request. The host has the
+ * facts — every live session and its state — so it holds the move as well.
+ */
+test('a worktree is not brought home while a conversation in it is working', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const repo = tempDir('hd-methods-busy-')
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+  execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  const working = { id: 's-1', runtime: 'fake', cwd: tree, status: { type: 'active' }, turns: [] }
+  let asked = 0
+  const ctx = (sessions: readonly unknown[]): HostContext =>
+    contextWith({
+      workspaces: { openRoots: () => [repo] },
+      registry: { snapshot: () => sessions },
+      worktrees: {
+        bringHome: async () => {
+          asked += 1
+          return { branch: 'wt', from: 'main', root: repo }
+        },
+      },
+    })
+
+  await assert.rejects(dispatch(ctx([working]), 'worktree/bringHome', { path: tree }), /still working/)
+  assert.equal(asked, 0, 'nothing is asked of git while the turn runs')
+
+  await dispatch(ctx([{ ...working, status: { type: 'idle' } }]), 'worktree/bringHome', { path: tree })
+  assert.equal(asked, 1, 'and it goes once the turn is over')
 })

@@ -173,6 +173,7 @@ import {
   type AppSnapshot,
   type AuditRow,
   type DraftHandoff,
+  type DraftPlace,
   type Notice,
   type NoticeAction,
   type PendingApproval,
@@ -185,6 +186,7 @@ export type {
   AppSnapshot,
   AuditRow,
   DraftHandoff,
+  DraftPlace,
   Notice,
   NoticeAction,
   PendingApproval,
@@ -1549,6 +1551,14 @@ export class AppStore {
         })
         cwd = created.path
         void this.loadWorktrees()
+        // The worktree exists now. When it is the draft's armed place, the
+        // draft points at it: an agent that fails to start leaves the draft as
+        // it was, and a retry must start in this worktree, not cut a second
+        // one beside it. A race cuts its own worktrees and touches no draft.
+        const place = this.#snapshot.draftPlace
+        if (place?.kind === 'worktree' && place.root === workspace && place.name === options.worktree) {
+          this.#patch({ draftPlace: { kind: 'existing', path: created.path, branch: created.branch } })
+        }
       }
       // The picks that ride along belong to the runtime the session starts
       // on. The snapshot's draftValues follow the *active* runtime, and a
@@ -1614,7 +1624,17 @@ export class AppStore {
    * the target agent: the chip is the lineage, the textarea stays free for
    * the instruction, and the packet is built when the draft is sent.
    */
-  async handOff(target: RuntimeId, carry: Carry = 'summary', key = this.#snapshot.activeSessionKey): Promise<void> {
+  async handOff(
+    target: RuntimeId,
+    carry: Carry = 'summary',
+    key = this.#snapshot.activeSessionKey,
+    /**
+     * Where the draft starts, when that is not where the source ran — a
+     * worktree brought back to the main checkout hands its conversation to
+     * the folder the work now lives in, because the one it ran in is gone.
+     */
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
     if (!key) {
       // Nothing open to carry — the usage banner offers this over an empty
       // pane and labels it "Switch to …". Doing nothing made it a dead button.
@@ -1638,11 +1658,17 @@ export class AppStore {
     await this.selectRuntime(target)
     // The switch leaves the conversation on screen — it is a preference, not
     // a navigation — and the chip needs an empty pane on the target to land
-    // on, so the draft is opened here, by the one verb that means it.
-    if (this.#snapshot.activeSessionKey) this.newDraft()
+    // on, so the draft is opened here, by the one verb that means it — unless
+    // the main area already shows one. Keyed on the draft, not on the focus: a
+    // restored layout can put a room in the middle, and a docked conversation
+    // can hold the focus.
+    const drafted = panes(this.#snapshot.layout.root).some(
+      (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
+    )
+    if (!drafted) this.newDraft()
     this.#parkedHandoff = null
     this.#patch({
-      draftHandoff: { runtime, sessionId: id as SessionId, carry, agentName, title, cwd: open?.cwd ?? null },
+      draftHandoff: { runtime, sessionId: id as SessionId, carry, agentName, title, cwd: options.cwd ?? open?.cwd ?? null },
     })
   }
 
@@ -1730,18 +1756,30 @@ export class AppStore {
     // the way back to the draft it came from.
     const parked = this.#parkedHandoff
     this.#parkedHandoff = null
-    this.#patch({ draftHandoff: parked })
+    // And it starts in the open folder: a worktree chosen for the last draft
+    // is a decision about that one, and "New session" is asked to be empty.
+    this.#patch({ draftHandoff: parked, draftPlace: null })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }
 
   /**
-   * A draft carrying a hand-off becomes a session in the source
-   * conversation's folder: the packet names that folder as ground truth, and
-   * an agent dropped anywhere else either wastes a trip finding it or, worse,
-   * answers about the folder it is actually in.
+   * Where a draft's session starts. The place chosen for it comes first —
+   * an existing worktree, or a new one the host cuts now, on the first
+   * message, and not a moment before. Then a draft carrying a hand-off,
+   * which becomes a session in the source conversation's folder: the packet
+   * names that folder as ground truth, and an agent dropped anywhere else
+   * either wastes a trip finding it or, worse, answers about the folder it
+   * is actually in.
    */
-  #draftCwd(): { readonly cwd: string } | Record<string, never> {
+  #draftStart(): { readonly cwd?: string; readonly worktree?: string; readonly base?: string } {
+    // A place the person chose outranks the one the packet names: the
+    // packet says where the work *was*, the choice says where it goes next.
+    const place = this.#snapshot.draftPlace
+    if (place?.kind === 'existing') return { cwd: place.path }
+    if (place?.kind === 'worktree') {
+      return { cwd: place.root, worktree: place.name, ...(place.base ? { base: place.base } : {}) }
+    }
     const carried = this.#snapshot.draftHandoff?.cwd
     return carried ? { cwd: carried } : {}
   }
@@ -1749,7 +1787,7 @@ export class AppStore {
   async send(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     // Typing into an empty workspace is how a session starts: create it, then
     // send, so the first message is one gesture rather than two.
-    key ??= await this.newSession(this.#draftCwd())
+    key ??= await this.newSession(this.#draftStart())
     if (!key) return
     try {
       await this.transport.request('turn/send', { ...address(key), input })
@@ -2935,6 +2973,127 @@ export class AppStore {
     this.#patch({ newWorktreeFor: root })
   }
 
+  /**
+   * Points a draft at a place — the one in front when it is a draft, or a
+   * fresh one when a conversation or a tool has the pane.
+   *
+   * Never a second draft over one being typed: choosing where the message
+   * goes is a decision about the message already in the composer, and
+   * replacing the pane would put the choice on an empty one. `null` points
+   * it back at the open folder.
+   */
+  startDraftIn(place: DraftPlace | null): void {
+    // The choice is about the draft — the main area's conversation pane —
+    // however the focus sits: a tool pane holding it must not turn the choice
+    // into a fresh draft, which would drop the hand-off the draft carries.
+    const onDraft = panes(this.#snapshot.layout.root).some(
+      (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
+    )
+    if (!onDraft) this.newDraft()
+    this.#patch({ draftPlace: place })
+  }
+
+  /**
+   * Arms the draft to start in a new worktree of `root`, cut on send.
+   *
+   * The host cuts a worktree only inside a folder it has open, and a draft
+   * belongs to the workspace it is in — so a project reached from its own
+   * row is opened first, as "New session" on that row does. False when it
+   * could not be, and the draft is left as it was.
+   */
+  async armWorktree(root: string, name: string, base?: string): Promise<boolean> {
+    if (this.#snapshot.workspace?.path !== root) await this.openWorkspace(root)
+    if (this.#snapshot.workspace?.path !== root) return false
+    this.startDraftIn({ kind: 'worktree', root, name, ...(base ? { base } : {}) })
+    return true
+  }
+
+  /**
+   * Brings a worktree's branch back to the main checkout
+   * (`worktree/bringHome`). Resolves to null when it is done, or to what
+   * went wrong in the host's own words — the dialog that asked shows the
+   * refusal where the click was, not as a toast gone by the time anyone
+   * looks for it.
+   *
+   * A conversation cannot follow its folder: its working directory was
+   * fixed when it began, and the folder is gone. So the one in front, if it
+   * lived there, is carried to a draft in the main checkout by the hand-off
+   * packet — the same agent, the packet any hand-off sends — and every other
+   * pane still pointed at the folder is closed, as removal closes them.
+   */
+  async bringWorktreeHome(path: string): Promise<string | null> {
+    const key = this.#snapshot.activeSessionKey
+    const inside = (cwd: string): boolean => cwd === path || cwd.startsWith(`${path}/`)
+    // Read before asking: a refusal can take the folder with it, and then the
+    // list is the one place that still says where home was.
+    const listed = this.#snapshot.worktrees.some((entry) => entry.path === path)
+    const main = this.#snapshot.worktrees.find((entry) => entry.isMain)?.path
+    const home = await this.transport
+      .request('worktree/bringHome', { path })
+      .catch((error: unknown) => describe(error))
+    if (typeof home === 'string') {
+      // A refusal usually moves nothing. But a switch refused after the
+      // worktree had gone, with git refusing to put it back, leaves the folder
+      // gone too — and git's own list is what says so. It is asked of the main
+      // checkout, which a refusal never moves (the worktree may have been the
+      // open folder, and gone), and only a list that was actually read counts:
+      // one that could not be read says nothing about the folder. Nor does an
+      // empty one — a repository that was read lists its main checkout at
+      // least, so an empty answer is the host failing to resolve it.
+      const now = main ? await this.transport.request('worktree/list', { root: main }).catch(() => null) : null
+      await this.loadWorktrees()
+      if (listed && now !== null && now.length > 0 && !now.some((entry) => entry.path === path)) {
+        // What a removal does, and the words where they will stay: the dialog
+        // that asked closes with the pane it belongs to.
+        this.notice('warning', home)
+        if (main && this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(main)
+        this.#closeConversationsWhere(inside)
+      }
+      return home
+    }
+
+    const folder = home.root.split('/').filter(Boolean).at(-1) ?? home.root
+    this.notice(
+      'info',
+      `${home.from ? `${folder} switched from ${home.from} to ${home.branch}.` : `${folder} is on ${home.branch} now.`} ` +
+        'The worktree folder is gone; the branch keeps every commit.',
+    )
+    if (home.warning) this.notice('warning', home.warning)
+    // A worktree opened as the workspace went with its folder.
+    if (this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(home.root)
+    const session = key ? this.#snapshot.sessions.get(key) : undefined
+    if (key && session && inside(session.cwd)) {
+      await this.handOff(splitSessionKey(key).runtime, 'summary', key, { cwd: home.root })
+    }
+    this.#closeConversationsWhere(inside)
+    // The main checkout's branch changed under the window; read it again.
+    await this.loadWorkspaces()
+    return null
+  }
+
+  /**
+   * Closes every conversation that lives in a folder that is gone — in a pane,
+   * and in a panel. Docking a conversation is refused today, but a stored
+   * layout still restores one and `#resumeVisible` resumes it, so it is
+   * released and undocked, as closing a pane releases one: the agent is told
+   * its conversation is over rather than left running in a folder that is gone.
+   */
+  #closeConversationsWhere(gone: (cwd: string) => boolean): void {
+    for (const pane of panes(this.#snapshot.layout.root)) {
+      const key = sessionOf(pane)
+      const session = key ? this.#snapshot.sessions.get(key) : undefined
+      if (session && gone(session.cwd)) this.closePane(pane.id)
+    }
+    for (const entry of mountedViewsIn(this.#snapshot.workbench)) {
+      const view = entry.mounted.view
+      const session = view.kind === 'conversation' && view.session ? this.#snapshot.sessions.get(view.session) : undefined
+      if (session && gone(session.cwd)) {
+        this.#release(view)
+        this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- the team
 
   /** The user adds work to one room's board. */
@@ -3531,7 +3690,7 @@ export class AppStore {
    * the queue exists.
    */
   async queue(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
-    key ??= await this.newSession(this.#draftCwd())
+    key ??= await this.newSession(this.#draftStart())
     if (!key) return false
     try {
       await this.transport.request('turn/queue', { ...address(key), input })
@@ -4596,9 +4755,20 @@ export class AppStore {
       next.detailsTab = visibleInspector(next.workbench)
     }
     next.activeSessionKey = activeSessionKey
-    // A hand-off belongs to the draft it was handed to; once a conversation
-    // is in front — the draft sent, or another one opened — it has served.
-    if (activeSessionKey && next.draftHandoff && !patch.draftHandoff) next.draftHandoff = null
+    // A hand-off belongs to the draft it was handed to, and the draft is the
+    // main area's conversation pane: once that shows a conversation — the
+    // draft sent, or another one opened — it has served. Not whichever
+    // conversation holds the focus: a docked one taking it is not the draft
+    // being sent, and must not clear what the draft carries.
+    const inFront = panes(next.layout.root).map(sessionOf).find((key) => key !== null) ?? null
+    if (inFront && next.draftHandoff && !patch.draftHandoff) next.draftHandoff = null
+    // So does the place it was to start in — it is now the session's fact,
+    // and the header says it. A switch of workspace ends it too: a worktree
+    // armed for one repository would be cut from a folder the window left.
+    if (inFront && next.draftPlace && !patch.draftPlace) next.draftPlace = null
+    if ('workspace' in patch && !('draftPlace' in patch) && next.workspace?.path !== this.#snapshot.workspace?.path) {
+      next.draftPlace = null
+    }
     next.activeSessionId =
       activeSessionKey && splitSessionKey(activeSessionKey).runtime === next.activeRuntime
         ? splitSessionKey(activeSessionKey).id

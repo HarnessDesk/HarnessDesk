@@ -25,6 +25,8 @@ import {
   CrossIcon,
   DiffIcon,
   HistoryIcon,
+  HomeIcon,
+  LocalIcon,
   FolderIcon,
   MoreIcon,
   ReviewIcon,
@@ -32,9 +34,12 @@ import {
   TerminalIcon,
   TrashIcon,
   UndoIcon,
+  NewWorktreeIcon,
 } from './Icons'
+import { worktreeBranch } from '../lib/worktree-branch'
 import { Menu, MenuItem, MenuLabel, Submenu } from './Menu'
 import { Popover, popoverStyles } from './Popover'
+import { Badge } from '../design/ui/badge'
 import { STATUS_LABEL, paneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
@@ -45,6 +50,7 @@ import { GoalBar, JobsBar } from './SessionBars'
 import { splitTasks, tasksChipLabel } from '../lib/tasks'
 import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
+import { BringHome } from './BringHome'
 import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
@@ -471,6 +477,7 @@ export const Conversation = ({
     ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd)
     : undefined
   const [removingWorktree, setRemovingWorktree] = useState(false)
+  const [bringingHome, setBringingHome] = useState(false)
   const loading = key ? snapshot.loadingSessions.has(key) : false
 
   const items = useMemo(() => (session ? allItems(session) : []), [session])
@@ -547,7 +554,10 @@ export const Conversation = ({
         )}
         {session && <TasksChip />}
         <div className="hd-no-drag">
-          <GitControl onRemoveWorktree={() => setRemovingWorktree(true)} />
+          <GitControl
+            onRemoveWorktree={() => setRemovingWorktree(true)}
+            onBringHome={() => setBringingHome(true)}
+          />
         </div>
         {/* Empty when nothing is registered — and an empty box in a flex row
             still takes the row's gap, which left a hole in the header that
@@ -677,6 +687,7 @@ export const Conversation = ({
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}
+      {bringingHome && worktree && <BringHome worktree={worktree} onClose={() => setBringingHome(false)} />}
     </div>
   )
 }
@@ -686,24 +697,68 @@ export const Conversation = ({
  * what git has to say about it, in one control, the way Codex puts it. The
  * label is the branch; the menu opens the Changes panel, shows the folder,
  * and offers the git actions a turn tends to end with. A draft shows the
- * workspace it will start in, so the composer no longer needs its own chip.
+ * workspace it will start in; *choosing* somewhere else — a worktree — is
+ * the composer's Work in control, because that is a decision about the
+ * message being written, not a fact about a conversation that exists.
+ *
+ * Exported for its own test (`Conversation.git.test.tsx`); nothing else
+ * mounts it.
  */
-const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
+export const GitControl = ({
+  onRemoveWorktree,
+  onBringHome,
+}: {
+  onRemoveWorktree: () => void
+  onBringHome: () => void
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const runtime = useRuntime()
-  const cwd = session?.cwd ?? snapshot.workspace?.path ?? null
+  // A draft pointed at a worktree will start there, and one armed with a new
+  // worktree will start in the one it cuts — so that is where this says it
+  // works: this chip and the composer's Work in control must never name two
+  // places for one draft.
+  const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : null
+  const armed = !session && snapshot.draftPlace?.kind === 'worktree' ? snapshot.draftPlace : null
+  // A draft pointed at a worktree, or armed to cut one, names a folder the
+  // host will not read until a conversation runs there — or, armed, one that
+  // does not exist yet. Git verbs from here would act on some other folder,
+  // so the menu has none: where the draft starts is chosen in the composer.
+  const pointedAway = pointed !== null && pointed !== snapshot.workspace?.path
+  const elsewhere = pointedAway || armed !== null
+  const cwd = session?.cwd ?? pointed ?? armed?.root ?? snapshot.workspace?.path ?? null
   if (!cwd) return null
   const folder = cwd.split('/').filter(Boolean).at(-1) ?? cwd
   // The workspace's branch is read fresh by the host and follows a switch;
   // the session's is what the runtime recorded when the thread began. ACP
-  // agents report no git at all, so the workspace is the usual source.
+  // agents report no git at all, so the workspace is the usual source —
+  // and for a conversation in a worktree, the repository's own list of its
+  // checkouts, without which that chip named the folder rather than the
+  // branch the worktree is on.
+  const checkout = snapshot.worktrees.find((entry) => entry.path === cwd)
   const branch =
+    (armed ? worktreeBranch(armed.name) : null) ??
+    // A pointed draft carries its worktree's branch. The list it was chosen
+    // from is emptied by any failed read, and the chip must not lose it then.
+    (pointedAway && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.branch : null) ??
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.git?.branch ?? null : null) ??
+    checkout?.branch ??
     session?.git?.branch ??
     null
   const worktree = session ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd) : undefined
+  // The tag says what the folder *is*, and a linked checkout the person made
+  // themselves is as much a worktree as one HarnessDesk cut — only the verbs
+  // below (bring it back, remove it) are limited to HarnessDesk's own.
+  const summary = session
+    ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
+    : undefined
+  const linked =
+    armed !== null ||
+    pointedAway ||
+    Boolean(worktree) ||
+    (checkout !== undefined && !checkout.isMain) ||
+    (cwd === snapshot.workspace?.path ? snapshot.workspace?.repo?.worktree === true : summary?.repo?.worktree === true)
   const touched = session
     ? new Set(
         session.turns
@@ -722,14 +777,38 @@ const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
     <Popover
       /* What the chip says, then where it is. The words fold to the glyph in a
          narrow header, and hover is where they are still read — the path alone
-         was not the word that folded. */
-      title={`${branch ?? folder}${worktree ? ' · worktree' : ''} — ${cwd}`}
+         was not the word that folded. A worktree says so, as its badge does,
+         and a draft armed with a new one names the folder it will be cut from:
+         its worktree is not at that path yet. */
+      title={
+        armed
+          ? `${branch} · new worktree off ${cwd}`
+          : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
+      }
       align="right"
       label={
         <>
-          {branch ? <BranchIcon size={13} /> : <FolderIcon size={13} />}
-          <span className={styles.gitLabel}>{branch ?? folder}</span>
-          {worktree && <span className={styles.gitTag}>worktree</span>}
+          {/* The glyph says where, so it can stand alone when a narrow header
+              folds the words away: a branch for a worktree, a branch with a
+              plus for one a draft will cut, a laptop for the main checkout,
+              a folder for one that is not a repository. */}
+          {armed ? (
+            <NewWorktreeIcon size={13} />
+          ) : linked ? (
+            <BranchIcon size={13} />
+          ) : branch ? (
+            <LocalIcon size={13} />
+          ) : (
+            <FolderIcon size={13} />
+          )}
+          <span className={styles.gitWords}>
+            <span className={styles.gitLabel}>{branch ?? folder}</span>
+            {linked && (
+              <Badge variant="secondary" className={styles.gitBadge}>
+                worktree
+              </Badge>
+            )}
+          </span>
         </>
       }
     >
@@ -744,21 +823,41 @@ const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
               onSelect={() => store.setDetailsTab('changes')}
             />
           )}
-          <MenuItem
-            icon={<HistoryIcon size={16} />}
-            label="History"
-            title="The repository's commits, branches and tags, in a pane."
-            onSelect={() => store.openGitHistory(cwd)}
-          />
-          {/* The branch is one row, and the branches are behind it — Codex
-              hangs its list off the branch rather than repeating it as a
-              heading over a second list of the same names. */}
-          {branch ? (
-            <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
-              <BranchSwitcher root={cwd} onDone={close} />
-            </Submenu>
+          {elsewhere ? (
+            <MenuItem
+              icon={armed ? <NewWorktreeIcon size={16} /> : <BranchIcon size={16} />}
+              label={armed ? 'The worktree is made when the message goes' : 'Starts in this worktree when the message goes'}
+              title="Where it starts is chosen in the composer, under Work in."
+              disabled
+              onSelect={() => {}}
+            />
           ) : (
-            <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+            <>
+              <MenuItem
+                icon={<HistoryIcon size={16} />}
+                label="History"
+                title="The repository's commits, branches and tags, in a pane."
+                onSelect={() => store.openGitHistory(cwd)}
+              />
+              {/* The branch is one row, and the branches are behind it — Codex
+                  hangs its list off the branch rather than repeating it as a
+                  heading over a second list of the same names. */}
+              {branch ? (
+                <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
+                  <BranchSwitcher root={cwd} onDone={close} />
+                </Submenu>
+              ) : (
+                <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
+              )}
+            </>
+          )}
+          {worktree?.branch && (
+            <MenuItem
+              icon={<HomeIcon size={16} />}
+              label="Bring it back to the main checkout…"
+              title="Checks its branch out in the main checkout; the worktree's folder goes."
+              onSelect={onBringHome}
+            />
           )}
           {worktree && (
             <MenuItem

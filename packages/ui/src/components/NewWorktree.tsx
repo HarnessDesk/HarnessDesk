@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Btn, Dialog, Input } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { folderName } from '../lib/projects'
+import { slugify } from '../lib/worktree-branch'
 import { BranchIcon, CheckIcon, FolderOpenIcon, SearchIcon } from './Icons'
 import styles from './NewWorktree.module.css'
 
@@ -22,6 +23,13 @@ import styles from './NewWorktree.module.css'
  * happens, and parallel work rarely all starts from whatever is checked out
  * at the moment you press the button.
  *
+ * It points the draft; it does not cut the checkout. The composer's Work in
+ * control then says "New worktree" over the message being written, and the
+ * host makes the worktree when that message goes — so a draft abandoned
+ * after this dialog leaves no branch and no folder behind, the same bargain
+ * a draft already keeps with the agent's history. A checkout wanted for its
+ * own sake, with no conversation in it, is the history pane's to make.
+ *
  * The name is a name, not a branch: the host slugs it and namespaces it
  * `harnessdesk/`, so a worktree is recognisable among a person's own
  * branches and can never collide with one. The line under the field shows
@@ -35,15 +43,6 @@ import styles from './NewWorktree.module.css'
  * both called `mathcat`, and two checkouts of one repository are the case
  * this feature exists to create.
  */
-
-/** The host's own rule, so the preview cannot promise a branch it will not make. */
-const slugify = (name: string): string =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
-    .replace(/\.\.+/g, '.')
-    .slice(0, 48)
 
 /** Enough branches that reading the list is slower than typing at it. */
 const FILTER_FROM = 6
@@ -80,7 +79,10 @@ export const NewWorktree = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const folder = folderName(root)
-  const opened = snapshot.workspaces.some((workspace) => workspace.path === root)
+  // Open *here*, not merely in the recent list: a draft belongs to the folder
+  // the window is in, so pointing one at a worktree of any other project
+  // switches the window first — and the subhead says so before it does.
+  const opened = snapshot.workspace?.path === root
   const taken = useMemo(
     () => new Set(snapshot.worktrees.map((entry) => entry.branch ?? '')),
     [snapshot.worktrees],
@@ -132,18 +134,11 @@ export const NewWorktree = ({
   const create = async (): Promise<void> => {
     setBusy(true)
     try {
-      // The host will only cut a worktree inside a folder it has open, so a
-      // project reached from its own row in the list has to be opened first
-      // — exactly as "New session" on that same row already does. Saying so
-      // in the subhead beforehand is the difference between this and being
-      // refused after filling the whole dialog in.
-      if (!opened) await store.openWorkspace(root)
-      const key = await store.newSession({
-        cwd: root,
-        worktree: name,
-        ...(base ? { base } : {}),
-      })
-      if (key) onClose()
+      // A project reached from its own row is opened first — the store does
+      // that, as "New session" on the same row does. Saying so in the
+      // subhead beforehand is the difference between this and being refused
+      // after filling the whole dialog in.
+      if (await store.armWorktree(root, name, base ?? undefined)) onClose()
     } finally {
       setBusy(false)
     }
@@ -160,13 +155,13 @@ export const NewWorktree = ({
           <FolderOpenIcon size={13} className={styles.ofIcon} />
           <span className={styles.ofLead}>{leadPath(root)}</span>
           <span className={styles.ofName}>{folder}</span>
-          {!opened && <span className={styles.ofNote}>opens this folder first</span>}
+          {!opened && <span className={styles.ofNote}>switches to this folder first</span>}
         </span>
       }
       footer={
         <>
           <Btn variant="primary" disabled={busy || problem !== null} onClick={() => void create()}>
-            {busy ? 'Creating…' : 'Create worktree'}
+            {busy ? 'Opening…' : 'Start in a new worktree'}
           </Btn>
           <Btn disabled={busy} onClick={onClose}>
             Cancel
@@ -175,8 +170,8 @@ export const NewWorktree = ({
       }
     >
       <p className={styles.blurb}>
-        A separate checkout on a branch of its own. A conversation opens in it, and the working
-        tree you have there now is left alone.
+        A separate checkout on a branch of its own, for the conversation you are starting. It is
+        made when you send the first message, and the working tree you have now is left alone.
       </p>
 
       <label className={styles.field}>

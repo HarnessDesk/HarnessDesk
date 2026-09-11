@@ -388,6 +388,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'worktree/create': shape({ root: isString, name: isString, base: optional(isString) }),
   'worktree/changes': shape({ path: isString }),
   'worktree/remove': shape({ path: isString, force: optional(isBoolean) }),
+  'worktree/bringHome': shape({ path: isString }),
 
   'team/state': shape({ room: isString }),
   'team/add': shape({

@@ -244,3 +244,295 @@ test('a worktree starts from the branch it was told to, not from HEAD', async (t
   const here = await worktrees.create(repo, { name: 'from head' })
   await assert.rejects(() => stat(join(here.path, 'only-on-feature.txt')))
 })
+
+// ------------------------------------------------------------- bringing home
+
+/**
+ * The ordinary hand-back: the branch ends up checked out in the main
+ * checkout, the side checkout is gone, and every commit made out there is
+ * reachable from where you now are. Nothing is merged into whatever the main
+ * tree was on — that branch is simply left behind, and named so the interface
+ * can say so.
+ */
+test('bringing a worktree home checks its branch out in the main checkout', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'Fix the parser' })
+  await writeFile(join(tree.path, 'parser.txt'), 'fixed\n')
+  await git(tree.path, 'add', '-A')
+  await git(tree.path, 'commit', '-q', '-m', 'fix the parser')
+  const done = (await git(tree.path, 'rev-parse', 'HEAD')).trim()
+
+  const home = await worktrees.bringHome(tree.path)
+
+  assert.equal(home.branch, 'harnessdesk/fix-the-parser')
+  assert.equal(home.from, 'main', 'and says which branch was left behind')
+  assert.equal(home.root, repo)
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/fix-the-parser')
+  assert.equal((await git(repo, 'rev-parse', 'HEAD')).trim(), done, 'the work is what is checked out')
+  assert.equal(await readFile(join(repo, 'parser.txt'), 'utf8'), 'fixed\n')
+  await assert.rejects(stat(tree.path), 'the side checkout is gone')
+  assert.equal(
+    (await worktrees.list(repo)).length,
+    1,
+    'and git no longer lists it',
+  )
+})
+
+/**
+ * The refusal that protects work. Removing the worktree is not optional —
+ * git will not check out a branch two trees hold — so uncommitted work there
+ * would be destroyed by the move. It is refused with the same error and the
+ * same file list `remove` gives, and there is no force: discarding the work
+ * is the opposite of bringing it back.
+ */
+test('bringing home refuses uncommitted work rather than destroying it', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'half done' })
+  await writeFile(join(tree.path, 'shared.txt'), 'half\n')
+  await writeFile(join(tree.path, 'scratch.txt'), 'notes\n')
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof WorktreeDirtyError)
+    assert.equal(error.changes.modified, 1)
+    assert.equal(error.changes.untracked, 1)
+    assert.deepEqual([...error.changes.files].sort(), ['scratch.txt', 'shared.txt'])
+    return true
+  })
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'nothing moved')
+  assert.equal(await readFile(join(tree.path, 'scratch.txt'), 'utf8'), 'notes\n', 'and nothing was lost')
+})
+
+/**
+ * The window this verb has to survive: the worktree must be removed before
+ * the branch can be checked out, so a checkout that git refuses would
+ * otherwise leave the work with no checkout at all. It is put back exactly as
+ * it was, and git's own sentence — not "Command failed: git -C /long/path" —
+ * is what comes out.
+ */
+test('a main checkout that will not take the switch keeps its worktree', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'rewrite' })
+  // The two branches disagree about a file the main tree has edited: exactly
+  // the case `git checkout` refuses rather than silently discarding.
+  await writeFile(join(tree.path, 'shared.txt'), 'theirs\n')
+  await git(tree.path, 'add', '-A')
+  await git(tree.path, 'commit', '-q', '-m', 'rewrite it')
+  await writeFile(join(repo, 'shared.txt'), 'mine, uncommitted\n')
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /could not switch to harnessdesk\/rewrite/)
+    assert.match(error.message, /would be overwritten|local changes/i, "git's own words, not ours")
+    return true
+  })
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main')
+  assert.equal(await readFile(join(repo, 'shared.txt'), 'utf8'), 'mine, uncommitted\n', 'nothing overwritten')
+  const listed = await worktrees.list(repo)
+  assert.equal(listed.length, 2, 'the worktree is back')
+  const back = listed.find((entry) => entry.path === tree.path)
+  assert.equal(back?.branch, 'harnessdesk/rewrite', 'on its own branch, as it was')
+  assert.equal(await readFile(join(tree.path, 'shared.txt'), 'utf8'), 'theirs\n', 'with its work intact')
+})
+
+/** The main checkout is already home, and a detached one has nothing to check out. */
+test('bringing home refuses the main checkout and a detached worktree', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await assert.rejects(worktrees.bringHome(repo), /already home/)
+
+  const tree = await worktrees.create(repo, { name: 'detached' })
+  await git(tree.path, 'checkout', '-q', '--detach')
+  await assert.rejects(worktrees.bringHome(tree.path), /not on a branch/)
+  assert.equal((await worktrees.list(repo)).length, 2, 'and left it alone')
+})
+
+/**
+ * The host method is the boundary, not the menu. The header offers this verb
+ * only on HarnessDesk's own worktrees, but anything that can name a path on
+ * the wire reaches it, and a checkout the person made is theirs to move — the
+ * same line `remove` holds.
+ */
+test('bringing home refuses a worktree HarnessDesk did not create, and touches nothing', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const theirs = join(repo, '..', 'theirs')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'theirs', theirs)
+
+  await assert.rejects(worktrees.bringHome(theirs), /not created by HarnessDesk/)
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'the main checkout did not move')
+  assert.ok((await stat(theirs)).isDirectory(), 'their checkout is still there')
+  assert.equal((await worktrees.list(repo)).length, 2, 'and git still lists it')
+})
+
+/**
+ * When putting it back fails as well, the error says so. A second worktree
+ * forced onto the same branch (`git worktree add --force`) is the ordinary
+ * way there: git refuses the main checkout's switch because that tree holds
+ * the branch, then refuses to re-add the removed worktree for the same
+ * reason. The folder is gone by then, and "left where it was" would send the
+ * person looking for it.
+ */
+test('a worktree git will not put back is reported as gone, not as left in place', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'twice' })
+  await writeFile(join(tree.path, 'twice.txt'), 'the work\n')
+  await git(tree.path, 'add', '-A')
+  await git(tree.path, 'commit', '-q', '-m', 'the work')
+  const done = (await git(tree.path, 'rev-parse', 'HEAD')).trim()
+  await git(repo, 'worktree', 'add', '-q', '--force', join(repo, '..', 'twin'), 'harnessdesk/twice')
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /left where it was/, 'no recovery that did not happen')
+    assert.match(error.message, /could not be put back/)
+    assert.match(error.message, /already used by worktree|already checked out/, "git's own words")
+    return true
+  })
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'the main checkout did not move')
+  await assert.rejects(stat(tree.path), 'the folder is gone, as the error says')
+  assert.equal((await git(repo, 'rev-parse', 'harnessdesk/twice')).trim(), done, 'and the branch keeps its commit')
+})
+
+/**
+ * Git runs a post-checkout hook after the switch and returns the hook's exit
+ * status as checkout's own, so a failing hook reads as a refused checkout
+ * that has in fact happened. Where the main checkout is afterwards decides
+ * it: the branch is home, and there is nothing to put back. What git said is
+ * not dropped, though: it reaches the caller as a warning.
+ */
+test('a failing post-checkout hook after the switch still brings the branch home, and says what git reported', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'hooked' })
+  const hooks = join(repo, '..', 'hooks')
+  await mkdir(hooks)
+  await writeFile(join(hooks, 'post-checkout'), '#!/bin/sh\necho "the hook says no" >&2\nexit 1\n', { mode: 0o755 })
+  await git(repo, 'config', 'core.hooksPath', hooks)
+
+  const home = await worktrees.bringHome(tree.path)
+
+  assert.equal(home.branch, 'harnessdesk/hooked')
+  assert.equal(home.from, 'main')
+  assert.match(home.warning ?? '', /the hook says no/, "git's words for the hook reach the caller")
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked', 'the switch happened')
+  await assert.rejects(stat(tree.path), 'the side checkout is gone')
+  assert.equal((await worktrees.list(repo)).length, 1, 'and git no longer lists it')
+})
+
+/**
+ * Putting a worktree back restores what git tracks. What it ignores — an
+ * `.env`, `node_modules` — was in the folder `worktree remove` deleted, and
+ * `git status` never counted it, so "left where it was" was untrue exactly
+ * when the worktree had been used. The refusal names what did not come back.
+ */
+test('a worktree put back after a refused switch names what git ignores there, which did not come back', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, '.gitignore'), '.env\n')
+  await git(repo, 'add', '-A')
+  await git(repo, 'commit', '-q', '-m', 'ignore .env')
+  const tree = await worktrees.create(repo, { name: 'configured' })
+  await writeFile(join(tree.path, '.env'), 'TOKEN=local\n')
+  await writeFile(join(tree.path, 'shared.txt'), 'theirs\n')
+  await git(tree.path, 'add', 'shared.txt')
+  await git(tree.path, 'commit', '-q', '-m', 'rewrite it')
+  await writeFile(join(repo, 'shared.txt'), 'mine, uncommitted\n')
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /left where it was/, 'the folder was rebuilt, not left')
+    assert.match(error.message, /put back from its branch/)
+    assert.match(error.message, /\.env/, 'names what git ignores there')
+    return true
+  })
+
+  assert.equal((await git(tree.path, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/configured', 'the worktree is back on its branch')
+  await assert.rejects(stat(join(tree.path, '.env')), 'and the .env did not come back, as the error says')
+})
+
+/**
+ * The removal is the first thing that changes anything, and git can refuse it:
+ * a locked worktree, a submodule, a file the agent wrote in between. Its
+ * refusal is git's sentence like every other one this verb gives, not
+ * "Command failed: git -C /long/path", and nothing has moved yet.
+ */
+test('a removal git refuses is said in its own words, and nothing moves', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'held' })
+  await git(repo, 'worktree', 'lock', '--reason', 'kept for a reason', tree.path)
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /Command failed/)
+    assert.match(error.message, /could not remove the worktree/)
+    assert.match(error.message, /locked/, "git's own reason")
+    return true
+  })
+  await assert.rejects(worktrees.remove(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /Command failed/, 'and the same for a plain removal')
+    assert.match(error.message, /locked/)
+    return true
+  })
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'main', 'nothing moved')
+  assert.ok((await stat(tree.path)).isDirectory(), 'the worktree is still there')
+})
+
+/** A main checkout on no branch takes the worktree's, and `from` says it was on none. */
+test("a main checkout on no branch takes the worktree's branch, and says it was on none", async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'from detached' })
+  await git(repo, 'checkout', '-q', '--detach')
+
+  const home = await worktrees.bringHome(tree.path)
+
+  assert.equal(home.from, null)
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/from-detached')
+})
+
+/**
+ * Whether the worktree is back is read from git's listing, not from the exit
+ * status of `worktree add`: a failing post-checkout hook makes the re-add exit
+ * non-zero once the tree is already back. A refused switch with such a hook
+ * is the case that tells the two apart.
+ */
+test('a worktree put back by a re-add whose hook failed is reported as put back', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'hooked back' })
+  await writeFile(join(tree.path, 'shared.txt'), 'theirs\n')
+  await git(tree.path, 'add', 'shared.txt')
+  await git(tree.path, 'commit', '-q', '-m', 'rewrite it')
+  await writeFile(join(repo, 'shared.txt'), 'mine, uncommitted\n')
+  const hooks = join(repo, '..', 'hooks')
+  await mkdir(hooks)
+  await writeFile(join(hooks, 'post-checkout'), '#!/bin/sh\necho "the hook says no" >&2\nexit 1\n', { mode: 0o755 })
+  await git(repo, 'config', 'core.hooksPath', hooks)
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /put back from its branch/)
+    assert.doesNotMatch(error.message, /could not be put back/)
+    return true
+  })
+  assert.equal((await git(tree.path, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked-back', 'and it is back')
+})
+
+/**
+ * The main checkout's own uncommitted work comes along: `git checkout` carries
+ * edits the two branches do not disagree about, and the dialog says so. This
+ * pins that the switch stays an ordinary checkout, with no `--force` to drop them.
+ */
+test("the main checkout's uncommitted edits come along onto the branch", async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, 'notes.txt'), 'notes\n')
+  await git(repo, 'add', '-A')
+  await git(repo, 'commit', '-q', '-m', 'notes')
+  const tree = await worktrees.create(repo, { name: 'carry' })
+  await writeFile(join(repo, 'notes.txt'), 'notes, edited and not committed\n')
+
+  await worktrees.bringHome(tree.path)
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/carry')
+  assert.equal(await readFile(join(repo, 'notes.txt'), 'utf8'), 'notes, edited and not committed\n', 'the edit came along')
+})

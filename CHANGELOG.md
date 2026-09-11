@@ -7,6 +7,24 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Local or a new worktree, said where you type** — a new conversation's
+  composer now leads with where it will run: **Local** (the folder as it is),
+  a worktree the project already has, or **New worktree**, which is made when
+  the first message goes — so a draft abandoned after choosing one leaves no
+  branch and no folder behind. A folder that is itself a worktree is never
+  called Local, and the header tags any worktree, not only HarnessDesk's own.
+  Each place has its own glyph, so a narrow window that folds the words away
+  still says which.
+- **Bring a worktree back** — a conversation in a HarnessDesk worktree can
+  bring its branch back to the main checkout from the header's branch menu.
+  The worktree's folder goes, and with it anything git ignores there, such as
+  an `.env` file; the dialog says so before anything moves, and it waits while
+  a conversation in the worktree is still working. Uncommitted work
+  stops it (the dialog lists the files and can ask the agent to commit them); a
+  main checkout that will not take the switch says why in git's own words, and
+  the worktree is put back from its branch, the message naming what git ignored
+  there — or, if git will not allow even that, saying so. The conversation
+  carries on in the main checkout through a hand-off.
 - **Your name and face on the desk** — the seat at the foot of the sidebar is
   you, and now it can look like you: pick one of twenty-three HarnessDesk
   whales and give yourself a name in Settings → Profile, which heads the

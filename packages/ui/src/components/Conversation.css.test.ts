@@ -46,7 +46,7 @@ describe("a narrow header's words", () => {
        it their spans carry no class at all and spell their words out at every
        width — and nothing rendered would notice. */
     const narrow = blockAfter('@container hd-header (max-width: 520px)')
-    for (const label of ['.statusLabel', '.tasksLabel', '.gitLabel', '.gitTag']) {
+    for (const label of ['.statusLabel', '.tasksLabel', '.gitLabel', '.gitBadge']) {
       expect(narrow, `${label} does not fold`).toContain(label)
     }
     expect(narrow).toMatch(/clip-path:\s*inset\(50%\)/)

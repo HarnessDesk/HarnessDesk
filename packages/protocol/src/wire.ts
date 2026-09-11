@@ -1236,11 +1236,31 @@ export interface HostMethods {
   'worktree/changes': { params: { readonly path: string }; result: WorktreeChanges }
   /**
    * Refused with the list of what would be lost unless `force` is set. The
-   * interface shows that list and asks before it ever sends `force`.
+   * interface shows that list and asks before it ever sends `force`. Only for
+   * a worktree HarnessDesk made, of a repository opened here.
    */
   'worktree/remove': {
     params: { readonly path: string; readonly force?: boolean }
     result: { readonly branch: string | null }
+  }
+  /**
+   * The other direction: the worktree's branch is checked out in the main
+   * checkout and the side checkout goes, with anything git ignores in it.
+   * Only for a worktree HarnessDesk made, of a repository opened here,
+   * and not while a conversation in it is working. Refused — with the same list `worktree/remove` refuses on — while
+   * anything there is uncommitted, and refused in git's own words when the
+   * main tree will not take the switch; the worktree is then put back from its
+   * branch, the refusal naming what git ignored there, or, when git will not
+   * allow even that, the refusal says the folder is gone.
+   *
+   * `from` is the branch the main checkout was on, so the interface can say
+   * what was left behind. `root` is the main checkout itself. `warning` is
+   * what git reported after a switch it did make: a failing post-checkout
+   * hook exits non-zero once the branch is already out.
+   */
+  'worktree/bringHome': {
+    params: { readonly path: string }
+    result: { readonly branch: string; readonly from: string | null; readonly root: string; readonly warning?: string }
   }
 
   // -- the team: one board and one channel per workspace, host-owned.
