@@ -60,3 +60,20 @@ test('a CLI that cannot print a version is still driven', async () => {
   )
   assert.deepEqual(found, { path: '/x/agent', version: null })
 })
+
+test('with no lookup given, a CLI on PATH is found by walking PATH (#129)', async (t) => {
+  const { chmodSync, mkdtempSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'hd-which-'))
+  const cli = join(dir, 'hd-fake-cli')
+  writeFileSync(cli, '#!/bin/sh\necho 1.2.3\n')
+  chmodSync(cli, 0o755)
+  const path = process.env['PATH']
+  process.env['PATH'] = dir
+  t.after(() => {
+    process.env['PATH'] = path
+  })
+  const found = await resolveExecutable({ command: 'hd-fake-cli', env: 'HD_FAKE_CLI_EXECUTABLE' }, { versionOf: async () => '1.2.3' })
+  assert.deepEqual(found, { path: cli, version: '1.2.3' })
+})

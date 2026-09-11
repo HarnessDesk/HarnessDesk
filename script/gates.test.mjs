@@ -672,3 +672,47 @@ test('a section is read to the next heading, and a renamed one is empty rather t
   assert.equal(/unrelated/.test(sectionOf(doc, '## The gate')), false)
   assert.equal(sectionOf(doc, '## Renamed'), '')
 })
+
+test('a comment after a closing bracket, a dot or a semicolon is stripped too (#123)', () => {
+  // The pattern only opened a comment after start, whitespace or one of `{([,=:`.
+  for (const source of ['getValue()/* Codex */', '};/* Codex */', 'list[0]/* Codex */', 'a./* Codex */b', 'x;// Codex']) {
+    assert.doesNotMatch(withoutComments(source), /Codex/, source)
+  }
+  // And a string keeps what only looks like a comment inside it.
+  assert.match(withoutComments("const s = '/* Codex */'"), /Codex/)
+})
+
+test("a block comment keeps its line breaks, so a line number read from the result is the file's (#123)", () => {
+  const lines = withoutComments('a\n/* one\ntwo */\nb Codex').split('\n')
+  assert.equal(lines.length, 4)
+  assert.equal(lines.findIndex((line) => line.includes('Codex')), 3)
+})
+
+test('a regex literal holding a backtick opens no template string, so what follows it is still read (#123)', () => {
+  // Items.tsx, where a scan that skipped quoted strings lost its place for sixty lines.
+  const source = "const parts = text.split(/(`[^`\\n]+`)/g)\n/** Codex */\nconst a = 1\n"
+  assert.doesNotMatch(withoutComments(source), /Codex/)
+})
+
+test('JSX text is text: an apostrophe opens no string, and a // in it is not a comment (#123)', () => {
+  assert.doesNotMatch(withoutComments("const A = () => <p>Don't {/* Codex */} go</p>\n", 'a.tsx'), /Codex/)
+  assert.match(withoutComments('const A = () => <p>// Codex</p>\n', 'a.tsx'), /\/\/ Codex/)
+})
+
+test('a .ts file is parsed as TypeScript, so a generic arrow is not read as a JSX tag (#123)', () => {
+  assert.doesNotMatch(withoutComments('const id = <T,>(x: T) => x // Codex\n', 'a.ts'), /Codex/)
+  assert.doesNotMatch(withoutComments('const id = <T>(x: T) => x // Codex\n', 'a.ts'), /Codex/)
+})
+
+test("a doc comment comes out whole, even with a // after a link inside it (#123)", () => {
+  // The comment's own nodes sit inside it; reading trivia at them re-emitted the lines after the link.
+  const out = withoutComments('/**\n * See {@link Foo} // then more\n * Codex\n */\nconst a = 1\n')
+  assert.doesNotMatch(out, /Codex/)
+  assert.equal(out.split('\n').length, 6)
+})
+
+test("a .tsx caller is parsed as TSX, so a call after a // in JSX text still counts (#123)", () => {
+  // Parsed as TypeScript, the // in the JSX text opened a comment and took the call with it.
+  const source = "const A = () => <p>see // {request('team/state')}</p>\n"
+  assert.deepEqual([...reachedBy(['team/state'], [{ file: 'a.tsx', text: source }])], ['team/state'])
+})
