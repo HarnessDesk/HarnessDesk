@@ -135,7 +135,7 @@ export const dynamicToolCall: ThreadItem = {
   tool: 'format',
   arguments: { path: '/w/src/a.ts' },
   status: 'completed',
-  contentItems: [{ type: 'text', text: 'formatted 1 file' }] as never,
+  contentItems: [{ type: 'inputText', text: 'formatted 1 file' }],
   success: true,
   durationMs: 15,
 }
