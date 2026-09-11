@@ -202,8 +202,10 @@
 .claimMark {
   display: inline-grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  /* 24px, the target SC 2.5.8 asks of a control: it sits in a row with the
+     title and has no clearance of its own to stand on (#181). */
+  width: 24px; /* desk: 20 → 24 */
+  height: 24px; /* desk: 20 → 24 */
   padding: 0;
   border: none;
   border-radius: var(--hd-radius-sm);
