@@ -45,7 +45,8 @@ const CLEAN: WorktreeChanges = { modified: 0, untracked: 0, unpushedCommits: 2, 
 const rig = async ({
   changes = CLEAN,
   refusal = null,
-}: { changes?: WorktreeChanges; refusal?: string | null } = {}) => {
+  unread = null,
+}: { changes?: WorktreeChanges; refusal?: string | null; unread?: string | null } = {}) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -56,7 +57,12 @@ const rig = async ({
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
-    transport: { request: vi.fn(async () => changes) },
+    transport: {
+      request: vi.fn(async () => {
+        if (unread) throw new Error(unread)
+        return changes
+      }),
+    },
     bringWorktreeHome: vi.fn(async () => refusal),
   } as unknown as AppStore
   const onClose = vi.fn()
@@ -78,7 +84,9 @@ it('says which branch the main checkout leaves and which it takes, before anythi
 
   const text = document.body.textContent ?? ''
   expect(text).toContain('repo switches from main to harnessdesk/parser, with every commit made here.')
-  expect(text).toContain("The worktree's folder is removed; the branch is not.")
+  expect(text).toContain(
+    "The worktree's folder is removed, and with it anything git ignores there, such as an .env file or node_modules; the branch is not.",
+  )
   expect(text).toContain('a new one opens in repo carrying what happened here')
   expect(button('Bring it back')).toBeDefined()
 })
@@ -137,4 +145,11 @@ it('leaves it where it is when kept', async () => {
 
   expect(onClose).toHaveBeenCalled()
   expect(store.bringWorktreeHome).not.toHaveBeenCalled()
+})
+
+it('says what it could not read, and offers no move it cannot back', async () => {
+  await rig({ unread: 'fatal: not a git repository' })
+
+  expect(document.body.textContent).toContain('fatal: not a git repository')
+  expect(button('Bring it back')?.disabled).toBe(true)
 })

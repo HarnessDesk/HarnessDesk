@@ -399,9 +399,10 @@ test('a worktree git will not put back is reported as gone, not as left in place
  * Git runs a post-checkout hook after the switch and returns the hook's exit
  * status as checkout's own, so a failing hook reads as a refused checkout
  * that has in fact happened. Where the main checkout is afterwards decides
- * it: the branch is home, and there is nothing to put back.
+ * it: the branch is home, and there is nothing to put back. What git said is
+ * not dropped, though: it reaches the caller as a warning.
  */
-test('a failing post-checkout hook after the switch still brings the branch home', async (t) => {
+test('a failing post-checkout hook after the switch still brings the branch home, and says what git reported', async (t) => {
   const { repo, worktrees } = await fixture(t)
   const tree = await worktrees.create(repo, { name: 'hooked' })
   const hooks = join(repo, '..', 'hooks')
@@ -413,7 +414,38 @@ test('a failing post-checkout hook after the switch still brings the branch home
 
   assert.equal(home.branch, 'harnessdesk/hooked')
   assert.equal(home.from, 'main')
+  assert.match(home.warning ?? '', /the hook says no/, "git's words for the hook reach the caller")
   assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked', 'the switch happened')
   await assert.rejects(stat(tree.path), 'the side checkout is gone')
   assert.equal((await worktrees.list(repo)).length, 1, 'and git no longer lists it')
+})
+
+/**
+ * Putting a worktree back restores what git tracks. What it ignores — an
+ * `.env`, `node_modules` — was in the folder `worktree remove` deleted, and
+ * `git status` never counted it, so "left where it was" was untrue exactly
+ * when the worktree had been used. The refusal names what did not come back.
+ */
+test('a worktree put back after a refused switch names what git ignores there, which did not come back', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, '.gitignore'), '.env\n')
+  await git(repo, 'add', '-A')
+  await git(repo, 'commit', '-q', '-m', 'ignore .env')
+  const tree = await worktrees.create(repo, { name: 'configured' })
+  await writeFile(join(tree.path, '.env'), 'TOKEN=local\n')
+  await writeFile(join(tree.path, 'shared.txt'), 'theirs\n')
+  await git(tree.path, 'add', 'shared.txt')
+  await git(tree.path, 'commit', '-q', '-m', 'rewrite it')
+  await writeFile(join(repo, 'shared.txt'), 'mine, uncommitted\n')
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /left where it was/, 'the folder was rebuilt, not left')
+    assert.match(error.message, /put back from its branch/)
+    assert.match(error.message, /\.env/, 'names what git ignores there')
+    return true
+  })
+
+  assert.equal((await git(tree.path, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/configured', 'the worktree is back on its branch')
+  await assert.rejects(stat(join(tree.path, '.env')), 'and the .env did not come back, as the error says')
 })

@@ -140,3 +140,23 @@ describe('a draft carrying a hand-off', () => {
     expect(textarea().value).toBe('Carry on with the scoring.')
   })
 })
+
+it('sends once when Enter comes again while the packet is still being built', async () => {
+  // With a new worktree armed, a second send is a second worktree and branch.
+  const pending: Array<(packet: string | null) => void> = []
+  calls.handoffPacket.mockImplementation(() => new Promise<string | null>((resolve) => pending.push(resolve)))
+  try {
+    mount()
+    type('Carry on with the scoring.')
+    enter()
+    enter()
+    await act(async () => {
+      for (const finish of pending) finish('<context source="Handed off from OpenAI Codex — “Build pong”">…</context>')
+    })
+    await act(async () => {})
+
+    expect(calls.queue).toHaveBeenCalledTimes(1)
+  } finally {
+    calls.handoffPacket.mockImplementation(async () => null)
+  }
+})

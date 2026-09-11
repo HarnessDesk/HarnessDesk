@@ -33,7 +33,9 @@ import {
   TerminalIcon,
   TrashIcon,
   UndoIcon,
+  NewWorktreeIcon,
 } from './Icons'
+import { worktreeBranch } from '../lib/worktree-branch'
 import { Menu, MenuItem, MenuLabel, Submenu } from './Menu'
 import { Popover, popoverStyles } from './Popover'
 import { Badge } from '../design/ui/badge'
@@ -695,11 +697,13 @@ export const GitControl = ({
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const runtime = useRuntime()
-  // A draft pointed at a worktree will start there, so that is where this
-  // says it works — this chip and the composer's Work in control must never
-  // name two folders for one draft.
+  // A draft pointed at a worktree will start there, and one armed with a new
+  // worktree will start in the one it cuts — so that is where this says it
+  // works: this chip and the composer's Work in control must never name two
+  // places for one draft.
   const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : null
-  const cwd = session?.cwd ?? pointed ?? snapshot.workspace?.path ?? null
+  const armed = !session && snapshot.draftPlace?.kind === 'worktree' ? snapshot.draftPlace : null
+  const cwd = session?.cwd ?? pointed ?? armed?.root ?? snapshot.workspace?.path ?? null
   if (!cwd) return null
   const folder = cwd.split('/').filter(Boolean).at(-1) ?? cwd
   // The workspace's branch is read fresh by the host and follows a switch;
@@ -710,6 +714,7 @@ export const GitControl = ({
   // branch the worktree is on.
   const checkout = snapshot.worktrees.find((entry) => entry.path === cwd)
   const branch =
+    (armed ? worktreeBranch(armed.name) : null) ??
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.git?.branch ?? null : null) ??
     checkout?.branch ??
     session?.git?.branch ??
@@ -722,6 +727,7 @@ export const GitControl = ({
     ? snapshot.history.find((entry) => entry.runtime === session.runtime && entry.id === session.id)
     : undefined
   const linked =
+    armed !== null ||
     Boolean(worktree) ||
     (checkout !== undefined && !checkout.isMain) ||
     (cwd === snapshot.workspace?.path ? snapshot.workspace?.repo?.worktree === true : summary?.repo?.worktree === true)
@@ -741,14 +747,23 @@ export const GitControl = ({
 
   return (
     <Popover
-      title={`${linked ? 'Worktree' : 'Local'} — ${cwd}`}
+      title={`${armed ? 'New worktree' : linked ? 'Worktree' : 'Local'} — ${cwd}`}
       align="right"
       label={
         <>
           {/* The glyph says where, so it can stand alone when a narrow header
-              folds the words away: a branch for a worktree, a laptop for the
-              main checkout, a folder for one that is not a repository. */}
-          {linked ? <BranchIcon size={13} /> : branch ? <LocalIcon size={13} /> : <FolderIcon size={13} />}
+              folds the words away: a branch for a worktree, a branch with a
+              plus for one a draft will cut, a laptop for the main checkout,
+              a folder for one that is not a repository. */}
+          {armed ? (
+            <NewWorktreeIcon size={13} />
+          ) : linked ? (
+            <BranchIcon size={13} />
+          ) : branch ? (
+            <LocalIcon size={13} />
+          ) : (
+            <FolderIcon size={13} />
+          )}
           <span className={styles.gitWords}>
             <span className={styles.gitLabel}>{branch ?? folder}</span>
             {linked && (

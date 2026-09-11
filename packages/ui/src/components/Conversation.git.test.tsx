@@ -74,7 +74,7 @@ const rig = (over: Partial<AppSnapshot>): void => {
 }
 
 const chip = (): HTMLButtonElement | null =>
-  document.querySelector<HTMLButtonElement>('button[title^="Worktree — "], button[title^="Local — "]')
+  document.querySelector<HTMLButtonElement>('button[title^="Worktree — "], button[title^="Local — "], button[title^="New worktree — "]')
 
 const glyph = (): string => chip()?.querySelector('svg')?.getAttribute('class') ?? ''
 
@@ -128,4 +128,13 @@ it('offers neither for a worktree it did not make, though it still says it is on
   const rows = menu()
   expect(rows).not.toContain('Bring it back to the main checkout…')
   expect(rows).not.toContain('Remove this worktree…')
+})
+
+it('names the worktree a draft is armed to cut, not the folder it will be cut from', () => {
+  // The composer says New worktree; the header above it must not say Local.
+  rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
+
+  expect(glyph()).toContain('lucide-git-branch-plus')
+  expect(chip()?.title).toBe(`New worktree — ${ROOT}`)
+  expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
 })

@@ -105,7 +105,8 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
           </>
         )}{' '}
         to <span className="font-mono">{worktree.branch}</span>, with every commit made here. The
-        worktree's folder is removed; the branch is not.
+        worktree's folder is removed, and with it anything git ignores there, such as an .env file
+        or node_modules; the branch is not.
       </p>
 
       {unread && <WorktreeProblem className={RHYTHM}>{unread}</WorktreeProblem>}

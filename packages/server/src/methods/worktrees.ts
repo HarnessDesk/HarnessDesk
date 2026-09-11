@@ -1,4 +1,5 @@
 import { confine } from '../workspace.js'
+import { confineToOpenRepository } from '../worktree.js'
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -19,7 +20,15 @@ export const worktreeMethods = {
 
   'worktree/changes': (ctx, params) => ctx.worktrees.changes(params.path),
 
-  'worktree/remove': (ctx, params) => ctx.worktrees.remove(params.path, { ...(params.force ? { force: true } : {}) }),
+  // The two verbs that change a repository are held to the repositories the
+  // window has open, as `worktree/create` is to its open roots.
+  'worktree/remove': async (ctx, params) => {
+    await confineToOpenRepository(params.path, ctx.workspaces.openRoots())
+    return ctx.worktrees.remove(params.path, { ...(params.force ? { force: true } : {}) })
+  },
 
-  'worktree/bringHome': (ctx, params) => ctx.worktrees.bringHome(params.path),
+  'worktree/bringHome': async (ctx, params) => {
+    await confineToOpenRepository(params.path, ctx.workspaces.openRoots())
+    return ctx.worktrees.bringHome(params.path)
+  },
 } satisfies MethodsUnder<'worktree/'>

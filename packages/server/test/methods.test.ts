@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import test from 'node:test'
 
@@ -99,6 +100,45 @@ test('a worktree is only created under an open workspace, and the service is not
   assert.equal(created, 0)
   await dispatch(ctx, 'worktree/create', { root: open, name: 'wt' })
   assert.equal(created, 1)
+})
+
+/**
+ * The two verbs that change a repository answer to the boundary the rest of
+ * the git surface does: the folders the window has open. A worktree lives in
+ * the state directory, outside every workspace, so what is checked is its
+ * repository — open as its main checkout, or as the worktree itself.
+ */
+test('a worktree is brought home or removed only from a repository the window has open', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const repo = tempDir('hd-methods-repo-')
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+  execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  const elsewhere = tempDir('hd-methods-elsewhere-')
+  const asked: string[] = []
+  const ctx = (roots: string[]): HostContext =>
+    contextWith({
+      workspaces: { openRoots: () => roots },
+      worktrees: {
+        bringHome: async (path: string) => {
+          asked.push(`home ${path}`)
+          return { branch: 'wt', from: 'main', root: repo }
+        },
+        remove: async (path: string) => {
+          asked.push(`remove ${path}`)
+          return { branch: 'wt' }
+        },
+      },
+    })
+
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/bringHome', { path: tree }), /not open/)
+  await assert.rejects(dispatch(ctx([elsewhere]), 'worktree/remove', { path: tree }), /not open/)
+  assert.deepEqual(asked, [], 'the service is not asked about a repository the window does not have open')
+
+  await dispatch(ctx([repo]), 'worktree/bringHome', { path: tree })
+  await dispatch(ctx([tree]), 'worktree/remove', { path: tree })
+  assert.deepEqual(asked, [`home ${tree}`, `remove ${tree}`], 'its main checkout open, or the worktree itself, is its repository open')
 })
 
 test('deleting a route forgets its credential only when no other route still refers to it', async () => {

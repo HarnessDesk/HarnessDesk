@@ -17,11 +17,13 @@ move is real work and is not news to a person weighing an upgrade.
   still says which.
 - **Bring a worktree back** — a conversation in a HarnessDesk worktree can
   bring its branch back to the main checkout from the header's branch menu.
-  Uncommitted work stops it (the dialog lists the files and can ask the agent
-  to commit them); a main checkout that will not take the switch says why in
-  git's own words, and the worktree is put back where it was — or, if git will
-  not allow even that, the message says so. The conversation carries on in the
-  main checkout through a hand-off.
+  The worktree's folder goes, and with it anything git ignores there, such as
+  an `.env` file; the dialog says so before anything moves. Uncommitted work
+  stops it (the dialog lists the files and can ask the agent to commit them); a
+  main checkout that will not take the switch says why in git's own words, and
+  the worktree is put back from its branch, the message naming what git ignored
+  there — or, if git will not allow even that, saying so. The conversation
+  carries on in the main checkout through a hand-off.
 - **Gemini CLI and Antigravity show the context ring** — Gemini CLI counts a
   turn's tokens in its own slot on the prompt response rather than ACP's
   `usage` field, and Antigravity's server puts none on the wire at all but

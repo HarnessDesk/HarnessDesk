@@ -9,6 +9,7 @@ import {
   type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
+import { panes, sessionOf } from './layout'
 import { AppStore } from './store'
 
 /**
@@ -25,6 +26,12 @@ const AGENT = runtimeId('codex')
 const REPO: WorkspaceEntry = { path: '/repo', name: 'repo', lastOpenedAt: 1, git: { branch: 'main' } }
 const OTHER: WorkspaceEntry = { path: '/other', name: 'other', lastOpenedAt: 2, git: { branch: 'main' } }
 const TREE = '/state/worktrees/repo-1a2b/parser-fix'
+const TREE_WORKSPACE: WorkspaceEntry = { path: TREE, name: 'parser-fix', lastOpenedAt: 3, git: { branch: 'harnessdesk/parser-fix' } }
+const LISTED = {
+  main: { path: REPO.path, branch: 'main', head: 'a', isMain: true, managed: false },
+  tree: { path: TREE, branch: 'harnessdesk/parser-fix', head: 'abc', isMain: false, managed: true },
+}
+const GONE = `repo could not switch to harnessdesk/parser-fix, and the worktree could not be put back at ${TREE}, so that folder is gone; the branch keeps every commit.`
 
 const conversation = (id: string, cwd: string): Session =>
   ({
@@ -140,6 +147,17 @@ describe('where a draft starts', () => {
 
     expect(store.getSnapshot().draftPlace).toBeNull()
   })
+
+  it('keeps a new worktree armed when the host could not make it, so the send can be tried again', async () => {
+    refused['worktree/create'] = "fatal: a branch named 'harnessdesk/parser-fix' already exists"
+    await store.armWorktree(REPO.path, 'parser fix')
+
+    await store.send([{ type: 'text', text: 'Fix the parser' }])
+
+    expect(calls('session/create')).toHaveLength(0)
+    expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'worktree', root: REPO.path, name: 'parser fix' })
+    expect(store.getSnapshot().notices.some((notice) => notice.message.includes('already exists'))).toBe(true)
+  })
 })
 
 describe('bringing a worktree back', () => {
@@ -189,5 +207,56 @@ describe('bringing a worktree back', () => {
 
     expect(await store.bringWorktreeHome(TREE)).toContain('could not be put back')
     expect(store.getSnapshot().worktrees.map((entry) => entry.path)).not.toContain(TREE)
+  })
+
+  it('closes what lived in a folder git could not put back, and says why where it will stay', async () => {
+    await openIn(TREE)
+    answers['worktree/list'] = [LISTED.main, LISTED.tree]
+    await store.loadWorktrees()
+    answers['worktree/list'] = [LISTED.main]
+    refused['worktree/bringHome'] = GONE
+
+    expect(await store.bringWorktreeHome(TREE)).toBe(GONE)
+
+    // The dialog that asked goes with the pane, so the words stay as a notice.
+    expect(panes(store.getSnapshot().layout.root).map(sessionOf)).not.toContain(sessionKey(AGENT, sessionId('s-1')))
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).toContain(GONE)
+  })
+
+  it('opens the main checkout when the folder git could not put back was the one open', async () => {
+    answers['workspace/open'] = (params: { path: string }) =>
+      params.path === TREE ? TREE_WORKSPACE : params.path === OTHER.path ? OTHER : REPO
+    answers['worktree/list'] = [LISTED.main, LISTED.tree]
+    await store.openWorkspace(TREE)
+    await store.loadWorktrees()
+    // Its folder is gone, so the host has nothing to list it from.
+    answers['worktree/list'] = []
+    refused['worktree/bringHome'] = GONE
+
+    await store.bringWorktreeHome(TREE)
+
+    expect(store.getSnapshot().workspace?.path).toBe(REPO.path)
+  })
+
+  it('opens the main checkout when the worktree it brought home was the folder open', async () => {
+    answers['workspace/open'] = (params: { path: string }) =>
+      params.path === TREE ? TREE_WORKSPACE : params.path === OTHER.path ? OTHER : REPO
+    await store.openWorkspace(TREE)
+    await openIn(TREE)
+    answers['worktree/bringHome'] = { branch: 'harnessdesk/parser-fix', from: 'main', root: REPO.path }
+
+    expect(await store.bringWorktreeHome(TREE)).toBeNull()
+
+    expect(store.getSnapshot().workspace?.path).toBe(REPO.path)
+  })
+
+  it('says what git reported after a switch that did happen', async () => {
+    await openIn(TREE)
+    const warning = 'repo is on harnessdesk/parser-fix, but git reported a failure after switching: the hook says no'
+    answers['worktree/bringHome'] = { branch: 'harnessdesk/parser-fix', from: 'main', root: REPO.path, warning }
+
+    expect(await store.bringWorktreeHome(TREE)).toBeNull()
+
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).toContain(warning)
   })
 })

@@ -2985,14 +2985,25 @@ export class AppStore {
   async bringWorktreeHome(path: string): Promise<string | null> {
     const key = this.#snapshot.activeSessionKey
     const inside = (cwd: string): boolean => cwd === path || cwd.startsWith(`${path}/`)
+    // Read before asking: a refusal can take the folder with it, and then the
+    // list is the one place that still says where home was.
+    const listed = this.#snapshot.worktrees.some((entry) => entry.path === path)
+    const main = this.#snapshot.worktrees.find((entry) => entry.isMain)?.path
     const home = await this.transport
       .request('worktree/bringHome', { path })
       .catch((error: unknown) => describe(error))
     if (typeof home === 'string') {
-      // A refusal usually moves nothing, but a switch refused after the
-      // worktree had gone can leave its folder gone too, and the list must
-      // stop offering it.
+      // A refusal usually moves nothing. But a switch refused after the
+      // worktree had gone, with git refusing to put it back, leaves the folder
+      // gone too — and the list, read again, is what says so.
       await this.loadWorktrees()
+      if (listed && !this.#snapshot.worktrees.some((entry) => entry.path === path)) {
+        // What a removal does, and the words where they will stay: the dialog
+        // that asked closes with the pane it belongs to.
+        this.notice('warning', home)
+        if (main && this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(main)
+        this.#closePanesWhere(inside)
+      }
       return home
     }
 
@@ -3002,20 +3013,26 @@ export class AppStore {
       `${home.from ? `${folder} switched from ${home.from} to ${home.branch}.` : `${folder} is on ${home.branch} now.`} ` +
         'The worktree folder is gone; the branch keeps every commit.',
     )
+    if (home.warning) this.notice('warning', home.warning)
     // A worktree opened as the workspace went with its folder.
     if (this.#snapshot.workspace && inside(this.#snapshot.workspace.path)) await this.openWorkspace(home.root)
     const session = key ? this.#snapshot.sessions.get(key) : undefined
     if (key && session && inside(session.cwd)) {
       await this.handOff(splitSessionKey(key).runtime, 'summary', key, { cwd: home.root })
     }
-    for (const pane of panes(this.#snapshot.layout.root)) {
-      const other = sessionOf(pane)
-      const held = other ? this.#snapshot.sessions.get(other) : undefined
-      if (held && inside(held.cwd)) this.closePane(pane.id)
-    }
+    this.#closePanesWhere(inside)
     // The main checkout's branch changed under the window; read it again.
     await this.loadWorkspaces()
     return null
+  }
+
+  /** Closes every pane whose conversation lives in a folder that is gone. */
+  #closePanesWhere(gone: (cwd: string) => boolean): void {
+    for (const pane of panes(this.#snapshot.layout.root)) {
+      const key = sessionOf(pane)
+      const session = key ? this.#snapshot.sessions.get(key) : undefined
+      if (session && gone(session.cwd)) this.closePane(pane.id)
+    }
   }
 
   // ---------------------------------------------------------------- the team
