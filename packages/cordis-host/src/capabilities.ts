@@ -122,9 +122,17 @@ export class HttpService extends Service {
 
 const run = promisify(execFile)
 
+/** How much a command may write before `execFile` cuts it off. */
+const MAX_OUTPUT = 16 * 1024 * 1024
+
 export interface ShellResult {
   readonly stdout: string
   readonly stderr: string
+  /**
+   * The command's own exit code, or -1 when it has none: stopped at its
+   * timeout, cut off past the 16 MB output limit, or never started. `stderr`
+   * then ends with which (#161).
+   */
   readonly exitCode: number
 }
 
@@ -156,22 +164,38 @@ export class ShellService extends Service {
     const cwd = options.cwd ? resolveInWorkspace(this.runtime, options.cwd) : this.runtime.workspace.root
     if (cwd) owner.gate.assertWorkspaceRead(cwd)
 
+    const timeoutMs = options.timeoutMs ?? 30_000
     try {
       const result = await run(command, [...args], {
         ...(cwd ? { cwd } : {}),
-        timeout: options.timeoutMs ?? 30_000,
-        maxBuffer: 16 * 1024 * 1024,
+        timeout: timeoutMs,
+        maxBuffer: MAX_OUTPUT,
       })
       return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: 0 }
     } catch (error) {
-      const failure = error as { stdout?: string; stderr?: string; code?: number; message?: string }
-      return {
-        stdout: failure.stdout?.toString() ?? '',
-        // A non-zero exit is information, not an exception: plugins routinely
-        // run commands that legitimately fail.
-        stderr: failure.stderr?.toString() ?? failure.message ?? '',
-        exitCode: typeof failure.code === 'number' ? failure.code : 1,
+      const failure = error as {
+        stdout?: string
+        stderr?: string
+        code?: number | string | null
+        killed?: boolean
+        message?: string
       }
+      const stdout = failure.stdout?.toString() ?? ''
+      const stderr = failure.stderr?.toString() ?? ''
+      // A non-zero exit is information, not an exception: plugins routinely
+      // run commands that legitimately fail.
+      if (typeof failure.code === 'number') return { stdout, stderr, exitCode: failure.code }
+      /* Anything else is no exit of the command's own: stopped at the
+         timeout, cut off past the output limit, never started. Each came back
+         as exit 1 with nothing said, which to ripgrep and grep means "nothing
+         found", so a search that ran out of time or room read as an empty
+         answer (#161). */
+      const why = failure.killed
+        ? `stopped after ${timeoutMs / 1000} s`
+        : failure.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+          ? `its output passed ${MAX_OUTPUT / (1024 * 1024)} MB and was cut there`
+          : (failure.message ?? 'it could not be run')
+      return { stdout, stderr: stderr ? `${stderr.trimEnd()}\n${why}` : why, exitCode: -1 }
     }
   }
 }

@@ -20,14 +20,27 @@ const DEFAULT_MAX_LINE = 300
 
 /**
  * A note for results ripgrep gave while also failing — a folder it could not
- * read beside files it could — so a partial answer is not read as a whole
- * one (review, round one). Exit 1 is "nothing found", which is an answer;
- * 2 is an error.
+ * read beside files it could, or output cut off at the shell's limit — so a
+ * partial answer is not read as a whole one (review, round one). Exit 1 is
+ * "nothing found", which is an answer; 2 is an error, and -1 a search that
+ * never finished (#161).
  */
 const partial = (result: { readonly exitCode: number; readonly stderr: string }): string => {
-  if (result.exitCode < 2) return ''
+  if (result.exitCode === 0 || result.exitCode === 1) return ''
   const said = result.stderr.trim().split('\n').filter(Boolean).at(-1)
   return `\n\n[ripgrep hit an error, so this may be incomplete${said ? `: ${said}` : ''}]`
+}
+
+/**
+ * What an empty answer means. Exit 1 is "nothing found"; any other, 2 for an
+ * error or -1 for a search that never finished, is a failure whether or not
+ * ripgrep said why. Read by stderr alone, an exit 2 with nothing on it said
+ * "No matches." (#161).
+ */
+const emptyAnswer = (result: { readonly exitCode: number; readonly stderr: string }, none: string, failed: string): string => {
+  if (result.exitCode === 1) return none
+  const said = result.stderr.trim()
+  return `${failed}: ${said || `ripgrep exited ${result.exitCode} and said nothing`}`
 }
 
 export const searchPlugin: HarnessPlugin = {
@@ -48,10 +61,14 @@ export const searchPlugin: HarnessPlugin = {
     name: 'search',
     inject: ['tools', 'shell', 'workspace'],
     apply(ctx: HarnessContext, config: Config) {
-      // Whole: it is ripgrep's `--max-count` too now, and ripgrep refuses a
-      // fraction, so a setting of 10.5 failed every search (review, round two).
-      const maxResults = Math.trunc(Math.min(Math.max(config?.maxResults ?? DEFAULT_MAX_RESULTS, 1), 500))
-      const maxLine = Math.max(config?.maxLineLength ?? DEFAULT_MAX_LINE, 40)
+      /* Whole: it is ripgrep's `--max-count` too now, and ripgrep refuses a
+         fraction, so a setting of 10.5 failed every search (review, round
+         two). And finite, for the same reason: JSON can't carry a NaN, but a
+         caller that isn't JSON can (#161). */
+      const finite = (value: number | undefined, fallback: number): number =>
+        typeof value === 'number' && Number.isFinite(value) ? value : fallback
+      const maxResults = Math.trunc(Math.min(Math.max(finite(config?.maxResults, DEFAULT_MAX_RESULTS), 1), 500))
+      const maxLine = Math.trunc(Math.max(finite(config?.maxLineLength, DEFAULT_MAX_LINE), 40))
 
       const requireRoot = (): string => {
         const root = ctx.workspace.root
@@ -94,7 +111,12 @@ export const searchPlugin: HarnessPlugin = {
              so below, where a cap of exactly `maxResults` cut it there in
              silence (review, round one) — and the total is cut to
              `maxResults`. */
+          /* And ripgrep cuts each line at the longest this shows. The shell keeps
+             16 MB of output, and one minified bundle's line could fill it, so a
+             broad pattern came back cut off (#161). The number of lines is
+             still bounded only by `maxResults + 1` a file. */
           const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', String(maxResults + 1)]
+          argv.push('--max-columns', String(maxLine), '--max-columns-preview')
           if (args.ignoreCase) argv.push('--ignore-case')
           if (args.glob) argv.push('--glob', args.glob)
           argv.push('--regexp', args.pattern)
@@ -105,15 +127,13 @@ export const searchPlugin: HarnessPlugin = {
 
           const result = await ctx.shell.run('rg', argv)
           // ripgrep exits 1 for "no matches", which is an answer, not a failure.
-          if (result.exitCode !== 0 && result.stdout.trim().length === 0) {
-            const stderr = result.stderr.trim()
-            return stderr.length > 0 ? `Search failed: ${stderr}` : 'No matches.'
-          }
+          if (result.exitCode !== 0 && result.stdout.trim().length === 0) return emptyAnswer(result, 'No matches.', 'Search failed')
           const lines = result.stdout.split('\n').filter(Boolean)
           const shown = lines.slice(0, maxResults).map(clip)
-          return lines.length > maxResults
+          const more = lines.length - maxResults
+          return more > 0
             ? // "At least": a file past the per-file cap above counts only up to it.
-              `${shown.join('\n')}\n\n[at least ${lines.length - maxResults} more matches not shown — narrow the pattern]${partial(result)}`
+              `${shown.join('\n')}\n\n[at least ${more} more ${more === 1 ? 'match' : 'matches'} not shown — narrow the pattern]${partial(result)}`
             : `${shown.join('\n')}${partial(result)}` || 'No matches.'
         },
       })
@@ -139,14 +159,12 @@ export const searchPlugin: HarnessPlugin = {
              not. Both read as "No files match.", so an agent that wrote `[`
              for a bracket was told the workspace had nothing of the kind
              (#54). The reading search_text already had. */
-          if (result.exitCode !== 0 && result.stdout.trim().length === 0) {
-            const stderr = result.stderr.trim()
-            return stderr.length > 0 ? `File search failed: ${stderr}` : 'No files match.'
-          }
+          if (result.exitCode !== 0 && result.stdout.trim().length === 0) return emptyAnswer(result, 'No files match.', 'File search failed')
           const files = result.stdout.split('\n').filter(Boolean)
           if (files.length === 0) return 'No files match.'
-          return files.length > maxResults
-            ? `${files.slice(0, maxResults).join('\n')}\n\n[${files.length - maxResults} more]${partial(result)}`
+          const more = files.length - maxResults
+          return more > 0
+            ? `${files.slice(0, maxResults).join('\n')}\n\n[${more} more ${more === 1 ? 'file' : 'files'}]${partial(result)}`
             : `${files.join('\n')}${partial(result)}`
         },
       })

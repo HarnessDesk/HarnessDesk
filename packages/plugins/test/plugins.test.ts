@@ -343,7 +343,8 @@ test('a file with more matches than the result can show still says so', async (t
 
   const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
   assert.equal(found.split('\n').filter((line) => /full\.txt:\d+:retry \d+$/.test(line)).length, 80)
-  assert.match(found, /\[at least \d+ more matches not shown/)
+  // One more than the result shows is what the per-file cap lets through, and it is one match (#161).
+  assert.match(found, /\[at least 1 more match not shown/)
 })
 
 test('a result limit set as a fraction is a whole one, not a search ripgrep refuses', async (t) => {
@@ -365,7 +366,8 @@ test('a result limit set as a fraction is a whole one, not a search ripgrep refu
   const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
   assert.doesNotMatch(found, /Search failed/)
   assert.equal(found.split('\n').filter((line) => /five\.txt:\d+:retry \d+$/.test(line)).length, 2)
-  assert.match(found, /more matches not shown/)
+  // #161: and one more is one match, not "matches".
+  assert.match(found, /\[at least 1 more match not shown/)
 })
 
 test('results ripgrep gave while failing say they may be incomplete', {
@@ -1107,4 +1109,110 @@ test('read_file keeps its floor of 1,000 bytes, and a limit that is not a number
   for (const maxBytes of ['abc', {}]) {
     assert.equal(await readWith({ maxBytes }, 'short.txt'), 'twenty-five bytes of text', JSON.stringify(maxBytes))
   }
+})
+
+/**
+ * A stand-in `rg` on PATH, for what real ripgrep can't be made to do on cue:
+ * exit 2 and say nothing, print its own arguments, or flood the shell. It runs
+ * where ripgrep isn't installed, CI among them.
+ */
+const fakeRipgrep = async (t: TestContext, script: string): Promise<void> => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-fake-rg-'))
+  await writeFile(join(dir, 'rg'), `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+  const was = process.env['PATH']
+  process.env['PATH'] = `${dir}:${was ?? ''}`
+  t.after(async () => {
+    if (was === undefined) delete process.env['PATH']
+    else process.env['PATH'] = was
+    await rm(dir, { recursive: true, force: true })
+  })
+}
+
+/** The search plugin on an empty workspace, and a way to call its tools. */
+const searchWith = async (t: TestContext, config: Record<string, unknown> = {}) => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-fake-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load({ ...searchPlugin, config })
+  await settle()
+  return async (tool: 'search_text' | 'find_files', args: Record<string, unknown>): Promise<string> =>
+    text(await kernel.invokeTool(toolNamed(kernel, tool), args, {}))
+}
+
+const posixOnly = { skip: process.platform === 'win32' }
+
+test('an exit of 2 with nothing said is a failure, not an empty answer (#161)', posixOnly, async (t) => {
+  await fakeRipgrep(t, 'exit 2')
+  const call = await searchWith(t)
+  assert.equal(await call('search_text', { pattern: 'x' }), 'Search failed: ripgrep exited 2 and said nothing')
+  assert.equal(await call('find_files', { glob: '*.x' }), 'File search failed: ripgrep exited 2 and said nothing')
+})
+
+test('a limit that is not a finite number is the default, not a search ripgrep refuses (#161)', posixOnly, async (t) => {
+  // --max-count NaN is refused, and a caller that isn't JSON can hand the plugin a NaN.
+  await fakeRipgrep(t, 'echo "args.txt:1:$*"')
+  const call = await searchWith(t, { maxResults: Number.NaN, maxLineLength: Number.POSITIVE_INFINITY })
+  const shown = await call('search_text', { pattern: 'x' })
+  assert.match(shown, /--max-count 81 /)
+  assert.match(shown, /--max-columns 300 /)
+})
+
+test('one more is one match and one file (#161)', posixOnly, async (t) => {
+  await fakeRipgrep(t, "printf 'a.txt:1:x\\nb.txt:1:x\\nc.txt:1:x\\n'")
+  const call = await searchWith(t, { maxResults: 2 })
+  assert.match(await call('search_text', { pattern: 'x' }), /\[at least 1 more match not shown — narrow the pattern\]$/)
+  assert.match(await call('find_files', { glob: '*' }), /\[1 more file\]$/)
+})
+
+test('several files are cut together at the limit, in the order ripgrep gave them (#161)', posixOnly, async (t) => {
+  await fakeRipgrep(t, "printf 'a.txt:1:x\\nb.txt:1:x\\nc.txt:1:x\\na.txt:2:x\\nb.txt:2:x\\n'")
+  const call = await searchWith(t, { maxResults: 3 })
+  const shown = await call('search_text', { pattern: 'x' })
+  assert.deepEqual(shown.split('\n').filter((line) => /^[abc]\.txt:\d+:x$/.test(line)), ['a.txt:1:x', 'b.txt:1:x', 'c.txt:1:x'])
+  assert.match(shown, /\[at least 2 more matches not shown/)
+})
+
+test('a result both cut short and partial says both (#161)', posixOnly, async (t) => {
+  await fakeRipgrep(t, "printf 'a.txt:1:x\\na.txt:2:x\\nb.txt:1:x\\nb.txt:2:x\\nc.txt:1:x\\n'; echo 'locked: Permission denied' >&2; exit 2")
+  const call = await searchWith(t, { maxResults: 2 })
+  const shown = await call('search_text', { pattern: 'x' })
+  assert.equal(shown.split('\n').filter((line) => /^[abc]\.txt:\d+:x$/.test(line)).length, 2)
+  assert.match(shown, /\[at least 3 more matches not shown — narrow the pattern\]/)
+  assert.match(shown, /\[ripgrep hit an error, so this may be incomplete: locked: Permission denied\]$/)
+})
+
+test('a search whose output passed the shell limit says it is incomplete (#161)', posixOnly, async (t) => {
+  // It came back as exit 1, ripgrep's "nothing found", with the cut-off output read as a whole answer.
+  await fakeRipgrep(t, "head -c 17000000 /dev/zero | tr '\\000' 'x'")
+  const call = await searchWith(t)
+  assert.match(await call('search_text', { pattern: 'x' }), /\[ripgrep hit an error, so this may be incomplete: its output passed 16 MB and was cut there\]$/)
+})
+
+test('ripgrep cuts a long line itself, so minified files do not fill the output (#161)', async (t) => {
+  // A hundred files of one 200 KB matching line is 20 MB, past the shell's 16 MB.
+  if (!(await ripgrepOr(t))) return
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-wide-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const line = `retry ${'x'.repeat(200_000)}\n`
+  await Promise.all(Array.from({ length: 100 }, (_, n) => writeFile(join(dir, `bundle-${n}.js`), line)))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(searchPlugin)
+  await settle()
+  const found = text(await kernel.invokeTool(toolNamed(kernel, 'search_text'), { pattern: 'retry' }, {}))
+  assert.doesNotMatch(found, /may be incomplete/)
+  assert.equal(found.split('\n').filter((l) => /bundle-\d+\.js:1:retry x+…$/.test(l)).length, 80)
+  assert.match(found, /\[at least 20 more matches not shown/)
 })
