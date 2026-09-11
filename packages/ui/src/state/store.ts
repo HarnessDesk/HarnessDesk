@@ -116,6 +116,9 @@ import {
 } from './layout'
 import {
   DOCKS,
+  NARROW_WINDOW,
+  areaVisible,
+  sidebarPlacement,
   activate as activateIn,
   activeTerminal,
   areaOfMount,
@@ -348,6 +351,7 @@ export class AppStore {
       },
       onStatus: (status) => this.#patch({ status }),
     })
+    this.#watchWindowWidth()
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -1453,6 +1457,9 @@ export class AppStore {
     const carried = this.#snapshot.draftHandoff
     if (carried && carried.runtime === runtime && carried.sessionId === id) this.#parkedHandoff = carried
     if (options.reveal !== false) this.#showInPane(key, options.split, options.area)
+    // Choosing a conversation is what a floating sidebar is open for — the one
+    // already on screen included, which moves nothing the rule in `#patch` sees.
+    if (options.reveal !== false && !options.restoring) this.closeFloatingSidebar()
     this.#setLoading(key, true)
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
@@ -2145,6 +2152,8 @@ export class AppStore {
   openTeamRoom(room?: string): void {
     const base = this.#roomToShow(room)
     if (!base) return
+    // Like a conversation: a room is a place to go, the one on screen included.
+    this.closeFloatingSidebar()
     // Before the conversation, not after it: sessions on the left, the room in
     // the middle, the thread you are reading on the right.
     this.openDefaultView({ kind: 'room', room: base })
@@ -2629,6 +2638,13 @@ export class AppStore {
   #setWorkbench(next: Workbench): void {
     const workbench = settleWorkbench(next)
     this.#patch({ workbench, layout: workbench.main, detailsTab: visibleInspector(workbench) })
+    // What the patch settled on, which is not always what was asked for: a
+    // panel expanded in a sidebar that is not on screen is put back.
+    this.#keepWorkbench(this.#snapshot.workbench)
+  }
+
+  /** Remembers this workspace's workbench, so reopening it brings back the same panes. */
+  #keepWorkbench(workbench: Workbench): void {
     const workspace = this.#snapshot.workspace?.path
     if (!workspace) return
     const layouts = { ...(this.#layouts ?? {}), [workspace]: workbench }
@@ -2681,6 +2697,10 @@ export class AppStore {
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
+    // Unless the patch settled on something else: a panel saved expanded in a
+    // sidebar that opens put away comes back put away, and the document
+    // should say so rather than drop the zoom again on every open.
+    if (this.#snapshot.workbench !== workbench) this.#keepWorkbench(this.#snapshot.workbench)
     void this.#resumeVisible()
   }
 
@@ -3954,8 +3974,55 @@ export class AppStore {
     this.showViewIn('right', { kind: tab })
   }
 
+  /**
+   * Shows or hides the sidebar, however it is drawn: the column in a wide
+   * window, the floating one in a narrow window. One verb, because every
+   * caller — the button, ⌘B, the palette — means "the sidebar", not a width.
+   */
   toggleSidebar(): void {
-    this.#patch({ sidebarCollapsed: !this.#snapshot.sidebarCollapsed })
+    const { workbench, narrowWindow } = this.#snapshot
+    /* A panel given the whole window is hiding the sidebar, whatever its own
+       state says. Asked for, it comes back and the panel keeps what is left
+       — the content-area zoom — rather than the press flipping a flag nobody
+       can see, which took two presses to undo. */
+    if (workbench.zoom && !areaVisible(workbench, 'sidebar')) {
+      this.#setWorkbench(zoomAreaIn(workbench, workbench.zoom.area, 'content'))
+      this.#patch(narrowWindow ? { sidebarFloating: true } : { sidebarCollapsed: false })
+      return
+    }
+    if (narrowWindow) this.#patch({ sidebarFloating: !this.#snapshot.sidebarFloating })
+    else this.#patch({ sidebarCollapsed: !this.#snapshot.sidebarCollapsed })
+  }
+
+  /** Puts a floating sidebar away; nothing when none is open. */
+  closeFloatingSidebar(): void {
+    if (this.#snapshot.sidebarFloating) this.#patch({ sidebarFloating: false })
+  }
+
+  /**
+   * The window crossed `NARROW_WINDOW`. Either way a floating sidebar is put
+   * away: narrowing a window is not a request to cover the conversation, and
+   * widening one gives back the column as it was left.
+   */
+  setNarrowWindow(narrow: boolean): void {
+    if (narrow === this.#snapshot.narrowWindow) return
+    this.#patch({ narrowWindow: narrow, sidebarFloating: false })
+  }
+
+  /**
+   * Whether the window can afford the sidebar a column, known before the
+   * first frame. Learned after the first paint instead, the window would draw
+   * a column and then fold it away in front of the reader.
+   *
+   * The window's width rather than the workbench's: the workbench is the whole
+   * window in every place it is mounted, and a media query answers before
+   * there is a box to measure.
+   */
+  #watchWindowWidth(): void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(`(max-width: ${NARROW_WINDOW - 0.02}px)`)
+    this.#snapshot = { ...this.#snapshot, narrowWindow: query.matches }
+    query.addEventListener?.('change', (event) => this.setNarrowWindow(event.matches))
   }
 
   setTheme(theme: AppSnapshot['theme']): void {
@@ -4483,6 +4550,33 @@ export class AppStore {
     }
     next.navCanBack = this.#visitedBack.length > 0
     next.navCanForward = this.#visitedForward.length > 0
+    /* A sidebar floating over a narrow window is open to choose where to go,
+       and once the middle shows something else it has done its job — however
+       the choice was made: a row, ⌘K, New session, Back. Compared by view
+       rather than by layout object, so a pane that is merely drawn again does
+       not shut it; a draft is never the same view as the one before it. */
+    if (
+      next.sidebarFloating &&
+      patch.sidebarFloating === undefined &&
+      next.layout !== this.#snapshot.layout &&
+      !sameView(focusedPane(this.#snapshot.layout).view, focusedPane(next.layout).view)
+    ) {
+      next.sidebarFloating = false
+    }
+    /* Nor is it ever open and hidden at once: a panel given the whole window
+       puts it away. Left open, it moved focus and came out from under `inert`
+       while nothing was drawn, and the next ⌘B only closed it. */
+    if (next.sidebarFloating && !areaVisible(next.workbench, 'sidebar')) next.sidebarFloating = false
+    /* And a panel the sidebar was given the room for goes when the sidebar
+       goes. Expanded, it is the only area drawn, and put away with the
+       sidebar — the dim, ⌘B, the window narrowing — it left a window with
+       nothing on it and no control, ⌘B the only way back, which a phone does
+       not have. */
+    const outlived = next.workbench.zoom?.area === 'sidebar' && sidebarPlacement(next) === 'away'
+    if (outlived) {
+      next.workbench = unzoomIn(next.workbench)
+      next.detailsTab = visibleInspector(next.workbench)
+    }
     next.activeSessionKey = activeSessionKey
     // A hand-off belongs to the draft it was handed to; once a conversation
     // is in front — the draft sent, or another one opened — it has served.
@@ -4497,6 +4591,9 @@ export class AppStore {
       next.layout = prune(next.layout, (key) => next.sessions.has(key) || this.#snapshot.loadingSessions.has(key))
     }
     this.#snapshot = next
+    // Remembered like any change of layout, unless it came through
+    // `#setWorkbench`, which remembers what this settles on itself.
+    if (outlived && patch.workbench === undefined) this.#keepWorkbench(next.workbench)
     this.#wake()
   }
 

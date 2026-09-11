@@ -339,7 +339,17 @@ export interface AppSnapshot {
   readonly navCanForward: boolean
   /** The conversation handed to the open draft, if any. */
   readonly draftHandoff: DraftHandoff | null
+  /** The sidebar's column is put away — a wide window's choice. See `sidebarPlacement`. */
   readonly sidebarCollapsed: boolean
+  /**
+   * The window is narrower than `NARROW_WINDOW`, too narrow to give the
+   * sidebar a column. A fact about the window rather than a choice, kept here
+   * because `toggleSidebar` has to know which of the two sidebar states it is
+   * flipping.
+   */
+  readonly narrowWindow: boolean
+  /** In a narrow window, the sidebar is open over the conversation. */
+  readonly sidebarFloating: boolean
   readonly theme: 'light' | 'dark' | 'system'
   /**
    * Which token palette dresses the window. `harnessdesk` is the shipped
@@ -577,6 +587,8 @@ const EMPTY: AppSnapshot = {
   navCanForward: false,
   draftHandoff: null,
   sidebarCollapsed: false,
+  narrowWindow: false,
+  sidebarFloating: false,
   theme: 'system',
   palette: 'harnessdesk',
   accent: 'default',

@@ -144,6 +144,44 @@ Neither can put itself somewhere the host did not agree to.
 
 **The rule:** placement is negotiated at registration, never at draw time.
 
+## A narrow window lays things over the conversation
+
+*Scope: the desktop client's renderer, as a browser draws it.* The desktop
+window cannot be narrower than 720px, and at its ordinary zoom every width it
+can take keeps the four areas side by side. A browser goes below that — a
+phone, a tab dragged thin — and so does the desktop app zoomed in, whose width
+is counted in CSS pixels; and there the sidebar's 240px column left the
+conversation 135px: a composer wrapping its placeholder a word to a line, a
+title one pixel wide.
+
+Below 720px the sidebar floats over the conversation instead, and a panel on
+the right takes the conversation's width while it is open. Three things were
+chosen rather than defaulted:
+
+- **The line is the desktop window's own minimum**, not a width picked for
+  phones, so at its ordinary zoom no width the desktop app can take lays
+  anything over anything. Zoomed in, it crosses the line like any narrow
+  window, and that is right: everything on it is bigger too.
+- **The floating sidebar is a state of its own**, beside the column's.
+  Folding the column away on the way down and back on the way up would have
+  been one flag, and it would have lost the person's choice both ways: a
+  column put away in a wide window is still put away when the window is wide
+  again, and a narrow window never opens the sidebar over the conversation
+  because the column happened to be up when it narrowed.
+- **Over the floating sidebar, one Escape closes one thing.** It hears the
+  key on the window, after everything inside it, and stands aside for any
+  handler that marks the key spent with `preventDefault` — a menu, a filter
+  field, a rename, a window opened over it. What it covers — the workbench's
+  content and the notices floating over it — is inert while it is open, so
+  the covered pane's own keys, an approval's Escape among them, cannot answer
+  for it. A toast is drawn above it and stays in reach, an error's as well
+  as one that leaves on its own: it is so often the answer to something done
+  in the sidebar. Settings and Usage do not yet hold the rule for a menu open
+  inside them ([#206](https://github.com/HarnessDesk/HarnessDesk/issues/206)).
+
+**The rule:** a window too narrow for a column covers the conversation rather
+than squeezing it, and only when asked.
+
 ## Capabilities are negotiated, not normalised
 
 `RuntimeCapabilities` is a flat set of booleans an adapter declares about

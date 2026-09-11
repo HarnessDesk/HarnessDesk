@@ -156,6 +156,83 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
   expect(container.textContent).not.toContain('restore')
 })
 
+it('carries the window’s own controls whenever the sidebar is not standing beside it', () => {
+  const { store } = rig(session())
+  const base = store.getSnapshot()
+  const toggle = (): Element | null => container.querySelector('header button[aria-label="Show sidebar"]')
+  const draw = (snapshot: AppSnapshot, paneId: string): void => {
+    act(() => {
+      root.render(
+        <StoreProvider store={{ ...store, getSnapshot: () => snapshot } as unknown as AppStore}>
+          <PaneProvider
+            scope={{ paneId: paneId as never, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}
+          >
+            <Conversation
+              onChooseProject={() => undefined}
+              onSignIn={() => undefined}
+              onOpenUsage={() => undefined}
+              onOpenAgents={() => undefined}
+            />
+          </PaneProvider>
+        </StoreProvider>,
+      )
+    })
+  }
+  const middle = base.layout.focused
+
+  // A column beside the header carries them itself.
+  draw(base, middle)
+  expect(toggle()).toBeNull()
+
+  /* A narrow window never gives the sidebar a column: it floats, and closed it
+     is reached from here or not at all — however the column was last left. */
+  const narrow = { ...base, narrowWindow: true }
+  draw(narrow, middle)
+  expect(toggle()).not.toBeNull()
+
+  // The middle's own header only: a member's column in a room, or a
+  // conversation docked beside the middle, is not the window's top row.
+  draw(narrow, `${middle}:${KEY}`)
+  expect(toggle()).toBeNull()
+})
+
+it('marks a door to fold into ⋯ only where there is a ⋯ to fold it into', () => {
+  const browser = (): Element | null => container.querySelector('header button[aria-label="Open browser"]')
+  const menu = (): Element | null => container.querySelector('header button[aria-label="Conversation"]')
+
+  // A draft has no conversation menu, so its browser button must stay put: a
+  // narrow header that folded it left the draft with no way to the browser.
+  render(rig(null).store, null)
+  expect(menu()).toBeNull()
+  expect(browser()).not.toBeNull()
+  expect(browser()?.hasAttribute('data-folds')).toBe(false)
+
+  // With a conversation the ⋯ is there, and both doors fold into its View group.
+  render(rig(session()).store)
+  expect(menu()).not.toBeNull()
+  expect(browser()?.hasAttribute('data-folds')).toBe(true)
+  expect(container.querySelector('header button[aria-label="Open terminal"]')?.hasAttribute('data-folds')).toBe(true)
+})
+
+it('the chips a narrow header folds still say their words on hover', () => {
+  const { store } = rig(session())
+  const snapshot = {
+    ...store.getSnapshot(),
+    tasks: new Map([[KEY, [{ id: 't1', label: 'npm run dev', kind: 'command', state: 'running' }]]]),
+  } as unknown as AppSnapshot
+  render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
+
+  // The branch chip: the name it shows (here the folder, there being no
+  // branch), then where it is — the path alone was not the word that folded.
+  const git = [...container.querySelectorAll<HTMLButtonElement>('header button')].find((button) =>
+    button.title.endsWith('/repo'),
+  )
+  expect(git?.title).toBe('repo — /repo')
+  // The tasks chip leads with its own words.
+  const tasks = container.querySelector<HTMLButtonElement>('[data-testid="tasks-chip"]')
+  expect(tasks?.title.startsWith('1 running in the background. ')).toBe(true)
+})
+
 it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
   // A member column for an agent that needs a sign-in, while the desk's
   // default is a different, signed-in agent: the button must open the

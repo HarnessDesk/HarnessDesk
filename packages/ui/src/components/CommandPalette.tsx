@@ -8,6 +8,7 @@ import { extractHit } from '../lib/search-highlight'
 import { sessionLabel } from '../lib/sessions'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
+import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
   ArchiveIcon,
@@ -282,7 +283,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       {
         id: 'sidebar',
         group: 'Actions',
-        label: snapshot.sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar',
+        label: sidebarPlacement(snapshot) === 'away' ? 'Show sidebar' : 'Hide sidebar',
         hint: '⌘B',
         icon: <SidebarIcon size={14} />,
         run: () => {
