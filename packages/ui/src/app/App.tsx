@@ -303,7 +303,13 @@ export const App = () => {
             }
           />
           {/* Banners float over the pane area instead of topping the window,
-              where they would collide with the macOS traffic lights. */}
+              where they would collide with the macOS traffic lights.
+
+              Beside the workbench's shell — not inside it, not up with the
+              toasts — and always rendered, even empty. A sidebar floating
+              over a narrow window makes the shell's siblings inert, so this
+              stack goes under its curtain with the conversation, and a notice
+              raised while it is open arrives inside something already inert. */}
           <div className="hd-floatingNotices" ref={notices}>
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
             <ImportOffer

@@ -1001,9 +1001,10 @@ export const cornerArea = (workbench: Workbench, sidebarShown: boolean): AreaId 
  * window is measured in CSS pixels and is then narrower than it looks; the
  * narrow layout is right there too, since everything on it is bigger. Below
  * the line a 240px column left the conversation 135px: a composer wrapping its
- * placeholder a word to a line and a header whose title was one pixel wide. Below this line the sidebar floats over the conversation
- * instead of standing beside it, and a panel docked on the right takes the
- * conversation's whole width while it is open.
+ * placeholder a word to a line and a header whose title was one pixel wide.
+ * So below it the sidebar floats over the conversation instead of standing
+ * beside it, and a panel docked on the right takes the conversation's whole
+ * width while it is open.
  */
 export const NARROW_WINDOW = 720
 

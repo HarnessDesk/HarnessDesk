@@ -484,14 +484,17 @@ beside the conversation and lays them over it instead:
 - **The sidebar floats.** It leaves the row and the conversation takes the
   whole width. The header's sidebar button, ⌘B and the palette open it over
   the conversation, which dims — with the notices floating over it — and
-  cannot be reached until it goes. A toast raised meanwhile is drawn above it
-  and stays in reach, as it does over the Settings window. Pressing the dim,
-  Escape, or choosing somewhere to go — a conversation, a room, New session —
-  puts it away, and focus comes back to what opened it; an Escape that a menu
-  or a field inside it spent closes only that. It is closed whichever way the
-  line is crossed, and the column comes back as it was left: put away in a
-  wide window, it is still put away when the window is wide again. Open, it
-  clears the macOS window buttons as the row under it does.
+  cannot be reached until it goes. A menu the conversation had open closes as
+  it opens, as one does for a dialog, and its own menus go with it when it
+  goes. A toast raised meanwhile is drawn above it and stays in reach, as it
+  does over the Settings window; most leave on their own, and an error stays
+  until its × is pressed. Pressing the dim, Escape, or choosing somewhere to
+  go — a conversation, a room, New session — puts it away, and focus comes
+  back to what opened it; an Escape that a menu or a field inside it spent
+  closes only that. It is closed whichever way the line is crossed, and the
+  column comes back as it was left: put away in a wide window, it is still
+  put away when the window is wide again. Open, it clears the macOS window
+  buttons as the row under it does.
 - **A panel on the right takes the conversation's width** while it is open,
   with no seam to drag. Putting it away gives the conversation back.
 - **A header folds by its own width, not the window's**, so a narrow pane in

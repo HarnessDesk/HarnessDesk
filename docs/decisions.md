@@ -174,9 +174,10 @@ chosen rather than defaulted:
   field, a rename, a window opened over it. What it covers — the workbench's
   content and the notices floating over it — is inert while it is open, so
   the covered pane's own keys, an approval's Escape among them, cannot answer
-  for it. A toast is drawn above it and stays in reach: it is so often the
-  answer to something done in the sidebar. Settings and Usage do not yet hold
-  the rule for a menu open inside them ([#206](https://github.com/HarnessDesk/HarnessDesk/issues/206)).
+  for it. A toast is drawn above it and stays in reach, an error's as well
+  as one that leaves on its own: it is so often the answer to something done
+  in the sidebar. Settings and Usage do not yet hold the rule for a menu open
+  inside them ([#206](https://github.com/HarnessDesk/HarnessDesk/issues/206)).
 
 **The rule:** a window too narrow for a column covers the conversation rather
 than squeezing it, and only when asked.

@@ -7,7 +7,10 @@ import { isValidElement, useEffect, useLayoutEffect, useRef, useState, type Reac
  */
 export const DISMISS_OVERLAYS = 'hd:dismiss-overlays'
 
-/** Called by anything that takes the whole window — a dialog, a palette. */
+/**
+ * Called by anything that takes the whole window — a dialog, a palette — and
+ * by a sidebar laid over a narrow window's conversation, both ways.
+ */
 export const dismissOverlays = (): void => {
   document.dispatchEvent(new Event(DISMISS_OVERLAYS))
 }
@@ -145,15 +148,23 @@ export const Popover = ({
       menu left open behind a dialog paints over it and cannot be clicked,
       which reads as a broken window. Nothing else dismisses it: a dialog
       opened from the keyboard is not a pointerdown and not an Escape.
+
+      Holding focus, it gives it to its trigger on the way out, as Escape
+      does. A sidebar laid over the conversation gives focus back, when it
+      goes, to whatever had it when it came — and a row unmounted in between
+      is nowhere to give it back to. Focus held anywhere else stays put.
     */
-    const onDialog = (): void => setOpen(false)
+    const onDismiss = (): void => {
+      if (panel.current?.contains(document.activeElement)) trigger.current?.focus()
+      setOpen(false)
+    }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener(DISMISS_OVERLAYS, onDialog)
+    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener(DISMISS_OVERLAYS, onDialog)
+      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
     }
   }, [open])
 

@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { Popover } from '../components/Popover'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dock, emptyWorkbench, type Workbench as Model } from '../state/workbench'
@@ -24,14 +25,23 @@ import './builtins'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-/* The main area only needs to be something that can hold focus. */
-vi.mock('../components/Panes', () => ({
-  Panes: () => (
-    <button type="button" data-testid="in-the-conversation">
-      the conversation
-    </button>
-  ),
-}))
+/* The main area only needs to be something that can hold focus — and a menu,
+   the kind a conversation's header has, to be open when something lies over it. */
+vi.mock('../components/Panes', async () => {
+  const { Popover: Menu } = await import('../components/Popover')
+  return {
+    Panes: () => (
+      <>
+        <button type="button" data-testid="in-the-conversation">
+          the conversation
+        </button>
+        <Menu label="Branch" title="Branch">
+          {() => <input aria-label="Filter branches" />}
+        </Menu>
+      </>
+    ),
+  }
+})
 
 const changes = views.get('changes')
 if (!changes) throw new Error('changes is not registered')
@@ -69,7 +79,8 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
     },
     getSnapshot: () => snapshot,
     closeFloatingSidebar: vi.fn(() => patch({ sidebarFloating: false })),
-    toggleSidebar: vi.fn(),
+    // What ⌘B runs, in a narrow window.
+    toggleSidebar: vi.fn(() => patch({ sidebarFloating: !snapshot.sidebarFloating })),
     focusView: vi.fn(),
     activateView: vi.fn(),
   } as unknown as AppStore & { closeFloatingSidebar: ReturnType<typeof vi.fn> }
@@ -89,6 +100,9 @@ const render = (store: AppStore, beside = false): void => {
           sidebar={
             <div>
               <button type="button">A row in the sidebar</button>
+              <Popover label="Account" title="Account">
+                {() => <button type="button">Sign out</button>}
+              </Popover>
             </div>
           }
         />
@@ -117,6 +131,13 @@ const content = (): HTMLElement => {
   return found as HTMLElement
 }
 const seam = (label: string): Element | null => container.querySelector(`[aria-label="${label}"]`)
+/** An open menu; each is drawn into the document's body, not beside its trigger. */
+const menu = (): HTMLElement | null => document.querySelector('[role="menu"]')
+const named = (within: Element, name: string): HTMLButtonElement => {
+  const found = [...within.querySelectorAll('button')].find((button) => button.textContent === name)
+  if (!found) throw new Error(`no ${name} button`)
+  return found
+}
 
 it('a wide window keeps the column, with its seam, and nothing covering anything', () => {
   const { store } = rig()
@@ -227,6 +248,49 @@ it('Escape puts it away — unless something inside it spent the key first', () 
     row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
   })
   expect(store.closeFloatingSidebar).toHaveBeenCalledTimes(1)
+})
+
+it('laid over the conversation, it closes the menu the conversation had open, and focus comes back to that menu’s trigger', () => {
+  /* ⌘B with a menu open in the conversation. A key is not a press outside the
+     menu, so nothing closed it; and a menu is drawn above the sidebar, as it is
+     above a dialog — it lay over the sidebar, in reach, with its trigger inert
+     beneath it. Found in review, and seen in a real engine. */
+  const { store, patch } = rig({ narrowWindow: true })
+  render(store)
+  const trigger = named(content(), 'Branch')
+  act(() => trigger.click())
+  // Focus in the menu, as a long list's filter field takes it.
+  const filter = menu()?.querySelector('input')
+  act(() => filter?.focus())
+  expect(document.activeElement).toBe(filter)
+
+  store.toggleSidebar()
+
+  expect(menu()).toBeNull()
+  expect(document.activeElement).toBe(sidebar())
+  patch({ sidebarFloating: false })
+  // The menu's trigger, and not the field: that went with the menu.
+  expect(document.activeElement).toBe(trigger)
+})
+
+it('put away, it takes its own menu with it, and focus still goes back to what opened it', () => {
+  /* ⌘B again, with a menu open inside it: the sidebar slid away and the menu
+     stayed, hanging over the conversation with nothing under it that had
+     opened it. */
+  const { store } = rig({ narrowWindow: true })
+  render(store)
+  const opener = container.querySelector<HTMLButtonElement>('[data-testid="in-the-conversation"]')
+  opener?.focus()
+  store.toggleSidebar()
+  act(() => named(sidebar(), 'Account').click())
+  const signOut = menu()
+  if (!signOut) throw new Error('the menu did not open')
+  act(() => named(signOut, 'Sign out').focus())
+
+  store.toggleSidebar()
+
+  expect(menu()).toBeNull()
+  expect(document.activeElement).toBe(opener)
 })
 
 it('a panel on the right takes the conversation’s width in a narrow window, and has no seam', () => {

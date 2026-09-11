@@ -24,7 +24,7 @@ import {
   PanelSeam,
 } from '../design/patterns/DockPanel'
 import { Menu, MenuItem, MenuLabel } from '../components/Menu'
-import { Popover } from '../components/Popover'
+import { Popover, dismissOverlays } from '../components/Popover'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
@@ -355,8 +355,20 @@ const useFloatingSidebar = (
 ): void => {
   const store = useStore()
   const opener = useRef<HTMLElement | null>(null)
+  // So that putting it away is told apart from never having opened it.
+  const floated = useRef(false)
   useLayoutEffect(() => {
     if (floating) {
+      floated.current = true
+      /*
+       * A menu the conversation had open goes first, as it does for a dialog.
+       * Menus are drawn above the modal layer, so one left open lay over the
+       * sidebar, in reach, with its trigger inert beneath it — and ⌘B is not
+       * a press outside it, so nothing else closed it. First, because a menu
+       * holding focus gives it to its trigger as it goes, and that trigger is
+       * what focus should come back to.
+       */
+      dismissOverlays()
       // Taken before the content goes inert: making the focused control inert
       // moves focus to the page, and then there is nothing to come back to.
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -366,7 +378,8 @@ const useFloatingSidebar = (
        * the dim, whose buttons Tab would otherwise walk into behind it. A
        * toast is not beside it and stays in reach, drawn above the sidebar:
        * it is so often the answer to something done in the sidebar itself —
-       * an archive's Undo — and it leaves on its own.
+       * an archive's Undo. Most leave on their own; an error stays until it
+       * is dismissed, and its × is in reach for the same reason.
        *
        * Only what this makes inert is given back: something already inert
        * for its own reasons stays so.
@@ -391,16 +404,22 @@ const useFloatingSidebar = (
         for (const element of covered) element.removeAttribute('inert')
       }
     }
+    if (!floated.current) return
+    floated.current = false
     /*
-     * Put away: focus goes back to what opened it. Here, once the commit has
-     * settled, and not in the cleanup above — React puts focus back on
-     * whatever held it before a commit's changes once they are made, which is
-     * after a cleanup runs, so a cleanup's `focus()` came straight back undone
-     * whenever the key had been pressed on a control inside the sidebar.
+     * Put away: its own menus go with it — one left open hung over the
+     * conversation with nothing under it that had opened it — and focus goes
+     * back to what opened it. Both here, once the commit has settled, and not
+     * in the cleanup above: React puts focus back on whatever held it before a
+     * commit's changes once they are made, which is after a cleanup runs, so a
+     * cleanup's `focus()` came straight back undone whenever the key had been
+     * pressed on a control inside the sidebar, or inside one of its menus.
      *
      * Only when nothing else has taken focus in the meantime: a row that opened
-     * a conversation has already said where the reader is.
+     * a conversation has already said where the reader is. A menu that held
+     * focus has just given it to its trigger, which is in the sidebar.
      */
+    dismissOverlays()
     const back = opener.current
     opener.current = null
     if (!back) return
