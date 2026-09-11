@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
 
 import { elapsedSince } from '../lib/clock'
+import { countFileChange } from '../lib/diff'
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { CheckIcon, CrossIcon, DiffIcon, GoalIcon, TerminalIcon } from './Icons'
 import styles from './SessionBars.module.css'
@@ -131,15 +132,18 @@ export const JobsBar = () => {
   )
 }
 
-/** Files the session produced, collected from every file-change item. */
-export const useDeliverables = (session: Session | null) =>
-  useMemo(() => {
+/**
+ * Files the session produced, collected from every file-change item, each
+ * counted as the file view draws it: an added file's content is all added
+ * lines, and a `++` inside a hunk is a line like any other (#155).
+ */
+export const deliverablesOf = (session: Session | null) => {
     if (!session) return []
     const byPath = new Map<string, { path: string; kind: string; added: number; removed: number }>()
     for (const item of allItems(session)) {
       if (item.type !== 'fileChange') continue
       for (const change of (item as FileChangeItem).changes) {
-        const counts = countLines(change.diff)
+        const counts = countFileChange(change)
         const existing = byPath.get(change.path)
         byPath.set(change.path, {
           path: change.path,
@@ -150,18 +154,10 @@ export const useDeliverables = (session: Session | null) =>
       }
     }
     return [...byPath.values()]
-  }, [session])
-
-const countLines = (diff: string): { added: number; removed: number } => {
-  let added = 0
-  let removed = 0
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+++') || line.startsWith('---')) continue
-    if (line.startsWith('+')) added += 1
-    else if (line.startsWith('-')) removed += 1
-  }
-  return { added, removed }
 }
+
+/** `deliverablesOf`, kept while the session is the same one. */
+export const useDeliverables = (session: Session | null) => useMemo(() => deliverablesOf(session), [session])
 
 export const Deliverables = () => {
   const store = useStore()

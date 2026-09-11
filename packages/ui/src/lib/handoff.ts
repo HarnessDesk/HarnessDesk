@@ -1,6 +1,7 @@
 import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
 import { splitContext, wrapContext } from './context-envelope'
+import { countFileChange } from './diff'
 import { applyPlanEdits, type PlanEdit } from './plan-edits'
 import { sessionPlan } from './todos'
 
@@ -155,13 +156,9 @@ export const changedFiles = (items: readonly AgentItem[]): FileChange[] => {
   return [...byPath.values()]
 }
 
-const diffStats = (diff: string): string => {
-  let added = 0
-  let removed = 0
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+') && !line.startsWith('+++')) added += 1
-    else if (line.startsWith('-') && !line.startsWith('---')) removed += 1
-  }
+/** A file's `+N −M`, counted as the file view draws it (#155). */
+const diffStats = (change: FileChange): string => {
+  const { added, removed } = countFileChange(change)
   return `+${added} −${removed}`
 }
 
@@ -276,7 +273,7 @@ export const buildHandoff = (source: HandoffSource, carry: Carry): string | null
     const rest = files.length - listed.length
     sections.push(
       `## Files changed\n${listed
-        .map((change) => `- \`${relative(change.path)}\` — ${change.kind.type} (${diffStats(change.diff)})`)
+        .map((change) => `- \`${relative(change.path)}\` — ${change.kind.type} (${diffStats(change)})`)
         .join('\n')}${rest > 0 ? `\n- …and ${rest} more; \`git status\` in the working folder has the full list.` : ''}`,
     )
   } else if (carry === 'files') {

@@ -387,3 +387,27 @@ describe('buildHandoff', () => {
     expect(lineageLine({ agentName: 'X', session: session({ title: null, preview: 'hi there' }) })).toContain('“hi there”')
   })
 })
+
+describe('the files a packet lists', () => {
+  it('counts a change the way the file view draws it (#155)', () => {
+    // An added file arrives as its content, with no + on its lines; after a hunk, +++ is an added ++ line.
+    const base = session()
+    const turn = {
+      ...base.turns[0]!,
+      items: [
+        {
+          id: 'f1',
+          type: 'fileChange',
+          status: 'completed',
+          changes: [
+            { path: 'new.ts', kind: { type: 'add' }, diff: 'export const x = 1\nexport const y = 2\n' },
+            { path: 'count.ts', kind: { type: 'update' }, diff: '@@ -1,1 +1,2 @@\n x\n+++count;\n' },
+          ],
+        },
+      ],
+    }
+    const packet = buildHandoff({ agentName: 'Claude Code', session: session({ turns: [turn] } as unknown as Partial<Session>) }, 'summary')!
+    expect(packet).toContain('- `new.ts` — add (+2 −0)')
+    expect(packet).toContain('- `count.ts` — update (+1 −0)')
+  })
+})
