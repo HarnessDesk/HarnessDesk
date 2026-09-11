@@ -574,6 +574,14 @@ const handlers = {
     })
   },
   'session/new': (id, params) => {
+    // FAKE_ACP_SLOW_OPEN_MS=<n> answers an open that carries no tool server n ms
+    // late, as a loaded machine does: the retry after a refusal then lands
+    // after the refusal has been seen (#215).
+    const slow = Number(process.env.FAKE_ACP_SLOW_OPEN_MS ?? 0)
+    if (slow > 0 && (params?.mcpServers?.length ?? 0) === 0 && !params?.late) {
+      setTimeout(() => handlers['session/new'](id, { ...params, late: true }), slow)
+      return
+    }
     // FAKE_ACP_AUTH_REQUIRED=1 plays an agent that wants a sign-in before it
     // opens anything — ACP's auth_required, code and words both, as Google
     // Antigravity's server answers it.
