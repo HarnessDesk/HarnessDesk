@@ -21,6 +21,7 @@ export const createSteps = ({ out = process.stdout, err = process.stderr, exit =
   const failures = []
   const skipped = []
   const passed = new Set()
+  const declared = new Set()
 
   const report = () => {
     err.write('\n')
@@ -36,6 +37,16 @@ export const createSteps = ({ out = process.stdout, err = process.stderr, exit =
 
   /** One step: true when it ran and passed. `stop` ends the run here; `needs` names a step this one reads. */
   const step = (name, fn, { stop = false, needs = null } = {}) => {
+    /* A `needs` naming no step is a typo, and the run would swallow it: the
+       dependent step is skipped and the report reads `not run: biuld failed`,
+       naming a step that does not exist. That is an error in the roster rather
+       than a finding about the tree, so it stops the run where it is written,
+       and it is checked against the steps *declared before this one* — which
+       is the only kind a step can read the output of (#263). */
+    if (needs !== null && !declared.has(needs)) {
+      throw new Error(`step "${name}" needs "${needs}", which no step before it declares.`)
+    }
+    declared.add(name)
     if (needs !== null && !passed.has(needs)) {
       skipped.push({ name, needs })
       out.write(`• ${name} ... not run: ${needs} failed\n`)

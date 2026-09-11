@@ -111,6 +111,11 @@ export const gateCommands = (raw) => {
  * the folded (`run: >`) ones, then flattened — quotes dropped and whitespace
  * collapsed — so a quoted glob written inline in YAML matches the same command
  * assembled from the gate's argument array.
+ *
+ * One entry per command, kept apart. Joined into a single string, the
+ * comparison below became `String.prototype.includes`, and a gate command that
+ * was only *part* of a CI command counted as present: `pnpm run` reads as in
+ * CI against `run: pnpm run build`, though no step runs it (#247).
  */
 export const ciCommands = (yaml) => {
   const lines = yaml.split('\n')
@@ -136,7 +141,7 @@ export const ciCommands = (yaml) => {
     }
     out.push(block.join(' '))
   }
-  return out.map((one) => one.replace(/["']/g, '').replace(/\s+/g, ' ')).join('\n')
+  return out.map((one) => one.replace(/["']/g, '').replace(/\s+/g, ' ').trim())
 }
 
 /* The two parsers above are exported so the gate that keeps `verify.mjs` and
@@ -146,16 +151,26 @@ export const ciCommands = (yaml) => {
    way a suite can go red. Same guard as `check-layering.mjs`. */
 const isMain = process.argv[1] != null && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
-if (isMain) {
-  const workflow = ciCommands(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'))
-  const gate = gateCommands(readFileSync(resolve(root, 'script/verify.mjs'), 'utf8'))
-
+/**
+ * The gate's commands that CI does not run, whole command against whole
+ * command: `workflow` is one entry per `run:` line, so this is an exact
+ * membership test rather than a search through joined text (#247).
+ */
+export const missingFromCI = (gate, workflow) => {
   const missing = []
   for (const { command, args } of gate) {
     if (args.some((arg) => NOT_IN_CI.has(arg))) continue
     const line = [command, ...args].join(' ')
     if (!workflow.includes(line)) missing.push(line)
   }
+  return missing
+}
+
+if (isMain) {
+  const workflow = ciCommands(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'))
+  const gate = gateCommands(readFileSync(resolve(root, 'script/verify.mjs'), 'utf8'))
+
+  const missing = missingFromCI(gate, workflow)
 
   if (missing.length > 0) {
     process.stderr.write(

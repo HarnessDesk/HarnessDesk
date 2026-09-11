@@ -119,7 +119,11 @@ export const globToRegExp = (glob) => {
   let source = '^'
   parts.forEach((part, index) => {
     if (part === '**') {
-      source += '(?:[^\\\\/]+[\\\\/])*'
+      /* Each segment the group takes carries its own separator, which is right
+         in the middle of a glob and wrong at the end of one: `packages/**`
+         would then need a trailing separator and match nothing. At the end it
+         takes the rest of the path, the last segment included (#263). */
+      source += index < parts.length - 1 ? '(?:[^\\\\/]+[\\\\/])*' : '(?:[^\\\\/]+[\\\\/])*[^\\\\/]+'
       return
     }
     source += part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^\\\\/]*')
@@ -291,9 +295,29 @@ export function remove(files, outDir) {
  * holds a compiled test. The glob runs over every package directory, which
  * is wider than the reference graph this step trusts for everything else.
  */
+/**
+ * The segments of the test glob the walk below reads, by position.
+ *
+ * Reading by position is only safe while the shape holds, and the gate test
+ * that pins the glob pins its *content*: a glob shaped another way would be
+ * read as the wrong segments and the walk would look in the wrong place,
+ * silently. So the shape is asserted where it is read (#263).
+ */
+export const distSegments = (glob) => {
+  const parts = glob.split('/')
+  const [top, pkg, dist, tests, deep] = parts
+  if (parts.length !== 6 || pkg !== '*' || deep !== '**') {
+    throw new Error(
+      `prune-dist reads the test glob by position, and ${glob} is not that shape.\n` +
+        'It expects <packages>/*/<dist>/<test>/**/<file pattern>.',
+    )
+  }
+  return { top, dist, tests }
+}
+
 const distsTheGlobReaches = (repo) => {
   // Read off the glob itself — packages/*/dist/test/… — so the walk and the runners look in one place (#256).
-  const [top, , dist, tests] = TEST_GLOB.split('/')
+  const { top, dist, tests } = distSegments(TEST_GLOB)
   const packages = join(repo, top)
   if (!existsSync(packages)) return []
   return readdirSync(packages, { withFileTypes: true })

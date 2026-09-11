@@ -116,6 +116,9 @@ jobs:
       - name: Gate matches CI
         run: node script/check-verify-drift.mjs
 
+      - name: Steps are documented
+        run: node script/check-verify-steps.mjs
+
   package:
     name: Package (unsigned)
     runs-on: macos-14
