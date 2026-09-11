@@ -41,9 +41,13 @@
  * test output deleted by hand, or by a mistake in this file, would stop
  * running without a word and stay stopped. So every output the compiler lists
  * for the sources it was given has to be on disk, or this fails and names it.
+ *
+ * The build runs it as `node script/prune-dist.mjs`. Handed a path, it prunes
+ * that checkout instead of its own, which is how to put right one whose
+ * `build:node` predates this step.
  */
 
-import { existsSync, readdirSync, rmdirSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, realpathSync, rmdirSync, rmSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -74,6 +78,14 @@ const host = {
 }
 
 const configOf = (path) => (path.endsWith('.json') ? path : join(path, 'tsconfig.json'))
+
+/**
+ * TypeScript hands back every path with forward slashes, on every platform,
+ * and the paths it is compared with here are built by Node with the
+ * platform's own separator. `resolve` puts the compiler's into Node's form,
+ * and changes nothing where the two already agree.
+ */
+const native = (path) => resolve(path)
 
 /**
  * Every project `tsc -b` builds from the repo's `tsconfig.json`, its
@@ -115,9 +127,10 @@ const filesUnder = (dir) =>
 
 /** What one project's `dist` holds that nothing accounts for, and what the compiler writes there that it does not hold. */
 export function audit(project) {
-  const { outDir, rootDir } = project.options
+  const outDir = native(project.options.outDir)
+  const rootDir = native(project.options.rootDir)
   const ignoreCase = !ts.sys.useCaseSensitiveFileNames
-  const expected = new Set(project.fileNames.flatMap((file) => ts.getOutputFileNames(project, file, ignoreCase)))
+  const expected = new Set(project.fileNames.flatMap((file) => ts.getOutputFileNames(project, file, ignoreCase)).map(native))
   const missing = [...expected].filter((file) => !existsSync(file)).sort()
   if (!existsSync(outDir)) return { orphans: [], missing }
 
@@ -147,7 +160,7 @@ export function prune(repo) {
     const found = audit(project)
     for (const file of found.orphans) {
       rmSync(file)
-      removeEmpty(dirname(file), project.options.outDir)
+      removeEmpty(dirname(file), native(project.options.outDir))
       removed.push(file)
     }
     missing.push(...found.missing)
@@ -181,8 +194,18 @@ export function main(repo, out = process.stdout, err = process.stderr) {
   return 1
 }
 
-/* Imported by its test, so importing it must not prune the checkout. Same
-   guard as `check-layering.mjs`. */
-const isMain = process.argv[1] != null && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+/* Imported by its test, so importing it must not prune the checkout — the
+   guard `check-layering.mjs` has, but compared as real paths. Node resolves
+   this module's own URL through every symlink and leaves argv[1] as it was
+   typed, so compared as they come the two differ whenever the command is
+   reached through a link, and the step does nothing at all and exits 0. */
+const real = (path) => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+const isMain = process.argv[1] != null && real(resolve(process.argv[1])) === real(fileURLToPath(import.meta.url))
 
-if (isMain) process.exitCode = main(root)
+if (isMain) process.exitCode = main(process.argv[2] == null ? root : resolve(process.argv[2]))

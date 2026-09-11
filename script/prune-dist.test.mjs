@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { main, prune } from './prune-dist.mjs'
 
@@ -20,6 +21,7 @@ import { main, prune } from './prune-dist.mjs'
  */
 
 const TSC = createRequire(import.meta.url).resolve('typescript/bin/tsc')
+const SCRIPT = fileURLToPath(new URL('./prune-dist.mjs', import.meta.url))
 
 /** A package the way every Node package here is configured, near enough to compile. */
 const PACKAGE = {
@@ -66,6 +68,9 @@ const inDemo = (repo, files) => files.map((file) => relative(join(repo, 'package
 const has = (repo, path) => existsSync(join(repo, 'packages/demo', path))
 
 const sink = () => ({ text: '', write(chunk) { this.text += chunk; return true } })
+
+/** The step run the way the build runs it: its own process, handed a checkout. */
+const command = (script, repo) => spawnSync(process.execPath, [script, repo], { encoding: 'utf8' })
 
 test('a compiled test whose source is gone goes, with its map and declarations', (t) => {
   const repo = checkout(t, [
@@ -166,8 +171,10 @@ test('what only the compiler knows it writes stays: a JavaScript source under al
 
 test('a package reached only through another package’s references is pruned too', (t) => {
   // `tsc -b` builds the whole graph, so its orphans are the build's orphans.
+  // This reference names the file, the other form tsc takes; the root's
+  // names a directory.
   const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
-  write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify({ ...PACKAGE, references: [{ path: '../lib' }] }))
+  write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify({ ...PACKAGE, references: [{ path: '../lib/tsconfig.json' }] }))
   write(join(repo, 'packages/lib/tsconfig.json'), JSON.stringify(PACKAGE))
   write(join(repo, 'packages/lib/src/index.ts'))
   for (const file of [...outputs('dist/src/index'), ...outputs('dist/src/gone')]) write(join(repo, 'packages/lib', file))
@@ -194,6 +201,70 @@ test('the step fails on a missing output and names the way back; it passes on a 
   const quiet = sink()
   assert.equal(main(whole, sink(), quiet), 0)
   assert.equal(quiet.text, '')
+})
+
+test('a package that has never been built has everything missing and nothing to remove', (t) => {
+  const repo = checkout(t, ['src/index.ts'])
+  const { removed, missing } = prune(repo)
+  assert.deepEqual(removed, [])
+  assert.deepEqual(inDemo(repo, missing), outputs('dist/src/index').sort())
+})
+
+test('dist itself stays when the last thing in it goes', (t) => {
+  // The walk up from an emptied directory stops below dist. Without that
+  // bound it keeps going for as long as it finds nothing, and dist is next.
+  const repo = checkout(t, ['src/index.ts', 'dist/test/gone.test.js'])
+  assert.deepEqual(inDemo(repo, prune(repo).removed), ['dist/test/gone.test.js'])
+  assert.equal(has(repo, 'dist/test'), false)
+  assert.ok(has(repo, 'dist'))
+})
+
+test('every removal is named; a long list of missing outputs is cut at twenty and counted', (t) => {
+  // What was deleted is always said in full. What is missing can be a whole
+  // package's worth, where twenty names and a count say as much.
+  const repo = checkout(t, Array.from({ length: 6 }, (_, n) => [`src/m${n}.ts`, ...outputs(`dist/src/gone${n}`)]).flat())
+  const out = sink()
+  const err = sink()
+  assert.equal(main(repo, out, err), 1)
+  assert.equal((out.text.match(/^ {2}packages\/demo\/dist\/src\/gone\d/gm) ?? []).length, 24)
+  assert.equal((err.text.match(/^ {2}packages\/demo\/dist\/src\/m\d/gm) ?? []).length, 20)
+  assert.match(err.text, /^ {2}… and 4 more$/m)
+})
+
+test('a project that sets outDir and not rootDir is refused, not guessed at', (t) => {
+  // dist is read back to its sources through both, and a guessed rootDir is
+  // how a live output would come to be read as an orphan.
+  const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
+  const { rootDir: _rootDir, ...options } = PACKAGE.compilerOptions
+  write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify({ ...PACKAGE, compilerOptions: options }))
+  assert.throws(() => prune(repo), /packages\/demo\/tsconfig\.json sets outDir and not rootDir/)
+})
+
+test('a config the compiler cannot parse is refused, naming it', (t) => {
+  const repo = checkout(t, ['src/index.ts', ...outputs('dist/src/index')])
+  write(join(repo, 'packages/demo/tsconfig.json'), JSON.stringify({ ...PACKAGE, compilerOptions: { ...PACKAGE.compilerOptions, notAnOption: true } }))
+  assert.throws(() => prune(repo), /packages\/demo\/tsconfig\.json does not parse:\n.*notAnOption/)
+})
+
+test('run as a command, it prunes the checkout it is handed and exits 1 on what is missing', (t) => {
+  const repo = checkout(t, ['test/lost.test.ts', ...outputs('dist/test/orphan.test')])
+  const run = command(SCRIPT, repo)
+  assert.equal(run.status, 1, run.stderr)
+  assert.match(run.stdout, /^ {2}packages\/demo\/dist\/test\/orphan\.test\.js$/m)
+  assert.match(run.stderr, /^ {2}packages\/demo\/dist\/test\/lost\.test\.js$/m)
+})
+
+test('reached through a symlink, the command still runs rather than exiting 0 having done nothing', (t) => {
+  // Node resolves this module's own URL through the link and leaves argv[1]
+  // as it was typed. A guard comparing the two as they come is false, and the
+  // build step turns into a no-op that reports success. A copy under /tmp is
+  // the same case on macOS, where /tmp is itself a link.
+  const repo = checkout(t, ['test/lost.test.ts', ...outputs('dist/test/orphan.test')])
+  const link = join(repo, 'prune-dist-link.mjs')
+  symlinkSync(SCRIPT, link)
+  const run = command(link, repo)
+  assert.equal(run.status, 1, run.stderr)
+  assert.match(run.stdout, /^ {2}packages\/demo\/dist\/test\/orphan\.test\.js$/m)
 })
 
 test('every script that builds for the tests runs this, after the compiler', () => {
