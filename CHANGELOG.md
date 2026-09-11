@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **`read_file` stops at the byte limit its setting names** — it counted
+  characters, so a file of three-byte characters ran to three times the limit.
+  Chinese or Japanese text now comes back about a third as long as before; the
+  Workspace files plugin's *Read limit, in bytes* setting raises it.
 - **Local or a new worktree, said where you type** — a new conversation's
   composer now leads with where it will run: **Local** (the folder as it is),
   a worktree the project already has, or **New worktree**, which is made when

@@ -1026,3 +1026,85 @@ test('htmlToText reads entities in any case, leaves unknown ones alone, and deco
   assert.equal(htmlToText('&copy; &bogus; &amp;&amp;'), '&copy; &bogus; &&')
   assert.equal(htmlToText('&amp;amp;lt;'), '&amp;lt;')
 })
+
+test('read_file stops at the byte limit it is named for, and never cuts a character in half', async (t) => {
+  // #96: maxBytes was compared with content.length, so a file of three-byte characters ran to three times the bytes.
+  // Round 1 of #190: through the kernel, as a person's setting reaches it, and with a limit set as a fraction.
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-bytes-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const bom = String.fromCharCode(0xfeff)
+  const files: Record<string, string> = {
+    'prices.txt': '€'.repeat(500),
+    'bom.txt': `${bom}${'a'.repeat(1000)}`,
+    'faces.txt': '😀'.repeat(300),
+    // Longer than the limit in UTF-16 units, so only its head is encoded, with a pair split at its end (review, round 2).
+    'faces-long.txt': '😀'.repeat(600),
+    'exact.txt': 'a'.repeat(1000),
+    'short.txt': 'plain text',
+  }
+  for (const [name, body] of Object.entries(files)) await writeFile(join(dir, name), body)
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load({ ...filesPlugin, config: { maxBytes: 1000.5 } })
+  await settle()
+  const read = async (path: string) => text(await kernel.invokeTool(toolNamed(kernel, 'read_file'), { path }, {}))
+  const bodyOf = (result: string) => result.split('\n\n[truncated')[0] ?? ''
+
+  const prices = await read('prices.txt')
+  assert.equal(new TextEncoder().encode(bodyOf(prices)).length, 999, 'the last whole character that fits')
+  assert.ok(!prices.includes(String.fromCharCode(0xfffd)), 'no character is cut in half, a fractional limit included')
+  // The note says where the cut is, which is not the limit when a character stops short of it (review, round 2).
+  assert.match(prices, /\[truncated at 999 bytes\]$/)
+  // A four-byte character that ends exactly at the limit is kept whole, and nothing is stepped back.
+  assert.equal(bodyOf(await read('faces.txt')), '😀'.repeat(250))
+  const long = await read('faces-long.txt')
+  assert.equal(bodyOf(long), '😀'.repeat(250))
+  assert.ok(!long.includes(String.fromCharCode(0xfffd)), 'the pair split at the end of the encoded head is never in what comes back')
+  // A byte-order mark the file starts with is still there.
+  assert.equal(bodyOf(await read('bom.txt')), `${bom}${'a'.repeat(997)}`)
+  // A file exactly at the limit, and one under it, come back whole.
+  assert.equal(await read('exact.txt'), 'a'.repeat(1000))
+  assert.equal(await read('short.txt'), 'plain text')
+})
+
+test('read_file cuts at 64,000 bytes when nothing is configured', async (t) => {
+  // Round 1 of #190: the default path had no test.
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-default-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'big.txt'), 'a'.repeat(70_000))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(filesPlugin)
+  await settle()
+  const result = text(await kernel.invokeTool(toolNamed(kernel, 'read_file'), { path: 'big.txt' }, {}))
+  assert.equal(result, `${'a'.repeat(64_000)}\n\n[truncated at 64000 bytes]`)
+})
+
+test('read_file keeps its floor of 1,000 bytes, and a limit that is not a number is the default (review of #190, round 2)', async (t) => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-floor-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'long.txt'), 'a'.repeat(2_000))
+  await writeFile(join(dir, 'short.txt'), 'twenty-five bytes of text')
+  const readWith = async (config: unknown, path: string) => {
+    const kernel = new ExtensionKernel()
+    t.after(() => kernel.dispose())
+    kernel.setWorkspace({ root: dir, branch: null })
+    await kernel.load({ ...filesPlugin, config: config as never })
+    await settle()
+    return text(await kernel.invokeTool(toolNamed(kernel, 'read_file'), { path }, {}))
+  }
+  assert.equal(await readWith({ maxBytes: 10 }, 'long.txt'), `${'a'.repeat(1_000)}\n\n[truncated at 1000 bytes]`)
+  // Nothing checks a setting's type over plugin/configure, and `Math.max(1_000, 'abc')` is NaN: every file came back empty.
+  for (const maxBytes of ['abc', {}]) {
+    assert.equal(await readWith({ maxBytes }, 'short.txt'), 'twenty-five bytes of text', JSON.stringify(maxBytes))
+  }
+})

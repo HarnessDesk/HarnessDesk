@@ -48,9 +48,9 @@ interface Rig {
   close(): Promise<void>
 }
 
-const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean }): Promise<Rig> => {
+const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean }, name?: string): Promise<Rig> => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-archive-'))
-  const runtime = new FakeRuntime(capabilities ? { capabilities } : {})
+  const runtime = new FakeRuntime({ ...(capabilities ? { capabilities } : {}), ...(name ? { name } : {}) })
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
@@ -168,13 +168,15 @@ test('deleting reports what happened and clears the mark the host was holding', 
 })
 
 test('an agent that cannot delete is refused before anything is thrown away', async () => {
-  const rig = await start({ archiveHistory: false, deleteHistory: false })
+  // #102: the refusal named the runtime by its internal name.
+  const rig = await start({ archiveHistory: false, deleteHistory: false }, 'fake-internal')
   try {
     rig.runtime.history.push(summary('a'))
-    await assert.rejects(
-      rig.client.call('session/delete', { runtime: 'fake', sessionId: 'a' }),
-      /cannot delete a stored conversation/,
-    )
+    await assert.rejects(rig.client.call('session/delete', { runtime: 'fake', sessionId: 'a' }), (error: Error) => {
+      assert.match(error.message, /Fake Runtime cannot delete a stored conversation/)
+      assert.doesNotMatch(error.message, /fake-internal/)
+      return true
+    })
     assert.deepEqual(rig.runtime.deleted, [])
     assert.deepEqual((await list(rig.client)).data.map((row) => String(row.id)), ['a'])
   } finally {

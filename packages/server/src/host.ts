@@ -1596,7 +1596,7 @@ export class Host {
     } finally {
       clearTimeout(timer)
     }
-    return target.info.name
+    return target.info.presentation.name
   }
 
   async #reattach(runtime: AgentRuntime, id: SessionId): Promise<AgentSession> {
@@ -2267,7 +2267,7 @@ export class Host {
     const accounts = this.options.accounts
     const of = this.#runtime({ runtime: id })
     if (!accounts || !accounts.canAdd(of.info)) {
-      throw new Error(`${of.info.name} cannot hold more than one account here.`)
+      throw new Error(`${of.info.presentation.name} cannot hold more than one account here.`)
     }
     // The key goes to the broker on the way past and is never held here: what
     // the slot records, and all anything else can ask for, is the reference.
@@ -2436,7 +2436,7 @@ export class Host {
     const runtime = this.#runtime({ runtime: id })
     const slot = accounts?.slotOf(runtime.info) ?? null
     if (!accounts || !slot?.removable) {
-      throw new Error(`${runtime.info.name} is this agent's original account and cannot be removed.`)
+      throw new Error(`${runtime.info.presentation.name} is this agent's original account and cannot be removed.`)
     }
     // A gateway account has no vendor session to end — its credential is ours
     // to destroy. The gateway process goes first, so nothing is left holding

@@ -367,6 +367,10 @@ const hostWithAccounts = async (options: {
   readonly newAccountStartMs?: number
   /** Passed straight to the host, so a test can make the deadline short. */
   readonly startTimeoutMs?: number
+  /** The original account's internal name, so a test can tell it from the name people see. */
+  readonly ownName?: string
+  /** The agent holds one account and no more. */
+  readonly single?: boolean
 } = {}): Promise<{
   host: Host
   stateDir: string
@@ -383,7 +387,7 @@ const hostWithAccounts = async (options: {
   const slots = new AccountSlots(join(stateDir, 'accounts.json'))
   const created = new Map<string, FakeRuntime>()
   const accounts: AccountFactory = {
-    canAdd: (info: RuntimeInfo) => info.id === FAKE_RUNTIME_ID || slots.find(info.id) !== null,
+    canAdd: (info: RuntimeInfo) => !options.single && (info.id === FAKE_RUNTIME_ID || slots.find(info.id) !== null),
     slotOf: (info: RuntimeInfo) => {
       if (info.id !== FAKE_RUNTIME_ID && !slots.find(info.id)) return null
       const slot = slots.find(info.id)
@@ -433,7 +437,7 @@ const hostWithAccounts = async (options: {
     version: '9.9.9',
     ...(options.startTimeoutMs === undefined ? {} : { startTimeoutMs: options.startTimeoutMs }),
   })
-  const own = new FakeRuntime({ accountLabel: 'olivia@example.com' })
+  const own = new FakeRuntime({ accountLabel: 'olivia@example.com', ...(options.ownName ? { name: options.ownName } : {}) })
   host.register(own)
   await host.start()
   return { host, stateDir, primary, slots, accounts, created, own }
@@ -1217,4 +1221,34 @@ test('a gateway account is pointed at a fresh port on every start', async (t) =>
   const after = /base_url = "([^"]+)"/.exec(await readFile(join(home, 'config.toml'), 'utf8'))?.[1]
   assert.ok(after)
   assert.notEqual(after, first, 'the account is still pointed at the last run\'s gateway')
+})
+
+test('the original account cannot be removed, and the refusal names the agent the way people see it', async (t) => {
+  // #99: the sentence used the runtime's internal name.
+  const { host, stateDir } = await hostWithAccounts({ ownName: 'fake-internal' })
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await assert.rejects(host.call('runtime/account/remove', { runtime: FAKE_RUNTIME_ID }), (error: Error) => {
+    assert.match(error.message, /^Fake Runtime is this agent's original account and cannot be removed\./)
+    assert.doesNotMatch(error.message, /fake-internal/)
+    return true
+  })
+  // Round 1 of #190: and the refusal is all that happened; the account is still there.
+  assert.equal(host.syncPayload().params.runtimes.some((one) => one.id === FAKE_RUNTIME_ID), true)
+})
+
+test('an agent that holds one account says so by the name people see', async (t) => {
+  // Round 1 of #190: the refusal beside #99's used the runtime's internal name too.
+  const { host, stateDir } = await hostWithAccounts({ ownName: 'fake-internal', single: true })
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID }), (error: Error) => {
+    assert.match(error.message, /^Fake Runtime cannot hold more than one account here\./)
+    assert.doesNotMatch(error.message, /fake-internal/)
+    return true
+  })
 })
