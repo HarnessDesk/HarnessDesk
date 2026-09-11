@@ -40,7 +40,12 @@ const AlertDialogContent = ({ className, children, ...props }: AlertDialogPrimit
     <AlertDialogPrimitive.Popup
       data-slot="alert-dialog-content"
       className={cn(
-        'fixed top-1/2 left-1/2 z-(--hd-z-dialog) grid w-full max-w-md -translate-x-1/2 -translate-y-1/2 gap-3',
+        /* Held in from the window's sides by the same 24px (`--hd-space-6`) the
+           ordinary dialog's overlay keeps, and centred by its auto margins. The
+           registry's `w-full` + `left-1/2` put a confirm edge to edge on a
+           phone-width window, corners against the glass; its own fix is an
+           arbitrary `max-w-[calc(100%-2rem)]`, which the design audit counts. */
+        'fixed inset-x-6 top-1/2 z-(--hd-z-dialog) mx-auto grid max-w-md -translate-y-1/2 gap-3',
         'rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-4 shadow-(--hd-surface-shadow)',
         className,
       )}

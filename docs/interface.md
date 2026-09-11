@@ -169,7 +169,9 @@ only what a person reaches for *while working* earns a place in it:
 - **New session**: clicking the button opens a choice between a solo session and
   a collaborative room for several agents; ⌘N goes straight to a session. The
   small branch button at the row's end opens the **Worktrees** menu for this
-  project (creating a checkout on a new branch, or jumping to an existing one).
+  project: a new worktree, or one it already has. Either opens a draft pointed
+  at it — the composer's **Work in** control then says so — and nothing is made
+  on disk until that draft's first message.
 - **Dashboard**: opens plan usage and limits, wearing an amber warning count
   only when an agent needs attention.
 - **Plugins**: lists live extensions and their contributed tools and panels.
@@ -219,15 +221,32 @@ far down you are. The display-controls button wears a dot when a filter is
 hiding rows, because a filtered list must never read as missing data.
 
 **The footer is the seat: you, and the agent you will pick up next.** The row
-is your identity — HarnessDesk today, your HarnessDesk account when there is
-one — and at its end sits the mark of the agent new sessions run as, in its
-account's ring, with that agent's readiness dot beside it. The account's
-*name* is not on the row: an account is a pen, not a person. Rest on the mark
-for its name card — which account, on what plan, how much is left. The menu
-behind the row is where switching happens: **Run new sessions as** lists every
+is your identity — your profile's face and name, which are the house mark and
+"HarnessDesk" until you choose otherwise, and your HarnessDesk account when
+there is one — and at its end sits the mark of the agent new sessions run as,
+in its account's ring, with that agent's readiness dot beside it. The
+account's *name* is not on the row: an account is a pen, not a person. Rest on
+the mark for its name card — which account, on what plan, how much is left.
+The menu behind the row opens on you, tagged Local, and pressing that row
+opens your profile. Then comes switching: **Run new sessions as** lists every
 account of every agent with the same figure the header strip shows and ticks
 the default; then Add an account, Settings, Dashboard, and signing out of the
 default agent.
+
+**Your profile is a name and a face, and nothing else, because nothing else is
+shown.** Settings opens on it — your face and name head the rail, above every
+group, the way a Mac's own settings open on their owner — and the page is its
+own preview: the head follows the name as you type it. The faces are the
+house mark's family, twenty-three whales from `assets/avatars`; the one drawn
+in black is left out because a dark surface swallows it, and the default is
+the mark itself, drawn in the theme's own ink. A face is a squared tile
+everywhere you appear, so its footprint never changes when the face does.
+Clearing the name puts "HarnessDesk" back, picking the first face puts the
+mark back, and **Reset to default** puts back both. It stays on this Mac.
+What an avatar stores is its id — a short
+string every copy of the app draws the same — which is what an account will
+sync. The same face marks your own messages in a room, where the header still
+says "You".
 
 **Switching is a preference, not a navigation.** Picking a different agent
 changes what ⌘N and a draft's agent chip start with, and nothing else: the
@@ -286,8 +305,12 @@ once.
 tasks chip · git control · plan meters · browser button · terminal toggle · ⋮.
 
 - The **git control** is the branch chip and the menu behind it: Changes with the
-  count of files this conversation touched, the branch and folder, remove a
-  managed worktree, review uncommitted changes, and commit changes.
+  count of files this conversation touched, the branch and folder, bring a
+  managed worktree back to the main checkout or remove it, review uncommitted
+  changes, and commit changes. Its glyph says where the conversation runs — a
+  laptop for the main checkout, a branch for a worktree, which also wears a
+  **worktree** badge, HarnessDesk's own or not — and in a narrow header the
+  words fold away and the glyph stays.
 - **Plan meters** sit ambiently in the header, showing remaining quota and
   window reset times across connected providers.
 - Under **⋮** sit conversation actions (remember conversation, compact context,
@@ -297,6 +320,21 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
   to the git control right beside this menu, where it carries the file count, and
   a second copy would duplicate it. The open view wears a check in the accent
   gutter instead of its icon. ⌘K offers the same views as *Show …* commands.
+
+**A worktree comes back as a branch.** "Bring it back to the main checkout"
+checks the worktree's branch out in the main checkout and removes the worktree
+— a checkout, not a merge, so nothing is folded into whatever the main tree was
+on. It is offered on HarnessDesk's own worktrees; a checkout you made yourself
+is yours to move. The folder goes, and anything git ignores in it (an `.env`,
+`node_modules`) goes with it; the dialog says so first, and waits while a
+conversation in the worktree is still working. Uncommitted work stops it: the dialog lists the files and offers to ask the agent to commit them. If
+the main checkout will not take the switch, git's own sentence says why and the
+worktree is put back from its branch, the message naming what git ignored there
+— and on the rare occasion git will not allow even that, the message says the
+folder is gone and the branch kept, and what lived in it closes. A switch git
+reports as failed after making it (a failing post-checkout hook) completes, and
+git's words come up as a warning. The conversation cannot follow its folder, so
+a draft opens in the main checkout carrying it as a hand-off.
 
 **Background work has a chip, then a panel.** While an agent has work running
 that outlives the turn — a watcher, a test run sent to the background — the
@@ -376,6 +414,14 @@ not one turn per block.
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
 
+- **Work in** says where a new conversation will run, while that is still a
+  choice: **Local** (the folder as it is), a worktree the project already has,
+  or **New worktree** — named and based in a dialog, and made when the first
+  message goes, so an abandoned draft leaves no branch behind. A folder that
+  is itself a worktree wears its branch and a worktree badge, never Local.
+  Each place has its own glyph — a laptop, a branch, a branch with a plus —
+  so a narrow composer that keeps only glyphs still says which. Once the
+  conversation exists the control is gone; the header says where it runs.
 - **+** attaches images, adds files (@), opens slash commands (/), attaches
   plugin context providers, or changes the project folder.
 - **Chips** ride above the textarea and resolve at send: files, images, skills,
@@ -416,7 +462,8 @@ session that is no longer live could not deliver it anyway.
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
-the right of each row.
+the right of each row. The rail starts with you — your face and name, above
+every group — and that row opens your profile.
 
 | Group | Pages |
 | --- | --- |
@@ -430,7 +477,8 @@ The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the agents and what each one
 brings; what is shared across them; what any of them may do. Skills and
 Extensions are the active agent's own and carry its name on their nav rows.
-There is no Account page, because there is no account; presets are edited
+There is no Account page, because there is no account — the profile is
+yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.

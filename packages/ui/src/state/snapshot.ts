@@ -29,6 +29,8 @@ import type {
 
 import type { AccountPrefsMap } from '../lib/accounts'
 
+import type { Profile } from '../lib/profile'
+
 import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
 
 import type { GitColumnWidths } from '../lib/git-columns'
@@ -169,6 +171,27 @@ export interface DraftHandoff {
   readonly cwd: string | null
 }
 
+/**
+ * Where the next conversation will run, while that is still a decision.
+ *
+ * `null` is the open folder as it is — the answer nine times in ten, and the
+ * one a fresh draft starts from. The other two are held on the draft and
+ * become a fact about a session on its first message:
+ *
+ * - `worktree` is a checkout that does not exist yet. The host cuts it on
+ *   send, so a draft abandoned with a worktree chosen leaves no branch and no
+ *   folder behind — the bargain `newDraft` already keeps with the agent's
+ *   history. `root` is the repository it comes off, named here rather than
+ *   read from the workspace at send time, because the two can part. Once
+ *   the host has cut it, the draft points at it as `existing`: an agent that
+ *   fails to start leaves it so, and a draft abandoned after that leaves the
+ *   worktree behind, listed with the others.
+ * - `existing` is a managed worktree already on disk.
+ */
+export type DraftPlace =
+  | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }
+  | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
+
 export interface AppSnapshot {
   readonly status: ConnectionStatus
   readonly runtimes: readonly RuntimeInfo[]
@@ -209,6 +232,14 @@ export interface AppSnapshot {
    * a name and a colour, both derived — this only records the overrides.
    */
   readonly accountPrefs: AccountPrefsMap
+  /**
+   * Who you are on this desk — the name and face the seat, its menu, the top
+   * of the settings rail and your messages in a room all draw. Only what
+   * differs from the default is here; `{}` is "HarnessDesk" and the house
+   * mark. Read it through `profileName` and `ProfileFace`, never the fields,
+   * so a signed-in account can supply it later in one place. `lib/profile.ts`.
+   */
+  readonly profile: Profile
   /**
    * Sign-ins in flight, by runtime. Keyed rather than singular because the
    * sign-in page shows every agent at once, and a browser flow keeps running
@@ -339,6 +370,12 @@ export interface AppSnapshot {
   readonly navCanForward: boolean
   /** The conversation handed to the open draft, if any. */
   readonly draftHandoff: DraftHandoff | null
+  /**
+   * Where the draft will start — see `DraftPlace`. Cleared the moment a
+   * conversation is in front, and when the workspace changes under it: a
+   * worktree chosen for one repository is not a choice about the next.
+   */
+  readonly draftPlace: DraftPlace | null
   /** The sidebar's column is put away — a wide window's choice. See `sidebarPlacement`. */
   readonly sidebarCollapsed: boolean
   /**
@@ -548,6 +585,7 @@ const EMPTY: AppSnapshot = {
   home: '',
   accountsByRuntime: {},
   accountPrefs: {},
+  profile: {},
   logins: {},
   limits: null,
   models: [],
@@ -586,6 +624,7 @@ const EMPTY: AppSnapshot = {
   navCanBack: false,
   navCanForward: false,
   draftHandoff: null,
+  draftPlace: null,
   sidebarCollapsed: false,
   narrowWindow: false,
   sidebarFloating: false,

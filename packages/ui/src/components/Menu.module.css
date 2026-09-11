@@ -139,6 +139,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A value is a fact about the row — an age, a count, a branch — and a branch
+   can be forty characters. It never takes more than a short name's room: past
+   that it ends in an ellipsis, and the row's title carries it whole. Without
+   the cap a long one set the width of the whole menu, and on a narrow window
+   pushed its own row's label out. A shortcut is exact and is never cut. */
+.value {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .check {
   flex: none;
   display: inline-flex;

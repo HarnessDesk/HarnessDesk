@@ -1365,3 +1365,21 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
   assert.equal((await gitIn(repo, 'rev-parse', 'marked')).trim(), at)
 })
 
+
+test('a profile written through app/state/set replaces the stored one whole, and {} clears it', async (t) => {
+  // The UI writes the whole profile, and Reset writes {}, because this method
+  // hands the patch to the store unmerged. A merge here would keep a face the
+  // user reset, and nothing on the UI side would notice.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const stored = async (): Promise<unknown> =>
+    ((await client.call('app/state/get', {})) as Record<string, unknown>)['profile']
+
+  await client.call('app/state/set', { patch: { profile: { name: 'Jane', avatar: 'dj', account: { id: 'a1' } } } })
+  await client.call('app/state/set', { patch: { profile: { name: 'JD' } } })
+  assert.deepEqual(await stored(), { name: 'JD' })
+  await client.call('app/state/set', { patch: { profile: {} } })
+  assert.deepEqual(await stored(), {})
+})

@@ -184,3 +184,17 @@ it('a notice names the member, the cause and the runtime’s own words', () => {
   // And it keeps the channel's spine, like every other aside.
   expect(container.querySelector('[aria-hidden]')?.className).toContain('w-9')
 })
+
+it('draws a face of the caller’s own in the face’s place, on no tint', () => {
+  // The control first: a person without one gets initials on the sender tint.
+  render(<ChannelMessage from="You" at="10:02" text="ship it" state="delivered" />)
+  const plain = container.querySelector('[data-slot="avatar"]')
+  expect(plain?.textContent).toBe('Y')
+  expect(plain?.className).toContain('tint-blue')
+
+  render(<ChannelMessage from="You" at="10:02" text="ship it" state="delivered" face={<img data-face="" alt="" />} />)
+  const avatar = container.querySelector('[data-slot="avatar"]')
+  expect(avatar?.querySelector('img[data-face]')).not.toBeNull()
+  expect(avatar?.textContent).toBe('')
+  expect(avatar?.className).not.toContain('tint-blue')
+})

@@ -148,6 +148,9 @@
   flex: none;
   display: flex;
   flex-direction: row-reverse;
+  /* Two long labels on a phone-width dialog wrap rather than overflow; the
+     proceeding action keeps the first line's right-hand end. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-2);
   padding: var(--hd-space-3) var(--hd-space-4);

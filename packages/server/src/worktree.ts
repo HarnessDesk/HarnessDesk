@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, realpath, rm } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
@@ -187,6 +187,10 @@ export class Worktrees {
   remove(path: string, options: { readonly force?: boolean } = {}): Promise<{ readonly branch: string | null }> {
     return remove(path, { ...options, stateDir: this.stateDir })
   }
+
+  bringHome(path: string): Promise<{ readonly branch: string; readonly from: string | null; readonly root: string; readonly warning?: string }> {
+    return bringHome(path, { stateDir: this.stateDir })
+  }
 }
 
 export const list = async (repoRoot: string, stateDir: string): Promise<Worktree[]> => {
@@ -294,6 +298,37 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
 }
 
 /**
+ * Refuses a worktree whose repository no open workspace is part of. The verbs
+ * that change a repository — removing one of its checkouts, switching its main
+ * checkout's branch — answer to the boundary the rest of the git surface does:
+ * the folders opened here (the projects the desk remembers and the folders of
+ * live conversations). A worktree lives in the state directory,
+ * outside every workspace, so what is confined is its repository, open as its
+ * main checkout, as a folder inside it, or as the worktree itself — or sitting
+ * inside an open folder, as it does for every other git read.
+ */
+export const confineToOpenRepository = async (path: string, roots: readonly string[]): Promise<void> => {
+  const main = await repositoryRoot(path)
+  if (!main) throw new Error(`${path} is not a git worktree.`)
+  // Every checkout of the repository from one listing, then path arithmetic
+  // against the open roots: no git per root, and the roots are resolved
+  // together rather than one after another, so a refusal does not cost a
+  // probe for every project the desk remembers.
+  const porcelain = await git(main, ['worktree', 'list', '--porcelain'])
+  const checkouts = await Promise.all(
+    porcelain
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => canonical(line.slice('worktree '.length))),
+  )
+  const opened = await Promise.all(roots.map((root) => canonical(root)))
+  const within = (inner: string, outer: string): boolean =>
+    inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
+  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return
+  throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
+}
+
+/**
  * Removes a worktree. Refuses, with the list of what would be lost, unless
  * `force` is set. The branch stays. Only worktrees HarnessDesk created are
  * removable from here: the person's own checkouts are not this app's to
@@ -317,9 +352,178 @@ export const remove = async (
   if (!options.force && (pending.modified > 0 || pending.untracked > 0)) {
     throw new WorktreeDirtyError(target, pending)
   }
-  await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target])
+  await git(main, ['worktree', 'remove', ...(options.force ? ['--force'] : []), target]).catch((error: unknown) => {
+    throw new Error(`Git would not remove the worktree at ${target}. ${gitSaid(error)}`)
+  })
   // `git worktree remove --force` leaves an empty directory behind on some
   // versions; nothing of value is in it by now.
   await rm(target, { recursive: true, force: true })
   return { branch: entry.branch }
+}
+
+/**
+ * Brings a worktree's work back to the main checkout: the branch is checked
+ * out there, and the side checkout goes.
+ *
+ * **Checkout, not merge.** "Hand it back to local" means *stop doing this in a
+ * separate checkout and do it here* — the branch travels intact, no history is
+ * folded into whatever the main tree happened to be on, and nothing is
+ * created that a person did not ask for. Folding one branch into another is a
+ * different verb and the history pane already has it.
+ *
+ * The order is forced: git will not check out a branch a second worktree
+ * holds, so the worktree has to go first — and a removal is only safe on a
+ * clean tree, which is why uncommitted work is refused here with the same
+ * error `remove` raises. That leaves one window where the checkout could
+ * fail (the main tree has its own edits to a file the two branches disagree
+ * about) with the worktree already gone, so the failure **puts it back**:
+ * `worktree add <path> <branch>` restores everything git tracks, which is all
+ * of the work, because what was taken was clean. What git ignores there does
+ * not come back, and the refusal names it; when git will not put it back at
+ * all, the refusal says the folder is gone rather than that it was put back.
+ * A switch git reports as failed after making it — a failing post-checkout
+ * hook — completes, with git's words as `warning`.
+ *
+ * Only worktrees HarnessDesk created, as with `remove`: the person's own
+ * checkouts are theirs to move. The method handler also confines the
+ * repository to the ones opened here, and holds the move while a
+ * conversation in the worktree is working.
+ */
+export const bringHome = async (
+  path: string,
+  options: { readonly stateDir: string },
+): Promise<{ readonly branch: string; readonly from: string | null; readonly root: string; readonly warning?: string }> => {
+  const main = await repositoryRoot(path)
+  if (!main) throw new Error(`${path} is not a git worktree.`)
+  const target = await canonical(path)
+  const entry = (await list(main, options.stateDir)).find((candidate) => candidate.path === target)
+  if (!entry) throw new Error(`${path} is not a worktree of ${main}.`)
+  if (entry.isMain) throw new Error(`${path} is the main checkout; it is already home.`)
+  // The header offers this only on HarnessDesk's own worktrees, but this is
+  // the boundary, and anything that can name a path on the wire reaches it.
+  if (!entry.managed) {
+    throw new Error(`${path} was not created by HarnessDesk; move its branch to the main checkout with git yourself.`)
+  }
+  if (!entry.branch) {
+    throw new Error(
+      `${path} is not on a branch, so there is nothing to check out in the main checkout. Make a branch there first.`,
+    )
+  }
+
+  // Uncommitted work would be destroyed by the removal below, and the
+  // removal is not optional. Same refusal as `remove`, so both surfaces word
+  // the loss identically — and there is no `force` here at all: discarding
+  // the work is the opposite of bringing it back.
+  const pending = await changes(target)
+  if (pending.modified > 0 || pending.untracked > 0) throw new WorktreeDirtyError(target, pending)
+
+  const from = await currentBranchOf(main)
+  // What git ignores there — an .env, node_modules — is not work git refuses
+  // to lose: `git status` never counts it, and `worktree remove` takes it with
+  // the folder. Named now, while the folder is still there, so a refusal can
+  // say what putting the worktree back did not bring back.
+  const ignored = await ignoredIn(target)
+  await git(main, ['worktree', 'remove', target]).catch((error: unknown) => {
+    // The first thing this changes, and git can refuse it — a locked worktree,
+    // a submodule, a file written in between — before anything has moved.
+    throw new Error(`${basename(main)} could not remove the worktree at ${target}, so nothing moved. ${gitSaid(error)}`)
+  })
+  let warning: string | undefined
+  try {
+    await git(main, ['checkout', entry.branch])
+  } catch (error) {
+    // A post-checkout hook runs after the switch, and git returns its exit
+    // status as checkout's own: a failing hook reads as a refusal that did
+    // not happen. Where the main checkout is now is the answer — and what git
+    // said is still the person's to read.
+    if ((await currentBranchOf(main)) !== entry.branch) {
+      await putBack(main, target, entry.branch, error, options.stateDir, ignored)
+    }
+    warning = `${basename(main)} is on ${entry.branch}, but git reported a failure after switching: ${gitSaid(error)}`
+  }
+  await rm(target, { recursive: true, force: true })
+  return { branch: entry.branch, from, root: main, ...(warning ? { warning } : {}) }
+}
+
+/**
+ * Puts a worktree back after the main checkout refused its branch, and throws
+ * what happened. The tree was clean, so `worktree add` on the same path and
+ * branch restores everything git tracks — when git lets it. What git ignores
+ * there (an `.env`, `node_modules`) went with the removal and does not come
+ * back, so the error names it. When git will not re-add it (a second worktree
+ * forced onto the branch holds it, the disk is full), the folder is gone, and
+ * the error says that rather than that it was put back. The listing decides,
+ * not the exit status: `worktree add` reports a failing hook too, after it has
+ * done its work.
+ */
+const putBack = async (
+  main: string,
+  target: string,
+  branch: string,
+  refused: unknown,
+  stateDir: string,
+  ignored: readonly string[],
+): Promise<never> => {
+  const failed = await git(main, ['worktree', 'add', target, branch]).then(
+    () => null,
+    (error: unknown) => error,
+  )
+  const back = failed === null || (await list(main, stateDir).catch(() => [])).some((entry) => entry.path === target)
+  if (back) {
+    const without = ignored.length > 0 ? `, without what git ignores there: ${named(ignored)}` : ''
+    throw new Error(
+      `${basename(main)} could not switch to ${branch}, so the worktree was put back from its branch${without}. ${gitSaid(refused)}`,
+    )
+  }
+  throw new Error(
+    `${basename(main)} could not switch to ${branch}, and the worktree could not be put back at ${target}, so that ` +
+      `folder is gone; the branch keeps every commit. Switching: ${gitSaid(refused)} Putting it back: ${gitSaid(failed)}`,
+  )
+}
+
+/**
+ * What git ignores in a checkout, as its porcelain names it: one entry per
+ * ignored file, or per directory ignored whole (`node_modules/`). Empty when
+ * the listing cannot be read — it only ever words a message.
+ */
+const ignoredIn = async (path: string): Promise<string[]> => {
+  try {
+    const porcelain = await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching'])
+    return porcelain
+      .split('\0')
+      .filter((line) => line.startsWith('!! '))
+      .map((line) => line.slice('!! '.length))
+  } catch {
+    return []
+  }
+}
+
+/** A few names and a count, for a sentence rather than a listing. */
+const named = (entries: readonly string[]): string =>
+  entries.length <= 5 ? entries.join(', ') : `${entries.slice(0, 5).join(', ')} and ${entries.length - 5} more`
+
+/** The branch a checkout is on, or null when it is detached. */
+const currentBranchOf = async (root: string): Promise<string | null> => {
+  try {
+    const name = (await git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+    return name === 'HEAD' || name === '' ? null : name
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What git actually said, rather than "Command failed: git -C /long/path …".
+ *
+ * A verb that draws progress overwrites its own line, so the reason arrives
+ * after a carriage return; splitting on both terminators is the only way to
+ * reach it. See the same trap in `git-actions.ts`.
+ */
+const gitSaid = (error: unknown): string => {
+  const streams = error as { stderr?: string; stdout?: string } | null
+  const said = `${streams?.stderr ?? ''}\n${streams?.stdout ?? ''}`
+    .split(/[\n\r]+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^hint:/i.test(line))
+  return said.length > 0 ? said.join(' ') : error instanceof Error ? error.message : String(error)
 }

@@ -14,6 +14,7 @@ import { Badge, Separator } from '../design/ui'
 import { ChannelMessage, ChannelNotice, ChannelSignal, type ChannelDensity } from '../design'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
+import { Face } from '../design/primitives/Kit'
 
 /**
  * The channel: what the conversations on one board said, in order.
@@ -383,6 +384,14 @@ export const ChannelStream = ({
             grouped={row.grouped}
             tint={tints.get(senderKey(row.entry.from)) ?? 'blue'}
             {...(brandOf(row.entry.from, snapshot) ? { brand: brandOf(row.entry.from, snapshot) as Brand } : {})}
+            /* You, in the face the seat wears. It fills the row's tile, so it
+               takes the tile's size and corner at either density — drawn from
+               the snapshot this stream already holds, not a subscription of
+               its own on every message you wrote. A user row carries no
+               identity (`{ kind: 'user' }`, #218), so every one is drawn as
+               you: right on a desk of one, and the assumption to revisit the
+               day a room holds two people. */
+            {...(row.entry.from.kind === 'user' ? { face: <Face avatar={snapshot.profile.avatar} /> } : {})}
             {...(row.reached
               ? { to: nameSome(row.reached) }
               : row.entry.to

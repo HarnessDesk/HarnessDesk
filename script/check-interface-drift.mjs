@@ -35,7 +35,7 @@
  * did not move Desk, and after it merges there is nothing left to hold.
  */
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 import { resolveTokens } from './design-tokens.mjs'
 
@@ -105,6 +105,11 @@ const naked = []
 if (anyToken) {
   for (const file of execSync('git ls-files packages/ui/src', { encoding: 'utf8' }).split('\n')) {
     if (!/\.(css|tsx|ts)$/.test(file) || file.endsWith('tokens.css')) continue
+    /* `ls-files` answers from the index and this reads the disk. A stylesheet
+       deleted but not yet staged is in the first and not the second — the
+       ordinary state of a branch that removes one, mid-change — and a file
+       that is not there has no reads to check. */
+    if (!existsSync(file)) continue
     readFileSync(file, 'utf8')
       .split('\n')
       .forEach((line, index) => {

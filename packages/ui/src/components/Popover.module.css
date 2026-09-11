@@ -48,6 +48,10 @@
      open — Codex's list controls are about this wide. Anything with hints
      or long labels still grows past it. */
   min-width: 180px;
+  /* Never wider than the window it opens in, less the margin the placement
+     keeps at each side (`Popover.tsx`): on a phone-width window a menu with
+     a long value otherwise ran to the glass. */
+  max-width: calc(100vw - 2 * var(--hd-space-2));
   /* The height is the window's to give: set at open time from the room under
      the trigger (`Popover.tsx`). Only a window shorter than the menu scrolls. */
   overflow-y: auto;

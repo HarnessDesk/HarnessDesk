@@ -66,3 +66,22 @@
   color: var(--hdp-alias-label-tertiary);
 }
 
+
+/*
+ * The place control. A worktree armed for the draft is something that will
+ * happen on send, so it reads in the primary ink — the AA-solved text step,
+ * never the accent itself — at the weight every subject in this toolbar
+ * wears. A folder that already is a worktree says so with the design
+ * system's Badge, the same one the header's git control wears.
+ */
+
+/* The place's word gives way before the agent's or the model's does: they
+   are one word each, and a branch can be forty characters. */
+.word {
+  max-width: 16ch;
+}
+
+.armed {
+  font-weight: var(--hd-weight-medium);
+  color: var(--hd-primary-ink);
+}
