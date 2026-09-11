@@ -237,7 +237,7 @@ const configDir = (): string => join(stateDir(), 'cli-config')
  * keeps outside this file, which is why a config directory holding only a
  * model selection still runs signed in.
  */
-const prepareConfig = (selection: Parameterised | null): string => {
+export const prepareConfig = (selection: Parameterised | null): string => {
   const dir = configDir()
   mkdirSync(dir, { recursive: true })
   const chats = join(dir, 'chats')
@@ -262,6 +262,20 @@ const prepareConfig = (selection: Parameterised | null): string => {
     ...(typeof learned === 'object' && learned !== null ? (learned as Record<string, unknown>) : {}),
   }
   config['modelParameters'] = known
+  // Max mode is the session's to ask for, never the IDE's to leave behind.
+  // The user's own file carries `maxMode: true` whenever their editor has
+  // Max mode on, and cursor-agent honours it: with no `model` of its own to
+  // go by it builds the selection for `--model <slug>` with `maxMode: true`,
+  // runs the turn in Max mode, and Cursor bills Max mode by the token —
+  // `isTokenBasedCall: true` on the usage page, a fraction of a request for
+  // a one-word reply and several requests' worth for a long turn — where the
+  // same turn from a plain `cursor-agent -p` is one flat request. Measured
+  // 2026-09-11 on cursor-agent 2026.09.10 (see the memory note
+  // cursor-billing-rows-per-turn). So the flag says what this session
+  // chose, and the mirrored `model` block goes too: it is the editor's last
+  // pick with the editor's Max-mode bit inside it, and the flag rebuilds it.
+  config['maxMode'] = selection !== null
+  delete config['model']
   if (selection) {
     config['selectedModel'] = selection
     config['modelParameters'] = { ...known, [selection.modelId]: selection.parameters }
