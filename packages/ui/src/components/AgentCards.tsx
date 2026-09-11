@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -177,10 +178,13 @@ type CardSide = 'top' | 'right' | 'bottom' | 'left'
 const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || side === 'right'
 
 /**
- * Whether a card fits on one side of the trigger, measured the way the
- * positioner measures it: against the root element's width, not the window's.
- * The card is kept inside the page, and a classic scrollbar is window but not
- * page.
+ * Whether a card fits on one side of the trigger, against the root element's
+ * width rather than the window's: the card is kept inside the page, and a
+ * classic scrollbar is window but not page. The positioner's own boundary is
+ * the visual viewport's width, less a gutter it works out from the body's
+ * width; in this app the body has no margin and hides its overflow, and the
+ * three widths were measured equal. Where the two ever disagree, the watch in
+ * `AgentHoverCard` takes the positioner's side rather than arguing with it.
  */
 const roomOn = (trigger: HTMLElement, side: 'left' | 'right'): boolean => {
   const box = trigger.getBoundingClientRect()
@@ -362,9 +366,11 @@ export const AgentHoverCard = ({
   const [abrupt, setAbrupt] = useState(false)
   /* The side asked for, as the caller asks it now. A re-ask runs an `ask`
      made in an earlier render, so it reads this rather than that render's
-     `side`. */
+     `side` — written as the render commits, in a layout effect. A passive
+     effect after an ordinary commit runs as a task of its own, and a re-ask
+     falling due between the two would open on the side asked for before. */
   const wanted = useRef<CardSide>(side ?? 'right')
-  useEffect(() => {
+  useLayoutEffect(() => {
     wanted.current = side ?? 'right'
   })
   /* The card's element while it is drawn: the positioner's output, which the
@@ -372,6 +378,11 @@ export const AgentHoverCard = ({
      portal draws the card a render after it opens, and the watch has to start
      again when it arrives. */
   const [card, setCard] = useState<HTMLDivElement | null>(null)
+  /* A side the positioner drew the card on over this code's, taken by the
+     next re-ask instead of measuring again; and how many times the watch has
+     closed this visit's card without it settling in between. See the watch. */
+  const theirs = useRef<CardSide | null>(null)
+  const closes = useRef(0)
   useWindowWatch()
 
   /* The one way a card opens: Radix's requests come here, and so does every
@@ -384,7 +395,8 @@ export const AgentHoverCard = ({
     const trigger = triggerRef.current
     if (!trigger || !(resting.current || focused.current)) return
     setAbrupt(false)
-    setPlaced(sideFor(trigger, wanted.current))
+    setPlaced(theirs.current ?? sideFor(trigger, wanted.current))
+    theirs.current = null
     setOpen(true)
   }
 
@@ -433,8 +445,17 @@ export const AgentHoverCard = ({
      card and stops listening; the re-ask comes 420ms later and measures
      afresh, so a window still being dragged can close it once more. A key
      pressed in the meantime does not cancel it: the pointer is still
-     resting. `redrawn` runs this again for a trigger drawn again, so the
-     observer watches the element that is there. */
+     resting.
+
+     A trade is not a lost room. It means the positioner and this code have
+     measured the same geometry and disagreed, and measuring again would only
+     disagree again — opened, traded, closed and asked for, for as long as the
+     pointer rests: a card never seen, and its body mounted and unmounted
+     twice a second. So the re-ask after a trade opens on the side the
+     positioner chose. And the watch closes a visit's card once, not twice,
+     before it has settled: a second close with no check passing in between
+     ends it until the pointer comes again. `redrawn` runs this again for a
+     trigger drawn again, so the observer watches the element that is there. */
   useEffect(() => {
     if (!open || !beside(placed)) return undefined
     const at = placed
@@ -443,10 +464,17 @@ export const AgentHoverCard = ({
     const check = (): void => {
       const now = triggerRef.current
       const drawn = card?.getAttribute('data-side')
-      if (now && roomOn(now, at) && (!drawn || drawn === at)) return
+      const traded = Boolean(drawn) && drawn !== at
+      if (now && roomOn(now, at) && !traded) {
+        closes.current = 0
+        return
+      }
       setAbrupt(true)
       setOpen(false)
       window.clearTimeout(again.current)
+      closes.current += 1
+      if (closes.current > 1) return
+      if (traded) theirs.current = drawn as CardSide
       again.current = window.setTimeout(ask, HOVER_CARD_OPEN_DELAY)
     }
     const observer = new ResizeObserver(check)
@@ -480,6 +508,8 @@ export const AgentHoverCard = ({
     /* Nothing measures a trigger that is not drawn, and a detached one kept
        here would be kept alive by it. */
     triggerRef.current = null
+    theirs.current = null
+    closes.current = 0
   }, [disabled])
 
   if (disabled) return <>{children}</>
@@ -522,6 +552,8 @@ export const AgentHoverCard = ({
             resting.current = false
             pressed.current = false
             quiet.current = false
+            theirs.current = null
+            closes.current = 0
             window.clearTimeout(again.current)
           }}
           onPointerDown={() => {

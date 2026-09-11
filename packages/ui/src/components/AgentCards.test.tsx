@@ -761,6 +761,10 @@ it('opens no card while something is being dragged, in the order a browser sends
   rest(control)
   move(control, name)
   dragBegins()
+  // A pointer moving with its button held is still the drag.
+  act(() => {
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', buttons: 1 }))
+  })
   wait(1000)
   expect(openCard()).toBeNull()
 
@@ -911,6 +915,21 @@ it('keeps the side it opened on: closes when that side stops fitting though the 
   wait(1000)
   expect(trigger().getAttribute('data-state')).toBe('open')
   expect(side()).toBe('right')
+
+  /* Settled there, it is watched afresh: a resize it fits through, then the
+     row back where only the left fits — closed and asked for again, as the
+     first time, rather than refused as a second close in a row. */
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  spans(1024 - 60, 1024 - 20)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(side()).toBe('left')
   vi.useRealTimers()
 })
 
@@ -1031,6 +1050,9 @@ it('follows a trigger drawn again while its card is open, for that trigger’s o
  * way it writes it: a new transform on the card's wrapper, a new `data-side`.
  */
 it('checks its side again when the positioner moves it, and closes when that side has lost its room', async () => {
+  /* React answers a flushSync it will not run with a console error and a
+     scheduled update — which would pass every check below a frame late. */
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   viewport(1024)
@@ -1040,6 +1062,8 @@ it('checks its side again when the positioner moves it, and closes when that sid
   expect(side()).toBe('left')
   const wrapper = document.querySelector('[data-slot="hover-card-content"]')?.parentElement
   if (!wrapper) throw new Error('no wrapper around the card')
+  // The element the watch observes is the positioner's own wrapper.
+  expect(wrapper.hasAttribute('data-radix-popper-content-wrapper')).toBe(true)
 
   // The control: placed again with nothing moved, and it stays.
   await act(async () => {
@@ -1056,9 +1080,11 @@ it('checks its side again when the positioner moves it, and closes when that sid
   expect(trigger().getAttribute('data-state')).toBe('closed')
   wait(1000)
   expect(side()).toBe('right')
+  expect(errors).not.toHaveBeenCalled()
 })
 
 it('closes when the positioner trades its side, whatever moved', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   viewport(1024)
@@ -1070,6 +1096,51 @@ it('closes when the positioner trades its side, whatever moved', async () => {
     document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
   })
   expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(errors).not.toHaveBeenCalled()
+})
+
+/**
+ * A trade is the positioner disagreeing with this code about the same
+ * geometry, and measuring again only disagrees again. So the card is asked
+ * for once more on the side the positioner chose, and a card traded again
+ * before it has settled is not asked for again until the pointer comes back —
+ * rather than opened, traded, closed and asked for, unseen, for as long as the
+ * pointer rests.
+ */
+it('opens on the side the positioner insists on, after one retry, and does not cycle', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  // A row with room on both sides: this code asks for the right.
+  spans(400, 440)
+  rest(trigger())
+  expect(side()).toBe('right')
+  const trade = async (to: string): Promise<void> => {
+    await act(async () => {
+      document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', to)
+    })
+  }
+
+  // The positioner draws it on the left instead.
+  await trade('left')
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('left')
+
+  // Traded again before it has settled: closed, and left closed.
+  await trade('right')
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+
+  // A new visit starts afresh, on the side this code measures.
+  leave(trigger())
+  rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('right')
+  expect(errors).not.toHaveBeenCalled()
 })
 
 it('a re-ask opens on the side asked for now, not the side asked for when it was armed', () => {
