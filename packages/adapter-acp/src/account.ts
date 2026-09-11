@@ -70,8 +70,11 @@ export class CliAccount {
       return { accounts: parsed ? [parsed] : [], signInMethods: methods }
     } catch (error) {
       // A status probe that fails is "signed out" with the reason logged, not
-      // a broken settings page: `cursor-agent status` exits non-zero when
-      // nobody is signed in.
+      // a broken settings page. `claude auth status` exits 1 when nobody is
+      // signed in, and the record it prints then goes with the exit, so this
+      // is what answers for it; `cursor-agent status` exits 0 and prints `Not
+      // logged in`, which is read (both measured with an empty HOME, review,
+      // round fifteen).
       this.log?.('account status probe failed', { error: String(error) })
       return { accounts: [], signInMethods: methods }
     }
@@ -320,17 +323,37 @@ const firstBalanced = (text: string, from: number): string | null => {
 /** A brace that opens a JSON record: the brace, then its first key. */
 const RECORD_OPENING = /\{\s*"/y
 /**
- * A bracket that opens data: an array whose first element is a record, an
- * array, or a whole string, number, `true`, `false` or `null` followed by the
- * next element or the end. A two-character peek let `[1, {…}` through as prose
+ * A bracket that opens data: an array whose first element is a whole string,
+ * number, `true`, `false` or `null` followed by the next element or the end,
+ * or a record or an array. A two-character peek let `[1, {…}` through as prose
  * and took `["--json" for machine output` for data (review, round fourteen);
  * `[1/3]` and `[INFO]` still open prose.
+ *
+ * A bracket that closes is data only when its first record or array is whole
+ * and followed by the next element or the end: taken from its opening alone,
+ * `[{…} current account]` was cut as data with the status inside it (review,
+ * round fifteen). One that never closes is data from the opening, because an
+ * array of records cut short, `[{"loggedIn":true,…}`, is exactly that (round
+ * thirteen). Told from so little, it is a trade: a bracket in prose that
+ * never closes and whose first element looks whole, `Tags: [1, 2`, holds
+ * everything after it (round fifteen; the tests record the shapes).
  */
-const ARRAY_OPENING =
-  /\[\s*(?:\{\s*"|\[|(?:"(?:[^"\\\r\n]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*[,\]])/y
+const SCALAR_FIRST =
+  /\[\s*(?:"(?:[^"\\\r\n]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*[,\]]/y
+const NESTED_FIRST = /\[\s*(?=\{\s*"|\[)/y
+// After a whole element: the next one, with or without a comma as NDJSON has it, or the end.
+const AFTER_ELEMENT = /\s*[,\]{[]/y
 const opens = (pattern: RegExp, text: string, at: number): boolean => {
   pattern.lastIndex = at
   return pattern.test(text)
+}
+const opensArray = (text: string, at: number, closes: boolean): boolean => {
+  if (opens(SCALAR_FIRST, text, at)) return true
+  if (!opens(NESTED_FIRST, text, at)) return false
+  if (!closes) return true
+  const first = NESTED_FIRST.lastIndex
+  const element = firstBalanced(text, first)
+  return element !== null && opens(AFTER_ELEMENT, text, first + element.length)
 }
 
 const statusRecords = (
@@ -359,15 +382,18 @@ const statusRecords = (
      isn't read, as after data cut short: a sentence there can't be told from
      one inside a record the scan never reached, and read as prose, a log
      line's `"msg":"logged in as warmup"` named an account (review, round
-     thirteen). In openings, 64 readings is about 125 that never close,
-     wherever they sit (review, round fourteen). */
+     thirteen). The bound is on reading, not on openings: one that never
+     closes costs what is left of the text after it. Where the output
+     begins, 122 of them are read past and 123 are not; after 50 kB of prose
+     a thousand are read past and two thousand are not (measured, review,
+     rounds fourteen and fifteen). */
   const budget = 64 * text.length
   let reread = 0
   for (let at = next(0); at !== -1; ) {
     const start = at
     const candidate = firstBalanced(text, at)
     // A record's opening, a brace and then a key, or an array's.
-    const data = opens(RECORD_OPENING, text, at) || opens(ARRAY_OPENING, text, at)
+    const data = opens(RECORD_OPENING, text, at) || opensArray(text, at, candidate !== null)
     if (candidate === null) {
       /* Data that never closes holds everything after it, so nothing after it
          is at the top level, and the scan stops. Resuming at the next brace
@@ -476,15 +502,22 @@ const IN_CLAUSE = String.raw`(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?`
  * that reaches too far errs toward signed out, and here it kept an account a
  * sentence said was signed out (review, round thirteen).
  */
-// The gaps are spaces and tabs: a line break ends a clause here as everywhere, and across one, "Last sync: never" denied the "Logged out." below it (review, round fourteen).
-const DENIED = String.raw`${NEGATION}(?:[^\S\r\n]+(?:yet|ever|currently|already|actually|really|be|been|being|get|got|gotten|getting)){0,2}[^\S\r\n]+`
+// The gaps are spaces and tabs and nothing else: a line break ends a clause here as everywhere, and across one, "Last sync: never" denied the "Logged out." below it (review, round fourteen); a form feed or a vertical tab did the same (round fifteen).
+const DENIED = String.raw`${NEGATION}(?:[ \t]+(?:yet|ever|currently|already|actually|really|be|been|being|get|got|gotten|getting)){0,2}[ \t]+`
+// The past marker before a sign-out keeps to the same line too: across a break, "Updated last" kept an account the next line signed out (review, round fifteen).
 const SIGNED_OUT = new RegExp(
   `${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
-    `|(?<!\\b(?:last|previously|formerly)\\s+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
+    `|(?<!\\b(?:last|previously|formerly)[ \\t]+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
   'i',
 )
 
-/** A sentence saying who is signed in now: not "last", "previously" or "was" signed in. */
+/**
+ * A sentence saying who is signed in now: not "last", "previously" or "was"
+ * signed in. Here the marker may sit across a line break, where the
+ * sign-out's may not: a wrapped "You were\nlogged in as …" is one sentence,
+ * and missing a sign-in errs toward signed out, the safe way (review, round
+ * fifteen).
+ */
 const SIGNED_IN = /(?<!\b(?:last|previously|formerly|was|were)\s+)\b(?:logged|signed) in as[: ]+(\S+)/i
 
 /** One account from whatever the status command printed, or null for signed out. */
@@ -509,7 +542,7 @@ export const parseStatus = (
      where a wrong signed-in fails every request after it. */
   if (SIGNED_OUT.test(prose)) return null
   // The name without the quotes or punctuation around it: "…; you haven't logged out" named `user@example.com;` (review, round eleven).
-  // And without the angle or square brackets a `Name <email>` spelling puts round it (review, round fourteen).
+  // And without the angle or square brackets round an address, `<user@example.com>` (review, round fourteen). Only the first word is read, so `Name <email>` names Name; neither CLI prints a name before the address (round fifteen).
   const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`(<[]+|["'`.,;:!?)>\]]+$/g, '') ?? ''
   // One that names nobody is no answer: `Logged in as ""` was an account with no name (review, round seven).
   if (identity !== '') return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }

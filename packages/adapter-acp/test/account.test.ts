@@ -62,14 +62,19 @@ test('the registry account commands become the account surface', async () => {
 })
 
 test('signed out is an empty list, not an error — even when status exits 1', async () => {
-  const runtime = make({ FAKE_CLI_STYLE: 'text', FAKE_CLI_STATE: 'out' })
-  await runtime.start()
-  try {
-    const status = await runtime.getAccount()
-    assert.deepEqual(status.accounts, [])
-    assert.equal(status.signInMethods.length, 1, 'sign-in is still offered')
-  } finally {
-    await runtime.dispose()
+  /* Each CLI the way it answers, measured (review, round 15): `claude auth status` prints its record and exits 1,
+     so the probe's rejection is what answers for it; `cursor-agent status` prints `Not logged in` and exits 0, so
+     the words do. */
+  for (const style of ['json', 'text']) {
+    const runtime = make({ FAKE_CLI_STYLE: style, FAKE_CLI_STATE: 'out' })
+    await runtime.start()
+    try {
+      const status = await runtime.getAccount()
+      assert.deepEqual(status.accounts, [], style)
+      assert.equal(status.signInMethods.length, 1, 'sign-in is still offered')
+    } finally {
+      await runtime.dispose()
+    }
   }
 })
 
@@ -808,7 +813,9 @@ test('a cancelled sign-in with a real child ends once, and the kill it causes ad
   try {
     const start = await runtime.login('cli-browser')
     await runtime.cancelLogin(start.loginId)
-    // Time for the SIGTERM's exit to arrive and be ignored.
+    /* Time for the SIGTERM's exit to arrive and be ignored. A best effort (review, round 15): a kill's exit carries
+       no code, so nothing is emitted to wait on instead, and where the exit comes later than this the test passes
+       without having seen the second completion it is here to catch. */
     await new Promise((resolve) => setTimeout(resolve, 500))
     const ended = events.filter((event) => event.type === 'account/loginCompleted') as { error?: string }[]
     assert.equal(ended.length, 1)
@@ -936,18 +943,43 @@ test('a bracket in prose that never closes leaves the status after it readable',
   // The bracket half of round 6's stray brace.
   assert.equal(parseStatus('Use ["--json" for machine output\n{"loggedIn":true,"email":"a@b.c"}')?.email, 'a@b.c')
   assert.equal(parseStatus('Reading ["config\nLogged in as a@b.c')?.email, 'a@b.c')
-  // A name spelled `Name <email>`, or bracketed, is the address without them.
+  // A bracketed address is the address without its brackets.
   assert.equal(parseStatus('Logged in as <a@b.c>')?.email, 'a@b.c')
   assert.equal(parseStatus('Logged in as [a@b.c]')?.email, 'a@b.c')
+  // Round 15: only the first word is read, so a name before the address is the name. Neither CLI prints one.
+  assert.deepEqual(parseStatus('Logged in as Shane <shane@example.com>'), { kind: 'cli', label: 'Shane' })
 })
 
-test('the two CLIs this file is wired to, as they print a signed-in status', () => {
-  // Round 14 of #134: captured by a reviewer from claude auth status and cursor-agent status, the address replaced.
-  const claude =
-    '{\n  "loggedIn": true,\n  "authMethod": "claude.ai",\n  "email": "user@example.com",\n  "orgName": "user@example.com\'s Organization",\n  "subscriptionType": "max"\n}\n'
-  assert.deepEqual(parseStatus(claude), { kind: 'cli', label: 'user@example.com', email: 'user@example.com', planType: 'max' })
-  const cursor = `${String.fromCharCode(0x2713)} Logged in as user@example.com\n`
-  assert.deepEqual(parseStatus(cursor), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+test('the two CLIs this file is wired to, as they print their status signed in and signed out', () => {
+  /* Round 14 of #134: captured by a reviewer from claude auth status and cursor-agent status. Round 15: the whole
+     records, and the signed-out halves, measured with an empty HOME. Addresses, names, ids and paths replaced. */
+  const claudeIn = `${JSON.stringify(
+    {
+      loggedIn: true,
+      authMethod: 'claude.ai',
+      apiProvider: 'firstParty',
+      analyticsDisabled: false,
+      projectsDirectory: '/home/dev/.claude/projects',
+      email: 'user@example.com',
+      orgId: '00000000-0000-0000-0000-000000000000',
+      orgName: "user@example.com's Organization",
+      subscriptionType: 'max',
+    },
+    null,
+    2,
+  )}\n`
+  assert.deepEqual(parseStatus(claudeIn), { kind: 'cli', label: 'user@example.com', email: 'user@example.com', planType: 'max' })
+  // Printed with exit 1, so the probe's rejection answers first (see the test with the fake CLI); read, it says the same.
+  const claudeOut = `${JSON.stringify(
+    { loggedIn: false, authMethod: 'none', apiProvider: 'firstParty', analyticsDisabled: false, projectsDirectory: '/home/dev/.claude/projects' },
+    null,
+    2,
+  )}\n`
+  assert.equal(parseStatus(claudeOut), null)
+  // The same line :41 reads, as cursor-agent printed it here.
+  assert.deepEqual(parseStatus(`${String.fromCharCode(0x2713)} Logged in as user@example.com\n`), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+  // Printed with exit 0, so this is what answers.
+  assert.equal(parseStatus('Not logged in\n'), null)
 })
 
 test('what the scan reads again is bounded, and past the bound nothing more is read', () => {
@@ -961,11 +993,68 @@ test('what the scan reads again is bounded, and past the bound nothing more is r
   // Past the bound nothing is read, a record or a sentence.
   assert.equal(parseStatus(`${'{cache '.repeat(400)}{"loggedIn":true,"email":"a@b.c"}`), null)
   assert.equal(parseStatus(`${'{cache '.repeat(400)}\nLogged in as user@example.com`), null)
-  // Round 14: the bound is about 125 openings that never close, however they are spaced.
+  // Round 14: where the output begins, the bound is 122 openings that never close, measured.
   assert.equal(parseStatus(`${'{cache '.repeat(100)}\nLogged in as user@example.com`)?.email, 'user@example.com')
   assert.equal(parseStatus(`${'{cache '.repeat(150)}\nLogged in as user@example.com`), null)
   assert.equal(parseStatus(`${'{cache '.padEnd(200, '.').repeat(100)}\nLogged in as user@example.com`)?.email, 'user@example.com')
+  // Round 15: it is a bound on reading, so the same openings further into a long output cost far less, and are read past.
+  assert.equal(parseStatus(`${'x '.repeat(25_000)}${'{cache '.repeat(500)}\nLogged in as user@example.com`)?.email, 'user@example.com')
   // Brackets nested in prose count too. Each was read to its end again, which took seconds here; it stops early now.
   const nested = 20_000
   assert.equal(parseStatus(`${'[a '.repeat(nested)}${']'.repeat(nested)} Logged in as user@example.com`), null)
+})
+
+test('a denial and a past marker keep to the sign-out’s own line, with only spaces and tabs between', () => {
+  // Round 15 of #134: other whitespace joined a denial to the sign-out, and a past marker still reached across a line.
+  const vt = String.fromCharCode(11)
+  const ff = String.fromCharCode(12)
+  for (const text of [
+    `Logged in as a@b.c; you are not${ff}been logged out`,
+    `Logged in as a@b.c; you are not${vt}been logged out`,
+    'Logged in as a@b.c\nUpdated last\nLogged out.',
+    'Logged in as a@b.c\nChecked previously\nLogged out.',
+    'Logged in as a@b.c\nSession cached formerly\nSigned out.',
+    'Logged in as a@b.c\nToken checked previously\rLogged out.',
+    `Logged in as a@b.c\nUpdated last${ff}Logged out.`,
+  ]) {
+    assert.equal(parseStatus(text), null, JSON.stringify(text))
+  }
+  // The controls: on its own line, with a space or a tab, each still says the sign-out isn't now.
+  assert.equal(parseStatus('Logged in as a@b.c; last logged out yesterday')?.email, 'a@b.c')
+  assert.equal(parseStatus('Logged in as a@b.c; you are not\tyet logged out')?.email, 'a@b.c')
+})
+
+test('a bracket that closes is data by its whole first element', () => {
+  // Round 15 of #134: a record or an array was taken for the whole first element from its opening alone.
+  assert.equal(parseStatus('[{"loggedIn":true,"email":"a@b.c"} current account]')?.email, 'a@b.c')
+  assert.equal(parseStatus('[[1, 2] tags] Logged in as a@b.c')?.email, 'a@b.c')
+  // Data: the first element whole, then the next element, with a comma or without one as NDJSON has it, or the end.
+  for (const text of [
+    '[{"a":1}, {"loggedIn":true,"email":"a@b.c"}]',
+    '[{"a":1}\n{"loggedIn":true,"email":"a@b.c"}]',
+    '[[1, 2], {"loggedIn":true,"email":"a@b.c"}]',
+    '[[1, 2]\n{"loggedIn":true,"email":"a@b.c"}]',
+    '["a", {"loggedIn":true,"email":"a@b.c"}]',
+    '[1, {"loggedIn":true,"email":"a@b.c"}]',
+    '[{"loggedIn":true,"email":"a@b.c"}]',
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
+  // Each scalar that closes the array at once is data too, cut, and the sentence after it is read.
+  for (const first of ['"a"', '1', '-2.5e3', 'true', 'false', 'null']) {
+    assert.equal(parseStatus(`[${first}] Logged in as a@b.c`)?.email, 'a@b.c', first)
+  }
+})
+
+test('telling an array from its opening is a trade, and this is the side it loses', () => {
+  /* Round 15 of #134, recorded rather than fixed: a bracket in prose that never closes and whose first element
+     looks whole is taken for data cut short, and holds everything after it. What separates it from an array cut
+     short is at the far end of the text, where the scan never gets. */
+  for (const text of [
+    'Tags: [1, 2\nLogged in as a@b.c',
+    'Ports: [8080,\n{"loggedIn":true,"email":"a@b.c"}',
+    'Use ["--json", "--text" for machine output\n{"loggedIn":true,"email":"a@b.c"}',
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
 })
