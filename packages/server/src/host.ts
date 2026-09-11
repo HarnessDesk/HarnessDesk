@@ -475,14 +475,12 @@ export class Host {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),
       )
-      // Before any session exists, so the first `browser_open` of the run
-      // already lands where the user last said it should.
+      // The defaults, so the kernel is never without a setting. What the
+      // user actually stored is applied in `start()`, not here: `StateStore`
+      // holds `{}` until `load()` has resolved, so every restore that ran in
+      // this constructor was reading an empty object and quietly keeping the
+      // defaults it was supposed to replace.
       this.#applyBrowserSettings()
-      // The team's rules are applied from stored preferences rather than
-      // from the plugin, and not here: this constructor runs before any
-      // plugin is loaded, and plugin configuration is memory-only, so a
-      // `hold` default restarted as `accept`. See `#applyTeamSettings`.
-      this.#applyTeamSettings()
     }
     this.#context = this.#buildContext()
   }
@@ -499,8 +497,56 @@ export class Host {
    * failure nobody notices until it has already let something through.
    */
   #applyTeamSettings(): void {
-    const stored = this.#state.state.preferences['teamSettings']
-    if (stored && typeof stored === 'object') this.#team.configure(stored as never)
+    const stored = this.#storedPluginSettings('team')
+    if (stored) this.#team.configure(stored as never)
+  }
+
+  /**
+   * What was stored for one plugin, or null.
+   *
+   * Team's settings had a key of their own before every plugin's were kept,
+   * so that key is still read for team — an install made before this keeps
+   * the board rules it was left with.
+   */
+  #storedPluginSettings(id: string): Record<string, unknown> | null {
+    const preferences = this.#state.state.preferences
+    const all = preferences['pluginSettings']
+    const mine =
+      all && typeof all === 'object' && !Array.isArray(all)
+        ? (all as Record<string, unknown>)[id]
+        : undefined
+    const stored = mine ?? (id === 'team' ? preferences['teamSettings'] : undefined)
+    return stored && typeof stored === 'object' && !Array.isArray(stored)
+      ? (stored as Record<string, unknown>)
+      : null
+  }
+
+  /**
+   * Stored plugin settings, back into the plugins that are already loaded.
+   *
+   * The kernel keeps a plugin's configuration in memory only, so everything a
+   * person set in Settings was gone at the next launch — the Workspace files
+   * read limit among them, which meant a limit set to keep large files out of
+   * the model's context was back at 64,000 bytes every morning (#258).
+   * Preferences outlive the process, so they are the record and this puts it
+   * back. A plugin that refuses its stored settings keeps the defaults rather
+   * than taking the whole boot down with it.
+   */
+  async #applyPluginSettings(): Promise<void> {
+    const extensions = this.#extensions
+    if (!extensions) return
+    for (const plugin of extensions.plugins()) {
+      const stored = this.#storedPluginSettings(plugin.identity.id)
+      if (!stored || Object.keys(stored).length === 0) continue
+      try {
+        await extensions.reconfigure(plugin.identity.id, stored)
+      } catch (error) {
+        this.#logger.warn('a plugin would not take its stored settings', {
+          plugin: plugin.identity.id,
+          error: String(error),
+        })
+      }
+    }
   }
 
   /**
@@ -617,6 +663,13 @@ export class Host {
 
   async start(): Promise<void> {
     await this.#state.load()
+    // Everything that restores a stored setting runs here, after the file has
+    // been read, and never in the constructor. Until it did, a board left
+    // holding inbound messages came back accepting them, and every plugin's
+    // settings came back at their defaults (#258).
+    this.#applyBrowserSettings()
+    this.#applyTeamSettings()
+    await this.#applyPluginSettings()
     await this.#team.load()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
@@ -1329,15 +1382,16 @@ export class Host {
   #onExtensionEvent(event: ExtensionEvent): void {
     this.#push({ method: 'extension', params: { event } })
     // The plugin has just appeared, carrying whatever config the kernel has
-    // — which after a restart is nothing. Hand it what the engine is
-    // actually enforcing, so the settings page shows the rules in force
-    // rather than an empty form beside a board that is holding messages.
-    if (event.type === 'plugin/added' && event.plugin.identity.id === 'team') {
-      const stored = this.#state.state.preferences['teamSettings']
-      if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
-        void this.#extensions
-          ?.reconfigure('team', stored as Record<string, unknown>)
-          .catch(() => undefined)
+    // — which after a restart is nothing. Hand it what was stored, so the
+    // settings page shows the rules in force rather than an empty form
+    // beside a board that is holding messages. This covers a plugin that
+    // arrives after boot; the ones loaded before `start()` — which is every
+    // built-in — are caught by `#applyPluginSettings`.
+    if (event.type === 'plugin/added') {
+      const id = event.plugin.identity.id
+      const stored = this.#storedPluginSettings(id)
+      if (stored && Object.keys(stored).length > 0) {
+        void this.#extensions?.reconfigure(id, stored).catch(() => undefined)
       }
     }
   }

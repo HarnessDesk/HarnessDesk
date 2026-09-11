@@ -39,11 +39,21 @@ export const pluginMethods = {
 
   'plugin/configure': async (ctx, params) => {
     await ctx.extensions().reconfigure(params.pluginId, params.config)
+    // Written to preferences for every plugin, not only team's: the kernel's
+    // copy dies with the process, so a setting that is only there is a
+    // setting the settings page shows you having saved and the next launch
+    // does not have. The host puts these back in `start()` (#258).
+    const stored = ctx.state.state.preferences['pluginSettings']
+    const settings =
+      stored && typeof stored === 'object' && !Array.isArray(stored)
+        ? { ...(stored as Record<string, unknown>) }
+        : {}
+    settings[params.pluginId] = params.config
+    await ctx.state.setPreferences({ pluginSettings: settings })
     // The board and the channel are the host's, not the child's — the
-    // plugin is the surface that describes them. So its settings are
-    // applied here, where the engine that enforces them lives, and
-    // written to preferences, because the kernel's copy dies with the
-    // process and these are safety settings.
+    // plugin is the surface that describes them. So team's settings are
+    // applied here too, where the engine that enforces them lives. The
+    // older key is kept up to date so a downgrade still finds the rules.
     if (params.pluginId === 'team') {
       await ctx.state.setPreferences({ teamSettings: params.config })
       ctx.settings.applyTeam()

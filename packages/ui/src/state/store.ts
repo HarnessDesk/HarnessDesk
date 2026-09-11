@@ -450,7 +450,7 @@ export class AppStore {
     })
     // Remembered across launches; losing the user's runtime pick on every
     // restart made the shell feel like it had a favourite vendor.
-    void this.transport.request('app/state/set', { patch: { activeRuntime: runtime } }).catch(() => {})
+    void this.#writePreference({ activeRuntime: runtime }, 'The agent you picked')
     // Choosing a crashed agent is also "selecting it again": it comes back
     // up, and its health change re-reads the surface once it is ready.
     if (crashed) void this.refreshCatalog()
@@ -2698,7 +2698,7 @@ export class AppStore {
    */
   #layouts: Record<string, Workbench> | null = null
   #persistLayouts = coalesce(() => {
-    void this.transport.request('app/state/set', { patch: { layouts: this.#layouts ?? {} } }).catch(() => {})
+    void this.#writePreference({ layouts: this.#layouts ?? {} }, 'The window layout')
   })
 
   /** Brings back the panels saved for this workspace, or starts with one empty pane. */
@@ -3395,9 +3395,7 @@ export class AppStore {
       if (this.#snapshot.activeRuntime === runtime) {
         this.#patch({ draftValues: values, draftOptions: options.length > 0 ? options : null })
       }
-      void this.transport
-        .request('app/state/set', { patch: { draftValues: this.#draftsByRuntime } })
-        .catch(() => {})
+      void this.#writePreference({ draftValues: this.#draftsByRuntime }, 'The draft options')
       return options
     } catch (error) {
       this.notice('warning', describe(error))
@@ -3423,7 +3421,7 @@ export class AppStore {
     if (next === current) return
     const hiddenModels = { ...this.#snapshot.hiddenModels, [runtime]: next }
     this.#patch({ hiddenModels })
-    void this.transport.request('app/state/set', { patch: { hiddenModels } }).catch(() => {})
+    void this.#writePreference({ hiddenModels }, 'The model picker')
   }
 
   /**
@@ -3441,7 +3439,7 @@ export class AppStore {
     if (next.length === current.length && next.every((id) => current.includes(id))) return
     const hiddenModels = { ...this.#snapshot.hiddenModels, [runtime]: next }
     this.#patch({ hiddenModels })
-    void this.transport.request('app/state/set', { patch: { hiddenModels } }).catch(() => {})
+    void this.#writePreference({ hiddenModels }, 'The model picker')
   }
 
   #draftsByRuntime: Record<string, Readonly<Record<string, OptionValue>>> = {}
@@ -4186,29 +4184,55 @@ export class AppStore {
     query.addEventListener?.('change', (event) => this.setNarrowWindow(event.matches))
   }
 
+  /**
+   * Writes one preference through to the host, and says so when it does not land.
+   *
+   * Every setting here is applied locally first so the control does not
+   * stutter under the hand that moved it — which means the window is briefly
+   * showing a value the host has not accepted yet. The host's answer used to
+   * be thrown away: a refused write, or a socket that dropped mid-write, left
+   * the new value on screen and the old one in the file, and nothing said so
+   * until a relaunch quietly put the old value back (#203). A person checking
+   * their own name after a restart is the first to find out.
+   *
+   * One helper for all of them on purpose: handling this in one setter would
+   * give the window two behaviours, and the setting that silently failed
+   * would be whichever one nobody had got to yet. Answers `true` when the
+   * host took it, so a caller with more to do can tell.
+   */
+  async #writePreference(patch: Record<string, unknown>, what: string): Promise<boolean> {
+    try {
+      await this.transport.request('app/state/set', { patch })
+      return true
+    } catch (error) {
+      this.notice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
+      return false
+    }
+  }
+
   setTheme(theme: AppSnapshot['theme']): void {
     this.#patch({ theme })
-    void this.transport.request('app/state/set', { patch: { theme } }).catch(() => {})
+    void this.#writePreference({ theme }, 'The theme')
   }
 
   setPalette(palette: AppSnapshot['palette']): void {
     this.#patch({ palette })
-    void this.transport.request('app/state/set', { patch: { palette } }).catch(() => {})
+    void this.#writePreference({ palette }, 'The palette')
   }
 
   setAccent(accent: AppSnapshot['accent']): void {
     this.#patch({ accent })
-    void this.transport.request('app/state/set', { patch: { accent } }).catch(() => {})
+    void this.#writePreference({ accent }, 'The accent colour')
   }
 
   setCorners(corners: AppSnapshot['corners']): void {
     this.#patch({ corners })
-    void this.transport.request('app/state/set', { patch: { corners } }).catch(() => {})
+    void this.#writePreference({ corners }, 'The corner style')
   }
 
   setLook(next: AppSnapshot['look']): void {
     this.#patch({ look: next })
-    void this.transport.request('app/state/set', { patch: { look: next } }).catch(() => {})
+    void this.#writePreference({ look: next }, 'The interface')
   }
 
   /**
@@ -4224,7 +4248,7 @@ export class AppStore {
     const profile = applyProfile(this.#snapshot.profile, patch)
     if (sameProfile(profile, this.#snapshot.profile)) return
     this.#patch({ profile })
-    void this.transport.request('app/state/set', { patch: { profile: storedProfile(profile) } }).catch(() => {})
+    void this.#writePreference({ profile: storedProfile(profile) }, 'Your profile')
   }
 
   /**
@@ -4245,7 +4269,7 @@ export class AppStore {
     if (cleaned.nickname === undefined && cleaned.tint === undefined) delete accountPrefs[key]
     else accountPrefs[key] = cleaned
     this.#patch({ accountPrefs })
-    void this.transport.request('app/state/set', { patch: { accountPrefs } }).catch(() => {})
+    void this.#writePreference({ accountPrefs }, 'The account name')
   }
 
   /**
@@ -4256,7 +4280,7 @@ export class AppStore {
   setEditorPrefs(patch: Partial<AppSnapshot['editorPrefs']>): void {
     const editorPrefs = { ...this.#snapshot.editorPrefs, ...patch }
     this.#patch({ editorPrefs })
-    void this.transport.request('app/state/set', { patch: { editorPrefs } }).catch(() => {})
+    void this.#writePreference({ editorPrefs }, 'The editor settings')
   }
 
   /**
@@ -4283,7 +4307,7 @@ export class AppStore {
     if (edits.length > 0) planEdits[key] = edits
     else delete planEdits[key]
     this.#patch({ planEdits })
-    void this.transport.request('app/state/set', { patch: { planEdits } }).catch(() => {})
+    void this.#writePreference({ planEdits }, 'The reworded task')
   }
 
   /** Drops one conversation's reworded tasks, when the conversation goes. */
@@ -4292,7 +4316,7 @@ export class AppStore {
     const planEdits = { ...this.#snapshot.planEdits }
     delete planEdits[key]
     this.#patch({ planEdits })
-    void this.transport.request('app/state/set', { patch: { planEdits } }).catch(() => {})
+    void this.#writePreference({ planEdits }, 'The reworded task')
   }
 
   /**
@@ -4311,13 +4335,13 @@ export class AppStore {
     if (live.length > 0) planEdits[key] = live
     else delete planEdits[key]
     this.#patch({ planEdits })
-    void this.transport.request('app/state/set', { patch: { planEdits } }).catch(() => {})
+    void this.#writePreference({ planEdits }, 'The reworded task')
   }
 
   setListPrefs(patch: Partial<AppSnapshot['listPrefs']>): void {
     const listPrefs = { ...this.#snapshot.listPrefs, ...patch }
     this.#patch({ listPrefs })
-    void this.transport.request('app/state/set', { patch: { listPrefs } }).catch(() => {})
+    void this.#writePreference({ listPrefs }, 'The list settings')
   }
 
   /**
@@ -4344,10 +4368,9 @@ export class AppStore {
     const rest = this.#snapshot.usageOff.filter((id) => id !== runtime)
     const usageOff = on ? rest : [...rest, runtime]
     this.#patch({ usageOff })
-    void this.transport
-      .request('app/state/set', { patch: { usageOff } })
-      .then(() => this.loadUsage())
-      .catch(() => {})
+    void this.#writePreference({ usageOff }, 'Usage tracking').then((saved) => {
+      if (saved) void this.loadUsage()
+    })
   }
 
   /**
@@ -4370,18 +4393,18 @@ export class AppStore {
   setSystemNotification(key: string, on: boolean): void {
     const systemNotifications = { ...this.#snapshot.systemNotifications, [key]: on }
     this.#patch({ systemNotifications })
-    void this.transport.request('app/state/set', { patch: { systemNotifications } }).catch(() => {})
+    void this.#writePreference({ systemNotifications }, 'The notification settings')
   }
 
   #setNoticePolicy(noticePolicy: NoticePolicy): void {
     this.#patch({ noticePolicy })
-    void this.transport.request('app/state/set', { patch: { noticePolicy } }).catch(() => {})
+    void this.#writePreference({ noticePolicy }, 'The message settings')
   }
 
   setBrowserPrefs(patch: Partial<AppSnapshot['browserPrefs']>): void {
     const browserPrefs = { ...this.#snapshot.browserPrefs, ...patch }
     this.#patch({ browserPrefs })
-    void this.transport.request('app/state/set', { patch: { browserPrefs } }).catch(() => {})
+    void this.#writePreference({ browserPrefs }, 'The browser settings')
   }
 
   /**

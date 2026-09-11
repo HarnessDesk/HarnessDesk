@@ -7,6 +7,20 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Plugin settings are still there tomorrow** — a setting typed into a
+  plugin's page in Settings is kept and put back at the next launch. Until
+  now the host held them in memory only and wrote none of them down, so the
+  Workspace files *Read limit, in bytes* was back at 64,000 every morning,
+  and so was every other plugin's setting. Working together's rules were
+  written down but read back too early to be applied, which meant a board
+  left holding inbound messages came back accepting them; that, and where an
+  agent opens a page, are restored now too.
+- **A setting that cannot be saved says so** — preferences are applied as
+  soon as you change them and written to disk behind you, and when that write
+  is refused or the connection drops, the window now tells you the next
+  launch will not have it. It used to show the new value and keep the old one
+  on disk, with nothing said until a relaunch quietly put it back.
+
 - **`read_file` stops at the byte limit its setting names** — it counted
   characters, so a file of three-byte characters ran to three times the limit.
   Chinese or Japanese text now comes back about a third as long as before; the
