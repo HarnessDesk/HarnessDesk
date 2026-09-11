@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
+import { flushSync } from 'react-dom'
 
 import {
   currentTurn,
@@ -83,19 +84,28 @@ const onDragStop = (): void => {
 }
 
 /*
- * Four ways out of a drag, and the last two are why.
+ * The ways out of a drag, and why these.
  *
  * `dragend` fires on the *source* and `drop` on the target, so a drag whose
  * source is unmounted mid-gesture — a card dragged out of a column that
  * re-renders under it — ends with neither. This flag is module-level, so a
  * miss is not a stale row: it is every hover card in the window refusing to
  * open, until some later drag happens to end properly. Review found it, and
- * the fix is that a pointer release means no drag is in progress, whatever
- * the drag API did or did not say. `pointerup` covers the usual case and
- * `pointercancel` the one where the browser takes the pointer away.
+ * the fix is that a pointer let go, or moving again with no button held,
+ * means no drag is in progress, whatever the drag API did or did not say: the
+ * browser sends the page nothing from the pointer while a native drag is on.
+ *
+ * Not `pointercancel`, though it reads like one. Chromium sends it the moment
+ * a native drag begins — measured in this app's shell, dragging a board card:
+ * `dragstart` at 27ms, `pointercancel` at 32ms, `dragend` at 594ms — so it
+ * ended every drag five milliseconds after it started, and the gate held
+ * nothing.
  */
 const DRAG_ON = ['dragstart'] as const
-const DRAG_OFF = ['dragend', 'drop', 'pointerup', 'pointercancel'] as const
+const DRAG_OFF = ['dragend', 'drop', 'pointerup'] as const
+const onPointerMove = (event: Event): void => {
+  if ((event as PointerEvent).buttons === 0) dragging = false
+}
 
 /**
  * Whether the last thing done in the window was a key rather than a press —
@@ -113,14 +123,19 @@ const DRAG_OFF = ['dragend', 'drop', 'pointerup', 'pointercancel'] as const
  * Only a key and a press move it, because only they can move focus. Radix's
  * menus keep a flag like this and clear it on `pointermove` as well, because
  * a menu's highlight follows the mouse; here the question is only what a
- * focus followed, and this answers it as Chromium's own `:focus-visible`
- * does. Measured in this app's shell (Chromium 148), a focus moved by a
- * script matched it after a key, after a key and then the mouse moving about,
- * and after Shift alone — and did not after a press, or after a key and then
- * a press. It starts as a key, and goes back to one when no trigger is left to
- * listen; in the app the seat's own card keeps a trigger mounted throughout,
- * so that reset matters to tests, where every root unmounts between cases.
- * Module-level for the reason `dragging` is.
+ * focus followed, and for a focus that follows a key or a press this answers
+ * it as Chromium's own `:focus-visible` does. Measured in this app's shell
+ * (Chromium 148), a focus moved by a script matched it after a key, after a
+ * key and then the mouse moving about, and after Shift alone — and did not
+ * after a press, or after a key and then a press. Two cases fall outside
+ * that: a text field, which `:focus-visible` matches however it was focused,
+ * and no trigger here holds one; and the window being brought back to the
+ * front, where the browser gives back a focus it had — not measured, since
+ * the rig cannot switch applications without driving the desktop. It starts
+ * as a key, and goes back to one when no trigger is left to listen; in the
+ * app the seat's own card keeps a trigger mounted throughout, so that reset
+ * matters to tests, where every root unmounts between cases. Module-level
+ * for the reason `dragging` is.
  */
 let keyboard = true
 const onKey = (): void => {
@@ -135,6 +150,7 @@ const WATCHED = [
   ...DRAG_OFF.map((name) => [name, onDragStop] as const),
   ['keydown', onKey] as const,
   ['pointerdown', onPress] as const,
+  ['pointermove', onPointerMove] as const,
 ]
 let watchers = 0
 
@@ -344,6 +360,18 @@ export const AgentHoverCard = ({
   /* Closed for want of room on its side, so taken away at once rather than
      faded — see the effect that closes it. */
   const [abrupt, setAbrupt] = useState(false)
+  /* The side asked for, as the caller asks it now. A re-ask runs an `ask`
+     made in an earlier render, so it reads this rather than that render's
+     `side`. */
+  const wanted = useRef<CardSide>(side ?? 'right')
+  useEffect(() => {
+    wanted.current = side ?? 'right'
+  })
+  /* The card's element while it is drawn: the positioner's output, which the
+     watch on the card's side reads. State rather than a ref, because Radix's
+     portal draws the card a render after it opens, and the watch has to start
+     again when it arrives. */
+  const [card, setCard] = useState<HTMLDivElement | null>(null)
   useWindowWatch()
 
   /* The one way a card opens: Radix's requests come here, and so does every
@@ -356,7 +384,7 @@ export const AgentHoverCard = ({
     const trigger = triggerRef.current
     if (!trigger || !(resting.current || focused.current)) return
     setAbrupt(false)
-    setPlaced(sideFor(trigger, side ?? 'right'))
+    setPlaced(sideFor(trigger, wanted.current))
     setOpen(true)
   }
 
@@ -385,18 +413,27 @@ export const AgentHoverCard = ({
   }, [open])
 
   /* A card beside its trigger keeps that side, and closes when it no longer
-     fits there — the window dragged narrower, or the trigger widened by the
-     details panel opening beside the room. Left open it would be off the
-     window, or the positioner's to trade across the trigger; moved, it would
-     race the positioner (see `sideFor`). Closing asks again, after the delay
-     of any rest, so a reader who has not moved has the card back on the side
-     where it fits now. It goes at once rather than fading: the positioner
-     goes on placing a card while it fades, and one that has just lost the
-     room on its side is one it trades across the trigger — measured in the
-     real app, a closing card drawn at x = −47, off the window, for its last
-     150ms. `check` runs on every resize while a card is open —
-     one card, two layout reads each time — and the re-ask waits out the
-     last. `redrawn` runs this again for a trigger drawn again, so the
+     fits there. Left open it would be off the window, or the positioner's to
+     trade across the trigger; moved, it would race the positioner (see
+     `sideFor`). Three things wake the check: the window changing size, the
+     trigger changing size (the details panel opening beside the room), and
+     the positioner itself. It places the card again whenever the trigger
+     moves, resizes or scrolls — a move with neither included, such as the
+     sidebar's seam dragged beside a room — and it may trade the card's side
+     as it goes, which closes the card too. Its answers are checked at once,
+     before the frame is drawn, so a card it has just carried across its
+     trigger is never seen there.
+
+     Closing asks again, after the delay of any rest, so a reader who has not
+     moved has the card back on the side where it fits now. It goes at once
+     rather than fading: the positioner goes on placing a card while it fades,
+     and one that has just lost the room on its side is one it trades across
+     the trigger — measured in the real app, a closing card drawn at x = −47,
+     off the window, for its last 150ms. The first check that fails closes the
+     card and stops listening; the re-ask comes 420ms later and measures
+     afresh, so a window still being dragged can close it once more. A key
+     pressed in the meantime does not cancel it: the pointer is still
+     resting. `redrawn` runs this again for a trigger drawn again, so the
      observer watches the element that is there. */
   useEffect(() => {
     if (!open || !beside(placed)) return undefined
@@ -405,7 +442,8 @@ export const AgentHoverCard = ({
     if (!trigger) return undefined
     const check = (): void => {
       const now = triggerRef.current
-      if (now && roomOn(now, at)) return
+      const drawn = card?.getAttribute('data-side')
+      if (now && roomOn(now, at) && (!drawn || drawn === at)) return
       setAbrupt(true)
       setOpen(false)
       window.clearTimeout(again.current)
@@ -414,11 +452,17 @@ export const AgentHoverCard = ({
     const observer = new ResizeObserver(check)
     observer.observe(trigger)
     window.addEventListener('resize', check)
+    const placedAgain = new MutationObserver(() => flushSync(check))
+    if (card) {
+      placedAgain.observe(card, { attributes: true, attributeFilter: ['data-side'] })
+      if (card.parentElement) placedAgain.observe(card.parentElement, { attributes: true, attributeFilter: ['style'] })
+    }
     return () => {
       observer.disconnect()
+      placedAgain.disconnect()
       window.removeEventListener('resize', check)
     }
-  }, [open, placed, redrawn])
+  }, [open, placed, redrawn, card])
 
   /* Disabling the card must also close it. The state outlives the Radix
      tree below, which unmounts while `disabled` holds — so a card that was
@@ -433,6 +477,9 @@ export const AgentHoverCard = ({
     focused.current = false
     pressed.current = false
     quiet.current = false
+    /* Nothing measures a trigger that is not drawn, and a detached one kept
+       here would be kept alive by it. */
+    triggerRef.current = null
   }, [disabled])
 
   if (disabled) return <>{children}</>
@@ -511,6 +558,7 @@ export const AgentHoverCard = ({
           goes at once instead of fading where it no longer fits. */}
       {(open || !abrupt) && (
         <HoverCardContent
+          ref={setCard}
           side={placed}
           {...(align ? { align } : {})}
           className="p-0"

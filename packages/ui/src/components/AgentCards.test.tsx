@@ -52,6 +52,11 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   vi.restoreAllMocks()
+  /* A test that fails part-way never reaches its own `useRealTimers` or
+     `unstubAllGlobals`, and the fakes it left would fail the next test for a
+     reason that has nothing to do with it. */
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 const MEMBER: MemberCardFacts = {
@@ -725,24 +730,67 @@ it('a press inside the open delay means the card never opens', () => {
   vi.useRealTimers()
 })
 
-it('opens no card while something is being dragged, and opens one once the drag is over', () => {
+/**
+ * No card opens while something is being dragged.
+ *
+ * The board's cards are dragged natively, and the order Chromium sends that
+ * in was measured in this app's shell: `pointerdown`, `dragstart` 18ms later,
+ * `pointercancel` 5ms after that, and nothing more from the pointer until
+ * `dragend`. The drag has to outlast that `pointercancel`, or the gate holds
+ * for five milliseconds.
+ */
+it('opens no card while something is being dragged, in the order a browser sends a drag, and opens one once it is over', () => {
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
-  // A board card on its way to another column, crossing an assignee's face.
-  act(() => {
-    window.dispatchEvent(new Event('dragstart'))
-  })
-  rest(trigger())
-  expect(openCard()).toBeNull()
-  leave(trigger())
+  const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
+  const name = [...container.querySelectorAll('span')].find((s) => s.textContent === 'Codex')
+  if (!control || !name) throw new Error('the row is missing its parts')
+  const elsewhere = document.createElement('div')
+  document.body.appendChild(elsewhere)
+  /* A board card picked up somewhere else in the window. */
+  const dragBegins = (): void => {
+    press(elsewhere)
+    act(() => {
+      window.dispatchEvent(new Event('dragstart'))
+      window.dispatchEvent(new PointerEvent('pointercancel', { pointerType: 'mouse' }))
+    })
+  }
 
-  // Released: a pointer let go means no drag, whatever the drag API said.
+  // A card is asked for — a re-ask, armed by moving off the control on to the
+  // name — and a drag begins before it comes due.
+  rest(control)
+  move(control, name)
+  dragBegins()
+  wait(1000)
+  expect(openCard()).toBeNull()
+
+  // Over the ordinary way, and the next rest opens the card.
   act(() => {
-    window.dispatchEvent(new Event('pointerup'))
+    window.dispatchEvent(new Event('dragend'))
   })
-  rest(trigger())
+  leave(name)
+  rest(name)
   expect(trigger().getAttribute('data-state')).toBe('open')
-  vi.useRealTimers()
+  leave(name)
+
+  // A drag whose source went away mid-gesture ends with neither `dragend` nor
+  // `drop`. The pointer moving again with no button held is the end of it…
+  dragBegins()
+  act(() => {
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', buttons: 0 }))
+  })
+  rest(name)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  leave(name)
+
+  // …and so is the pointer let go.
+  dragBegins()
+  act(() => {
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'mouse' }))
+  })
+  rest(name)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  elsewhere.remove()
 })
 
 it('opens beside a trigger with room beside it, and under one without', () => {
@@ -876,7 +924,7 @@ it('keeps the side it opened on: closes when that side stops fitting though the 
  * last 150ms. jsdom runs no animations, so here the card is given an exit:
  * its animation's name changes as it closes, and no `animationend` comes.
  */
-it('takes a card that lost the room on its side away at once, where one put away by the pointer fades', () => {
+it('takes a card that lost the room on its side away at once, where one put away by the pointer or a scroll fades', () => {
   const realStyle = window.getComputedStyle.bind(window)
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element: Element, pseudo?: string | null) => {
     const style = realStyle(element, pseudo)
@@ -891,15 +939,22 @@ it('takes a card that lost the room on its side away at once, where one put away
   })
   const content = (): Element | null => document.querySelector('[data-slot="hover-card-content"]')
   vi.useFakeTimers()
-  act(() => root.render(withAControl()))
+  act(() => root.render(<div data-testid="list">{withAControl()}</div>))
   viewport(1024)
   spans(20, 60)
   rest(trigger())
   expect(side()).toBe('right')
 
-  // The control: put away by the pointer leaving, the card stays mounted to
-  // fade, which is what makes the case below a difference.
+  // The controls: put away by the pointer leaving, the card stays mounted to
+  // fade, which is what makes the case below a difference…
   leave(trigger())
+  expect(content()?.getAttribute('data-state')).toBe('closed')
+
+  // …and so does one its list's scroll put away.
+  rest(trigger())
+  act(() => {
+    container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
+  })
   expect(content()?.getAttribute('data-state')).toBe('closed')
 
   rest(trigger())
@@ -962,6 +1017,94 @@ it('follows a trigger drawn again while its card is open, for that trigger’s o
     vi.unstubAllGlobals()
     vi.useRealTimers()
   }
+})
+
+/**
+ * A card beside its trigger is checked again whenever the positioner moves it.
+ *
+ * The positioner follows the trigger by itself — through a resize of the
+ * window, of the trigger, and through a move with neither, such as the
+ * sidebar's seam dragged beside a room — and can trade the card's side as it
+ * goes. A move alone reaches none of the card's own listeners, so the card
+ * listens to the positioner too. jsdom has no positioner worth the name here
+ * (no layout, no IntersectionObserver), so its output is written by hand, the
+ * way it writes it: a new transform on the card's wrapper, a new `data-side`.
+ */
+it('checks its side again when the positioner moves it, and closes when that side has lost its room', async () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  // Room on the left only, so it opens on the left.
+  spans(1024 - 60, 1024 - 20)
+  rest(trigger())
+  expect(side()).toBe('left')
+  const wrapper = document.querySelector('[data-slot="hover-card-content"]')?.parentElement
+  if (!wrapper) throw new Error('no wrapper around the card')
+
+  // The control: placed again with nothing moved, and it stays.
+  await act(async () => {
+    wrapper.style.transform = 'translate(668px, 100px)'
+  })
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  // The row slides to the window's other edge at the same width — no resize
+  // anywhere — and the positioner follows it.
+  spans(20, 60)
+  await act(async () => {
+    wrapper.style.transform = 'translate(68px, 100px)'
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(side()).toBe('right')
+})
+
+it('closes when the positioner trades its side, whatever moved', async () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  spans(20, 60)
+  rest(trigger())
+  expect(side()).toBe('right')
+
+  await act(async () => {
+    document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+})
+
+it('a re-ask opens on the side asked for now, not the side asked for when it was armed', () => {
+  vi.useFakeTimers()
+  const row = (wanted: 'right' | 'bottom'): React.ReactNode => (
+    <AgentHoverCard
+      as="div"
+      openOnFocus={false}
+      side={wanted}
+      body={() => (
+        <AgentCard
+          subject={{ kind: 'session', name: 'A chat about the limiter', tint: 'blue', mark: <svg /> }}
+        />
+      )}
+    >
+      <span>mark</span> <span>Codex</span>
+      <button type="button" data-no-card="">
+        Watch beside
+      </button>
+    </AgentHoverCard>
+  )
+  act(() => root.render(row('right')))
+  const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
+  const name = [...container.querySelectorAll('span')].find((s) => s.textContent === 'Codex')
+  if (!control || !name) throw new Error('the row is missing its parts')
+  viewport(1024)
+  spans(20, 60)
+
+  // In over the control, then on to the name: a re-ask is armed. Before it
+  // comes due, the caller asks for below instead.
+  rest(control)
+  move(control, name)
+  act(() => root.render(row('bottom')))
+  wait(1000)
+  expect(side()).toBe('bottom')
 })
 
 /**
