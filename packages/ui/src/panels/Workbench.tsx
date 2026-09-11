@@ -158,25 +158,31 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
    * `sidebarPlacement`. The column is the only placement that takes room from
    * the content, so it is the only one with a seam and the only one that holds
    * the window's corner — a floating sidebar lies over the corner's row rather
-   * than taking its place.
+   * than taking its place. A panel given the whole window makes it `away`
+   * whatever its own state says.
    */
   const narrow = snapshot.narrowWindow
   const placement = sidebarPlacement(snapshot)
-  const showSidebar = placement !== 'away' && areaVisible(workbench, 'sidebar')
-  const floating = showSidebar && placement === 'floating'
-  const column = showSidebar && placement === 'column'
+  const showSidebar = placement !== 'away'
+  const floating = placement === 'floating'
+  const column = placement === 'column'
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
    * so the stylesheet can hand that area — and only that area — the room they
    * need. Absent in the browser build, where there are no buttons and no row
    * should be indented for them. See `--titlebar-inset` in `app.css`.
+   *
+   * A floating sidebar lies over that corner too — the desktop app zoomed in
+   * can cross the narrow line — and the stylesheet gives it the same room
+   * whenever there are buttons at all, while the area named here keeps it for
+   * the row underneath.
    */
   const corner = hasTrafficLights() ? cornerArea(workbench, column) : null
 
   const sidebarBox = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
-  useFloatingSidebar(floating, sidebarBox, content)
+  useFloatingSidebar(floating, sidebarBox, content, shell)
 
   return (
     <DragContext.Provider value={{ dragging, setDragging }}>
@@ -345,6 +351,7 @@ const useFloatingSidebar = (
   floating: boolean,
   sidebar: RefObject<HTMLDivElement | null>,
   content: RefObject<HTMLDivElement | null>,
+  shell: RefObject<HTMLDivElement | null>,
 ): void => {
   const store = useStore()
   const opener = useRef<HTMLElement | null>(null)
@@ -353,8 +360,23 @@ const useFloatingSidebar = (
       // Taken before the content goes inert: making the focused control inert
       // moves focus to the page, and then there is nothing to come back to.
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-      const behind = content.current
-      behind?.setAttribute('inert', '')
+      /*
+       * Everything it lies over: the workbench's own content, and whatever the
+       * app floats beside the workbench — the standing notices, drawn under
+       * the dim, whose buttons Tab would otherwise walk into behind it. A
+       * toast is not beside it and stays in reach, drawn above the sidebar:
+       * it is so often the answer to something done in the sidebar itself —
+       * an archive's Undo — and it leaves on its own.
+       *
+       * Only what this makes inert is given back: something already inert
+       * for its own reasons stays so.
+       */
+      const box = shell.current
+      const beside = box?.parentElement ? Array.from(box.parentElement.children).filter((child) => child !== box) : []
+      const covered = [content.current, ...beside].filter(
+        (element): element is HTMLElement => element instanceof HTMLElement && !element.hasAttribute('inert'),
+      )
+      for (const element of covered) element.setAttribute('inert', '')
       // The surface, as a dialog does, rather than the first row in it: landing
       // on a row means a stray Return opens a conversation nobody chose.
       sidebar.current?.focus({ preventScroll: true })
@@ -366,7 +388,7 @@ const useFloatingSidebar = (
       window.addEventListener('keydown', onKeyDown)
       return () => {
         window.removeEventListener('keydown', onKeyDown)
-        behind?.removeAttribute('inert')
+        for (const element of covered) element.removeAttribute('inert')
       }
     }
     /*
@@ -385,7 +407,7 @@ const useFloatingSidebar = (
     const active = document.activeElement
     const stranded = active === null || active === document.body || sidebar.current?.contains(active) === true
     if (stranded && back.isConnected) back.focus({ preventScroll: true })
-  }, [floating, sidebar, content, store])
+  }, [floating, sidebar, content, shell, store])
 }
 
 /**

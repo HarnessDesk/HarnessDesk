@@ -387,11 +387,13 @@ const TasksChip = () => {
       data-testid="tasks-chip"
       {...(live ? { 'data-live': '' } : {})}
       aria-pressed={open}
-      title={
+      /* Led by the chip's own words, which a narrow header folds down to its
+         mark: hover is where they are still read. */
+      title={`${tasksChipLabel(split)}. ${
         live
           ? 'Work that keeps going after the turn. Opens the Background tasks panel, with the output.'
           : 'Work that ran after a turn ended. Opens the Background tasks panel, with the output.'
-      }
+      }`}
       onClick={() => store.showView('tasks')}
     >
       {live ? <span className={styles.tasksSpinner} aria-hidden="true" /> : <CheckIcon size={11} />}
@@ -406,8 +408,11 @@ const TasksChip = () => {
  * while the first shell is still opening, which is what the second half of a
  * double click is. A second shell is the dock's own + tab; this button never
  * means "one more terminal", so no press of it can leave one behind.
+ *
+ * `folds` lets a narrow header fold it into ⋯ › View. The header says so,
+ * because only the header knows whether there is a ⋯ beside it to fold into.
  */
-export const TerminalToggle = () => {
+export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [opening, setOpening] = useState(false)
@@ -417,7 +422,8 @@ export const TerminalToggle = () => {
   return (
     <button
       type="button"
-      className={`${styles.headerButton} ${styles.viewButton} hd-no-drag`}
+      className={`${styles.headerButton} hd-no-drag`}
+      {...(folds ? { 'data-folds': '' } : {})}
       {...(on ? { 'data-active': '' } : {})}
       onClick={() => {
         if (on) {
@@ -556,10 +562,14 @@ export const Conversation = ({
             right does something. Without the rule they ran together as one
             undifferentiated row of chrome. */}
         {pane && <span className={styles.headerRule} />}
+        {/* A door to a view folds into ⋯ › View at a phone's width — where
+            there is a ⋯ to fold into. A draft has none, so its browser button
+            stays: folded, it was a door closed with nothing in its place. */}
         {pane && (
           <button
             type="button"
-            className={`${styles.headerButton} ${styles.viewButton} hd-no-drag`}
+            className={`${styles.headerButton} hd-no-drag`}
+            {...(session ? { 'data-folds': '' } : {})}
             onClick={() => store.openBrowser()}
             title="Open the browser beside this conversation — the page agents' browser tools drive"
             aria-label="Open browser"
@@ -567,7 +577,7 @@ export const Conversation = ({
             <GlobeIcon size={14} />
           </button>
         )}
-        {pane && session && <TerminalToggle />}
+        {pane && session && <TerminalToggle folds />}
         {session && <ConversationMenu />}
       </header>
 
@@ -710,7 +720,10 @@ const GitControl = ({ onRemoveWorktree }: { onRemoveWorktree: () => void }) => {
 
   return (
     <Popover
-      title={cwd}
+      /* What the chip says, then where it is. The words fold to the glyph in a
+         narrow header, and hover is where they are still read — the path alone
+         was not the word that folded. */
+      title={`${branch ?? folder}${worktree ? ' · worktree' : ''} — ${cwd}`}
       align="right"
       label={
         <>

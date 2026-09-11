@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runtimeId, sessionId, type HostMethodName, type Session } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
-import { NARROW_WINDOW, sidebarPlacement } from './workbench'
+import { NARROW_WINDOW, emptyWorkbench, sidebarPlacement, zoomArea, type Workbench } from './workbench'
 
 /**
  * The sidebar, in two widths of window.
@@ -33,21 +33,36 @@ const session = (overrides: Partial<Session> = {}): Session => ({
 })
 
 describe('where the sidebar is drawn', () => {
+  const at = (
+    state: { narrowWindow: boolean; sidebarCollapsed: boolean; sidebarFloating: boolean },
+    workbench: Workbench = emptyWorkbench(),
+  ) => sidebarPlacement({ ...state, workbench })
+
   it('stands beside the conversation in a wide window, unless it has been put away', () => {
-    expect(sidebarPlacement({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false })).toBe('column')
-    expect(sidebarPlacement({ narrowWindow: false, sidebarCollapsed: true, sidebarFloating: false })).toBe('away')
+    expect(at({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false })).toBe('column')
+    expect(at({ narrowWindow: false, sidebarCollapsed: true, sidebarFloating: false })).toBe('away')
   })
 
   it('floats in a narrow window only when asked, however the column was left', () => {
     for (const sidebarCollapsed of [false, true]) {
-      expect(sidebarPlacement({ narrowWindow: true, sidebarCollapsed, sidebarFloating: false })).toBe('away')
-      expect(sidebarPlacement({ narrowWindow: true, sidebarCollapsed, sidebarFloating: true })).toBe('floating')
+      expect(at({ narrowWindow: true, sidebarCollapsed, sidebarFloating: false })).toBe('away')
+      expect(at({ narrowWindow: true, sidebarCollapsed, sidebarFloating: true })).toBe('floating')
     }
   })
 
   it('never floats in a wide window, whatever the flag says', () => {
-    expect(sidebarPlacement({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: true })).toBe('column')
-    expect(sidebarPlacement({ narrowWindow: false, sidebarCollapsed: true, sidebarFloating: true })).toBe('away')
+    expect(at({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: true })).toBe('column')
+    expect(at({ narrowWindow: false, sidebarCollapsed: true, sidebarFloating: true })).toBe('away')
+  })
+
+  it('is away while a panel has the whole window, whatever its own state says', () => {
+    const filling = zoomArea(emptyWorkbench(), 'main', 'window')
+    for (const narrowWindow of [false, true]) {
+      expect(at({ narrowWindow, sidebarCollapsed: false, sidebarFloating: true }, filling)).toBe('away')
+    }
+    // The content area's zoom leaves it standing, which is that scope's whole point.
+    const content = zoomArea(emptyWorkbench(), 'main', 'content')
+    expect(at({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false }, content)).toBe('column')
   })
 })
 
@@ -119,6 +134,31 @@ describe('the store', () => {
     store.toggleSidebar()
     await store.openSession(ID, { runtime: RUNTIME })
     expect(state().sidebarFloating).toBe(false)
+  })
+
+  it('is put away by a panel given the whole window, rather than left open where nothing is drawn', () => {
+    store.setNarrowWindow(true)
+    store.toggleSidebar()
+    expect(state().sidebarFloating).toBe(true)
+
+    store.zoomPanel('main', 'window')
+    expect(state().sidebarFloating).toBe(false)
+  })
+
+  it('asked for while a panel has the whole window, it comes back and the panel keeps the content area', () => {
+    for (const narrow of [false, true]) {
+      const desk = new AppStore('ws://localhost:0/')
+      vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
+      desk.setNarrowWindow(narrow)
+      desk.zoomPanel('main', 'window')
+      expect(sidebarPlacement(desk.getSnapshot())).toBe('away')
+
+      // One press, and it is on screen — not a flag flipped that a second
+      // press has to flip back.
+      desk.toggleSidebar()
+      expect(desk.getSnapshot().workbench.zoom).toEqual({ area: 'main', scope: 'content' })
+      expect(sidebarPlacement(desk.getSnapshot())).toBe(narrow ? 'floating' : 'column')
+    }
   })
 
   it('is left open by a conversation read in for a room, which goes nowhere', async () => {

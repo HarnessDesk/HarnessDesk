@@ -7,11 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **A phone's width has a layout** — in a browser window narrower than the
-  desktop app can be (720px), the sidebar floats over the conversation
-  instead of leaving it 135px. The header's sidebar button, ⌘B and the
-  palette open it; Escape, a press on the dimmed conversation or choosing
-  somewhere to go puts it away. A panel on the right takes the
+- **A phone's width has a layout** — in a window narrower than 720px (a
+  browser, or the desktop app zoomed in), the sidebar floats over the
+  conversation instead of leaving it 135px. The header's sidebar button, ⌘B
+  and the palette open it; Escape, a press on the dimmed conversation or
+  choosing somewhere to go puts it away. A panel on the right takes the
   conversation's width while it is open. Headers fold by their own width —
   in a narrow pane of a wide window too — so a title keeps room: about 165px
   at 375px, where it had one. The composer's model control folds its name

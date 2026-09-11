@@ -407,7 +407,8 @@
  * costs more than the conversation can spare, so the sidebar floats instead:
  * out of the row, over the conversation, at the width it had, sliding in from
  * the edge it lives on. What it covers is dimmed and cannot be reached until
- * it goes — `Workbench` marks it inert — and pressing the dim puts it away.
+ * it goes — `Workbench` marks it inert, with the notices floating beside the
+ * workbench — and pressing the dim puts it away.
  *
  * A panel docked on the right does the same on its own side: while it is open
  * it takes the conversation's width, since a column beside a conversation this
@@ -441,6 +442,13 @@
    clear of. */
 .shell[data-narrow] .sidebar > * {
   width: 100%;
+}
+
+/* Open, it lies over the window's top-left corner — in the desktop app too,
+   zoomed in far enough to cross the line — so its title bar clears the
+   window's buttons the way the row beneath it does. */
+.shell[data-lights] .sidebar[data-floating] {
+  --titlebar-inset: var(--hd-titlebar-lights);
 }
 
 /* Focus is put on the surface from code, so there is somewhere to start from;

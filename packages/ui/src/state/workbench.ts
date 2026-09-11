@@ -995,11 +995,13 @@ export const cornerArea = (workbench: Workbench, sidebarShown: boolean): AreaId 
  * The narrowest window that still gives the sidebar a column.
  *
  * It is the desktop window's own minimum (`minWidth` in the shell's
- * `electron/main.mjs`), so every width the desktop app can take keeps the
- * layout it has always had. Only a browser goes narrower — a phone, a tab
- * dragged thin — and there a 240px column left the conversation 135px: a
- * composer wrapping its placeholder a word to a line and a header whose title
- * was one pixel wide. Below this line the sidebar floats over the conversation
+ * `electron/main.mjs`), so every width the desktop app can take at its
+ * ordinary zoom keeps the layout it has always had. A browser goes narrower —
+ * a phone, a tab dragged thin — and so does the desktop app zoomed in, whose
+ * window is measured in CSS pixels and is then narrower than it looks; the
+ * narrow layout is right there too, since everything on it is bigger. Below
+ * the line a 240px column left the conversation 135px: a composer wrapping its
+ * placeholder a word to a line and a header whose title was one pixel wide. Below this line the sidebar floats over the conversation
  * instead of standing beside it, and a panel docked on the right takes the
  * conversation's whole width while it is open.
  */
@@ -1019,6 +1021,10 @@ export const NARROW_WINDOW = 720
  * line is crossed — a sidebar that opened itself over the conversation the
  * moment a window got narrow would be the column's choice, carried somewhere
  * it no longer fits.
+ *
+ * And a panel given the whole window hides the sidebar whatever either says,
+ * which is `away` too — so a control that shows the sidebar never claims it is
+ * already on screen while nothing is.
  */
 export type SidebarPlacement = 'column' | 'floating' | 'away'
 
@@ -1026,14 +1032,17 @@ export const sidebarPlacement = (state: {
   readonly narrowWindow: boolean
   readonly sidebarCollapsed: boolean
   readonly sidebarFloating: boolean
+  readonly workbench: Workbench
 }): SidebarPlacement =>
-  state.narrowWindow
-    ? state.sidebarFloating
-      ? 'floating'
-      : 'away'
-    : state.sidebarCollapsed
-      ? 'away'
-      : 'column'
+  !areaVisible(state.workbench, 'sidebar')
+    ? 'away'
+    : state.narrowWindow
+      ? state.sidebarFloating
+        ? 'floating'
+        : 'away'
+      : state.sidebarCollapsed
+        ? 'away'
+        : 'column'
 
 // ------------------------------------------------------------- persistence
 

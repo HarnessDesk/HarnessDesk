@@ -151,6 +151,8 @@ it('says the model, and how hard it thinks, when the toolbar has the room', () =
 
 it('folds the model’s name with every other word when the toolbar is narrow', () => {
   draw(500)
+  // Both controls drew — an empty list would pass every assertion below.
+  expect(triggers()).toHaveLength(2)
   // Every control down to its mark — the model no longer the one exception.
   for (const trigger of triggers()) expect(trigger.textContent?.trim()).toBe('')
   // The words go to the hover text, and with nothing else to name the trigger,
@@ -161,6 +163,7 @@ it('folds the model’s name with every other word when the toolbar is narrow', 
 
 it('keeps the chevrons while there is room for them, and folds them at a phone’s width', () => {
   draw(500)
+  expect(triggers()).toHaveLength(2)
   const glyphs = (): number[] => triggers().map((trigger) => trigger.querySelectorAll('svg').length)
   // A mark and a chevron each.
   expect(glyphs()).toEqual([2, 2])

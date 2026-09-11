@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -36,6 +36,8 @@ vi.mock('../components/Panes', () => ({
 const changes = views.get('changes')
 if (!changes) throw new Error('changes is not registered')
 views.register({ ...changes, component: () => <div data-testid="view-changes">changes</div> })
+// The registry is the module's, so the real definition goes back when this file is done.
+afterAll(() => views.register(changes))
 
 let container: HTMLDivElement
 let root: Root
@@ -74,7 +76,12 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
   return { store, patch }
 }
 
-const render = (store: AppStore): void => {
+/**
+ * `beside` puts what the app puts beside the workbench next to it: the
+ * standing notices float there, over the conversation, outside the shell —
+ * and one more element that is already inert for reasons of its own.
+ */
+const render = (store: AppStore, beside = false): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -85,6 +92,12 @@ const render = (store: AppStore): void => {
             </div>
           }
         />
+        {beside && (
+          <div data-testid="notices">
+            <button type="button">Review in Library</button>
+          </div>
+        )}
+        {beside && <div data-testid="already-inert" inert />}
       </StoreProvider>,
     )
   })
@@ -138,6 +151,25 @@ it('floating, it covers the conversation: the dim is up, what is under it is out
   expect(content().hasAttribute('inert')).toBe(true)
   // The surface, not its first control: a stray Return must not open a row.
   expect(document.activeElement).toBe(sidebar())
+})
+
+it('what floats beside the workbench goes inert with the conversation, and only that comes back', () => {
+  /* The standing notices are drawn under the dim but live outside the shell,
+     so making the content inert left their buttons one Tab away from the
+     floating sidebar: a control you can reach and cannot see. */
+  const { store, patch } = rig({ narrowWindow: true })
+  render(store, true)
+  const notices = container.querySelector<HTMLElement>('[data-testid="notices"]')
+  const already = container.querySelector<HTMLElement>('[data-testid="already-inert"]')
+
+  patch({ sidebarFloating: true })
+  expect(content().hasAttribute('inert')).toBe(true)
+  expect(notices?.hasAttribute('inert')).toBe(true)
+
+  patch({ sidebarFloating: false })
+  expect(notices?.hasAttribute('inert')).toBe(false)
+  // Something already inert for its own reasons is left as it was found.
+  expect(already?.hasAttribute('inert')).toBe(true)
 })
 
 it('pressing the dim puts it away, and focus goes back to what opened it', () => {

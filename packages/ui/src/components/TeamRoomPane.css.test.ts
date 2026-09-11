@@ -76,6 +76,13 @@ describe("the room's top row", () => {
     expect(rule).toMatch(/min-width:\s*2rem/)
   })
 
+  it('folds by the same container a conversation header folds by', () => {
+    // The window's controls fold their arrows at the width of an `hd-header`;
+    // take this line away and the room's simply stop folding, with nothing
+    // else in the suite going red.
+    expect(body('.bar')).toMatch(/container:\s*hd-header\s*\/\s*inline-size/)
+  })
+
   it('spends the counts before it spends the name', () => {
     const facts = body('.barFacts')
     // Shrink is weighted: the facts take the whole deficit long before the

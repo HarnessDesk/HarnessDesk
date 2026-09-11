@@ -117,6 +117,7 @@ import {
 import {
   DOCKS,
   NARROW_WINDOW,
+  areaVisible,
   activate as activateIn,
   activeTerminal,
   areaOfMount,
@@ -3967,7 +3968,17 @@ export class AppStore {
    * caller — the button, ⌘B, the palette — means "the sidebar", not a width.
    */
   toggleSidebar(): void {
-    if (this.#snapshot.narrowWindow) this.#patch({ sidebarFloating: !this.#snapshot.sidebarFloating })
+    const { workbench, narrowWindow } = this.#snapshot
+    /* A panel given the whole window is hiding the sidebar, whatever its own
+       state says. Asked for, it comes back and the panel keeps what is left
+       — the content-area zoom — rather than the press flipping a flag nobody
+       can see, which took two presses to undo. */
+    if (workbench.zoom && !areaVisible(workbench, 'sidebar')) {
+      this.#setWorkbench(zoomAreaIn(workbench, workbench.zoom.area, 'content'))
+      this.#patch(narrowWindow ? { sidebarFloating: true } : { sidebarCollapsed: false })
+      return
+    }
+    if (narrowWindow) this.#patch({ sidebarFloating: !this.#snapshot.sidebarFloating })
     else this.#patch({ sidebarCollapsed: !this.#snapshot.sidebarCollapsed })
   }
 
@@ -4540,6 +4551,10 @@ export class AppStore {
     ) {
       next.sidebarFloating = false
     }
+    /* Nor is it ever open and hidden at once: a panel given the whole window
+       puts it away. Left open, it moved focus and came out from under `inert`
+       while nothing was drawn, and the next ⌘B only closed it. */
+    if (next.sidebarFloating && !areaVisible(next.workbench, 'sidebar')) next.sidebarFloating = false
     next.activeSessionKey = activeSessionKey
     // A hand-off belongs to the draft it was handed to; once a conversation
     // is in front — the draft sent, or another one opened — it has served.

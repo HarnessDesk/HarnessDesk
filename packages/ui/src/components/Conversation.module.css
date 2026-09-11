@@ -218,12 +218,13 @@
   }
 }
 
-/* A phone's width: a resting status says nothing its absence does not, and the
-   browser and the terminal are one press further away, in ⋯ › View. */
+/* A phone's width: a resting status says nothing its absence does not, and a
+   door to a view folds into ⋯ › View. The header marks the doors that have a
+   ⋯ to fold into (`data-folds`); a draft has none, and keeps its browser. */
 @container hd-header (max-width: 400px) {
   .status[data-status='idle'],
   .headerRule,
-  .viewButton {
+  .headerButton[data-folds] {
     display: none;
   }
 }

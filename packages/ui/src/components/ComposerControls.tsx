@@ -74,9 +74,10 @@ const NARROW_TOOLBAR = 560
 /**
  * Below this — a phone's width — the glyph is all a control keeps: the chevron
  * that says "this opens a menu" folds too. Glyph, chevron and padding for six
- * controls, a send coin and the gaps between them come to about 310px, and a
- * 320px window leaves the toolbar 238; squeezed into that, every glyph was
- * drawn a third smaller than its size.
+ * controls, a send coin and the gaps between them come to about 310px, while
+ * the toolbar's content box is 293px in a 375px window and 238px in a 320px
+ * one; squeezed into that, the Add button came to 20px and the context ring
+ * was clipped. The width measured here is that content box.
  */
 const TIGHT_TOOLBAR = 320
 
