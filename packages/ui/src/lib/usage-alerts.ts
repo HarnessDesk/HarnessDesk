@@ -1,4 +1,4 @@
-import type { RuntimeId, UsageReport } from '@harnessdesk/protocol'
+import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import {
   bindingLane,
@@ -9,6 +9,7 @@ import {
   pace,
   remainingOf,
 } from './usage'
+import { accountKey, accountName, agentKeyOf, type AccountPrefsMap } from './accounts'
 
 /**
  * When a plan is worth interrupting someone about.
@@ -43,7 +44,18 @@ const cycleOf = (resetsAt: number | null): string => (resetsAt === null ? 'none'
    other's (#88). A report that names none, whether null, left out or empty,
    keys as it always did (review, round 1). */
 const laneKey = (report: UsageReport, laneId: string, resetsAt: number | null): string =>
-  `${report.runtime}${report.account ? `@${report.account}` : ''}:${laneId}:${cycleOf(resetsAt)}`
+  `${report.runtime}${usageAccount(report) ? `@${JSON.stringify(usageAccount(report))}` : ''}:${laneId}:${cycleOf(resetsAt)}`
+
+/**
+ * The account a report names, or nothing. One that is only whitespace is
+ * none, and one is quoted in a key, so a `:` in its name can't make it read as
+ * another account's lane (review of #170).
+ *
+ * Exported so that every place asking "is this the same account" asks it this
+ * way: the store kept two readings of one account when one arrived named
+ * `null` and the next `"  "` (review of #216).
+ */
+export const usageAccount = (report: Pick<UsageReport, 'account'>): string => report.account?.trim() ?? ''
 
 /** Every known lane in a set of reports, by agent, account, lane and reset cycle. */
 const index = (reports: readonly UsageReport[]): Map<string, { report: UsageReport; usedPercent: number }> => {
@@ -66,11 +78,30 @@ const index = (reports: readonly UsageReport[]): Map<string, { report: UsageRepo
 export const crossings = (
   before: readonly UsageReport[],
   after: readonly UsageReport[],
-  nameFor: (runtime: RuntimeId) => string,
+  /** The agent's name, and the account's where one is given. */
+  nameFor: (runtime: RuntimeId, account: string | null) => string,
+  /** Which agent each runtime belongs to: an account of an agent is a runtime of its own. */
+  runtimes: readonly RuntimeInfo[],
   now: number,
 ): readonly UsageAlert[] => {
   const previous = index(before)
   const alerts: UsageAlert[] = []
+  /* An account is named only where its agent reports more than one. A lone
+     account's toast reads as it always did, rather than carrying an address
+     in the common case to settle the rare one (review of #216).
+
+     By agent, not by runtime id. A second account of one agent *is* a second
+     runtime — `accounts.add` returns a runtime of its own, and the host caches
+     one report per runtime id — so a set keyed by the runtime id always held
+     exactly one account and this gate could never open. Two Codex accounts
+     crossing the same line both said "Codex — …", and `notice()` drops the
+     second as a repeat (round 2 of #216). `agentKey` is how `runtimeLabel`
+     answers the same question for the sidebar. */
+  const accounts = new Map<RuntimeId, Set<string>>()
+  for (const report of after) {
+    const agent = agentKeyOf(report.runtime, runtimes)
+    accounts.set(agent, (accounts.get(agent) ?? new Set<string>()).add(usageAccount(report)))
+  }
 
   for (const report of after) {
     for (const lane of report.lanes) {
@@ -87,12 +118,39 @@ export const crossings = (
         alerts.push({
           key: `${key}:${threshold}`,
           runtime: report.runtime,
-          message: `${nameFor(report.runtime)} — ${view.title} is ${threshold}% used${left ? `, ${left}` : ''}${back}.`,
+          // Named by account as well as agent when the agent has two: two
+          // accounts crossing one line said the same sentence, and the toasts
+          // dedupe on it (#179).
+          message: `${nameFor(report.runtime, (accounts.get(agentKeyOf(report.runtime, runtimes))?.size ?? 0) > 1 && usageAccount(report) ? usageAccount(report) : null)} — ${view.title} is ${threshold}% used${left ? `, ${left}` : ''}${back}.`,
         })
       }
     }
   }
   return alerts
+}
+
+/**
+ * How a toast names an agent, and the account when it has to: as the person
+ * named the account in Settings, else by the address's own name, and by the
+ * label the report carried when the desk doesn't hold the account. Settings
+ * calls a renamed account by its new name, so a toast has to as well (review
+ * of #216).
+ */
+export const toastName = (
+  agent: string,
+  runtime: RuntimeId,
+  account: string | null,
+  accounts: readonly Account[],
+  prefs: AccountPrefsMap,
+): string => {
+  if (!account) return agent
+  const known = accounts.find((one) => one.label.trim() === account)
+  const shown = known ? accountName(known, prefs[accountKey(runtime, known)], agent) : account
+  /* An account the runtime cannot name is not an address. `accountName` hands
+     back the agent's own name for an anonymous one, so the toast read "Claude
+     Code (Claude Code)" — the agent twice and the account never (round 2 of
+     #216). A nickname still wins, because then `shown` is the nickname. */
+  return shown === agent ? agent : `${agent} (${shown})`
 }
 
 export interface UsageCondition {

@@ -28,6 +28,7 @@ import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
 import { formatElapsed } from '../lib/turn-view'
 import { bindingLane, describeLane } from '../lib/usage'
+import { usageAccount } from '../lib/usage-alerts'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design/patterns/AgentCard'
@@ -1004,7 +1005,9 @@ const AccountCardBody = ({
     const key = account ? accountKey(info.id, account) : info.id
     const report =
       snapshot.usage.find(
-        (one) => one.runtime === info.id && (account === null || one.account === null || one.account === account.label),
+        // Through `usageAccount`, like every other "same account" question: a report
+        // whose account arrived as `"  "` is one that names none (round 2 of #216).
+        (one) => one.runtime === info.id && (account === null || usageAccount(one) === '' || usageAccount(one) === account.label.trim()),
       ) ?? null
     /* The lane with the least left, which is the one that will actually stop
        a session — not the first one the source happened to list. */

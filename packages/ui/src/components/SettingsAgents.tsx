@@ -35,6 +35,7 @@ import { describeLimits, formatReset } from '../lib/limits'
 import { readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { codeSpans, splitHealth, type Unavailable } from '../lib/health'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
+import { usageAccount } from '../lib/usage-alerts'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -174,6 +175,58 @@ export const agentMatches = (
  */
 const countLabel = (count: number): string | null =>
   count === 0 ? null : count === 1 ? '1 account' : `${count} accounts`
+
+/**
+ * An account's usage: whether it is blocked, the windows it draws on, and the
+ * prepaid balance that outlasts them. `describeLimits` worked the balance out
+ * since #85 and nothing showed it but the Usage window, so a zero balance, the
+ * reading #85 was about, was visible in one place only (#182).
+ */
+export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name: string }) => {
+  const view = describeLimits(limits)
+  return (
+    <>
+      <SectionHead name="Usage" />
+      {view?.blocked && (
+        <p className={styles.note} data-tone="bad">
+          {view.blocked.title} — {view.blocked.detail}
+        </p>
+      )}
+      {/* One card: the windows and the balance are one section's rows. Two
+          cards under one heading read as a second section that forgot its
+          name (review of #216). */}
+      {view && (view.windows.length > 0 || view.credits) ? (
+        <Rows>
+          {view.windows.length > 0 && (
+            <div className={styles.meters}>
+              {view.windows.map((window) => (
+                <UsageMeter key={window.label} window={window} />
+              ))}
+            </div>
+          )}
+          {view.credits && (
+            <Row
+              title="Credits"
+              desc="What this account can still spend once a window runs out."
+              control={
+                /* In the tone describeLimits grades it, as the meters are. A
+                   zero is the reading #85 was about, and the row vocabulary's
+                   dimmest ink drew it fainter than a window's name. */
+                <span className={styles.credits} data-tone={view.credits.tone}>
+                  {view.credits.label}
+                </span>
+              }
+            />
+          )}
+        </Rows>
+      ) : (
+        <Rows>
+          <Row title="Nothing to read yet" desc={`${name} has not written any usage down on this Mac.`} />
+        </Rows>
+      )}
+    </>
+  )
+}
 
 /** One rolling allowance as a bar: how much of the window is left, and when it refills. */
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
@@ -436,7 +489,7 @@ const AgentBlock = ({
         {rows.map(({ entry, account }) => {
           const key = accountKey(entry.id, account)
           const own = snapshot.usage.filter((report) => report.runtime === entry.id)
-          const report = own.find((item) => item.account === account.label) ?? own[0]
+          const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? own[0]
           // What is left is the account's binding window — the tightest of the
           // *account-wide* lanes, which is what `bindingLane` picks. Taking the
           // tightest of every lane instead read `0% left` beside a chip that
@@ -1091,7 +1144,7 @@ const AccountDetail = ({
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [limits, setLimits] = useState<RateLimits | null>(null)
   const report = snapshot.usage.find(
-    (entry) => entry.runtime === info.id && (entry.account === account.label || entry.account === null),
+    (entry) => entry.runtime === info.id && (usageAccount(entry) === account.label.trim() || usageAccount(entry) === ''),
   )
   const state: Readiness = report && isBlocked(report) ? 'limit' : 'ready'
 
@@ -1105,7 +1158,6 @@ const AccountDetail = ({
     }
   }, [store, info.id, account.label])
 
-  const limitsView = describeLimits(limits)
   const planLabel = account.kind === 'externalKey' ? null : (account.planType ?? limits?.planType ?? null)
   const isKey = account.kind === 'apiKey' || account.kind === 'externalKey'
 
@@ -1192,28 +1244,7 @@ const AccountDetail = ({
         )}
       </Rows>
 
-      <SectionHead name="Usage" />
-      {limitsView?.blocked && (
-        <p className={styles.note} data-tone="bad">
-          {limitsView.blocked.title} — {limitsView.blocked.detail}
-        </p>
-      )}
-      {limitsView && limitsView.windows.length > 0 ? (
-        <Rows>
-          <div className={styles.meters}>
-            {limitsView.windows.map((window) => (
-              <UsageMeter key={window.label} window={window} />
-            ))}
-          </div>
-        </Rows>
-      ) : (
-        <Rows>
-          <Row
-            title="Nothing to read yet"
-            desc={`${info.presentation.name} has not written any usage down on this Mac.`}
-          />
-        </Rows>
-      )}
+      <UsageSection limits={limits} name={info.presentation.name} />
 
       <SectionHead name="Defaults" />
       <Rows>
