@@ -32,6 +32,21 @@ export const plainCipher: CredentialCipher = {
   decrypt: (blob) => blob.toString('utf8'),
 }
 
+/**
+ * Who is writing a secret, said by the writer at the moment it writes.
+ *
+ * Settings › Stored keys lists the keys the endpoint dialog wrote, and it used
+ * to find them as whatever nobody else claimed. That is an absence, and a new
+ * kind of writer read as one: twice a key something was still using was drawn
+ * as an endpoint's leftover with a Remove beside it, first an agent's and then
+ * a gateway account's. Every writer names itself now, and the compiler holds
+ * each call site to it.
+ */
+export type CredentialWriter =
+  | { readonly kind: 'agent'; readonly of: string }
+  | { readonly kind: 'gateway' }
+  | { readonly kind: 'endpoint' }
+
 export interface CredentialInfo {
   readonly ref: string
   readonly name: string
@@ -51,6 +66,12 @@ export interface CredentialInfo {
    * sign-in key as an unused leftover with a Remove beside it.
    */
   readonly agent: string | null
+  /**
+   * The kind of writer recorded with it, or `null` for an entry older than the
+   * record. Passed on as written: a kind this host does not know is a newer
+   * host's, and belongs to nothing this one lists.
+   */
+  readonly writer: string | null
 }
 
 interface StoredEntry {
@@ -62,6 +83,12 @@ interface StoredEntry {
    * field existed — see `describe`.
    */
   readonly agent?: string
+  /**
+   * The kind of writer, as `store` was told it. Absent on entries written
+   * before it was recorded — see `describe`. A string on disk rather than the
+   * union, because a newer host may record a kind this one has never heard of.
+   */
+  readonly writer?: string
   readonly blob: string
   /**
    * The cipher that wrote this blob, by its own name. The same file is read
@@ -95,26 +122,33 @@ export class CredentialBroker {
         ref,
         name: entry.name,
         createdAt: entry.createdAt,
-        /* What was recorded, and only then what the name looks like. The
-           fallback is for entries written before the field existed: without
-           it, every key already in a user's store would read as a route's on
-           the first launch after this change, which is the reading that puts
-           a Remove beside an agent's credentials. */
-        agent: entry.agent ?? CredentialBroker.agentOf(entry.name),
+        writer: entry.writer ?? null,
+        /* What was recorded, and only for an entry older than the record what
+           the name looks like. The fallback is for those entries alone:
+           without it, every key already in a user's store would read as a
+           route's on the first launch after `agent` was recorded, which is the
+           reading that puts a Remove beside an agent's credentials. An entry
+           whose writer is on record is not read by its name at all, so an
+           endpoint key called `agent:codex:OPENAI_API_KEY` stays the
+           endpoint's. */
+        agent:
+          entry.writer !== undefined
+            ? (entry.agent ?? null)
+            : (entry.agent ?? CredentialBroker.agentOf(entry.name)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /**
-   * `agent` names the runtime a secret signs in, and is what tells the two
-   * kinds of thing in this store apart: a key a *route* refers to, and a key
-   * an *agent* authenticates with. Recorded at the moment of writing, because
-   * that is the moment it is known for certain — the first attempt read it
-   * back out of the name instead, and a route a user called
+   * `writer` says what the secret is for, and is what tells the kinds of thing
+   * in this store apart: a key an endpoint refers to, a key an agent signs in
+   * with, and a gateway account's. Recorded at the moment of writing, because
+   * that is the moment it is known for certain — the first attempt read an
+   * agent's key back out of the name instead, and a route a user called
    * `agent:codex:OPENAI_API_KEY` was stored as `agent:codex:OPENAI_API_KEY
    * key` and classified as the agent's own. Review found it.
    */
-  async store(name: string, value: string, agent?: string): Promise<string> {
+  async store(name: string, value: string, writer: CredentialWriter): Promise<string> {
     const trimmed = name.trim()
     if (trimmed.length === 0) throw new Error('A credential needs a name.')
     if (value.length === 0) throw new Error('An empty credential protects nothing; not stored.')
@@ -125,7 +159,8 @@ export class CredentialBroker {
       createdAt: Date.now(),
       blob: this.#cipher.encrypt(value).toString('base64'),
       protection: this.#cipher.protection,
-      ...(agent ? { agent } : {}),
+      writer: writer.kind,
+      ...(writer.kind === 'agent' ? { agent: writer.of } : {}),
     })
     await this.#persist(entries)
     return ref
@@ -219,10 +254,10 @@ export class CredentialBroker {
     this.#onUnreadable = listener
   }
 
-  /** Stores under a fixed name, replacing whatever was there. */
-  async put(name: string, value: string, agent?: string): Promise<void> {
+  /** Stores an agent's secret under a fixed name, replacing whatever was there. */
+  async put(name: string, value: string, agent: string): Promise<void> {
     await this.forget(name)
-    await this.store(name, value, agent)
+    await this.store(name, value, { kind: 'agent', of: agent })
   }
 
   /** Removes every entry with this name; absent is success. */

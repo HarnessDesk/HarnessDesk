@@ -101,8 +101,9 @@ export interface StoredCredential {
   readonly name: string
   readonly createdAt: number
   /**
-   * What this key belongs to, when it belongs to something with a door of its
-   * own; `null` for the endpoint keys Settings lists.
+   * What this key belongs to. `endpoint` is a key the endpoint dialog stored,
+   * the only kind Settings lists; `null` is one nothing here can name, and is
+   * listed nowhere.
    *
    * The store holds several unrelated kinds and only the host can tell them
    * apart. An agent's key is cleared from that agent's sign-in page, through
@@ -111,7 +112,10 @@ export interface StoredCredential {
    * does. Deleting either as a route's leftover takes a credential away from
    * something still using it.
    */
-  readonly owner: { readonly kind: 'agent' | 'gateway'; readonly of: string } | null
+  readonly owner:
+    | { readonly kind: 'agent' | 'gateway'; readonly of: string }
+    | { readonly kind: 'endpoint' }
+    | null
 }
 
 /** One row of `routes/list`, as the wire returns it. */

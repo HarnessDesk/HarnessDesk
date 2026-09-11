@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { AuditLog } from '../src/audit.js'
+import { AuditLog, type AuditEntry } from '../src/audit.js'
 
 /**
  * The audit log's read side. The write side is exercised through the host; what
@@ -51,4 +51,16 @@ test('a cwd that walks out of the root is not under it', async (t) => {
   const log = await withLog(t, [entry('/repo/src'), entry('/repo/../etc')])
   const found = await log.query({ root: '/repo' })
   assert.deepEqual(found.map((e) => e.cwd), ['/repo/src'])
+})
+
+test('a query waits for every entry appended before it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-audit-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const log = new AuditLog(join(dir, 'audit.ndjson'))
+  /* Fifty rather than one: each write waits for the one before it, so the
+     last of them lands long after a read that did not wait has answered. */
+  for (let n = 0; n < 50; n += 1) log.append({ ...entry('/repo'), sessionId: `s${n}` } as unknown as AuditEntry)
+  const found = await log.query({ root: '/repo' })
+  assert.equal(found.length, 50)
+  assert.equal(found[0]?.sessionId, 's49', 'newest first')
 })

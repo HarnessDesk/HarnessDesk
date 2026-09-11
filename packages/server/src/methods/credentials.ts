@@ -12,17 +12,20 @@ export const credentialMethods = {
   /**
    * Every stored secret, each saying what owns it.
    *
-   * Two sources, because there are two mechanisms. An agent's sign-in key is
-   * recorded as one when it is written (`CredentialBroker.store`), and read
-   * back out of its name for entries older than that field. A gateway
+   * Two sources, because there are two mechanisms. Every key is marked with
+   * the kind of writer that stored it (`CredentialBroker.store`), and an entry
+   * older than the mark is read the way it was before: an agent's key out of
+   * its name, and anything nothing else claims as an endpoint's. A gateway
    * account's key is named by the slot that holds it, so it is marked from
-   * live state and needs no migration at all.
+   * live state. What is left is `null` and listed nowhere: a kind of writer
+   * this host does not know, which only a newer host writes, or a gateway
+   * account's key whose account is gone.
    */
   'credentials/list': async (ctx) => {
     const gateways = new Map(
       ctx.accounts.gatewayCredentials().map((one) => [one.ref, one.name] as const),
     )
-    return (await ctx.credentials.describe()).map(({ agent, ...rest }) => {
+    return (await ctx.credentials.describe()).map(({ agent, writer, ...rest }) => {
       const gateway = gateways.get(rest.ref)
       return {
         ...rest,
@@ -30,12 +33,17 @@ export const credentialMethods = {
           ? ({ kind: 'gateway', of: gateway } as const)
           : agent
             ? ({ kind: 'agent', of: agent } as const)
-            : null,
+            : writer === 'endpoint' || writer === null
+              ? ({ kind: 'endpoint' } as const)
+              : null,
       }
     })
   },
 
-  'credentials/store': async (ctx, params) => ({ ref: await ctx.credentials.store(params.name, params.value) }),
+  // The endpoint dialog's door: a key stored through it is an endpoint's.
+  'credentials/store': async (ctx, params) => ({
+    ref: await ctx.credentials.store(params.name, params.value, { kind: 'endpoint' }),
+  }),
 
   'credentials/delete': async (ctx, params) => {
     await ctx.credentials.delete(params.ref)

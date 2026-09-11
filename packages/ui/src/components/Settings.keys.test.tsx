@@ -54,12 +54,17 @@ const runtime = {
   presentation: { name: 'OpenAI Codex' },
 } as unknown as RuntimeInfo
 
-const KEY: StoredCredential = { ref: 'cred_a', name: 'Proxy key', createdAt: Date.UTC(2026, 0, 9), owner: null }
+const KEY: StoredCredential = {
+  ref: 'cred_a',
+  name: 'Proxy key',
+  createdAt: Date.UTC(2026, 0, 9),
+  owner: { kind: 'endpoint' },
+}
 const ORPHAN: StoredCredential = {
   ref: 'cred_b',
   name: 'Old gateway key',
   createdAt: Date.UTC(2025, 10, 2),
-  owner: null,
+  owner: { kind: 'endpoint' },
 }
 /* Two keys with owners of their own. Same store, same list, different verbs:
    an agent's is cleared from its sign-in page and a gateway account's goes
@@ -224,4 +229,17 @@ it('a list of nothing but owned keys draws no section at all', async () => {
   await act(async () => {})
   expect(container.textContent).not.toContain('Stored keys')
   expect(container.textContent).toContain('Custom endpoints')
+})
+
+it('a key nothing here can name is listed nowhere, rather than offered for deletion', async () => {
+  /* The third writer, before it exists: a kind of key this build has never
+     heard of, as a newer host would store it. This section used to list
+     whatever nobody claimed, which is how two live keys came to be offered
+     for deletion; it lists what the endpoint dialog stored. */
+  mount([KEY, { ...ORPHAN, ref: 'cred_e', name: 'Plugin key', owner: null }])
+  await act(async () => {})
+
+  // The control: the section is drawn, with the endpoint's key in it.
+  expect(container.textContent).toContain('Proxy key')
+  expect(container.textContent).not.toContain('Plugin key')
 })

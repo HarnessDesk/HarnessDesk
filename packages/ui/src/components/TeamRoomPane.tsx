@@ -164,7 +164,22 @@ export const TeamRoomPane = ({
     readonly room: string
     readonly peers: readonly TeamPeerInfo[]
   } | null>(null)
-  const peers = fetched && fetched.room === room ? fetched.peers : null
+  /* Two facts on the roster also travel with the room's state, and so reach
+     every view of the room the moment they change: what a member is called
+     here, and what it does with a message. Read from the push, a name or a
+     mode set in another pane, window or client is drawn here too. The roster
+     alone is a pull, and kept the old one until something unrelated made it
+     ask again. */
+  const pushed = snapshot.teams.get(room)
+  const peers = useMemo(() => {
+    if (!fetched || fetched.room !== room) return null
+    return fetched.peers.map((one) => {
+      const key = sessionKey(one.runtime, one.sessionId as SessionId)
+      const nickname = pushed?.nicknames?.[key] ?? one.nickname
+      const inbound = pushed?.inbound?.[key] ?? one.inbound
+      return nickname === one.nickname && inbound === one.inbound ? one : { ...one, nickname, inbound }
+    })
+  }, [fetched, room, pushed?.nicknames, pushed?.inbound])
   /**
    * What the right half is showing: the board, the chat, or *members*.
    *

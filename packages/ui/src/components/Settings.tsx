@@ -367,10 +367,15 @@ const KeysRows = () => {
   // one may drop it, and both happen on the section directly above this.
   useEffect(() => reload(), [reload, snapshot.routes])
 
-  /* The endpoints' own keys: the ones nothing else claims. An agent's key and
-     a gateway account's are different things with different verbs, and each
-     has a surface of its own. */
-  const routeKeys = useMemo(() => (keys ?? []).filter((key) => key.owner === null), [keys])
+  /* The endpoints' own keys, which the host marks as such. An agent's key and
+     a gateway account's are different things with different verbs, each with
+     a surface of its own, and a key nothing here can name is nobody's to
+     remove: this used to list whatever nobody else claimed, and a new kind of
+     writer then read as an endpoint's leftover. */
+  const routeKeys = useMemo(
+    () => (keys ?? []).filter((key) => key.owner?.kind === 'endpoint'),
+    [keys],
+  )
 
   /* Which endpoint each key is for. A key is named by whoever refers to it,
      and the ones nobody refers to are exactly the leak this section exists

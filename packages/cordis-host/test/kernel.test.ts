@@ -6,7 +6,7 @@ import { test } from 'node:test'
 
 import { runtimeId, sessionId, type ExtensionEvent } from '@harnessdesk/protocol'
 
-import { ExtensionKernel, type HarnessPlugin } from '../src/index.js'
+import { ExtensionKernel, setBrowserEngine, type HarnessPlugin } from '../src/index.js'
 
 /**
  * The extension kernel, exercised through the real Cordis runtime.
@@ -48,6 +48,31 @@ test('a plugin loads, registers a tool, and the registry exposes it', async (t) 
   const plugins = kernel.plugins()
   assert.equal(plugins[0]?.state.type, 'active')
   assert.deepEqual(plugins[0]?.injects, ['tools'])
+})
+
+test('disposing the kernel stops the host services too, so the browser is closed', async (t) => {
+  /* The browser service's shutdown ends the CDP connection and removes a
+     profile that was never meant to be kept. It is an effect on the service's
+     own scope, and the kernel used to stop only the plugins. */
+  let closed = 0
+  setBrowserEngine({
+    ensure: () => Promise.reject(new Error('nothing drives this engine')),
+    close: async () => {
+      closed += 1
+    },
+  })
+  t.after(() => setBrowserEngine(null))
+  const kernel = new ExtensionKernel()
+  await kernel.load(echoTool)
+  await settle()
+  // The control: the engine is the one installed, and nothing has closed it.
+  assert.equal(closed, 0)
+
+  await kernel.dispose()
+  assert.equal(closed, 1)
+  // Once: a second dispose has nothing left to stop.
+  await kernel.dispose()
+  assert.equal(closed, 1)
 })
 
 test('invoking a plugin tool returns its result', async (t) => {

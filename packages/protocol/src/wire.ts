@@ -707,17 +707,23 @@ export interface HostMethods {
       readonly name: string
       readonly createdAt: number
       /**
-       * What this key belongs to, when it belongs to something with a door of
-       * its own — an agent's sign-in, or a gateway account's endpoint. `null`
-       * is a key a custom endpoint refers to, which is the only kind Settings
-       * offers to remove.
+       * What this key belongs to. An agent's sign-in and a gateway account's
+       * endpoint have doors of their own; `endpoint` is a key the endpoint
+       * dialog stored, the only kind Settings lists and offers to remove.
+       * `null` is a key nothing here can name — a kind of writer a newer host
+       * recorded, or a gateway account's key whose account is gone — and is
+       * listed nowhere.
        *
-       * Asked as "who owns it" rather than "is it an agent's", because the
-       * second question has been answered wrongly twice: an agent's key drew
-       * as an orphan, and then so did a gateway account's. Every owner class
-       * has to name itself here or it reads as nobody's.
+       * A mark rather than an absence. Settings used to list what nobody
+       * claimed, and that was answered wrongly twice: an agent's key drew as
+       * an orphan with a Remove beside it, and then so did a gateway
+       * account's. A writer names itself when it stores a key now, so a new
+       * one reads as nobody's rather than as an endpoint's.
        */
-      readonly owner: { readonly kind: 'agent' | 'gateway'; readonly of: string } | null
+      readonly owner:
+        | { readonly kind: 'agent' | 'gateway'; readonly of: string }
+        | { readonly kind: 'endpoint' }
+        | null
     }[]
   }
   'credentials/store': {

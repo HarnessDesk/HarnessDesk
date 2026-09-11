@@ -7,6 +7,7 @@ import { test } from 'node:test'
 
 import {
   AGENT_MESSAGE_NOTICE,
+  sessionKey,
   splitContext,
   type RuntimeId,
   type TeamMessage,
@@ -3510,4 +3511,34 @@ test('abandoned work opens nothing that depends on it; finished work does', asyn
   team.intentAction(room, finished.id, 'done')
   assert.equal(state(onFinished.id)?.state, 'open', 'finished work opens what waited on it')
   assert.equal(state(onDropped.id)?.state, 'blocked', 'and the pass that opened it left the other one waiting')
+})
+
+test('a member’s mode is pushed to its room, and a new default to every room', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  // A member is in one room at a time, so the second room takes Claude.
+  const elsewhere = (await team.createRoom('/repo', 'elsewhere')).id
+  await team.joinRoom(elsewhere, 'claude' as RuntimeId, 'k1')
+  const codexKey = sessionKey('codex', 'c1')
+  const claudeKey = sessionKey('claude', 'k1')
+
+  const before = port.changed.length
+  team.setInbound('codex', 'c1', 'hold')
+  // The control: the mode was always stored. It was never said.
+  assert.equal(team.inboundFor('codex', 'c1'), 'hold')
+  const pushed = port.changed.slice(before)
+  assert.deepEqual(
+    pushed.map((one) => one.id),
+    [room],
+  )
+  assert.equal(pushed[0]?.inbound?.[codexKey], 'hold')
+
+  /* The default is the mode of every member without one of its own, so a new
+     default is news in every room, and a member's own mode still outranks it. */
+  const again = port.changed.length
+  team.configure({ inboundDefault: 'refuse' })
+  const all = port.changed.slice(again)
+  assert.deepEqual(all.map((one) => one.id).sort(), [room, elsewhere].sort())
+  assert.equal(all.find((one) => one.id === elsewhere)?.inbound?.[claudeKey], 'refuse')
+  assert.equal(all.find((one) => one.id === room)?.inbound?.[codexKey], 'hold')
 })
