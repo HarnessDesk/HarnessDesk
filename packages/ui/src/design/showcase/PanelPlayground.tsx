@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 
 import { ResizeHandle } from '../ui/resize-handle'
 import {
@@ -25,6 +25,7 @@ import {
   TerminalIcon,
   type IconProps,
 } from '../../components/Icons'
+import { beginResize, endResize, markDragging } from '../../lib/resizing'
 import { panes, sessionOf, type PaneView } from '../../state/layout'
 import {
   AREA_EDGE,
@@ -44,6 +45,8 @@ import {
   undock,
   zoomArea,
   activate,
+  MAX_RATIO,
+  MIN_RATIO,
   type AreaId,
   type DockBranch,
   type DockId,
@@ -373,8 +376,37 @@ const Node = (props: NodeProps) =>
 const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
   const [preview, setPreview] = useState<number | null>(null)
   const ratio = preview ?? branch.ratio
+  const box = useRef<HTMLDivElement>(null)
+  /* The seam's pointer half, as the workbench wires it: a delta from where
+     the pointer went down, clamped as the workbench clamps it, and the window
+     marked as resizing while the drag lasts, so the cursor holds and nothing
+     animates under it, as on this page's other three seams. Without it the
+     seam wore the resize cursor and moved only for the keyboard (review of
+     #183, rounds 5 and 6). One difference is kept on purpose: the preview is
+     React state, so each move re-renders the split. The workbench writes a
+     CSS variable instead, because its halves hold real views; these hold
+     stubs. */
+  const grab = useRef<{ at: number; ratio: number; span: number; live: number } | null>(null)
+  const along = (event: { clientX: number; clientY: number }) => (branch.direction === 'row' ? event.clientX : event.clientY)
+  const commit = (next: number) => {
+    rest.setWorkbench((c) => resizeDockSplit(c, rest.area, branch.id, next))
+    setPreview(null)
+  }
+  const stop = (seam: Element | null, keep: boolean) => {
+    const held = grab.current
+    if (!held) return
+    grab.current = null
+    markDragging(seam, false)
+    endResize()
+    if (keep) commit(held.live)
+    else setPreview(null)
+  }
+  // A split that goes away under the pointer still gives the window back: `endResize` is counted.
+  const onUnmount = useRef(stop)
+  onUnmount.current = stop
+  useEffect(() => () => onUnmount.current(null, false), [])
   return (
-    <div className={styles.split} data-direction={branch.direction}>
+    <div ref={box} className={styles.split} data-direction={branch.direction}>
       <div className={styles.half} style={{ flexBasis: `${ratio * 100}%` }}>
         <Node {...rest} node={branch.first} collapsed={false} />
       </div>
@@ -383,11 +415,29 @@ const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
         orientation={branch.direction === 'row' ? 'vertical' : 'horizontal'}
         label="Resize these panels"
         value={ratio}
+        min={MIN_RATIO}
+        max={MAX_RATIO}
         onChange={setPreview}
-        onCommit={(next) => {
-          rest.setWorkbench((c) => resizeDockSplit(c, rest.area, branch.id, next))
-          setPreview(null)
+        onCommit={commit}
+        onPointerDown={(event) => {
+          const bounds = box.current?.getBoundingClientRect()
+          if (!bounds) return
+          event.preventDefault()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          markDragging(event.currentTarget, true)
+          beginResize(branch.direction === 'row' ? 'vertical' : 'horizontal')
+          const span = branch.direction === 'row' ? bounds.width : bounds.height
+          grab.current = { at: along(event), ratio, span, live: ratio }
         }}
+        onPointerMove={(event) => {
+          const held = grab.current
+          if (!held || held.span === 0) return
+          held.live = Math.min(MAX_RATIO, Math.max(MIN_RATIO, held.ratio + (along(event) - held.at) / held.span))
+          setPreview(held.live)
+        }}
+        onPointerUp={(event) => stop(event.currentTarget, true)}
+        onPointerCancel={(event) => stop(event.currentTarget, false)}
+        onLostPointerCapture={(event) => stop(event.currentTarget, true)}
       />
       <div className={styles.half} style={{ flexBasis: `${(1 - ratio) * 100}%` }}>
         <Node {...rest} node={branch.second} collapsed={false} />

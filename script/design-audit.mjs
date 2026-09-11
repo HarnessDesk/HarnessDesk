@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
+import { bareSource, ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -96,17 +97,6 @@ const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 
 /** Strip comments so prose about a value is not counted as the value. */
 const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
-
-/**
- * The same, for source: block comments and line comments both.
- *
- * The rules below are explained in comments in the very files they govern —
- * `Dialog.tsx`'s own doc comment says `aria-modal`, and a note reading "do not
- * hand-roll an overlay" contains every word the check looks for. A check that
- * fires on the prose describing it teaches people to delete the prose.
- */
-const bareSource = (source) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
 const findings = {
   wrongVariant: [],
@@ -325,15 +315,6 @@ for (const file of tsxFiles()) {
 for (const file of tsxFiles()) {
   const name = label(file)
   const dir = path.dirname(file)
-  // A file may draw from its own stylesheet, or from the one named after the
-  // folder it lives in. The second case is a screen that outgrew one file —
-  // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
-  // `explorer.module.css`, which is the right arrangement, not drift. The rule
-  // being enforced is that a screen may not reach into a DIFFERENT screen.
-  const own = new Set([
-    `${path.basename(file, '.tsx')}.module.css`.toLowerCase(),
-    `${path.basename(dir)}.module.css`.toLowerCase(),
-  ])
   const source = read(file)
 
   // An overlay built beside the system rather than out of it.
@@ -364,10 +345,18 @@ for (const file of tsxFiles()) {
 
   /** Local binding → the classes that stylesheet declares. */
   const sheets = new Map()
-  for (const match of source.matchAll(/import (\w+) from '\.\/([A-Za-z]+\.module\.css)'/g)) {
-    if (!own.has(match[2].toLowerCase())) findings.crossImport.push(`${name} imports ${match[2]}`)
-    const target = path.join(dir, match[2])
-    if (fs.existsSync(target)) sheets.set(match[1], { file: match[2], classes: classesOf(target) })
+  // A file may draw from its own stylesheet, or from the one named after the
+  // folder it lives in. The second case is a screen that outgrew one file —
+  // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
+  // `explorer.module.css`, which is the right arrangement, not drift. The rule
+  // being enforced is that a screen may not reach into a DIFFERENT screen.
+  // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
+  for (const { binding, file: spec } of stylesheetImports(source)) {
+    const sheet = resolveStylesheet(dir, spec, UI_SRC)
+    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
+    if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
+    const target = path.join(dir, sheet)
+    if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
   }
 
   // A glyph control drawn smaller than a finger.
@@ -392,14 +381,16 @@ for (const file of tsxFiles()) {
       // One class on three buttons is one undersized control, not three: the
       // fix is a single rule, and a count that says otherwise makes the
       // backlog look bigger than the work.
-      const line = `${sheet.file}: .${use[2]} is ${px}px square, under the ${TARGET_FLOOR}px target`
+      // Keyed by where the sheet is, from the UI's root: two spellings of one path are one sheet (review of #183, round 7).
+      const line = `${path.relative(UI_SRC, path.join(dir, sheet.file))}: .${use[2]} is ${px}px square, under the ${TARGET_FLOOR}px target`
       if (!findings.looseTarget.includes(line)) findings.looseTarget.push(line)
     }
   }
 
   for (const [binding, sheet] of sheets) {
     const use = new RegExp(`\\b${binding}\\.([A-Za-z][A-Za-z0-9_]*)`, 'g')
-    for (const hit of source.matchAll(use)) {
+    // `code`, not `source`: a class named in a comment is not one used (review of #183).
+    for (const hit of code.matchAll(use)) {
       if (!sheet.classes.has(hit[1])) {
         findings.missingClass.push(`${name}: ${binding}.${hit[1]} — not in ${sheet.file}`)
       }
