@@ -379,6 +379,69 @@ const wait = (ms: number): void => {
   })
 }
 
+/** The trigger's box, where the layout jsdom does not do would put it. */
+const spans = (left: number, right: number): void => {
+  vi.spyOn(trigger(), 'getBoundingClientRect').mockReturnValue({
+    left,
+    right,
+    top: 100,
+    bottom: 140,
+    width: right - left,
+    height: 40,
+    x: left,
+    y: 100,
+    toJSON: () => ({}),
+  } as DOMRect)
+}
+
+/* The viewport, as the root element reports it: what the positioner measures,
+   and so what the side is decided against. jsdom lays nothing out, so it is
+   0×0 until a test says otherwise. */
+const viewport = (width: number, height = 768): void => {
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(width)
+  vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(height)
+}
+
+const side = (): string | null | undefined =>
+  document.querySelector('[data-slot="hover-card-content"]')?.getAttribute('data-side')
+
+/**
+ * A `ResizeObserver` driven by hand. jsdom's own never calls back; this one
+ * records what each observer watches, so a test can resize one element and
+ * reach exactly the observers watching it. The positioner observes the
+ * trigger too, and hearing it only makes it measure again.
+ */
+const observeByHand = (): { resized: (target: Element) => void } => {
+  const observers: { callback: ResizeObserverCallback; targets: Set<Element> }[] = []
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private readonly watching = new Set<Element>()
+      constructor(callback: ResizeObserverCallback) {
+        observers.push({ callback, targets: this.watching })
+      }
+      observe(target: Element): void {
+        this.watching.add(target)
+      }
+      unobserve(target: Element): void {
+        this.watching.delete(target)
+      }
+      disconnect(): void {
+        this.watching.clear()
+      }
+    },
+  )
+  return {
+    resized: (target) => {
+      act(() => {
+        for (const { callback, targets } of observers) {
+          if (targets.has(target)) callback([], {} as ResizeObserver)
+        }
+      })
+    },
+  }
+}
+
 it('a row’s own controls take focus without opening its card — or closing it', () => {
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
@@ -487,6 +550,33 @@ it('a tap that leaves no focus behind does not cost the next keyboard its card',
   vi.useRealTimers()
 })
 
+it('a press anywhere makes the next focus a press’s, and a key anywhere makes it a keyboard’s', () => {
+  vi.useFakeTimers()
+  const elsewhere = document.createElement('button')
+  document.body.appendChild(elsewhere)
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+
+  // A press on something that is no trigger, then focus arriving on the chip
+  // from a script: the last thing done was a press, so it opens nothing.
+  press(elsewhere)
+  act(() => link.focus())
+  wait(1000)
+  expect(openCard()).toBeNull()
+
+  // A key on that same other thing, and the same focus is a keyboard's.
+  focusElsewhere()
+  act(() => {
+    elsewhere.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Shift' }))
+  })
+  act(() => link.focus())
+  wait(1000)
+  expect(openCard()).not.toBeNull()
+  elsewhere.remove()
+  vi.useRealTimers()
+})
+
 it('a press on a chip holds its card shut, even against the focus the press leaves', () => {
   vi.useFakeTimers()
   act(() => root.render(chip()))
@@ -559,6 +649,40 @@ it('a pointer that arrives on a data-no-card control gets its card once it moves
   vi.useRealTimers()
 })
 
+it('an open cancels the re-ask that was pending, so it cannot land on the card later', () => {
+  vi.useFakeTimers()
+  act(() => root.render(<div data-testid="list">{withAControl()}</div>))
+  const control = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Watch beside')
+  const name = [...container.querySelectorAll('span')].find((s) => s.textContent === 'Codex')
+  if (!control || !name) throw new Error('the row is missing its parts')
+
+  // In over the name, which starts Radix's own delay, then on to the control
+  // and back before it runs out — which leaves a re-ask pending as well.
+  act(() => {
+    name.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  wait(100)
+  move(name, control)
+  wait(100)
+  move(control, name)
+  wait(250)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  /* Radix's request opened the card, and the re-ask comes due later. Left
+     pending, it lands on whatever the card is by then: an open card has its
+     side settled again, and one closed since — here, by its list scrolling —
+     opens again under a pointer that has not moved. The second is the one a
+     test can see at once: the side only shows when the positioner's answer
+     lands, and a check made before then would pass either way. */
+  act(() => {
+    container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(400)
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  vi.useRealTimers()
+})
+
 it('a press takes the card away, and it stays away until the pointer leaves', () => {
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
@@ -601,31 +725,25 @@ it('a press inside the open delay means the card never opens', () => {
   vi.useRealTimers()
 })
 
-/** The trigger's box, where the layout jsdom does not do would put it. */
-const spans = (left: number, right: number): void => {
-  vi.spyOn(trigger(), 'getBoundingClientRect').mockReturnValue({
-    left,
-    right,
-    top: 100,
-    bottom: 140,
-    width: right - left,
-    height: 40,
-    x: left,
-    y: 100,
-    toJSON: () => ({}),
-  } as DOMRect)
-}
+it('opens no card while something is being dragged, and opens one once the drag is over', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  // A board card on its way to another column, crossing an assignee's face.
+  act(() => {
+    window.dispatchEvent(new Event('dragstart'))
+  })
+  rest(trigger())
+  expect(openCard()).toBeNull()
+  leave(trigger())
 
-/* The viewport, as the root element reports it: what the positioner measures,
-   and so what the side is decided against. jsdom lays nothing out, so it is
-   0×0 until a test says otherwise. */
-const viewport = (width: number, height = 768): void => {
-  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(width)
-  vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(height)
-}
-
-const side = (): string | null | undefined =>
-  document.querySelector('[data-slot="hover-card-content"]')?.getAttribute('data-side')
+  // Released: a pointer let go means no drag, whatever the drag API said.
+  act(() => {
+    window.dispatchEvent(new Event('pointerup'))
+  })
+  rest(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  vi.useRealTimers()
+})
 
 it('opens beside a trigger with room beside it, and under one without', () => {
   vi.useFakeTimers()
@@ -638,12 +756,13 @@ it('opens beside a trigger with room beside it, and under one without', () => {
   expect(side()).toBe('right')
   leave(trigger())
 
-  // No room on the right but plenty on the left: still asked for beside, and
-  // the positioner makes the trade to the left itself. Only when neither side
-  // has room is the answer taken away from it.
+  // No room on the right but plenty on the left: the card opens on the left,
+  // the side it will actually take, rather than asking for the right and
+  // leaving the trade to the positioner — which could trade it back under an
+  // open card.
   spans(1024 - 60, 1024 - 20)
   rest(trigger())
-  expect(side()).toBe('right')
+  expect(side()).toBe('left')
   leave(trigger())
 
   // A row the whole window wide — the rail of a narrow room. Beside it is off
@@ -671,15 +790,15 @@ it('measures the room beside a trigger inside a scrollbar, where the positioner 
 })
 
 /**
- * An open card never changes sides; it closes when the room beside it goes.
+ * An open card keeps its side; it closes when it no longer fits there.
  *
  * The positioner answers asynchronously. Round 1 of #148 moved an open card
  * to its new side instead, and an answer for the old side could land after
  * the one for the new side — measured, a card settled below and drawn on the
- * left. Closing leaves nothing in flight to land, and the next rest opens the
- * card where it fits.
+ * left. Closing leaves nothing in flight to land, and the card is asked for
+ * again, so a reader who has not moved gets it back where it fits.
  */
-it('closes when the window narrows until neither side has room, and not for a resize that leaves room', () => {
+it('closes when the window narrows until it no longer fits, and comes back where it fits for a reader still resting', () => {
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   viewport(1024)
@@ -694,7 +813,7 @@ it('closes when the window narrows until neither side has room, and not for a re
   })
   expect(trigger().getAttribute('data-state')).toBe('open')
 
-  // Narrowed until the row is all of it.
+  // Narrowed until the row is all of it: the card goes at once…
   viewport(400)
   spans(0, 400)
   act(() => {
@@ -702,28 +821,108 @@ it('closes when the window narrows until neither side has room, and not for a re
   })
   expect(trigger().getAttribute('data-state')).toBe('closed')
 
-  leave(trigger())
-  rest(trigger())
+  // …and the pointer, still resting, has it back after the delay of any rest,
+  // under the row.
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
   expect(side()).toBe('bottom')
+
+  // A pointer that has gone by then gets nothing back.
+  leave(trigger())
+  viewport(1024)
+  spans(20, 60)
+  rest(trigger())
+  expect(side()).toBe('right')
+  viewport(400)
+  spans(0, 400)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  leave(trigger())
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  vi.useRealTimers()
+})
+
+it('keeps the side it opened on: closes when that side stops fitting though the other fits, and comes back on that one', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  // Room on the left only, so it opens on the left.
+  spans(1024 - 60, 1024 - 20)
+  rest(trigger())
+  expect(side()).toBe('left')
+
+  /* The row ends up at the window's other edge: the left no longer fits, and
+     the right does. Left open, the card would be the positioner's to trade
+     back across its own trigger, under the reader. */
+  spans(20, 60)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('right')
+  vi.useRealTimers()
+})
+
+/**
+ * A card that lost the room on its side is taken away at once.
+ *
+ * Presence keeps a closing card mounted until its exit animation ends, and the
+ * positioner keeps placing it meanwhile — for a card that has just lost the
+ * room on its side, somewhere it does not fit. Measured in the real app: the
+ * narrowing window drew the closing card at x = −47, off the window, for its
+ * last 150ms. jsdom runs no animations, so here the card is given an exit:
+ * its animation's name changes as it closes, and no `animationend` comes.
+ */
+it('takes a card that lost the room on its side away at once, where one put away by the pointer fades', () => {
+  const realStyle = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element: Element, pseudo?: string | null) => {
+    const style = realStyle(element, pseudo)
+    if (!(element instanceof HTMLElement) || element.dataset['slot'] !== 'hover-card-content') return style
+    return new Proxy(style, {
+      get: (target, key) => {
+        if (key === 'animationName') return element.dataset['state'] === 'closed' ? 'exit' : 'enter'
+        const value: unknown = Reflect.get(target, key)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+  })
+  const content = (): Element | null => document.querySelector('[data-slot="hover-card-content"]')
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  spans(20, 60)
+  rest(trigger())
+  expect(side()).toBe('right')
+
+  // The control: put away by the pointer leaving, the card stays mounted to
+  // fade, which is what makes the case below a difference.
+  leave(trigger())
+  expect(content()?.getAttribute('data-state')).toBe('closed')
+
+  rest(trigger())
+  expect(content()?.getAttribute('data-state')).toBe('open')
+  viewport(400)
+  spans(0, 400)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(content()).toBeNull()
+
+  // Back for the reader still resting, below the row — and put away by the
+  // pointer from there, it fades again like any other.
+  wait(1000)
+  expect(content()?.getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('bottom')
+  leave(trigger())
+  expect(content()?.getAttribute('data-state')).toBe('closed')
   vi.useRealTimers()
 })
 
 it('closes when the trigger itself narrows under it, as when a panel opens beside the room', () => {
-  /* jsdom's own observer never calls back, so this one is driven by hand. The
-     positioner observes the trigger too, and hearing it again only makes it
-     measure again. */
-  const callbacks: ResizeObserverCallback[] = []
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      constructor(callback: ResizeObserverCallback) {
-        callbacks.push(callback)
-      }
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
-    },
-  )
+  const hand = observeByHand()
   try {
     vi.useFakeTimers()
     act(() => root.render(withAControl()))
@@ -734,9 +933,30 @@ it('closes when the trigger itself narrows under it, as when a panel opens besid
 
     // The window has not changed; the row has, and it is the whole window now.
     spans(0, 1024)
-    act(() => {
-      for (const callback of callbacks) callback([], {} as ResizeObserver)
-    })
+    hand.resized(trigger())
+    expect(trigger().getAttribute('data-state')).toBe('closed')
+  } finally {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  }
+})
+
+it('follows a trigger drawn again while its card is open, for that trigger’s own resizes', () => {
+  const hand = observeByHand()
+  try {
+    vi.useFakeTimers()
+    act(() => root.render(chip('span')))
+    viewport(1024)
+    spans(20, 60)
+    rest(trigger())
+    expect(trigger().getAttribute('data-state')).toBe('open')
+
+    // The same card with a new element under it — nothing does this today —
+    // which then widens to the whole window.
+    act(() => root.render(chip('div')))
+    expect(trigger().tagName).toBe('DIV')
+    spans(0, 1024)
+    hand.resized(trigger())
     expect(trigger().getAttribute('data-state')).toBe('closed')
   } finally {
     vi.unstubAllGlobals()
