@@ -43,7 +43,7 @@
   "scripts": {
     "build": "pnpm run build:node && pnpm --filter @harnessdesk/ui run build",
     "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs",
-    "clean": "tsc -b --clean && rm -rf packages/ui/dist",
+    "clean": "rm -rf packages/*/dist",
     "typecheck": "tsc -b --noEmit && pnpm --filter @harnessdesk/ui run typecheck",
     "test": "pnpm run build:node && node --test --test-reporter=spec \"packages/*/dist/test/**/*.test.js\" && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
     "test:gates": "node --test \"script/*.test.mjs\"",

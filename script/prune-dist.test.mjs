@@ -7,7 +7,8 @@ import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { audit, filesUnder, main, projectsOf, prune, remove } from './prune-dist.mjs'
+import { copyFixtures } from './copy-fixtures.mjs'
+import { audit, filesUnder, globToRegExp, main, projectsOf, prune, remove, TEST_GLOB } from './prune-dist.mjs'
 
 /**
  * `prune-dist` deletes files, which makes it the one build step whose bugs
@@ -415,4 +416,51 @@ test('against the real compiler: what tsc -b leaves behind goes, and what it wil
   assert.deepEqual(inDemo(repo, prune(repo).missing), ['dist/test/kept.test.js'])
   execFileSync(process.execPath, [TSC, '-b', '--force', repo], { stdio: 'pipe' })
   assert.deepEqual(prune(repo), CLEAN)
+
+  /* And both halves of the scope that failure's sentence now carries (review
+     of #191). A source that arrived after a build is compiled by the next
+     one, so it is never one this step calls unbuildable: */
+  write(join(demo, 'test/late.test.ts'), "import { answer } from '../src/index.js'\nexport const late = answer\n")
+  tsc()
+  assert.ok(has(repo, 'dist/test/late.test.js'), 'a source written after the build is compiled by the next one')
+  /* and an output whose source was already built does come back, when
+     something it imports changes what it declares, which is what rebuilds the
+     files that import it. */
+  rmSync(join(demo, 'dist/test/late.test.js'))
+  write(join(demo, 'src/index.ts'), 'export const answer = 42\nexport const named = \'two\'\n')
+  tsc()
+  assert.ok(has(repo, 'dist/test/late.test.js'), 'a change in what an import declares rebuilds the files that import it')
+})
+
+test('the copy step and the prune agree on where a fixture goes (#222)', (t) => {
+  // A source of its own as well: a package with nothing to compile is a config the compiler refuses.
+  const repo = checkout(t, ['test/fixtures/harness.ts', ...outputs('dist/test/fixtures/harness'), 'test/fixtures/fake.mjs', 'test/fixtures/deep/data.json'])
+  assert.equal(copyFixtures(repo), 1, 'the package had fixtures to copy')
+  for (const file of ['dist/test/fixtures/fake.mjs', 'dist/test/fixtures/deep/data.json']) assert.ok(has(repo, file), file)
+  assert.deepEqual(prune(repo), CLEAN, 'a copy whose original is still there is not an orphan')
+  // The control: the copy of a fixture that is gone is one.
+  rmSync(join(repo, 'packages/demo/test/fixtures/fake.mjs'))
+  assert.deepEqual(inDemo(repo, prune(repo).removed), ['dist/test/fixtures/fake.mjs'])
+})
+
+test('an output whose source another build deleted between the two is not called missing (review of #191)', (t) => {
+  const repo = checkout(t, ['src/kept.ts', 'src/gone.ts', ...outputs('dist/src/kept'), ...outputs('dist/src/gone')])
+  // The compiler's answer, taken before the other build moved.
+  const [project] = projectsOf(repo)
+  rmSync(join(repo, 'packages/demo/src/gone.ts'))
+  for (const file of outputs('dist/src/gone')) rmSync(join(repo, 'packages/demo', file))
+  assert.deepEqual(audit(project).missing, [], 'nothing on disk compiles to it any more')
+  // The control: one whose source is still there is missing, and named.
+  rmSync(join(repo, 'packages/demo/dist/src/kept.js'))
+  assert.deepEqual(inDemo(repo, audit(project).missing), ['dist/src/kept.js'])
+})
+
+test('the test glob reads the same as the paths it is written for (#256)', () => {
+  const runs = (path) => globToRegExp(TEST_GLOB).test(join(...path.split('/')))
+  assert.equal(runs('packages/server/dist/test/wire.test.js'), true)
+  assert.equal(runs('packages/server/dist/test/deep/nested/wire.test.js'), true, 'at any depth under test')
+  assert.equal(runs('packages/server/dist/src/wire.test.js'), false, 'not outside test')
+  assert.equal(runs('packages/server/test/wire.test.js'), false, 'not the source')
+  assert.equal(runs('packages/a/b/dist/test/x.test.js'), false, 'one package deep')
+  assert.equal(runs('packages/server/dist/test/helper.js'), false, 'only a .test.js')
 })

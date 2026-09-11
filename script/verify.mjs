@@ -13,42 +13,13 @@ import { execFileSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { createSteps } from './lib/steps.mjs'
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const failures = []
-
-const report = () => {
-  process.stderr.write('\n')
-  for (const { name, error } of failures) {
-    process.stderr.write(`--- ${name} ---\n`)
-    const detail = error.stdout?.toString() || error.stderr?.toString() || error.message
-    process.stderr.write(`${detail}\n`)
-  }
-}
-
-/**
- * One step. `stop` ends the run there rather than carrying on.
- *
- * The default is to keep going, which is right for the checks below: a failing
- * test and a failing token snapshot are independent findings and seeing both
- * in one run is worth the wait. It is wrong for a step that invalidates every
- * step after it — running twelve more checks against a tree the lockfile
- * cannot produce spends several minutes to bury the one line that matters
- * under the output of checks that were never going to mean anything.
- */
-const step = (name, fn, { stop = false } = {}) => {
-  process.stdout.write(`• ${name} ... `)
-  try {
-    fn()
-    process.stdout.write('ok\n')
-  } catch (error) {
-    process.stdout.write('FAILED\n')
-    failures.push({ name, error })
-    if (stop) {
-      report()
-      process.exit(1)
-    }
-  }
-}
+/* The steps themselves, their failures, and what a step that reads another
+   step's output does when that one failed: `script/lib/steps.mjs`, where a
+   test can reach them (#208). */
+const { step, report, failures } = createSteps()
 
 const run = (command, args) =>
   execFileSync(command, args, {
@@ -107,6 +78,8 @@ step('node tests', () =>
     // by pruning dist of every output whose source is gone (script/prune-dist.mjs).
     'packages/*/dist/test/**/*.test.js',
   ]),
+  // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
+  { needs: 'build' },
 )
 /* The gates' own parsers, and whatever else in `script/` has a test beside
    it. `script/` had no test runner, so the two functions that decide what the
