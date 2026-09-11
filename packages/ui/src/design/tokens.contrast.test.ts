@@ -450,7 +450,8 @@ describe("every accent's light face declares its own ink too", () => {
 
   /* Mono's light face declares two inks, white for the desk's own primary
      and shadcn's #fafafa for a primary button's label; both are pinned as
-     they are. */
+     they are. The contrast checks above judge --hd-primary-foreground only:
+     no var() reads the label alias today (review, round 1). */
   const LIGHT_INK: Record<string, { primary: string; label: string }> = {
     violet: { primary: 'rgb(255, 255, 255)', label: 'rgb(255, 255, 255)' },
     green: { primary: '#171717', label: '#171717' },
@@ -484,8 +485,9 @@ describe("an accent's light face outranks a palette's on source order alone, so 
   const sheets = import.meta.glob<string>('../**/*.css', { query: '?raw', import: 'default', eager: true })
   const fromSrc = (spec: string, dir: string) => new URL(spec, `file:///src/${dir}/`).pathname.replace(/^\/src\//, '')
   const bare = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '')
+  // Any quoting, and in a group of selectors too: the control below is there to find a face put somewhere unexpected (review, round 1).
   const faces = (css: string, kind: 'palette' | 'accent') => [
-    ...bare(css).matchAll(new RegExp(`body\\[data-hd-${kind}='\\w+'\\](?:\\[data-hd-dark-theme\\])?\\s*\\{`, 'g')),
+    ...bare(css).matchAll(new RegExp(`body\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`, 'g')),
   ]
   const declaring = (kind: 'palette' | 'accent') =>
     Object.entries(sheets)
@@ -505,7 +507,7 @@ describe("an accent's light face outranks a palette's on source order alone, so 
     expect(accents, 'app.css does not import the accents').toBeGreaterThan(-1)
     for (const file of declaring('palette')) {
       const at = order.indexOf(file)
-      expect(at, `app.css does not import ${file}`).toBeGreaterThan(-1)
+      expect(at, `${file} holds a palette face, and only the sheets app.css imports have an order to check`).toBeGreaterThan(-1)
       expect(at, `${file} loads after the accents`).toBeLessThanOrEqual(accents)
     }
   })
@@ -514,6 +516,8 @@ describe("an accent's light face outranks a palette's on source order alone, so 
     const palettes = faces(accentSheet, 'palette').map((match) => match.index ?? 0)
     const accents = faces(accentSheet, 'accent').map((match) => match.index ?? 0)
     expect(palettes.length).toBeGreaterThan(0)
+    // Math.min of nothing is Infinity, which passes; the accents have to be there to be after anything (review, round 1).
+    expect(accents.length).toBeGreaterThan(0)
     expect(Math.min(...accents)).toBeGreaterThan(Math.max(...palettes))
   })
 })

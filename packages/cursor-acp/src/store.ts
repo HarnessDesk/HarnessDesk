@@ -214,7 +214,7 @@ export const findChatWorkspace = (
  * for the model, not a description of the conversation.
  */
 export const stripEnvelope = (value: string): string =>
-  value.replace(/<context(?=[\s>])[^>]*>[\s\S]*?<\/context>\s*/g, '').trim()
+  value.replace(/<context(?=\s+source="|>)[^>]*>[\s\S]*?<\/context>\s*/g, '').trim()
 
 /**
  * How much of a line names a chat: 120 characters, where the desk's other

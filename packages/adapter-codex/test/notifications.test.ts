@@ -134,7 +134,9 @@ test('a balance that is there is read, a zero included, and one that is not is n
   assert.equal(balance('12.5'), 12.5)
   assert.equal(balance(null), null)
   assert.equal(balance(''), null, 'an empty string is no balance, not a zero')
-  assert.ok(Number.isNaN(balance('plenty')), 'what is not a number is left for describeLimits to refuse')
+  // Round 1 of #207: none at the boundary, for every reader, not only describeLimits.
+  assert.equal(balance('plenty'), null, 'what is not a number is none')
+  assert.equal(balance('1e500'), null, 'nor is a number too large to be finite')
 })
 
 test('unmodelled notifications produce nothing rather than noise', () => {

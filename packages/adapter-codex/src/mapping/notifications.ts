@@ -50,11 +50,14 @@ const mapWindow = (window: CodexProtocol.v2.RateLimitWindow | null): UsageWindow
  * A balance that is there, as a number. Codex sends it as a string, and read
  * by truthiness only its being a string let `"0"` through: a numeric `0` from
  * a changed payload or a fixture was dropped before `describeLimits` saw it,
- * which is #85 one layer down (#184). What isn't a number is left `NaN`, for
- * `describeLimits` to refuse.
+ * which is #85 one layer down (#184). What isn't a finite number is none,
+ * here at the boundary: `describeLimits` refused a NaN, but the usage report
+ * passed it on, and a card read "NaN credits" (review of #207, round 1).
  */
-const balanceOf = (value: unknown): number | null =>
-  typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : null
+const balanceOf = (value: string | number | null | undefined): number | null => {
+  const read = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : null
+  return read !== null && Number.isFinite(read) ? read : null
+}
 
 export const mapRateLimits = (
   snapshot: CodexProtocol.v2.RateLimitSnapshot,

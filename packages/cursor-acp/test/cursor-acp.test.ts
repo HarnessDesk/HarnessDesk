@@ -632,6 +632,9 @@ test('a preview an older bridge stored as the envelope’s first line reads as i
   // #188: the envelope opens `<context` and a space or `>`, so words that only start with it are the user's own.
   assert.equal(previewFor('<context-free grammars, explained', 'Fix the bug'), '<context-free grammars, explained')
   assert.equal(titleOf('<context-free> grammar </context> is what I mean'), '<context-free> grammar </context> is what I mean')
+  // Nor is a space after it: the envelope is `<context source="…">` or `<context>` (review of #207, round 1).
+  assert.equal(previewFor('<context switching in Go', 'Fix the bug'), '<context switching in Go')
+  assert.equal(titleOf('<context switching in Go'), '<context switching in Go')
 })
 
 test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {

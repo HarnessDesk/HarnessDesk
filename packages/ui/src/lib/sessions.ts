@@ -14,8 +14,10 @@ export const sessionLabel = (
   const firstLine = (raw: string): string => {
     const text = splitContext(raw).text.trim()
     // An agent's own title may be a truncated block with no closing tag —
-    // the splitter leaves it whole: all envelope, no name.
-    const candidate = text.startsWith('<context') ? '' : text
+    // the splitter leaves it whole: all envelope, no name. An envelope opens
+    // `<context source="` or `<context>`; words that only start with the
+    // word, `<context-free grammars`, are a name (review of #207, round 1).
+    const candidate = /^<context(?:\s+source="|>)/.test(text) ? '' : text
     return candidate.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
   }
   const titled = firstLine(title?.trim() ?? '')
