@@ -33,7 +33,7 @@ export const filesPlugin: HarnessPlugin = {
       properties: {
         maxBytes: {
           type: 'number',
-          title: 'Maximum file size',
+          title: 'Read limit, in bytes',
           description: 'Bytes returned before a file is truncated.',
         },
       },
@@ -59,7 +59,10 @@ export const filesPlugin: HarnessPlugin = {
           // ran to three times it (#96). A whole number, since it indexes the
           // bytes below: a fraction stepped past the check that keeps a
           // character whole (review of #190, round 1).
-          const limit = Math.trunc(Math.max(1_000, config?.maxBytes ?? 64_000))
+          // A number, or the default. Nothing checks a setting's type on its way in over `plugin/configure`, and
+          // `Math.max(1_000, 'abc')` is NaN, which cut every file to nothing (review of #190, round 2).
+          const asked = config?.maxBytes
+          const limit = Math.trunc(Math.max(1_000, typeof asked === 'number' && Number.isFinite(asked) ? asked : 64_000))
           // Only what could be kept is encoded. A file longer than the limit in
           // UTF-16 units is longer in bytes too, since each unit is at least
           // one, so its first limit + 1 units hold the cut; encoding all of a
@@ -72,8 +75,9 @@ export const filesPlugin: HarnessPlugin = {
           while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--
           // `ignoreBOM`, or the decoder drops a byte-order mark the file starts
           // with, which a file short enough to come back whole keeps (review,
-          // round 1).
-          return `${new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes.subarray(0, end))}\n\n[truncated at ${limit} bytes]`
+          // round 1). The note says where the cut is: the limit, or the last
+          // whole character short of it (review, round 2).
+          return `${new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes.subarray(0, end))}\n\n[truncated at ${end} bytes]`
         },
       })
 
