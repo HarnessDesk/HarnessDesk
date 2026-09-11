@@ -1104,6 +1104,7 @@ const MemberCard = ({
   side,
   as,
   className,
+  openOnFocus,
 }: {
   readonly entry: Member | null
   readonly onOpen?: () => void
@@ -1133,9 +1134,10 @@ const MemberCard = ({
   readonly onInbound?: (mode: TeamInbound) => void
   readonly children: ReactNode
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
-  /** The trigger's element and class, passed through — see `AgentHoverCard`. */
+  /** The trigger's element, class and focus rule, passed through — see `AgentHoverCard`. */
   readonly as?: 'span' | 'div'
   readonly className?: string
+  readonly openOnFocus?: boolean
 }) => {
   if (!entry) return <>{children}</>
   const actions = [
@@ -1169,6 +1171,7 @@ const MemberCard = ({
       {...(side ? { side } : {})}
       {...(as ? { as } : {})}
       {...(className ? { className } : {})}
+      {...(openOnFocus !== undefined ? { openOnFocus } : {})}
     >
       {children}
     </MemberHoverCard>
@@ -1362,13 +1365,21 @@ const MemberRow = ({
        line under it. It was the tile alone, and the words beside a mark are
        where a reader rests — resting on "Gemini" did nothing while the icon
        beside it opened the card. What made a whole row unsafe to bind is
-       carried by `AgentHoverCard`: a `div` trigger ignores focus, so the + at
-       the row's end can be tabbed to without a card opening or closing, and a
-       press takes the card away, so the click that opens this member does not
-       leave a card floating over it. Anchored to the row, the card also opens
-       beside the rail rather than over the names in it. */
+       carried by `AgentHoverCard`: the row says it holds controls
+       (`openOnFocus={false}`), so the + at its end can be tabbed to without a
+       card opening or closing, and a press takes the card away, so the click
+       that opens this member does not leave a card floating over it. Anchored
+       to the row, the card also opens beside the rail rather than over the
+       names in it.
+
+       That refusal assumes the row itself takes no focus, which holds while
+       `ListRow` is a plain div with a click. If the row becomes a button,
+       every rail row is a focus stop inside a trigger that refuses focus, and
+       the cards go keyboard-unreachable while still looking reachable: the
+       row's own focus would then have to open its card, and only the +'s not. */
     <MemberCard
       as="div"
+      openOnFocus={false}
       entry={member}
       onOpen={onOpen}
       onWatch={onWatch}

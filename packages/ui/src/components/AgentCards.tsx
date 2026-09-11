@@ -30,6 +30,7 @@ import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design/patterns/AgentCard'
 import {
+  HOVER_CARD_OPEN_DELAY,
   HOVER_CARD_SIDE_OFFSET,
   HOVER_CARD_WIDTH_REM,
   HoverCard,
@@ -74,7 +75,6 @@ import { AgentIcon } from './Icons'
  * that is the same for all of them.
  */
 let dragging = false
-let draggingWatchers = 0
 const onDragStart = (): void => {
   dragging = true
 }
@@ -97,20 +97,49 @@ const onDragStop = (): void => {
 const DRAG_ON = ['dragstart'] as const
 const DRAG_OFF = ['dragend', 'drop', 'pointerup', 'pointercancel'] as const
 
-const useDragging = (): void => {
+/**
+ * Whether the last thing done in the window was a key rather than a press —
+ * the question `:focus-visible` answers, asked here because a focus event
+ * cannot say which of the two it followed.
+ *
+ * Focus opens a card for a keyboard. But a press moves focus too: a click
+ * focuses the link it lands on, and a tap or a stylus focuses what it touched
+ * a moment after lifting, when the pointer has already gone. That focus is
+ * the press's, not a question about the agent, so it opens nothing. This
+ * replaced a flag set by a touch press and cleared by the next blur, which a
+ * tap that moved no focus left set — the next keyboard lost its card — and
+ * which a stylus, pressing the same way, never set at all. Radix's own menus
+ * ask the question like this. Module-level for the reason `dragging` is.
+ */
+let keyboard = true
+const onKey = (): void => {
+  keyboard = true
+}
+const onPress = (): void => {
+  keyboard = false
+}
+
+const WATCHED = [
+  ...DRAG_ON.map((name) => [name, onDragStart] as const),
+  ...DRAG_OFF.map((name) => [name, onDragStop] as const),
+  ['keydown', onKey] as const,
+  ['pointerdown', onPress] as const,
+]
+let watchers = 0
+
+const useWindowWatch = (): void => {
   useEffect(() => {
-    draggingWatchers += 1
-    if (draggingWatchers === 1) {
-      for (const name of DRAG_ON) window.addEventListener(name, onDragStart, true)
-      for (const name of DRAG_OFF) window.addEventListener(name, onDragStop, true)
+    watchers += 1
+    if (watchers === 1) {
+      for (const [name, listener] of WATCHED) window.addEventListener(name, listener, true)
     }
     return () => {
-      draggingWatchers -= 1
-      if (draggingWatchers === 0) {
-        for (const name of DRAG_ON) window.removeEventListener(name, onDragStart, true)
-        for (const name of DRAG_OFF) window.removeEventListener(name, onDragStop, true)
-        // Nothing is watching, so nothing can clear it later either.
+      watchers -= 1
+      if (watchers === 0) {
+        for (const [name, listener] of WATCHED) window.removeEventListener(name, listener, true)
+        // Nothing is watching, so nothing can keep these current either.
         dragging = false
+        keyboard = true
       }
     }
   }, [])
@@ -118,9 +147,24 @@ const useDragging = (): void => {
 
 type CardSide = 'top' | 'right' | 'bottom' | 'left'
 
+const beside = (side: CardSide): boolean => side === 'left' || side === 'right'
+
 /**
- * The side a card opens on: settled as it opens, and again if the window or
- * the trigger changes size while it is open.
+ * Whether a card fits beside the trigger: on its right or, failing that, on
+ * its left — the trade the positioner makes by itself.
+ *
+ * Against the root element's width, not the window's. The positioner keeps a
+ * card inside the page, and a classic scrollbar is window but not page.
+ */
+const roomBeside = (trigger: HTMLElement): boolean => {
+  const box = trigger.getBoundingClientRect()
+  const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+  const reach = HOVER_CARD_WIDTH_REM * rem + HOVER_CARD_SIDE_OFFSET
+  return document.documentElement.clientWidth - box.right >= reach || box.left >= reach
+}
+
+/**
+ * The side a card opens on, settled as it opens.
  *
  * Beside the trigger wherever there is room beside it, and under it where
  * there is not. The positioner already trades right for left when one edge is
@@ -132,14 +176,15 @@ type CardSide = 'top' | 'right' | 'bottom' | 'left'
  * Under is the least bad of three bad answers rather than a good one: it
  * covers the rows below the one being read, above would cover the rows above,
  * and off the window shows nothing at all.
+ *
+ * An open card never changes sides. The positioner answers asynchronously, and
+ * moving an open card to a new side let an answer for the old side land last —
+ * measured: settled below, drawn on the left. So a card beside its trigger
+ * that loses the room beside it closes instead, and the next rest opens it
+ * where it fits.
  */
-const sideFor = (trigger: HTMLElement, wanted: CardSide): CardSide => {
-  if (wanted !== 'left' && wanted !== 'right') return wanted
-  const box = trigger.getBoundingClientRect()
-  const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-  const reach = HOVER_CARD_WIDTH_REM * rem + HOVER_CARD_SIDE_OFFSET
-  return window.innerWidth - box.right >= reach || box.left >= reach ? wanted : 'bottom'
-}
+const sideFor = (trigger: HTMLElement, wanted: CardSide): CardSide =>
+  !beside(wanted) || roomBeside(trigger) ? wanted : 'bottom'
 
 /**
  * Who an agent is, and the card that opens when the pointer rests on it.
@@ -162,26 +207,30 @@ const sideFor = (trigger: HTMLElement, wanted: CardSide): CardSide => {
  *
  *   Focus.    Radix opens a card for focus as well as for the pointer, and
  *             where the trigger is one thing to focus — a publication's link —
- *             that is how a keyboard reaches its card, so it stays. A row is
- *             different: it holds controls of its own (the rail's +), focus on
- *             one of them is a keyboard step down a list rather than a question
- *             about the agent, and a card at every step is a card nobody asked
- *             for. A `div` trigger therefore ignores focus (`openOnFocus`):
- *             focus neither opens its card nor, leaving, closes one the pointer
- *             is resting on.
+ *             that is how a keyboard reaches its card, so it stays, for a
+ *             keyboard's focus (see `keyboard`). A row is different: it holds
+ *             controls of its own (the rail's +), focus on one of them is a
+ *             keyboard step down a list rather than a question about the
+ *             agent, and a card at every step is a card nobody asked for. Such
+ *             a trigger says so with `openOnFocus={false}`, and then focus
+ *             neither opens its card nor, leaving, closes one the pointer is
+ *             resting on. The caller says it, because the element cannot: a
+ *             chip laid out as a block is still one thing to focus.
  *   A press.  Pressing the trigger takes its card away and keeps it away until
  *             the pointer leaves. The press opened something, and a card that
  *             stayed — or arrived a beat later, off the timer the pointer
- *             started on its way in or off the focus the press left behind —
- *             would float over what it had just opened. A tap is a press whose
- *             pointer leaves at once, so its hold lasts until that focus moves
- *             on instead.
+ *             started on its way in — would float over what it had just
+ *             opened.
  *
  * A control inside the trigger with a tooltip of its own is marked
- * `data-no-card`: resting there asks about the control, not the agent, so the
- * card does not open, and an open one goes as it would for a press. The rail's
- * + is the case — its title says which column a pick will take away, and a
- * card beside that sentence would be saying something else.
+ * `data-no-card`: resting there asks about the control, not the agent, so no
+ * card opens while the pointer is on it, and an open one goes. The rail's + is
+ * the case — its title says which column a pick will take away, and a card
+ * beside that sentence would be saying something else. It sits at the row's
+ * trailing edge, the edge a pointer coming from the chat crosses first, and
+ * moving on from it to the name is the same visit to the trigger: Radix hears
+ * no second arrival and asks nothing. So the card is asked for again as the
+ * pointer moves off the control, after the delay of any rest.
  *
  * The trigger is a `span`, or a `div` where it wraps a block, and `asChild` is
  * not offered to callers. Radix's own default is an `<a>`, and these triggers
@@ -207,7 +256,7 @@ const sideFor = (trigger: HTMLElement, wanted: CardSide): CardSide => {
  *   that are closed essentially all of the time. In an Electron window that is
  *   enough to keep the CPU out of its low-power states all day.
  *
- * A closed trigger now costs a `useState` and two module-level listeners
+ * A closed trigger now costs a `useState` and a few module-level listeners
  * shared by every trigger in the window. The timer count is one while a card
  * is open and zero otherwise.
  */
@@ -218,7 +267,7 @@ export const AgentHoverCard = ({
   align,
   className,
   as: Trigger = 'span',
-  openOnFocus = Trigger !== 'div',
+  openOnFocus = true,
   disabled = false,
 }: {
   /**
@@ -240,10 +289,9 @@ export const AgentHoverCard = ({
    */
   readonly as?: 'span' | 'div'
   /**
-   * Whether focus arriving inside the trigger opens the card, as Radix does.
-   * By shape unless said: a `span` is one thing to focus — a link — and opens
-   * for it; a `div` wraps a row that holds controls of its own, and there
-   * focus neither opens the card nor closes it. See the note above.
+   * Whether a keyboard's focus arriving inside the trigger opens the card, as
+   * Radix does. False for a trigger that holds controls of its own, where
+   * focus then neither opens the card nor closes it. See the note above.
    */
   readonly openOnFocus?: boolean
   /** The surface has nothing worth a card; the mark renders bare. */
@@ -252,24 +300,36 @@ export const AgentHoverCard = ({
   const [open, setOpen] = useState(false)
   /* Where it opens — see `sideFor`. */
   const [placed, setPlaced] = useState<CardSide>(side ?? 'right')
-  /* What the card may open for: a pointer resting on the trigger, or focus
-     inside it where `openOnFocus`. Radix asks to open for either and cannot
-     say which, so these say it — as elements, because `sideFor` measures the
-     one the card opens from. */
-  const resting = useRef<HTMLElement | null>(null)
-  const focused = useRef<HTMLElement | null>(null)
-  /* Held shut: pressed since the pointer arrived, or the pointer on a
-     `data-no-card` control. Cleared when the pointer leaves. */
-  const held = useRef(false)
-  /* Tapped since focus last left. A tap's pointer leaves at once, which
-     clears `held`, so this is what keeps the focus a tap leaves behind from
-     opening the card a moment later. */
-  const tapped = useRef(false)
-  /* The trigger the open card hangs from, taken as it opens. Read by the two
-     effects below rather than `resting`, which empties the moment the pointer
-     moves on to the card. */
-  const anchor = useRef<HTMLElement | null>(null)
-  useDragging()
+  /* The trigger's element, kept current by React. Read wherever the trigger
+     is measured or looked for, rather than an element taken from an event:
+     a trigger drawn again under an open card would leave that one detached,
+     contained by nothing and never resized. */
+  const triggerRef = useRef<HTMLElement | null>(null)
+  /* What the card may open for — a pointer resting on the trigger, or a
+     keyboard's focus inside it where `openOnFocus`. Radix asks to open for
+     either and cannot say which, so these say it. */
+  const resting = useRef(false)
+  const focused = useRef(false)
+  /* Held shut: pressed since the pointer arrived, until it leaves. */
+  const pressed = useRef(false)
+  /* Held shut: the pointer is on a `data-no-card` control, until it is not. */
+  const quiet = useRef(false)
+  /* The open asked for again as the pointer moves off such a control. */
+  const again = useRef<number | undefined>(undefined)
+  useWindowWatch()
+
+  /* The one way a card opens: Radix's requests come here, and so does the
+     one asked for again. */
+  const ask = (): void => {
+    window.clearTimeout(again.current)
+    if (pressed.current || quiet.current || dragging) return
+    const trigger = triggerRef.current
+    if (!trigger || !(resting.current || focused.current)) return
+    setPlaced(sideFor(trigger, side ?? 'right'))
+    setOpen(true)
+  }
+
+  useEffect(() => () => window.clearTimeout(again.current), [])
 
   /* A card anchored to a row that has scrolled away is pointing at somebody
      else, so a scroll that moves the trigger closes it — and only that one.
@@ -284,8 +344,8 @@ export const AgentHoverCard = ({
      scroller is an ancestor of the trigger and scroll does not bubble. */
   useEffect(() => {
     if (!open) return undefined
-    const trigger = anchor.current
     const close = (event: Event): void => {
+      const trigger = triggerRef.current
       const scroller = event.target
       if (!trigger || (scroller instanceof Node && scroller.contains(trigger))) setOpen(false)
     }
@@ -293,23 +353,27 @@ export const AgentHoverCard = ({
     return () => window.removeEventListener('scroll', close, true)
   }, [open])
 
-  /* Settled again when the window or the trigger changes size under an open
-     card — the window dragged narrower, the details panel opened beside the
-     room — or it can be left facing a side with no room, which is the
-     off-window card `sideFor` exists to prevent. */
+  /* A card beside its trigger closes when the room beside it goes — the
+     window dragged narrower, or the trigger widened by the details panel
+     opening beside the room. Left open, it would face a side with no room,
+     which is the off-window card `sideFor` exists to prevent; moved, it would
+     race the positioner (see `sideFor`). */
   useEffect(() => {
-    if (!open) return undefined
-    const trigger = anchor.current
+    if (!open || !beside(placed)) return undefined
+    const trigger = triggerRef.current
     if (!trigger) return undefined
-    const settle = (): void => setPlaced(sideFor(trigger, side ?? 'right'))
-    const observer = new ResizeObserver(settle)
+    const check = (): void => {
+      const now = triggerRef.current
+      if (!now || !roomBeside(now)) setOpen(false)
+    }
+    const observer = new ResizeObserver(check)
     observer.observe(trigger)
-    window.addEventListener('resize', settle)
+    window.addEventListener('resize', check)
     return () => {
       observer.disconnect()
-      window.removeEventListener('resize', settle)
+      window.removeEventListener('resize', check)
     }
-  }, [open, side])
+  }, [open, placed])
 
   /* Disabling the card must also close it. The state outlives the Radix
      tree below, which unmounts while `disabled` holds — so a card that was
@@ -319,10 +383,11 @@ export const AgentHoverCard = ({
   useEffect(() => {
     if (!disabled) return
     setOpen(false)
-    resting.current = null
-    focused.current = null
-    held.current = false
-    tapped.current = false
+    window.clearTimeout(again.current)
+    resting.current = false
+    focused.current = false
+    pressed.current = false
+    quiet.current = false
   }, [disabled])
 
   if (disabled) return <>{children}</>
@@ -331,18 +396,8 @@ export const AgentHoverCard = ({
     <HoverCard
       open={open}
       onOpenChange={(next) => {
-        if (!next) {
-          setOpen(false)
-          return
-        }
-        /* Refusing is doing nothing: Radix is controlled here and only asks to
-           open while the card is closed, so a refused card stays closed. */
-        if (held.current || dragging) return
-        const trigger = resting.current ?? (openOnFocus && !tapped.current ? focused.current : null)
-        if (!trigger) return
-        anchor.current = trigger
-        setPlaced(sideFor(trigger, side ?? 'right'))
-        setOpen(true)
+        if (next) ask()
+        else setOpen(false)
       }}
     >
       <HoverCardTrigger asChild>
@@ -350,25 +405,32 @@ export const AgentHoverCard = ({
             the row's own action — so the trigger stays out of the tab order
             rather than adding a stop before every row in a list of sixty. */}
         <Trigger
+          ref={(node: HTMLElement | null) => {
+            triggerRef.current = node
+          }}
           className={className}
           tabIndex={-1}
-          onPointerEnter={(event: ReactPointerEvent<HTMLElement>) => {
-            resting.current = event.currentTarget
+          onPointerEnter={() => {
+            resting.current = true
           }}
           onPointerOver={(event: ReactPointerEvent<HTMLElement>) => {
-            const quiet = (event.target as Element).closest('[data-no-card]')
-            if (quiet && event.currentTarget.contains(quiet)) {
-              held.current = true
-              setOpen(false)
-            }
+            const control = (event.target as Element).closest('[data-no-card]')
+            const onControl = control !== null && event.currentTarget.contains(control)
+            if (onControl === quiet.current) return
+            quiet.current = onControl
+            window.clearTimeout(again.current)
+            if (onControl) setOpen(false)
+            else again.current = window.setTimeout(ask, HOVER_CARD_OPEN_DELAY)
           }}
           onPointerLeave={() => {
-            resting.current = null
-            held.current = false
+            resting.current = false
+            pressed.current = false
+            quiet.current = false
+            window.clearTimeout(again.current)
           }}
-          onPointerDown={(event: ReactPointerEvent<HTMLElement>) => {
-            held.current = true
-            if (event.pointerType === 'touch') tapped.current = true
+          onPointerDown={() => {
+            pressed.current = true
+            window.clearTimeout(again.current)
             setOpen(false)
           }}
           onFocus={(event: ReactFocusEvent<HTMLElement>) => {
@@ -379,15 +441,14 @@ export const AgentHoverCard = ({
               event.preventDefault()
               return
             }
-            focused.current = event.currentTarget
+            focused.current = keyboard
           }}
           onBlur={(event: ReactFocusEvent<HTMLElement>) => {
             if (!openOnFocus) {
               event.preventDefault()
               return
             }
-            focused.current = null
-            tapped.current = false
+            focused.current = false
           }}
         >
           {children}
@@ -398,13 +459,6 @@ export const AgentHoverCard = ({
           the clock — do not run before then, and stop when it closes. Creating
           an element is a couple of object allocations and no more. */}
       <HoverCardContent
-        /* Keyed by its side, so a side settled again under an open card
-           remounts the content. The positioner answers a resize for the side
-           it was on, asynchronously, and that answer can land after the one
-           for the new side and put the card back where there was no room —
-           measured: re-settled to bottom, drawn on the left. A remount drops
-           the old answer with the instance that asked for it. */
-        key={placed}
         side={placed}
         {...(align ? { align } : {})}
         className="p-0"
@@ -670,6 +724,7 @@ export const MemberHoverCard = ({
   className,
   side,
   as,
+  openOnFocus,
 }: {
   readonly member: MemberCardFacts
   readonly actions?: readonly AgentCardAction[]
@@ -679,6 +734,8 @@ export const MemberHoverCard = ({
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
   /** A `div` where the trigger wraps a whole row — see `AgentHoverCard`. */
   readonly as?: 'span' | 'div'
+  /** False where the trigger holds controls of its own — see `AgentHoverCard`. */
+  readonly openOnFocus?: boolean
 }) => (
   <AgentHoverCard
     body={() => (
@@ -691,6 +748,7 @@ export const MemberHoverCard = ({
     className={className}
     {...(side ? { side } : {})}
     {...(as ? { as } : {})}
+    {...(openOnFocus !== undefined ? { openOnFocus } : {})}
   >
     {children}
   </AgentHoverCard>

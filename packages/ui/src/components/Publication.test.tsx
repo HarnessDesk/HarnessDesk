@@ -126,6 +126,10 @@ describe('the publication row', () => {
     try {
       render(item())
       const link = container.querySelector('a')!
+      // A keyboard: a key goes down, and then focus lands on the chip.
+      act(() => {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }))
+      })
       act(() => link.focus())
       act(() => {
         vi.advanceTimersByTime(1000)

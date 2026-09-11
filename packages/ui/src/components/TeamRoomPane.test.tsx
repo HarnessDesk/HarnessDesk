@@ -1508,6 +1508,66 @@ it('the plus beside a member opens no card, puts an open one away, and still wat
   vi.useRealTimers()
 })
 
+/** The pointer moving on within a row, from one part of it to another. */
+const move = (from: Element, to: Element): void => {
+  act(() => {
+    from.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: to }))
+    to.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: from }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+}
+
+/**
+ * The + is at the row's trailing edge, the edge a pointer coming from the chat
+ * crosses first, so arriving over it is an ordinary way into a row — and the
+ * card has to be there once the pointer reaches the name.
+ */
+it('a pointer that comes in over the plus gets the card once it reaches the name', async () => {
+  vi.useFakeTimers()
+  const { store } = rig()
+  await render(store)
+
+  const opus = row('Opus')
+  const name = textAt(opus, 'Opus')
+  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
+  const watch = opus.querySelector('button[aria-label^="Watch Opus"]')
+  if (!watch) throw new Error('no watch control on the row')
+
+  rest(watch)
+  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  move(watch, name)
+  expect(trigger?.getAttribute('data-state')).toBe('open')
+  vi.useRealTimers()
+})
+
+/**
+ * A keyboard stepping down the rail lands on every row's +. The row says it
+ * holds controls, so that step opens no card.
+ */
+it('tabbing to the plus opens no card', async () => {
+  vi.useFakeTimers()
+  const { store } = rig()
+  await render(store)
+
+  const opus = row('Opus')
+  const trigger = opus.closest('[data-slot="hover-card-trigger"]')
+  const watch = opus.querySelector<HTMLButtonElement>('button[aria-label^="Watch Opus"]')
+  if (!watch) throw new Error('no watch control on the row')
+
+  act(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }))
+  })
+  act(() => watch.focus())
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(document.activeElement).toBe(watch)
+  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  vi.useRealTimers()
+})
+
 it('opens a column’s card from the name at its head, as from its mark', async () => {
   vi.useFakeTimers()
   const { store } = rig()
