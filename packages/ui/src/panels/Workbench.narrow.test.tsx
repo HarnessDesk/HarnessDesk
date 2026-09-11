@@ -89,10 +89,10 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
 }
 
 /**
- * `beside` puts what the app puts beside the workbench next to it: the
- * standing notices float there, over the conversation, outside the shell —
- * and one more element that is already inert for reasons of its own.
- * `inSidebar` adds to the sidebar's own content.
+ * `beside` puts next to the workbench what the app marks as floating over the
+ * conversation — the standing notices — and one more marked element, already
+ * inert for reasons of its own, and one unmarked element, which is not the
+ * sidebar's to cover. `inSidebar` adds to the sidebar's own content.
  */
 const render = (
   store: AppStore,
@@ -113,11 +113,16 @@ const render = (
           }
         />
         {beside && (
-          <div data-testid="notices">
+          <div data-testid="notices" data-over-conversation>
             <button type="button">Review in Library</button>
           </div>
         )}
-        {beside && <div data-testid="already-inert" inert />}
+        {beside && <div data-testid="already-inert" data-over-conversation inert />}
+        {beside && (
+          <div data-testid="unmarked">
+            <button type="button">Something else on the page</button>
+          </div>
+        )}
       </StoreProvider>,
     )
   })
@@ -166,6 +171,8 @@ it('a narrow window takes the sidebar out of the row: no column, no seam, nothin
   expect(seam('Resize the sidebar')).toBeNull()
   expect(scrim()?.hasAttribute('data-open')).toBe(false)
   expect(content().hasAttribute('inert')).toBe(false)
+  // Put away, it is no dialog.
+  expect(sidebar().hasAttribute('role')).toBe(false)
 })
 
 it('floating, it covers the conversation: the dim is up, what is under it is out of reach, focus is in it', () => {
@@ -178,20 +185,27 @@ it('floating, it covers the conversation: the dim is up, what is under it is out
   expect(content().hasAttribute('inert')).toBe(true)
   // The surface, not its first control: a stray Return must not open a row.
   expect(document.activeElement).toBe(sidebar())
+  // And it says what it is, as the dialog it behaves like does.
+  expect(sidebar().getAttribute('role')).toBe('dialog')
+  expect(sidebar().getAttribute('aria-label')).toBe('Sidebar')
 })
 
-it('what floats beside the workbench goes inert with the conversation, and only that comes back', () => {
+it('what floats over the conversation goes inert with it, found by its mark — and only that comes back', () => {
   /* The standing notices are drawn under the dim but live outside the shell,
      so making the content inert left their buttons one Tab away from the
-     floating sidebar: a control you can reach and cannot see. */
+     floating sidebar: a control you can reach and cannot see. They are found
+     by their mark rather than by standing beside the shell, which a wrapper
+     or one more layer would have quietly changed. */
   const { store, patch } = rig({ narrowWindow: true })
   render(store, { beside: true })
   const notices = container.querySelector<HTMLElement>('[data-testid="notices"]')
   const already = container.querySelector<HTMLElement>('[data-testid="already-inert"]')
+  const unmarked = container.querySelector<HTMLElement>('[data-testid="unmarked"]')
 
   patch({ sidebarFloating: true })
   expect(content().hasAttribute('inert')).toBe(true)
   expect(notices?.hasAttribute('inert')).toBe(true)
+  expect(unmarked?.hasAttribute('inert')).toBe(false)
 
   patch({ sidebarFloating: false })
   expect(notices?.hasAttribute('inert')).toBe(false)

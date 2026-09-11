@@ -499,13 +499,15 @@ beside the conversation and lays them over it instead:
   with no seam to drag, and the conversation beneath it is out of reach as it
   is under the floating sidebar. Putting it away gives the conversation back.
 - **A header folds by its own width, not the window's**, so a narrow pane in
-  a wide window folds the same way. At 520px the back and forward arrows,
-  the branch's name, the status's word, the tasks chip's words and the plan
-  meter's figure fold to their marks — still read out, and on hover. At
-  400px a resting status goes, the browser and terminal buttons fold into
-  ⋯ › View where there is a ⋯ — a draft has none, and keeps its browser
-  button — and the plan meter keeps its bar alone. The title is what all of
-  it protects: at a 375px window it keeps about 165px.
+  a wide window folds the same way. At 520px the branch's name, the status's
+  word and the tasks chip's words fold to their marks — still read out, and
+  on hover — while the back and forward arrows go, the sidebar's own pair
+  being the way back, and the plan meter shows its figure only when the
+  agent is running low. At 400px a resting status goes, the browser and
+  terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
+  and keeps its browser button — and the plan meter keeps its bar alone, low
+  or not. The title is what all of it protects: at a 375px window it keeps
+  about 165px.
 - **The composer's controls fold to their glyphs** below a 560px toolbar,
   the model's name with the rest of the words, and below a 320px toolbar —
   any phone's — their chevrons go too.

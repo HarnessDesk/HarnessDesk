@@ -183,7 +183,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
 
   const sidebarBox = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
-  useFloatingSidebar(floating, sidebarBox, content, shell)
+  useFloatingSidebar(floating, sidebarBox, content)
 
   return (
     <DragContext.Provider value={{ dragging, setDragging }}>
@@ -236,7 +236,12 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
            there is nothing for a changing width to hand back. */
         style={{ width: showSidebar || narrow ? 'var(--panel-sidebar)' : 0 }}
         {...(showSidebar ? {} : { 'data-hidden': '' })}
-        {...(floating ? { 'data-floating': '', tabIndex: -1 } : {})}
+        /* Floating, it is a surface laid over the page and it takes focus as
+           one, so it says what it is — its role and its name — rather than
+           arriving as an unnamed group. Not flagged as modal for assistive
+           technology: what it covers is really inert, which is all that flag
+           would say. */
+        {...(floating ? { 'data-floating': '', tabIndex: -1, role: 'dialog', 'aria-label': 'Sidebar' } : {})}
       >
         {/* The sidebar's own panels are rendered from inside `Sidebar`, at the
             `sidebar.panel` slot it has always had — between the session list
@@ -359,7 +364,6 @@ const useFloatingSidebar = (
   floating: boolean,
   sidebar: RefObject<HTMLDivElement | null>,
   content: RefObject<HTMLDivElement | null>,
-  shell: RefObject<HTMLDivElement | null>,
 ): void => {
   const store = useStore()
   const opener = useRef<HTMLElement | null>(null)
@@ -382,18 +386,20 @@ const useFloatingSidebar = (
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       /*
        * Everything it lies over: the workbench's own content, and whatever the
-       * app floats beside the workbench — the standing notices, drawn under
-       * the dim, whose buttons Tab would otherwise walk into behind it. A
-       * toast is not beside it and stays in reach, drawn above the sidebar:
-       * it is so often the answer to something done in the sidebar itself —
-       * an archive's Undo. Most leave on their own; an error stays until it
-       * is dismissed, and its × is in reach for the same reason.
+       * app marks as floating over the conversation — the standing notices,
+       * drawn under the dim, whose buttons Tab would otherwise walk into
+       * behind it. Found by that mark, not by where they sit, so wrapping the
+       * workbench or giving the page another layer cannot quietly uncover
+       * them or cover something else. A toast is not so marked and stays in
+       * reach, drawn above the sidebar: it is so often the answer to something
+       * done in the sidebar itself — an archive's Undo. Most leave on their
+       * own; an error stays until it is dismissed, and its × is in reach for
+       * the same reason.
        *
        * Only what this makes inert is given back: something already inert
        * for its own reasons stays so.
        */
-      const box = shell.current
-      const beside = box?.parentElement ? Array.from(box.parentElement.children).filter((child) => child !== box) : []
+      const beside = Array.from(document.querySelectorAll('[data-over-conversation]'))
       const covered = [content.current, ...beside].filter(
         (element): element is HTMLElement => element instanceof HTMLElement && !element.hasAttribute('inert'),
       )
@@ -434,7 +440,7 @@ const useFloatingSidebar = (
     const active = document.activeElement
     const stranded = active === null || active === document.body || sidebar.current?.contains(active) === true
     if (stranded && back.isConnected) back.focus({ preventScroll: true })
-  }, [floating, sidebar, content, shell, store])
+  }, [floating, sidebar, content, store])
 }
 
 /**

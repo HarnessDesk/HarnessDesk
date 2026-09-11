@@ -118,6 +118,7 @@ import {
   DOCKS,
   NARROW_WINDOW,
   areaVisible,
+  sidebarPlacement,
   activate as activateIn,
   activeTerminal,
   areaOfMount,
@@ -2637,6 +2638,13 @@ export class AppStore {
   #setWorkbench(next: Workbench): void {
     const workbench = settleWorkbench(next)
     this.#patch({ workbench, layout: workbench.main, detailsTab: visibleInspector(workbench) })
+    // What the patch settled on, which is not always what was asked for: a
+    // panel expanded in a sidebar that is not on screen is put back.
+    this.#keepWorkbench(this.#snapshot.workbench)
+  }
+
+  /** Remembers this workspace's workbench, so reopening it brings back the same panes. */
+  #keepWorkbench(workbench: Workbench): void {
     const workspace = this.#snapshot.workspace?.path
     if (!workspace) return
     const layouts = { ...(this.#layouts ?? {}), [workspace]: workbench }
@@ -4555,6 +4563,16 @@ export class AppStore {
        puts it away. Left open, it moved focus and came out from under `inert`
        while nothing was drawn, and the next ⌘B only closed it. */
     if (next.sidebarFloating && !areaVisible(next.workbench, 'sidebar')) next.sidebarFloating = false
+    /* And a panel the sidebar was given the room for goes when the sidebar
+       goes. Expanded, it is the only area drawn, and put away with the
+       sidebar — the dim, ⌘B, the window narrowing — it left a window with
+       nothing on it and no control, ⌘B the only way back, which a phone does
+       not have. */
+    const outlived = next.workbench.zoom?.area === 'sidebar' && sidebarPlacement(next) === 'away'
+    if (outlived) {
+      next.workbench = unzoomIn(next.workbench)
+      next.detailsTab = visibleInspector(next.workbench)
+    }
     next.activeSessionKey = activeSessionKey
     // A hand-off belongs to the draft it was handed to; once a conversation
     // is in front — the draft sent, or another one opened — it has served.
@@ -4569,6 +4587,9 @@ export class AppStore {
       next.layout = prune(next.layout, (key) => next.sessions.has(key) || this.#snapshot.loadingSessions.has(key))
     }
     this.#snapshot = next
+    // Remembered like any change of layout, unless it came through
+    // `#setWorkbench`, which remembers what this settles on itself.
+    if (outlived && patch.workbench === undefined) this.#keepWorkbench(next.workbench)
     this.#wake()
   }
 

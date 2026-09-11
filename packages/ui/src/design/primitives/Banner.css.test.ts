@@ -28,8 +28,12 @@ const blockAfter = (opening: string): string => {
 }
 
 describe('a banner in a narrow column', () => {
-  it('is framed by a box its own layout can query', () => {
+  it('is framed by a box its own layout can query, and by nothing that contains its layout', () => {
     expect(blockAfter('.frame {')).toMatch(/container:\s*hd-banner\s*\/\s*inline-size/)
+    /* A query container, measured in #192's review to neither move a fixed
+       child nor trap its stacking; `contain: layout` would do both, and the ×
+       menu inside the card is fixed and not portalled. */
+    expect(blockAfter('.frame {')).not.toMatch(/(^|[\s;{])contain:/)
   })
 
   it('gives its actions a line of their own below 600px, after the words — and leaves a compact banner be', () => {

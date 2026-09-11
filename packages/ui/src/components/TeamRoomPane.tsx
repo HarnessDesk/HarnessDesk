@@ -642,7 +642,10 @@ export const TeamRoomPane = ({
             whenever the sidebar is not standing beside it. A room is the other
             thing the middle can show, and a narrow window's sidebar is only
             ever reached from here — without them a room was a place with no
-            way back out but ⌘B. */}
+            way back out but ⌘B. No pane guard, unlike a conversation's
+            header: a room mounts only in the middle (`mounts: ['main']` in
+            `panels/builtins.tsx`), which holds one pane, so this bar is
+            always the corner's. */}
         {sidebarPlacement(snapshot) !== 'column' && <WindowControls />}
         <IconTile tint="violet" size="sm">
           <TeamIcon />

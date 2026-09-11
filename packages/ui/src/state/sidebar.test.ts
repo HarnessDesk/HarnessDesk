@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// The desktop shell's own source, read as text: its window's minimum width.
+import electronMain from '../../../desktop/electron/main.mjs?raw'
+// The panels the app registers, so the store lets one dock where the app does.
+import '../panels/builtins'
+
 import { runtimeId, sessionId, type HostMethodName, type Session } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
-import { NARROW_WINDOW, emptyWorkbench, sidebarPlacement, zoomArea, type Workbench } from './workbench'
+import { NARROW_WINDOW, areaVisible, emptyWorkbench, sidebarPlacement, zoomArea, type Workbench } from './workbench'
 
 /**
  * The sidebar, in two widths of window.
@@ -161,6 +166,31 @@ describe('the store', () => {
     }
   })
 
+  it('takes back a panel it had expanded when it is put away, rather than leave a window with nothing on it', () => {
+    /* A panel docked in the sidebar and expanded is the only area drawn; put
+       the sidebar away with it — the dim, ⌘B — and nothing was left on screen,
+       and no control. Found in review, and seen in a real engine: no button
+       left in reach. */
+    for (const narrow of [true, false]) {
+      const desk = new AppStore('ws://localhost:0/')
+      vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
+      desk.setNarrowWindow(narrow)
+      desk.showViewIn('sidebar', { kind: 'tasks' })
+      if (narrow) desk.toggleSidebar()
+      desk.zoomPanel('sidebar', 'content')
+      expect(desk.getSnapshot().workbench.zoom).toEqual({ area: 'sidebar', scope: 'content' })
+      expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(false)
+
+      // The dim in a narrow window, ⌘B on the column in a wide one.
+      if (narrow) desk.closeFloatingSidebar()
+      else desk.toggleSidebar()
+
+      expect(sidebarPlacement(desk.getSnapshot())).toBe('away')
+      expect(desk.getSnapshot().workbench.zoom).toBeNull()
+      expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(true)
+    }
+  })
+
   it('is left open by a conversation read in for a room, which goes nowhere', async () => {
     answers['session/read'] = session()
     answers['session/resume'] = session()
@@ -168,6 +198,15 @@ describe('the store', () => {
     store.toggleSidebar()
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     expect(state().sidebarFloating).toBe(true)
+  })
+})
+
+describe('the line', () => {
+  it('is the desktop window’s own minimum width', () => {
+    /* The whole case for 720 is that the desktop app, at its ordinary zoom, can
+       never be narrower. Lower that minimum and the app would float its
+       sidebar at an ordinary width, with nothing here going red. */
+    expect(electronMain).toMatch(new RegExp(`minWidth:\\s*${NARROW_WINDOW}\\b`))
   })
 })
 

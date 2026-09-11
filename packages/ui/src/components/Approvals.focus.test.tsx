@@ -143,6 +143,31 @@ it('leaves the keys alone while something covers the card', () => {
   expect(store.respondToApproval).toHaveBeenCalledWith(KEY, 'ask-1', { type: 'option', optionId: 'no' })
 })
 
+it('leaves an Escape alone that something else has already spent', () => {
+  /* A menu open elsewhere — the sidebar's account menu, beside a pending
+     approval in a wide window — takes Escape to close itself and says so. On
+     the document, whichever listener came first answered, and the press that
+     closed the menu denied the command as well; measured in a real engine. A
+     denial cannot be taken back. */
+  const store = mount('pane-1')
+  // Registered after the card's, as a menu opened later would be.
+  const spend = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') event.preventDefault()
+  }
+  document.addEventListener('keydown', spend)
+  act(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  document.removeEventListener('keydown', spend)
+  expect(store.respondToApproval).not.toHaveBeenCalled()
+
+  // Unspent, the fastest safe answer is still one key away.
+  act(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  expect(store.respondToApproval).toHaveBeenCalledWith(KEY, 'ask-1', { type: 'option', optionId: 'no' })
+})
+
 it('leaves the caret alone when the approval is in a pane you are not', () => {
   const elsewhere = document.createElement('textarea')
   document.body.appendChild(elsewhere)
