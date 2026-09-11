@@ -27,11 +27,14 @@ pnpm verify
 ```
 
 Run it bare — never piped into anything, because a pipe eats the exit code
-and a red run reads green. It is the whole pre-commit gate: build, every
-package's tests, UI typecheck and tests, desktop tests, the layering rules,
-a tracked-secrets scan, the design-system gates, the recorded-claims link, and
-Codex protocol drift. CI runs all of those except protocol drift, which needs a
-real `codex` binary; a green local run means a green pipeline.
+and a red run reads green. It is the whole pre-commit gate: the lockfile
+install, the build, every test suite (Node packages, gate scripts, UI and
+desktop), the UI typecheck, the layering rules, a tracked-secrets scan, the
+reachable-methods check, the third-party notices check, the design-system
+gates, interface drift, the recorded-claims link, the check that holds this
+gate and CI to one list, and Codex protocol drift. CI runs all of those except
+protocol drift, which needs a real `codex` binary; a green local run means a
+green pipeline.
 
 Three of its checks are worth knowing before they surprise you:
 
