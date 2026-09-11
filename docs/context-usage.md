@@ -246,6 +246,56 @@ Three things the survey settled that the code had only asserted:
   metered runtime, so the rolling windows never appear under an agent whose
   allowance they are not.
 
+### Gemini CLI and Antigravity (2026-09-09)
+
+Both arrived with no ring at all, for two different reasons, and neither was
+the renderer's.
+
+| | **Gemini CLI 0.59** | **Antigravity** (ACP server 1.1.1) |
+|---|---|---|
+| Source | `PromptResponse._meta.quota` | its own conversation store |
+| On the wire | no `usage`, no `usage_update` | nothing at all |
+| Fill | — *dashed* | — *dashed* |
+| Last turn | in / out | in / out / **thinking**, **% cached** |
+| Session total | ✅ | ✅ |
+| Cache | *not reported* | reads; writes where a call names them |
+
+**Gemini CLI** sums a turn — every model call in it — and answers the prompt
+with the totals under `_meta.quota` (`token_count.input_tokens`,
+`output_tokens`, then the same per model), leaving ACP's `usage` empty. The
+adapter reads that block by its shape when `usage` is absent. There is no
+cache or thinking split in it and no window, so the ring is the dashed one and
+no cache chip is drawn. Live, a one-word reply was 13,051 in and 1 out.
+
+**Antigravity**'s local harness reports usage to its ACP server, and the
+server does not pass it on: `session/prompt` returns a stop reason and nothing
+else, and no `usage_update` is ever built. What it keeps is one SQLite store
+per conversation, `~/.gemini/antigravity-acp/conversations/<session id>.db`
+(`GEMINI_HOME` moves the `.gemini` folder), whose `gen_metadata` table holds a
+row per model call carrying Codeium's `ModelUsageStats`. So the host hands the
+adapter a *usage record* (`AcpAgentConfig.usageRecord`): a mark taken before
+the turn, and the rows added since read after it — consulted only when the
+wire carried nothing. Measured on a real 40-call store: output was thinking
+plus response on every call, and input *plus cache reads* grew call on call
+where input alone did not, so the store's input excludes the cached part and
+ACP's `inputTokens` adds it back. Live, a one-word reply was 11,650 in and 38
+out, 37 of them thinking; and on a three-call, tool-using turn the desk
+recorded exactly what the store held when the prompt resolved, nothing arrived
+in the eight seconds after, and after a restart and a resume the store was open
+and readable before the next turn. No row is counted twice: one that landed
+after its turn was read but before the next began would be missing from the
+total, and one that landed after the next turn had begun would be counted in
+that turn — neither was seen live. A turn the store cannot account for shows
+no last turn rather than the one before it. A turn with no model call is a
+turn of zero tokens, every figure a known zero, and a store
+the server holds that is not the shape measured is said once in the log. The
+store is opened read-only and only while the server holds it open: without the
+server's `-shm`, a read-only open would create one in the agent's folder, so
+such a store is left unread and the turn shows nothing rather than a guess.
+
+Neither agent says how big its window is. A model table could fill the ring,
+and the rule this document keeps is why it does not.
+
 ### The gap this survey found, and closed
 
 **Codex usage did not survive re-opening a conversation.** Switch to another

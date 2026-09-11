@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
+import { wholeFileOf } from '../lib/diff'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
 import styles from './Approvals.module.css'
@@ -87,7 +88,7 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
     {approval.changes.map((change) => (
       <div key={change.path} className={styles.fileBlock}>
         <div className={styles.filePath}>{change.path}</div>
-        <DiffView diff={change.diff} wholeFile={change.kind.type === 'add'} />
+        <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
       </div>
     ))}
   </>

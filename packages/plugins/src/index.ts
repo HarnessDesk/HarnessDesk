@@ -29,7 +29,7 @@ import { testsPlugin } from './tests.js'
 
 export { checkpointPlugin, recoveryHint, type Checkpoint } from './checkpoint.js'
 export { filesPlugin } from './files.js'
-export { gitPlugin } from './git.js'
+export { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from './git.js'
 export { callSignature, guardrailsPlugin } from './guardrails.js'
 export { searchPlugin } from './search.js'
 export { renderTodos, todoPlugin, type TodoItem, type TodoStatus } from './todo.js'

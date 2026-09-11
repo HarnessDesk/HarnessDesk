@@ -318,3 +318,39 @@ test('an installed plugin cannot point its entry at a lookalike sibling director
   await assert.rejects(() => loadInstalled(join(root, 'demo')), /points outside its own directory/)
 })
 
+test('the listing says where each plugin was installed from, as loading does', async (t) => {
+  // #45: listInstalled called every plugin a local one, at its own installed copy.
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  assert.deepEqual((await listInstalled())[0]?.source, { kind: 'local', path: FIXTURE })
+  const record = join(root, 'sample', '.harnessdesk-source.json')
+  await writeFile(record, JSON.stringify({ kind: 'npm', specifier: '@acme/sample@1.2.0' }))
+  assert.deepEqual((await listInstalled())[0]?.source, { kind: 'npm', specifier: '@acme/sample@1.2.0' })
+  // A record that is not one knows only the copy, as one from before records did.
+  await writeFile(record, 'null')
+  assert.deepEqual((await listInstalled())[0]?.source, { kind: 'local', path: join(root, 'sample') })
+})
+
+test('a record is taken only whole, and loading reads the same one the listing does', async (t) => {
+  // Round 1 of #160: a record of the right kind with nothing in it was taken as it stood.
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  const record = join(root, 'sample', '.harnessdesk-source.json')
+  const copy = { kind: 'local', path: join(root, 'sample') }
+  for (const partial of [{ kind: 'local' }, { kind: 'npm' }, { kind: 'npm', specifier: '' }, { kind: 'git', url: 'x' }]) {
+    await writeFile(record, JSON.stringify(partial))
+    assert.deepEqual((await listInstalled())[0]?.source, copy, JSON.stringify(partial))
+  }
+  await writeFile(record, JSON.stringify({ kind: 'npm', specifier: '@acme/sample@1.2.0' }))
+  assert.deepEqual((await loadInstalled(join(root, 'sample'))).manifest.source, { kind: 'npm', specifier: '@acme/sample@1.2.0' })
+})
+
+test('a record calling an installed plugin built in is not taken', async (t) => {
+  // Round 2 of #160: install() never writes `builtin`, and taking it hid the plugin's Uninstall.
+  const root = await withPluginsRoot(t)
+  await install(FIXTURE)
+  await writeFile(join(root, 'sample', '.harnessdesk-source.json'), JSON.stringify({ kind: 'builtin' }))
+  const copy = { kind: 'local', path: join(root, 'sample') }
+  assert.deepEqual((await listInstalled())[0]?.source, copy)
+  assert.deepEqual((await loadInstalled(join(root, 'sample'))).manifest.source, copy)
+})

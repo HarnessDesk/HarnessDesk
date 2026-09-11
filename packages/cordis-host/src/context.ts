@@ -5,7 +5,9 @@ import type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-import type { EditorEdit, EditorEvent, ScopeQuery, UiDecoration } from '@harnessdesk/protocol'
+import type { EditorEdit, EditorEvent, ScopeQuery, UiDecoration,
+  ForgeReference,
+} from '@harnessdesk/protocol'
 
 import type { HttpRequestInit } from './capabilities.js'
 import type {
@@ -27,6 +29,7 @@ import type {
  * plain object with `apply(ctx)`, and this is what `ctx` offers — which is also
  * the whole API surface a plugin is allowed to reach.
  */
+import type { ForgeIdentity, ForgeSeat } from './forge.js'
 
 export interface HarnessContext {
   /** Tools any agent can call. */
@@ -136,6 +139,18 @@ export interface HarnessContext {
    * model; expected outcomes (a claim someone else holds, a path conflict)
    * are sentences, not throws.
    */
+  /**
+   * What the desk adds around a git forge a plugin reaches with its own
+   * `gh`: the seat of the calling conversation, for a signature, and the
+   * record of what was published, drawn in the transcript. Requires the
+   * `forge` permission. Every verb takes the `ScopeQuery` its tool
+   * invocation carried, for the reason the team verbs do.
+   */
+  readonly forge: {
+    seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
+    identity(scope?: ScopeQuery): Promise<ForgeIdentity>
+    publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
+  }
   readonly team: {
     board(scope?: ScopeQuery): Promise<string>
     addIntent(
@@ -181,16 +196,22 @@ export interface HarnessContext {
     screenshot(): Promise<string>
     tap(x: number, y: number): Promise<void>
   }
-  /** Android devices and emulators, via adb. Requires the `android` permission. */
+  /**
+   * Android devices and emulators, via adb. Requires the `android` permission.
+   * Every call that touches a device takes an optional `serial` — one of the
+   * serials `devices()` lists. Without it adb picks the device, which it can
+   * only do when exactly one is attached; with two, the call is refused with
+   * the serials to choose from.
+   */
   readonly android: {
     devices(): Promise<readonly { serial: string; state: string; description: string }[]>
-    install(apkPath: string): Promise<void>
-    launch(target: string): Promise<void>
-    screenshot(): Promise<string>
-    tap(x: number, y: number): Promise<void>
-    key(key: string): Promise<void>
-    text(text: string): Promise<void>
-    logcat(lines?: number, tag?: string): Promise<string>
+    install(apkPath: string, serial?: string): Promise<void>
+    launch(target: string, serial?: string): Promise<void>
+    screenshot(serial?: string): Promise<string>
+    tap(x: number, y: number, serial?: string): Promise<void>
+    key(key: string, serial?: string): Promise<void>
+    text(text: string, serial?: string): Promise<void>
+    logcat(lines?: number, tag?: string, serial?: string): Promise<string>
   }
   readonly harness: {
     readonly instanceId: string

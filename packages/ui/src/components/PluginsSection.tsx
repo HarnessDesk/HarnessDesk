@@ -205,6 +205,8 @@ const grantsOf = (plugin: PluginInstance): string[] => {
   for (const host of plugin.permissions.network.hosts) out.push(`Reach ${host}`)
   if (plugin.permissions.agents.invoke) out.push('Start agents')
   if (plugin.permissions.ui.contribute) out.push('Add to the interface')
+  if (plugin.permissions.team) out.push('Message your other conversations')
+  if (plugin.permissions.forge) out.push('Sign pull requests for the conversation, and record them in it')
   return out
 }
 

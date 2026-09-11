@@ -187,3 +187,26 @@ describe('conditionFor', () => {
     expect(condition).toBeNull()
   })
 })
+
+describe('two accounts on one agent', () => {
+  it('each account crosses its own lines, and neither speaks for the other', () => {
+    // #88: the lane key had no account, so one account's reading was compared with the other's.
+    const personal = (usedPercent: number) => report('codex', [lane({ usedPercent })], { account: 'personal' })
+    const work = (usedPercent: number) => report('codex', [lane({ usedPercent })], { account: 'work' })
+    // Nothing changed for either: nothing to say, although work's 50 came last and personal sits at 90.
+    expect(crossings([personal(90), work(50)], [personal(90), work(50)], nameFor, NOON)).toEqual([])
+    // Personal crossed 80 while work stayed at 90: one alert, and it is personal's.
+    const alerts = crossings([personal(50), work(90)], [personal(85), work(90)], nameFor, NOON)
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]?.key).toContain('codex@personal:')
+  })
+})
+
+describe('a report that names no account', () => {
+  it('a report without the account field keys as one that names none', () => {
+    // Round 1 of #170: tested against null alone, a payload that left the field out keyed as `codex@undefined`.
+    const before = [report('codex', [lane({ usedPercent: 50 })])]
+    const after = [{ ...report('codex', [lane({ usedPercent: 85 })]), account: undefined as unknown as null }]
+    expect(crossings(before, after, nameFor, NOON)).toHaveLength(1)
+  })
+})

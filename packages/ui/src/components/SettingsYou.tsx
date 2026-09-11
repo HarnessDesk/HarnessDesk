@@ -267,40 +267,9 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
       />
     </Rows>
 
-    <SectionHead name="Pull requests" />
-    <AttributionRows />
-
     {rows}
   </>
 )
-
-/**
- * The one line a pull request carries about where it came from. On by
- * default: a vendor's own client signs what its agent opens, and an agent
- * driven from here would otherwise sign as nothing, or as a client it is not
- * running in. The seat in brackets is read from the conversation — the agent,
- * its model by the agent's own label, its effort — so the switch is the only
- * thing here a person can set.
- */
-const AttributionRows = () => {
-  const store = useStore()
-  const snapshot = useSnapshot()
-  return (
-    <Rows>
-      <Row
-        title="Sign pull requests"
-        desc="A pull request an agent opens from a conversation ends with “Generated with HarnessDesk”, naming the agent, model and effort that wrote it."
-        control={
-          <Toggle
-            label="Sign pull requests"
-            on={snapshot.attribution.pullRequests}
-            onChange={(next) => store.setAttribution({ pullRequests: next })}
-          />
-        }
-      />
-    </Rows>
-  )
-}
 
 /*
  * The accents, as the colours they are — read from styles/shadcn-themes.css,

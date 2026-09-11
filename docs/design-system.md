@@ -693,6 +693,41 @@ a caller that does not re-render mid-drag has been passing this component
 the *committed* size all along, and committing that put the panel straight
 back where it started.
 
+### `publicationVerb`
+
+`packages/ui/src/design/patterns/PublicationCard.tsx`
+
+The verb the transcript row leads with: what the conversation did.
+
+### `KindGlyph`
+
+`packages/ui/src/design/patterns/PublicationCard.tsx`
+
+The glyph for what was published: a pull request, a review, a comment, an issue.
+
+### `StatePill`
+
+`packages/ui/src/design/patterns/PublicationCard.tsx`
+
+A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not.
+
+### `PublicationCard`
+
+`packages/ui/src/design/patterns/PublicationCard.tsx`
+
+Something on the forge, as a card: a pull request, a review, a comment.
+
+Built on the agent card's anatomy — crest, bands, verbs — because the reader
+has learnt it there and a second anatomy for a second kind of thing would
+cost them the learning twice. What differs is the subject: a pull request
+has a state that is a judgement (merged is good news, closed without merging
+is not), so its pill takes a tone where an agent's tile takes a tint.
+
+The text on it is the forge's own. The card shows the pull request's title
+and the opening of its description exactly as GitHub holds them, which is
+how the signature at the end of a short description appears here — as part
+of the text, not as a claim the desk makes about it.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted

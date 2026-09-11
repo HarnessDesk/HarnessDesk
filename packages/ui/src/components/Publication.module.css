@@ -1,0 +1,62 @@
+/*
+ * The publication row: the desk's record of something put on the forge.
+ *
+ * Its own sheet rather than a corner of Items.module.css, because a component
+ * that reaches into a screen's stylesheet is the drift the design audit
+ * counts — and because the row is drawn wherever a transcript is, which is
+ * more than one screen.
+ */
+/* The record of something put on the forge: a verb, the thing as a chip, its
+   state. Set in the notice register — it is the desk's record beside the
+   agent's own sentence, which is the next row — and on the chip rung, so the
+   chip and the pill beside it share a height. */
+.publication {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  min-height: var(--hd-chip-h);
+  padding: var(--hd-space-0-5) 0;
+  color: var(--hdp-alias-label-secondary);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-sm);
+}
+
+.publicationIcon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.publicationVerb {
+  flex: none;
+}
+
+/* The thing itself, as a link that looks like one: the forge's mark, then
+   `owner/name #n` in the code face. A hover opens the card; a press opens the
+   page. The hairline rather than a fill, so it reads as an object beside the
+   state pill and not as a second pill. */
+.publicationChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  min-width: 0;
+  height: var(--hd-chip-h);
+  padding: 0 var(--hd-space-2);
+  border-radius: var(--hd-radius-full);
+  box-shadow: var(--hd-hairline);
+  background: var(--hdp-alias-bg-layer-1);
+  color: var(--hdp-alias-label-primary);
+  text-decoration: none;
+}
+
+.publicationChip:hover {
+  background: var(--hd-hover);
+}
+
+.publicationAddress {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--hdp-font-family-code);
+}

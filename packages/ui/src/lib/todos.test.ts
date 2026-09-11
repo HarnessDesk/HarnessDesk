@@ -116,6 +116,18 @@ describe('planOf', () => {
     ).toEqual(['keep'])
   })
 
+  it('reads the same list todo_write takes: the first that holds a readable task, in the call\'s order', () => {
+    expect(planOf({ tasks: [{}], todos: [{ task: 'ship' }] })?.map((todo) => todo.label)).toEqual(['ship'])
+    expect(planOf({ todos: [{ task: 'b' }], tasks: [{ task: 'a' }] })?.map((todo) => todo.label)).toEqual(['b'])
+  })
+
+  it('reads a list whose tasks were all cancelled as a plan put down', () => {
+    // #58, found in review: read as "said nothing", it brought back the plan before.
+    expect(planOf({ tasks: [{ task: 'design', status: 'cancelled' }, { task: 'build', status: 'cancelled' }] })).toEqual([])
+    // Entries with nothing readable are still not a plan at all.
+    expect(planOf({ tasks: [{}, 42] })).toBeNull()
+  })
+
   it('does not read a CI tool’s own steps as the conversation’s plan', () => {
     expect(planOf({ steps: [{ title: 'Build', status: 'completed' }] })).toBeNull()
   })
@@ -153,6 +165,20 @@ describe('sessionPlan', () => {
     expect(plan?.map((todo) => todo.label)).toEqual(['move the worktree', 'run the tests'])
     expect(plan?.[0]?.done).toBe(true)
     expect(plan?.[1]?.active).toBe(true)
+  })
+
+  it('a plan whose tasks were all cancelled is put down, not replaced by the one before', () => {
+    const plan = sessionPlan(
+      session([
+        { id: 't1', status: 'completed', items: [call('c1', 'todo_write', { tasks: [{ task: 'design' }, { task: 'build' }] })] },
+        {
+          id: 't2',
+          status: 'completed',
+          items: [call('c2', 'todo_write', { tasks: [{ task: 'design', status: 'cancelled' }, { task: 'build', status: 'cancelled' }] })],
+        },
+      ]),
+    )
+    expect(plan).toEqual([])
   })
 
   it("takes a turn's own plan updates, which is how Codex and ACP report one", () => {
@@ -252,3 +278,14 @@ describe('sessionPlan', () => {
     expect(sessionPlan(null)).toBeNull()
   })
 })
+
+it('reads a list cancelled under todos, in any spelling, as a plan put down', () => {
+  // Round 3 of #151: pinned under `tasks` alone, and by the one spelling.
+  expect(planOf({ todos: [{ content: 'design', status: 'TODO_STATUS_CANCELLED' }, { content: 'build', status: 'cancelled' }] })).toEqual([])
+})
+
+it('reads an unreadable entry beside a cancelled one as a plan put down, as todo_write does', () => {
+  // Round 3 of #151: the one task that can be read was cancelled, and the other says nothing.
+  expect(planOf({ tasks: [{}, { task: 'design', status: 'cancelled' }] })).toEqual([])
+})
+

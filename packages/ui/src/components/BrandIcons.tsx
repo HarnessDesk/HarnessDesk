@@ -6,6 +6,7 @@ import claudecode from '@lobehub/icons-static-svg/icons/claudecode.svg?raw'
 import cursor from '@lobehub/icons-static-svg/icons/cursor.svg?raw'
 import geminicli from '@lobehub/icons-static-svg/icons/geminicli.svg?raw'
 import githubcopilot from '@lobehub/icons-static-svg/icons/githubcopilot.svg?raw'
+import github from '@lobehub/icons-static-svg/icons/github.svg?raw'
 import antigravity from '@lobehub/icons-static-svg/icons/antigravity.svg?raw'
 import cline from '@lobehub/icons-static-svg/icons/cline.svg?raw'
 import windsurf from '@lobehub/icons-static-svg/icons/windsurf.svg?raw'
@@ -193,6 +194,39 @@ export const BrandMark = ({ brand, size = 16, label, className, ...rest }: Brand
   />
 )
 BrandMark.displayName = 'BrandMark'
+
+/**
+ * GitHub's mark, for the forge rather than for an agent.
+ *
+ * Not a `Brand`: that union names the makers of agents and models, which is
+ * what the sign-in and add pages list, and a forge is none of those. It is
+ * drawn by the same wrapper so it sits in a chip beside Lucide's strokes at
+ * the same size and in the same colour.
+ */
+const GITHUB_PATHS = pathsOf(github)
+const GITHUB_BOX = /viewBox="([^"]+)"/.exec(github)?.[1] ?? '0 0 24 24'
+
+export const GitHubMark = ({
+  size = 16,
+  label,
+  className,
+  ...rest
+}: Omit<BrandMarkProps, 'brand'>) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox={GITHUB_BOX}
+    width={size}
+    height={size}
+    fill="currentColor"
+    fillRule="evenodd"
+    className={['brand', 'brand-github', className].filter(Boolean).join(' ')}
+    focusable="false"
+    {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
+    {...rest}
+    dangerouslySetInnerHTML={{ __html: GITHUB_PATHS }}
+  />
+)
+GitHubMark.displayName = 'GitHubMark'
 
 /**
  * An agent's mark, or the generic agent glyph when it has none — the choice

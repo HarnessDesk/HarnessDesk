@@ -21,7 +21,9 @@ import type { Readable, Writable } from 'node:stream'
 import {
   chatPath,
   cursorMeta,
+  contextLabel,
   findChatWorkspace,
+  firstLine,
   readAllChats,
   readChatMode,
   readChatPreview,
@@ -446,9 +448,43 @@ const withContext = (known: Parameterised, context: string): Parameterised | nul
  */
 export const titleOf = (text: string): string => {
   const stripped = stripEnvelope(text)
-  const line = (stripped || text.trim()).split('\n').find((entry) => entry.trim() !== '') ?? ''
-  return line.trim().slice(0, 80)
+  /* A message that is nothing but a context block has no line of the user's
+     to be named by, and falling back to the raw text named the conversation
+     `<context source="…">`, the envelope written for the model (#47). What
+     the block says it is, in its `source`, is written for people; without
+     one, there is no title. The label is read by the protocol's own reader:
+     `wrapContext` writes it with JSON.stringify, and a pattern of this
+     file's own stopped at the first `\"` (review, round 1). */
+  return stripped ? firstLine(stripped) : contextLabel(text)
 }
+
+/**
+ * A stored name, read. Before #47's fix, a conversation that opened with only
+ * a context block was stored under the envelope's first line,
+ * `<context source="…">`, for good. That line is read as its label now, and an
+ * envelope whose label can't be read as no name at all, so the next turn names
+ * it (review, round 4).
+ */
+const storedName = (stored: string | null | undefined): string | null => {
+  if (!stored) return null
+  if (!/^<context\b/.test(stored)) return stored
+  const quoted = /^<context\s+source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
+  if (quoted === undefined) return null
+  try {
+    return firstLine(JSON.parse(quoted) as string) || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What a conversation's row is called: what it was called before, if that
+ * said anything, or this turn's title, or nothing. An empty preview is no
+ * preview; kept with `??`, one written by a context-only first turn named
+ * the conversation nothing for good (review, round 1).
+ */
+export const previewFor = (stored: string | null | undefined, text: string): string | null =>
+  storedName(stored) || titleOf(text) || null
 
 export { cursorMeta } from './store.js'
 
@@ -481,13 +517,33 @@ interface SessionRow {
  *
  * Copied into `@harnessdesk/transport-acp`, the client half, and into
  * `@harnessdesk/claude-acp`, the other bridge that serves it. Copied rather
- * than shared because this bridge carries no HarnessDesk dependency and is
- * meant to keep it that way. Change one, change the others.
+ * than shared: this bridge's one HarnessDesk dependency is
+ * `@harnessdesk/protocol`, for reading context blocks (#47), and the name
+ * isn't in it. Change one, change the others.
  */
 const SESSION_DELETE = '_harnessdesk/session/delete'
 
 /** What this bridge declares in `initialize`'s `_meta` when it serves it. */
 const SESSION_DELETE_CAPABILITY = 'deleteSession'
+
+/**
+ * A standing instruction the client hands a session under
+ * `_meta.harnessdesk.instructions`. `cursor-agent` has no instruction layer
+ * a print-mode turn can reach — no system prompt flag, no rules file this
+ * bridge should write into the person's project — so the sentence rides
+ * ahead of the first prompt of each opened session, once: the chat keeps
+ * its context across `--resume`, and a briefing repeated on every turn
+ * would be noise the model has already read. Declared in the handshake
+ * under the same key, so a client knows the channel exists.
+ */
+const INSTRUCTIONS_CAPABILITY = 'instructions'
+
+const briefingOf = (params: Record<string, unknown>): string | null => {
+  const meta = params['_meta']
+  const ours = typeof meta === 'object' && meta !== null ? (meta as Record<string, unknown>)['harnessdesk'] : undefined
+  const text = typeof ours === 'object' && ours !== null ? (ours as Record<string, unknown>)[INSTRUCTIONS_CAPABILITY] : undefined
+  return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
+}
 
 const readIndex = (): StoredSession[] => {
   try {
@@ -740,6 +796,9 @@ interface Session {
   pluginDir: string | null
   /** Images written to disk for this conversation so far; names the next file. */
   imageCount: number
+  /** The client's standing instruction, sent ahead of the first prompt; see `INSTRUCTIONS_CAPABILITY`. */
+  briefing: string | null
+  briefed: boolean
   child: ChildProcess | null
   cancelled: boolean
   /**
@@ -843,7 +902,7 @@ export class CursorAcpBridge {
           authMethods: [],
           // ACP can list a chat but not remove one. This bridge knows where
           // Cursor keeps them, so it serves the extension that can.
-          _meta: { harnessdesk: { [SESSION_DELETE_CAPABILITY]: true } },
+          _meta: { harnessdesk: { [SESSION_DELETE_CAPABILITY]: true, [INSTRUCTIONS_CAPABILITY]: true } },
         }
       case 'session/new':
         return this.#newSession(params)
@@ -1100,6 +1159,7 @@ export class CursorAcpBridge {
     cwd: string,
     modeId: string | null = null,
     pluginDir: string | null = null,
+    briefing: string | null = null,
   ): Promise<unknown> {
     const families = await this.#families()
     const session: Session = {
@@ -1117,6 +1177,8 @@ export class CursorAcpBridge {
       sandbox: 'default',
       pluginDir,
       imageCount: 0,
+      briefing,
+      briefed: false,
       child: null,
       cancelled: false,
     }
@@ -1178,7 +1240,7 @@ export class CursorAcpBridge {
     // Not remembered yet: a chat becomes a conversation on its first prompt.
     // Options probes and abandoned drafts create chats too, and indexing
     // them filled the session list with untitled rows nobody had spoken to.
-    return this.#openSession(chatId, cwd, null, servers ? writeToolPlugin(chatId, servers) : null)
+    return this.#openSession(chatId, cwd, null, servers ? writeToolPlugin(chatId, servers) : null, briefingOf(params))
   }
 
   /**
@@ -1214,6 +1276,7 @@ export class CursorAcpBridge {
       cwd,
       readChatMode(sessionId, cwd, MODE_IDS),
       servers ? writeToolPlugin(sessionId, servers) : null,
+      briefingOf(params),
     )
   }
 
@@ -1287,7 +1350,7 @@ export class CursorAcpBridge {
         // Cursor's own transcript first: it holds the ask the conversation
         // opened with, where this bridge's index holds whatever was last
         // sent through it — and a conversation is named by how it began.
-        preview: this.#preview(chat.chatId, chat.cwd, chat.updatedAt) ?? ours?.preview ?? null,
+        preview: this.#preview(chat.chatId, chat.cwd, chat.updatedAt) ?? storedName(ours?.preview),
         updatedAt: new Date(Math.max(chat.updatedAt, seen)).toISOString(),
       })
     }
@@ -1298,7 +1361,7 @@ export class CursorAcpBridge {
         sessionId: row.sessionId,
         cwd: row.cwd,
         title: cursorMeta(row.sessionId, row.cwd).title,
-        preview: row.preview,
+        preview: storedName(row.preview),
         updatedAt: row.updatedAt,
       })
     }
@@ -1456,12 +1519,17 @@ export class CursorAcpBridge {
       // directory is the one HarnessDesk itself offered.
       ...(session.pluginDir ? ['--plugin-dir', session.pluginDir, '--approve-mcps'] : []),
       '--', // a prompt that begins with `-` must stay a prompt
-      text,
+      // The client's briefing rides ahead of the first prompt only; the chat
+      // remembers it from there. Marked briefed only once a turn has run
+      // (below): a turn stopped at the start gate, or a spawn that died
+      // before its first word and was not retried, never showed it to the
+      // agent, and the next prompt carries it again.
+      session.briefing && !session.briefed ? `${session.briefing}\n\n${text}` : text,
     ]
 
     session.cancelled = false
     const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
-    this.#rememberSession(session.chatId, session.cwd, asked ?? titleOf(text))
+    this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text))
 
     for (let attempt = 1; ; attempt += 1) {
       const spoke = { yet: false }
@@ -1474,7 +1542,11 @@ export class CursorAcpBridge {
         return { stopReason: 'cancelled' }
       }
       try {
-        return await this.#runTurn(session, args, configHome, spoke, leave)
+        const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
+        // The agent has read the prompt — briefing included — whatever the
+        // turn's outcome; the chat remembers it under `--resume`.
+        session.briefed = true
+        return outcome
       } catch (error) {
         leave()
         const said = error instanceof Error ? error.message : String(error)

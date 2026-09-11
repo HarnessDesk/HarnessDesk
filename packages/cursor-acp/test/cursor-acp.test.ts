@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { wrapContext } from '@harnessdesk/protocol'
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
 import type { AgentEvent, AgentItem } from '@harnessdesk/protocol'
@@ -16,7 +17,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 import { SCRATCH_TMP, tempDir } from './scratch.js'
 
-import { cursorMeta, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
+import { cursorMeta, previewFor, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
 
 /**
  * The bridge under the real HarnessDesk ACP adapter — the full path a user's
@@ -594,7 +595,100 @@ test('a title is the first line the user wrote, not the context block prepended 
     titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>\n\nAdd a New game button'),
     'Add a New game button',
   )
-  assert.equal(titleOf('<context source="x">only context</context>'), '<context source="x">only context</context>'.slice(0, 80))
+  assert.equal(titleOf('<context source="x">only context</context>'), 'x')
+})
+
+test('a message that is only a context block is named by what the block says it is, never by its markup', () => {
+  // #47: with nothing of the user's left, the title fell back to the raw envelope.
+  assert.equal(
+    titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>'),
+    'Handed off from Claude Code — “x”',
+  )
+  assert.equal(titleOf('<context>only context</context>'), '')
+  // Round 1 of #167: the envelope writes its label with JSON.stringify, so a quote or a backslash arrives escaped.
+  for (const label of ['Handed off from Claude Code — “fix: "404" on reload”', 'Handed off from C:\\work\\retry', 'Plain']) {
+    assert.equal(titleOf(wrapContext(label, '## Goal\nstuff')), label, label)
+  }
+})
+
+test('a message of several context blocks is named by the first, and by one line of it', () => {
+  // Round 3 of #167: which block names it is pinned here, and a label with a line break in it put the rest in the row.
+  assert.equal(titleOf(`${wrapContext('Handed off from Claude Code', 'a')}\n\n${wrapContext('Git', 'b')}`), 'Handed off from Claude Code')
+  assert.equal(titleOf(wrapContext('Handed off\nfrom Claude Code', 'body')), 'Handed off')
+})
+
+test('a stored preview that says nothing gives way to the next turn\'s title', () => {
+  // Round 1 of #167: an empty preview from a context-only first turn was kept with ??, for good.
+  assert.equal(previewFor('', 'Fix the bug'), 'Fix the bug')
+  assert.equal(previewFor(undefined, '<context>only context</context>'), null)
+  assert.equal(previewFor('Earlier name', 'Fix the bug'), 'Earlier name')
+})
+
+test('a preview an older bridge stored as the envelope’s first line reads as its label', () => {
+  // Round 4 of #167: rows written before #47's fix kept `<context source="…">` as their name for good.
+  assert.equal(previewFor('<context source="Handed off from Claude Code — \\"x\\"">', 'Fix the bug'), 'Handed off from Claude Code — "x"')
+  assert.equal(previewFor('<context>', 'Fix the bug'), 'Fix the bug', 'an envelope with no label is no name')
+  assert.equal(previewFor('<context source="Handed off', 'Fix the bug'), 'Fix the bug', 'nor is a label cut short')
+})
+
+test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {
+  // Round 3 of #167: titleOf and previewFor were tested alone, never through a turn into sessions.json.
+  const dir = tempDir('cursor-acp-preview-')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const turns = () => tape.events.filter((event) => event.type === 'turn/completed').length
+  const say = async (session: Awaited<ReturnType<AcpRuntime['createSession']>>, text: string) => {
+    const done = turns() + 1
+    await session.send([{ type: 'text', text }])
+    await tape.until(() => turns() >= done, 20_000)
+  }
+  const preview = (id: unknown) =>
+    (JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8')) as { sessions: { sessionId: string; preview: string | null }[] }).sessions.find(
+      (row) => row.sessionId === String(id),
+    )?.preview
+  const ids: string[] = []
+  try {
+    const labelled = await runtime.createSession({ cwd: WORKDIR })
+    ids.push(String(labelled.id))
+    await say(labelled, wrapContext('Handed off from Claude Code', '## Goal\nstuff'))
+    assert.equal(preview(labelled.id), 'Handed off from Claude Code', 'named by the label, not the markup')
+    await say(labelled, 'Fix the bug')
+    assert.equal(preview(labelled.id), 'Handed off from Claude Code', 'and the name stays')
+
+    const unlabelled = await runtime.createSession({ cwd: WORKDIR })
+    ids.push(String(unlabelled.id))
+    await say(unlabelled, '<context>only context</context>')
+    assert.equal(preview(unlabelled.id), null, 'nothing to be named by yet')
+    await say(unlabelled, 'Fix the bug')
+    assert.equal(preview(unlabelled.id), 'Fix the bug', 'so the next turn names it')
+  } finally {
+    await runtime.dispose()
+  }
+  // The list a desk reads after a restart: conversations not open in this
+  // process are the bridge's own session/list, where the name is read.
+  const later = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir },
+  })
+  await later.start()
+  try {
+    const listed = await later.listSessions({ cwd: WORKDIR })
+    const named = (id: string | undefined) => listed.data.find((row) => String(row.id) === id)?.preview
+    assert.equal(named(ids[0]), 'Handed off from Claude Code', 'the list names it by its label')
+    assert.equal(named(ids[1]), 'Fix the bug', 'and the unlabelled one by its next turn')
+  } finally {
+    await later.dispose()
+  }
 })
 
 test('the model list ages out, so a long-lived bridge sees models Cursor adds later', async () => {
@@ -763,6 +857,28 @@ test('Cursor’s store lists the workspace’s chats, newest first, and skips th
     ],
   )
   assert.equal(readWorkspaceChats('/tmp/a-workspace-cursor-never-saw', home).length, 0)
+})
+
+test('a chat that opened with only a context block is named by its label, in Cursor’s transcript too', () => {
+  // Round 4 of #167: the transcript skipped a context-only opening, so the list named the chat by its second message.
+  const home = tempDir('cursor-store-')
+  const cwd = '/tmp/preview-workspace'
+  writeChat(home, cwd, 'labelled', {
+    messages: [
+      { role: 'user', text: `<user_query>\n${wrapContext('Handed off from Claude Code', '## Goal\nstuff')}\n</user_query>` },
+      { role: 'assistant', text: 'Read it.' },
+      { role: 'user', text: '<user_query>\nFix the bug\n</user_query>' },
+    ],
+  })
+  assert.equal(readChatPreview('labelled', cwd, home), 'Handed off from Claude Code')
+  // A block with no label names nothing, and the next message names the chat.
+  writeChat(home, cwd, 'unlabelled', {
+    messages: [
+      { role: 'user', text: '<user_query>\n<context>only context</context>\n</user_query>' },
+      { role: 'user', text: '<user_query>\nFix the bug\n</user_query>' },
+    ],
+  })
+  assert.equal(readChatPreview('unlabelled', cwd, home), 'Fix the bug')
 })
 
 /**
@@ -1164,6 +1280,53 @@ test('a scratch config that will not go into place is removed, and the turn stil
     assert.equal(turn.status, 'completed')
     const left = readdirSync(join(state, 'cli-config')).filter((name) => name.endsWith('.tmp'))
     assert.deepEqual(left, [], 'no scratch file survives a failed rename')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
+ * The client's standing instruction rides ahead of the first prompt of an
+ * opened session, and only there — but "first" means the first the agent
+ * read. A spawn that died before its first word and was not retried never
+ * showed it; the next prompt carries it again. A second turn after a turn
+ * that ran does not.
+ */
+test('the briefing goes ahead of the first prompt the agent reads, and not again after that', async () => {
+  const log = join(tempDir('cursor-acp-briefing-'), 'spawns')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME, FAKE_CURSOR_SPAWN_LOG: log },
+    instructions: () => 'Use the pr_create tool rather than gh.',
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    // A refusal the bridge does not retry: the agent died before reading anything.
+    await session.send([{ type: 'text', text: 'named-refusal first' }])
+    const refused = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    assert.notEqual(refused.status, 'completed', 'the first spawn died, as the fixture makes it')
+    // One entry per spawn: the prompt has newlines of its own, so the log is
+    // split where a timestamp starts a new line, not on every newline.
+    const entries = (): string[] =>
+      existsSync(log) ? readFileSync(log, 'utf8').trim().split(/\n(?=\d{13} )/).map((entry) => entry.replace(/^\d{13} /, '')) : []
+    const before = entries().length
+
+    await session.send([{ type: 'text', text: 'hello for real' }])
+    await tape.until((event) => event.type === 'turn/completed' && event.turn.status === 'completed')
+    const prompts = entries().slice(before)
+    assert.equal(prompts.length, 1)
+    assert.match(prompts[0] ?? '', /^Use the pr_create tool rather than gh\.\n\nhello for real/, 'the briefing is still ahead of the first prompt the agent reads')
+
+    await session.send([{ type: 'text', text: 'and again' }])
+    await tape.until((event) => event.type === 'turn/completed' && entries().length > before + 1)
+    const again = entries().at(-1) ?? ''
+    assert.doesNotMatch(again, /pr_create/, 'once read, the briefing is not repeated')
+    assert.match(again, /^and again/)
   } finally {
     await runtime.dispose()
   }

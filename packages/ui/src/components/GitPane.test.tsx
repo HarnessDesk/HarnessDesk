@@ -55,8 +55,8 @@ const REFS: GitRefsSummary = {
   headSha: 'aaaa111',
   branch: 'main',
   branches: [
-    { name: 'main', sha: 'aaaa111', current: true, committedAt: 1, upstream: 'origin/main', ahead: 2, behind: 0 },
-    { name: 'feat/graph', sha: 'bbbb222', current: false, committedAt: 1, upstream: null, ahead: 0, behind: 0 },
+    { name: 'main', sha: 'aaaa111', current: true, committedAt: 1, upstream: 'origin/main', ahead: 2, behind: 0, gone: false },
+    { name: 'feat/graph', sha: 'bbbb222', current: false, committedAt: 1, upstream: null, ahead: 0, behind: 0, gone: false },
   ],
   remotes: [{ remote: 'origin', name: 'main', sha: 'aaaa111', committedAt: 1 }],
   tags: [{ name: 'v1', sha: 'bbbb222', at: 1 }],
@@ -959,3 +959,49 @@ it('the conflict banner goes when the tree no longer has conflicts', async () =>
   })
   expect(container.querySelector('[role="status"]')).toBeNull()
 })
+
+it('a branch whose upstream is gone says so, and Pull says why it cannot', async () => {
+  // #98: `[gone]` read as level: zero ahead, zero behind, and a Pull that could only fail.
+  const [main, feature] = REFS.branches
+  await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
+  const pull = button('Pull')
+  expect(pull.disabled).toBe(true)
+  expect(pull.title).toBe('The branch this one tracks, origin/main, is gone.')
+  const current = container.querySelector('[class*="_railRow_"][data-current]')
+  expect(current?.textContent).toContain('main')
+  expect(current?.textContent).toContain('gone')
+})
+
+it("the branch menu's Pull says the upstream is gone, and Push stays", async () => {
+  // Round one: the toolbar's Pull was tested, and the branch menu's was not.
+  const [main, feature] = REFS.branches
+  await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
+  await rightClick(container.querySelector('[class*="_railRow_"][data-current]')!)
+  const item = (label: string) =>
+    [...document.querySelectorAll('button')].find((node) => node.textContent?.includes(label)) as HTMLButtonElement | undefined
+  const pull = item('Pull origin/main')
+  expect(pull?.disabled || pull?.getAttribute('aria-disabled') === 'true').toBe(true)
+  expect(pull?.textContent).toContain('The branch this one tracks, origin/main, is gone.')
+  const push = item('Push to origin/main')
+  expect(push?.disabled || push?.getAttribute('aria-disabled') === 'true').toBe(false)
+})
+
+it('a file staged and then changed again is one file to commit, not two', async () => {
+  // #31: status lists such a file once a column; the badge, the banner and the dialog count files.
+  const TWICE: typeof DIRTY = {
+    ...DIRTY,
+    files: [
+      { path: 'src/a.ts', status: 'modified', staged: true },
+      { path: 'src/a.ts', status: 'modified', staged: false },
+    ],
+  }
+  await mount({ log: [commit('aaaa1111111', 'tip')], status: TWICE })
+  const bar = container.querySelector('[role="toolbar"]')!
+  const commitBtn = [...bar.querySelectorAll('button')].find((node) => node.textContent?.includes('Commit'))!
+  expect(commitBtn.textContent).toContain('1')
+  expect(commitBtn.textContent).not.toContain('2')
+  await act(async () => button('Commit').click())
+  const rows = [...document.querySelectorAll('[role="checkbox"]')].filter((node) => node.textContent?.includes('src/a.ts'))
+  expect(rows).toHaveLength(1)
+})
+

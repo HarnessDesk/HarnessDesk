@@ -1,7 +1,7 @@
 import type { AgentItem, FileChange, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
-import { countChanges } from './diff'
+import { countFileChange } from './diff'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'
 
 /**
@@ -88,10 +88,11 @@ export interface FileTotal {
 export const totalsByFile = (changes: readonly FileChange[]): FileTotal[] => {
   const byPath = new Map<string, FileTotal & { readonly first: FileChange['kind']['type'] }>()
   for (const change of changes) {
-    const counts = countChanges(change.diff)
-    const lines = change.diff.length === 0 ? 0 : change.diff.split('\n').filter((line) => line.length > 0).length
-    const added = change.kind.type === 'add' ? lines : change.kind.type === 'delete' ? 0 : counts.added
-    const removed = change.kind.type === 'delete' ? lines : change.kind.type === 'add' ? 0 : counts.removed
+    /* By the rule the file view draws with (`countFileChange`), so these
+       totals and the badge on the change itself agree. This counted an added
+       or deleted file's non-empty lines, so a blank line in one was drawn
+       and not counted (review, round 2). */
+    const { added, removed } = countFileChange(change)
     const previous = byPath.get(change.path)
     byPath.set(change.path, {
       path: change.path,

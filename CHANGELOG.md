@@ -13,15 +13,35 @@ move is real work and is not news to a person weighing an upgrade.
   settings rail and is one press from the seat's menu. The same face marks
   what you say in a room. “HarnessDesk” and the house mark stay the default,
   and Reset to default puts them back. Kept on this Mac; nothing syncs.
-- **Pull requests say which seat wrote them** — an agent asked to open or
-  update a pull request from a conversation ends its description with
-  “🤖 Generated with [HarnessDesk](https://harnessdesk.app) (agent model ·
-  effort)”, in the agent's own labels. The instruction rides beside the turn
-  as “Context added”, once per conversation and again when the model or
-  effort changes. Off under Settings → General → Sign pull requests.
+- **Gemini CLI and Antigravity show the context ring** — Gemini CLI counts a
+  turn's tokens in its own slot on the prompt response rather than ACP's
+  `usage` field, and Antigravity's server puts none on the wire at all but
+  records every model call in its own conversation store; the desk now reads
+  both. Neither says how big its context window is, so theirs is the dashed
+  ring, with the last turn's and the session's tokens beneath it.
+- **The account menu says who an agent is signed in as** — Gemini CLI shows
+  the Google account it signed in with (or “Gemini API key”), Cline its Cline
+  account, each read from the agent's own files. Antigravity shows how it
+  signed in, “Google account”: its server keeps the address in the keychain
+  and nowhere the desk may read.
+- **Google Antigravity is now Antigravity**, wherever the desk names it —
+  rows already added under the registry's longer name included.
+- **Pull requests are published through the desk** — the Git plugin gains
+  `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`,
+  `issue_view` and `issue_comment`, reaching GitHub with your own `gh`. A pull
+  request an agent opens or edits with them ends with “🤖 Generated with
+  [HarnessDesk](https://harnessdesk.app) (agent model · effort)”, in the
+  agent's own labels, and a review opens with “Review by … · via
+  HarnessDesk”; both lines are templates under Settings → Plugins → Git, and a
+  blank one signs nothing. What was published appears in the conversation as
+  a row — the pull request as a chip with its state, a card with GitHub's own
+  text behind it — and under the turn's summary. Every agent is told, in one
+  sentence through its own instruction layer, to use the tools; nothing is
+  added to your messages. This replaces the “Context added” envelope and the
+  General → Sign pull requests switch.
 - **An agent the desk cannot ask is no longer “Needs sign-in”** — an ACP
-  agent with no status command and no stored key (Gemini CLI, Google
-  Antigravity, Cline) read as signed out while it was opening pull requests.
+  agent with no status command and no stored key (Gemini CLI, Antigravity,
+  Cline) read as signed out while it was opening pull requests.
   Its state is now what its own answers showed: a conversation that opened
   reads “Signed in”, a refusal for want of a sign-in offers the agent's
   declared methods in its own words, and until either has happened the desk

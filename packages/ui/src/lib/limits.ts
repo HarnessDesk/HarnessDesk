@@ -120,8 +120,11 @@ export const describeLimits = (limits: RateLimits | null | undefined, now = Date
 
   const credits = limits.unlimited
     ? { label: 'unlimited', tone: 'good' as const }
-    : limits.hasCredits && limits.balance
-      ? { label: `${limits.balance.toLocaleString()} credits`, tone: 'good' as const }
+    : // A balance of 0 is a balance: read as a truth value it was none at all (#85).
+      // NaN is a number to typeof, and it's what Number() makes of a balance
+      // string that isn't one; that's no balance either (review, round 1).
+      limits.hasCredits && typeof limits.balance === 'number' && Number.isFinite(limits.balance)
+      ? { label: `${limits.balance.toLocaleString()} credits`, tone: limits.balance > 0 ? ('good' as const) : ('bad' as const) }
       : null
 
   return { blocked, usage, windows, credits }

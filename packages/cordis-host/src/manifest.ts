@@ -66,6 +66,7 @@ export const readPermissions = (value: unknown): PluginPermissions => {
     android: source['android'] === true,
     editor: source['editor'] === true,
     team: source['team'] === true,
+    forge: source['forge'] === true,
     secrets: asStringArray(source['secrets']),
   }
 }
@@ -145,6 +146,11 @@ export const describePermissions = (permissions: PluginPermissions): string[] =>
   // state. One line that says both, in the order of what it can cost.
   if (permissions.team) {
     out.push('Message your other conversations, and share their task board')
+  }
+  // What the grant adds is the desk's part — the seat and the record — not
+  // the reach, which is the shell's and gh's; the sentence names the part.
+  if (permissions.forge) {
+    out.push('Sign pull requests and reviews for the conversation, and put what it published in the transcript')
   }
   if (permissions.workspace.read) out.push('Read files in the open project')
   if (permissions.workspace.write) out.push('Change files in the open project')

@@ -18,6 +18,18 @@ interface Config {
 const DEFAULT_MAX_RESULTS = 80
 const DEFAULT_MAX_LINE = 300
 
+/**
+ * A note for results ripgrep gave while also failing — a folder it could not
+ * read beside files it could — so a partial answer is not read as a whole
+ * one (review, round one). Exit 1 is "nothing found", which is an answer;
+ * 2 is an error.
+ */
+const partial = (result: { readonly exitCode: number; readonly stderr: string }): string => {
+  if (result.exitCode < 2) return ''
+  const said = result.stderr.trim().split('\n').filter(Boolean).at(-1)
+  return `\n\n[ripgrep hit an error, so this may be incomplete${said ? `: ${said}` : ''}]`
+}
+
 export const searchPlugin: HarnessPlugin = {
   manifest: {
     id: 'search',
@@ -36,7 +48,9 @@ export const searchPlugin: HarnessPlugin = {
     name: 'search',
     inject: ['tools', 'shell', 'workspace'],
     apply(ctx: HarnessContext, config: Config) {
-      const maxResults = Math.min(Math.max(config?.maxResults ?? DEFAULT_MAX_RESULTS, 1), 500)
+      // Whole: it is ripgrep's `--max-count` too now, and ripgrep refuses a
+      // fraction, so a setting of 10.5 failed every search (review, round two).
+      const maxResults = Math.trunc(Math.min(Math.max(config?.maxResults ?? DEFAULT_MAX_RESULTS, 1), 500))
       const maxLine = Math.max(config?.maxLineLength ?? DEFAULT_MAX_LINE, 40)
 
       const requireRoot = (): string => {
@@ -72,7 +86,15 @@ export const searchPlugin: HarnessPlugin = {
           if (!(await hasRipgrep())) {
             return 'ripgrep (`rg`) is not installed, so workspace search is unavailable. Install it with `brew install ripgrep`.'
           }
-          const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', '20']
+          /* `--max-count` is ripgrep's cap *per file*, not in total. At 20, a
+             file with more matches than that was cut at twenty however high
+             the caller's limit was, and whether or not anything else matched
+             (#53). A file may now give one more than the result can show —
+             the one more is what lets a file with too many matches still say
+             so below, where a cap of exactly `maxResults` cut it there in
+             silence (review, round one) — and the total is cut to
+             `maxResults`. */
+          const argv = ['--line-number', '--no-heading', '--color', 'never', '--max-count', String(maxResults + 1)]
           if (args.ignoreCase) argv.push('--ignore-case')
           if (args.glob) argv.push('--glob', args.glob)
           argv.push('--regexp', args.pattern)
@@ -90,8 +112,9 @@ export const searchPlugin: HarnessPlugin = {
           const lines = result.stdout.split('\n').filter(Boolean)
           const shown = lines.slice(0, maxResults).map(clip)
           return lines.length > maxResults
-            ? `${shown.join('\n')}\n\n[${lines.length - maxResults} more matches not shown — narrow the pattern]`
-            : shown.join('\n') || 'No matches.'
+            ? // "At least": a file past the per-file cap above counts only up to it.
+              `${shown.join('\n')}\n\n[at least ${lines.length - maxResults} more matches not shown — narrow the pattern]${partial(result)}`
+            : `${shown.join('\n')}${partial(result)}` || 'No matches.'
         },
       })
 
@@ -111,11 +134,20 @@ export const searchPlugin: HarnessPlugin = {
             return 'ripgrep (`rg`) is not installed, so file search is unavailable. Install it with `brew install ripgrep`.'
           }
           const result = await ctx.shell.run('rg', ['--files', '--glob', args.glob, '.'])
+          /* ripgrep exits 1 for "no files", which is an answer, and 2 for an
+             error — a glob it cannot parse, a path it cannot read — which is
+             not. Both read as "No files match.", so an agent that wrote `[`
+             for a bracket was told the workspace had nothing of the kind
+             (#54). The reading search_text already had. */
+          if (result.exitCode !== 0 && result.stdout.trim().length === 0) {
+            const stderr = result.stderr.trim()
+            return stderr.length > 0 ? `File search failed: ${stderr}` : 'No files match.'
+          }
           const files = result.stdout.split('\n').filter(Boolean)
           if (files.length === 0) return 'No files match.'
           return files.length > maxResults
-            ? `${files.slice(0, maxResults).join('\n')}\n\n[${files.length - maxResults} more]`
-            : files.join('\n')
+            ? `${files.slice(0, maxResults).join('\n')}\n\n[${files.length - maxResults} more]${partial(result)}`
+            : `${files.join('\n')}${partial(result)}`
         },
       })
     },

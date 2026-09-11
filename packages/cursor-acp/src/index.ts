@@ -1,4 +1,4 @@
-export { CursorAcpBridge, titleOf, cursorMeta, readCursorSkills, type BridgeOptions } from './bridge.js'
+export { CursorAcpBridge, titleOf, previewFor, cursorMeta, readCursorSkills, type BridgeOptions } from './bridge.js'
 export {
   chatPath,
   findChatWorkspace,

@@ -308,6 +308,7 @@ export class FakeRuntime implements AgentRuntime {
       extensionStore: false,
       hooks: false,
       pluginTools: false,
+      instructions: false,
       backgroundTasks: true,
       archiveHistory: true,
   nameHistory: true,

@@ -219,7 +219,7 @@ test('a dated model id finds its undated price', async () => {
   })
   await pricing.warm()
   const rates = pricing.rateFor('claude-haiku-4-5-20251001')
-  assert.equal(rates?.input, 1 / 1_000_000, 'the longest matching family wins')
+  assert.equal(rates?.input, 1 / 1_000_000, 'a dated id is priced as its undated name, not as a shorter family')
 })
 
 test('a model we cannot attribute to a vendor stays unpriced', async () => {
@@ -406,3 +406,175 @@ test('a chunk boundary that lands between the CR and the LF is still one line br
   assert.equal(result.rows[0]?.requests, 2, 'both records survive the split terminator')
   assert.equal(result.offset, statSync(path).size)
 })
+
+test('an id the catalogue lacks is priced by a dated extension of it, never by a variant', async () => {
+  // #32: any catalogue id that extended the asked one matched, and the longest won.
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-opus-5-20260101': { id: 'claude-opus-5-20260101', cost: { input: 5, output: 25 } },
+          'claude-opus-5-fast-preview': { id: 'claude-opus-5-fast-preview', cost: { input: 60, output: 300 } },
+          'claude-sonnet-5-mini': { id: 'claude-sonnet-5-mini', cost: { input: 0.1, output: 0.5 } },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  // The undated name of a dated id is that model.
+  assert.equal(pricing.rateFor('claude-opus-5')?.input, 5 / 1_000_000)
+  // A variant is another model: no price, rather than its price.
+  assert.equal(pricing.rateFor('claude-sonnet-5'), null)
+})
+
+test('a resumed Codex scan keeps the model and project it had read', async () => {
+  // #33: both are said near the top of a rollout, and a resumed scan starts after them.
+  const dir = scratch()
+  const path = join(dir, 'rollout.jsonl')
+  const line = (record: object): string => `${JSON.stringify(record)}\n`
+  const spent = (at: string): string =>
+    line({
+      type: 'event_msg',
+      timestamp: at,
+      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0 } } },
+    })
+  writeFileSync(
+    path,
+    line({ type: 'session_meta', timestamp: '2026-09-10T11:00:00Z', payload: { cwd: dir, model: 'gpt-5.5' } }) + spent('2026-09-10T11:01:00Z'),
+  )
+  const target = { path, runtime: 'codex', kind: 'codex', size: 0, mtime: 0 } as unknown as Parameters<typeof scanCodexRollout>[0]
+  const first = await scanCodexRollout(target, 0, [])
+  appendFileSync(path, spent('2026-09-10T11:02:00Z'))
+  const second = await scanCodexRollout(target, first.offset, first.tail)
+
+  const read = (row: unknown) => row as { model: string; project: string }
+  assert.equal(read(first.rows[0]).model, 'gpt-5.5', 'the control: the first scan saw the model')
+  assert.notEqual(read(first.rows[0]).project, '')
+  assert.equal(second.rows.length, 1, 'only the appended event')
+  assert.equal(read(second.rows[0]).model, 'gpt-5.5')
+  assert.equal(read(second.rows[0]).project, read(first.rows[0]).project)
+})
+
+test('a variant the catalogue lacks is not priced as its base model either', async () => {
+  // Round one of #153: the other direction of the same prefix match.
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: { models: { 'claude-opus-5': { id: 'claude-opus-5', cost: { input: 5, output: 25 } } } },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-opus-5-fast-preview'), null)
+  assert.equal(pricing.rateFor('claude-opus-5-20260101')?.input, 5 / 1_000_000, 'its dated form still is')
+})
+
+test('of several dated forms, -latest wins, and then the newest date', async () => {
+  const dir = scratch()
+  const models = (entries: Record<string, number>) => ({
+    anthropic: {
+      models: Object.fromEntries(Object.entries(entries).map(([id, input]) => [id, { id, cost: { input, output: input } }])),
+    },
+  })
+  const priced = async (entries: Record<string, number>) => {
+    const pricing = new Pricing({
+      cachePath: join(dir, `cache-${Object.keys(entries).length}.json`),
+      overlayPath: join(dir, 'missing.json'),
+      fetchCatalogue: async () => models(entries),
+    })
+    await pricing.warm()
+    return pricing.rateFor('claude-opus-5')?.input
+  }
+  assert.equal(await priced({ 'claude-opus-5-20260601': 6, 'claude-opus-5-20260101': 5 }), 6 / 1_000_000)
+  assert.equal(await priced({ 'claude-opus-5-20260101': 5, 'claude-opus-5-latest': 7, 'claude-opus-5-20260601': 6 }), 7 / 1_000_000)
+})
+
+test('a cursor tail that cannot be read resumes without context, and without failing', async () => {
+  // Review: a cursor from before this change, or a corrupted one.
+  const dir = scratch()
+  const path = join(dir, 'rollout.jsonl')
+  writeFileSync(
+    path,
+    `${JSON.stringify({ type: 'event_msg', timestamp: '2026-09-10T11:02:00Z', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0 } } } })}\n`,
+  )
+  const target = { path, runtime: 'codex', kind: 'codex', size: 0, mtime: 0 } as unknown as Parameters<typeof scanCodexRollout>[0]
+  const result = await scanCodexRollout(target, 0, ['not json'])
+  assert.equal((result.rows[0] as { model: string }).model, 'unknown')
+})
+
+test('a Codex cursor from before the tail carried the context reads it once from what it had counted', async () => {
+  // Round 2 of #153: an old cursor has an offset and an empty tail, and resumed reading 'unknown'.
+  const dir = scratch()
+  const path = join(dir, 'rollout.jsonl')
+  const line = (record: object): string => `${JSON.stringify(record)}\n`
+  const spent = (at: string): string =>
+    line({
+      type: 'event_msg',
+      timestamp: at,
+      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0 } } },
+    })
+  writeFileSync(
+    path,
+    line({ type: 'session_meta', timestamp: '2026-09-10T11:00:00Z', payload: { cwd: dir, model: 'gpt-5.5' } }) +
+      spent('2026-09-10T11:01:00Z') +
+      // A later turn on another model: the last word before the cursor is the one that holds.
+      line({ type: 'turn_context', timestamp: '2026-09-10T11:02:00Z', payload: { cwd: dir, model: 'gpt-5.6' } }) +
+      spent('2026-09-10T11:03:00Z'),
+  )
+  const target = { path, runtime: 'codex', kind: 'codex', size: 0, mtime: 0 } as unknown as Parameters<typeof scanCodexRollout>[0]
+  const first = await scanCodexRollout(target, 0, [])
+  appendFileSync(path, spent('2026-09-10T11:04:00Z'))
+  const legacy = await scanCodexRollout(target, first.offset, [])
+
+  const read = (row: unknown) => row as { model: string; project: string }
+  assert.notEqual(read(first.rows[0]).project, '', 'the control: the first scan saw the project')
+  assert.equal(legacy.rows.length, 1, 'only the appended event')
+  assert.equal(read(legacy.rows[0]).model, 'gpt-5.6')
+  assert.equal(read(legacy.rows[0]).project, read(first.rows[0]).project)
+  // And from then on the cursor carries it.
+  assert.deepEqual(JSON.parse(legacy.tail[0] ?? ''), { model: 'gpt-5.6', project: read(first.rows[0]).project })
+})
+
+test('the newest dated form with no price gives way to the newest one that has one', async () => {
+  // Round 2 of #153: the newest entry was taken whatever it carried, and one with no cost priced nothing.
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-opus-5-20260101': { id: 'claude-opus-5-20260101', cost: { input: 5, output: 25 } },
+          'claude-opus-5-20260601': { id: 'claude-opus-5-20260601' },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-opus-5')?.input, 5 / 1_000_000)
+})
+
+test('a date written with an @ is a date too, either way round', async () => {
+  // Round 2 of #153: `DATED` takes `@20240620` as well as `-20240620`, and nothing pinned it.
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-sonnet-4@20250514': { id: 'claude-sonnet-4@20250514', cost: { input: 3, output: 15 } },
+          'claude-opus-5': { id: 'claude-opus-5', cost: { input: 5, output: 25 } },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-sonnet-4')?.input, 3 / 1_000_000, 'asked undated, catalogued dated')
+  assert.equal(pricing.rateFor('claude-opus-5@20260101')?.input, 5 / 1_000_000, 'asked dated, catalogued undated')
+})
+

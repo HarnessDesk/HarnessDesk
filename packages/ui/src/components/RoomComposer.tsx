@@ -507,11 +507,12 @@ export const RoomComposer = ({
               }
               onRemove={() => setTo((current) => current.filter((key) => key !== one.key))}
             >
-              {/* The mark and the name together, as one trigger — the same
-                  rule the rail keeps, where the card hangs off the mark rather
-                  than the row. The ✕ stays outside it, because a card that
-                  opened over the button that removes the chip would be a card
-                  in the way of the one verb the chip already has. */}
+              {/* The mark and the name together, as one trigger — the rule
+                  every agent the room draws keeps, the rail's rows included:
+                  the card answers to the whole of who this is. The ✕ stays
+                  outside it, because a card that opened over the button that
+                  removes the chip would be a card in the way of the one verb
+                  the chip already has. */}
               {(card ?? ((_key, node) => node))(
                 one.key,
                 <span className="inline-flex items-center gap-1">

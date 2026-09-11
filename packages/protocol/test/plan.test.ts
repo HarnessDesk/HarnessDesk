@@ -65,3 +65,32 @@ test('a plan key is one an agent uses, and `steps` is not one', () => {
   assert.equal((PLAN_ARRAY_KEYS as readonly string[]).includes('plan'), true)
   assert.equal((PLAN_ARRAY_KEYS as readonly string[]).includes('steps'), false)
 })
+
+test('a negation spelled as one word is still pending', () => {
+  // #62: incomplete, unfinished and undone read as no status at all.
+  assert.equal(planStatus('incomplete'), 'pending')
+  assert.equal(planStatus('unfinished'), 'pending')
+  assert.equal(planStatus('undone'), 'pending')
+  // And the two-word spellings still say the same.
+  assert.equal(planStatus('not_done'), 'pending')
+})
+
+test('in before complete is a negation however it is joined, and in_progress is still running', () => {
+  // Round 1 of #158: split by case or a separator, `incomplete` is `in` and `complete`, which read as done.
+  for (const status of ['inComplete', 'in_complete', 'in-complete', 'IN_COMPLETE']) assert.equal(planStatus(status), 'pending', status)
+  assert.equal(planStatus('in_progress'), 'inProgress')
+  assert.equal(planStatus('inProgress'), 'inProgress')
+})
+
+test('in before complete is a negation inside a longer status, and in the past tense', () => {
+  // Round 2 of #158.
+  assert.equal(planStatus('TODO_STATUS_IN_COMPLETE'), 'pending')
+  assert.equal(planStatus('inCompleted'), 'pending')
+})
+
+test('a past-tense negation spelled as one word is pending too', () => {
+  // Round 3 of #158: `inCompleted` was pending and `incompleted` was not.
+  assert.equal(planStatus('incompleted'), 'pending')
+  assert.equal(planStatus('uncompleted'), 'pending')
+  assert.equal(planStatus('unCompleted'), 'pending')
+})

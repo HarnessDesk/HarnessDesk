@@ -11,6 +11,9 @@ import { dirname } from 'node:path'
 
 export const DEFAULT_BOUNDS = { width: 1280, height: 840 }
 
+/** The top strip of a window, where it is grabbed to be moved. */
+const TITLE_BAR = 40
+
 export const isVisibleOn = (bounds, displays) => {
   if (!bounds) return false
   const { x, y, width, height } = bounds
@@ -21,8 +24,12 @@ export const isVisibleOn = (bounds, displays) => {
   return displays.some((display) => {
     const area = display.workArea ?? display.bounds
     const overlapX = Math.min(x + width, area.x + area.width) - Math.max(x, area.x)
-    const overlapY = Math.min(y + height, area.y + area.height) - Math.max(y, area.y)
-    return overlapX > 120 && overlapY > 40
+    /* The strip that has to be on a display is the title bar, not the window:
+       measured over the whole window, one far above the display passed on
+       the part of it hanging below the top edge (#50). */
+    const barBottom = y + Math.min(TITLE_BAR, height)
+    const overlapY = Math.min(barBottom, area.y + area.height) - Math.max(y, area.y)
+    return overlapX > 120 && overlapY >= TITLE_BAR / 2
   })
 }
 

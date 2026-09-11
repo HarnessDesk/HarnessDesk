@@ -420,9 +420,13 @@ test('patch is mail-format text and diffRange compares two revisions', async () 
   assert.ok(text.includes('Subject: [PATCH] the patched change'))
   assert.ok(text.includes('+three'))
 
-  await git(dir, 'branch', 'marker', 'HEAD~1')
-  const diff = await diffRange(dir, 'marker', 'main')
+  /* `HEAD~1`, passed as it is. This test used to make a branch called
+     `marker` at `HEAD~1` and diff against that instead — a workaround for the
+     very defect #28 reported, since `HEAD~1` was refused as "not a usable
+     revision name". Found in review; the workaround was the evidence. */
+  const diff = await diffRange(dir, 'HEAD~1', 'main')
   assert.ok(diff.includes('+three'))
+  assert.equal(await diffRange(dir, 'HEAD^', 'main'), diff, 'HEAD^ names the same commit')
   await assert.rejects(diffRange(dir, 'no-such-ref', 'main'), /does not name a commit/)
 })
 
@@ -431,13 +435,31 @@ test('patch is mail-format text and diffRange compares two revisions', async () 
 test('pullRequestUrl knows the forges and says null for the rest', async () => {
   const dir = await seedRepo()
   await git(dir, 'remote', 'add', 'origin', 'git@github.com:openma/harnessdesk.git')
+  /* `feat/thing`, not `feat%2Fthing`. This assertion used to expect the
+     escaped form and so pinned the defect: GitHub's compare route does not
+     decode `%2F` back to a separator, and the page 404s or shows an empty
+     diff. The branch is a path segment here and the slash is part of the
+     path. */
   assert.equal(
     await pullRequestUrl(dir, 'feat/thing'),
-    'https://github.com/openma/harnessdesk/compare/feat%2Fthing?expand=1',
+    'https://github.com/openma/harnessdesk/compare/feat/thing?expand=1',
   )
 
   await git(dir, 'remote', 'set-url', 'origin', 'https://gitlab.com/openma/harnessdesk.git')
-  assert.match((await pullRequestUrl(dir, 'feat/thing')) ?? '', /merge_requests\/new/)
+  /* A query parameter keeps full encoding — `%2F` is right here, unlike in
+     GitHub's path. Pinned exactly, because a refactor that applied GitHub's
+     per-segment rule to every forge would still match `merge_requests/new`.
+     Raised in review, as was Bitbucket having no assertion at all. */
+  assert.equal(
+    await pullRequestUrl(dir, 'feat/thing'),
+    'https://gitlab.com/openma/harnessdesk/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fthing',
+  )
+
+  await git(dir, 'remote', 'set-url', 'origin', 'git@bitbucket.org:openma/harnessdesk.git')
+  assert.equal(
+    await pullRequestUrl(dir, 'feat/thing'),
+    'https://bitbucket.org/openma/harnessdesk/pull-requests/new?source=feat%2Fthing',
+  )
 
   await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@code.internal/team/repo.git')
   assert.equal(await pullRequestUrl(dir, 'feat/thing'), null)
@@ -449,7 +471,7 @@ test('pullRequestUrl strips embedded credentials and matches forge hosts exactly
   await git(dir, 'remote', 'add', 'origin', 'https://review-user:fake-secret@github.com/openma/harnessdesk.git')
   assert.equal(
     await pullRequestUrl(dir, 'feat/thing'),
-    'https://github.com/openma/harnessdesk/compare/feat%2Fthing?expand=1',
+    'https://github.com/openma/harnessdesk/compare/feat/thing?expand=1',
   )
 
   // A hostname that merely contains a forge's name is not that forge.
@@ -457,4 +479,100 @@ test('pullRequestUrl strips embedded credentials and matches forge hosts exactly
   assert.equal(await pullRequestUrl(dir, 'feat/thing'), null)
   await git(dir, 'remote', 'set-url', 'origin', 'https://gitlab.internal.example/team/repo.git')
   assert.equal(await pullRequestUrl(dir, 'feat/thing'), null)
+})
+
+/**
+ * A remote whose colon is a port, and one whose colon is a path.
+ *
+ * `ssh://git@host:22/owner/repo` is a URL and its colon introduces a port;
+ * `git@host:owner/repo` is scp-like syntax and its colon separates the path.
+ * One regex read both, so a remote carrying an explicit port produced
+ * `https://github.com/22/owner/repo` — a pull-request link to a repository
+ * nobody owns.
+ */
+test('an ssh remote with a port does not put the port in the path', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'ssh://git@github.com:22/openma/harnessdesk.git')
+  assert.equal(
+    await pullRequestUrl(dir, 'main'),
+    'https://github.com/openma/harnessdesk/compare/main?expand=1',
+  )
+
+  // A non-standard port is the shape a self-hosted forge actually uses.
+  await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@gitlab.com:2222/openma/harnessdesk.git')
+  assert.match((await pullRequestUrl(dir, 'main')) ?? '', /^https:\/\/gitlab\.com\/openma\/harnessdesk\//)
+})
+
+test('the scp-like and portless ssh spellings still resolve the same way', async () => {
+  // The control: both of these worked before and must go on working, because
+  // they are what almost every remote actually looks like.
+  const dir = await seedRepo()
+  for (const remote of ['git@github.com:openma/harnessdesk.git', 'ssh://git@github.com/openma/harnessdesk.git']) {
+    await git(dir, 'remote', 'remove', 'origin').catch(() => {})
+    await git(dir, 'remote', 'add', 'origin', remote)
+    assert.equal(
+      await pullRequestUrl(dir, 'main'),
+      'https://github.com/openma/harnessdesk/compare/main?expand=1',
+      remote,
+    )
+  }
+})
+
+test('a branch segment is still escaped, even though the separator is not', async () => {
+  /* Keeping the slashes must not turn off escaping: a `#` inside a segment
+     would end the path and turn the rest into a fragment. A space would too,
+     but git refuses a branch name containing one, so `#` is the character
+     that is both legal to git and dangerous in a URL. */
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'git@github.com:openma/harnessdesk.git')
+  await git(dir, 'branch', 'feat/a#c')
+  assert.equal(
+    await pullRequestUrl(dir, 'feat/a#c'),
+    'https://github.com/openma/harnessdesk/compare/feat/a%23c?expand=1',
+  )
+})
+
+test('an ssh remote under any user name resolves, not only git@', async () => {
+  /* The old pattern required `git@`. Parsing `ssh://` as a URL takes any user,
+     which is what deploy keys and self-hosted forges use — a widening, and
+     pinned as one. Raised in review as correct and untested. */
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'ssh://deploy@github.com/openma/harnessdesk.git')
+  assert.equal(await pullRequestUrl(dir, 'main'), 'https://github.com/openma/harnessdesk/compare/main?expand=1')
+})
+
+test('an ssh remote that names no repository, or cannot be parsed, has no pull-request page', async () => {
+  /* `https://github.com/compare/main` is a page that does not exist — the same
+     kind of wrong link #65 was about. Raised in review. */
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'ssh://git@github.com')
+  assert.equal(await pullRequestUrl(dir, 'main'), null)
+  await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@github.com:22')
+  assert.equal(await pullRequestUrl(dir, 'main'), null)
+  // One `new URL` refuses outright, which is the catch path.
+  await git(dir, 'remote', 'set-url', 'origin', 'ssh://git@[not-a-host/openma/harnessdesk.git')
+  assert.equal(await pullRequestUrl(dir, 'main'), null)
+})
+
+test('the write verbs take a SHA-256 commit by its full id', async (t) => {
+  // #67 let 64-character ids through one check for every verb; these are the verbs that write with one.
+  const dir = await tempDir()
+  const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (!made) return t.skip('this git cannot make a SHA-256 repository')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const first = await sha(dir, 'HEAD')
+  await writeFile(join(dir, 'a.txt'), 'a\nb\n')
+  await git(dir, 'commit', '-qam', 'two')
+  const second = await sha(dir, 'HEAD')
+  assert.equal(second.length, 64, 'the control: this repository really is SHA-256')
+
+  assert.match(await patch(dir, second), /^\+b$/m)
+  await createTag(dir, 'v1', first)
+  assert.equal(await sha(dir, 'v1^{commit}'), first)
+  assert.deepEqual((await revertCommit(dir, second)).conflicts, [])
+  assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'a\n')
+  assert.deepEqual((await cherryPick(dir, second)).conflicts, [])
+  assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'a\nb\n')
 })

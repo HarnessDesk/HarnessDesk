@@ -26,6 +26,9 @@ const STATUS_CODES: Record<string, GitFileStatus['status']> = {
   '?': 'untracked',
 }
 
+/** The states git reports while a merge is unresolved (git-status(1), "Short Format"). */
+const UNMERGED = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'])
+
 /** Returns null when `root` is not inside a repository, which is not an error. */
 export const status = async (root: string): Promise<GitStatus | null> => {
   let top: string
@@ -42,13 +45,23 @@ export const status = async (root: string): Promise<GitStatus | null> => {
 
   const files: GitFileStatus[] = []
   for (const entry of parsePorcelain(porcelain)) {
-    const staged = entry.index
-    const code = staged !== ' ' && staged !== '?' ? staged : entry.worktree
-    files.push({
-      path: entry.path,
-      status: STATUS_CODES[code] ?? 'modified',
-      staged: staged !== ' ' && staged !== '?',
-    })
+    /* One entry per column that says something. A file can be in both at
+       once — `MM` is a change staged and another made on top of it, `AM` a
+       new file edited after `git add` — and read as one entry the index
+       letter won, so the working tree's change was in no view at all (#31). */
+    if (UNMERGED.has(entry.index + entry.worktree)) {
+      /* A merge's own states. The conflict is resolved in the working tree,
+         so that is where the file is, once: read by its index letter it was
+         listed as staged, whose diff for it is only "* Unmerged path". */
+      files.push({ path: entry.path, status: 'conflicted', staged: false })
+      continue
+    }
+    if (entry.index !== ' ' && entry.index !== '?') {
+      files.push({ path: entry.path, status: STATUS_CODES[entry.index] ?? 'modified', staged: true })
+    }
+    if (entry.worktree !== ' ') {
+      files.push({ path: entry.path, status: STATUS_CODES[entry.worktree] ?? 'modified', staged: false })
+    }
   }
 
   let ahead = 0

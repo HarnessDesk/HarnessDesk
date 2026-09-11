@@ -194,6 +194,14 @@ export interface RuntimeCapabilities {
   /** HarnessDesk's plugin tools reach this runtime's sessions. */
   readonly pluginTools: boolean
   /**
+   * A standing instruction the desk hands the agent reaches it through the
+   * agent's own instruction layer — Codex's developer instructions, a
+   * bridge's system-prompt append — and never through the conversation. An
+   * agent without this hears it only through the tool server it accepts, or
+   * not at all; the desk never puts the sentence in the person's message.
+   */
+  readonly instructions: boolean
+  /**
    * The runtime keeps a registry of work that outlives a turn, and will
    * answer for it. See `RuntimeTasks`.
    *
@@ -239,6 +247,7 @@ export const NO_CAPABILITIES: RuntimeCapabilities = {
   extensionStore: false,
   hooks: false,
   pluginTools: false,
+  instructions: false,
   backgroundTasks: false,
 }
 

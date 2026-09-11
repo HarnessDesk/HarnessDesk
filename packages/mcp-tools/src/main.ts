@@ -15,6 +15,13 @@ import { createInterface } from 'node:readline'
  * Zero dependencies on purpose: the whole protocol surface used here is
  * initialize / tools/list / tools/call, and a hand-rolled hundred lines
  * beats a supply chain for that.
+ *
+ * `initialize` also carries the desk's standing instruction as the server's
+ * `instructions` — the one sentence MCP lets a server say about itself,
+ * which agents fold into their own briefing. It is asked of the gateway at
+ * that moment, so a plugin enabled since the bridge was built still has its
+ * say; a gateway that cannot answer leaves it out rather than failing the
+ * handshake.
  */
 
 const SOCKET = process.env['HD_TOOLS_SOCKET']
@@ -148,13 +155,23 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (!method) return
     try {
       switch (method) {
-        case 'initialize':
+        case 'initialize': {
+          let instructions = ''
+          try {
+            instructions = (
+              await call<{ instructions?: unknown }>('server/info', CALLER ? { caller: CALLER } : {})
+            ).instructions as string
+          } catch {
+            // An older host without the verb: the tools still work, unbriefed.
+          }
           respond(id, {
             protocolVersion: (params?.['protocolVersion'] as string) ?? '2024-11-05',
             capabilities: { tools: {} },
             serverInfo: { name: 'harnessdesk', version: '0.1.0' },
+            ...(typeof instructions === 'string' && instructions.trim() !== '' ? { instructions } : {}),
           })
           return
+        }
         case 'notifications/initialized':
         case 'notifications/cancelled':
           return // notifications take no reply

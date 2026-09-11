@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readdir, readFile, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
+import { lstat, readFile, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -181,11 +181,16 @@ export class LocalFiles implements RuntimeFiles {
   }
 
   async stat(path: string): Promise<FileMetadata> {
-    const info = await stat(path)
+    /* `lstat` first, for the one thing only it can see: whether the path is a
+       link. `stat` follows links, so `isSymbolicLink()` on its answer was
+       always false (#77). The kind is still the target's — a link to a folder
+       opens as a folder — and a link whose target is gone is 'other'. */
+    const link = await lstat(path)
+    const info = link.isSymbolicLink() ? await stat(path).catch(() => null) : link
     return {
-      kind: info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other',
-      isSymlink: info.isSymbolicLink(),
-      modifiedAt: info.mtimeMs,
+      kind: info?.isDirectory() ? 'directory' : info?.isFile() ? 'file' : 'other',
+      isSymlink: link.isSymbolicLink(),
+      modifiedAt: (info ?? link).mtimeMs,
     }
   }
 

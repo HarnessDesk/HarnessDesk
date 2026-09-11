@@ -4,6 +4,8 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
+import { splitContext } from '@harnessdesk/protocol'
+
 /**
  * Cursor's own chat store, read only.
  *
@@ -214,6 +216,19 @@ export const findChatWorkspace = (
 export const stripEnvelope = (value: string): string =>
   value.replace(/<context\b[^>]*>[\s\S]*?<\/context>\s*/g, '').trim()
 
+/** The first line of `text` that says anything, cut to a row's width. */
+export const firstLine = (text: string): string =>
+  (text.split('\n').find((entry) => entry.trim() !== '') ?? '').trim().slice(0, 80)
+
+/**
+ * What a message that is only a context block is called: the label the block
+ * carries, which is written for people where the block is for the model
+ * (#47), by its first line, because a label with a line break put the rest of
+ * it in the row (review of #167, round 3). Nothing, for a block with no label.
+ * The bridge's titles and Cursor's transcript both name a chat through this.
+ */
+export const contextLabel = (text: string): string => firstLine(splitContext(text).injections[0]?.label ?? '')
+
 /** The transcript blobs, in the order Cursor threaded them. */
 const rootRefs = (root: Uint8Array): readonly string[] => {
   const refs: string[] = []
@@ -301,6 +316,12 @@ export const readChatPreview = (
       if (said === null) continue
       const line = stripEnvelope(said).replace(/\s+/g, ' ').trim()
       if (line !== '') return line.slice(0, limit)
+      /* A message that is only a context block is named by its label, as the
+         bridge names it. Skipped, the chat was named by its second message,
+         and the list renamed a conversation after its second turn (review of
+         #167, round 4). One with no label gives way to the next message. */
+      const label = contextLabel(said)
+      if (label !== '') return label.slice(0, limit)
     }
     return null
   } catch {

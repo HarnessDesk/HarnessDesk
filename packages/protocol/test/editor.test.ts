@@ -82,3 +82,51 @@ test('no edits is the file, untouched and identical', () => {
 test('an empty file can be written into', () => {
   assert.equal(applyLineEdits('', [{ fromLine: 1, text: 'first' }]), 'first')
 })
+
+test('appends past the end come out in the order they were given', () => {
+  // #61: both clamp to the line after the last, and the later one went in first.
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 5, text: 'A' }, { fromLine: 6, text: 'B' }]), 'one\nA\nB\n')
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 2, text: 'A' }, { fromLine: 2, text: 'B' }]), 'one\nA\nB\n')
+})
+
+test('appends past the end go by the line each asked for, as they would in a longer file', () => {
+  // Round 1 of #158: line 5 goes above line 6 whichever is given first, as it does where both lines exist.
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 6, text: 'A' }, { fromLine: 5, text: 'B' }]), 'one\nB\nA\n')
+  // Only appends that asked for the same line fall back to the order given, however many there are.
+  assert.equal(
+    applyLineEdits('one\n', [{ fromLine: 5, text: 'A' }, { fromLine: 5, text: 'B' }, { fromLine: 5, text: 'C' }]),
+    'one\nA\nB\nC\n',
+  )
+  // A multi-line append moves nothing after it, and a replacement in the same batch keeps its line.
+  assert.equal(
+    applyLineEdits('one\ntwo\n', [{ fromLine: 9, text: 'A1\nA2' }, { fromLine: 1, text: 'ONE' }, { fromLine: 10, text: 'B' }]),
+    'ONE\ntwo\nA1\nA2\nB\n',
+  )
+})
+
+test('a line that is not a number is refused, rather than put above the first', () => {
+  // Round 1 of #158: NaN clamped to NaN, and `splice` read that as 0.
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: Number.NaN, text: 'x' }]), /must be numbers/)
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: Number.NaN, text: 'x' }]), /must be numbers/)
+})
+
+test('a line that is missing or not a number is refused too', () => {
+  // Round 2 of #158: the check read the raw value, and `undefined` and `'abc'` are not NaN until truncated.
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: undefined as unknown as number, text: 'x' }]), /must be numbers/)
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 'abc' as unknown as number, text: 'x' }]), /must be numbers/)
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: 'abc' as unknown as number, text: 'x' }]), /must be numbers/)
+  // Infinity is a line past the end, as any large one is, and an empty append adds nothing.
+  assert.equal(applyLineEdits('one\n', [{ fromLine: Number.POSITIVE_INFINITY, text: 'A' }]), 'one\nA\n')
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 5, text: '' }]), 'one\n')
+})
+
+test('a line JavaScript would coerce is refused as well, and replacements on one line keep their order', () => {
+  // Round 3 of #158: null truncated to 0 and landed on line 1; and the asked-line tie-break reordered two
+  // replacements that clamp to line 1, so the earlier one overwrote the later.
+  for (const fromLine of [null, true, '2']) {
+    assert.throws(() => applyLineEdits('one\n', [{ fromLine: fromLine as unknown as number, text: 'x' }]), /must be numbers/, String(fromLine))
+  }
+  assert.throws(() => applyLineEdits('one\n', [{ fromLine: 1, toLine: '2' as unknown as number, text: 'x' }]), /must be numbers/)
+  assert.equal(applyLineEdits('one\n', [{ fromLine: 1, toLine: null as unknown as number, text: 'x' }]), 'x\n', 'a null toLine is no toLine')
+  assert.equal(applyLineEdits('one\ntwo\n', [{ fromLine: 0, text: 'FIRST' }, { fromLine: 1, text: 'SECOND' }]), 'SECOND\ntwo\n')
+})

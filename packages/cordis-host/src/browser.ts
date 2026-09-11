@@ -507,12 +507,13 @@ export class BrowserService extends Service {
         // A modified character is a shortcut, not typing: ⌘A must arrive as a
         // key event or the page sees the letter and selects nothing.
         if (mask) {
-          const upper = key.toUpperCase()
+          const physical = characterKey(key)
           const common = {
             key,
-            code: `Key${upper}`,
-            windowsVirtualKeyCode: upper.charCodeAt(0),
-            nativeVirtualKeyCode: upper.charCodeAt(0),
+            // A character off the layout has no key a page could know it by.
+            ...(physical
+              ? { code: physical.code, windowsVirtualKeyCode: physical.keyCode, nativeVirtualKeyCode: physical.keyCode }
+              : {}),
             modifiers: mask,
           }
           await cdp.send('Input.dispatchKeyEvent', { ...common, type: 'rawKeyDown' })
@@ -1004,6 +1005,43 @@ const networkFrom = (events: readonly CdpEvent[]): NetworkEntry[] => {
  * page listening for `event.key === ' '` has to receive the space itself,
  * so a name is a spelling of a key and never reaches the page as one.
  */
+/**
+ * The US-layout key under each character that is not a letter or a digit. A
+ * shifted character names the key it is typed on (`?` is `Slash`); whether
+ * Shift is held is the caller's to say.
+ */
+const PUNCTUATION_KEYS: Readonly<Record<string, readonly [code: string, keyCode: number]>> = {
+  ',': ['Comma', 188], '<': ['Comma', 188],
+  '.': ['Period', 190], '>': ['Period', 190],
+  '/': ['Slash', 191], '?': ['Slash', 191],
+  ';': ['Semicolon', 186], ':': ['Semicolon', 186],
+  "'": ['Quote', 222], '"': ['Quote', 222],
+  '[': ['BracketLeft', 219], '{': ['BracketLeft', 219],
+  ']': ['BracketRight', 221], '}': ['BracketRight', 221],
+  '\\': ['Backslash', 220], '|': ['Backslash', 220],
+  '-': ['Minus', 189], '_': ['Minus', 189],
+  '=': ['Equal', 187], '+': ['Equal', 187],
+  '`': ['Backquote', 192], '~': ['Backquote', 192],
+  '!': ['Digit1', 49], '@': ['Digit2', 50], '#': ['Digit3', 51], $: ['Digit4', 52], '%': ['Digit5', 53],
+  '^': ['Digit6', 54], '&': ['Digit7', 55], '*': ['Digit8', 56], '(': ['Digit9', 57], ')': ['Digit0', 48],
+}
+
+/**
+ * The DOM `code` and virtual key code of the key a character is typed on, for
+ * a shortcut. `Key${upper}` was right for letters alone: ⌘1 went out as `Key1`
+ * and ⌘, as `Key,`, neither of which is a key, so a page reading `event.code`
+ * never saw the shortcut (#44). Null for a character off the US layout.
+ */
+export const characterKey = (character: string): { readonly code: string; readonly keyCode: number } | null => {
+  if (/^[a-z]$/i.test(character)) {
+    const upper = character.toUpperCase()
+    return { code: `Key${upper}`, keyCode: upper.charCodeAt(0) }
+  }
+  if (/^[0-9]$/.test(character)) return { code: `Digit${character}`, keyCode: character.charCodeAt(0) }
+  const known = PUNCTUATION_KEYS[character]
+  return known ? { code: known[0], keyCode: known[1] } : null
+}
+
 const NAMED_KEYS: Readonly<Record<string, { key: string; keyCode: number; code: string }>> = {
   Enter: { key: 'Enter', keyCode: 13, code: 'Enter' },
   Tab: { key: 'Tab', keyCode: 9, code: 'Tab' },

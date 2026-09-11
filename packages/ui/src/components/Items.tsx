@@ -11,6 +11,7 @@ import type {
   ItemStatus,
   NoticeItem,
   PlanItem,
+  PublicationItem,
   ReasoningItem,
   ReviewItem,
   SessionId,
@@ -23,7 +24,7 @@ import type {
 import { stripAnsi } from '../lib/ansi'
 import { instant } from '../lib/clock'
 import { formatTokensWithFloor } from '../lib/context-usage'
-import { countChanges } from '../lib/diff'
+import { countFileChange, wholeFileOf } from '../lib/diff'
 import {
   describedTitle,
   isSilentReasoning,
@@ -63,6 +64,7 @@ import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-
 import { isRenderableImageUrl } from '../lib/images'
 import { Lightbox, type LightboxImage } from './Lightbox'
 import { Markdown } from './Markdown'
+import { Publication } from './Publication'
 import styles from './Items.module.css'
 
 /**
@@ -532,9 +534,9 @@ const Command = ({ item }: { item: CommandItem }) => (
 const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => {
   const totals = item.changes.reduce(
     (accumulator, change) => {
-      const counts = countChanges(change.diff)
+      const counts = countFileChange(change)
       return {
-        added: accumulator.added + (change.kind.type === 'add' ? change.diff.split('\n').length : counts.added),
+        added: accumulator.added + counts.added,
         removed: accumulator.removed + counts.removed,
       }
     },
@@ -583,8 +585,10 @@ const FileEntry = ({
   single: boolean
 }) => {
   const [open, setOpen] = useState(single)
-  const counts = countChanges(change.diff)
-  const added = change.kind.type === 'add' ? change.diff.split('\n').length : counts.added
+  // The rule the view below draws by — the whole file, added or removed, unless
+  // the payload is a diff — so the badge is what is drawn. See `countFileChange`.
+  const counts = countFileChange(change)
+  const added = counts.added
 
   return (
     <div className={styles.fileEntry}>
@@ -598,7 +602,7 @@ const FileEntry = ({
       </button>
       {open && (
         <div className={styles.fileBody}>
-          <DiffView diff={change.diff} wholeFile={change.kind.type === 'add'} />
+          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
         </div>
       )}
     </div>
@@ -1010,6 +1014,8 @@ export const ItemView = ({
         return <Notice item={item} />
       case 'review':
         return <Review item={item} />
+      case 'publication':
+        return <Publication item={item as PublicationItem} />
       case 'error':
         return <ErrorRow item={item} />
     }

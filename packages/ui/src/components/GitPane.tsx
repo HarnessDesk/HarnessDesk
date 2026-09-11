@@ -230,7 +230,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       setHasMore(page.hasMore)
       setRefsSummary(refsResult)
       setIsRepo(refsResult !== null)
-      setDirtyCount(status?.files.length ?? 0)
+      setDirtyCount(distinctPaths(status?.files))
       setWorktrees(checkouts)
       // The banner is a claim about the tree, so every re-read is allowed to
       // withdraw it: a terminal or another agent can settle the conflicts we
@@ -715,7 +715,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           badge={currentRef?.behind ?? 0}
           words={fit.labels}
           busy={working !== null}
-          disabled={currentRef?.upstream ? false : 'This branch tracks no remote branch.'}
+          disabled={pullRefusal(currentRef)}
           title={currentRef?.upstream ? `Pull ${currentRef.upstream}` : 'Pull'}
           onClick={doPull}
         />
@@ -1484,6 +1484,23 @@ const HeadCell = ({
   )
 }
 
+/** Files with anything uncommitted, each once: status lists a file staged and changed again twice, one entry a column (#31). */
+const distinctPaths = (files: readonly { readonly path: string }[] | undefined): number =>
+  new Set((files ?? []).map((file) => file.path)).size
+
+/**
+ * Why Pull cannot run for this branch, or false when it can. A branch whose
+ * upstream was deleted on its remote still names it, and a pull from it can
+ * only fail, so it says why rather than offering a button that errors. #98.
+ */
+const pullRefusal = (branch: GitBranchRef | null | undefined): string | false =>
+  !branch?.upstream
+    ? 'This branch tracks no remote branch.'
+    : branch.gone
+      ? // What it tracks can be a local branch as well, so the sentence names no remote.
+        `The branch this one tracks, ${branch.upstream}, is gone.`
+      : false
+
 /** One toolbar verb: a glyph, its word when the pane is wide, and a count. */
 const ActionBtn = ({
   icon,
@@ -1574,9 +1591,7 @@ const BranchMenu = ({
       <MenuItem
         icon={<PullIcon size={14} />}
         label={branch.upstream ? `Pull ${branch.upstream}` : 'Pull'}
-        disabled={
-          !itself ? 'Check it out first.' : branch.upstream ? false : 'This branch tracks no remote branch.'
-        }
+        disabled={!itself ? 'Check it out first.' : pullRefusal(branch)}
         onSelect={onPull}
       />
       <MenuItem
@@ -1806,6 +1821,8 @@ const RefsRail = ({
       : []
 
   const track = (branch: GitBranchRef): string | null => {
+    // The word the worktree rows already use for a branch that no longer resolves.
+    if (branch.gone) return 'gone'
     if (branch.ahead === 0 && branch.behind === 0) return null
     return [branch.ahead > 0 ? `↑${branch.ahead}` : null, branch.behind > 0 ? `↓${branch.behind}` : null]
       .filter(Boolean)

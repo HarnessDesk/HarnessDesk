@@ -116,6 +116,14 @@ export const ACP_SESSION_DELETE = '_harnessdesk/session/delete'
 export const ACP_SESSION_DELETE_CAPABILITY = 'deleteSession'
 
 /**
+ * Declared in `initialize`'s `_meta.harnessdesk` by a bridge that carries a
+ * standing instruction — handed on `session/new` under the same key in
+ * `_meta.harnessdesk` — into the agent's own instruction layer rather than
+ * into the conversation. Duplicated in the bridges for the reason above.
+ */
+export const ACP_INSTRUCTIONS_CAPABILITY = 'instructions'
+
+/**
  * What a bridge reports having removed, so the app can say so honestly.
  * `removed` is the paths that are now gone; an empty list with no error means
  * the agent had nothing stored for that session, which is not a failure.
@@ -454,6 +462,35 @@ export interface AcpPromptResponse {
   readonly stopReason: AcpStopReason
   /** This turn's tokens, when the agent counts them. */
   readonly usage?: AcpUsage | null
+  /**
+   * ACP's extension slot. Gemini CLI counts a turn's tokens here, under
+   * `quota`, and not in `usage` — see `AcpQuota`.
+   */
+  readonly _meta?: AcpPromptMeta | null
+}
+
+/** The `_meta` a prompt response may carry, read structurally; the rest of it is ignored. */
+export interface AcpPromptMeta {
+  readonly quota?: AcpQuota | null
+}
+
+/**
+ * A turn's tokens as Gemini CLI reports them — measured on 0.59.0, which
+ * sends no `usage` and no `usage_update`: input and output summed over every
+ * model call the turn made, then the same split per model. There is no cache
+ * or thinking figure in it, and nothing about the context window.
+ */
+export interface AcpQuota {
+  readonly token_count?: AcpQuotaCount | null
+  readonly model_usage?: readonly {
+    readonly model?: string | null
+    readonly token_count?: AcpQuotaCount | null
+  }[] | null
+}
+
+export interface AcpQuotaCount {
+  readonly input_tokens?: number | null
+  readonly output_tokens?: number | null
 }
 
 export interface AcpPermissionOption {
@@ -1047,8 +1084,10 @@ export class AcpConnection {
     }
     const method = message['method']
     if (typeof method !== 'string') return
-    if (typeof id === 'number') {
-      // Agent→client request. Answer or refuse; silence would hang the agent.
+    /* Agent→client request. Answer or refuse; silence would hang the agent.
+       JSON-RPC ids are numbers or strings, and a string one fell through to
+       the notification path below, where nothing answers (#37). */
+    if (typeof id === 'number' || typeof id === 'string') {
       const handler = this.#options.onRequest
       void (async () => {
         try {

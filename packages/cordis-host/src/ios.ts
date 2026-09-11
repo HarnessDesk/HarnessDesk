@@ -120,14 +120,16 @@ export class IosService extends Service {
   async screenshot(): Promise<string> {
     this.runtime.owner(this.ctx).gate.assertIos()
     const device = await this.booted()
-    const file = join(mkdtempSync(join(tmpdir(), 'hd-sim-')), 'shot.png')
+    const dir = mkdtempSync(join(tmpdir(), 'hd-sim-'))
+    const file = join(dir, 'shot.png')
     try {
       await runDevice(SIMCTL_BIN, ['simctl', 'io', device.udid, 'screenshot', file], {
         what: 'Screenshotting the simulator',
       })
       return `data:image/png;base64,${readFileSync(file).toString('base64')}`
     } finally {
-      rmSync(file, { force: true })
+      // The directory as well: removing the file alone left one behind per screenshot (#46).
+      rmSync(dir, { recursive: true, force: true })
     }
   }
 

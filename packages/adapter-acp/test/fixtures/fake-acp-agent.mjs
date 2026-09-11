@@ -16,7 +16,8 @@
  *  - "slow"           → answers only after 10s (interrupt target)
  *  - anything else    → two message chunks and end_turn
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
 /**
@@ -383,6 +384,20 @@ const runPrompt = async (id, params) => {
       usage: { totalTokens: 60, inputTokens: 40, outputTokens: 20, cachedReadTokens: 10 },
     })
   }
+  if (text.includes('quota')) {
+    // Gemini CLI's way of counting a turn (0.59.0): no `usage`, no
+    // `usage_update` — the sums in `_meta.quota`, then the same split per
+    // model, which the adapter has no use for.
+    return reply(id, {
+      stopReason: 'end_turn',
+      _meta: {
+        quota: {
+          token_count: { input_tokens: 12400, output_tokens: 380 },
+          model_usage: [{ model: 'fake-flash', token_count: { input_tokens: 12400, output_tokens: 380 } }],
+        },
+      },
+    })
+  }
   if (text.includes('count')) {
     // ACP's unstable usage shapes, both halves: the fill as a session
     // update, the turn's tokens on the reply. Un-Claude, un-Codex numbers.
@@ -392,8 +407,79 @@ const runPrompt = async (id, params) => {
       usage: { totalTokens: 900, inputTokens: 800, outputTokens: 100, cachedReadTokens: 600, thoughtTokens: 25 },
     })
   }
-  return reply(id, { stopReason: 'end_turn' })
+  return reply(id, await closingReply(state))
 }
+
+/**
+ * How an ordinary turn closes, for the rigs that photograph a usage ring.
+ * Off unless set, so the adapter's own suite sees the plain reply.
+ *  - FAKE_ACP_USAGE=quota answers as Gemini CLI does (0.59.0): no `usage`,
+ *    the turn's tokens in `_meta.quota`.
+ *  - FAKE_ACP_AGY_STORE=<a .gemini folder> answers as Antigravity's server
+ *    does: nothing about usage on the wire, and the turn's model calls
+ *    written to a conversation store laid out the way that server lays out
+ *    its own, held open for as long as the agent runs.
+ */
+const closingReply = async (state) => {
+  state.turn = (state.turn ?? 0) + 1
+  if (process.env.FAKE_ACP_USAGE === 'quota') {
+    const counts = { input_tokens: 11800 + 3100 * state.turn, output_tokens: 240 + 90 * state.turn }
+    return {
+      stopReason: 'end_turn',
+      _meta: { quota: { token_count: counts, model_usage: [{ model: state.modelId, token_count: counts }] } },
+    }
+  }
+  if (process.env.FAKE_ACP_AGY_STORE) await recordAgyCalls(state)
+  return { stopReason: 'end_turn' }
+}
+
+const agyStores = new Map()
+
+/** Two model calls a turn, the context growing call on call and most of it cached. */
+const recordAgyCalls = async (state) => {
+  let store = agyStores.get(state.id)
+  if (!store) {
+    const { DatabaseSync } = await import('node:sqlite')
+    const folder = join(process.env.FAKE_ACP_AGY_STORE, 'antigravity-acp', 'conversations')
+    mkdirSync(folder, { recursive: true })
+    const db = new DatabaseSync(join(folder, `${state.id}.db`))
+    db.exec('PRAGMA journal_mode=WAL')
+    db.exec('CREATE TABLE IF NOT EXISTS `gen_metadata` (`idx` integer,`data` blob,`size` integer NOT NULL DEFAULT 0,PRIMARY KEY (`idx`))')
+    store = { db, next: 0 }
+    agyStores.set(state.id, store)
+  }
+  const cached = 9000 + 6500 * (state.turn - 1)
+  for (const [input, read, thinking, response] of [
+    [2400, cached, 310, 96],
+    [1800, cached + 2600, 120, 180],
+  ]) {
+    const data = agyCall({ input, read, thinking, response })
+    store.db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)').run(store.next++, data, data.length)
+  }
+}
+
+const pbVarint = (value) => {
+  const out = []
+  let rest = value
+  while (rest >= 0x80) {
+    out.push((rest % 0x80) | 0x80)
+    rest = Math.floor(rest / 0x80)
+  }
+  out.push(rest)
+  return out
+}
+const pbInt = (field, value) => [...pbVarint(field * 8), ...pbVarint(value)]
+const pbBytes = (field, body) => [...pbVarint(field * 8 + 2), ...pbVarint(body.length), ...body]
+
+/** A `gen_metadata` row as Antigravity writes one: field 1 the call, field 4 in it Codeium's `ModelUsageStats`. */
+const agyCall = ({ input, read, thinking, response }) =>
+  Uint8Array.from(
+    pbBytes(1, [
+      ...pbInt(3, 326),
+      ...pbBytes(4, [...pbInt(2, input), ...pbInt(3, thinking + response), ...pbInt(5, read), ...pbInt(9, thinking), ...pbInt(10, response)]),
+      ...pbBytes(19, [...Buffer.from('gemini-3.8-flash')]),
+    ]),
+  )
 
 /**
  * The background-task extension, agent side.

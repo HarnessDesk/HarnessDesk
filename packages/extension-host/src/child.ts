@@ -6,9 +6,11 @@ import {
   setBrowserSettings,
   setEditorEngine,
   setTeamEngine,
+  setForgeEngine,
   type BrowserEngine,
   type EditorEngine,
   type TeamEngine,
+  type ForgeEngine,
 } from '@harnessdesk/cordis-host'
 import {
   EXTENSION_PROTOCOL_VERSION,
@@ -149,6 +151,15 @@ const remoteTeamEngine: TeamEngine = {
 }
 
 setTeamEngine(remoteTeamEngine)
+
+/** `ctx.forge` for plugins in this process: the seat and the record live with the host, so every verb crosses. */
+const remoteForgeEngine: ForgeEngine = {
+  seat: (scope) => askHost('forge/seat', { scope }),
+  identity: (scope) => askHost('forge/identity', { scope }),
+  publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),
+}
+
+setForgeEngine(remoteForgeEngine)
 
 const snapshot = (): void => {
   const plugins = kernel.plugins()
