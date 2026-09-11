@@ -74,9 +74,11 @@ export const ConfirmDialog = ({
    * by a stray click without either verb being chosen. `role="alertdialog"`
    * also tells a screen reader this one is not passive.
    *
-   * `initialFocus={false}` keeps the fourth rule above: nothing is focused, so
-   * a held Return does not delete anything. Base UI would otherwise focus the
-   * first control, which here is the destructive one.
+   * `initialFocus={false}` keeps the third rule above: nothing is focused, so
+   * a held Return does not delete anything. Left to itself, Base UI focuses
+   * the popup when a touch opened it and the first control otherwise, and the
+   * first control here is the proceeding one &mdash; in a destructive confirm,
+   * the one that deletes.
    */
   <AlertDialog open onOpenChange={(next) => { if (!next) onCancel() }}>
     <AlertDialogContent className={dialogStyles.dialog} initialFocus={false}>
@@ -97,16 +99,24 @@ export const ConfirmDialog = ({
       <AlertDialogDescription render={<div />} className={dialogStyles.body}>
         {children}
       </AlertDialogDescription>
+      {/* The proceeding action is written first. The footer is `row-reverse`,
+          so first in the markup paints rightmost &mdash; the first rule above.
+          The order decides the keyboard too: nothing is focused on open, so
+          focus is still on the opener, and Base UI's guard before the popup
+          hands the first Tab to the popup's last control, which is Keep. A Tab
+          and a Return keep things as they are. Written the other way round,
+          every confirm in the app put the verb for leaving things alone where
+          the pointer goes to proceed, and a Tab and a Return confirmed. */}
       <div className={dialogStyles.footer}>
-        <Btn variant="quiet" onClick={onCancel} disabled={busy}>
-          {cancelLabel}
-        </Btn>
         <Btn
           variant={tone === 'destructive' ? 'danger' : 'primary'}
           onClick={onConfirm}
           disabled={busy || pending}
         >
           {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
+        </Btn>
+        <Btn variant="quiet" onClick={onCancel} disabled={busy}>
+          {cancelLabel}
         </Btn>
       </div>
     </AlertDialogContent>

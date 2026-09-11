@@ -361,8 +361,9 @@ const DialogBoard = () => {
       )}
       <p className={styles.rule}>
         Actions sit bottom-right with the proceeding one rightmost, because that is where every
-        macOS dialog puts them. Nothing is focused on open, so a stray Return cannot confirm. Escape
-        and a click on the ground both close.
+        macOS dialog puts them. Nothing is focused on open, so a stray Return cannot confirm, and
+        the confirm hands the first Tab to Keep. Escape closes either dialog; a click on the ground
+        closes only the plain one, because a question has to be answered.
       </p>
       <p className={styles.rule}>
         The cancel action says the verb for keeping things as they are — <code>Keep</code>, not{' '}
