@@ -2,6 +2,8 @@
 import { connect, type Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 
+import { toMcpContent, type GatewayResult } from './content.js'
+
 /**
  * HarnessDesk's plugin tools as a stdio MCP server.
  *
@@ -44,10 +46,6 @@ interface GatewayTool {
   description: string
   inputSchema: unknown
 }
-
-type GatewayResult =
-  | { ok: true; content: ({ type: 'text'; text: string } | { type: 'image'; url: string; mimeType?: string })[] }
-  | { ok: false; error: string }
 
 // ------------------------------------------------------------ gateway client
 
@@ -118,20 +116,6 @@ const toolIndex = async (): Promise<Map<string, GatewayTool>> => {
     if (!byName.has(key)) byName.set(key, tool)
   }
   return byName
-}
-
-const toMcpContent = (result: GatewayResult): { content: object[]; isError?: boolean } => {
-  if (!result.ok) return { content: [{ type: 'text', text: result.error }], isError: true }
-  const content = result.content.map((part) =>
-    part.type === 'text'
-      ? { type: 'text', text: part.text }
-      : {
-          type: 'image',
-          data: part.url.replace(/^data:[^,]*,/, ''),
-          mimeType: part.mimeType ?? 'image/png',
-        },
-  )
-  return { content: content.length > 0 ? content : [{ type: 'text', text: '' }] }
 }
 
 const respond = (id: unknown, result: object): void => {

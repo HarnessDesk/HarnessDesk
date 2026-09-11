@@ -128,6 +128,11 @@ describe('drawsAsImage', () => {
     expect(drawsAsImage('data:image/avif;base64,AAAA', 'image/avif')).toBe(true)
     expect(drawsAsImage('data:application/pdf;base64,JVBERg==', 'application/pdf')).toBe(false)
   })
+
+  test('an http link is not drawn, and an https link that declares nothing is tried (review of #187, round 2)', () => {
+    expect(drawsAsImage('http://localhost:3000/shot.png', 'image/png')).toBe(false)
+    expect(drawsAsImage('https://example.test/chart')).toBe(true)
+  })
 })
 
 describe('unshownImage', () => {

@@ -27,6 +27,15 @@ import type { HarnessContext, HarnessPlugin, NetworkEntry, PointerTarget } from 
  * at all.
  */
 
+/**
+ * A path in the one shell form that is a literal: single quotes, with a quote
+ * in it closed, escaped and reopened. The name comes from the page's own
+ * title, which the page chooses, and in double quotes a `$` or a backtick in
+ * it runs as code once the path is pasted into a shell (review of #187, round
+ * 2).
+ */
+const shellQuoted = (path: string): string => `'${path.replace(/'/g, "'\\''")}'`
+
 /** A size in kilobytes, as a network line and a saved PDF both give one. */
 const kilobytes = (bytes: number): string => `${(bytes / 1024).toFixed(1)}kB`
 
@@ -421,7 +430,7 @@ export const browserPlugin: HarnessPlugin = {
               return [
                 {
                   type: 'text' as const,
-                  text: `Saved ${page.title || '(untitled)'} as a PDF (${kilobytes(saved.bytes)}) at ${JSON.stringify(saved.path)}. It's removed when HarnessDesk quits, so copy it somewhere to keep it.`,
+                  text: `Saved ${page.title || '(untitled)'} as a PDF (${kilobytes(saved.bytes)}) at ${shellQuoted(saved.path)}. It's removed when the Browser plugin is turned off or HarnessDesk quits, so copy it somewhere to keep it.`,
                 },
               ]
             }

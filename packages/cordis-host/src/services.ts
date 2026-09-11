@@ -38,20 +38,23 @@ const MODEL_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'imag
 /**
  * An image part a model can read, or a sentence saying what it was. A plugin
  * that returns a PDF, or any other file, as an image part hands every agent
- * something its model refuses (#51); what it was is still worth saying. A data
- * URL's own type is what reaches the model, so it's read, and a declared type
- * has to agree with it: `mimeType: 'image/png'` on a PDF's data URL went to
- * Codex as an image (review of #187, round 1). A part whose type can't be
- * told, a link that declares none, goes as it is.
+ * something its model refuses (#51); what it was is still worth saying. The
+ * bytes decide: a data URL's own type is what reaches the model, so it's read
+ * first, and a declared type that disagrees is corrected to it. A PDF labelled
+ * `image/png` went to Codex as an image (review of #187, round 1), and a PNG
+ * labelled `application/pdf` is still a picture (round 2). A link has no bytes
+ * to read, so its declared type is read; a link that declares none goes as it
+ * is.
  */
 const modelReadable = (part: ToolResultPart): ToolResultPart => {
   if (part.type !== 'image') return part
-  const types = [/^data:([^;,]+)/i.exec(part.url)?.[1], part.mimeType]
-    .filter((type): type is string => Boolean(type))
-    .map((type) => type.toLowerCase())
-  const unreadable = types.find((type) => !MODEL_IMAGE_TYPES.has(type))
-  if (unreadable === undefined) return part
-  return { type: 'text', text: `An image part held ${unreadable}, which isn't an image a model can read, so it was left out.` }
+  const own = /^data:([^;,]+)/i.exec(part.url)?.[1]?.toLowerCase()
+  const declared = part.mimeType?.toLowerCase()
+  const type = own ?? declared
+  if (type !== undefined && !MODEL_IMAGE_TYPES.has(type)) {
+    return { type: 'text', text: `An image part held ${type}, which isn't an image a model can read, so it was left out.` }
+  }
+  return own !== undefined && declared !== own ? { ...part, mimeType: own } : part
 }
 
 /** Narrows a plugin's result to the shapes the transcript can render. */

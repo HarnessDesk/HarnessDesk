@@ -127,6 +127,17 @@ describe('an opened tool step', () => {
     expect(outputs()).toEqual(["application/pdf: can't be shown here."])
   })
 
+  it('names an image that fails to draw, rather than leaving a broken one (review of #187, round 2)', () => {
+    open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'https://example.test/gone.png' }] }))
+    const img = container.querySelector<HTMLImageElement>('img[src="https://example.test/gone.png"]')
+    expect(img).not.toBeNull()
+    act(() => {
+      img!.dispatchEvent(new Event('error'))
+    })
+    expect(container.querySelectorAll('img[src="https://example.test/gone.png"]').length).toBe(0)
+    expect(outputs()).toEqual(["A file: can't be shown here."])
+  })
+
   it('draws a result part that is an image', () => {
     open(call({ tool: 'browser_screenshot', result: [{ type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }] }))
     expect(container.querySelectorAll('img[src="data:image/png;base64,iVBORw0KGgo="]').length).toBe(1)

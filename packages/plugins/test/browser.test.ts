@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 
 import { KEY_NAMES, namedKey } from '@harnessdesk/cordis-host'
@@ -134,6 +135,22 @@ test('a page saved as a PDF comes back as a sentence naming the file, not as an 
   assert.deepEqual(parts.map((part) => part.type), ['text'])
   assert.equal(
     parts[0]!.text,
-    'Saved Quarterly report as a PDF (12.1kB) at "/tmp/hd-pdf-x/Quarterly report.pdf". It\'s removed when HarnessDesk quits, so copy it somewhere to keep it.',
+    "Saved Quarterly report as a PDF (12.1kB) at '/tmp/hd-pdf-x/Quarterly report.pdf'. It's removed when the Browser plugin is turned off or HarnessDesk quits, so copy it somewhere to keep it.",
   )
+})
+
+test('the path in the sentence is a literal to a shell, whatever the page called itself (review of #187, round 2)', async () => {
+  // In double quotes a backtick in the title ran as a command and a $ expanded.
+  const title = "Fix `whoami` in $HOME's plan"
+  const tools = withBrowser({
+    page: async () => ({ url: 'http://a.test/', title }),
+    savePdf: async (options: { name?: string }) => ({ path: `/tmp/hd-pdf-x/${options.name}.pdf`, bytes: 1_000 }),
+    pdf: async () => {
+      throw new Error('a data URL is not how a page is saved')
+    },
+  })
+  const parts = (await tools.get('browser_page')!.execute({ action: 'pdf' })) as { type: string; text?: string }[]
+  const quoted = /at ('(?:[^']|'\\'')*')\. It/.exec(parts[0]!.text ?? '')?.[1]
+  assert.ok(quoted, parts[0]!.text)
+  assert.equal(spawnSync('/bin/sh', ['-c', `printf %s ${quoted}`], { encoding: 'utf8' }).stdout, `/tmp/hd-pdf-x/${title}.pdf`)
 })
