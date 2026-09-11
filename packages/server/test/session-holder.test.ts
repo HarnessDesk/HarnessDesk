@@ -58,7 +58,7 @@ const twoAccounts = async (
   const slot = new FakeRuntime({
     id: SLOT,
     name: 'Fake Runtime',
-    accountLabel: 'Shane-OL',
+    accountLabel: 'Jane-Work',
     // The point of the fixture: a second account is a second runtime, and its
     // conversations are the same files unless the test says they are not.
     ...(share ? { sessionStore: STORE } : { sessionStore: '/somewhere/else' }),
@@ -183,7 +183,7 @@ test('a conversation held elsewhere is refused by name, with a code to act on', 
   assert.equal(failure.code, 'sessionBusy')
   // The account is named as the user named it, not as the agent is named:
   // both accounts are called "Fake Runtime", and only one of them has it.
-  assert.match(failure.message, /Shane-OL/)
+  assert.match(failure.message, /Jane-Work/)
   assert.doesNotMatch(failure.message, /active writer/)
 })
 

@@ -71,7 +71,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
     // Claude is the default; a Codex conversation is what is on screen.
     activeRuntime: CLAUDE,
     activeSessionKey: sessionKey(CODEX, sessionId('s-1')),
-    accountsByRuntime: { [CODEX]: signedIn('shane@vaultx.tech'), [CLAUDE]: claudeAccount },
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: claudeAccount },
     healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
     accountPrefs: { [accountKey(CLAUDE, claudeAccount.accounts[0]!)]: { nickname: 'Shane-Claude' } },
     ...overrides,
@@ -169,7 +169,7 @@ it('Escape closes the menu and says so, so a sidebar floating under it stays', (
 })
 
 it('dims the badge and colours the dot when the default has no account', () => {
-  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@vaultx.tech'), [CLAUDE]: signedOut } })
+  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedOut } })
   const seat = row()
   expect(seat.textContent).toContain('HarnessDesk')
   const badge = seat.querySelector('[data-off]')

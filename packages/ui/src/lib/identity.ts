@@ -5,7 +5,7 @@ export const brandOf = (name: string): string =>
     .replace(/\s+(Agent|Code|CLI)$/i, '')
     .trim() || name
 
-/** An email-like account label as a display name: 'olivia.ma@x' → 'Olivia Ma'. */
+/** An email-like account label as a display name: 'jane.doe@x' → 'Jane Doe'. */
 export const humanizeLabel = (label: string): string => {
   if (!label.includes('@')) return label
   const local = label.split('@')[0] ?? label
