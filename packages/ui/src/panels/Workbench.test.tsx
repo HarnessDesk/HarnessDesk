@@ -974,29 +974,105 @@ it('a panel strip moves the window, and the things you press on it do not', () =
   expect(control('Give this panel the whole area').closest('.hd-no-drag')).not.toBeNull()
 })
 
-it('a split in a dock dragged past either end stops where the store stops it, and commits that (review of #183, round 7)', () => {
-  // The preview clamps the ratio itself and the store clamps it again on release. Two copies of the limits
-  // would stop the drag in one place and commit it in another: a jump as the pointer lets go.
+/**
+ * The seam between two halves of a docked panel, `DockSplit`, which the panel
+ * playground's split copies. Tested here as well as there, or a break in the
+ * workbench's own handlers leaves the copy green (#230).
+ */
+const splitRig = (direction: 'row' | 'column') => {
   const harness = rig((start) => {
     const both = dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' })
-    return splitDock(both, dockViews(both.right)[1]!.id, 'row')
+    return splitDock(both, dockViews(both.right)[1]!.id, direction)
   })
+  const resizePanelSplit = vi.spyOn(harness.store as unknown as Record<string, never>, 'resizePanelSplit')
   render(harness.store)
   const seam = container.querySelector<HTMLElement>('[aria-label="Resize these panels"]')
   expect(seam, 'the right panel is split').toBeTruthy()
-  // The handle states the same range, for its keys and for a screen reader.
-  expect(seam!.getAttribute('aria-valuemin')).toBe(String(Math.round(MIN_RATIO * 100)))
-  expect(seam!.getAttribute('aria-valuemax')).toBe(String(Math.round(MAX_RATIO * 100)))
   const box = seam!.parentElement as HTMLElement
   box.getBoundingClientRect = () =>
     ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600, toJSON: () => ({}) }) as DOMRect
+  return { seam: seam!, box, resizePanelSplit }
+}
+
+/** The ratio a drag is showing, or '' when none is. */
+const splitShown = (box: HTMLElement): string => box.style.getPropertyValue('--split-drag')
+/** The ratio the store holds. */
+const splitRatio = (box: HTMLElement): number => parseFloat(box.style.getPropertyValue('--split-ratio'))
+const windowResizing = (): string | null => document.documentElement.getAttribute('data-hd-resizing')
+
+it('a split seam tracks the pointer while it is down, and the store hears it once (#230)', () => {
+  const { seam, box, resizePanelSplit } = splitRig('row')
+  point(seam, 'pointerdown', 500)
+  point(seam, 'pointermove', 600)
+  // A hundred pixels of a thousand is a tenth of the split: shown, and nothing told yet.
+  expect(parseFloat(splitShown(box))).toBeCloseTo(0.6, 5)
+  expect(resizePanelSplit).not.toHaveBeenCalled()
+  point(seam, 'pointerup', 600)
+  expect(resizePanelSplit).toHaveBeenCalledTimes(1)
+  expect(splitRatio(box)).toBeCloseTo(0.6, 5)
+  expect(splitShown(box)).toBe('')
+})
+
+it('a cancelled split drag keeps the ratio it started with (#230)', () => {
+  const { seam, box, resizePanelSplit } = splitRig('row')
+  point(seam, 'pointerdown', 500)
+  point(seam, 'pointermove', 600)
+  point(seam, 'pointercancel', 600)
+  expect(splitShown(box)).toBe('')
+  expect(splitRatio(box)).toBeCloseTo(0.5, 5)
+  expect(resizePanelSplit).not.toHaveBeenCalled()
+})
+
+it('a split drag that loses its pointer capture ends there, and keeps where it got to (#230)', () => {
+  const { seam, box } = splitRig('row')
+  point(seam, 'pointerdown', 500)
+  point(seam, 'pointermove', 600)
+  point(seam, 'lostpointercapture', 600)
+  expect(splitRatio(box)).toBeCloseTo(0.6, 5)
+  // Ended, not merely paused: a later move is not a drag.
+  point(seam, 'pointermove', 800)
+  expect(splitShown(box)).toBe('')
+  expect(windowResizing()).toBeNull()
+})
+
+it('a split one above the other drags along its height (#230)', () => {
+  const { seam, box } = splitRig('column')
+  point(seam, 'pointerdown', 500, 300)
+  // Sixty pixels of six hundred is a tenth; the four hundred across are not its axis.
+  point(seam, 'pointermove', 900, 360)
+  expect(parseFloat(splitShown(box))).toBeCloseTo(0.6, 5)
+})
+
+it('a split drag marks the window as resizing for as long as it lasts, however it ends (#230)', () => {
+  const { seam } = splitRig('row')
+  point(seam, 'pointerdown', 500)
+  expect(windowResizing()).toBe('vertical')
+  point(seam, 'pointerup', 500)
+  expect(windowResizing()).toBeNull()
+  point(seam, 'pointerdown', 500)
+  point(seam, 'pointercancel', 500)
+  expect(windowResizing()).toBeNull()
+  point(seam, 'pointerdown', 500)
+  // The split goes away under the pointer.
+  act(() => root.unmount())
+  expect(windowResizing()).toBeNull()
+  root = createRoot(container)
+})
+
+it('a split in a dock dragged past either end stops where the store stops it, and commits that (review of #183, round 7)', () => {
+  // The preview clamps the ratio itself and the store clamps it again on release. Two copies of the limits
+  // would stop the drag in one place and commit it in another: a jump as the pointer lets go.
+  const { seam, box } = splitRig('row')
+  // The handle states the same range, for its keys and for a screen reader.
+  expect(seam.getAttribute('aria-valuemin')).toBe(String(Math.round(MIN_RATIO * 100)))
+  expect(seam.getAttribute('aria-valuemax')).toBe(String(Math.round(MAX_RATIO * 100)))
   for (const [to, limit] of [[5000, MAX_RATIO], [-5000, MIN_RATIO]] as const) {
-    point(seam!, 'pointerdown', 500)
-    point(seam!, 'pointermove', to)
-    expect(box.style.getPropertyValue('--split-drag')).toBe(limit.toFixed(4))
-    point(seam!, 'pointerup', to)
-    expect(box.style.getPropertyValue('--split-ratio')).toBe(String(limit))
-    expect(box.style.getPropertyValue('--split-drag')).toBe('')
+    point(seam, 'pointerdown', 500)
+    point(seam, 'pointermove', to)
+    expect(splitShown(box)).toBe(limit.toFixed(4))
+    point(seam, 'pointerup', to)
+    expect(splitRatio(box)).toBe(limit)
+    expect(splitShown(box)).toBe('')
   }
 })
 
