@@ -32,7 +32,8 @@ install, the build, every test suite (Node packages, gate scripts, UI and
 desktop), the UI typecheck, the layering rules, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system
 gates, interface drift, the recorded-claims link, the check that holds this
-gate and CI to one list, and Codex protocol drift. CI runs all of those except
+gate and CI to one list, Codex protocol drift, and the check that this
+paragraph and AGENTS.md name every step the gate runs. CI runs all of those except
 protocol drift, which needs a real `codex` binary; a green local run means a
 green pipeline.
 

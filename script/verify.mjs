@@ -112,6 +112,9 @@ step('recorded claims', () => run('node', ['script/check-claims.mjs']))
 // broken build reach main once already; this is the check that says so.
 step('gate matches CI', () => run('node', ['script/check-verify-drift.mjs']))
 step('codex protocol drift', () => run('node', ['script/generate-codex-protocol.mjs', '--check']))
+// The two documents that tell a person what this gate does list its steps by
+// hand, and nothing compared either list with this file until now (#246).
+step('steps are documented', () => run('node', ['script/check-verify-steps.mjs']))
 
 if (failures.length > 0) {
   report()

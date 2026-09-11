@@ -6,9 +6,11 @@ import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
 import { sheetsOf, squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
-import { ciCommands, gateCommands } from './check-verify-drift.mjs'
+import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
+import { problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
-import { TEST_GLOB } from './prune-dist.mjs'
+import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
+import { createSteps } from './lib/steps.mjs'
 import { leadComment } from './design-doc.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -432,16 +434,24 @@ test('CI steps are read whichever way the workflow spells them', () => {
     '      - uses: actions/checkout@v7',
   ].join('\n')
   const read = ciCommands(yaml)
-  assert.match(read, /pnpm run build/)
+  assert.ok(read.includes('pnpm run build'), 'the inline command, on its own')
   // A folded scalar is one command, not one command per line.
-  assert.match(read, /node script\/check-secrets\.mjs --strict/)
+  assert.ok(read.includes('node script/check-secrets.mjs --strict'), 'the folded command, joined into one')
 })
 
 test('quoting style does not change what CI is seen to run', () => {
   const yaml = ['    steps:', '      - run: node --test "script/*.test.mjs"'].join('\n')
   // The comparison strips quotes on both sides; a formatter must not be able
   // to make a step disappear by rewriting them.
-  assert.match(ciCommands(yaml), /node --test script\/\*\.test\.mjs/)
+  assert.ok(ciCommands(yaml).includes('node --test script/*.test.mjs'), 'the quoted glob')
+})
+
+test('a gate command that is only part of a CI command is not in CI (#247)', () => {
+  const workflow = ciCommands(['    steps:', '      - run: pnpm run build'].join('\n'))
+  // The control: the whole command is there, and is not reported.
+  assert.deepEqual(missingFromCI([{ command: 'pnpm', args: ['run', 'build'] }], workflow), [])
+  // And a prefix of it is not a command CI runs, though it reads as one to a search through joined text.
+  assert.deepEqual(missingFromCI([{ command: 'pnpm', args: ['run'] }], workflow), ['pnpm run'])
 })
 
 /**
@@ -603,4 +613,62 @@ test('the audit reads a stylesheet imported from another folder, and one behind 
     'screens/one/One.tsx imports ../../design/ui/kit.module.css',
     'screens/one/One.tsx imports @/design/ui/kit.module.css (../../design/ui/kit.module.css)',
   ])
+})
+
+test('a glob that ends in a double star takes the rest of the path (#263)', () => {
+  const deep = globToRegExp('packages/**')
+  assert.ok(deep.test('packages/ui'), 'one segment under it')
+  assert.ok(deep.test('packages/ui/dist/test/a.test.js'), 'and everything below that')
+  assert.equal(deep.test('packages'), false, 'the directory itself is not under itself')
+  // The control: the glob this repository actually runs reads the same as before.
+  assert.ok(globToRegExp(TEST_GLOB).test('packages/server/dist/test/a/b.test.js'))
+})
+
+test('prune-dist refuses a test glob of another shape rather than reading the wrong segments (#263)', () => {
+  // The control: today's glob is the shape it expects, and gives the three segments the walk needs.
+  assert.deepEqual(distSegments(TEST_GLOB), { top: 'packages', dist: 'dist', tests: 'test' })
+  assert.throws(() => distSegments('out/**/*.test.js'), /not that shape/, 'too few segments')
+  assert.throws(() => distSegments('packages/ui/dist/test/**/*.test.js'), /not that shape/, 'the package segment must be the wildcard')
+})
+
+test('a step that needs a step nobody declared stops the run (#263)', () => {
+  const written = []
+  const sink = { write: (text) => written.push(text) }
+  const { step } = createSteps({ out: sink, err: sink, exit: () => {} })
+  step('build', () => {})
+  assert.throws(() => step('node tests', () => {}, { needs: 'biuld' }), /no step before it declares/)
+  // The control: spelled right, the same step is allowed and runs.
+  assert.equal(
+    step('node tests', () => {}, { needs: 'build' }),
+    true,
+  )
+})
+
+test('the documents are held to naming every step the gate runs (#246)', () => {
+  const verify = ["step('build', () => run('pnpm', ['run', 'build']))", "// step('ghost', …) named in a comment is not a step", "step('gate tests', () => run('node', ['--test']))"].join('\n')
+  assert.deepEqual(stepNames(verify), ['build', 'gate tests'])
+
+  const described = new Map([['build', /the build/i]])
+  const both = { 'AGENTS.md': 'it runs the build', 'CONTRIBUTING.md': 'the build, and more' }
+  // The control: a step both documents name is not a problem.
+  assert.deepEqual(problemsWith(['build'], both, described), [])
+  // One document falling silent is what this exists to catch.
+  const half = problemsWith(['build'], { ...both, 'AGENTS.md': 'it runs everything' }, described)
+  assert.equal(half.length, 1)
+  assert.match(half[0], /AGENTS\.md does not name it/)
+  // A step nobody described says what to do about it, rather than passing.
+  assert.match(problemsWith(['new gate'], both, described)[0], /no entry here/)
+  // And an entry for a step that is gone is stale, not harmless.
+  assert.match(problemsWith([], both, described)[0], /no longer runs it/)
+
+  // The documents are hard-wrapped: a phrase the wrapping broke in two is still the document naming it.
+  const wrapped = { 'AGENTS.md': 'it runs the\nbuild', 'CONTRIBUTING.md': 'the build' }
+  assert.deepEqual(problemsWith(['build'], wrapped, described), [])
+})
+
+test('a section is read to the next heading, and a renamed one is empty rather than the whole file (#246)', () => {
+  const doc = ['# Title', '', '## The gate', '', 'it runs the build', '', '## Commits', '', 'unrelated prose'].join('\n')
+  assert.match(sectionOf(doc, '## The gate'), /it runs the build/)
+  assert.equal(/unrelated/.test(sectionOf(doc, '## The gate')), false)
+  assert.equal(sectionOf(doc, '## Renamed'), '')
 })
