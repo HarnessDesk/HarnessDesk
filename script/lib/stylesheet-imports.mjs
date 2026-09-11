@@ -11,7 +11,33 @@ import path from 'node:path'
  * delete the prose.
  */
 export const bareSource = (source) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .split('\n')
+    .map(withoutTrailingComment)
+    .join('\n')
+
+/**
+ * A line without the comment that follows its code: a `//` after whitespace,
+ * outside any quote on the line. `x = 1 // styles.gone` counted as a use of
+ * `gone` (review of #183, round 4). A URL stays, whether quoted,
+ * `'https://…'`, or after a colon, `http://`.
+ */
+function withoutTrailingComment(line) {
+  let quote = null
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]
+    if (quote) {
+      if (ch === '\\') i += 1
+      else if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === '`') quote = ch
+    else if (ch === '/' && line[i + 1] === '/' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i)
+  }
+  return line
+}
 
 /**
  * A component's CSS-module imports from its own directory, as
@@ -25,10 +51,11 @@ export const bareSource = (source) =>
  * statement at the start of a line, so one quoted in a trailing comment is
  * not read either (round 2). An import from another folder is read too, by its
  * path: one by `../` went unread, so a screen could borrow another's stylesheet
- * without being counted (round 3).
+ * without being counted (round 3). So is one through the UI's `@/` alias
+ * (round 4), which `resolveStylesheet` turns into a relative path.
  */
 export const stylesheetImports = (source) =>
-  [...bareSource(source).matchAll(/^\s*import\s+(\w+)\s+from\s+(['"])(\.{1,2}\/[\w./-]*\.module\.css)\2/gm)].map((match) => ({
+  [...bareSource(source).matchAll(/^\s*import\s+(\w+)\s+from\s+(['"])((?:\.{1,2}|@)\/[\w./-]*\.module\.css)\2/gm)].map((match) => ({
     binding: match[1],
     // Relative to the importing file, and one in its own folder by its name alone.
     file: match[3].replace(/^\.\//, ''),
@@ -51,3 +78,11 @@ export const ownsStylesheet = (file, sheet) => {
   const names = [path.basename(file, '.tsx'), path.basename(path.dirname(file))]
   return names.some((name) => key(`${name}.module.css`) === key(sheet))
 }
+
+/**
+ * An import's path relative to the importing file's folder, with the UI's
+ * `@/` alias resolved against its source root first (review of #183, round
+ * 4). A relative path comes back as it is.
+ */
+export const resolveStylesheet = (dir, spec, uiSrc) =>
+  spec.startsWith('@/') ? path.relative(dir, path.join(uiSrc, spec.slice(2))) : spec

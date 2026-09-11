@@ -376,4 +376,3 @@
 .strips:has([data-collapsed]) {
   flex: none;
 }
-

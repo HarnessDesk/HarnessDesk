@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
-import { bareSource, ownsStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
+import { bareSource, ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -351,7 +351,8 @@ for (const file of tsxFiles()) {
   // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
   // `explorer.module.css`, which is the right arrangement, not drift. The rule
   // being enforced is that a screen may not reach into a DIFFERENT screen.
-  for (const { binding, file: sheet } of stylesheetImports(source)) {
+  for (const { binding, file: spec } of stylesheetImports(source)) {
+    const sheet = resolveStylesheet(dir, spec, UI_SRC)
     if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${sheet}`)
     const target = path.join(dir, sheet)
     if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
