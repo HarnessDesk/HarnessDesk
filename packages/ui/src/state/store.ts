@@ -67,7 +67,7 @@ import { isStale } from '../lib/versions'
 import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
-import { crossings } from '../lib/usage-alerts'
+import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
 import {
   afterDismiss,
   readNoticePolicy,
@@ -309,8 +309,9 @@ export class AppStore {
           // One account at a time, so a slow source never holds up a fast one.
           const { report } = notification.params
           const before = this.#snapshot.usage
+          // One account however it is spelled: `null` and `"  "` are the same none (review of #216).
           const rest = before.filter(
-            (entry) => entry.runtime !== report.runtime || entry.account !== report.account,
+            (entry) => entry.runtime !== report.runtime || usageAccount(entry) !== usageAccount(report),
           )
           const usage = [...rest, report]
           this.#patch({ usage })
@@ -1258,8 +1259,14 @@ export class AppStore {
    * an event and belongs to the banner, not here.
    */
   #announceUsage(before: readonly UsageReport[], after: readonly UsageReport[]): void {
-    const nameFor = (runtime: RuntimeId): string =>
-      this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? String(runtime)
+    const nameFor = (runtime: RuntimeId, account: string | null): string =>
+      toastName(
+        this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? String(runtime),
+        runtime,
+        account,
+        this.#snapshot.accountsByRuntime[runtime]?.accounts ?? [],
+        this.#snapshot.accountPrefs,
+      )
     for (const alert of crossings(before, after, nameFor, Date.now())) {
       this.notice('warning', alert.message)
     }
@@ -1272,9 +1279,10 @@ export class AppStore {
         'usage/refresh',
         runtime ? { runtime } : {},
       )
-      const touched = new Set(reports.map((report) => `${report.runtime}:${report.account ?? ''}`))
+      // One account however it is spelled, as in `usage/updated` (review of #216).
+      const touched = new Set(reports.map((report) => `${report.runtime}:${usageAccount(report)}`))
       const before = this.#snapshot.usage
-      const kept = before.filter((entry) => !touched.has(`${entry.runtime}:${entry.account ?? ''}`))
+      const kept = before.filter((entry) => !touched.has(`${entry.runtime}:${usageAccount(entry)}`))
       const usage = [...kept, ...reports]
       this.#patch({ usage })
       this.#announceUsage(before, usage)

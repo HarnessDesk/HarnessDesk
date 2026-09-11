@@ -549,7 +549,8 @@ for subscription users who never purchased prepaid credits), and whether a limit
 was **reached**, the only signal that turns will actually fail. `lib/limits.ts`
 reads them apart; the header, footer and Settings show what the vendor's own app
 shows — "4% left · Weekly · resets 4:00 PM" — and the blocked banner fires only
-on a reached limit.
+on a reached limit. An account's Settings page shows the prepaid balance beside
+the windows, a zero included.
 
 ## Multiple accounts of the same agent
 

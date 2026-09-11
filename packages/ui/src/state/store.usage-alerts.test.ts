@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, type HostMethodName, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, type HostMethodName, type UsageReport, type WireNotification } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
 
@@ -14,7 +14,7 @@ import { AppStore } from './store'
 // One reset for every reading: a lane whose reset moved is a new window, not the same one read again.
 const RESETS = Date.now() + 2 * 86_400_000
 
-const report = (account: string, usedPercent: number): UsageReport =>
+const report = (account: string | null, usedPercent: number): UsageReport =>
   ({
     runtime: runtimeId('codex'),
     account,
@@ -50,5 +50,48 @@ describe('usage alerts from a refresh', () => {
     expect(said).toHaveLength(2)
     expect(said[0]).toMatch(/^codex \(work\) — .* is 80% used/)
     expect(said[1]).toMatch(/^codex \(personal\) — .* is 80% used/)
+  })
+})
+
+describe('what the store keeps and says (review of #216)', () => {
+  it('keeps one reading of an account whose none arrives spelled two ways', async () => {
+    answers['usage/refresh'] = [report(null, 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('  ', 85)]
+    await store.refreshUsage()
+    expect(store.getSnapshot().usage).toHaveLength(1)
+  })
+
+  it('names no account when the agent has one', async () => {
+    answers['usage/refresh'] = [report('olivia@acme.dev', 70)]
+    await store.refreshUsage()
+    answers['usage/refresh'] = [report('olivia@acme.dev', 85)]
+    await store.refreshUsage()
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([expect.stringMatching(/^codex — .* is 80% used/)])
+  })
+})
+
+/** A notification, as the host pushes it. Never connected; nothing reaches a wire. */
+const push = (notification: WireNotification): void => {
+  const transport = store.transport as unknown as { handlers: { onNotification(notification: WireNotification): void } }
+  transport.handlers.onNotification(notification)
+}
+
+describe('usage alerts as the host pushes them, one account at a time', () => {
+  // Review of #216: the path the running app takes, where #179's two identical toasts came from.
+  it('toasts each account that crosses a line, by its own name', () => {
+    for (const account of ['work', 'personal']) push({ method: 'usage/updated', params: { report: report(account, 70) } })
+    expect(store.getSnapshot().notices).toEqual([])
+    for (const account of ['work', 'personal']) push({ method: 'usage/updated', params: { report: report(account, 85) } })
+    const said = store.getSnapshot().notices.map((notice) => notice.message)
+    expect(said).toHaveLength(2)
+    expect(said[0]).toMatch(/^codex \(work\) — .* is 80% used/)
+    expect(said[1]).toMatch(/^codex \(personal\) — .* is 80% used/)
+  })
+
+  it('keeps one reading of an account whose none arrives spelled two ways', () => {
+    push({ method: 'usage/updated', params: { report: report(null, 70) } })
+    push({ method: 'usage/updated', params: { report: report('  ', 85) } })
+    expect(store.getSnapshot().usage).toHaveLength(1)
   })
 })

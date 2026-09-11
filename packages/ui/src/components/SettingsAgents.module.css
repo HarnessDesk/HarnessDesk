@@ -341,6 +341,22 @@
   color: var(--hdp-alias-label-tertiary);
 }
 
+/* The prepaid balance, in the tone describeLimits grades it: the meters'
+   figure ink while there is some, the danger ink when there is none. */
+.credits {
+  font-size: var(--hd-text-sm);
+  color: var(--hdp-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.credits[data-tone='warn'] {
+  color: var(--hd-warning);
+}
+
+.credits[data-tone='bad'] {
+  color: var(--hd-danger);
+}
+
 .meterTrack {
   height: 4px;
   border-radius: 2px;

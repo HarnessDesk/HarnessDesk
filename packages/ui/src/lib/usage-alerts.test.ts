@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RuntimeId, UsageLane, UsageReport } from '@harnessdesk/protocol'
+import type { Account, RuntimeId, UsageLane, UsageReport } from '@harnessdesk/protocol'
 
-import { conditionFor, crossings } from './usage-alerts'
+import { accountKey } from './accounts'
+import { conditionFor, crossings, toastName } from './usage-alerts'
 
 /**
  * When the desk speaks, and when it keeps quiet.
@@ -18,7 +19,8 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
 const id = (value: string): RuntimeId => value as RuntimeId
-const nameFor = (runtime: RuntimeId): string => (runtime === id('codex') ? 'OpenAI Codex' : 'Claude Code')
+const nameFor = (runtime: RuntimeId, account: string | null = null): string =>
+  `${runtime === id('codex') ? 'OpenAI Codex' : 'Claude Code'}${account ? ` (${account})` : ''}`
 
 const lane = (over: Partial<UsageLane> = {}): UsageLane => ({
   id: 'weekly',
@@ -242,5 +244,29 @@ describe('a report that names no account', () => {
     const before = [report('codex', [lane({ usedPercent: 50 })])]
     const after = [{ ...report('codex', [lane({ usedPercent: 85 })]), account: undefined as unknown as null }]
     expect(crossings(before, after, nameFor, NOON)).toHaveLength(1)
+  })
+})
+
+describe('which toasts name the account (review of #216)', () => {
+  it('a lone account is not named, so the common toast carries no address', () => {
+    const alerts = crossings(
+      [report('codex', [lane({ usedPercent: 70 })], { account: 'olivia@acme.dev' })],
+      [report('codex', [lane({ usedPercent: 85 })], { account: 'olivia@acme.dev' })],
+      nameFor,
+      NOON,
+    )
+    expect(alerts.map((alert) => alert.message.split(' — ')[0])).toEqual(['OpenAI Codex'])
+  })
+
+  it('an account is named as the person named it', () => {
+    const olivia = { kind: 'oauth', label: 'olivia@acme.dev', email: 'olivia@acme.dev' } as unknown as Account
+    const work = { kind: 'oauth', label: 'work@acme.dev', email: 'work@acme.dev' } as unknown as Account
+    const prefs = { [accountKey(id('codex'), work)]: { nickname: 'Work laptop' } }
+    expect(toastName('OpenAI Codex', id('codex'), 'work@acme.dev', [olivia, work], prefs)).toBe('OpenAI Codex (Work laptop)')
+    // Without a nickname, the address's own name rather than the whole address.
+    expect(toastName('OpenAI Codex', id('codex'), 'olivia@acme.dev', [olivia, work], prefs)).toBe('OpenAI Codex (olivia)')
+    // An account the desk doesn't hold is named as the report named it.
+    expect(toastName('OpenAI Codex', id('codex'), 'ci@acme.dev', [olivia, work], prefs)).toBe('OpenAI Codex (ci@acme.dev)')
+    expect(toastName('OpenAI Codex', id('codex'), null, [olivia, work], prefs)).toBe('OpenAI Codex')
   })
 })

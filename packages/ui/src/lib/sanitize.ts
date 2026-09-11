@@ -71,6 +71,11 @@ export const sanitizeHtml = (html: string): string => {
          all, in a list this loop had already passed: an `<img onerror>` at
          depth 101 went through (#38). Its text is all that is kept. */
       if (depth >= MAX_DEPTH) {
+        /* The text of what may be read, and not the source of what may not: a
+           script's or a style's content went into the document as visible
+           text, the one thing DROP_WITH_CONTENT is there to prevent (review of
+           #216). */
+        for (const dropped of child.querySelectorAll([...DROP_WITH_CONTENT].join(','))) dropped.remove()
         child.replaceWith(document.createTextNode(child.textContent ?? ''))
         continue
       }
