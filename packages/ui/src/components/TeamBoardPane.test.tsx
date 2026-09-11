@@ -621,6 +621,29 @@ it('says where the holder goes once: on the card when the conversation is loaded
   expect(unloaded?.hasAttribute('aria-description')).toBe(false)
 })
 
+/**
+ * Nothing inside the holder says it again.
+ *
+ * The conversation's title beside the holder's name is drawn inside the card's
+ * trigger, and the card's heading is that same title — so a tooltip of its own
+ * on the title is a second box on the same rest, the thing the button's own
+ * sentence stopped being. A name is given here, so the title is drawn beside it.
+ */
+it('draws the conversation’s title beside the holder without a tooltip of its own while a card can show', async () => {
+  const { store } = rig(
+    [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    { nicknames: { [sessionKey('codex', 'c1')]: 'Gemini' } },
+  )
+  await render(store)
+
+  const holder = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('Gemini'))
+  if (!holder) throw new Error('no holder control')
+  // The control: the title is drawn, beside the name.
+  expect([...holder.querySelectorAll('span')].some((one) => one.textContent === 'API migration')).toBe(true)
+  const tooltips = [holder, ...holder.querySelectorAll('*')].filter((one) => one.hasAttribute('title'))
+  expect(tooltips.map((one) => one.getAttribute('title'))).toEqual([])
+})
+
 it('separates work waiting on its dependencies from work somebody stopped', async () => {
   const waiting = {
     id: 1,

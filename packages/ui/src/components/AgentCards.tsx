@@ -182,13 +182,26 @@ const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || 
  *
  * Measured against the stricter of the two widths the page can be said to
  * have: the root element's, which leaves out a classic scrollbar, and the
- * visual viewport's, which is what the positioner keeps the card inside. So a
- * side found to have room here is one the positioner finds room on too, and it
- * never trades a side this code chose. (The positioner also takes off a gutter
- * it works out from the body's width; in this app the body has no margin and
- * hides its overflow, and the widths were measured equal, so that is nothing.
- * Should it ever not be, the watch in `AgentHoverCard` closes a card the
- * positioner trades rather than arguing with it.)
+ * visual viewport's, which is what the positioner keeps the card inside. The
+ * root's is a whole number and the viewport's a fraction, and either can be
+ * the narrower by a rounding; the smaller of the two is inside both. The
+ * positioner's viewport also takes off a gutter it works out from the root's
+ * and the body's widths (`getViewportRect`); in this app the body has no
+ * margin and hides its overflow, and the widths were measured equal, so that
+ * is nothing.
+ *
+ * So a side found to have room here is one the positioner finds room on too,
+ * edge for edge. Measured in the shell with the room beside a row at the
+ * card's reach, and half a pixel and a pixel either side of it, the side
+ * picked here was the side the positioner kept every time; and Chromium lays
+ * boxes out in 64ths of a pixel, which both sums hold exactly. The positioner
+ * also tries the other side when the card overflows *vertically* and shifting
+ * cannot help — a card taller than the window — but then both sides overflow
+ * by the same amount, and of equals it keeps the one it tried first, the side
+ * asked for (measured: a 344px card in a 287px window, with room on both
+ * sides, stayed on the right). That rests on the positioner's tie-break, not
+ * on this ruler; should either change, the watch in `AgentHoverCard` closes a
+ * card the positioner trades rather than arguing with it.
  */
 const roomOn = (trigger: HTMLElement, side: 'left' | 'right'): boolean => {
   const box = trigger.getBoundingClientRect()
@@ -448,15 +461,25 @@ export const AgentHoverCard = ({
      pressed in the meantime does not cancel it: the pointer is still
      resting.
 
-     A trade is not a lost room, and is not asked for again. It would mean the
-     positioner and this code had measured the same geometry and disagreed —
-     `roomOn` is built so that they cannot, here — and measuring again would
-     only disagree again: opened, traded, closed and asked for, unseen, for as
-     long as the pointer rests. So a traded card closes and waits for the
-     pointer to come again. A lost room needs no such bound: asking again
-     measures afresh, and lands on a side with room, or under the trigger,
-     where nothing watches it. `redrawn` runs this again for a trigger drawn
-     again, so the observer watches the element that is there. */
+     A trade is not a lost room, and nothing here asks for it again. It would
+     mean the positioner and this code had measured the same geometry and
+     disagreed — which `roomOn` is built to rule out (see there) — and
+     measuring again would only disagree again: opened, traded, closed and
+     asked for, unseen, for as long as the pointer rests. So a traded card
+     closes and schedules nothing. The next open is the reader's: the pointer
+     arriving again, or moving off a `data-no-card` control inside the
+     trigger, which asks as any such move does; a card opened by a keyboard's
+     focus has no pointer to come back, and waits for the focus to leave and
+     return. A lost room needs no such bound: asking again measures afresh,
+     and lands on a side with room, or under the trigger, where nothing
+     watches it. `redrawn` runs this again for a trigger drawn again, so the
+     observer watches the element that is there.
+
+     The observers report changes from the moment they are attached, so what
+     is there already is read as the watch starts: the positioner's first
+     answer for a card just drawn can be written before this runs, and no
+     observer would report it. (A ResizeObserver's first report happened to
+     read it; nothing said so, and nothing relied on it on purpose.) */
   useEffect(() => {
     if (!open || !beside(placed)) return undefined
     const at = placed
@@ -480,6 +503,7 @@ export const AgentHoverCard = ({
       placedAgain.observe(card, { attributes: true, attributeFilter: ['data-side'] })
       if (card.parentElement) placedAgain.observe(card.parentElement, { attributes: true, attributeFilter: ['style'] })
     }
+    check()
     return () => {
       observer.disconnect()
       placedAgain.disconnect()

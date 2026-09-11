@@ -399,12 +399,22 @@ const spans = (left: number, right: number): void => {
   } as DOMRect)
 }
 
-/* The viewport, as the root element reports it: what the positioner measures,
-   and so what the side is decided against. jsdom lays nothing out, so it is
-   0×0 until a test says otherwise. */
+/* The viewport: the root element's width, and a visual viewport as wide — the
+   two the side is decided against. The app always has both, so every side
+   test measures through both, as the app does; jsdom lays nothing out and has
+   no visual viewport, so neither is there until a test says otherwise. */
 const viewport = (width: number, height = 768): void => {
   vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(width)
   vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(height)
+  vi.stubGlobal('visualViewport', {
+    width,
+    height,
+    offsetLeft: 0,
+    offsetTop: 0,
+    scale: 1,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })
 }
 
 const side = (): string | null | undefined =>
@@ -841,6 +851,28 @@ it('measures the room beside a trigger inside a scrollbar, where the positioner 
   vi.useRealTimers()
 })
 
+it('measures against the root where the visual viewport is a fraction wider, as a zoom can leave them', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  /* Zoomed, the root's width is a whole number and the visual viewport's a
+     fraction, and either can be the narrower. Here the root is 1009 and the
+     visual viewport 1009.5 — 295.75px to the root's edge, 296.25 to the
+     viewport's, and the card needs 296 — so it is the root that says no. */
+  viewport(1009)
+  vi.stubGlobal('visualViewport', {
+    width: 1009.5,
+    height: 768,
+    offsetLeft: 0,
+    offsetTop: 0,
+    scale: 1,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })
+  spans(0, 713.25)
+  rest(trigger())
+  expect(side()).toBe('bottom')
+})
+
 /**
  * An open card keeps its side; it closes when it no longer fits there.
  *
@@ -1202,6 +1234,75 @@ it('measures the room on the right against the visual viewport where that is nar
   spans(0, 724)
   rest(trigger())
   expect(side()).toBe('bottom')
+})
+
+it('measures the room on the left from the visual viewport’s left edge, where that starts inside the root', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  /* Zoomed and panned, the visual viewport starts to the right of the root's
+     left edge, and the positioner keeps a card inside it. Here it starts at
+     80: from the trigger, 340px to the root's left edge, 260 to the
+     viewport's, and 224 to the right-hand edge — too little on either side. */
+  viewport(1024)
+  spans(340, 800)
+  // The control: nothing panned, so the left has room.
+  rest(trigger())
+  expect(side()).toBe('left')
+  leave(trigger())
+  vi.stubGlobal('visualViewport', {
+    width: 944,
+    height: 768,
+    offsetLeft: 80,
+    offsetTop: 0,
+    scale: 1,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })
+  rest(trigger())
+  expect(side()).toBe('bottom')
+})
+
+/**
+ * The watch reads the card's side as it starts, not only the changes after.
+ *
+ * It hears the positioner by observing it, and an observer reports changes
+ * from the moment it is attached — so an answer already written by then (the
+ * positioner's first, for a card just drawn) is heard only if the watch reads
+ * what is there as it starts. In the app, a ResizeObserver's first report
+ * happened to do that. Here no observer reports anything at all, and the
+ * watch is started again, over a side already traded, by drawing the trigger
+ * again.
+ */
+it('reads the side the positioner drew a card on as its watch starts, not only the changes after', () => {
+  observeByHand()
+  vi.stubGlobal(
+    'MutationObserver',
+    class {
+      observe(): void {}
+      disconnect(): void {}
+      takeRecords(): MutationRecord[] {
+        return []
+      }
+    },
+  )
+  vi.useFakeTimers()
+  act(() => root.render(chip('span')))
+  viewport(1024)
+  spans(20, 60)
+  rest(trigger())
+  expect(side()).toBe('right')
+
+  // The control: the watch started again over the side the card opened on.
+  act(() => root.render(chip('div')))
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  // The positioner's answer, where no observer reports it; the watch, started
+  // again, reads it — and a trade is not asked for again.
+  document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
+  act(() => root.render(chip('span')))
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('closed')
 })
 
 it('a re-ask opens on the side asked for now, not the side asked for when it was armed', () => {

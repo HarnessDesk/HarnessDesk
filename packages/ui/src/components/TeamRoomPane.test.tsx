@@ -1568,6 +1568,28 @@ it('tabbing to the plus opens no card', async () => {
   vi.useRealTimers()
 })
 
+/**
+ * A rail row is one tab stop, and that stop is its +.
+ *
+ * The row refuses focus for its card (`openOnFocus={false}`), which is safe
+ * only while nothing in the row but its + can be tabbed to: `ListRow` is a
+ * plain `div`, and the trigger around it stays out of the tab order. The day
+ * either becomes a stop, a keyboard lands on a row whose card never opens for
+ * it — and this is what fails that day.
+ */
+it('a rail row is one tab stop, and that stop is its plus', async () => {
+  const { store } = rig()
+  await render(store)
+
+  const opus = row('Opus')
+  const trigger = opus.closest<HTMLElement>('[data-slot="hover-card-trigger"]')
+  const watch = opus.querySelector('button[aria-label^="Watch Opus"]')
+  if (!trigger || !watch) throw new Error('the row is missing its parts')
+  const stops = [trigger, ...trigger.querySelectorAll<HTMLElement>('*')].filter((one) => one.tabIndex >= 0)
+  expect(stops).toHaveLength(1)
+  expect(stops[0]).toBe(watch)
+})
+
 it('opens a column’s card from the name at its head, as from its mark', async () => {
   vi.useFakeTimers()
   const { store } = rig()

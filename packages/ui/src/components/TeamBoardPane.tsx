@@ -986,7 +986,13 @@ const IntentCard = ({
               {/* The conversation's own title, when it is not already the name
                   on the left. Compared against what is *drawn*, not against the
                   nickname: with no nickname the left falls back to the title,
-                  and comparing to the nickname printed it twice. */}
+                  and comparing to the nickname printed it twice. No tooltip of
+                  its own, though it truncates: it is drawn only when the
+                  conversation is loaded, so always inside the card's trigger,
+                  and the card's heading is this title, with a card's width to
+                  draw it in — a tooltip as well would be the second box on one
+                  rest that the button's sentence stopped being. The whole of a
+                  long one is in the conversation the button opens. */}
               {session?.title && session.title !== holderName && (
                 /* And below a column width of about thirteen rems it is not
                    drawn at all. Half a row each is the right split while there
@@ -997,7 +1003,6 @@ const IntentCard = ({
                    the card's width on a board of five. */
                 <span
                   className="hidden min-w-0 flex-1 basis-1/2 truncate text-right text-xs text-(--hd-muted-foreground) @[13rem]/board-column:inline"
-                  title={session.title}
                 >
                   {session.title}
                 </span>

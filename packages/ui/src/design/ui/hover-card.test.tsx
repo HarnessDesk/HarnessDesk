@@ -14,6 +14,12 @@ import { HOVER_CARD_WIDTH_REM, HoverCard, HoverCardContent, HoverCardTrigger } f
  * card that no longer exists, and the symptom is a card drawn off the window
  * in exactly the narrow room the measurement is for — with a green suite.
  * Review found the gap; this is the tie.
+ *
+ * It ties the class, not the width the class is drawn at: Tailwind turns
+ * `w-72` into a multiple of `--spacing`, and a theme that rebound that would
+ * change the drawn width with this test still green. Nothing rebinds it, and
+ * jsdom lays nothing out, so the width drawn — 288px at the app's 16px root —
+ * is measured in the real app instead (the traces in #148).
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
