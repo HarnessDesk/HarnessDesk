@@ -15,9 +15,10 @@ import { cn } from '@/lib/utils'
  * things alone.
  *
  * It does not pick the *safe* action for focus. Left to itself, Base UI
- * focuses the first control in the DOM, and in a footer written the app's way
- * that is the one that proceeds &mdash; so `ConfirmDialog` passes
- * `initialFocus={false}`, and a held Return does not delete a worktree.
+ * focuses the popup when a touch opened it, and otherwise the first control in
+ * the DOM &mdash; in a footer written the app's way, the one that proceeds. So
+ * `ConfirmDialog` passes `initialFocus={false}`, which moves focus nowhere
+ * however it was opened, and a held Return does not delete a worktree.
  */
 
 const AlertDialog = AlertDialogPrimitive.Root

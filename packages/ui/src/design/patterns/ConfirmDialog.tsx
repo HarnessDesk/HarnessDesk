@@ -76,9 +76,10 @@ export const ConfirmDialog = ({
    * also tells a screen reader this one is not passive.
    *
    * `initialFocus={false}` keeps the third rule above: nothing is focused, so
-   * a held Return does not delete anything. Base UI would otherwise focus the
-   * first control, which here is the proceeding one &mdash; in a destructive
-   * confirm, the one that deletes.
+   * a held Return does not delete anything. Left to itself, Base UI focuses
+   * the popup when a touch opened it and the first control otherwise, and the
+   * first control here is the proceeding one &mdash; in a destructive confirm,
+   * the one that deletes.
    */
   <AlertDialog open onOpenChange={(next) => { if (!next) onCancel() }}>
     <AlertDialogContent className={dialogStyles.dialog} initialFocus={false}>
