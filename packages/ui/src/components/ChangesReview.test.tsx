@@ -58,10 +58,11 @@ const STATUS = {
   ],
 }
 
-const request = vi.fn(async (method: string) => {
+const answer = async (method: string): Promise<unknown> => {
   if (method === 'git/status') return STATUS
   return { diff: TREE_DIFF }
-})
+}
+const request = vi.fn(answer)
 
 const mount = (onClose: () => void): void => {
   const snapshot: AppSnapshot = {
@@ -135,6 +136,48 @@ describe('the review workspace', () => {
       expect(onClose).toHaveBeenCalledTimes(1)
     } finally {
       window.removeEventListener('harnessdesk:compose', listen)
+    }
+  })
+})
+
+describe('which view a file is in (#180)', () => {
+  it('lists a file staged and changed again in each view, and a conflict in the working tree only', async () => {
+    request.mockImplementation(async (method: string) =>
+      method === 'git/status'
+        ? {
+            ...STATUS,
+            files: [
+              { path: 'both.txt', status: 'modified', staged: true },
+              { path: 'both.txt', status: 'modified', staged: false },
+              { path: 'conflict.txt', status: 'conflicted', staged: false },
+              // Staged and not changed since: in the staged view only.
+              { path: 'ready.txt', status: 'added', staged: true },
+            ],
+          }
+        : { diff: '' },
+    )
+    try {
+      mount(() => {})
+      await flush()
+      const working = container.textContent ?? ''
+      expect(working).toContain('both.txt')
+      expect(working).toContain('conflict.txt')
+      expect(working).not.toContain('ready.txt')
+
+      const tab = [...container.querySelectorAll('[role="tab"]')].find((node) => node.textContent?.trim() === 'Staged')
+      expect(tab, 'the Staged tab').toBeTruthy()
+      act(() => {
+        tab?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+        tab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+        tab?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }))
+      })
+      await flush()
+      const stagedView = container.textContent ?? ''
+      expect(stagedView).toContain('both.txt')
+      expect(stagedView).toContain('ready.txt')
+      expect(stagedView).not.toContain('conflict.txt')
+    } finally {
+      request.mockImplementation(answer)
     }
   })
 })

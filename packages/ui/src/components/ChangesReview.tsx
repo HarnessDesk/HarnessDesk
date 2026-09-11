@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
+import { inView } from '../lib/git-view'
 import { Tabs, TabsList, TabsTrigger } from '../design/ui'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavEmpty, WindowNavItem, WindowPage } from './AppWindow'
@@ -106,7 +107,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
   const files = useMemo(
     () =>
       (git?.files ?? [])
-        .filter((file) => (staged ? file.staged : !file.staged || file.status === 'untracked'))
+        .filter((file) => inView(file, staged))
         .filter((file) => needle.length === 0 || file.path.toLowerCase().includes(needle)),
     [git, staged, needle],
   )

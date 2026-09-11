@@ -210,3 +210,53 @@ test('the working tree\'s diff names files a/ and b/, whatever the repository\'s
     await git('config', '--unset', setting)
   }
 })
+
+test('every unmerged pair a merge can leave is one conflicted path, in the working tree', async (t) => {
+  /* #180: `status()` sends seven pairs through one set, and only `UU` had come
+     out of a real merge here. One merge makes all seven: both sides change a
+     file (UU) and add the same one (AA), each deletes what the other changed
+     (DU, UD), and both rename one file to different names (DD, AU, UA). */
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-unmerged-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const git = (...args: string[]): Promise<{ stdout: string }> =>
+    run('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd: dir })
+  await git('init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'modify.txt'), 'base\n')
+  await writeFile(join(dir, 'gone-ours.txt'), 'keep\n')
+  await writeFile(join(dir, 'gone-theirs.txt'), 'keep\n')
+  await writeFile(join(dir, 'moved.txt'), 'moved\n')
+  await git('add', '.')
+  await git('commit', '-qm', 'base')
+  await git('checkout', '-qb', 'theirs')
+  await writeFile(join(dir, 'modify.txt'), 'theirs\n')
+  await writeFile(join(dir, 'added.txt'), 'theirs\n')
+  await rm(join(dir, 'gone-theirs.txt'))
+  await writeFile(join(dir, 'gone-ours.txt'), 'changed by theirs\n')
+  await git('mv', 'moved.txt', 'theirs-name.txt')
+  await git('add', '-A')
+  await git('commit', '-qm', 'theirs')
+  await git('checkout', '-q', 'main')
+  await writeFile(join(dir, 'modify.txt'), 'ours\n')
+  await writeFile(join(dir, 'added.txt'), 'ours\n')
+  await rm(join(dir, 'gone-ours.txt'))
+  await writeFile(join(dir, 'gone-theirs.txt'), 'changed by ours\n')
+  await git('mv', 'moved.txt', 'ours-name.txt')
+  await git('add', '-A')
+  await git('commit', '-qm', 'ours')
+  await git('merge', '-q', 'theirs').catch(() => {})
+
+  // The control: git's own letters, so a failure below is status() and not a merge that made fewer pairs.
+  const { stdout } = await git('status', '--porcelain=v1')
+  assert.deepEqual(stdout.trim().split('\n').map((line) => line.slice(0, 2)).sort(), ['AA', 'AU', 'DD', 'DU', 'UA', 'UD', 'UU'])
+
+  const found = await status(dir)
+  assert.deepEqual((found?.files ?? []).map((file) => `${file.staged ? 'staged' : 'worktree'} ${file.status} ${file.path}`).sort(), [
+    'worktree conflicted added.txt',
+    'worktree conflicted gone-ours.txt',
+    'worktree conflicted gone-theirs.txt',
+    'worktree conflicted modify.txt',
+    'worktree conflicted moved.txt',
+    'worktree conflicted ours-name.txt',
+    'worktree conflicted theirs-name.txt',
+  ])
+})

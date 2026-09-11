@@ -49,10 +49,21 @@ const STATUS_LETTER: Record<GitFileStatus['status'], string> = {
 
 // ------------------------------------------------------------------- commit
 
-/** The first entry for each path, in order. */
+/**
+ * One row for each path, labelled by what committing it records. The commit
+ * takes each path's working-tree contents (`git commit -- <paths>`), so a file
+ * staged and then deleted (`MD`) is committed as a deletion. Labelled by its
+ * index entry, the row said "modified" (#180). Otherwise the index's word
+ * stands, because it says what the commit records against the last one: `AM`
+ * is still an addition.
+ */
 const onePerPath = (files: readonly GitFileStatus[]): GitFileStatus[] => {
   const byPath = new Map<string, GitFileStatus>()
-  for (const file of files) if (!byPath.has(file.path)) byPath.set(file.path, file)
+  for (const file of files) {
+    const was = byPath.get(file.path)
+    if (!was) byPath.set(file.path, file)
+    else if (!file.staged && file.status === 'deleted') byPath.set(file.path, { ...was, status: 'deleted' })
+  }
   return [...byPath.values()]
 }
 

@@ -5,6 +5,7 @@ import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 import { countChanges, splitByFile } from '../lib/diff'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
+import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
 import { Agents } from './Agents'
 import { DiffView } from './Diff'
@@ -341,7 +342,7 @@ const Changes = ({
   const files = useMemo(
     () =>
       (git?.files ?? [])
-        .filter((file) => (staged ? file.staged : !file.staged || file.status === 'untracked'))
+        .filter((file) => inView(file, staged))
         .filter((file) => needle.length === 0 || file.path.toLowerCase().includes(needle)),
     [git, staged, needle],
   )
