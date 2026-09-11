@@ -1237,7 +1237,7 @@ export interface HostMethods {
   /**
    * Refused with the list of what would be lost unless `force` is set. The
    * interface shows that list and asks before it ever sends `force`. Only for
-   * a worktree HarnessDesk made, of a repository the window has open.
+   * a worktree HarnessDesk made, of a repository opened here.
    */
   'worktree/remove': {
     params: { readonly path: string; readonly force?: boolean }
@@ -1246,8 +1246,8 @@ export interface HostMethods {
   /**
    * The other direction: the worktree's branch is checked out in the main
    * checkout and the side checkout goes, with anything git ignores in it.
-   * Only for a worktree HarnessDesk made, of a repository the window has
-   * open. Refused — with the same list `worktree/remove` refuses on — while
+   * Only for a worktree HarnessDesk made, of a repository opened here,
+   * and not while a conversation in it is working. Refused — with the same list `worktree/remove` refuses on — while
    * anything there is uncommitted, and refused in git's own words when the
    * main tree will not take the switch; the worktree is then put back from its
    * branch, the refusal naming what git ignored there, or, when git will not

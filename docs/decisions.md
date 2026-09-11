@@ -250,9 +250,11 @@ is refused rather than discarded, and a checkout git refuses puts the worktree
 back from its branch — naming what git ignores there, which `git status` never
 counted and the removal took — or, when git will not allow even that, says the
 folder is gone rather than claiming it stayed. Only worktrees HarnessDesk made,
-of a repository the window has open, are moved, as only they are removed. A
+of a repository opened here, are moved, as only they are removed. A
 conversation cannot change folders, so the one that lived there is carried to
-the main checkout by a hand-off.
+the main checkout by a hand-off. A send whose agent fails to start keeps the
+worktree it cut, and the draft then points at it, so a retry does not cut a
+second; a draft abandoned after that leaves the worktree, listed with the others.
 
 **The rule:** nothing is made on disk for a conversation that has not been
 sent, and nothing git tracks is discarded to bring work home — what it ignores

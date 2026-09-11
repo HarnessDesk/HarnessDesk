@@ -122,6 +122,7 @@ test('a worktree is brought home or removed only from a repository the window ha
   const ctx = (roots: string[]): HostContext =>
     contextWith({
       workspaces: { openRoots: () => roots },
+      registry: { snapshot: () => [] },
       worktrees: {
         bringHome: async (path: string) => {
           asked.push(`home ${path}`)
@@ -167,6 +168,7 @@ test('a repository inside an open folder counts as open for the worktree verbs',
   let asked = 0
   const ctx = contextWith({
     workspaces: { openRoots: () => [parent] },
+    registry: { snapshot: () => [] },
     worktrees: {
       bringHome: async () => {
         asked += 1
@@ -289,4 +291,37 @@ test('a credential names its owner — the agent that signs in with it, or the a
 
   // And no value rides along with any of it.
   assert.equal(JSON.stringify(listed).includes('sk-'), false)
+})
+
+/**
+ * The dialog holds the move while a conversation in the worktree is working,
+ * but a turn can start between the dialog and the request. The host has the
+ * facts — every live session and its state — so it holds the move as well.
+ */
+test('a worktree is not brought home while a conversation in it is working', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const repo = tempDir('hd-methods-busy-')
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+  execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-'), 'wt')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+  const working = { id: 's-1', runtime: 'fake', cwd: tree, status: { type: 'active' }, turns: [] }
+  let asked = 0
+  const ctx = (sessions: readonly unknown[]): HostContext =>
+    contextWith({
+      workspaces: { openRoots: () => [repo] },
+      registry: { snapshot: () => sessions },
+      worktrees: {
+        bringHome: async () => {
+          asked += 1
+          return { branch: 'wt', from: 'main', root: repo }
+        },
+      },
+    })
+
+  await assert.rejects(dispatch(ctx([working]), 'worktree/bringHome', { path: tree }), /still working/)
+  assert.equal(asked, 0, 'nothing is asked of git while the turn runs')
+
+  await dispatch(ctx([{ ...working, status: { type: 'idle' } }]), 'worktree/bringHome', { path: tree })
+  assert.equal(asked, 1, 'and it goes once the turn is over')
 })

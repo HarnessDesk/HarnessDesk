@@ -1650,8 +1650,14 @@ export class AppStore {
     await this.selectRuntime(target)
     // The switch leaves the conversation on screen — it is a preference, not
     // a navigation — and the chip needs an empty pane on the target to land
-    // on, so the draft is opened here, by the one verb that means it.
-    if (this.#snapshot.activeSessionKey) this.newDraft()
+    // on, so the draft is opened here, by the one verb that means it — unless
+    // the main area already shows one. Keyed on the draft, not on the focus: a
+    // restored layout can put a room in the middle, and a docked conversation
+    // can hold the focus.
+    const drafted = panes(this.#snapshot.layout.root).some(
+      (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
+    )
+    if (!drafted) this.newDraft()
     this.#parkedHandoff = null
     this.#patch({
       draftHandoff: { runtime, sessionId: id as SessionId, carry, agentName, title, cwd: options.cwd ?? open?.cwd ?? null },
@@ -2956,8 +2962,12 @@ export class AppStore {
    * it back at the open folder.
    */
   startDraftIn(place: DraftPlace | null): void {
-    const focused = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
-    const onDraft = focused?.view.kind === 'conversation' && !sessionOf(focused)
+    // The choice is about the draft — the main area's conversation pane —
+    // however the focus sits: a tool pane holding it must not turn the choice
+    // into a fresh draft, which would drop the hand-off the draft carries.
+    const onDraft = panes(this.#snapshot.layout.root).some(
+      (pane) => pane.view.kind === 'conversation' && !sessionOf(pane),
+    )
     if (!onDraft) this.newDraft()
     this.#patch({ draftPlace: place })
   }
@@ -3006,10 +3016,12 @@ export class AppStore {
       // gone too — and git's own list is what says so. It is asked of the main
       // checkout, which a refusal never moves (the worktree may have been the
       // open folder, and gone), and only a list that was actually read counts:
-      // one that could not be read says nothing about the folder.
+      // one that could not be read says nothing about the folder. Nor does an
+      // empty one — a repository that was read lists its main checkout at
+      // least, so an empty answer is the host failing to resolve it.
       const now = main ? await this.transport.request('worktree/list', { root: main }).catch(() => null) : null
       await this.loadWorktrees()
-      if (listed && now !== null && !now.some((entry) => entry.path === path)) {
+      if (listed && now !== null && now.length > 0 && !now.some((entry) => entry.path === path)) {
         // What a removal does, and the words where they will stay: the dialog
         // that asked closes with the pane it belongs to.
         this.notice('warning', home)
@@ -3042,7 +3054,8 @@ export class AppStore {
    * Closes every conversation that lives in a folder that is gone — in a pane,
    * and in a panel. Docking a conversation is refused today, but a stored
    * layout still restores one and `#resumeVisible` resumes it, so it is
-   * undocked the way a restore that could not reach its session undocks one.
+   * released and undocked, as closing a pane releases one: the agent is told
+   * its conversation is over rather than left running in a folder that is gone.
    */
   #closeConversationsWhere(gone: (cwd: string) => boolean): void {
     for (const pane of panes(this.#snapshot.layout.root)) {
@@ -3053,7 +3066,10 @@ export class AppStore {
     for (const entry of mountedViewsIn(this.#snapshot.workbench)) {
       const view = entry.mounted.view
       const session = view.kind === 'conversation' && view.session ? this.#snapshot.sessions.get(view.session) : undefined
-      if (session && gone(session.cwd)) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+      if (session && gone(session.cwd)) {
+        this.#release(view)
+        this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+      }
     }
   }
 

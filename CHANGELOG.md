@@ -18,7 +18,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Bring a worktree back** — a conversation in a HarnessDesk worktree can
   bring its branch back to the main checkout from the header's branch menu.
   The worktree's folder goes, and with it anything git ignores there, such as
-  an `.env` file; the dialog says so before anything moves. Uncommitted work
+  an `.env` file; the dialog says so before anything moves, and it waits while
+  a conversation in the worktree is still working. Uncommitted work
   stops it (the dialog lists the files and can ask the agent to commit them); a
   main checkout that will not take the switch says why in git's own words, and
   the worktree is put back from its branch, the message naming what git ignored

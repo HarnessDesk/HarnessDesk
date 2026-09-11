@@ -180,7 +180,10 @@ export interface DraftHandoff {
  *   send, so a draft abandoned with a worktree chosen leaves no branch and no
  *   folder behind — the bargain `newDraft` already keeps with the agent's
  *   history. `root` is the repository it comes off, named here rather than
- *   read from the workspace at send time, because the two can part.
+ *   read from the workspace at send time, because the two can part. Once
+ *   the host has cut it, the draft points at it as `existing`: an agent that
+ *   fails to start leaves it so, and a draft abandoned after that leaves the
+ *   worktree behind, listed with the others.
  * - `existing` is a managed worktree already on disk.
  */
 export type DraftPlace =

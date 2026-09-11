@@ -301,7 +301,8 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
  * Refuses a worktree whose repository no open workspace is part of. The verbs
  * that change a repository — removing one of its checkouts, switching its main
  * checkout's branch — answer to the boundary the rest of the git surface does:
- * the folders the window has open. A worktree lives in the state directory,
+ * the folders opened here (the projects the desk remembers and the folders of
+ * live conversations). A worktree lives in the state directory,
  * outside every workspace, so what is confined is its repository, open as its
  * main checkout, as a folder inside it, or as the worktree itself — or sitting
  * inside an open folder, as it does for every other git read.
@@ -385,7 +386,8 @@ export const remove = async (
  *
  * Only worktrees HarnessDesk created, as with `remove`: the person's own
  * checkouts are theirs to move. The method handler also confines the
- * repository to the ones the window has open.
+ * repository to the ones opened here, and holds the move while a
+ * conversation in the worktree is working.
  */
 export const bringHome = async (
   path: string,

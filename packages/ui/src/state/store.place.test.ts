@@ -248,8 +248,8 @@ describe('bringing a worktree back', () => {
     answers['worktree/list'] = [LISTED.main, LISTED.tree]
     await store.openWorkspace(TREE)
     await store.loadWorktrees()
-    // Its folder is gone, so the host has nothing to list it from.
-    answers['worktree/list'] = []
+    // Its folder is gone; the main checkout, which the list is asked of, lists only itself.
+    answers['worktree/list'] = [LISTED.main]
     refused['worktree/bringHome'] = GONE
 
     await store.bringWorktreeHome(TREE)
@@ -295,6 +295,22 @@ describe('bringing a worktree back', () => {
     expect(store.getSnapshot().notices.map((notice) => notice.message)).not.toContain(refusal)
   })
 
+  it('moves nothing after a refusal when the worktree list comes back empty, which a list that was read never is', async () => {
+    await openIn(TREE)
+    answers['worktree/list'] = [LISTED.main, LISTED.tree]
+    await store.loadWorktrees()
+    // A repository that was read lists its main checkout at least; an empty
+    // answer is the host failing to resolve it, not the worktree gone.
+    const refusal = 'repo could not switch to harnessdesk/parser-fix, so the worktree was put back from its branch.'
+    answers['worktree/list'] = []
+    refused['worktree/bringHome'] = refusal
+
+    expect(await store.bringWorktreeHome(TREE)).toBe(refusal)
+
+    expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toContain(sessionKey(AGENT, sessionId('s-1')))
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).not.toContain(refusal)
+  })
+
   it('says the main checkout is on the branch now when it was on none before', async () => {
     await openIn(TREE)
     answers['worktree/bringHome'] = { branch: 'harnessdesk/parser-fix', from: null, root: REPO.path }
@@ -335,6 +351,12 @@ describe('a conversation docked from a worktree', () => {
     await store.loadPreferences()
     await store.loadWorktrees()
     await vi.waitFor(() => expect(store.getSnapshot().sessions.get(docked)?.cwd).toBe(TREE))
+    // Restoring currently resumes the docked conversation into the main area
+    // as well, over the one saved there (filed as its own issue). Put that one
+    // back in front, so the docked one is docked and nowhere else: the shape
+    // under test, checked rather than assumed.
+    await store.openSession(sessionId('s-1'), { runtime: AGENT })
+    expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toEqual([inFront])
   }
   const stillDocked = (): boolean =>
     mountedViews(store.getSnapshot().workbench).some(
@@ -349,6 +371,7 @@ describe('a conversation docked from a worktree', () => {
     expect(await store.bringWorktreeHome(TREE)).toBeNull()
 
     expect(stillDocked()).toBe(false)
+    expect(JSON.stringify(calls('session/close'))).toContain('s-2')
   })
 
   it('closes it when git could not put its worktree back', async () => {
@@ -360,6 +383,7 @@ describe('a conversation docked from a worktree', () => {
     await store.bringWorktreeHome(TREE)
 
     expect(stillDocked()).toBe(false)
+    expect(JSON.stringify(calls('session/close'))).toContain('s-2')
   })
 })
 
@@ -399,5 +423,67 @@ describe('a draft beside a docked conversation', () => {
 
     expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'worktree', root: REPO.path, name: 'parser fix' })
     expect(store.getSnapshot().draftHandoff).toMatchObject({ runtime: AGENT, sessionId: 's-2' })
+  })
+})
+
+/**
+ * Choosing where the draft starts is a decision about the draft — the main
+ * area's conversation pane — however the focus sits. A tool pane beside it
+ * holding the focus must not turn the choice into a fresh draft, which would
+ * throw away the hand-off the draft carries.
+ */
+describe('a place chosen beside another pane', () => {
+  it("keeps the draft's hand-off when a tool pane holds the focus", async () => {
+    answers['session/read'] = conversation('s-1', REPO.path)
+    answers['session/resume'] = conversation('s-1', REPO.path)
+    await store.openSession(sessionId('s-1'), { runtime: AGENT })
+    await store.handOff(AGENT, 'summary', sessionKey(AGENT, sessionId('s-1')), { cwd: REPO.path })
+    expect(store.getSnapshot().draftHandoff).toMatchObject({ sessionId: 's-1' })
+    // Beside the draft, not over it: a file opened into an empty draft pane
+    // takes it, and then there is no draft left to keep a hand-off on.
+    store.openFile(`${REPO.path}/README.md`, { split: 'row' })
+    const kinds = panes(store.getSnapshot().layout.root).map((pane) => pane.view.kind)
+    expect(kinds).toContain('file')
+    expect(panes(store.getSnapshot().layout.root).filter((pane) => pane.view.kind === 'conversation').map(sessionOf)).toEqual([null])
+    const file = panes(store.getSnapshot().layout.root).find((pane) => pane.view.kind === 'file')
+    expect(file).toBeDefined()
+    store.focusPane(file!.id)
+    expect(store.getSnapshot().layout.focused).toBe(file!.id)
+
+    store.startDraftIn({ kind: 'existing', path: TREE, branch: 'harnessdesk/parser-fix' })
+
+    expect(store.getSnapshot().draftHandoff).toMatchObject({ sessionId: 's-1' })
+    expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'existing', path: TREE })
+  })
+})
+
+/**
+ * A bring-back reopens the main checkout, which restores that project's saved
+ * layout — and a saved layout can show a room in the middle rather than a
+ * conversation. The hand-off needs a draft to land on either way.
+ */
+describe('a bring-back into a main checkout whose saved layout shows a room', () => {
+  it('opens a draft for the hand-off to land on', async () => {
+    answers['workspace/open'] = (params: { path: string }) =>
+      params.path === TREE ? TREE_WORKSPACE : params.path === OTHER.path ? OTHER : REPO
+    answers['app/state/get'] = {
+      layouts: { [REPO.path]: { main: { root: { kind: 'pane', id: 'p1', view: { kind: 'room', room: 'r1' } }, focused: 'p1' } } },
+    }
+    await store.loadPreferences()
+    await store.openWorkspace(TREE)
+    answers['session/read'] = conversation('s-1', TREE)
+    answers['session/resume'] = conversation('s-1', TREE)
+    await store.openSession(sessionId('s-1'), { runtime: AGENT })
+    expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, sessionId('s-1')))
+    answers['worktree/bringHome'] = { branch: 'harnessdesk/parser-fix', from: 'main', root: REPO.path }
+
+    expect(await store.bringWorktreeHome(TREE)).toBeNull()
+
+    expect(store.getSnapshot().workspace?.path).toBe(REPO.path)
+    const draft = panes(store.getSnapshot().layout.root).find(
+      (pane) => pane.view.kind === 'conversation' && pane.view.session === null,
+    )
+    expect(draft).toBeDefined()
+    expect(store.getSnapshot().draftHandoff).toMatchObject({ runtime: AGENT, sessionId: 's-1' })
   })
 })

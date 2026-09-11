@@ -490,3 +490,49 @@ test("a main checkout on no branch takes the worktree's branch, and says it was 
   assert.equal(home.from, null)
   assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/from-detached')
 })
+
+/**
+ * Whether the worktree is back is read from git's listing, not from the exit
+ * status of `worktree add`: a failing post-checkout hook makes the re-add exit
+ * non-zero once the tree is already back. A refused switch with such a hook
+ * is the case that tells the two apart.
+ */
+test('a worktree put back by a re-add whose hook failed is reported as put back', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'hooked back' })
+  await writeFile(join(tree.path, 'shared.txt'), 'theirs\n')
+  await git(tree.path, 'add', 'shared.txt')
+  await git(tree.path, 'commit', '-q', '-m', 'rewrite it')
+  await writeFile(join(repo, 'shared.txt'), 'mine, uncommitted\n')
+  const hooks = join(repo, '..', 'hooks')
+  await mkdir(hooks)
+  await writeFile(join(hooks, 'post-checkout'), '#!/bin/sh\necho "the hook says no" >&2\nexit 1\n', { mode: 0o755 })
+  await git(repo, 'config', 'core.hooksPath', hooks)
+
+  await assert.rejects(worktrees.bringHome(tree.path), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /put back from its branch/)
+    assert.doesNotMatch(error.message, /could not be put back/)
+    return true
+  })
+  assert.equal((await git(tree.path, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked-back', 'and it is back')
+})
+
+/**
+ * The main checkout's own uncommitted work comes along: `git checkout` carries
+ * edits the two branches do not disagree about, and the dialog says so. This
+ * pins that the switch stays an ordinary checkout, with no `--force` to drop them.
+ */
+test("the main checkout's uncommitted edits come along onto the branch", async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, 'notes.txt'), 'notes\n')
+  await git(repo, 'add', '-A')
+  await git(repo, 'commit', '-q', '-m', 'notes')
+  const tree = await worktrees.create(repo, { name: 'carry' })
+  await writeFile(join(repo, 'notes.txt'), 'notes, edited and not committed\n')
+
+  await worktrees.bringHome(tree.path)
+
+  assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/carry')
+  assert.equal(await readFile(join(repo, 'notes.txt'), 'utf8'), 'notes, edited and not committed\n', 'the edit came along')
+})
