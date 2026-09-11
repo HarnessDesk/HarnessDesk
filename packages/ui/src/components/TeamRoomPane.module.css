@@ -632,6 +632,18 @@
   }
 }
 
+/* The member, as one card trigger: the mark, the name and what it runs. It
+   takes the head's slack itself, which keeps the ✕ beside it at the far end —
+   the job `.columnSub` did while the three sat loose in the head, and still
+   does inside this. */
+.columnWho {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
 .columnName {
   font-size: var(--hd-text-sm);
   font-weight: var(--hd-weight-semibold);

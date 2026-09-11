@@ -37,6 +37,12 @@ import { cn } from '@/lib/utils'
 const HOVER_CARD_OPEN_DELAY = 420
 const HOVER_CARD_CLOSE_DELAY = 160
 
+/* How far a card reaches out from its trigger: the `w-72` below, which is
+ * 18rem, and the gap. Exported for a caller that has to know whether a side
+ * has room for a card before it asks for that side — see `AgentHoverCard`. */
+const HOVER_CARD_WIDTH_REM = 18
+const HOVER_CARD_SIDE_OFFSET = 8
+
 const HoverCard = ({
   openDelay = HOVER_CARD_OPEN_DELAY,
   closeDelay = HOVER_CARD_CLOSE_DELAY,
@@ -58,7 +64,7 @@ const HoverCardContent = ({
   className,
   align = 'start',
   side = 'right',
-  sideOffset = 8,
+  sideOffset = HOVER_CARD_SIDE_OFFSET,
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Content>) => (
   <HoverCardPrimitive.Portal>
@@ -82,4 +88,6 @@ export {
   HoverCardContent,
   HOVER_CARD_OPEN_DELAY,
   HOVER_CARD_CLOSE_DELAY,
+  HOVER_CARD_WIDTH_REM,
+  HOVER_CARD_SIDE_OFFSET,
 }
