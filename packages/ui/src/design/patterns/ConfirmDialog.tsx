@@ -16,8 +16,7 @@ import {
  * This exists because the app kept answering the same four questions
  * separately, and the answers drifted:
  *
- *   Where do the buttons go?      Bottom right, proceeding action rightmost
- *                                 and first in the tab order.
+ *   Where do the buttons go?      Bottom right, proceeding action rightmost.
  *   What does cancel say?         The verb for keeping things as they are —
  *                                 "Keep", not "Cancel". A person reading fast
  *                                 sees two verbs and picks; "Cancel" beside
@@ -101,10 +100,13 @@ export const ConfirmDialog = ({
         {children}
       </AlertDialogDescription>
       {/* The proceeding action is written first. The footer is `row-reverse`,
-          so first in the markup paints rightmost and is first in the tab
-          order &mdash; both halves of the first rule above. Written the other
-          way round, every confirm in the app put the verb for leaving things
-          alone where the pointer goes to proceed. */}
+          so first in the markup paints rightmost &mdash; the first rule above.
+          The order decides the keyboard too: nothing is focused on open, so
+          focus is still on the opener, and Base UI's guard before the popup
+          hands the first Tab to the popup's last control, which is Keep. A Tab
+          and a Return keep things as they are. Written the other way round,
+          every confirm in the app put the verb for leaving things alone where
+          the pointer goes to proceed, and a Tab and a Return confirmed. */}
       <div className={dialogStyles.footer}>
         <Btn
           variant={tone === 'destructive' ? 'danger' : 'primary'}

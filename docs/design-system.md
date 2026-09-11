@@ -562,8 +562,7 @@ in a busy channel is not that difference.
 This exists because the app kept answering the same four questions
 separately, and the answers drifted:
 
-  Where do the buttons go?      Bottom right, proceeding action rightmost
-                                and first in the tab order.
+  Where do the buttons go?      Bottom right, proceeding action rightmost.
   What does cancel say?         The verb for keeping things as they are —
                                 "Keep", not "Cancel". A person reading fast
                                 sees two verbs and picks; "Cancel" beside

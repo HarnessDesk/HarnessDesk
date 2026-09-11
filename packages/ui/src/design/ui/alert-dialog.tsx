@@ -65,9 +65,9 @@ const AlertDialogHeader = ({ className, ...props }: React.ComponentProps<'div'>)
  * Right-aligned, with the escape to the left of the act &mdash; the order the
  * platform uses, and the one where the button nearest the pointer's resting
  * place is the one that does something. Write the act first: the row is
- * reversed, as the app's own dialog footer is, so the act paints rightmost and
- * is still the first control Tab reaches. The registry's `justify-end` wanted
- * the escape written first, the opposite of every other footer in the app.
+ * reversed, as the app's own dialog footer is, so the act paints rightmost.
+ * The registry's `justify-end` wanted the escape written first, the opposite
+ * of every other footer in the app.
  */
 const AlertDialogFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
