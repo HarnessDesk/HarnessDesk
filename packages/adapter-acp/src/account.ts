@@ -319,8 +319,15 @@ const firstBalanced = (text: string, from: number): string | null => {
  */
 /** A brace that opens a JSON record: the brace, then its first key. */
 const RECORD_OPENING = /\{\s*"/y
-/** A bracket that opens data: an array whose first element is a record, an array or a string. */
-const ARRAY_OPENING = /\[\s*(?:\{\s*"|\[|")/y
+/**
+ * A bracket that opens data: an array whose first element is a record, an
+ * array, or a whole string, number, `true`, `false` or `null` followed by the
+ * next element or the end. A two-character peek let `[1, {…}` through as prose
+ * and took `["--json" for machine output` for data (review, round fourteen);
+ * `[1/3]` and `[INFO]` still open prose.
+ */
+const ARRAY_OPENING =
+  /\[\s*(?:\{\s*"|\[|(?:"(?:[^"\\\r\n]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*[,\]])/y
 const opens = (pattern: RegExp, text: string, at: number): boolean => {
   pattern.lastIndex = at
   return pattern.test(text)
@@ -352,7 +359,8 @@ const statusRecords = (
      isn't read, as after data cut short: a sentence there can't be told from
      one inside a record the scan never reached, and read as prose, a log
      line's `"msg":"logged in as warmup"` named an account (review, round
-     thirteen). */
+     thirteen). In openings, 64 readings is about 125 that never close,
+     wherever they sit (review, round fourteen). */
   const budget = 64 * text.length
   let reread = 0
   for (let at = next(0); at !== -1; ) {
@@ -453,7 +461,9 @@ const statusRecords = (
  * out") or denied right before it ("not yet logged out") is not the state
  * now, where "you were logged out" still is, and so is "the token was not
  * accepted so you were logged out" (rounds nine, eleven, twelve and
- * thirteen).
+ * thirteen). The two halves reach differently on purpose: a negation anywhere
+ * in the clause denies a sign-in, which errs toward signed out, and only one
+ * right before it denies a sign-out, which would err the other way.
  */
 /** A negation: `not`, `no longer`, `never`, or a contraction of one, in either apostrophe. */
 const NEGATION = String.raw`(?:\b(?:not|no longer|never)\b|n['’]t\b)`
@@ -466,7 +476,8 @@ const IN_CLAUSE = String.raw`(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?`
  * that reaches too far errs toward signed out, and here it kept an account a
  * sentence said was signed out (review, round thirteen).
  */
-const DENIED = String.raw`${NEGATION}(?:\s+(?:yet|ever|currently|already|actually|really|been|being|get|got|gotten|getting)){0,2}\s+`
+// The gaps are spaces and tabs: a line break ends a clause here as everywhere, and across one, "Last sync: never" denied the "Logged out." below it (review, round fourteen).
+const DENIED = String.raw`${NEGATION}(?:[^\S\r\n]+(?:yet|ever|currently|already|actually|really|be|been|being|get|got|gotten|getting)){0,2}[^\S\r\n]+`
 const SIGNED_OUT = new RegExp(
   `${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
     `|(?<!\\b(?:last|previously|formerly)\\s+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
@@ -498,7 +509,8 @@ export const parseStatus = (
      where a wrong signed-in fails every request after it. */
   if (SIGNED_OUT.test(prose)) return null
   // The name without the quotes or punctuation around it: "…; you haven't logged out" named `user@example.com;` (review, round eleven).
-  const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`(]+|["'`.,;:!?)]+$/g, '') ?? ''
+  // And without the angle or square brackets a `Name <email>` spelling puts round it (review, round fourteen).
+  const identity = SIGNED_IN.exec(prose)?.[1]?.replace(/^["'`(<[]+|["'`.,;:!?)>\]]+$/g, '') ?? ''
   // One that names nobody is no answer: `Logged in as ""` was an account with no name (review, round seven).
   if (identity !== '') return { kind: 'cli', label: identity, ...(identity.includes('@') ? { email: identity } : {}) }
   return emailOnly !== null ? fromRecord(emailOnly) : null

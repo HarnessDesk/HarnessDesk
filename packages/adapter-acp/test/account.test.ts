@@ -888,9 +888,21 @@ test('a sign-out is denied only right before it, and a negation aimed elsewhere 
     '{"email":"ops@example.com"}\nThe refresh token was not accepted so you were logged out',
     'Logged in as user@example.com\nThis machine has never been trusted and was logged out',
     "Logged in as user@example.com\nYou haven't used this device in 90 days and were logged out",
+    // A word outside the closed set between them doesn't deny it either.
+    'Logged in as user@example.com\nYou have not quietly been logged out',
   ]) {
     assert.equal(parseStatus(text), null, text)
   }
+  // Round 14: the gap is spaces, not line breaks, so a negation that ends one line doesn't deny the sign-out on the next.
+  for (const text of [
+    'Logged in as old@example.com\nLast sync: never\nLogged out.',
+    'Logged in as old@example.com\nVerified: not yet\nLogged out.',
+    '{"email":"ops@example.com"}\nLast sync: never\nLogged out.',
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
+  // And `be` is in the set: "will not be logged out" keeps the account.
+  assert.deepEqual(parseStatus('Logged in as user@example.com; you will not be logged out'), signedIn)
 })
 
 test('a JSON array is data, not a status, and a bracket in prose is only characters', () => {
@@ -909,9 +921,33 @@ test('an array that opens like data is data when it is cut short or does not par
     '[{"level":"info","loggedIn":true,"email":"ops@example.com"}\nNot logged in',
     '[{"level":"info","loggedIn":true,"email":"ops@example.com"},]\nNot logged in',
     '[{"level":"info","loggedIn":true,"email":"ops@example.com"}\n{"level":"info"}]\nNot logged in',
+    // Round 14: whatever its first element is, a number, true or null included.
+    '[1, 2, {"loggedIn":true,"email":"a@b.c"}',
+    '[true, {"loggedIn":true,"email":"a@b.c"}',
+    '[null, {"loggedIn":true,"email":"a@b.c"}',
+    '[1, {"loggedIn":true,"email":"ops@example.com"},]\nNot logged in',
   ]) {
     assert.equal(parseStatus(text), null, text)
   }
+})
+
+test('a bracket in prose that never closes leaves the status after it readable', () => {
+  // Round 14 of #134: a quote after a bracket was taken for an array cut short, and the scan stopped there.
+  // The bracket half of round 6's stray brace.
+  assert.equal(parseStatus('Use ["--json" for machine output\n{"loggedIn":true,"email":"a@b.c"}')?.email, 'a@b.c')
+  assert.equal(parseStatus('Reading ["config\nLogged in as a@b.c')?.email, 'a@b.c')
+  // A name spelled `Name <email>`, or bracketed, is the address without them.
+  assert.equal(parseStatus('Logged in as <a@b.c>')?.email, 'a@b.c')
+  assert.equal(parseStatus('Logged in as [a@b.c]')?.email, 'a@b.c')
+})
+
+test('the two CLIs this file is wired to, as they print a signed-in status', () => {
+  // Round 14 of #134: captured by a reviewer from claude auth status and cursor-agent status, the address replaced.
+  const claude =
+    '{\n  "loggedIn": true,\n  "authMethod": "claude.ai",\n  "email": "user@example.com",\n  "orgName": "user@example.com\'s Organization",\n  "subscriptionType": "max"\n}\n'
+  assert.deepEqual(parseStatus(claude), { kind: 'cli', label: 'user@example.com', email: 'user@example.com', planType: 'max' })
+  const cursor = `${String.fromCharCode(0x2713)} Logged in as user@example.com\n`
+  assert.deepEqual(parseStatus(cursor), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
 })
 
 test('what the scan reads again is bounded, and past the bound nothing more is read', () => {
@@ -925,6 +961,10 @@ test('what the scan reads again is bounded, and past the bound nothing more is r
   // Past the bound nothing is read, a record or a sentence.
   assert.equal(parseStatus(`${'{cache '.repeat(400)}{"loggedIn":true,"email":"a@b.c"}`), null)
   assert.equal(parseStatus(`${'{cache '.repeat(400)}\nLogged in as user@example.com`), null)
+  // Round 14: the bound is about 125 openings that never close, however they are spaced.
+  assert.equal(parseStatus(`${'{cache '.repeat(100)}\nLogged in as user@example.com`)?.email, 'user@example.com')
+  assert.equal(parseStatus(`${'{cache '.repeat(150)}\nLogged in as user@example.com`), null)
+  assert.equal(parseStatus(`${'{cache '.padEnd(200, '.').repeat(100)}\nLogged in as user@example.com`)?.email, 'user@example.com')
   // Brackets nested in prose count too. Each was read to its end again, which took seconds here; it stops early now.
   const nested = 20_000
   assert.equal(parseStatus(`${'[a '.repeat(nested)}${']'.repeat(nested)} Logged in as user@example.com`), null)
