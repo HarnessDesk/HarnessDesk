@@ -871,29 +871,61 @@ test('a cancelled flow whose command signs in anyway still tells the desk to loo
   assert.equal(events.filter((event) => event.type === 'account/changed').length, 1)
 })
 
-test('a sign-out denied anywhere in its clause is none', () => {
-  // Round 12 of #134: only a denial right before the verb counted.
+test('a sign-out is denied only right before it, and a negation aimed elsewhere in its clause leaves it standing', () => {
+  // Round 12 of #134: only a negation right before the verb counted, so "not yet logged out" read as signed out.
   const signedIn = { kind: 'cli', label: 'user@example.com', email: 'user@example.com' }
   for (const text of [
     'Logged in as user@example.com; you have not yet logged out',
     'Logged in as user@example.com. You are not currently signed out.',
     "Logged in as user@example.com; you haven't ever logged out",
+    'Logged in as user@example.com; you have not been logged out',
   ]) {
     assert.deepEqual(parseStatus(text), signedIn, text)
   }
   assert.equal(parseStatus('You were logged out.'), null, 'a sign-out that is the state now')
+  // Round 13: a negation anywhere in the clause denied it, and kept the account these sentences sign out.
+  for (const text of [
+    '{"email":"ops@example.com"}\nThe refresh token was not accepted so you were logged out',
+    'Logged in as user@example.com\nThis machine has never been trusted and was logged out',
+    "Logged in as user@example.com\nYou haven't used this device in 90 days and were logged out",
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
 })
 
 test('a JSON array is data, not a status, and a bracket in prose is only characters', () => {
   // Round 12 of #134: an object inside a top-level array was taken for the status.
   assert.equal(parseStatus('[{"level":"info","loggedIn":true,"email":"ops@example.com"}]\nNot logged in'), null)
   assert.deepEqual(parseStatus('[1/3] Logged in as user@example.com'), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+  // A status that is only an array reads as none, on purpose (round 13).
+  assert.equal(parseStatus('[{"loggedIn":true,"email":"a@b.c"}]'), null)
+  // The record inside a bracket of prose is still read.
+  assert.equal(parseStatus('[INFO starting {"loggedIn":true,"email":"a@b.c"} done]')?.email, 'a@b.c')
 })
 
-test('prose braces that never close are tried only so many times', () => {
-  // Round 12 of #134: each was scanned to the end, so noisy output cost the square of its length.
-  // Past the bound what is left is prose: a record after a hundred of them is not read as one...
-  assert.equal(parseStatus(`${'{cache '.repeat(100)}{"loggedIn":true,"email":"a@b.c"}`), null)
-  // ...and a sentence after them still is.
-  assert.deepEqual(parseStatus(`${'{cache '.repeat(100)}\nLogged in as user@example.com`), { kind: 'cli', label: 'user@example.com', email: 'user@example.com' })
+test('an array that opens like data is data when it is cut short or does not parse', () => {
+  // Round 13 of #134: only an array that closed and parsed was cut, and the records inside the rest came back.
+  for (const text of [
+    '[{"level":"info","loggedIn":true,"email":"ops@example.com"}\nNot logged in',
+    '[{"level":"info","loggedIn":true,"email":"ops@example.com"},]\nNot logged in',
+    '[{"level":"info","loggedIn":true,"email":"ops@example.com"}\n{"level":"info"}]\nNot logged in',
+  ]) {
+    assert.equal(parseStatus(text), null, text)
+  }
+})
+
+test('what the scan reads again is bounded, and past the bound nothing more is read', () => {
+  // Round 12 of #134: an unclosed prose brace was scanned to the end each time, the square of the output.
+  // Round 13: past a count of them the rest was read as prose, JSON and all, and a log line's words named an account.
+  const warmup = '\n{"level":"info","msg":"logged in as warmup"}'
+  assert.equal(parseStatus(`${'{cache '.repeat(65)}${warmup}`), null, 'a record the scan still reaches is cut')
+  assert.equal(parseStatus(`${'{cache '.repeat(400)}${warmup}`), null, 'and one it never reaches is not read as prose')
+  // A few prose braces are only characters, and the record after them is read (round six).
+  assert.equal(parseStatus(`${'{cache '.repeat(10)}{"loggedIn":true,"email":"a@b.c"}`)?.email, 'a@b.c')
+  // Past the bound nothing is read, a record or a sentence.
+  assert.equal(parseStatus(`${'{cache '.repeat(400)}{"loggedIn":true,"email":"a@b.c"}`), null)
+  assert.equal(parseStatus(`${'{cache '.repeat(400)}\nLogged in as user@example.com`), null)
+  // Brackets nested in prose count too. Each was read to its end again, which took seconds here; it stops early now.
+  const nested = 20_000
+  assert.equal(parseStatus(`${'[a '.repeat(nested)}${']'.repeat(nested)} Logged in as user@example.com`), null)
 })

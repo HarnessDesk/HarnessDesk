@@ -37,16 +37,22 @@ if (verb === 'login') {
     process.exit(1)
   }
   process.stdout.write('Open the link to sign in:\n  https://auth.example.com/flow/abc123\n')
-  // `hang`: a sign-in nobody finishes, which only a kill ends.
-  if (mode === 'hang') setInterval(() => {}, 60_000)
-  else setTimeout(() => {
-    if (mode === 'fail') {
-      process.stderr.write('the browser flow was refused\n')
-      process.exit(1)
-    }
-    process.stdout.write('Signed in as tester@example.com\n')
-    process.exit(0)
-  }, 250)
+  if (mode === 'hang') {
+    // `hang`: a sign-in nobody finishes, which only a kill ends. It ends
+    // itself after 15 s all the same, so a test that fails before its cancel
+    // fails, rather than waiting on this child's pipes (review of #134, round 13).
+    setInterval(() => {}, 60_000)
+    setTimeout(() => process.exit(3), 15_000)
+  } else {
+    setTimeout(() => {
+      if (mode === 'fail') {
+        process.stderr.write('the browser flow was refused\n')
+        process.exit(1)
+      }
+      process.stdout.write('Signed in as tester@example.com\n')
+      process.exit(0)
+    }, 250)
+  }
 } else if (verb === 'logout') {
   process.stdout.write('Signed out.\n')
   process.exit(0)

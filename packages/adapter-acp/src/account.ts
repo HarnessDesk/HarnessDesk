@@ -319,6 +319,12 @@ const firstBalanced = (text: string, from: number): string | null => {
  */
 /** A brace that opens a JSON record: the brace, then its first key. */
 const RECORD_OPENING = /\{\s*"/y
+/** A bracket that opens data: an array whose first element is a record, an array or a string. */
+const ARRAY_OPENING = /\[\s*(?:\{\s*"|\[|")/y
+const opens = (pattern: RegExp, text: string, at: number): boolean => {
+  pattern.lastIndex = at
+  return pattern.test(text)
+}
 
 const statusRecords = (
   text: string,
@@ -338,40 +344,67 @@ const statusRecords = (
     OPENING.lastIndex = from
     return OPENING.exec(text)?.index ?? -1
   }
-  /* An opening that never closes is scanned to the end of the text, so
-     output full of prose braces cost the square of its length. Past a bound,
-     what is left is read as prose (review, round twelve). */
-  let unclosed = 0
+  /* A brace or bracket in prose is passed over and the scan goes on inside
+     it, so each one is read to its end, or to the end of the text when it
+     never closes: unclosed or nested, the output was read over and over, the
+     square of its length (review, rounds twelve and thirteen). What the scan
+     reads again is counted, and past 64 readings of the whole text the rest
+     isn't read, as after data cut short: a sentence there can't be told from
+     one inside a record the scan never reached, and read as prose, a log
+     line's `"msg":"logged in as warmup"` named an account (review, round
+     thirteen). */
+  const budget = 64 * text.length
+  let reread = 0
   for (let at = next(0); at !== -1; ) {
     const start = at
     const candidate = firstBalanced(text, at)
+    // A record's opening, a brace and then a key, or an array's.
+    const data = opens(RECORD_OPENING, text, at) || opens(ARRAY_OPENING, text, at)
     if (candidate === null) {
-      /* An object that never closes holds everything after it, so nothing
-         after it is at the top level, and the scan stops. Resuming at the next
-         brace walked into it: truncated output such as
-         `{"wrap":{"loggedIn":true,…}` read as signed in (review, round four).
-         That holds for a record's opening, a brace and then a key. A brace in
+      /* Data that never closes holds everything after it, so nothing after it
+         is at the top level, and the scan stops. Resuming at the next brace
+         walked into it: truncated output such as `{"wrap":{"loggedIn":true,…}`
+         read as signed in (review, round four), and so did an array of records
+         cut short, `[{"loggedIn":true,…}` (review, round thirteen). A brace in
          a line of prose is only a character: `[INFO] {cache-init` ahead of the
          status took the status down with it (review, round six). */
-      RECORD_OPENING.lastIndex = at
-      if (RECORD_OPENING.test(text)) {
+      if (data) {
         end = at
         break
       }
-      if (++unclosed > 64) break
+      reread += text.length - at
+      if (reread > budget) {
+        end = at
+        break
+      }
       at = next(at + 1)
       continue
     }
     if (text[start] === '[') {
-      // A bracket in prose, `[INFO]` or `[1/3]`, is only characters; a JSON array is data.
-      let data = false
-      try {
-        data = Array.isArray(JSON.parse(candidate))
-      } catch {
-        data = false
+      /* A JSON array is data, cut from the prose whole, and so is one that
+         opens like data and doesn't parse: a trailing comma, or lines of NDJSON
+         in brackets, put the records inside back on the list (review, round
+         thirteen). A bracket in prose, `[INFO]` or `[1/3]`, is only
+         characters, and the scan goes on inside it. */
+      let array = data
+      if (!array) {
+        try {
+          array = Array.isArray(JSON.parse(candidate))
+        } catch {
+          array = false
+        }
       }
-      if (data) objects.push([start, start + candidate.length])
-      at = next(data ? start + candidate.length : start + 1)
+      if (array) {
+        objects.push([start, start + candidate.length])
+        at = next(start + candidate.length)
+        continue
+      }
+      reread += candidate.length
+      if (reread > budget) {
+        end = at
+        break
+      }
+      at = next(start + 1)
       continue
     }
     objects.push([at, at + candidate.length])
@@ -417,17 +450,26 @@ const statusRecords = (
  * side, or a line break of either kind: "Not cached, logged in as …" is two
  * clauses, and a spinner's overwritten frame is a line of its own (review,
  * rounds nine to eleven). A sign-out said to be in the past ("last logged
- * out") or denied anywhere in its own clause ("not yet logged out") is not the
- * state now, where "you were logged out" still is (rounds nine, eleven and
- * twelve).
+ * out") or denied right before it ("not yet logged out") is not the state
+ * now, where "you were logged out" still is, and so is "the token was not
+ * accepted so you were logged out" (rounds nine, eleven, twelve and
+ * thirteen).
  */
 /** A negation: `not`, `no longer`, `never`, or a contraction of one, in either apostrophe. */
 const NEGATION = String.raw`(?:\b(?:not|no longer|never)\b|n['’]t\b)`
 /** The rest of a clause: anything short of what ends one. */
 const IN_CLAUSE = String.raw`(?:(?!\s-\s)[^.!?;:,()–—\r\n])*?`
+/**
+ * A negation that denies the verb after it: the negation, then at most two of
+ * the few words a denial puts between them, as in `not yet`, `haven't ever`
+ * or `not been`. Not the whole clause, as for `logged in`: there a negation
+ * that reaches too far errs toward signed out, and here it kept an account a
+ * sentence said was signed out (review, round thirteen).
+ */
+const DENIED = String.raw`${NEGATION}(?:\s+(?:yet|ever|currently|already|actually|really|been|being|get|got|gotten|getting)){0,2}\s+`
 const SIGNED_OUT = new RegExp(
   `${NEGATION}${IN_CLAUSE}\\b(?:logged|signed) in\\b` +
-    `|(?<!\\b(?:last|previously|formerly)\\s+)(?<!${NEGATION}${IN_CLAUSE})\\b(?:logged|signed) out\\b`,
+    `|(?<!\\b(?:last|previously|formerly)\\s+)(?<!${DENIED})\\b(?:logged|signed) out\\b`,
   'i',
 )
 
