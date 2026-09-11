@@ -19,7 +19,9 @@ alternative — a binary image — cannot be reviewed at all.
 The pictures and the page are both generated from the JSON, so none of them is
 a second copy to keep in step: if two ever disagree it is because somebody
 skipped a regenerate, which is louder and cheaper to fix than two
-hand-maintained diagrams drifting apart.
+hand-maintained diagrams drifting apart. The one exception is seven lines of
+the page's stylesheet, written by hand after rendering: [Regenerating](#regenerating)
+says which, and a test fails when a regenerate takes them away.
 
 Three exist because no one of them does the whole job. **GitHub renders a
 committed `.html` as source, not as a page** — checked, not assumed, and the
@@ -33,7 +35,7 @@ worth opening when a static picture is not enough.
 
 Archify is not a dependency of this repository — it is a standalone renderer
 run once, by hand, when a diagram changes. Nothing here builds it, and `pnpm
-verify` does not check it.
+verify` checks one thing about what it produces — the toolbar colours below.
 
 ```bash
 git clone --depth 1 https://github.com/tt-a1i/archify.git /tmp/archify
@@ -44,6 +46,17 @@ node /tmp/archify/archify/bin/archify.mjs deliver architecture \
   --quality showcase
 node script/diagram-export.mjs docs/diagrams/architecture.html
 ```
+
+**Then put the toolbar colours back.** Archify's Signal Flow preset gives the
+toolbar three of its five colours in the dark theme and none in the light one
+(`archify/assets/template.html` upstream, at c1443b3), so under that preset the
+toolbar fell back to the generic slate (#93). Both pages here carry the missing
+declarations — `--toolbar-text` and `--toolbar-hover` in the dark block, all
+five in the light one — added after rendering, and `deliver` rewrites the whole
+stylesheet, so a regenerate drops them. `script/diagram-pages.test.mjs` fails
+when it does: copy the two `[data-preset="signal-flow"]` blocks back from the
+previous commit before committing the new page, or drop the patch once Archify
+declares the colours itself.
 
 `validate` is worth running on its own first: it checks that every label
 actually fits inside its box at a legible size and that no edge label overlaps

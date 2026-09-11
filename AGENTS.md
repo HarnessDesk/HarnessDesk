@@ -153,9 +153,10 @@ pnpm verify
 
 It validates the lockfile with `pnpm install --frozen-lockfile`, runs the build,
 every test suite (Node packages, gate scripts, UI and desktop), the UI typecheck,
-the layering rule, the tracked-secrets scan, the third-party notices check, the
-design-system gates, interface drift, the recorded-claims link and the Codex
-protocol drift check.
+the layering rule, the tracked-secrets scan, the reachable-methods check, the
+third-party notices check, the design-system gates, interface drift, the
+recorded-claims link, the gate-against-CI check below and the Codex protocol
+drift check.
 
 CI deliberately excludes the Codex protocol drift check, which needs a real
 `codex` binary the runner lacks. The local gate and CI are held to the same

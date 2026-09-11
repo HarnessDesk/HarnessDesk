@@ -590,10 +590,10 @@ Three things worth knowing:
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)
 has the argument. What caused a call travels with it across execution
-(`packages/cordis-host/src/provenance.ts`): `tool/invoke` is reached only by agents, and
-`applyEdits` refuses when the cause is an agent. A plugin may write through the
-editor plane on its own initiative or on behalf of the person who installed it,
-never for an agent.
+(`packages/cordis-host/src/provenance.ts`): `tool/invoke` is reached only by
+agents, and `applyEdits` refuses when the cause is an agent. A plugin may write
+through the editor plane on its own initiative or on behalf of the person who
+installed it, never for an agent.
 
 ## Shipping and testing plugins
 
