@@ -43,7 +43,14 @@ const cycleOf = (resetsAt: number | null): string => (resetsAt === null ? 'none'
    other's (#88). A report that names none, whether null, left out or empty,
    keys as it always did (review, round 1). */
 const laneKey = (report: UsageReport, laneId: string, resetsAt: number | null): string =>
-  `${report.runtime}${report.account ? `@${report.account}` : ''}:${laneId}:${cycleOf(resetsAt)}`
+  `${report.runtime}${accountOf(report) ? `@${JSON.stringify(accountOf(report))}` : ''}:${laneId}:${cycleOf(resetsAt)}`
+
+/**
+ * The account a report names, or nothing. One that is only whitespace is
+ * none, and one is quoted in a key, so a `:` in its name can't make it read as
+ * another account's lane (review of #170).
+ */
+const accountOf = (report: UsageReport): string => report.account?.trim() ?? ''
 
 /** Every known lane in a set of reports, by agent, account, lane and reset cycle. */
 const index = (reports: readonly UsageReport[]): Map<string, { report: UsageReport; usedPercent: number }> => {
@@ -87,7 +94,9 @@ export const crossings = (
         alerts.push({
           key: `${key}:${threshold}`,
           runtime: report.runtime,
-          message: `${nameFor(report.runtime)} — ${view.title} is ${threshold}% used${left ? `, ${left}` : ''}${back}.`,
+          // Named by account as well as agent: two accounts crossing one line
+          // said the same sentence, and the toasts dedupe on it (#179).
+          message: `${nameFor(report.runtime)}${accountOf(report) ? ` (${accountOf(report)})` : ''} — ${view.title} is ${threshold}% used${left ? `, ${left}` : ''}${back}.`,
         })
       }
     }

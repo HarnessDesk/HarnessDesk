@@ -95,6 +95,39 @@ describe('crossings', () => {
   })
 })
 
+describe('crossings for an agent with more than one account (#179)', () => {
+  it('names the account, so two accounts crossing one line are two toasts', () => {
+    const at = (usedPercent: number) => [
+      report('codex', [lane({ usedPercent })], { account: 'work' }),
+      report('codex', [lane({ usedPercent })], { account: 'personal' }),
+    ]
+    const alerts = crossings(at(70), at(85), nameFor, NOON)
+    expect(alerts.map((alert) => alert.message.split(' — ')[0])).toEqual(['OpenAI Codex (work)', 'OpenAI Codex (personal)'])
+    expect(new Set(alerts.map((alert) => alert.message)).size).toBe(2)
+  })
+
+  it('reads an account that is only whitespace as none', () => {
+    const alerts = crossings(
+      [report('codex', [lane({ usedPercent: 70 })], { account: null })],
+      [report('codex', [lane({ usedPercent: 85 })], { account: '  ' })],
+      nameFor,
+      NOON,
+    )
+    expect(alerts.map((alert) => alert.message.split(' — ')[0])).toEqual(['OpenAI Codex'])
+  })
+
+  it("keeps a colon in an account's name from making it another account's lane", () => {
+    // Unquoted, account `a:b` with lane `c` and account `a` with lane `b:c` had one key.
+    const alerts = crossings(
+      [report('codex', [lane({ id: 'c', usedPercent: 70 })], { account: 'a:b' })],
+      [report('codex', [lane({ id: 'b:c', usedPercent: 85 })], { account: 'a' })],
+      nameFor,
+      NOON,
+    )
+    expect(alerts).toEqual([])
+  })
+})
+
 describe('conditionFor', () => {
   it('names the way out when this agent is spent and another has room', () => {
     const condition = conditionFor(
@@ -198,7 +231,8 @@ describe('two accounts on one agent', () => {
     // Personal crossed 80 while work stayed at 90: one alert, and it is personal's.
     const alerts = crossings([personal(50), work(90)], [personal(85), work(90)], nameFor, NOON)
     expect(alerts).toHaveLength(1)
-    expect(alerts[0]?.key).toContain('codex@personal:')
+    // The account is quoted in the key (#179).
+    expect(alerts[0]?.key).toContain('codex@"personal":')
   })
 })
 

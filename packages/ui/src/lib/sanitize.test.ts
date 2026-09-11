@@ -53,6 +53,15 @@ describe('sanitizeHtml', () => {
     expect(sanitizeHtml(deep)).toContain('text')
   })
 
+  test('keeps only the text of what lies past the depth cap, a script or a style included (#179)', () => {
+    // Past the cap an element is replaced by its text: a deep script's source shows, inert, and runs nowhere.
+    const deep = `${'<div>'.repeat(120)}<script>alert(1)</script><style>body{color:red}</style>${'</div>'.repeat(120)}`
+    const html = sanitizeHtml(deep)
+    expect(html).not.toMatch(/<script|<style/i)
+    expect(html).toContain('alert(1)')
+    expect(html).toContain('body{color:red}')
+  })
+
   test('strips every event handler attribute', () => {
     const html = sanitizeHtml(
       '<p onclick="steal()" onmouseover="steal()" onerror="steal()">text</p>',

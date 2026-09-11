@@ -176,6 +176,48 @@ const countLabel = (count: number): string | null =>
   count === 0 ? null : count === 1 ? '1 account' : `${count} accounts`
 
 /** One rolling allowance as a bar: how much of the window is left, and when it refills. */
+/**
+ * An account's usage: whether it is blocked, the windows it draws on, and the
+ * prepaid balance that outlasts them. `describeLimits` worked the balance out
+ * since #85 and nothing showed it but the Usage window, so a zero balance, the
+ * reading #85 was about, was visible in one place only (#182).
+ */
+export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name: string }) => {
+  const view = describeLimits(limits)
+  return (
+    <>
+      <SectionHead name="Usage" />
+      {view?.blocked && (
+        <p className={styles.note} data-tone="bad">
+          {view.blocked.title} — {view.blocked.detail}
+        </p>
+      )}
+      {view && view.windows.length > 0 ? (
+        <Rows>
+          <div className={styles.meters}>
+            {view.windows.map((window) => (
+              <UsageMeter key={window.label} window={window} />
+            ))}
+          </div>
+        </Rows>
+      ) : !view?.credits ? (
+        <Rows>
+          <Row title="Nothing to read yet" desc={`${name} has not written any usage down on this Mac.`} />
+        </Rows>
+      ) : null}
+      {view?.credits && (
+        <Rows>
+          <Row
+            title="Credits"
+            desc="What this account can still spend once a window runs out."
+            control={<span className={kit.rowFixed}>{view.credits.label}</span>}
+          />
+        </Rows>
+      )}
+    </>
+  )
+}
+
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
   const tone = remaining <= 0 ? 'bad' : remaining < 20 ? 'warn' : 'good'
@@ -1192,28 +1234,7 @@ const AccountDetail = ({
         )}
       </Rows>
 
-      <SectionHead name="Usage" />
-      {limitsView?.blocked && (
-        <p className={styles.note} data-tone="bad">
-          {limitsView.blocked.title} — {limitsView.blocked.detail}
-        </p>
-      )}
-      {limitsView && limitsView.windows.length > 0 ? (
-        <Rows>
-          <div className={styles.meters}>
-            {limitsView.windows.map((window) => (
-              <UsageMeter key={window.label} window={window} />
-            ))}
-          </div>
-        </Rows>
-      ) : (
-        <Rows>
-          <Row
-            title="Nothing to read yet"
-            desc={`${info.presentation.name} has not written any usage down on this Mac.`}
-          />
-        </Rows>
-      )}
+      <UsageSection limits={limits} name={info.presentation.name} />
 
       <SectionHead name="Defaults" />
       <Rows>
