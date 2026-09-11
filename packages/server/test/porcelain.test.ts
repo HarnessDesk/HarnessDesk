@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 import { commitAll } from '../src/git-actions.js'
-import { status } from '../src/git.js'
+import { diff, status } from '../src/git.js'
 import { parsePorcelain } from '../src/porcelain.js'
 import { inventory, list } from '../src/git-worktree.js'
 import { changes } from '../src/worktree.js'
@@ -189,3 +189,24 @@ test('a file changed on both sides is listed in each, and a conflict once, in th
   ])
 })
 
+test('the working tree\'s diff names files a/ and b/, whatever the repository\'s diff settings say (#171)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-noprefix-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const git = (...args: string[]): Promise<{ stdout: string }> =>
+    run('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd: dir })
+  await git('init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'f.txt'), 'one\n')
+  await git('add', '.')
+  await git('commit', '-qm', 'base')
+  await writeFile(join(dir, 'f.txt'), 'two\n')
+  for (const setting of ['diff.noprefix', 'diff.mnemonicPrefix']) {
+    await git('config', setting, 'true')
+    // The control: the setting took, and git's own diff drops or changes the prefixes.
+    const { stdout: plain } = await git('diff')
+    assert.ok(!plain.includes('diff --git a/f.txt b/f.txt'), setting)
+    const read = await diff(dir)
+    assert.ok(read.includes('diff --git a/f.txt b/f.txt'), `${setting}: ${read.split('\n')[0]}`)
+    assert.ok(read.includes('--- a/f.txt') && read.includes('+++ b/f.txt'), setting)
+    await git('config', '--unset', setting)
+  }
+})

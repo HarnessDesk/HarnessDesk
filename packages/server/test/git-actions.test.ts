@@ -580,3 +580,22 @@ test('the write verbs take a SHA-256 commit by its full id', async (t) => {
   await checkoutCommit(dir, first)
   assert.equal(await sha(dir, 'HEAD'), first)
 })
+
+test('diffRange names files a/ and b/, whatever the repository\'s diff settings say (#171)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-noprefix-range-'))
+  try {
+    const git = (...args: string[]) => promisify(execFile)('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd: dir })
+    await git('init', '-q', '-b', 'main')
+    await writeFile(join(dir, 'f.txt'), 'one\n')
+    await git('add', '.')
+    await git('commit', '-qm', 'one')
+    await writeFile(join(dir, 'f.txt'), 'two\n')
+    await git('commit', '-qam', 'two')
+    await git('config', 'diff.noprefix', 'true')
+    const { stdout: plain } = await git('diff', 'HEAD~1', 'HEAD')
+    assert.ok(!plain.includes('a/f.txt'), 'the control: the setting took')
+    assert.ok((await diffRange(dir, 'HEAD~1', 'HEAD')).includes('diff --git a/f.txt b/f.txt'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
