@@ -143,6 +143,19 @@ export class AuditLog {
     }
     const cutoff = Date.now() - (options.sinceDays ?? 7) * 24 * 60 * 60 * 1000
     const out: AuditEntry[] = []
+    /* `pathWithin` follows symlinks now (#110), so it asks the filesystem, and
+       this is the one caller that asks it in a loop — once per line of a log
+       that nothing trims. Measured over 10,000 entries written from three
+       working directories, which is the shape a real log has: 344ms unmemoised
+       against 5ms to parse the same lines, and 0.7ms with this map. The entries
+       repeat a handful of roots between them, so almost every one of those
+       calls was re-asking the same question.
+
+       Scoped to the single pass deliberately: it is built here and dropped when
+       the query returns, so a link made between two queries is seen by the next
+       one. Caching it across calls would be a stale answer to a question about
+       the filesystem, which is the thing worth not getting wrong here. */
+    const contained = new Map<string, boolean>()
     for (const line of raw.split('\n')) {
       if (!line) continue
       let entry: AuditEntry
@@ -158,8 +171,14 @@ export class AuditLog {
          a cwd is not compared after resolution, so `/repo/../etc` counted as
          inside `/repo`. */
       if (options.root) {
-        if (entry.cwd === undefined) continue
-        if (!pathWithin(options.root, entry.cwd)) continue
+        const cwd = entry.cwd
+        if (cwd === undefined) continue
+        let inside = contained.get(cwd)
+        if (inside === undefined) {
+          inside = pathWithin(options.root, cwd)
+          contained.set(cwd, inside)
+        }
+        if (!inside) continue
       }
       out.push(entry)
     }

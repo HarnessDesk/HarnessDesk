@@ -7,11 +7,25 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A plugin's workspace grant stops at the workspace, symlinks included** — a
+  link inside the open folder pointing anywhere else was treated as part of the
+  folder, so a plugin granted workspace access could read and write through it
+  to the rest of the disk. Containment is now decided by where a path really
+  leads rather than by how it is spelled, and a path that does not exist yet is
+  answered by the nearest folder that does, so creating a file is judged before
+  it is created. A link that points back inside the workspace is still inside it.
+- **An agent HarnessDesk installed is offered its update again** — when the
+  folder HarnessDesk downloads into was configured with a doubled or trailing
+  separator, or a `.` in the middle, the copy inside it was not recognised as
+  the desk's own. It was listed as an ordinary binary found on PATH, with no
+  package name and no update available, and nothing said why.
+
 - **The audit answers with what just happened** — Activity and the Library's
   change history read the audit log, and an entry recorded a moment earlier
   could be missing from the answer: a command a policy rule had just denied,
   or a library write just applied, was absent until something asked again.
   A read now waits for what was recorded before it was asked.
+
 
 - **Plugin settings are still there tomorrow** — a setting typed into a
   plugin's page in Settings is kept and put back at the next launch. Until

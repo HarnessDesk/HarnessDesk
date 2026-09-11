@@ -1,4 +1,5 @@
-import { resolve, sep } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
 import type { PluginPermissions } from '@harnessdesk/protocol'
 
@@ -86,18 +87,97 @@ export const hostAllowed = (allowed: readonly string[], host: string): boolean =
 }
 
 /**
- * Contains a path to a root.
+ * One path as the disk really spells it, or null where the disk will not say.
  *
- * Resolution happens before comparison so `..` cannot walk out, and the
- * separator check stops `/work` from matching `/workspace`.
+ * `realpathSync.native` is asked first because it is the only one of the two
+ * that applies `..` *after* following a link, which is the order the kernel
+ * uses. With `link -> /etc`, `link/../passwd` is `/passwd`; Node's JS
+ * implementation begins by collapsing the string, so it answers as though the
+ * `..` applied to the link's lexical parent and never looks at where the link
+ * actually goes. Measured both ways on this checkout before choosing.
+ *
+ * The JS one is kept as a fallback rather than dropped because `.native` is
+ * documented to need `/proc` mounted when Node is linked against musl. Losing
+ * it there should cost the ordering of `..`, which no caller here can even
+ * produce — every one of them resolves before calling — and not cost the
+ * following of links, which is the whole point. A path that is simply absent is
+ * absent for both, so that case never pays for the second ask.
+ */
+const resolved = (path: string): string | null => {
+  try {
+    return realpathSync.native(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    try {
+      return realpathSync(path)
+    } catch {
+      return null
+    }
+  }
+}
+
+/**
+ * A path as the filesystem sees it: symlinks followed, and any part that does
+ * not exist yet carried along unchanged.
+ *
+ * `resolve` on its own is a *lexical* answer — it rewrites the string and never
+ * asks the disk — so a symlink inside the root read as inside it (#110). Asking
+ * the disk means touching it, and this runs inside synchronous guards, so two
+ * properties are load-bearing and neither is free:
+ *
+ * - **It stays synchronous**, because the guards are. Measured here,
+ *   `realpathSync` on a path whose parent exists costs ~8µs, and every caller
+ *   of the gate is about to do a real filesystem operation on the same path —
+ *   `ctx.fs.read` reads it, `ctx.fs.write` writes it — so the check costs the
+ *   same order as the operation it guards rather than adding a new kind of work.
+ * - **It answers for a path that does not exist yet**, which is exactly what a
+ *   write guard is asked about. The walk stops at the nearest ancestor that
+ *   does exist and re-attaches the missing tail: if that ancestor is inside the
+ *   root then anything created below it is too, and a component that does not
+ *   exist cannot be a symlink.
+ *
+ * A path that cannot be resolved at all — a parent no one may read, a link that
+ * loops — walks up to the filesystem root and falls back to the lexical answer.
+ * That is what this returned before and is no weaker than it: a directory the
+ * host cannot traverse is one the plugin cannot traverse either.
+ */
+const canonical = (path: string): string => {
+  /* `resolve` only to make a relative path absolute, and deliberately not on an
+     absolute one: it would collapse `..` before any link were followed, which is
+     the very reordering `resolved` exists to avoid. */
+  let walk = isAbsolute(path) ? path : resolve(path)
+  const missing: string[] = []
+  for (;;) {
+    const real = resolved(walk)
+    if (real !== null) return join(real, ...missing.reverse())
+    const up = dirname(walk)
+    // The root resolves on any sane filesystem; this is the belt to that brace.
+    if (up === walk) return resolve(path)
+    /* `basename`, not arithmetic on the parent's length: `dirname('/work')` is
+       `'/'`, which already ends in a separator, and the slice would take the
+       first letter of the name with it. */
+    missing.push(basename(walk))
+    walk = up
+  }
+}
+
+/**
+ * Contains a path to a root, as the filesystem sees it.
+ *
+ * Both sides are canonicalised before comparison — `..` collapsed *and*
+ * symlinks followed — so neither a `..` nor a link inside the root can walk out
+ * of it, and the separator check stops `/work` from matching `/workspace`.
  */
 export const pathWithin = (root: string, path: string): boolean => {
   /* Resolution is the half that was missing, and it is the half that matters:
      `/work/../etc/passwd` carries the prefix `/work/` and is not in `/work`.
      A string test cannot see that, because the escape is spelled *inside* the
-     prefix it is being tested against. */
-  const base = resolve(root)
-  const target = resolve(path)
+     prefix it is being tested against — and it cannot see a symlink at all.
+     `/work/link` pointing at `/etc` is spelled entirely inside `/work` and is
+     not inside `/work` (#110), which no amount of string arithmetic can tell;
+     only the filesystem knows, so both sides are asked of it. */
+  const base = canonical(root)
+  const target = canonical(path)
   if (target === base) return true
   return target.startsWith(base.endsWith(sep) ? base : `${base}${sep}`)
 }

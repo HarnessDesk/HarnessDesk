@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 
 /**
  * How a binary got onto this machine, read off where it sits.
@@ -95,8 +95,25 @@ export const readChannel = (path: string, options: ChannelOptions = {}): Channel
   const home = options.home ?? homedir()
   const realPath = (options.realpath ?? realpathOrSelf)(path)
   const platform = options.platform ?? process.platform
-  const under = (candidate: string, dir: string): boolean =>
-    candidate === dir || candidate.startsWith(dir.endsWith(sep) ? dir : dir + sep)
+  /* Both sides normalised, not compared as they were written: `/opt/hd//agents`,
+     `/opt/hd/agents/` and `/opt/hd/./agents` all name the directory `resolve`
+     spells `/opt/hd/agents`, and a bare `startsWith` said the first and third
+     were somewhere else entirely. A managed install under a directory spelled
+     any of those ways then read as an ordinary `path` entry with no package
+     name, so the update command that would keep it current was never offered,
+     and nothing said why (#117).
+
+     Lexical normalisation only — no `realpath` here, deliberately. Symlinks are
+     already answered one level up by `either`, which asks this question of the
+     real path *and* of the path as given, and `readChannel` takes its `realpath`
+     as an injection precisely so that reading a channel stays a pure function of
+     the path. The security-grade question, where following links is the whole
+     point, is `pathWithin`'s (#110) and is a different question. */
+  const under = (candidate: string, dir: string): boolean => {
+    const base = resolve(dir)
+    const at = resolve(candidate)
+    return at === base || at.startsWith(base.endsWith(sep) ? base : base + sep)
+  }
   const either = (dir: string): boolean => under(realPath, dir) || under(path, dir)
 
   if (options.managedDir && either(options.managedDir)) {

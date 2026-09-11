@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { test } from 'node:test'
 
 import { ExtensionKernel, hostAllowed, pathWithin } from '../src/index.js'
@@ -46,6 +46,108 @@ test('path containment resolves before comparing, so `..` cannot walk out', () =
   // A root given with a trailing separator means the same root.
   assert.equal(pathWithin('/work/', '/work/a.ts'), true)
   assert.equal(pathWithin('/work/', '/workspace/a.ts'), false)
+})
+
+/**
+ * A root, a directory outside it, and a symlink inside the root pointing at
+ * that directory — the shape a lexical containment check cannot see (#110).
+ * Null where the filesystem will not make a link, so a machine that cannot hold
+ * the fixture skips rather than fails.
+ *
+ * `realpath` on the temp root first: macOS hands out `/var/folders/…` for a
+ * directory that really lives at `/private/var/folders/…`, and every assertion
+ * here is about where a path really leads.
+ */
+const linkedFixture = async (): Promise<{ base: string; root: string } | null> => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'harnessdesk-within-')))
+  const root = join(base, 'work')
+  await mkdir(join(root, 'sub'), { recursive: true })
+  await mkdir(join(base, 'secrets'), { recursive: true })
+  await writeFile(join(base, 'secrets', 'passwd'), 'classified')
+  await writeFile(join(root, 'inside.txt'), 'readable')
+  try {
+    await symlink(join(base, 'secrets'), join(root, 'link'), 'dir')
+    await symlink(join(root, 'sub'), join(root, 'inward'), 'dir')
+  } catch {
+    await rm(base, { recursive: true, force: true })
+    return null
+  }
+  return { base, root }
+}
+
+test('path containment follows symlinks, so a link out of the root leads out of it', async (t) => {
+  const fixture = await linkedFixture()
+  if (!fixture) return t.skip('this filesystem does not make symlinks')
+  const { base, root } = fixture
+  t.after(() => rm(base, { recursive: true, force: true }))
+
+  /* The controls. Both answered correctly before links were followed and must
+     go on doing so, so a failure below cannot be a fixture that never got built
+     or a file that never ran. */
+  assert.equal(pathWithin(root, join(root, 'inside.txt')), true, 'a real file inside the root')
+  assert.equal(pathWithin(root, join(base, 'work-other', 'a.ts')), false, 'a lookalike sibling')
+
+  // The defect: `<root>/link` is spelled entirely inside the root and leads out.
+  assert.equal(pathWithin(root, join(root, 'link', 'passwd')), false)
+  // The same link, for a file that does not exist yet — what a write guard asks.
+  assert.equal(pathWithin(root, join(root, 'link', 'new.txt')), false)
+  /* Built by hand rather than with `join`, which collapses `..` itself and so
+     would never deliver one here. `..` applies after the link is followed, so
+     this leaves the root as well. */
+  assert.equal(pathWithin(root, `${root}${sep}link${sep}..${sep}secrets${sep}passwd`), false)
+
+  /* And containment must not curdle into refusal: a link pointing back inside
+     is inside, and so is a path that does not exist below a directory that does. */
+  assert.equal(pathWithin(root, join(root, 'inward', 'a.ts')), true, 'a link back into the root')
+  assert.equal(pathWithin(root, join(root, 'sub', 'new.txt')), true, 'a file about to be created')
+  assert.equal(pathWithin(root, join(root, 'a', 'b', 'c.txt')), true, 'a branch about to be created')
+})
+
+test('a plugin granted the workspace cannot read out of it through a symlink', async (t) => {
+  // The same defect at the surface that makes it matter: `pathWithin` is what
+  // `ctx.fs` consults, so a link inside the workspace was a road to the disk.
+  const fixture = await linkedFixture()
+  if (!fixture) return t.skip('this filesystem does not make symlinks')
+  const { base, root } = fixture
+  t.after(() => rm(base, { recursive: true, force: true }))
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root, branch: null })
+
+  await kernel.load({
+    manifest: { id: 'linker', name: 'Linker', permissions: { workspace: { read: true, write: true } } },
+    plugin: {
+      name: 'linker',
+      inject: ['tools', 'fs'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'through_the_link',
+          description: '',
+          inputSchema: {},
+          execute: () => ctx.fs.read('link/passwd'),
+        })
+        ctx.tools.register({
+          name: 'inside',
+          description: '',
+          inputSchema: {},
+          execute: () => ctx.fs.read('inside.txt'),
+        })
+      },
+    },
+  })
+  await settle()
+
+  const tools = new Map(kernel.list('tool').map((tool) => [tool.name, tool.id]))
+  const escaped = await kernel.invokeTool(tools.get('through_the_link')!, {}, {})
+  assert.equal(escaped.ok, false, 'the link leads out of the workspace, so the read is refused')
+  assert.match(escaped.ok === false ? escaped.error : '', /outside the open workspace/)
+
+  /* The control: the same plugin, the same grant, a file that really is inside.
+     This passed before the fix and must still pass, or the refusal above is
+     nothing but a plugin that cannot read anything at all. */
+  const allowed = await kernel.invokeTool(tools.get('inside')!, {}, {})
+  assert.equal(allowed.ok, true, 'an ordinary read inside the workspace still works')
 })
 
 test('a plugin without workspace permission cannot read the workspace', async (t) => {
