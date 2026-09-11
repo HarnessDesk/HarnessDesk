@@ -1027,18 +1027,56 @@ test('htmlToText reads entities in any case, leaves unknown ones alone, and deco
   assert.equal(htmlToText('&amp;amp;lt;'), '&amp;lt;')
 })
 
-test('read_file stops at the byte limit it is named for, and never cuts a character in half', async () => {
+test('read_file stops at the byte limit it is named for, and never cuts a character in half', async (t) => {
   // #96: maxBytes was compared with content.length, so a file of three-byte characters ran to three times the bytes.
-  const tools = new Map<string, { execute: (args: unknown) => Promise<unknown> }>()
-  const ctx = {
-    tools: { register: (tool: { name: string; execute: (args: unknown) => Promise<unknown> }) => tools.set(tool.name, tool) },
-    fs: { read: async (path: string) => (path === 'short.txt' ? 'plain text' : '€'.repeat(500)), list: async () => [] },
+  // Round 1 of #190: through the kernel, as a person's setting reaches it, and with a limit set as a fraction.
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-bytes-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const bom = String.fromCharCode(0xfeff)
+  const files: Record<string, string> = {
+    'prices.txt': '€'.repeat(500),
+    'bom.txt': `${bom}${'a'.repeat(1000)}`,
+    'faces.txt': '😀'.repeat(300),
+    'exact.txt': 'a'.repeat(1000),
+    'short.txt': 'plain text',
   }
-  filesPlugin.plugin.apply(ctx as never, { maxBytes: 1000 })
-  const result = String(await tools.get('read_file')!.execute({ path: 'prices.txt' }))
-  const body = result.split('\n\n[truncated')[0] ?? ''
-  assert.equal(new TextEncoder().encode(body).length, 999, 'the last whole character that fits')
-  assert.ok(!body.includes(String.fromCharCode(0xfffd)), 'no character is cut in half')
-  assert.match(result, /\[truncated at 1000 bytes\]$/)
-  assert.equal(await tools.get('read_file')!.execute({ path: 'short.txt' }), 'plain text')
+  for (const [name, body] of Object.entries(files)) await writeFile(join(dir, name), body)
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load({ ...filesPlugin, config: { maxBytes: 1000.5 } })
+  await settle()
+  const read = async (path: string) => text(await kernel.invokeTool(toolNamed(kernel, 'read_file'), { path }, {}))
+  const bodyOf = (result: string) => result.split('\n\n[truncated')[0] ?? ''
+
+  const prices = await read('prices.txt')
+  assert.equal(new TextEncoder().encode(bodyOf(prices)).length, 999, 'the last whole character that fits')
+  assert.ok(!prices.includes(String.fromCharCode(0xfffd)), 'no character is cut in half, a fractional limit included')
+  assert.match(prices, /\[truncated at 1000 bytes\]$/)
+  // A four-byte character that ends exactly at the limit is kept whole, and nothing is stepped back.
+  assert.equal(bodyOf(await read('faces.txt')), '😀'.repeat(250))
+  // A byte-order mark the file starts with is still there.
+  assert.equal(bodyOf(await read('bom.txt')), `${bom}${'a'.repeat(997)}`)
+  // A file exactly at the limit, and one under it, come back whole.
+  assert.equal(await read('exact.txt'), 'a'.repeat(1000))
+  assert.equal(await read('short.txt'), 'plain text')
+})
+
+test('read_file cuts at 64,000 bytes when nothing is configured', async (t) => {
+  // Round 1 of #190: the default path had no test.
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-default-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'big.txt'), 'a'.repeat(70_000))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: dir, branch: null })
+  await kernel.load(filesPlugin)
+  await settle()
+  const result = text(await kernel.invokeTool(toolNamed(kernel, 'read_file'), { path: 'big.txt' }, {}))
+  assert.equal(result, `${'a'.repeat(64_000)}\n\n[truncated at 64000 bytes]`)
 })

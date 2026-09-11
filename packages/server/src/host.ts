@@ -1596,7 +1596,7 @@ export class Host {
     } finally {
       clearTimeout(timer)
     }
-    return target.info.name
+    return target.info.presentation.name
   }
 
   async #reattach(runtime: AgentRuntime, id: SessionId): Promise<AgentSession> {
@@ -2267,7 +2267,7 @@ export class Host {
     const accounts = this.options.accounts
     const of = this.#runtime({ runtime: id })
     if (!accounts || !accounts.canAdd(of.info)) {
-      throw new Error(`${of.info.name} cannot hold more than one account here.`)
+      throw new Error(`${of.info.presentation.name} cannot hold more than one account here.`)
     }
     // The key goes to the broker on the way past and is never held here: what
     // the slot records, and all anything else can ask for, is the reference.

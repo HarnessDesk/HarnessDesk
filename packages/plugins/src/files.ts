@@ -56,15 +56,24 @@ export const filesPlugin: HarnessPlugin = {
           // Tool output competes for the model's context window; a whole large
           // file is rarely what was wanted. The limit is in bytes, as its name
           // says: compared with content.length, a file of three-byte characters
-          // ran to three times it (#96).
-          const limit = Math.max(1_000, config?.maxBytes ?? 64_000)
-          const bytes = new TextEncoder().encode(content)
+          // ran to three times it (#96). A whole number, since it indexes the
+          // bytes below: a fraction stepped past the check that keeps a
+          // character whole (review of #190, round 1).
+          const limit = Math.trunc(Math.max(1_000, config?.maxBytes ?? 64_000))
+          // Only what could be kept is encoded. A file longer than the limit in
+          // UTF-16 units is longer in bytes too, since each unit is at least
+          // one, so its first limit + 1 units hold the cut; encoding all of a
+          // large file only to measure it copied it whole (review, round 1).
+          const bytes = new TextEncoder().encode(content.length > limit ? content.slice(0, limit + 1) : content)
           if (bytes.length <= limit) return content
           // Never half a character: a UTF-8 continuation byte is 10xxxxxx, so
           // step back to the byte its character starts on.
           let end = limit
           while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--
-          return `${new TextDecoder().decode(bytes.subarray(0, end))}\n\n[truncated at ${limit} bytes]`
+          // `ignoreBOM`, or the decoder drops a byte-order mark the file starts
+          // with, which a file short enough to come back whole keeps (review,
+          // round 1).
+          return `${new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes.subarray(0, end))}\n\n[truncated at ${limit} bytes]`
         },
       })
 
