@@ -496,7 +496,8 @@ beside the conversation and lays them over it instead:
   put away when the window is wide again. Open, it clears the macOS window
   buttons as the row under it does.
 - **A panel on the right takes the conversation's width** while it is open,
-  with no seam to drag. Putting it away gives the conversation back.
+  with no seam to drag, and the conversation beneath it is out of reach as it
+  is under the floating sidebar. Putting it away gives the conversation back.
 - **A header folds by its own width, not the window's**, so a narrow pane in
   a wide window folds the same way. At 520px the back and forward arrows,
   the branch's name, the status's word, the tasks chip's words and the plan

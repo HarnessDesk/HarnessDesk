@@ -182,6 +182,18 @@ const mount = async (runtimes: readonly RuntimeInfo[] = [runtime()]): Promise<Dr
   return drive
 }
 
+it('Escape closes the window and says so, so a sidebar floating under it stays', async () => {
+  const { held } = await mount()
+  expect(held()).not.toBe(false)
+
+  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  await act(async () => {
+    document.dispatchEvent(event)
+  })
+  expect(held()).toBe(false)
+  expect(event.defaultPrevented).toBe(true)
+})
+
 it('a page asked for while the window is open replaces the one on show', async () => {
   const { route } = await mount()
   expect(page()).toBe('Appearance')

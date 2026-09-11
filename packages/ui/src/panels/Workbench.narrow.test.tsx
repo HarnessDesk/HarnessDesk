@@ -1,7 +1,8 @@
-import { act } from 'react'
+import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { ContextMenu, MenuItem } from '../components/Menu'
 import { Popover } from '../components/Popover'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -91,8 +92,12 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
  * `beside` puts what the app puts beside the workbench next to it: the
  * standing notices float there, over the conversation, outside the shell —
  * and one more element that is already inert for reasons of its own.
+ * `inSidebar` adds to the sidebar's own content.
  */
-const render = (store: AppStore, beside = false): void => {
+const render = (
+  store: AppStore,
+  { beside = false, inSidebar = null }: { beside?: boolean; inSidebar?: ReactNode } = {},
+): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -103,6 +108,7 @@ const render = (store: AppStore, beside = false): void => {
               <Popover label="Account" title="Account">
                 {() => <button type="button">Sign out</button>}
               </Popover>
+              {inSidebar}
             </div>
           }
         />
@@ -179,7 +185,7 @@ it('what floats beside the workbench goes inert with the conversation, and only 
      so making the content inert left their buttons one Tab away from the
      floating sidebar: a control you can reach and cannot see. */
   const { store, patch } = rig({ narrowWindow: true })
-  render(store, true)
+  render(store, { beside: true })
   const notices = container.querySelector<HTMLElement>('[data-testid="notices"]')
   const already = container.querySelector<HTMLElement>('[data-testid="already-inert"]')
 
@@ -291,6 +297,53 @@ it('put away, it takes its own menu with it, and focus still goes back to what o
 
   expect(menu()).toBeNull()
   expect(document.activeElement).toBe(opener)
+})
+
+it('Escape a context menu inside it takes closes the menu and leaves the sidebar open', () => {
+  /* The app's context menu does not mark the key with preventDefault: it takes
+     it on the document's capture phase and stops it there, so the sidebar —
+     listening on the window, after everything — never hears it. A different
+     road to the same answer, and nothing held it. */
+  const { store, patch } = rig({ narrowWindow: true })
+  render(store)
+  patch({ sidebarFloating: true })
+  const onClose = vi.fn()
+  render(store, {
+    inSidebar: (
+      <ContextMenu at={{ x: 10, y: 10 }} label="Session" onClose={onClose}>
+        <MenuItem label="Rename" onSelect={() => {}} />
+      </ContextMenu>
+    ),
+  })
+  // Its first row took focus, as it does so the keyboard works at once.
+  const rename = document.activeElement as HTMLElement
+  expect(rename.textContent).toContain('Rename')
+
+  act(() => {
+    rename.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  expect(onClose).toHaveBeenCalledTimes(1)
+  expect(store.closeFloatingSidebar).not.toHaveBeenCalled()
+})
+
+it('a panel on the right that covers the conversation puts it out of reach, and gives it back when it goes', () => {
+  /* In a narrow window the panel takes the conversation's width, over it, and
+     the conversation stayed reachable underneath: Tab from the panel walked
+     into its composer and header. Found in review, measured in a real engine. */
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const conversation = (): Element | null => container.querySelector('[data-testid="in-the-conversation"]')
+
+  const wide = rig({}, docked)
+  render(wide.store)
+  // The control: beside the conversation, nothing is covered.
+  expect(conversation()?.closest('[inert]')).toBeNull()
+
+  const narrow = rig({ narrowWindow: true }, docked)
+  render(narrow.store)
+  expect(conversation()?.closest('[inert]')).not.toBeNull()
+
+  narrow.patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(conversation()?.closest('[inert]')).toBeNull()
 })
 
 it('a panel on the right takes the conversation’s width in a narrow window, and has no seam', () => {

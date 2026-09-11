@@ -46,6 +46,7 @@ import {
   type DockId,
   type DockNode,
   type DockStack,
+  type Workbench as WorkbenchModel,
 } from '../state/workbench'
 import { hasTrafficLights } from '../lib/desktop'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
@@ -264,6 +265,11 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           <div
             className={styles.main}
             {...(areaVisible(workbench, 'main') ? {} : { 'data-hidden': '' })}
+            /* Covered by a right panel that took a narrow window's width, the
+               conversation is out of reach as well as out of sight, as it is
+               under the floating sidebar: Tab from the panel walked into the
+               composer and the header behind it. */
+            {...(narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main') ? { inert: true } : {})}
           >
             <Panes />
             <DropZone area="main" />
@@ -278,12 +284,14 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   )
 }
 
+/** Whether the right panel draws a panel at all, rather than only its drop zone. */
+const rightPanelDrawn = (workbench: WorkbenchModel): boolean =>
+  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
+
 const RightPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const workbench = snapshot.workbench
-  const dock = workbench.right
-  const shown = areaVisible(workbench, 'right')
   // A panel with nothing in it is not a panel. Its seam, its strip and its
   // border would all be furniture around an empty box — and the way back is
   // the control that put something there in the first place.
@@ -295,7 +303,7 @@ const RightPanel = () => {
   // An area with nothing in it draws no panel — but it must still be a place
   // you can drag something to, or the only way to fill it is the ⋯ menu and
   // the drag is a gesture that silently does nothing.
-  if (dockViews(dock).length === 0 || !shown || dock.collapsed) return <EdgeDropZone area="right" />
+  if (!rightPanelDrawn(workbench)) return <EdgeDropZone area="right" />
   // A zoomed panel takes the room rather than its remembered width, and the
   // seam goes with it: there is nothing on the other side of it to resize
   // against, and a handle that moves nothing is a handle that looks broken.
