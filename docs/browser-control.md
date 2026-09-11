@@ -36,7 +36,7 @@ turn.
 | `browser_key {key, count?, modifiers?}` | keyboard (`Enter`, `ArrowLeft`, `⌘A`…) | screenshot after settle |
 | `browser_type {text, ref?, submit?}` | types a string into a field | screenshot after settle |
 | `browser_fill {ref, value}` | sets a control — text, select, checkbox | screenshot after settle |
-| `browser_page {action, …}` | back · forward · reload · wait · emulate · pdf · upload | screenshot after settle (PDF for pdf) |
+| `browser_page {action, …}` | back · forward · reload · wait · emulate · pdf · upload | screenshot after settle; for pdf, a sentence with the saved file's path |
 | `browser_console {onlyErrors?, pattern?}` | what the page logged, and what the browser logged about it | text |
 | `browser_network {urlPattern?, requestId?}` | what the page fetched; one body in full by id | text |
 | `browser_evaluate {expression}` | reads page state (a score, a DOM fact) | JSON text |

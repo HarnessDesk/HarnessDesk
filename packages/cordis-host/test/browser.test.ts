@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -689,4 +692,232 @@ test('the shifted digits and the rest of the punctuation keys', () => {
     ['~', 'Backquote', 192],
   ]
   for (const [character, code, keyCode] of cases) assert.deepEqual(characterKey(character), { code, keyCode }, character)
+})
+
+test('a PDF is saved as a file, named for the page, and what comes back is the path', async (t) => {
+  // #51: the PDF went back to the agent as an image part, which no model reads.
+  const engine: BrowserEngine = {
+    async ensure() {
+      return {
+        async send(method) {
+          if (method === 'Page.printToPDF') return { data: Buffer.from('%PDF-1.7 fake').toString('base64') }
+          return {}
+        },
+      }
+    },
+    async close() {},
+  }
+  setBrowserEngine(engine)
+  t.after(() => setBrowserEngine(null))
+  const saver: HarnessPlugin = {
+    manifest: { id: 'saver', name: 'Saver', permissions: { browser: true } },
+    plugin: {
+      name: 'saver',
+      inject: ['tools', 'browser'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'save',
+          description: 'Saves the page.',
+          inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
+          execute: (args: { name?: string }) => ctx.browser.savePdf({ name: args.name ?? 'Q3 / plan: draft' }),
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  let disposed = false
+  t.after(() => (disposed ? undefined : kernel.dispose()))
+  await kernel.load(saver)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'save')!
+  const save = async (name?: string) => {
+    const result = await kernel.invokeTool(tool.id, name === undefined ? {} : { name }, {})
+    if (!result.ok) throw new Error(result.error)
+    const part = result.content[0]
+    const saved = JSON.parse(part?.type === 'text' ? part.text : '{}') as { path: string; bytes: number }
+    t.after(() => rmSync(dirname(saved.path), { recursive: true, force: true }))
+    return saved
+  }
+  const saved = await save()
+  assert.equal(basename(saved.path), 'Q3 - plan- draft.pdf', 'a separator in the title is not a folder')
+  assert.ok(saved.path.startsWith(tmpdir()), saved.path)
+  assert.equal(readFileSync(saved.path, 'utf8'), '%PDF-1.7 fake')
+  assert.equal(saved.bytes, 13)
+  // Review of #187, round 1: a name with nothing left is `page`, a leading dot doesn't hide the file,
+  // and a name cut at 80 characters doesn't end on a space.
+  const others = await Promise.all(
+    ['', '...', ' .hidden. ', `${'a'.repeat(79)} b`, 'a\nb\tc', `${'a'.repeat(79)}🚀 tail`, 'Report.pdf'].map((name) => save(name)),
+  )
+  assert.deepEqual(
+    others.map((one) => basename(one.path)),
+    // Round 2: a control character is a dash, an emoji at the cut stays whole, and `.pdf` isn't doubled.
+    ['page.pdf', 'page.pdf', 'hidden.pdf', `${'a'.repeat(79)}.pdf`, 'a-b-c.pdf', `${'a'.repeat(79)}🚀.pdf`, 'Report.pdf'],
+  )
+  // Well formed: a lone surrogate comes back from UTF-8 as U+FFFD, so the round trip would differ.
+  for (const one of others) assert.equal(Buffer.from(basename(one.path)).toString(), basename(one.path))
+  // And the folders go when the desk does: nothing else would remove them.
+  disposed = true
+  await kernel.dispose()
+  for (const one of [saved, ...others]) assert.equal(existsSync(dirname(one.path)), false, one.path)
+})
+
+test('a part a model cannot read as an image is named instead, whoever returns it', async (t) => {
+  // #51: a PDF in an image part went to every agent's model as an image.
+  const returner: HarnessPlugin = {
+    manifest: { id: 'returner', name: 'Returner', permissions: {} },
+    plugin: {
+      name: 'returner',
+      inject: ['tools'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'parts',
+          description: 'Returns parts.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => [
+            { type: 'text', text: 'Here it is' },
+            { type: 'image', url: 'data:application/pdf;base64,JVBERg==', mimeType: 'application/pdf' },
+            { type: 'image', url: 'data:image/png;base64,AAAA', mimeType: 'image/png' },
+            { type: 'image', url: 'data:application/zip;base64,UEsD' },
+            { type: 'image', url: 'data:application/pdf;base64,JVBERg==', mimeType: 'image/png' },
+            { type: 'image', url: 'https://example.test/report.pdf', mimeType: 'application/pdf' },
+            { type: 'image', url: 'https://example.test/chart' },
+            { type: 'image', url: 'data:image/png;base64,AAAA', mimeType: 'application/pdf' },
+          ],
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(returner)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'parts')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  if (!result.ok) throw new Error(result.error)
+  assert.deepEqual(
+    result.content.map((part) => (part.type === 'text' ? part.text : `image ${part.mimeType ?? part.url}`)),
+    [
+      'Here it is',
+      "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
+      'image image/png',
+      "An image part held application/zip, which isn't an image a model can read, so it was left out.",
+      // Round 1 of #187: a declared type that disagrees with the data URL's own is not taken on its word,
+      "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
+      // a link's declared type is read,
+      "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
+      // and a link that declares nothing goes as it is.
+      'image https://example.test/chart',
+      // Round 2: bytes that are a PNG are one, whatever they were labelled.
+      'image image/png',
+    ],
+  )
+})
+
+test('a failed result passes the guard untouched', async (t) => {
+  // Round 1 of #187: only a result that succeeded has parts to read; a failure carries its error.
+  const failer: HarnessPlugin = {
+    manifest: { id: 'failer', name: 'Failer', permissions: {} },
+    plugin: {
+      name: 'failer',
+      inject: ['tools'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'fail',
+          description: 'Fails.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => ({ ok: false, error: 'It could not.' }),
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(failer)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'fail')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  assert.equal(result.ok, false)
+  assert.equal(result.ok ? null : result.error, 'It could not.')
+})
+
+test('a saved PDF goes when its plugin is turned off, and a save in flight then leaves nothing behind (review of #187, round 2)', async (t) => {
+  // The print can be held, so a save can be caught between the page and the folder.
+  let held = false
+  let waiting = false
+  let release: () => void = () => {}
+  const engine: BrowserEngine = {
+    async ensure() {
+      return {
+        async send(method) {
+          if (method !== 'Page.printToPDF') return {}
+          if (held) {
+            waiting = true
+            await new Promise<void>((resolve) => {
+              release = resolve
+            })
+          }
+          return { data: Buffer.from('%PDF-1.7 fake').toString('base64') }
+        },
+      }
+    },
+    async close() {},
+  }
+  setBrowserEngine(engine)
+  t.after(() => setBrowserEngine(null))
+  let captured: any = null
+  const saver: HarnessPlugin = {
+    manifest: { id: 'turned-off', name: 'Turned off', permissions: { browser: true } },
+    plugin: {
+      name: 'turned-off',
+      inject: ['tools', 'browser'],
+      apply(ctx: any) {
+        captured = ctx
+        ctx.tools.register({
+          name: 'save-then-stop',
+          description: 'Saves the page.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => ctx.browser.savePdf({ name: 'kept' }),
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(saver)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'save-then-stop')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  if (!result.ok) throw new Error(result.error)
+  const part = result.content[0]
+  const saved = JSON.parse(part?.type === 'text' ? part.text : '{}') as { path: string }
+  t.after(() => rmSync(dirname(saved.path), { recursive: true, force: true }))
+  assert.equal(existsSync(saved.path), true)
+  // Turning the plugin off stops it, and that takes its folders: what the agent's sentence says.
+  await kernel.setEnabled('turned-off', false)
+  assert.equal(existsSync(dirname(saved.path)), false)
+  /* A save already under way when its plugin is turned off. A call from a
+     plugin that has stopped can't start at all (the kernel refuses it the
+     service); this is the one that can race, and the folder it would make
+     next would have nothing left to remove it. It's refused in words, and
+     nothing is made on disk. */
+  await kernel.setEnabled('turned-off', true)
+  await settle()
+  const browser = captured.browser
+  held = true
+  const scratch = mkdtempSync(join(tmpdir(), 'hd-pdf-refusal-'))
+  t.after(() => rmSync(scratch, { recursive: true, force: true }))
+  const was = process.env['TMPDIR']
+  process.env['TMPDIR'] = scratch
+  try {
+    const late = browser.savePdf({ name: 'late' })
+    for (let i = 0; i < 200 && !waiting; i++) await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(waiting, true, 'the save reached the print')
+    await kernel.setEnabled('turned-off', false)
+    release()
+    await assert.rejects(late, /not saved: the plugin that asked for it is stopping/)
+  } finally {
+    if (was === undefined) delete process.env['TMPDIR']
+    else process.env['TMPDIR'] = was
+  }
+  assert.deepEqual(readdirSync(scratch), [])
 })

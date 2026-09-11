@@ -101,18 +101,38 @@ export const imageFilesOf = (transfer: DataTransfer | null): File[] => {
 export const dragHasFiles = (transfer: DataTransfer | null): boolean =>
   Boolean(transfer && Array.from(transfer.types ?? []).includes('Files'))
 
+/** The image types an `<img>` draws, as they follow `image/`: one list for both tests below (review of #187, round 2). */
+const DRAWN = 'png|jpeg|jpg|gif|webp|bmp|svg\\+xml|avif'
+
 /**
  * Whether a stored image URL may be rendered. User attachments are data URLs
  * of an image type; a runtime's own history can hold an `https:` link. Anything
  * else — `javascript:`, `file:`, a data URL of another type — stays text.
  */
 export const isRenderableImageUrl = (url: string): boolean =>
-  /^data:image\/(?:png|jpeg|jpg|gif|webp|bmp|svg\+xml);base64,/i.test(url) || /^https:\/\//i.test(url)
+  new RegExp(`^data:image\\/(?:${DRAWN});base64,`, 'i').test(url) || /^https:\/\//i.test(url)
+
+/**
+ * Whether an `<img>` can draw an image part. A data URL carries its own type,
+ * which the test above reads; a link carries none, so its declared type has
+ * to be one an `<img>` draws: `https://…/report.pdf` declared
+ * `application/pdf` was drawn as a broken image (review of #187, round 1). A
+ * link that declares nothing is tried, and named if it doesn't draw (the
+ * transcript's `onError`). An `http:` link isn't drawn, here or anywhere in the
+ * renderer: an `<img>` is a request the renderer sends on an agent's say-so,
+ * and over plain http it reaches a device on the local network that TLS would
+ * have stopped (round 2).
+ */
+export const drawsAsImage = (url: string, mimeType?: string): boolean =>
+  isRenderableImageUrl(url) && (url.startsWith('data:') || !mimeType || new RegExp(`^image\\/(?:${DRAWN})$`, 'i').test(mimeType))
 
 /** The byte size a data URL stands for; for a link, nothing is known. */
 export const dataUrlBytes = (url: string): number | null => {
   const comma = url.indexOf(',')
   if (!url.startsWith('data:') || comma < 0) return null
+  // Percent-encoded unless its header says base64: counted as base64, its size
+  // was simply wrong (review of #187, round 1). Each %XX is one byte.
+  if (!/;base64$/i.test(url.slice(0, comma))) return url.slice(comma + 1).replace(/%[0-9a-f]{2}/gi, '%').length
   const payload = url.length - comma - 1
   const padding = url.endsWith('==') ? 2 : url.endsWith('=') ? 1 : 0
   return Math.max(0, Math.floor((payload * 3) / 4) - padding)
@@ -122,6 +142,16 @@ export const dataUrlBytes = (url: string): number | null => {
 export const dataUrlMimeType = (url: string): string | null => {
   const match = /^data:([^;,]+)/i.exec(url)
   return match?.[1]?.toLowerCase() ?? null
+}
+
+/**
+ * What a tool result's image part says in the transcript when an `<img>` can't
+ * draw it: its type and size. A PDF drawn as an image was a broken one (#79).
+ */
+export const unshownImage = (url: string, mimeType?: string): string => {
+  const type = mimeType || dataUrlMimeType(url) || 'A file'
+  const bytes = dataUrlBytes(url)
+  return `${type}${bytes === null ? '' : `, ${formatBytes(bytes)}`}: can't be shown here.`
 }
 
 export { formatBytes }

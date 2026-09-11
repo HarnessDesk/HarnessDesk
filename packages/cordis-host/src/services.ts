@@ -32,14 +32,42 @@ import type {
 
 const tracker = (name: string) => ({ associate: name, property: 'ctx' })
 
+/** The image types a model reads: the four the Anthropic and OpenAI APIs both take. */
+const MODEL_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+
+/**
+ * An image part a model can read, or a sentence saying what it was. A plugin
+ * that returns a PDF, or any other file, as an image part hands every agent
+ * something its model refuses (#51); what it was is still worth saying. The
+ * bytes decide: a data URL's own type is what reaches the model, so it's read
+ * first, and a declared type that disagrees is corrected to it. A PDF labelled
+ * `image/png` went to Codex as an image (review of #187, round 1), and a PNG
+ * labelled `application/pdf` is still a picture (round 2). A link has no bytes
+ * to read, so its declared type is read; a link that declares none goes as it
+ * is.
+ */
+const modelReadable = (part: ToolResultPart): ToolResultPart => {
+  if (part.type !== 'image') return part
+  const own = /^data:([^;,]+)/i.exec(part.url)?.[1]?.toLowerCase()
+  const declared = part.mimeType?.toLowerCase()
+  const type = own ?? declared
+  if (type !== undefined && !MODEL_IMAGE_TYPES.has(type)) {
+    return { type: 'text', text: `An image part held ${type}, which isn't an image a model can read, so it was left out.` }
+  }
+  return own !== undefined && declared !== own ? { ...part, mimeType: own } : part
+}
+
 /** Narrows a plugin's result to the shapes the transcript can render. */
 const normaliseResult = (value: unknown): ToolResult => {
   if (value === undefined || value === null) {
     return { ok: true, content: [{ type: 'text', text: '' }] }
   }
   if (typeof value === 'string') return { ok: true, content: [{ type: 'text', text: value }] }
-  if (typeof value === 'object' && 'ok' in (value as object)) return value as ToolResult
-  if (Array.isArray(value)) return { ok: true, content: value as ToolResultPart[] }
+  if (typeof value === 'object' && 'ok' in (value as object)) {
+    const result = value as ToolResult
+    return result.ok && Array.isArray(result.content) ? { ...result, content: result.content.map(modelReadable) } : result
+  }
+  if (Array.isArray(value)) return { ok: true, content: (value as ToolResultPart[]).map(modelReadable) }
   return { ok: true, content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] }
 }
 

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -297,6 +297,29 @@ export interface NetworkEntry {
 
 // ------------------------------------------------------------------ service
 
+/**
+ * A page title made safe as a file name. Separators and control characters,
+ * NUL and line breaks among them, become dashes (a colon is a separator to the
+ * Finder), and a title that already ends in `.pdf` doesn't get a second one.
+ * It's cut at 80 characters, counted as characters rather than UTF-16 units,
+ * so an emoji at the cut isn't split into half of one, which the filesystem
+ * stores as U+FFFD (review of #187, round 2). Then dots and spaces at either
+ * end go: a leading dot hid the file, and the cut could end the name on a
+ * space (round 1). A name with nothing left is `page`. What Windows forbids
+ * besides is left alone: the desktop app ships for macOS only.
+ */
+const pdfName = (title: string | undefined): string => {
+  const whole = String(title ?? '')
+    .replace(/[\x00-\x1f/\\:]/g, '-')
+    .trim()
+    .replace(/\.pdf$/i, '')
+  const clean = Array.from(whole)
+    .slice(0, 80)
+    .join('')
+    .replace(/^[\s.]+|[\s.]+$/g, '')
+  return clean === '' ? 'page' : clean
+}
+
 export class BrowserService extends Service {
   static [Service.tracker] = { associate: 'browser', property: 'ctx' }
 
@@ -404,6 +427,39 @@ export class BrowserService extends Service {
       })) as { data?: string }
     if (!result.data) throw new Error('The browser returned no PDF data.')
     return `data:application/pdf;base64,${result.data}`
+  }
+
+  /**
+   * The page as a PDF file, in a folder of its own under the system's temp
+   * directory, named for the page: the path, and the size. What an agent does
+   * with a PDF is name it, open it or hand it on, and each of those takes a
+   * path. As a data URL it went to the model as an image, which no model
+   * reads (#51).
+   */
+  async savePdf(
+    options: { landscape?: boolean; printBackground?: boolean; name?: string } = {},
+  ): Promise<{ path: string; bytes: number }> {
+    const url = await this.pdf(options)
+    const data = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
+    /* The folder lives as long as the plugin that asked for it, which for a
+       built-in is the desk: nothing else would remove it (review of #187,
+       round 1). `this.ctx` is the caller's scope, the one the gate reads. The
+       root's own effects don't run when the kernel stops its plugins. It's
+       made inside the effect, so a scope that is already stopping refuses
+       before anything is on disk rather than after, and says so (round 2). */
+    let folder = ''
+    try {
+      this.ctx.effect(() => {
+        folder = mkdtempSync(join(tmpdir(), 'hd-pdf-'))
+        return () => rmSync(folder, { recursive: true, force: true })
+      }, 'pdf-folder')
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 'INACTIVE_EFFECT') throw error
+      throw new Error('The PDF was not saved: the plugin that asked for it is stopping.')
+    }
+    const path = join(folder, `${pdfName(options.name)}.pdf`)
+    writeFileSync(path, data)
+    return { path, bytes: data.length }
   }
 
   /** A full click — move, press, release — at the screenshot's own pixels. */

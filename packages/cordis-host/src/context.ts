@@ -81,7 +81,19 @@ export interface HarnessContext {
     open(url: string): Promise<{ url: string; title: string; handedOff?: true }>
     page(): Promise<{ url: string; title: string }>
     screenshot(options?: ScreenshotOptions): Promise<string>
+    /**
+     * The page as a PDF data URL, for a plugin that works with the bytes. A
+     * tool result wants `savePdf`: a PDF returned as an image part is turned
+     * into a sentence before any agent sees it (#51).
+     */
     pdf(options?: { landscape?: boolean; printBackground?: boolean }): Promise<string>
+    /**
+     * The page as a PDF file on this machine, in a folder of its own: where
+     * it was written, and its size. `name` names the file. The folder is
+     * removed when the plugin that saved it stops: for a built-in, when the
+     * desk quits.
+     */
+    savePdf(options?: { landscape?: boolean; printBackground?: boolean; name?: string }): Promise<{ path: string; bytes: number }>
     click(x: number, y: number, options?: PointerOptions): Promise<void>
     clickRef(ref: string, options?: PointerOptions): Promise<void>
     hover(target: PointerTarget): Promise<void>

@@ -1,13 +1,15 @@
 import { describe, expect, test } from 'vitest'
 
 import {
-  MAX_IMAGE_BYTES,
   attachmentName,
   dataUrlBytes,
   dataUrlMimeType,
   dragHasFiles,
+  drawsAsImage,
   imageFilesOf,
   isRenderableImageUrl,
+  MAX_IMAGE_BYTES,
+  unshownImage,
   vetImageFiles,
 } from './images'
 
@@ -110,5 +112,33 @@ describe('data URL arithmetic', () => {
   test('the mime type is read off the prefix', () => {
     expect(dataUrlMimeType('data:image/JPEG;base64,AAAA')).toBe('image/jpeg')
     expect(dataUrlMimeType('https://example.com/a.png')).toBeNull()
+  })
+
+  test('a percent-encoded data URL is counted by its bytes, not as base64 (review of #187, round 1)', () => {
+    expect(dataUrlBytes('data:text/plain,hello%20world')).toBe(11)
+    expect(dataUrlBytes('data:text/plain;charset=utf-8,%E2%82%AC')).toBe(3)
+  })
+})
+
+describe('drawsAsImage', () => {
+  test('a link whose declared type is not one an img draws is not drawn (review of #187, round 1)', () => {
+    expect(drawsAsImage('https://example.test/report.pdf', 'application/pdf')).toBe(false)
+    expect(drawsAsImage('https://example.test/chart', 'image/png')).toBe(true)
+    expect(drawsAsImage('https://example.test/chart')).toBe(true)
+    expect(drawsAsImage('data:image/avif;base64,AAAA', 'image/avif')).toBe(true)
+    expect(drawsAsImage('data:application/pdf;base64,JVBERg==', 'application/pdf')).toBe(false)
+  })
+
+  test('an http link is not drawn, and an https link that declares nothing is tried (review of #187, round 2)', () => {
+    expect(drawsAsImage('http://localhost:3000/shot.png', 'image/png')).toBe(false)
+    expect(drawsAsImage('https://example.test/chart')).toBe(true)
+  })
+})
+
+describe('unshownImage', () => {
+  test('names the type, and the size when the bytes are there (review of #187, round 1)', () => {
+    expect(unshownImage('data:application/pdf;base64,JVBERi0xLjcK', 'application/pdf')).toBe("application/pdf, 1 KB: can't be shown here.")
+    expect(unshownImage('https://example.test/report.pdf', 'application/pdf')).toBe("application/pdf: can't be shown here.")
+    expect(unshownImage('https://example.test/report')).toBe("A file: can't be shown here.")
   })
 })

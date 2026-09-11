@@ -112,6 +112,36 @@ describe('an opened tool step', () => {
     open(call({ tool: 'Bash', result: [{ type: 'json', value: { ok: true } }] }))
     expect(json()).toEqual(['{\n  "ok": true\n}'])
   })
+
+  it('names a result part it cannot draw as an image, instead of drawing a broken one', () => {
+    // #79: a PDF went into an <img>.
+    open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'data:application/pdf;base64,JVBERi0xLjcK', mimeType: 'application/pdf' }] }))
+    expect(container.querySelectorAll('img[src^="data:application/pdf"]').length).toBe(0)
+    expect(outputs()).toEqual(["application/pdf, 1 KB: can't be shown here."])
+  })
+
+  it('names a link that declares a type an <img> cannot draw, whatever the link', () => {
+    // Round 1 of #187: an https link went into an <img> whatever its declared type.
+    open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'https://example.test/report.pdf', mimeType: 'application/pdf' }] }))
+    expect(container.querySelectorAll('img[src="https://example.test/report.pdf"]').length).toBe(0)
+    expect(outputs()).toEqual(["application/pdf: can't be shown here."])
+  })
+
+  it('names an image that fails to draw, rather than leaving a broken one (review of #187, round 2)', () => {
+    open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'https://example.test/gone.png' }] }))
+    const img = container.querySelector<HTMLImageElement>('img[src="https://example.test/gone.png"]')
+    expect(img).not.toBeNull()
+    act(() => {
+      img!.dispatchEvent(new Event('error'))
+    })
+    expect(container.querySelectorAll('img[src="https://example.test/gone.png"]').length).toBe(0)
+    expect(outputs()).toEqual(["A file: can't be shown here."])
+  })
+
+  it('draws a result part that is an image', () => {
+    open(call({ tool: 'browser_screenshot', result: [{ type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }] }))
+    expect(container.querySelectorAll('img[src="data:image/png;base64,iVBORw0KGgo="]').length).toBe(1)
+  })
 })
 
 /** Render without opening anything — a user bubble has nothing to open. */

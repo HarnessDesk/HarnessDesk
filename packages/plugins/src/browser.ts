@@ -27,6 +27,18 @@ import type { HarnessContext, HarnessPlugin, NetworkEntry, PointerTarget } from 
  * at all.
  */
 
+/**
+ * A path in the one shell form that is a literal: single quotes, with a quote
+ * in it closed, escaped and reopened. The name comes from the page's own
+ * title, which the page chooses, and in double quotes a `$` or a backtick in
+ * it runs as code once the path is pasted into a shell (review of #187, round
+ * 2).
+ */
+const shellQuoted = (path: string): string => `'${path.replace(/'/g, "'\\''")}'`
+
+/** A size in kilobytes, as a network line and a saved PDF both give one. */
+const kilobytes = (bytes: number): string => `${(bytes / 1024).toFixed(1)}kB`
+
 /** How a console entry reads in a tool result. */
 const consoleLine = (entry: { level: string; text: string; url?: string; line?: number }): string =>
   `[${entry.level}] ${entry.text}${entry.url ? ` (${entry.url}${entry.line ? `:${entry.line}` : ''})` : ''}`
@@ -47,7 +59,7 @@ const networkLine = (entry: {
   const outcome = entry.error
     ? `FAILED ${entry.error}${entry.status !== undefined ? ` (after ${entry.status})` : ''}`
     : (entry.status?.toString() ?? 'pending')
-  const size = entry.bytes ? ` ${(entry.bytes / 1024).toFixed(1)}kB` : ''
+  const size = entry.bytes ? ` ${kilobytes(entry.bytes)}` : ''
   return `${entry.method} ${outcome} ${entry.mimeType ?? ''}${size} ${entry.url}  #${entry.requestId}`
 }
 
@@ -346,7 +358,7 @@ export const browserPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'browser_page',
         description:
-          'The page itself: go back or forward, reload, wait for something to appear, emulate a device or colour scheme, print to PDF, or hand files to a file input.',
+          'The page itself: go back or forward, reload, wait for something to appear, emulate a device or colour scheme, save it as a PDF file, or hand files to a file input.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -406,11 +418,20 @@ export const browserPlugin: HarnessPlugin = {
               })
               return look('Emulating')
             case 'pdf': {
-              const pdf = await ctx.browser.pdf()
+              /* A file, and a sentence naming it. As an image part the PDF
+                 went to the model as an image, which no model reads (#51),
+                 and the transcript drew it as a broken one (#79). A path is
+                 something every agent can name, open or pass on: quoted, as
+                 a title's spaces stay in the file name, and said to be
+                 temporary, since the folder goes with the desk (review,
+                 round 1). */
               const page = await ctx.browser.page()
+              const saved = await ctx.browser.savePdf({ name: page.title })
               return [
-                { type: 'text' as const, text: `${page.title || '(untitled)'} as PDF` },
-                { type: 'image' as const, url: pdf, mimeType: 'application/pdf' },
+                {
+                  type: 'text' as const,
+                  text: `Saved ${page.title || '(untitled)'} as a PDF (${kilobytes(saved.bytes)}) at ${shellQuoted(saved.path)}. It's removed when the Browser plugin is turned off or HarnessDesk quits, so copy it somewhere to keep it.`,
+                },
               ]
             }
             case 'upload': {

@@ -61,7 +61,7 @@ import {
 } from './Icons'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
-import { isRenderableImageUrl } from '../lib/images'
+import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Lightbox, type LightboxImage } from './Lightbox'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
@@ -74,6 +74,20 @@ import styles from './Items.module.css'
  * produced the item, which is the whole point of the protocol layer — a Codex
  * command card and a future Claude command card are the same card.
  */
+
+/**
+ * An image part: drawn when an `<img>` can draw it, and named when it can't,
+ * including when it turns out not to draw after all, a link that 404s or leads
+ * to something other than an image (review of #187, round 2).
+ */
+const ResultImage = ({ url, mimeType }: { url: string; mimeType?: string | undefined }) => {
+  const [failed, setFailed] = useState(false)
+  return !failed && drawsAsImage(url, mimeType) ? (
+    <img src={url} alt="" style={{ maxWidth: '100%' }} onError={() => setFailed(true)} />
+  ) : (
+    <pre className={styles.output}>{unshownImage(url, mimeType)}</pre>
+  )
+}
 
 /**
  * Absolute paths are mostly the user's home directory repeated on every row.
@@ -779,7 +793,10 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               )
             }
             if (part.type === 'image') {
-              return <img key={index} src={part.url} alt="" style={{ maxWidth: '100%' }} />
+              // An <img> only for what one can draw: a PDF in one was a broken
+              // image (#79), and so was a link that declares a PDF (review,
+              // round 1). Anything else is named, with its type and size.
+              return <ResultImage key={index} url={part.url} mimeType={part.mimeType} />
             }
             // A JSON part carrying a bare string is output, not a document.
             // Encoding it turns every newline into a literal \n and every
