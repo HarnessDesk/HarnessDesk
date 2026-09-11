@@ -78,7 +78,6 @@ body[data-hd-palette='shadcn'] {
   --hdp-alias-label-dimmed: #d4d4d4;
   --hdp-alias-label-primary-bluish: #0a0a0a;
   --hdp-alias-label-primary-dimmed: #262626;
-  --hdp-alias-label-primary-foreground: #fafafa;
   --hdp-alias-label-primary-inverted: #ffffff;
   --hdp-alias-label-primary: #0a0a0a;
   --hdp-alias-label-secondary: #525252;
@@ -213,7 +212,6 @@ body[data-hd-palette='shadcn'][data-hd-dark-theme] {
   --hdp-alias-label-dimmed: #404040;
   --hdp-alias-label-primary-bluish: #fafafa;
   --hdp-alias-label-primary-dimmed: #e5e5e5;
-  --hdp-alias-label-primary-foreground: #171717;
   --hdp-alias-label-primary-inverted: #262626;
   --hdp-alias-label-primary: #fafafa;
   --hdp-alias-label-secondary: #d4d4d4;
@@ -278,7 +276,6 @@ body[data-hd-accent='violet'] {
   --hd-primary-foreground: rgb(255, 255, 255);
   --hdp-alias-button-primary-fill: #7c3aed;
   --hdp-alias-button-primary-hover: #8b5cf6;
-  --hdp-alias-label-primary-foreground: rgb(255, 255, 255);
 }
 body[data-hd-accent='violet'][data-hd-dark-theme] {
   --hd-accent: #8b5cf6;
@@ -289,7 +286,6 @@ body[data-hd-accent='violet'][data-hd-dark-theme] {
   /* Declared, not inherited: a palette's own dark face outranks the light
      block above, and on shadcn it inked this button #171717 (#90). */
   --hd-primary-foreground: rgb(255, 255, 255);
-  --hdp-alias-label-primary-foreground: rgb(255, 255, 255);
 }
 
 body[data-hd-accent='green'] {
@@ -306,7 +302,6 @@ body[data-hd-accent='green'] {
   --hd-primary-foreground: #171717;
   --hdp-alias-button-primary-fill: #16a34a;
   --hdp-alias-button-primary-hover: #22c55e;
-  --hdp-alias-label-primary-foreground: #171717;
 }
 body[data-hd-accent='green'][data-hd-dark-theme] {
   --hd-accent: #22c55e;
@@ -315,7 +310,6 @@ body[data-hd-accent='green'][data-hd-dark-theme] {
   --hdp-alias-button-primary-fill: #22c55e;
   --hdp-alias-button-primary-hover: #4ade80;
   --hd-primary-foreground: #171717;
-  --hdp-alias-label-primary-foreground: #171717;
 }
 
 body[data-hd-accent='rose'] {
@@ -325,7 +319,6 @@ body[data-hd-accent='rose'] {
   --hd-primary-foreground: rgb(255, 255, 255);
   --hdp-alias-button-primary-fill: #e11d48;
   --hdp-alias-button-primary-hover: #f43f5e;
-  --hdp-alias-label-primary-foreground: rgb(255, 255, 255);
 }
 body[data-hd-accent='rose'][data-hd-dark-theme] {
   --hd-accent: #f43f5e;
@@ -336,7 +329,6 @@ body[data-hd-accent='rose'][data-hd-dark-theme] {
   /* The light face carries white at 4.70:1; the dark one is a lighter rose
      and does not, so only this face changes ink. */
   --hd-primary-foreground: #171717;
-  --hdp-alias-label-primary-foreground: #171717;
 }
 
 body[data-hd-accent='orange'] {
@@ -348,7 +340,6 @@ body[data-hd-accent='orange'] {
   --hd-primary-foreground: #171717;
   --hdp-alias-button-primary-fill: #ea580c;
   --hdp-alias-button-primary-hover: #f97316;
-  --hdp-alias-label-primary-foreground: #171717;
 }
 body[data-hd-accent='orange'][data-hd-dark-theme] {
   --hd-accent: #f97316;
@@ -357,7 +348,6 @@ body[data-hd-accent='orange'][data-hd-dark-theme] {
   --hdp-alias-button-primary-fill: #f97316;
   --hdp-alias-button-primary-hover: #fb923c;
   --hd-primary-foreground: #171717;
-  --hdp-alias-label-primary-foreground: #171717;
 }
 
 body[data-hd-accent='mono'] {
@@ -367,7 +357,6 @@ body[data-hd-accent='mono'] {
   --hd-primary-foreground: rgb(255, 255, 255);
   --hdp-alias-button-primary-fill: #171717;
   --hdp-alias-button-primary-hover: #404040;
-  --hdp-alias-label-primary-foreground: #fafafa;
 }
 body[data-hd-accent='mono'][data-hd-dark-theme] {
   --hd-accent: #e5e5e5;
@@ -377,7 +366,6 @@ body[data-hd-accent='mono'][data-hd-dark-theme] {
   --hd-primary-foreground: #171717;
   --hdp-alias-button-primary-fill: #e5e5e5;
   --hdp-alias-button-primary-hover: #ffffff;
-  --hdp-alias-label-primary-foreground: #171717;
 }
 
 /* ---------------------------------------------------------------------------

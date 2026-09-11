@@ -89,7 +89,6 @@ body[data-hd-palette='editorial'] {
   --hdp-alias-label-dimmed: #d5d3c9;
   --hdp-alias-label-primary-bluish: #141413;
   --hdp-alias-label-primary-dimmed: #262624;
-  --hdp-alias-label-primary-foreground: #faf9f5;
   --hdp-alias-label-primary-inverted: #ffffff;
   --hdp-alias-label-primary: #141413;
   --hdp-alias-label-secondary: #5e5d59;
@@ -189,7 +188,6 @@ body[data-hd-palette='editorial'][data-hd-dark-theme] {
   --hdp-alias-label-dimmed: #4a4945;
   --hdp-alias-label-primary-bluish: #f5f4ee;
   --hdp-alias-label-primary-dimmed: #e5e3da;
-  --hdp-alias-label-primary-foreground: #262624;
   --hdp-alias-label-primary-inverted: #363633;
   --hdp-alias-label-primary: #f5f4ee;
   --hdp-alias-label-secondary: #c2c0b6;
