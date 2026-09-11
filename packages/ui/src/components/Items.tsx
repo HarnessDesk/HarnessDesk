@@ -61,7 +61,7 @@ import {
 } from './Icons'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
-import { isRenderableImageUrl, unshownImage } from '../lib/images'
+import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Lightbox, type LightboxImage } from './Lightbox'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
@@ -780,8 +780,9 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             }
             if (part.type === 'image') {
               // An <img> only for what one can draw: a PDF in one was a broken
-              // image (#79). Anything else is named, with its type and size.
-              return isRenderableImageUrl(part.url) ? (
+              // image (#79), and so was a link that declares a PDF (review,
+              // round 1). Anything else is named, with its type and size.
+              return drawsAsImage(part.url, part.mimeType) ? (
                 <img key={index} src={part.url} alt="" style={{ maxWidth: '100%' }} />
               ) : (
                 <pre key={index} className={styles.output}>

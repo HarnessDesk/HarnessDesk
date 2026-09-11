@@ -132,5 +132,8 @@ test('a page saved as a PDF comes back as a sentence naming the file, not as an 
   })
   const parts = (await tools.get('browser_page')!.execute({ action: 'pdf' })) as { type: string; text?: string }[]
   assert.deepEqual(parts.map((part) => part.type), ['text'])
-  assert.equal(parts[0]!.text, 'Saved Quarterly report as a PDF (12 KB): /tmp/hd-pdf-x/Quarterly report.pdf')
+  assert.equal(
+    parts[0]!.text,
+    'Saved Quarterly report as a PDF (12.1kB) at "/tmp/hd-pdf-x/Quarterly report.pdf". It\'s removed when HarnessDesk quits, so copy it somewhere to keep it.',
+  )
 })

@@ -117,7 +117,14 @@ describe('an opened tool step', () => {
     // #79: a PDF went into an <img>.
     open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'data:application/pdf;base64,JVBERi0xLjcK', mimeType: 'application/pdf' }] }))
     expect(container.querySelectorAll('img[src^="data:application/pdf"]').length).toBe(0)
-    expect(outputs()).toEqual(["application/pdf, 1 KB: not an image, so it isn't shown."])
+    expect(outputs()).toEqual(["application/pdf, 1 KB: can't be shown here."])
+  })
+
+  it('names a link that declares a type an <img> cannot draw, whatever the link', () => {
+    // Round 1 of #187: an https link went into an <img> whatever its declared type.
+    open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'https://example.test/report.pdf', mimeType: 'application/pdf' }] }))
+    expect(container.querySelectorAll('img[src="https://example.test/report.pdf"]').length).toBe(0)
+    expect(outputs()).toEqual(["application/pdf: can't be shown here."])
   })
 
   it('draws a result part that is an image', () => {

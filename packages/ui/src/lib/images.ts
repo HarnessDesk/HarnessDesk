@@ -107,12 +107,25 @@ export const dragHasFiles = (transfer: DataTransfer | null): boolean =>
  * else — `javascript:`, `file:`, a data URL of another type — stays text.
  */
 export const isRenderableImageUrl = (url: string): boolean =>
-  /^data:image\/(?:png|jpeg|jpg|gif|webp|bmp|svg\+xml);base64,/i.test(url) || /^https:\/\//i.test(url)
+  /^data:image\/(?:png|jpeg|jpg|gif|webp|bmp|svg\+xml|avif);base64,/i.test(url) || /^https:\/\//i.test(url)
+
+/**
+ * Whether an `<img>` can draw an image part. A data URL carries its own type,
+ * which the test above reads; a link carries none, so its declared type has
+ * to be one an `<img>` draws: `https://…/report.pdf` declared
+ * `application/pdf` was drawn as a broken image (review of #187, round 1).
+ */
+export const drawsAsImage = (url: string, mimeType?: string): boolean =>
+  isRenderableImageUrl(url) &&
+  (url.startsWith('data:') || !mimeType || /^image\/(?:png|jpeg|jpg|gif|webp|bmp|svg\+xml|avif)$/i.test(mimeType))
 
 /** The byte size a data URL stands for; for a link, nothing is known. */
 export const dataUrlBytes = (url: string): number | null => {
   const comma = url.indexOf(',')
   if (!url.startsWith('data:') || comma < 0) return null
+  // Percent-encoded unless its header says base64: counted as base64, its size
+  // was simply wrong (review of #187, round 1). Each %XX is one byte.
+  if (!/;base64$/i.test(url.slice(0, comma))) return url.slice(comma + 1).replace(/%[0-9a-f]{2}/gi, '%').length
   const payload = url.length - comma - 1
   const padding = url.endsWith('==') ? 2 : url.endsWith('=') ? 1 : 0
   return Math.max(0, Math.floor((payload * 3) / 4) - padding)
@@ -131,7 +144,7 @@ export const dataUrlMimeType = (url: string): string | null => {
 export const unshownImage = (url: string, mimeType?: string): string => {
   const type = mimeType || dataUrlMimeType(url) || 'A file'
   const bytes = dataUrlBytes(url)
-  return `${type}${bytes === null ? '' : `, ${formatBytes(bytes)}`}: not an image, so it isn't shown.`
+  return `${type}${bytes === null ? '' : `, ${formatBytes(bytes)}`}: can't be shown here.`
 }
 
 export { formatBytes }

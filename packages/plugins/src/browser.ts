@@ -27,9 +27,8 @@ import type { HarnessContext, HarnessPlugin, NetworkEntry, PointerTarget } from 
  * at all.
  */
 
-/** A file's size, as a person reads one. */
-const readableSize = (bytes: number): string =>
-  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+/** A size in kilobytes, as a network line and a saved PDF both give one. */
+const kilobytes = (bytes: number): string => `${(bytes / 1024).toFixed(1)}kB`
 
 /** How a console entry reads in a tool result. */
 const consoleLine = (entry: { level: string; text: string; url?: string; line?: number }): string =>
@@ -51,7 +50,7 @@ const networkLine = (entry: {
   const outcome = entry.error
     ? `FAILED ${entry.error}${entry.status !== undefined ? ` (after ${entry.status})` : ''}`
     : (entry.status?.toString() ?? 'pending')
-  const size = entry.bytes ? ` ${(entry.bytes / 1024).toFixed(1)}kB` : ''
+  const size = entry.bytes ? ` ${kilobytes(entry.bytes)}` : ''
   return `${entry.method} ${outcome} ${entry.mimeType ?? ''}${size} ${entry.url}  #${entry.requestId}`
 }
 
@@ -413,11 +412,17 @@ export const browserPlugin: HarnessPlugin = {
               /* A file, and a sentence naming it. As an image part the PDF
                  went to the model as an image, which no model reads (#51),
                  and the transcript drew it as a broken one (#79). A path is
-                 something every agent can name, open or pass on. */
+                 something every agent can name, open or pass on: quoted, as
+                 a title's spaces stay in the file name, and said to be
+                 temporary, since the folder goes with the desk (review,
+                 round 1). */
               const page = await ctx.browser.page()
               const saved = await ctx.browser.savePdf({ name: page.title })
               return [
-                { type: 'text' as const, text: `Saved ${page.title || '(untitled)'} as a PDF (${readableSize(saved.bytes)}): ${saved.path}` },
+                {
+                  type: 'text' as const,
+                  text: `Saved ${page.title || '(untitled)'} as a PDF (${kilobytes(saved.bytes)}) at ${JSON.stringify(saved.path)}. It's removed when HarnessDesk quits, so copy it somewhere to keep it.`,
+                },
               ]
             }
             case 'upload': {

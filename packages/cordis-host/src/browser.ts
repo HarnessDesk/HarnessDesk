@@ -299,14 +299,17 @@ export interface NetworkEntry {
 
 /**
  * A page title made safe as a file name. Separators and NUL become dashes (a
- * colon is a separator to the Finder), and a name of dots, or none, is `page`.
+ * colon is a separator to the Finder). It's cut at 80 characters, and then
+ * dots and spaces at either end go: a leading dot hid the file, and the cut
+ * could end the name on a space (review of #187, round 1). A name with
+ * nothing left is `page`.
  */
 const pdfName = (title: string | undefined): string => {
   const clean = String(title ?? '')
     .replace(/[/\\:\x00]/g, '-')
-    .trim()
     .slice(0, 80)
-  return clean === '' || /^\.+$/.test(clean) ? 'page' : clean
+    .replace(/^[\s.]+|[\s.]+$/g, '')
+  return clean === '' ? 'page' : clean
 }
 
 export class BrowserService extends Service {
@@ -430,7 +433,13 @@ export class BrowserService extends Service {
   ): Promise<{ path: string; bytes: number }> {
     const url = await this.pdf(options)
     const data = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')
-    const path = join(mkdtempSync(join(tmpdir(), 'hd-pdf-')), `${pdfName(options.name)}.pdf`)
+    const folder = mkdtempSync(join(tmpdir(), 'hd-pdf-'))
+    /* The folder lives as long as the plugin that asked for it, which for a
+       built-in is the desk: nothing else would remove it (review of #187,
+       round 1). `this.ctx` is the caller's scope, the one the gate reads. The
+       root's own effects don't run when the kernel stops its plugins. */
+    this.ctx.effect(() => () => rmSync(folder, { recursive: true, force: true }), 'pdf-folder')
+    const path = join(folder, `${pdfName(options.name)}.pdf`)
     writeFileSync(path, data)
     return { path, bytes: data.length }
   }

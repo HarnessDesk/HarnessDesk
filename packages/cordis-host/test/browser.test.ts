@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname } from 'node:path'
 import { test } from 'node:test'
@@ -718,26 +718,42 @@ test('a PDF is saved as a file, named for the page, and what comes back is the p
         ctx.tools.register({
           name: 'save',
           description: 'Saves the page.',
-          inputSchema: { type: 'object', properties: {} },
-          execute: () => ctx.browser.savePdf({ name: 'Q3 / plan: draft' }),
+          inputSchema: { type: 'object', properties: { name: { type: 'string' } } },
+          execute: (args: { name?: string }) => ctx.browser.savePdf({ name: args.name ?? 'Q3 / plan: draft' }),
         })
       },
     },
   }
   const kernel = new ExtensionKernel()
-  t.after(() => kernel.dispose())
+  let disposed = false
+  t.after(() => (disposed ? undefined : kernel.dispose()))
   await kernel.load(saver)
   await settle()
   const tool = kernel.list('tool').find((entry) => entry.name === 'save')!
-  const result = await kernel.invokeTool(tool.id, {}, {})
-  if (!result.ok) throw new Error(result.error)
-  const part = result.content[0]
-  const saved = JSON.parse(part?.type === 'text' ? part.text : '{}') as { path: string; bytes: number }
-  t.after(() => rmSync(dirname(saved.path), { recursive: true, force: true }))
+  const save = async (name?: string) => {
+    const result = await kernel.invokeTool(tool.id, name === undefined ? {} : { name }, {})
+    if (!result.ok) throw new Error(result.error)
+    const part = result.content[0]
+    const saved = JSON.parse(part?.type === 'text' ? part.text : '{}') as { path: string; bytes: number }
+    t.after(() => rmSync(dirname(saved.path), { recursive: true, force: true }))
+    return saved
+  }
+  const saved = await save()
   assert.equal(basename(saved.path), 'Q3 - plan- draft.pdf', 'a separator in the title is not a folder')
   assert.ok(saved.path.startsWith(tmpdir()), saved.path)
   assert.equal(readFileSync(saved.path, 'utf8'), '%PDF-1.7 fake')
   assert.equal(saved.bytes, 13)
+  // Review of #187, round 1: a name with nothing left is `page`, a leading dot doesn't hide the file,
+  // and a name cut at 80 characters doesn't end on a space.
+  const others = await Promise.all(['', '...', ' .hidden. ', `${'a'.repeat(79)} b`].map((name) => save(name)))
+  assert.deepEqual(
+    others.map((one) => basename(one.path)),
+    ['page.pdf', 'page.pdf', 'hidden.pdf', `${'a'.repeat(79)}.pdf`],
+  )
+  // And the folders go when the desk does: nothing else would remove them.
+  disposed = true
+  await kernel.dispose()
+  for (const one of [saved, ...others]) assert.equal(existsSync(dirname(one.path)), false, one.path)
 })
 
 test('a part a model cannot read as an image is named instead, whoever returns it', async (t) => {
@@ -757,6 +773,9 @@ test('a part a model cannot read as an image is named instead, whoever returns i
             { type: 'image', url: 'data:application/pdf;base64,JVBERg==', mimeType: 'application/pdf' },
             { type: 'image', url: 'data:image/png;base64,AAAA', mimeType: 'image/png' },
             { type: 'image', url: 'data:application/zip;base64,UEsD' },
+            { type: 'image', url: 'data:application/pdf;base64,JVBERg==', mimeType: 'image/png' },
+            { type: 'image', url: 'https://example.test/report.pdf', mimeType: 'application/pdf' },
+            { type: 'image', url: 'https://example.test/chart' },
           ],
         })
       },
@@ -770,12 +789,45 @@ test('a part a model cannot read as an image is named instead, whoever returns i
   const result = await kernel.invokeTool(tool.id, {}, {})
   if (!result.ok) throw new Error(result.error)
   assert.deepEqual(
-    result.content.map((part) => (part.type === 'text' ? part.text : `image ${part.mimeType}`)),
+    result.content.map((part) => (part.type === 'text' ? part.text : `image ${part.mimeType ?? part.url}`)),
     [
       'Here it is',
       "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
       'image image/png',
       "An image part held application/zip, which isn't an image a model can read, so it was left out.",
+      // Round 1 of #187: a declared type that disagrees with the data URL's own is not taken on its word,
+      "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
+      // a link's declared type is read,
+      "An image part held application/pdf, which isn't an image a model can read, so it was left out.",
+      // and a link that declares nothing goes as it is.
+      'image https://example.test/chart',
     ],
   )
+})
+
+test('a failed result passes the guard untouched', async (t) => {
+  // Round 1 of #187: only a result that succeeded has parts to read; a failure carries its error.
+  const failer: HarnessPlugin = {
+    manifest: { id: 'failer', name: 'Failer', permissions: {} },
+    plugin: {
+      name: 'failer',
+      inject: ['tools'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'fail',
+          description: 'Fails.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => ({ ok: false, error: 'It could not.' }),
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(failer)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'fail')!
+  const result = await kernel.invokeTool(tool.id, {}, {})
+  assert.equal(result.ok, false)
+  assert.equal(result.ok ? null : result.error, 'It could not.')
 })
