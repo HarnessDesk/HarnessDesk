@@ -4,6 +4,8 @@ import { Radio } from '@base-ui/react/radio'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
 import { ArrowLeftIcon, CaretIcon, CheckIcon, ChevronIcon, SearchIcon } from '../../components/Icons'
+import { HarnessMark } from '../../components/BrandIcons'
+import { avatarSrc } from '../../lib/avatars'
 import { RadioGroup } from '../ui/radio-group'
 import { Switch as UiSwitch, SwitchShape } from '../ui/switch'
 import styles from './Kit.module.css'
@@ -616,6 +618,79 @@ export const DetailHead = ({
     </div>
     {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
   </div>
+)
+
+/**
+ * A person's face: the picture they chose, or the house mark when they have
+ * not.
+ *
+ * It is the avatar above — the plate and the hairline the account marks wear —
+ * squared, because a person is not an account: account marks are rings, the
+ * avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
+ * seat reads as "you, and the pen you will pick up" because the two differ.
+ * The corner steps up the radius scale with the size, so the seat's 24px and
+ * the profile page's 44px read as one object at two sizes.
+ *
+ * Without a `size` it fills the box it is put in and takes that box's corner:
+ * a room's message rows draw a tile for every sender, and a person's face
+ * belongs in the same tile as the agents' marks beside it.
+ *
+ * `avatar` is whatever the profile stores. Anything this build does not ship —
+ * a face a later build added, a picture it keeps — draws the house mark. It is
+ * not dropped: keeping what it cannot draw is the profile's job
+ * (`lib/profile.ts`), so a later build finds it where it left it.
+ */
+export const Face = ({
+  avatar,
+  size,
+  className,
+}: {
+  readonly avatar: unknown
+  /** The tile's edge in px; absent, the tile fills its box. */
+  readonly size?: number
+  readonly className?: string
+}) => {
+  const src = avatarSrc(avatar)
+  return (
+    <span
+      className={className ? `${styles.avatar} ${className}` : styles.avatar}
+      data-shape="square"
+      {...(size === undefined
+        ? { 'data-fill': '' }
+        : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}
+      aria-hidden="true"
+    >
+      {src ? (
+        <img className={styles.avatarPicture} src={src} alt="" draggable={false} />
+      ) : (
+        // 0.44 is the ratio the seat always drew at: an 11px mark in its
+        // 24px disc, 13px in the menu's 30px one. A filling tile sizes the
+        // mark in the stylesheet, by the same ratio.
+        <HarnessMark size={size === undefined ? 16 : Math.round(size * 0.44)} />
+      )}
+    </span>
+  )
+}
+
+/**
+ * One line of text that ellipsises, and says itself whole on hover — only
+ * while it is cut. A title on text that is not cut repeats what you are
+ * reading and hides the tooltip of whatever holds it (the seat's "New
+ * sessions run as …"), so the title is decided as the pointer arrives, from
+ * whether the text overflows its box right then. The ellipsis is the
+ * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+ */
+export const Clipped = ({ className, children }: { readonly className?: string; readonly children: ReactNode }) => (
+  <span
+    className={className}
+    onMouseEnter={(event) => {
+      const node = event.currentTarget
+      if (node.scrollWidth > node.clientWidth) node.title = node.textContent ?? ''
+      else node.removeAttribute('title')
+    }}
+  >
+    {children}
+  </span>
 )
 
 export { styles as kit }

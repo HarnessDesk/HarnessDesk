@@ -114,8 +114,19 @@ const DENSITY = {
 export type ChannelMessageProps = {
   /** The sender's display name — "You", or the conversation and its agent. */
   readonly from: string
-  /** The sender's mark. Absent for a person, who gets initials instead. */
+  /** The sender's mark. Absent for a person, who gets their `face` or their initials. */
   readonly brand?: Brand
+  /**
+   * A picture of the caller's own, drawn in the face's place — the one a
+   * person chose for themselves. It wins over the mark and the initials, and
+   * the tint is not painted under it, because a picture brings its own plate.
+   *
+   * A node rather than a URL for the reason `identify` is a render prop: this
+   * pattern knows nothing about the app, and whose face it is — and what an
+   * unchosen one looks like — are the app's to answer. It fills the tile, so
+   * it takes the tile's size and corner at either density.
+   */
+  readonly face?: ReactNode
   /** Which of the five identity tints this sender holds on this board. */
   readonly tint?: 'blue' | 'green' | 'amber' | 'violet' | 'rose' | 'teal'
   /** Who it reached. Absent means the whole board. */
@@ -224,6 +235,7 @@ const TROUBLE: Record<string, string> = {
 export const ChannelMessage = ({
   from,
   brand,
+  face,
   tint = 'blue',
   to,
   at,
@@ -312,10 +324,12 @@ export const ChannelMessage = ({
           </span>
         ) : (
           // The face is decoration — the header says who spoke in words.
-          <Avatar aria-hidden="true" className={`${size.avatar} ${TINT[tint]}`}>
-            <AvatarFallback className={`bg-transparent ${size.initials} ${TINT[tint]}`}>
-              {brand ? <BrandMark brand={brand} size={size.mark} /> : INITIALS(from)}
-            </AvatarFallback>
+          <Avatar aria-hidden="true" className={face ? size.avatar : `${size.avatar} ${TINT[tint]}`}>
+            {face ?? (
+              <AvatarFallback className={`bg-transparent ${size.initials} ${TINT[tint]}`}>
+                {brand ? <BrandMark brand={brand} size={size.mark} /> : INITIALS(from)}
+              </AvatarFallback>
+            )}
           </Avatar>
         )}
       </div>

@@ -25,6 +25,7 @@ import {
   SlashIcon,
   SlidersIcon,
   UsageIcon,
+  UserIcon,
 } from './Icons'
 import { RuntimeMark } from './BrandIcons'
 import { summonable } from '../panels/views'
@@ -33,14 +34,17 @@ import type { Section } from './Settings'
 /**
  * Every settings page ⌘K can open, by the name on its nav row, except the
  * Archive, which the Actions group offers under its own name: people type what
- * they want back, not where it is filed. The list used to hold four of the
- * fourteen, so "Appearance" typed into the palette found nothing while
+ * they want back, not where it is filed. Profile's nav row carries your own
+ * name rather than the page's, so here it is "Profile", found by the words
+ * someone looking for their picture would type. The list used to hold four of
+ * the fourteen, so "Appearance" typed into the palette found nothing while
  * "Settings › Preferences" opened a page nobody had called that. It is keyed by
  * section now, so a page added to Settings and left out here doesn't compile
  * (#104).
  */
 const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: React.ReactNode; keywords: string }> = {
   agents: { label: 'Agents', icon: <AgentIcon size={14} />, keywords: 'agents accounts sign in' },
+  profile: { label: 'Profile', icon: <UserIcon size={14} />, keywords: 'profile you name picture avatar photo face identity' },
   general: { label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
   appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
   notifications: { label: 'Notifications', icon: <SlidersIcon size={14} />, keywords: 'notifications banners alerts mute' },

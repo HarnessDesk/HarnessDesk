@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordOf, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
@@ -6,9 +6,20 @@ import { NOTICE_KINDS } from '../lib/notice-policy'
 import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-notifications'
 import { FONT_SIZES, installedFaces, TAB_SIZES } from '../lib/editor-prefs'
 import { formatAge } from '../lib/usage'
+import { AVATARS, isAvatarId, type AvatarId } from '../lib/avatars'
+import {
+  applyProfile,
+  DEFAULT_PROFILE_NAME,
+  editName,
+  isDefaultProfile,
+  profileName,
+} from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
   Btn,
+  DetailHead,
+  Face,
+  Input,
   kit,
   PageHead,
   Row,
@@ -21,12 +32,270 @@ import {
 import styles from './SettingsYou.module.css'
 
 /**
- * The four pages about the person rather than the agents.
+ * The pages about the person rather than the agents.
  *
  * They sit at the top of the nav because that is the order a new window is
  * read in: who am I, what does this look like, what does it say to me, how do
  * I drive it — and only then, what can it do.
  */
+
+/**
+ * You: the name and the face the desk shows for you.
+ *
+ * The page the seat's menu opens and the settings rail starts with. Its head
+ * is your face at a size you can see and your name as you type it, so the
+ * page is its own preview, the way Appearance is — nothing on it needs a
+ * sentence saying what it would change.
+ *
+ * Nothing here signs in and nothing here syncs: there is no HarnessDesk
+ * account, and the page does not pretend to one. When there is, this is the
+ * page it arrives on — the account brings the same two things, and the head
+ * is where it will say whose they are.
+ *
+ * Three ways back, each where you would look for it: clear the field for the
+ * name, the first face for the picture, and "Reset to default" for both —
+ * shown only while there is something to reset.
+ */
+export const ProfileSection = () => {
+  const store = useStore()
+  const { profile } = useSnapshot()
+  const stored = profile.name ?? ''
+  /* The field keeps its own text until it is let go — Enter, a click
+     elsewhere, the window closing. The store tidies a name (trims it, folds
+     its runs of spaces), and tidying under the caret would eat the space
+     between two words as it was typed; the account nickname field makes the
+     same choice for the same reason. `latest` is the draft as of this
+     instant, because a blur fires before the render that would carry it. */
+  const [draft, setDraft] = useState(stored)
+  const latest = useRef(draft)
+  latest.current = draft
+  const kept = useRef(stored)
+  kept.current = stored
+  const commit = (): void => {
+    // Let go without an edit, the field writes nothing: a name a later build
+    // wrote to its own rules survives being looked at. An edit is held to
+    // this build's: the field lets a longer name be shortened any way — from
+    // the middle, say — and whatever is left when it is let go is cut to
+    // forty, so a single Backspace on a sixty-character name keeps forty.
+    if (latest.current === kept.current) return
+    store.setProfile({ name: latest.current })
+    setDraft(applyProfile({}, { name: latest.current }).name ?? '')
+  }
+  // Reset puts the field back itself rather than waiting for the store to
+  // answer. A draft nobody committed would otherwise outlive it — the stored
+  // profile did not change, so nothing would tell the field to — and the
+  // write on the way out below would read the stale draft back into the store.
+  const reset = (): void => {
+    latest.current = ''
+    setDraft('')
+    store.setProfile({ name: null, avatar: null })
+  }
+  // Any change from outside the field puts the field back.
+  useEffect(() => setDraft(stored), [stored])
+  // Leaving is letting go — of an edit, if there is one; a page opened and
+  // closed again writes nothing. Leaving for another page unmounts this one.
+  // A quit or a reload tears the page down without running React's cleanups,
+  // so `pagehide` writes it on the way out too: best effort, because the write
+  // is a message that has to leave before the page does, and a crash writes
+  // nothing at all.
+  useEffect(() => {
+    const letGo = (): void => {
+      if (latest.current !== kept.current) store.setProfile({ name: latest.current })
+    }
+    window.addEventListener('pagehide', letGo)
+    window.addEventListener('beforeunload', letGo)
+    return () => {
+      window.removeEventListener('pagehide', letGo)
+      window.removeEventListener('beforeunload', letGo)
+      letGo()
+    }
+  }, [store])
+
+  // The head previews what is typed, before it is let go — and while nothing
+  // is, shows what is kept, as it is kept.
+  const live = draft === stored ? profile : applyProfile(profile, { name: draft })
+  const noteId = useId()
+  const keeps = profile.avatar !== undefined && !isAvatarId(profile.avatar)
+
+  return (
+    <>
+      <DetailHead
+        mark={<Face avatar={profile.avatar} size={44} />}
+        name={profileName(live)}
+        blurb="Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."
+        actions={
+          isDefaultProfile(live) ? undefined : (
+            <Btn variant="outline" onClick={reset}>
+              Reset to default
+            </Btn>
+          )
+        }
+      />
+
+      <Rows>
+        <Row
+          title="Name"
+          desc={`Leave it empty to use ${DEFAULT_PROFILE_NAME}.`}
+          control={
+            <Input
+              className={styles.nameField}
+              value={draft}
+              placeholder={DEFAULT_PROFILE_NAME}
+              aria-label="Your name"
+              /* Capped by character, the count the store keeps. `maxLength`
+                 counts UTF-16 units, and stopped an emoji name at twenty. */
+              onChange={(event) => {
+                const node = event.target
+                const edit = editName(latest.current, node.value, node.selectionEnd)
+                latest.current = edit.value
+                setDraft(edit.value)
+                // Setting a value puts the caret at its end, and React sets
+                // one whenever the edit was cut: put the caret back after
+                // what was kept of the edit, once React is done.
+                if (edit.value !== node.value) queueMicrotask(() => node.setSelectionRange(edit.caret, edit.caret))
+              }}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+                if (event.key === 'Escape' && draft !== stored) {
+                  // The first Escape takes the edit back; the next is the window's.
+                  event.stopPropagation()
+                  latest.current = stored
+                  setDraft(stored)
+                  event.currentTarget.blur()
+                }
+              }}
+            />
+          }
+        />
+      </Rows>
+
+      <SectionHead name="Picture" />
+      <FacePicker
+        value={profile.avatar}
+        describedBy={keeps ? noteId : undefined}
+        onChange={(avatar) => store.setProfile({ avatar })}
+      />
+      {keeps && (
+        <p id={noteId} className={styles.pageNote}>
+          Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
+          as it is until you choose one here.
+        </p>
+      )}
+    </>
+  )
+}
+
+/**
+ * Eight to a row: Default and the twenty-three faces make three even rows.
+ * The grid takes its column count from here (`--face-columns`), so the step
+ * Up and Down take and the row the eye sees are one number.
+ */
+const FACE_COLUMNS = 8
+
+const ARROWS: ReadonlySet<string> = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
+
+const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: string; readonly about: string }[] = [
+  { id: null, label: 'Default', about: 'The HarnessDesk mark' },
+  ...AVATARS,
+]
+
+/**
+ * Every face you could wear, as one radio group.
+ *
+ * One stop on the tab order, not twenty-four: Tab lands on the face you wear,
+ * and the arrow keys walk the grid — across, and down a row of eight — the
+ * way a radio group has always moved, choosing as they go. Home and End are
+ * left out on purpose: in a group that chooses as it moves, a stray Home
+ * would be a silent reset. For the same reason an arrow with nowhere to go —
+ * Left on the first face, Right on the last, Up on the top row, Down on the
+ * bottom one — does nothing, and keeps the key from the page: on the first
+ * tile, holding a face this build keeps with nothing checked, a Left that
+ * chose would be that same silent reset. Otherwise Left and Right run on
+ * across the rows, in reading order. A face's name is its label and its description the
+ * hover, because twenty-four captions under twenty-four pictures would turn a
+ * glance into a read.
+ *
+ * A face this build cannot draw — one a later build stored — checks no tile at
+ * all. Default is not what you have, and checking it would make pressing it
+ * look like nothing while erasing what is kept; with nothing checked, the
+ * first tile holds the tab stop, whatever you choose is a visible choice, and
+ * the note that says why is the group's description.
+ */
+const FacePicker = ({
+  value,
+  describedBy,
+  onChange,
+}: {
+  /** Whatever the profile stores; anything but a shipped id or nothing checks no tile. */
+  value: unknown
+  /** The note that explains the group, while there is one. */
+  describedBy?: string | undefined
+  onChange: (next: AvatarId | null) => void
+}) => {
+  const buttons = useRef<(HTMLButtonElement | null)[]>([])
+  const current = FACE_CHOICES.findIndex((choice) => choice.id === (value ?? null))
+  const stop = current === -1 ? 0 : current
+  const last = FACE_CHOICES.length - 1
+  const step = (from: number, key: string): number | null => {
+    switch (key) {
+      case 'ArrowRight':
+        return from + 1 <= last ? from + 1 : null
+      case 'ArrowLeft':
+        return from - 1 >= 0 ? from - 1 : null
+      case 'ArrowDown':
+        return from + FACE_COLUMNS <= last ? from + FACE_COLUMNS : null
+      case 'ArrowUp':
+        return from - FACE_COLUMNS >= 0 ? from - FACE_COLUMNS : null
+      default:
+        return null
+    }
+  }
+
+  return (
+    <div
+      className={styles.faces}
+      style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
+      role="radiogroup"
+      aria-label="Picture"
+      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
+    >
+      {FACE_CHOICES.map((choice, index) => {
+        const on = index === current
+        return (
+          <button
+            key={choice.id ?? 'default'}
+            ref={(node) => {
+              buttons.current[index] = node
+            }}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            aria-label={choice.label}
+            title={`${choice.label} — ${choice.about}`}
+            tabIndex={index === stop ? 0 : -1}
+            className={styles.faceChoice}
+            {...(on ? { 'data-on': '' } : {})}
+            onClick={() => onChange(choice.id)}
+            onKeyDown={(event) => {
+              if (!ARROWS.has(event.key)) return
+              // The arrows are the group's even with nowhere to go: left to
+              // the page, one would scroll it under the tile.
+              event.preventDefault()
+              const next = step(index, event.key)
+              const target = next === null ? undefined : FACE_CHOICES[next]
+              if (next === null || !target) return
+              onChange(target.id)
+              buttons.current[next]?.focus()
+            }}
+          >
+            <Face avatar={choice.id} size={44} className={styles.faceTile} />
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 /**
  * This copy of HarnessDesk.

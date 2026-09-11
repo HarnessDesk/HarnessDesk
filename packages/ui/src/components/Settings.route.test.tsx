@@ -8,6 +8,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 import { kit } from '../design/primitives/Kit'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import type { Profile } from '../lib/profile'
 import { Settings, type Section } from './Settings'
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
@@ -64,12 +65,13 @@ const EMPTY_LIBRARY: Library = {
   gaps: [],
 }
 
-const makeStore = (runtimes: readonly RuntimeInfo[]): AppStore => {
+const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): AppStore => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: runtimes[0]?.id,
     runtimes: [...runtimes],
+    profile,
   } as AppSnapshot
   // Method-aware, like the Library page's own harness: the page asks for the
   // library, then usage, then its history, and one wrong answer crashes it.
@@ -88,6 +90,8 @@ const makeStore = (runtimes: readonly RuntimeInfo[]): AppStore => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request },
+    // The Profile page writes the name when it is let go.
+    setProfile: vi.fn(),
     // The Agents page reads the machine on mount; these are the verbs it asks
     // for, answered emptily so the redirect can be watched landing on it.
     loadAccounts: vi.fn(async () => {}),
@@ -161,14 +165,14 @@ type Drive = {
   held: () => false | Section
 }
 
-const mount = async (runtimes: readonly RuntimeInfo[] = [runtime()]): Promise<Drive> => {
+const mount = async (runtimes: readonly RuntimeInfo[] = [runtime()], profile: Profile = {}): Promise<Drive> => {
   // Read out of a box rather than handed over, because a test destructures
   // this once and the parent re-renders many times afterwards.
   let held: false | Section = false
   const drive = { held: () => held } as Drive
   await act(async () => {
     root.render(
-      <StoreProvider store={makeStore(runtimes)}>
+      <StoreProvider store={makeStore(runtimes, profile)}>
         <Harness
           hooks={(route, rerender, section) => {
             drive.route = route
@@ -265,4 +269,115 @@ it('the import banner opens the Library with its import flow, window already ope
   await act(async () => route('library', true))
   expect(page()).toBe('Library')
   expect(container.textContent).toContain('Import between agents')
+})
+
+it('starts the rail with you, and your row opens your profile', async () => {
+  const drive = await mount()
+  const you = navRow('HarnessDesk')
+  const general = navRow('General')
+  if (!you || !general) throw new Error('no identity row, or no General row')
+  // First: above every group, the way a Mac's own settings open on their owner.
+  expect(you.compareDocumentPosition(general) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(you.hasAttribute('data-selected')).toBe(false)
+
+  act(() => you.click())
+  expect(drive.held()).toBe('profile')
+  expect(navRow('HarnessDesk')?.hasAttribute('data-selected')).toBe(true)
+  expect(container.querySelector('input[aria-label="Your name"]')).not.toBeNull()
+})
+
+it('keeps you in the rail while a search could mean you, and only then', async () => {
+  await mount()
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
+  if (!search) throw new Error('no rail search')
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  const find = (value: string): void =>
+    act(() => {
+      setValue?.call(search, value)
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+  find('picture')
+  expect(navRow('HarnessDesk')).toBeDefined()
+  expect(container.textContent).not.toContain('Nothing in settings matches')
+  find('permissions')
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(navRow('Permissions')).toBeDefined()
+  // There is no HarnessDesk account, so the word finds the pages that do
+  // mean one — an agent's — and not you. The day an account lands on this
+  // page (the spec's "Later"), this flips: the word will mean you.
+  find('account')
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(container.textContent).not.toContain('Nothing in settings matches')
+})
+
+it('takes a typed name back on the first Escape, and closes the window on the second', async () => {
+  const drive = await mount()
+  const you = navRow('HarnessDesk')
+  if (!you) throw new Error('no identity row')
+  act(() => you.click())
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="Your name"]')
+  if (!input) throw new Error('no name field')
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    input.focus()
+    setValue?.call(input, 'Jane')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(drive.held()).toBe('profile')
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe('')
+  act(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(drive.held()).toBe(false)
+})
+
+it('keeps the profile page up while a search hides its row, as every other row behaves', async () => {
+  const drive = await mount()
+  const you = navRow('HarnessDesk')
+  if (!you) throw new Error('no identity row')
+  act(() => you.click())
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
+  if (!search) throw new Error('no rail search')
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'permissions')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(drive.held()).toBe('profile')
+  expect(container.querySelector('input[aria-label="Your name"]')).not.toBeNull()
+})
+
+it('finds you by your own name — with no "nothing matches" beside you — and says the whole name where the rail cuts it', async () => {
+  const name = 'Zanzibar Quill'
+  await mount([runtime()], { name })
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
+  if (!search) throw new Error('no rail search')
+  const find = (value: string): void =>
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, value)
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+  // A word only your name answers: you, and no empty-rail message under you.
+  find('zanzibar')
+  expect(navRow(name)).toBeDefined()
+  expect(container.textContent).not.toContain('Nothing in settings matches')
+  // The control: a word nothing answers says so.
+  find('qqqzzz')
+  expect(navRow(name)).toBeUndefined()
+  expect(container.textContent).toContain('Nothing in settings matches')
+
+  find('')
+  const label = navRow(name)?.querySelector<HTMLElement>('[class*="winNavLabel"]')
+  if (!label) throw new Error('no rail label')
+  Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 320 })
+  Object.defineProperty(label, 'clientWidth', { configurable: true, value: 120 })
+  act(() => {
+    label.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  expect(label.getAttribute('title')).toBe(name)
 })

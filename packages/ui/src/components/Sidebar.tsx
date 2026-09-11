@@ -15,10 +15,14 @@ import { DISMISS_OVERLAYS, Popover } from './Popover'
 import { accountKey, accountName, accountIdentity, tintOf } from '../lib/accounts'
 import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
+import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { livePlugins } from '../lib/plugins'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
+import { ProfileFace } from './ProfileFace'
+import { Clipped } from '../design/primitives/Kit'
+import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
 import styles from './Sidebar.module.css'
 
@@ -42,7 +46,7 @@ export const Sidebar = ({
   onSignIn,
   onSearch,
 }: {
-  onOpenSettings: () => void
+  onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
@@ -375,7 +379,7 @@ export const AccountFooter = ({
   onOpenUsage,
   onSignIn,
 }: {
-  onOpenSettings: () => void
+  onOpenSettings: (section?: Section) => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
@@ -487,6 +491,8 @@ export const AccountFooter = ({
   const signedIn = here?.account !== null && here?.account !== undefined
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
+  // You: the profile's name, which is HarnessDesk until you choose one.
+  const yourName = profileName(snapshot.profile)
 
   const signOut = async (): Promise<void> => {
     if (!snapshot.activeRuntime) return
@@ -504,21 +510,29 @@ export const AccountFooter = ({
     <div className={styles.account} ref={wrap}>
       {open && (
         <div className={styles.accountMenu} role="menu">
-          {/* The seat a HarnessDesk account would take. There is no such
-              account yet, and a sign-in button for one would be a lie — so
-              this says what is actually true of the app today. */}
+          {/* You — the seat a HarnessDesk account will take. There is no
+              such account yet, and a sign-in button for one would be a lie,
+              so this is what is true today: your profile, kept on this Mac.
+              Pressing it opens the page where it is set. */}
           <div className={styles.menuSection}>
-            <div className={styles.you} title="Nothing syncs between machines.">
-              <span className={styles.youAvatar}>
-                <HarnessMark size={13} />
-              </span>
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.you}
+              title="Your name and picture. Nothing syncs between machines."
+              onClick={() => {
+                setOpen(false)
+                onOpenSettings('profile')
+              }}
+            >
+              <ProfileFace size={30} />
               <span className={styles.youText}>
                 <span className={styles.youName}>
-                  HarnessDesk
+                  <Clipped className={styles.youLabel}>{yourName}</Clipped>
                   <span className={styles.youTag}>Local</span>
                 </span>
               </span>
-            </div>
+            </button>
           </div>
 
           <div className={styles.menuSection}>
@@ -685,11 +699,14 @@ export const AccountFooter = ({
           setConfirmingSignOut(false)
         }}
       >
-        {/* You. The same drawing as the menu's top row, at the row's size. */}
-        <span className={styles.avatar}>
-          <HarnessMark size={11} />
+        {/* You. The same face as the menu's top row, at the row's size, and
+            the name — which says itself whole on hover only while the row
+            cuts it, so the row's own title, about the pen, is not hidden
+            behind a name you can already read. */}
+        <ProfileFace size={24} />
+        <span className={styles.accountName}>
+          <Clipped className={styles.accountLabel}>{yourName}</Clipped>
         </span>
-        <span className={styles.accountName}>HarnessDesk</span>
         {here?.figure && here.tone !== 'good' && (
           <span className={styles.accountMeta} data-tone={here.tone}>
             {here.figure}

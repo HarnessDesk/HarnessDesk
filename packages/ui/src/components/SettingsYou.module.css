@@ -75,3 +75,63 @@
     0 0 0 2px var(--hd-card-fill, var(--hd-card)),
     0 0 0 4px var(--hd-ring);
 }
+
+/* The name field: the width the account nickname field has, so the two Name
+   rows line up from one page to the other. */
+.nameField {
+  width: 220px;
+}
+
+/*
+ * The faces, eight to a row — Default and twenty-three whales make three even
+ * rows — in the card the page's rows sit in, so the picker reads as part of
+ * the page and not a gallery dropped onto it. The count is the component's
+ * (`--face-columns`), the same number the arrow keys step by.
+ */
+.faces {
+  display: grid;
+  grid-template-columns: repeat(var(--face-columns), minmax(0, 1fr));
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-3);
+  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
+  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
+  background: var(--hd-card-fill, var(--hd-card));
+}
+
+/* One face you could wear. The one you wear is ringed, not filled — the
+   answer the accent swatches give on Appearance. */
+.faceChoice {
+  display: grid;
+  place-items: center;
+  height: 56px;
+  padding: 0;
+  border: none;
+  border-radius: var(--hd-radius);
+  background: none;
+  cursor: pointer;
+}
+
+.faceTile {
+  transition:
+    transform var(--hd-duration-fast) var(--hd-ease),
+    box-shadow var(--hd-duration-fast) var(--hd-ease);
+}
+
+.faceChoice:hover .faceTile {
+  transform: scale(1.06);
+}
+
+.faceChoice[data-on] .faceTile {
+  box-shadow:
+    var(--hd-hairline),
+    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
+    0 0 0 4px var(--hd-ring);
+}
+
+.faceChoice:focus-visible {
+  outline: none;
+}
+
+.faceChoice:focus-visible .faceTile {
+  box-shadow: var(--hd-hairline), var(--hd-focus-ring);
+}

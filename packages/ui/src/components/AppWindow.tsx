@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Clipped } from '../design/primitives/Kit'
 
 import { ArrowLeftIcon, SearchIcon } from './Icons'
 import styles from './AppWindow.module.css'
@@ -101,6 +102,38 @@ export const WindowNavItem = ({
     <span className={styles.winNavLabel}>{label}</span>
     {count !== undefined && <span className={styles.winNavCount}>{count}</span>}
     {trail}
+  </button>
+)
+
+/**
+ * You, at the top of the rail.
+ *
+ * A Mac's own settings open on the person they belong to, and so does this
+ * window: whose settings these are, then the pages. It is a row like the rest
+ * — it selects its page and wears the same selection — with a face where the
+ * others have an icon, and it is first because it is where a sign-in will
+ * land once there is an account to sign in to. The face and the name are the
+ * caller's; this window knows nothing about who you are.
+ */
+export const WindowNavIdentity = ({
+  face,
+  name,
+  selected,
+  onClick,
+}: {
+  face: ReactNode
+  name: ReactNode
+  selected: boolean
+  onClick: () => void
+}) => (
+  <button
+    type="button"
+    className={`${styles.winNavItem} ${styles.winIdentity}`}
+    {...(selected ? { 'data-selected': '' } : {})}
+    onClick={onClick}
+  >
+    {face}
+    <Clipped className={styles.winNavLabel}>{name}</Clipped>
   </button>
 )
 

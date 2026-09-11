@@ -145,6 +145,31 @@ them in `docs/decisions.md`.
     Where this table and the audit disagree, the audit is right — it reads the
     code and this is prose. Its failure messages name the file to edit.
 
+13. **Nothing that leaves the machine carries a real account.** A pull
+    request body, a review or issue comment, the `screenshots` branch, a video
+    and every fixture committed here are public the moment they are pushed,
+    and GitHub keeps what was pushed for a while after it is deleted, so a
+    leak is never fully undone. The running app shows its user's accounts by
+    design — the seat's menu, the header strip and the name cards carry
+    account names and emails — so any frame of a real desk is a frame of
+    somebody's accounts, and an address typed into a test is as public as a
+    screenshot.
+    - **Public frames come from a rig, never a real desk**: the fake-agent rig
+      (an isolated `HARNESSDESK_HOME` and the scripted fake agents —
+      `packages/adapter-codex/test/fixtures/fake-codex.mjs` signs in as
+      `dev@example.com`) or the preview harness (`preview.html`).
+    - **Identities are placeholders or the project's public demo persona** —
+      `Jane Doe`, addresses at `example.com` or `acme.dev`, or the persona at
+      `harnessdesk.app` that `packages/ui/src/preview/sidebar-fixture.ts`
+      defines and the website's demo shares — in screenshots, tests, fixtures,
+      docs and commit messages alike. Never a real account's address or
+      handle, and no real person's name beyond that persona.
+    - **Check before anything is pushed or posted**: grep the text *and your
+      own added lines* for `@`, names, handles and `/Users/` paths, and read
+      every image yourself — the seat, the menu, the strip, the name cards. A
+      frame taken on a real desk is for measuring; it stays on the machine and
+      is deleted after.
+
 ## Before you commit
 
 ```bash
@@ -187,3 +212,6 @@ from rotting.
   credentials, network, or credits.
 - Fixtures are synthesised from observed shapes. Do not record real user sessions
   into the repository — they contain the user's source code.
+- Identities in tests and fixtures are placeholders — `Jane Doe`,
+  `dev@example.com` — or the project's public demo persona; never a real
+  account's (rule 13).

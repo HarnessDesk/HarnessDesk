@@ -815,6 +815,43 @@
   height: 22px;
 }
 
+/* A person's face (`Face`): the same plate, squared. A person is not an
+   account — account marks are rings — and the avatars were drawn as squared
+   tiles. The corner steps up the radius scale with the size, so one object
+   does not look sharper the larger it is drawn; the ink is the label's own,
+   the ink the seat's mark always wore. */
+.avatar[data-shape='square'] {
+  overflow: hidden;
+  border-radius: var(--hd-radius-sm);
+  color: var(--hdp-alias-label-primary);
+}
+
+.avatar[data-shape='square'][data-size='m'] {
+  border-radius: var(--hd-radius);
+}
+
+
+/* In a box someone else drew: its size, and its corner. */
+.avatar[data-fill] {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.avatar[data-fill] > svg {
+  width: auto;
+  height: 44%;
+}
+
+/* The sticker, whole. It brings its own margin (10px of its 384), so it fills
+   the plate and nothing of it is cropped — not a crown, not a cloud. */
+.avatarPicture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 /* A row that is one answer among several. */
 .rowChoice:disabled {
   opacity: 0.5;
