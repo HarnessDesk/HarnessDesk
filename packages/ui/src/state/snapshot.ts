@@ -29,6 +29,8 @@ import type {
 
 import type { AccountPrefsMap } from '../lib/accounts'
 
+import type { Profile } from '../lib/profile'
+
 import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
 
 import type { GitColumnWidths } from '../lib/git-columns'
@@ -230,6 +232,14 @@ export interface AppSnapshot {
    * a name and a colour, both derived — this only records the overrides.
    */
   readonly accountPrefs: AccountPrefsMap
+  /**
+   * Who you are on this desk — the name and face the seat, its menu, the top
+   * of the settings rail and your messages in a room all draw. Only what
+   * differs from the default is here; `{}` is "HarnessDesk" and the house
+   * mark. Read it through `profileName` and `ProfileFace`, never the fields,
+   * so a signed-in account can supply it later in one place. `lib/profile.ts`.
+   */
+  readonly profile: Profile
   /**
    * Sign-ins in flight, by runtime. Keyed rather than singular because the
    * sign-in page shows every agent at once, and a browser flow keeps running
@@ -575,6 +585,7 @@ const EMPTY: AppSnapshot = {
   home: '',
   accountsByRuntime: {},
   accountPrefs: {},
+  profile: {},
   logins: {},
   limits: null,
   models: [],

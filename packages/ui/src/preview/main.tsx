@@ -23,6 +23,7 @@ import { NativeSelect } from '../design/ui'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { applyProfile, type ProfilePatch } from '../lib/profile'
 import {
   PREVIEW_ROOT,
   previewAccounts,
@@ -801,6 +802,8 @@ class PreviewStore {
   setAccent = (accent: AppSnapshot['accent']): void => this.patch({ accent })
   setCorners = (corners: AppSnapshot['corners']): void => this.patch({ corners })
   setLook = (next: AppSnapshot['look']): void => this.patch({ look: next })
+  setProfile = (patch: ProfilePatch): void =>
+    this.patch({ profile: applyProfile(this.#snapshot.profile, patch) })
   setEditorPrefs = (prefs: Partial<AppSnapshot['editorPrefs']>): void =>
     this.patch({ editorPrefs: { ...this.#snapshot.editorPrefs, ...prefs } })
   setListPrefs = (prefs: Partial<AppSnapshot['listPrefs']>): void =>
@@ -1202,6 +1205,7 @@ const Dial = <T extends string>({
 )
 
 const SETTINGS_SECTIONS = [
+  'profile',
   'general',
   'appearance',
   'notifications',

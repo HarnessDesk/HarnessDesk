@@ -531,6 +531,40 @@ The way back out of a detail page. It names where it goes rather than saying
 "Back", so it reads the same whether you arrived from the list or from a
 link somewhere else.
 
+### `Face`
+
+`packages/ui/src/design/primitives/Kit.tsx`
+
+A person's face: the picture they chose, or the house mark when they have
+not.
+
+It is the avatar above — the plate and the hairline the account marks wear —
+squared, because a person is not an account: account marks are rings, the
+avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
+seat reads as "you, and the pen you will pick up" because the two differ.
+The corner steps up the radius scale with the size, so the seat's 24px and
+the profile page's 44px read as one object at two sizes.
+
+Without a `size` it fills the box it is put in and takes that box's corner:
+a room's message rows draw a tile for every sender, and a person's face
+belongs in the same tile as the agents' marks beside it.
+
+`avatar` is whatever the profile stores. Anything this build does not ship —
+a face a later build added, a picture it keeps — draws the house mark. It is
+not dropped: keeping what it cannot draw is the profile's job
+(`lib/profile.ts`), so a later build finds it where it left it.
+
+### `Clipped`
+
+`packages/ui/src/design/primitives/Kit.tsx`
+
+One line of text that ellipsises, and says itself whole on hover — only
+while it is cut. A title on text that is not cut repeats what you are
+reading and hides the tooltip of whatever holds it (the seat's "New
+sessions run as …"), so the title is decided as the pointer arrives, from
+whether the text overflows its box right then. The ellipsis is the
+caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+
 ## Patterns
 
 ### `ChannelSignal`

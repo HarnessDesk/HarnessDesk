@@ -221,15 +221,32 @@ far down you are. The display-controls button wears a dot when a filter is
 hiding rows, because a filtered list must never read as missing data.
 
 **The footer is the seat: you, and the agent you will pick up next.** The row
-is your identity — HarnessDesk today, your HarnessDesk account when there is
-one — and at its end sits the mark of the agent new sessions run as, in its
-account's ring, with that agent's readiness dot beside it. The account's
-*name* is not on the row: an account is a pen, not a person. Rest on the mark
-for its name card — which account, on what plan, how much is left. The menu
-behind the row is where switching happens: **Run new sessions as** lists every
+is your identity — your profile's face and name, which are the house mark and
+"HarnessDesk" until you choose otherwise, and your HarnessDesk account when
+there is one — and at its end sits the mark of the agent new sessions run as,
+in its account's ring, with that agent's readiness dot beside it. The
+account's *name* is not on the row: an account is a pen, not a person. Rest on
+the mark for its name card — which account, on what plan, how much is left.
+The menu behind the row opens on you, tagged Local, and pressing that row
+opens your profile. Then comes switching: **Run new sessions as** lists every
 account of every agent with the same figure the header strip shows and ticks
 the default; then Add an account, Settings, Dashboard, and signing out of the
 default agent.
+
+**Your profile is a name and a face, and nothing else, because nothing else is
+shown.** Settings opens on it — your face and name head the rail, above every
+group, the way a Mac's own settings open on their owner — and the page is its
+own preview: the head follows the name as you type it. The faces are the
+house mark's family, twenty-three whales from `assets/avatars`; the one drawn
+in black is left out because a dark surface swallows it, and the default is
+the mark itself, drawn in the theme's own ink. A face is a squared tile
+everywhere you appear, so its footprint never changes when the face does.
+Clearing the name puts "HarnessDesk" back, picking the first face puts the
+mark back, and **Reset to default** puts back both. It stays on this Mac.
+What an avatar stores is its id — a short
+string every copy of the app draws the same — which is what an account will
+sync. The same face marks your own messages in a room, where the header still
+says "You".
 
 **Switching is a preference, not a navigation.** Picking a different agent
 changes what ⌘N and a draft's agent chip start with, and nothing else: the
@@ -445,7 +462,8 @@ session that is no longer live could not deliver it anyway.
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
-the right of each row.
+the right of each row. The rail starts with you — your face and name, above
+every group — and that row opens your profile.
 
 | Group | Pages |
 | --- | --- |
@@ -459,7 +477,8 @@ The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the agents and what each one
 brings; what is shared across them; what any of them may do. Skills and
 Extensions are the active agent's own and carry its name on their nav rows.
-There is no Account page, because there is no account; presets are edited
+There is no Account page, because there is no account — the profile is
+yours, not an account's; presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.

@@ -63,6 +63,7 @@ const signedOut: AccountStatus = {
 
 const mount = (overrides: Partial<AppSnapshot> = {}) => {
   const selectRuntime = vi.fn(async () => {})
+  const onOpenSettings = vi.fn()
   const claudeAccount = signedIn('olivia@acme.dev')
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -71,7 +72,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
     // Claude is the default; a Codex conversation is what is on screen.
     activeRuntime: CLAUDE,
     activeSessionKey: sessionKey(CODEX, sessionId('s-1')),
-    accountsByRuntime: { [CODEX]: signedIn('shane@vaultx.tech'), [CLAUDE]: claudeAccount },
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: claudeAccount },
     healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
     accountPrefs: { [accountKey(CLAUDE, claudeAccount.accounts[0]!)]: { nickname: 'Shane-Claude' } },
     ...overrides,
@@ -85,11 +86,11 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
+        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={() => {}} onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
-  return { selectRuntime }
+  return { selectRuntime, onOpenSettings }
 }
 
 const row = (): HTMLButtonElement => {
@@ -169,7 +170,7 @@ it('Escape closes the menu and says so, so a sidebar floating under it stays', (
 })
 
 it('dims the badge and colours the dot when the default has no account', () => {
-  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@vaultx.tech'), [CLAUDE]: signedOut } })
+  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedOut } })
   const seat = row()
   expect(seat.textContent).toContain('HarnessDesk')
   const badge = seat.querySelector('[data-off]')
@@ -277,4 +278,69 @@ it('the badge card’s Usage verb opens the dashboard on that agent', () => {
   if (!usage) throw new Error('no Usage verb on the card')
   click(usage)
   expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
+})
+
+it('is you once you have chosen: your name and your face, with the pen still beside them', () => {
+  mount({ profile: { name: 'Jane', avatar: 'wizard' } })
+  const seat = row()
+  expect(seat.textContent).toContain('Jane')
+  expect(seat.textContent).not.toContain('HarnessDesk')
+  expect(seat.querySelector('img')?.getAttribute('src')).toMatch(/\/wizard\.png$/)
+  expect(seat.querySelector('.brand-harnessdesk')).toBeNull()
+  // The default agent's badge is untouched: you are beside the pen, not it.
+  expect(seat.querySelector('.brand-claude')).not.toBeNull()
+})
+
+it('draws the house mark until a face is chosen', () => {
+  mount({ profile: { name: 'Jane' } })
+  const seat = row()
+  expect(seat.querySelector('img')).toBeNull()
+  expect(seat.querySelector('.brand-harnessdesk')).not.toBeNull()
+})
+
+it('opens your profile from the top of the menu', () => {
+  const { onOpenSettings } = mount({ profile: { name: 'Jane' } })
+  click(row())
+  const you = container.querySelector('[role="menu"] [role="menuitem"]')
+  if (!you) throw new Error('no menu')
+  expect(you.textContent).toContain('Jane')
+  expect(you.textContent).toContain('Local')
+  click(you)
+  expect(onOpenSettings).toHaveBeenCalledWith('profile')
+  expect(container.querySelector('[role="menu"]')).toBeNull()
+})
+
+/** jsdom lays nothing out, so a width is whatever the test says it is. */
+const sized = (node: HTMLElement, scroll: number, client: number): void => {
+  Object.defineProperty(node, 'scrollWidth', { configurable: true, value: scroll })
+  Object.defineProperty(node, 'clientWidth', { configurable: true, value: client })
+}
+
+const hover = (node: HTMLElement): void => {
+  act(() => {
+    node.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+}
+
+it('says your whole name on hover only where the row cuts it', () => {
+  // A name that fits leaves the row's own title — the pen — to answer; a name
+  // the ellipsis cuts says itself whole.
+  const name = 'Jane Doe, Keeper of Several Long Names'
+  mount({ profile: { name } })
+  const seat = row().querySelector<HTMLElement>('[class*="accountLabel"]')
+  if (!seat) throw new Error('no seat label')
+  sized(seat, 320, 120)
+  hover(seat)
+  expect(seat.getAttribute('title')).toBe(name)
+  sized(seat, 80, 120)
+  hover(seat)
+  expect(seat.hasAttribute('title')).toBe(false)
+  expect(row().getAttribute('title')).toMatch(/^New sessions run as /)
+
+  click(row())
+  const menu = container.querySelector<HTMLElement>('[role="menu"] [class*="youLabel"]')
+  if (!menu) throw new Error('no menu label')
+  sized(menu, 320, 120)
+  hover(menu)
+  expect(menu.getAttribute('title')).toBe(name)
 })

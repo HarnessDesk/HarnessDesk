@@ -10,7 +10,9 @@ import { CommandPalette } from './CommandPalette'
  * Every settings page can be reached from ⌘K (#104). The pages are keyed by
  * section, so one left out doesn't compile; the Archive is the one on purpose,
  * offered in the Actions group under its own name, and this pins that typing
- * "archive" reaches it.
+ * "archive" reaches it. Profile is the other page not called by its nav row,
+ * which carries your name: it is found by the words someone looking for it
+ * would type.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -77,6 +79,17 @@ it('typing "archive" reaches the Archive page', async () => {
   type('archive')
   await choose('Archive')
   expect(openSettings).toHaveBeenCalledWith('archive')
+})
+
+it('Profile, whose nav row carries your name, is reached by what someone would call it', async () => {
+  for (const query of ['profile', 'avatar', 'picture']) {
+    const { openSettings } = await mount()
+    type(query)
+    await choose('Settings › Profile')
+    expect(openSettings).toHaveBeenCalledWith('profile')
+    act(() => root.unmount())
+    root = createRoot(container)
+  }
 })
 
 it('a settings page is reached by the name on its nav row', async () => {

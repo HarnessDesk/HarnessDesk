@@ -25,6 +25,12 @@ move is real work and is not news to a person weighing an upgrade.
   the worktree is put back from its branch, the message naming what git ignored
   there — or, if git will not allow even that, saying so. The conversation
   carries on in the main checkout through a hand-off.
+- **Your name and face on the desk** — the seat at the foot of the sidebar is
+  you, and now it can look like you: pick one of twenty-three HarnessDesk
+  whales and give yourself a name in Settings → Profile, which heads the
+  settings rail and is one press from the seat's menu. The same face marks
+  what you say in a room. “HarnessDesk” and the house mark stay the default,
+  and Reset to default puts them back. Kept on this Mac; nothing syncs.
 - **A phone's width has a layout** — in a window narrower than 720px (a
   browser, or the desktop app zoomed in), the sidebar floats over the
   conversation instead of leaving it 135px. The header's sidebar button, ⌘B

@@ -55,6 +55,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { openExternal } from '../lib/desktop'
 import { splitContext, wrapContext } from '../lib/context-envelope'
@@ -3924,6 +3925,7 @@ export class AppStore {
       }
       this.#patch({
         accountPrefs,
+        profile: readProfile(preferences['profile']),
         customPresets: readCustomPresets(preferences['customPresets']),
         planEdits,
         listPrefs,
@@ -4207,6 +4209,22 @@ export class AppStore {
   setLook(next: AppSnapshot['look']): void {
     this.#patch({ look: next })
     void this.transport.request('app/state/set', { patch: { look: next } }).catch(() => {})
+  }
+
+  /**
+   * Your name and face. `null` puts a field back to its default, so a patch
+   * naming both as `null` is the page's "Reset".
+   *
+   * Applied locally first and written through, like every preference here.
+   * The whole profile is sent rather than the field that changed, because the
+   * host merges preferences one level deep: a name sent on its own would
+   * become the whole stored profile, and the face would be forgotten.
+   */
+  setProfile(patch: ProfilePatch): void {
+    const profile = applyProfile(this.#snapshot.profile, patch)
+    if (sameProfile(profile, this.#snapshot.profile)) return
+    this.#patch({ profile })
+    void this.transport.request('app/state/set', { patch: { profile: storedProfile(profile) } }).catch(() => {})
   }
 
   /**
