@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { MAX_RATIO, MIN_RATIO } from '../../state/workbench'
 import { PanelPlayground } from './PanelPlayground'
 
 /**
@@ -113,4 +114,27 @@ it('marks the window as resizing for as long as the drag lasts, however it ends 
   act(() => root.unmount())
   expect(resizing()).toBeNull()
   root = createRoot(container)
+})
+
+it('a drag let go past either end stays where its preview stopped (review of #183, round 7)', () => {
+  // The preview clamps the ratio itself and the store clamps it again on release. Two copies of the limits
+  // would stop the drag in one place and commit it in another: a jump as the pointer lets go.
+  const { seam, first } = split('Split side by side')
+  point(seam, 'pointerdown', 500)
+  point(seam, 'pointermove', 5000)
+  expect(size(first)).toBeCloseTo(85, 5)
+  point(seam, 'pointerup', 5000)
+  expect(size(first)).toBeCloseTo(85, 5)
+  point(seam, 'pointerdown', 500)
+  point(seam, 'pointermove', -5000)
+  expect(size(first)).toBeCloseTo(15, 5)
+  point(seam, 'pointerup', -5000)
+  expect(size(first)).toBeCloseTo(15, 5)
+})
+
+it('the seam states the range the store lets the split move in (review of #183, round 7)', () => {
+  // The handle has limits of its own, for its keys and its aria range. They were the store's by coincidence.
+  const { seam } = split('Split side by side')
+  expect(seam.getAttribute('aria-valuemin')).toBe(String(Math.round(MIN_RATIO * 100)))
+  expect(seam.getAttribute('aria-valuemax')).toBe(String(Math.round(MAX_RATIO * 100)))
 })

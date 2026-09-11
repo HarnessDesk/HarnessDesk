@@ -38,6 +38,8 @@ import {
   cornerArea,
   dockLimits,
   dockViews,
+  MAX_RATIO,
+  MIN_RATIO,
   sidebarPlacement,
   stackOf,
   stackView,
@@ -572,6 +574,8 @@ const DockSplit = ({ area, branch }: { area: DockId; branch: DockBranch }) => {
         orientation={branch.direction === 'row' ? 'vertical' : 'horizontal'}
         label="Resize these panels"
         value={branch.ratio}
+        min={MIN_RATIO}
+        max={MAX_RATIO}
         onChange={show}
         onCommit={(next) => store.resizePanelSplit(area, branch.id, next)}
         onPointerDown={(event) => {
@@ -597,7 +601,7 @@ const DockSplit = ({ area, branch }: { area: DockId; branch: DockBranch }) => {
           const start = grab.current
           if (!start || start.span === 0) return
           const now = branch.direction === 'row' ? event.clientX : event.clientY
-          show(Math.min(0.85, Math.max(0.15, start.ratio + (now - start.at) / start.span)))
+          show(Math.min(MAX_RATIO, Math.max(MIN_RATIO, start.ratio + (now - start.at) / start.span)))
         }}
         onPointerUp={(event) => stop(event.currentTarget, true)}
         onPointerCancel={(event) => stop(event.currentTarget, false)}

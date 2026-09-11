@@ -15,8 +15,13 @@ import { collapse as collapseIn, expand as expandIn } from '../state/layout'
 import {
   activate,
   dock,
+  dockViews,
+  MAX_RATIO,
+  MIN_RATIO,
   moveView,
   resizeDock,
+  resizeDockSplit,
+  splitDock,
   toggleDock,
   undock,
   zoomArea,
@@ -133,6 +138,8 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
     closeView: (id: string) => settle(undock(snapshot.workbench, id)),
     moveView: (id: string, to: never) => settle(moveView(snapshot.workbench, id, to, permits)),
     resizePanel: (area: never, size: number) => settle(resizeDock(snapshot.workbench, area, size)),
+    resizePanelSplit: (area: never, id: string, ratio: number) =>
+      settle(resizeDockSplit(snapshot.workbench, area, id, ratio)),
     togglePanel: (area: never) => settle(toggleDock(snapshot.workbench, area)),
     zoomPanel: (area: never, scope: never) => settle(zoomArea(snapshot.workbench, area, scope)),
     /* The main area's two halves of one press, in one write: the zoom hides
@@ -965,4 +972,40 @@ it('a panel strip moves the window, and the things you press on it do not', () =
   const actions = container.querySelector('[data-slot="dock-panel-actions"]')
   expect(actions?.className).toContain('hd-no-drag')
   expect(control('Give this panel the whole area').closest('.hd-no-drag')).not.toBeNull()
+})
+
+it('a split in a dock dragged past either end stops where the store stops it, and commits that (review of #183, round 7)', () => {
+  // The preview clamps the ratio itself and the store clamps it again on release. Two copies of the limits
+  // would stop the drag in one place and commit it in another: a jump as the pointer lets go.
+  const harness = rig((start) => {
+    const both = dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' })
+    return splitDock(both, dockViews(both.right)[1]!.id, 'row')
+  })
+  render(harness.store)
+  const seam = container.querySelector<HTMLElement>('[aria-label="Resize these panels"]')
+  expect(seam, 'the right panel is split').toBeTruthy()
+  // The handle states the same range, for its keys and for a screen reader.
+  expect(seam!.getAttribute('aria-valuemin')).toBe(String(Math.round(MIN_RATIO * 100)))
+  expect(seam!.getAttribute('aria-valuemax')).toBe(String(Math.round(MAX_RATIO * 100)))
+  const box = seam!.parentElement as HTMLElement
+  box.getBoundingClientRect = () =>
+    ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600, toJSON: () => ({}) }) as DOMRect
+  for (const [to, limit] of [[5000, MAX_RATIO], [-5000, MIN_RATIO]] as const) {
+    point(seam!, 'pointerdown', 500)
+    point(seam!, 'pointermove', to)
+    expect(box.style.getPropertyValue('--split-drag')).toBe(limit.toFixed(4))
+    point(seam!, 'pointerup', to)
+    expect(box.style.getPropertyValue('--split-ratio')).toBe(String(limit))
+    expect(box.style.getPropertyValue('--split-drag')).toBe('')
+  }
+})
+
+it('a docked sidebar panel is a child of the sidebar column itself (review of #183, round 7)', () => {
+  // `.sidebar .panel[data-collapsed] { flex: none }` gives the height back only to a direct flex child of the
+  // column, and it is one because the slot the panel renders through adds no element of its own. A wrapper
+  // would stop the rule without a word, and the stylesheet test, which compares selectors, would stay green.
+  const { store } = rig((start) => dock(start, 'sidebar', { kind: 'activity' }))
+  render(store)
+  expect(panels()).toHaveLength(1)
+  expect(panels()[0]!.parentElement).toBe(container.querySelector('[data-testid="tree"]'))
 })

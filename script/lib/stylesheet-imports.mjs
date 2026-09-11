@@ -68,8 +68,9 @@ export const stylesheetImports = (source) =>
  * Compared without case, hyphens or underscores (review of #183), because a
  * component's stylesheet is spelled more than one way here: `Composer.tsx` beside `Composer.module.css`, and
  * `PanelPlayground.tsx` beside `panel-playground.module.css`. Compared as
- * written, the second read as one screen borrowing another's stylesheet, and
- * seven showcase boards were counted as component libraries (#91). `sheet` is
+ * written, the second reads as one screen borrowing another's stylesheet.
+ * Before #91 those imports weren't read at all; read by name alone, the seven
+ * showcase boards would have been counted as component libraries. `sheet` is
  * the import's path relative to `file`, so a stylesheet in another folder,
  * `../x/Name.module.css`, never matches, whatever it's called.
  */

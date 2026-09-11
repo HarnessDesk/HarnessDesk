@@ -206,8 +206,13 @@ export interface Dock {
   readonly collapsed: boolean
 }
 
-const MIN_RATIO = 0.15
-const MAX_RATIO = 0.85
+/**
+ * How far a split may be dragged either way. Exported for the drags that
+ * preview a ratio before the store clamps it, so the two can't stop in
+ * different places (review of #183, round 7).
+ */
+export const MIN_RATIO = 0.15
+export const MAX_RATIO = 0.85
 
 const clampRatio = (ratio: number): number => Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio))
 

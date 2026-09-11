@@ -204,6 +204,11 @@
  * and a collapsed bottom strip shrank to its tabs, 353 px of a 1199 px band
  * (review of #183, round 6). There the band is sized by its content once
  * collapsed, so the panel keeps `flex: 1` and its width.
+ *
+ * It gives the height back only because the panel is a direct flex child of
+ * the sidebar's column: `Slot` renders a fragment (`slots/registry.tsx`). A
+ * wrapper around the slot would stop it without a word, and the parity test,
+ * which compares selectors, would stay green (review of #183, round 7).
  */
 .sidebar .panel[data-collapsed],
 .sidebar .strips:has([data-collapsed]) {
@@ -261,7 +266,27 @@
 
 .splitSeam {
   flex: none;
+  /* Above the halves either side, so the place to grab below wins there. */
+  position: relative;
+  z-index: 1;
   background: var(--hd-border);
+}
+
+/* A wider place to grab than the line it draws: 9px, centred on the seam, as
+   the pane split's handle has one (`Panes.module.css`). The seam alone was a
+   one-pixel target, measured with `elementFromPoint` in the app (review of
+   #183, round 7; #202). */
+.splitSeam::after {
+  content: '';
+  position: absolute;
+}
+
+.split[data-direction='row'] > .splitSeam::after {
+  inset: 0 -4px;
+}
+
+.split[data-direction='column'] > .splitSeam::after {
+  inset: -4px 0;
 }
 
 .split[data-direction='row'] > .splitSeam {

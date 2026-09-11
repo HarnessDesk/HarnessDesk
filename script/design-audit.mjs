@@ -98,7 +98,6 @@ const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 /** Strip comments so prose about a value is not counted as the value. */
 const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
 
-
 const findings = {
   wrongVariant: [],
   missingClass: [],
@@ -351,7 +350,8 @@ for (const file of tsxFiles()) {
   // `explorer/Explorer.tsx` and `explorer/boards.tsx` are one screen sharing
   // `explorer.module.css`, which is the right arrangement, not drift. The rule
   // being enforced is that a screen may not reach into a DIFFERENT screen.
-  for (const { binding, file: spec } of stylesheetImports(code)) {
+  // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
+  for (const { binding, file: spec } of stylesheetImports(source)) {
     const sheet = resolveStylesheet(dir, spec, UI_SRC)
     // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
     if (!ownsStylesheet(file, sheet)) findings.crossImport.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
@@ -381,7 +381,8 @@ for (const file of tsxFiles()) {
       // One class on three buttons is one undersized control, not three: the
       // fix is a single rule, and a count that says otherwise makes the
       // backlog look bigger than the work.
-      const line = `${sheet.file}: .${use[2]} is ${px}px square, under the ${TARGET_FLOOR}px target`
+      // Keyed by where the sheet is, from the UI's root: two spellings of one path are one sheet (review of #183, round 7).
+      const line = `${path.relative(UI_SRC, path.join(dir, sheet.file))}: .${use[2]} is ${px}px square, under the ${TARGET_FLOOR}px target`
       if (!findings.looseTarget.includes(line)) findings.looseTarget.push(line)
     }
   }

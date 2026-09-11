@@ -45,6 +45,8 @@ import {
   undock,
   zoomArea,
   activate,
+  MAX_RATIO,
+  MIN_RATIO,
   type AreaId,
   type DockBranch,
   type DockId,
@@ -413,6 +415,8 @@ const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
         orientation={branch.direction === 'row' ? 'vertical' : 'horizontal'}
         label="Resize these panels"
         value={ratio}
+        min={MIN_RATIO}
+        max={MAX_RATIO}
         onChange={setPreview}
         onCommit={commit}
         onPointerDown={(event) => {
@@ -428,7 +432,7 @@ const Split = ({ branch, ...rest }: NodeProps & { branch: DockBranch }) => {
         onPointerMove={(event) => {
           const held = grab.current
           if (!held || held.span === 0) return
-          held.live = Math.min(0.85, Math.max(0.15, held.ratio + (along(event) - held.at) / held.span))
+          held.live = Math.min(MAX_RATIO, Math.max(MIN_RATIO, held.ratio + (along(event) - held.at) / held.span))
           setPreview(held.live)
         }}
         onPointerUp={(event) => stop(event.currentTarget, true)}

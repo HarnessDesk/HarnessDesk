@@ -744,7 +744,8 @@ of the text, not as a claim the desk makes about it.
 
 The app predates this system. These are the places it has not caught up, counted
 by `pnpm design:audit`. `verify` refuses anything worse than these numbers, so the
-list can only go down.
+list only goes down, except when the audit learns to see something it was blind to:
+`looseTarget` rose when it first read a stylesheet with a hyphen in its name (#91).
 
 | finding | count | what it costs |
 | --- | --- | --- |
