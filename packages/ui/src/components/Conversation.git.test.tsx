@@ -74,7 +74,7 @@ const rig = (over: Partial<AppSnapshot>): void => {
 }
 
 const chip = (): HTMLButtonElement | null =>
-  document.querySelector<HTMLButtonElement>('button[title*=" · worktree — "], button[title*=" · local — "], button[title*=" · new worktree off "]')
+  document.querySelector<HTMLButtonElement>('button[title*=" — "], button[title*=" · new worktree off "]')
 
 const glyph = (): string => chip()?.querySelector('svg')?.getAttribute('class') ?? ''
 
@@ -101,7 +101,7 @@ it('wears a laptop for the main checkout, and no worktree badge', () => {
 
   expect(chip()?.textContent).toBe('main')
   expect(glyph()).toContain('lucide-laptop')
-  expect(chip()?.title).toBe(`main · local — ${ROOT}`)
+  expect(chip()?.title).toBe(`main — ${ROOT}`)
 })
 
 it('names the worktree a draft is pointed at, not the folder the window has open', () => {

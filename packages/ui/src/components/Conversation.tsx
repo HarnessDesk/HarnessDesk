@@ -777,12 +777,13 @@ export const GitControl = ({
     <Popover
       /* What the chip says, then where it is. The words fold to the glyph in a
          narrow header, and hover is where they are still read — the path alone
-         was not the word that folded. The place is said in words as well: a
-         folded chip has only its glyph left to say it with. */
+         was not the word that folded. A worktree says so, as its badge does,
+         and a draft armed with a new one names the folder it will be cut from:
+         its worktree is not at that path yet. */
       title={
         armed
           ? `${branch} · new worktree off ${cwd}`
-          : `${branch ?? folder} · ${linked ? 'worktree' : 'local'} — ${cwd}`
+          : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
       }
       align="right"
       label={
