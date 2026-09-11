@@ -276,11 +276,37 @@ it('opens your profile from the top of the menu', () => {
   expect(container.querySelector('[role="menu"]')).toBeNull()
 })
 
-it('carries your whole name where the row cuts it', () => {
-  // Forty characters is wider than the seat: the label ellipsises, and says it all on hover.
+/** jsdom lays nothing out, so a width is whatever the test says it is. */
+const sized = (node: HTMLElement, scroll: number, client: number): void => {
+  Object.defineProperty(node, 'scrollWidth', { configurable: true, value: scroll })
+  Object.defineProperty(node, 'clientWidth', { configurable: true, value: client })
+}
+
+const hover = (node: HTMLElement): void => {
+  act(() => {
+    node.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+}
+
+it('says your whole name on hover only where the row cuts it', () => {
+  // A name that fits leaves the row's own title — the pen — to answer; a name
+  // the ellipsis cuts says itself whole.
   const name = 'Jane Doe, Keeper of Several Long Names'
   mount({ profile: { name } })
-  expect(row().querySelector('[class*="accountLabel"]')?.getAttribute('title')).toBe(name)
+  const seat = row().querySelector<HTMLElement>('[class*="accountLabel"]')
+  if (!seat) throw new Error('no seat label')
+  sized(seat, 320, 120)
+  hover(seat)
+  expect(seat.getAttribute('title')).toBe(name)
+  sized(seat, 80, 120)
+  hover(seat)
+  expect(seat.hasAttribute('title')).toBe(false)
+  expect(row().getAttribute('title')).toMatch(/^New sessions run as /)
+
   click(row())
-  expect(container.querySelector('[role="menu"] [class*="youLabel"]')?.getAttribute('title')).toBe(name)
+  const menu = container.querySelector<HTMLElement>('[role="menu"] [class*="youLabel"]')
+  if (!menu) throw new Error('no menu label')
+  sized(menu, 320, 120)
+  hover(menu)
+  expect(menu.getAttribute('title')).toBe(name)
 })

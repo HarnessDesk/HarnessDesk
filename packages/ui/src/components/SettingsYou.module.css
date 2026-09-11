@@ -85,11 +85,12 @@
 /*
  * The faces, eight to a row — Default and twenty-three whales make three even
  * rows — in the card the page's rows sit in, so the picker reads as part of
- * the page and not a gallery dropped onto it.
+ * the page and not a gallery dropped onto it. The count is the component's
+ * (`--face-columns`), the same number the arrow keys step by.
  */
 .faces {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--face-columns), minmax(0, 1fr));
   gap: var(--hd-space-2);
   padding: var(--hd-space-3);
   border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));

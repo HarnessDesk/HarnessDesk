@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Clipped } from '../design/primitives/Kit'
 
 import { ArrowLeftIcon, SearchIcon } from './Icons'
 import styles from './AppWindow.module.css'
@@ -132,7 +133,7 @@ export const WindowNavIdentity = ({
     onClick={onClick}
   >
     {face}
-    <span className={styles.winNavLabel}>{name}</span>
+    <Clipped className={styles.winNavLabel}>{name}</Clipped>
   </button>
 )
 

@@ -657,7 +657,7 @@ export const Face = ({
       data-shape="square"
       {...(size === undefined
         ? { 'data-fill': '' }
-        : { 'data-size': size > 48 ? 'l' : size > 32 ? 'm' : 's', style: { width: size, height: size } })}
+        : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}
       aria-hidden="true"
     >
       {src ? (
@@ -671,5 +671,26 @@ export const Face = ({
     </span>
   )
 }
+
+/**
+ * One line of text that ellipsises, and says itself whole on hover — only
+ * while it is cut. A title on text that is not cut repeats what you are
+ * reading and hides the tooltip of whatever holds it (the seat's "New
+ * sessions run as …"), so the title is decided as the pointer arrives, from
+ * whether the text overflows its box right then. The ellipsis is the
+ * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+ */
+export const Clipped = ({ className, children }: { readonly className?: string; readonly children: ReactNode }) => (
+  <span
+    className={className}
+    onMouseEnter={(event) => {
+      const node = event.currentTarget
+      if (node.scrollWidth > node.clientWidth) node.title = node.textContent ?? ''
+      else node.removeAttribute('title')
+    }}
+  >
+    {children}
+  </span>
+)
 
 export { styles as kit }

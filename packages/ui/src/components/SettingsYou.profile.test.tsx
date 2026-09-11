@@ -370,3 +370,14 @@ it('leaves a name it was given as it is, unless you edit it', () => {
   act(() => field().blur())
   expect(profile()).toEqual({ name: 'x'.repeat(40) })
 })
+
+it('steps Down by the row the grid is drawn with', () => {
+  // The column count lives once, in the component, and reaches the stylesheet
+  // as --face-columns: the step Down takes is a row on screen.
+  const { profile } = mount()
+  const group = container.querySelector<HTMLElement>('[role="radiogroup"]')
+  const columns = Number(group?.style.getPropertyValue('--face-columns'))
+  expect(columns).toBeGreaterThan(1)
+  press(worn(), 'ArrowDown')
+  expect(profile().avatar).toBe(tiles()[columns]?.getAttribute('aria-label')?.toLowerCase())
+})

@@ -1316,7 +1316,7 @@
 }
 
 /* A chosen name can be longer than the menu is wide: cut, never wrapped, and
-   whole on its own title. */
+   whole on hover while it is cut (`Clipped`). */
 .youLabel {
   min-width: 0;
   overflow: hidden;

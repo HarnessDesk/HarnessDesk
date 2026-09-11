@@ -553,6 +553,17 @@ a face a later build added, a picture it keeps — draws the house mark. It is
 not dropped: keeping what it cannot draw is the profile's job
 (`lib/profile.ts`), so a later build finds it where it left it.
 
+### `Clipped`
+
+`packages/ui/src/design/primitives/Kit.tsx`
+
+One line of text that ellipsises, and says itself whole on hover — only
+while it is cut. A title on text that is not cut repeats what you are
+reading and hides the tooltip of whatever holds it (the seat's "New
+sessions run as …"), so the title is decided as the pointer arrives, from
+whether the text overflows its box right then. The ellipsis is the
+caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+
 ## Patterns
 
 ### `ChannelSignal`

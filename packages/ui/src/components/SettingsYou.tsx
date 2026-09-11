@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordOf, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
@@ -9,10 +9,9 @@ import { formatAge } from '../lib/usage'
 import { AVATARS, isAvatarId, type AvatarId } from '../lib/avatars'
 import {
   applyProfile,
-  characters,
   DEFAULT_PROFILE_NAME,
+  editName,
   isDefaultProfile,
-  PROFILE_NAME_MAX,
   profileName,
 } from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
@@ -188,37 +187,10 @@ export const ProfileSection = () => {
 }
 
 /**
- * What an edit leaves in the name field, held to the cap by character.
- *
- * The part of the old name the edit did not touch is kept whole, and only what
- * the edit put in is cut to fit — what a field's own length limit does, counted
- * in characters as a person sees them rather than in UTF-16 units. So typing
- * into a full field changes nothing, a paste over a selection keeps as much of
- * the paste as fits, a paste at the front never pushes the end of the name
- * out, and an edit that only takes characters away always goes through, even
- * on a name a later build let run longer. Where the edit ended is the caret:
- * comparing the two strings alone cannot tell which of two identical
- * characters was the one typed. `caret` is where to put it back, in the
- * field's own units, when the text was cut.
+ * Eight to a row: Default and the twenty-three faces make three even rows.
+ * The grid takes its column count from here (`--face-columns`), so the step
+ * Up and Down take and the row the eye sees are one number.
  */
-const editName = (was: string, next: string, caret: number | null): { value: string; caret: number } => {
-  const after = characters(next)
-  if (after.length <= PROFILE_NAME_MAX) return { value: next, caret: caret ?? next.length }
-  const before = characters(was)
-  const end = characters(next.slice(0, caret ?? next.length)).length
-  // After the caret is the old name's end; before the edit, its start.
-  let tail = 0
-  const tailMost = Math.min(before.length, after.length - end)
-  while (tail < tailMost && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1
-  let head = 0
-  const headMost = Math.min(before.length - tail, end)
-  while (head < headMost && before[head] === after[head]) head += 1
-  const room = Math.max(0, PROFILE_NAME_MAX - head - tail)
-  const kept = [...after.slice(0, head), ...after.slice(head, after.length - tail).slice(0, room)]
-  return { value: [...kept, ...after.slice(after.length - tail)].join(''), caret: kept.join('').length }
-}
-
-/** Eight to a row: Default and the twenty-three faces make three even rows. */
 const FACE_COLUMNS = 8
 
 const ARROWS: ReadonlySet<string> = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
@@ -283,6 +255,7 @@ const FacePicker = ({
   return (
     <div
       className={styles.faces}
+      style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
       role="radiogroup"
       aria-label="Picture"
       {...(describedBy ? { 'aria-describedby': describedBy } : {})}

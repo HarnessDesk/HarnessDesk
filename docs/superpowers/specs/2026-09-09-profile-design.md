@@ -122,7 +122,9 @@ which is how a room row's own tile holds it.
   out, a deletion always goes through, and the caret goes back after what went
   in. A name a later build let run past forty can be shortened any way in the
   field, and what is kept when it is let go is cut to forty — so a single
-  Backspace on a sixty-character name keeps its first forty. The first Escape takes an edit back; the next one is the window's.
+  Backspace on a sixty-character name keeps its first forty. Like a native
+  length limit, reaching the cap is not announced: typing into a full field
+  simply changes nothing. The first Escape takes an edit back; the next one is the window's.
 - **Picture**: Default and the twenty-three faces as one radio group, eight to
   a row — three even rows. One tab stop, the arrow keys walk the grid and
   choose as they go. Home and End are left out on purpose: in a group that
@@ -164,7 +166,8 @@ which is how a room row's own tile holds it.
   note as the picker's description.
 - `components/Sidebar.account.test.tsx` — the seat reads your name and wears
   your face beside the unchanged agent badge; the menu's top row opens
-  Settings › Profile; both name labels carry the whole name as their title.
+  Settings › Profile; a cut name says itself whole on hover — only while it is
+  cut, so a name that fits leaves the row's own title to answer.
 - `components/Settings.route.test.tsx` — the rail starts with you and routes
   to the page; search keeps you only while it could mean you.
 - `design/patterns/ChannelMessage.test.tsx`, `components/Channel.test.tsx` —

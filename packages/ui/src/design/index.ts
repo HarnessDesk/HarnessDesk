@@ -71,6 +71,7 @@ export {
   RowChoice,
   BackLink,
   DetailHead,
+  Clipped,
   Face,
 } from './primitives/Kit'
 export { Dialog } from './primitives/Dialog'

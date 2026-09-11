@@ -830,9 +830,6 @@
   border-radius: var(--hd-radius);
 }
 
-.avatar[data-shape='square'][data-size='l'] {
-  border-radius: var(--hd-radius-lg);
-}
 
 /* In a box someone else drew: its size, and its corner. */
 .avatar[data-fill] {

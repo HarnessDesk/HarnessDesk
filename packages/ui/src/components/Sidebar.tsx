@@ -21,6 +21,7 @@ import { livePlugins } from '../lib/plugins'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
+import { Clipped } from '../design/primitives/Kit'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
 import styles from './Sidebar.module.css'
@@ -506,9 +507,7 @@ export const AccountFooter = ({
               <ProfileFace size={30} />
               <span className={styles.youText}>
                 <span className={styles.youName}>
-                  <span className={styles.youLabel} title={yourName}>
-                    {yourName}
-                  </span>
+                  <Clipped className={styles.youLabel}>{yourName}</Clipped>
                   <span className={styles.youTag}>Local</span>
                 </span>
               </span>
@@ -680,13 +679,12 @@ export const AccountFooter = ({
         }}
       >
         {/* You. The same face as the menu's top row, at the row's size, and
-            the name — cut when the row is narrower than it, so it carries
-            itself whole as its title; the row's own title is about the pen. */}
+            the name — which says itself whole on hover only while the row
+            cuts it, so the row's own title, about the pen, is not hidden
+            behind a name you can already read. */}
         <ProfileFace size={24} />
         <span className={styles.accountName}>
-          <span className={styles.accountLabel} title={yourName}>
-            {yourName}
-          </span>
+          <Clipped className={styles.accountLabel}>{yourName}</Clipped>
         </span>
         {here?.figure && here.tone !== 'good' && (
           <span className={styles.accountMeta} data-tone={here.tone}>

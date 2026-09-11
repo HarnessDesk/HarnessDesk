@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyProfile,
   DEFAULT_PROFILE_NAME,
+  editName,
   isDefaultProfile,
   PROFILE_NAME_MAX,
   profileName,
@@ -122,4 +123,44 @@ it('sees what a later build stored when it decides whether anything changed', ()
   const later = { account: { id: 'a1' } }
   expect(sameProfile({ name: 'A', later }, { name: 'A', later })).toBe(true)
   expect(sameProfile({ name: 'A', later }, { name: 'A', later: { account: { id: 'a2' } } })).toBe(false)
+})
+
+it('compares what two profiles hold, not which object holds it', () => {
+  // A later build's fields, or a face this build cannot draw, read twice are
+  // two objects with one meaning; the store must not write for the difference.
+  expect(
+    sameProfile(
+      { name: 'A', later: { account: { id: 'a1', plan: 'team' } } },
+      { name: 'A', later: { account: { plan: 'team', id: 'a1' } } },
+    ),
+  ).toBe(true)
+  expect(sameProfile({ avatar: { kind: 'image', src: 'a.png' } }, { avatar: { src: 'a.png', kind: 'image' } })).toBe(true)
+  expect(sameProfile({ name: 'A', later: { account: { id: 'a1' } } }, { name: 'A', later: { account: { id: 'a2' } } })).toBe(false)
+  expect(sameProfile({ avatar: { kind: 'image', src: 'a.png' } }, { avatar: { kind: 'image', src: 'b.png' } })).toBe(false)
+})
+
+describe('an edit in the name field', () => {
+  const full = 'x'.repeat(PROFILE_NAME_MAX)
+  const name39 = 'Jane Doe'.padEnd(39, '.')
+  const mixed = 'a'.repeat(10) + 'b'.repeat(5) + 'c'.repeat(25)
+  const whales = '🐳'.repeat(PROFILE_NAME_MAX)
+  // What the field held, what it holds after the edit, where the caret sits
+  // after it — and what is kept, with the caret put back where it belongs.
+  const cases: [string, string, string, number | null, string, number][] = [
+    ['a name under the cap goes through untouched', 'Jane', 'Jane D', 6, 'Jane D', 6],
+    ['typing at the end of a full field changes nothing', full, `${full}y`, 41, full, 40],
+    ['typing at the front of a full field changes nothing', full, `y${full}`, 1, full, 0],
+    ['three pasted at the front of 39 keep one, and the whole name', name39, `XYZ${name39}`, 3, `X${name39}`, 1],
+    ['a paste over the whole name keeps the first forty of it', full, 'y'.repeat(45), 45, 'y'.repeat(40), 40],
+    ['twenty pasted over five in the middle keep five', mixed, 'a'.repeat(10) + 'y'.repeat(20) + 'c'.repeat(25), 30, 'a'.repeat(10) + 'y'.repeat(5) + 'c'.repeat(25), 15],
+    ['one Backspace on a sixty-character name goes through', 'x'.repeat(60), 'x'.repeat(59), 59, 'x'.repeat(59), 59],
+    ['typing into a longer name is refused, the caret back where it was', 'x'.repeat(45), `${'x'.repeat(10)}y${'x'.repeat(35)}`, 11, 'x'.repeat(45), 10],
+    ['a paste of the same letter into the middle is refused', 'a'.repeat(40), 'a'.repeat(43), 23, 'a'.repeat(40), 20],
+    ['a whale typed after the twentieth of forty is refused', whales, '🐳'.repeat(41), 42, whales, 40],
+    ['no caret reported reads as the end', full, `${full}y`, null, full, 40],
+    ['a pasted flag counts as one character; the caret is in UTF-16 units', '', '🇺🇸'.repeat(45), null, '🇺🇸'.repeat(40), 160],
+  ]
+  it.each(cases)('%s', (_what, was, next, caret, value, after) => {
+    expect(editName(was, next, caret)).toEqual({ value, caret: after })
+  })
 })

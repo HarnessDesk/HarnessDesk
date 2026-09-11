@@ -91,6 +91,40 @@ const tidyName = (name: string): string =>
     .trim()
 
 /**
+ * What an edit leaves in the name field, held to the cap by character.
+ *
+ * The part of the old name the edit did not touch is kept whole, and only what
+ * the edit put in is cut to fit — what a field's own length limit does, counted
+ * in characters as a person sees them rather than in UTF-16 units. So typing
+ * into a full field changes nothing, a paste over a selection keeps as much of
+ * the paste as fits, a paste at the front never pushes the end of the name
+ * out, and an edit that only takes characters away always goes through, even
+ * on a name a later build let run longer. Where the edit ended is the caret:
+ * comparing the two strings alone cannot tell which of two identical
+ * characters was the one typed. `caret` is where to put it back, in the
+ * field's own units, when the text was cut.
+ */
+export const editName = (was: string, next: string, caret: number | null): { value: string; caret: number } => {
+  // No more UTF-16 units than the cap is no more characters than the cap,
+  // so an ordinary name is never segmented at all.
+  if (next.length <= PROFILE_NAME_MAX) return { value: next, caret: caret ?? next.length }
+  const after = characters(next)
+  if (after.length <= PROFILE_NAME_MAX) return { value: next, caret: caret ?? next.length }
+  const before = characters(was)
+  const end = characters(next.slice(0, caret ?? next.length)).length
+  // After the caret is the old name's end; before the edit, its start.
+  let tail = 0
+  const tailMost = Math.min(before.length, after.length - end)
+  while (tail < tailMost && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1
+  let head = 0
+  const headMost = Math.min(before.length - tail, end)
+  while (head < headMost && before[head] === after[head]) head += 1
+  const room = Math.max(0, PROFILE_NAME_MAX - head - tail)
+  const kept = [...after.slice(0, head), ...after.slice(head, after.length - tail).slice(0, room)]
+  return { value: [...kept, ...after.slice(after.length - tail)].join(''), caret: kept.join('').length }
+}
+
+/**
  * A name as typed here, as this build keeps it: tidied, and nothing at all
  * when that leaves it empty or the default.
  */
@@ -156,6 +190,19 @@ export const profileName = (profile: Profile): string =>
 export const isDefaultProfile = (profile: Profile): boolean =>
   profile.name === undefined && profile.avatar === undefined
 
+/**
+ * A value as the file would hold it, every object's keys in one order — so
+ * profiles compare by what they hold rather than by which object holds it: a
+ * later build's fields, or a face this build cannot draw, read twice are
+ * still the same profile.
+ */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value ?? null, (_key, inner: unknown) =>
+    inner !== null && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : inner,
+  )
+
 /** Whether two profiles would store the same thing — the store's gate on writing at all. */
 export const sameProfile = (a: Profile, b: Profile): boolean =>
-  a.name === b.name && a.avatar === b.avatar && a.later === b.later
+  a.name === b.name && canonical(a.avatar) === canonical(b.avatar) && canonical(a.later ?? {}) === canonical(b.later ?? {})

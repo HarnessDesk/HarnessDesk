@@ -387,7 +387,10 @@ export const ChannelStream = ({
             /* You, in the face the seat wears. It fills the row's tile, so it
                takes the tile's size and corner at either density — drawn from
                the snapshot this stream already holds, not a subscription of
-               its own on every message you wrote. */
+               its own on every message you wrote. A user row carries no
+               identity (`{ kind: 'user' }`, #218), so every one is drawn as
+               you: right on a desk of one, and the assumption to revisit the
+               day a room holds two people. */
             {...(row.entry.from.kind === 'user' ? { face: <Face avatar={snapshot.profile.avatar} /> } : {})}
             {...(row.reached
               ? { to: nameSome(row.reached) }
