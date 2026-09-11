@@ -34,8 +34,14 @@ export interface PricingOptions {
 
 const CATALOGUE_URL = 'https://models.dev/api.json'
 
-/** What a dated id adds to its undated name: `-20251001`, `-2024-11-20`, `@20240620`, `-latest`. */
-const DATED = /^[-@](?:\d{8}|\d{4}-\d{2}-\d{2}|latest)$/
+/**
+ * What a dated id adds to its undated name: `-20251001`, `-2024-11-20`,
+ * `@20240620`, `-latest`. A real month and day: any eight digits made
+ * `-99991301` a date (review of #153).
+ */
+const MONTH = '(?:0[1-9]|1[0-2])'
+const DAY_OF_MONTH = '(?:0[1-9]|[12]\\d|3[01])'
+const DATED = new RegExp(`^[-@](?:\\d{4}${MONTH}${DAY_OF_MONTH}|\\d{4}-${MONTH}-${DAY_OF_MONTH}|latest)$`)
 
 /** Whether `long` is `short` with nothing added but a date. */
 const datedFormOf = (long: string, short: string): boolean =>
@@ -187,7 +193,9 @@ export class Pricing {
     const models = this.#catalogue[vendor]?.models
     if (!models) return null
     const exact = models[key] ?? models[model]
-    if (exact) return ratesFrom(exact.cost)
+    // An exact entry with no price gives way to a dated form that has one, as a dated form with none does (review of #153).
+    const exactRates = exact ? ratesFrom(exact.cost) : null
+    if (exactRates) return exactRates
     /* A dated id and its undated name are one model, and nothing else is.
        Providers date their ids (`claude-haiku-4-5-20251001`) where the
        catalogue usually carries the undated one; the catalogue sometimes

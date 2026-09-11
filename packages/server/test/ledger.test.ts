@@ -578,3 +578,59 @@ test('a date written with an @ is a date too, either way round', async () => {
   assert.equal(pricing.rateFor('claude-opus-5@20260101')?.input, 5 / 1_000_000, 'asked dated, catalogued undated')
 })
 
+test('an exact id with no price gives way to a dated form that has one (review of #153)', async () => {
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-opus-5': { id: 'claude-opus-5' },
+          'claude-opus-5-20260101': { id: 'claude-opus-5-20260101', cost: { input: 5, output: 5 } },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-opus-5')?.input, 5 / 1_000_000)
+})
+
+test('a dated id carries a real date: -99991301 is not one (review of #153)', async () => {
+  const dir = scratch()
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'missing.json'),
+    fetchCatalogue: async () => ({
+      anthropic: {
+        models: {
+          'claude-opus-5-99991301': { id: 'claude-opus-5-99991301', cost: { input: 9, output: 9 } },
+          'claude-sonnet-5-20261231': { id: 'claude-sonnet-5-20261231', cost: { input: 3, output: 3 } },
+        },
+      },
+    }),
+  })
+  await pricing.warm()
+  assert.equal(pricing.rateFor('claude-opus-5'), null)
+  assert.equal(pricing.rateFor('claude-sonnet-5')?.input, 3 / 1_000_000, 'the control: a real date is one')
+})
+
+test('a cursor tail that cannot be read, past the start of the file, reads the context from what it had counted (review of #153)', async () => {
+  // The same path as an empty tail, which was pinned; the malformed one was pinned at offset 0 only.
+  const dir = scratch()
+  const path = join(dir, 'rollout.jsonl')
+  const line = (record: object): string => `${JSON.stringify(record)}\n`
+  const spent = (at: string): string =>
+    line({
+      type: 'event_msg',
+      timestamp: at,
+      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0 } } },
+    })
+  writeFileSync(path, line({ type: 'session_meta', timestamp: '2026-09-10T11:00:00Z', payload: { cwd: dir, model: 'gpt-5.5' } }) + spent('2026-09-10T11:01:00Z'))
+  const target = { path, runtime: 'codex', kind: 'codex', size: 0, mtime: 0 } as unknown as Parameters<typeof scanCodexRollout>[0]
+  const first = await scanCodexRollout(target, 0, [])
+  appendFileSync(path, spent('2026-09-10T11:02:00Z'))
+  const resumed = await scanCodexRollout(target, first.offset, ['not json'])
+  assert.equal(resumed.rows.length, 1, 'only the appended event')
+  assert.equal((resumed.rows[0] as { model: string }).model, 'gpt-5.5')
+})

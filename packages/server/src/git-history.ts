@@ -275,11 +275,37 @@ const EMPTY_TREES: Readonly<Record<string, string>> = {
   sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
   sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
 }
+/** Each repository's answer: its object format never changes, and it was asked again for every root-commit file opened (review of #150). */
+const formats = new Map<string, string>()
 const emptyTree = async (root: string): Promise<string> => {
   // A git that does not know the flag — whether it refuses it or echoes it
   // back — is a SHA-1 repository, the only format such a git has.
-  const format = await asked(root, ['rev-parse', '--show-object-format']).catch(() => null)
-  return EMPTY_TREES[format?.trim() ?? 'sha1'] ?? EMPTY_TREES['sha1']!
+  let format = formats.get(root)
+  if (format === undefined) {
+    const answer = await asked(root, ['rev-parse', '--show-object-format']).catch(() => null)
+    format = answer?.trim() ?? 'sha1'
+    // A git that couldn't answer this time is asked again next time.
+    if (answer !== null) formats.set(root, format)
+  }
+  return EMPTY_TREES[format] ?? EMPTY_TREES['sha1']!
+}
+
+/**
+ * What `commit` worked out for a commit, its base and its file list, kept for
+ * the files it opens next: each file ran a whole-commit `--name-status` of its
+ * own, 64 ms on a 2,032-file commit (review of #150). A commit's files never
+ * change; only the last few commits are kept.
+ */
+type Opened = { readonly base: string; readonly entries: ReturnType<typeof listed> }
+const opened = new Map<string, Opened>()
+const remember = (root: string, sha: string, value: Opened): void => {
+  const key = `${root}\0${sha}`
+  opened.delete(key)
+  opened.set(key, value)
+  for (const oldest of opened.keys()) {
+    if (opened.size <= 16) break
+    opened.delete(oldest)
+  }
 }
 
 /**
@@ -326,7 +352,10 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
     }
   }
 
-  const files: GitCommitFile[] = listed(nameStatus).map(({ letter, path, oldPath }) => {
+  const entries = listed(nameStatus)
+  remember(root, sha, { base, entries })
+  if (fullSha && fullSha.trim() !== sha) remember(root, fullSha.trim(), { base, entries })
+  const files: GitCommitFile[] = entries.map(({ letter, path, oldPath }) => {
     const count = counts.get(path) ?? { added: 0, removed: 0 }
     return {
       path,
@@ -381,14 +410,15 @@ const listed = (nameStatus: string | null): { letter: string; path: string; oldP
 /** One file's patch at one commit, against the same base the file list used. */
 export const commitDiff = async (root: string, sha: string, path: string): Promise<string> => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
-  const base = (await diffBase(root, sha)) ?? (await emptyTree(root))
+  const known = opened.get(`${root}\0${sha}`)
+  const base = known?.base ?? (await diffBase(root, sha)) ?? (await emptyTree(root))
   /* A rename is two paths, and a pathspec naming only the new one hides the
      old one from git: with nothing to pair it with, the file read as added
      from nothing, every line new. #68. The old path comes from the same
      name-status the file list is built from, so the patch shows what the list
      said — a rename, and only what changed across it. */
-  const entry = listed(
-    await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]),
+  const entry = (
+    known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]))
   ).find((file) => file.path === path)
   /* Renames only. A rename's two paths are one file; a copy's are two, and
      naming the source brought the source's own edits into the copy's patch

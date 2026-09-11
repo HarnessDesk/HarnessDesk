@@ -273,3 +273,19 @@ test('a blank deletion refuses the whole undo, beside an update and a deletion t
   }
 })
 
+test("redo leaves alone a file a blank deletion recorded nothing of, and says why (review of #153)", async () => {
+  // Undo refuses a blank deletion up front; redo's side was not pinned.
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'kept.txt'), 'somebody wrote this\n')
+    const turn = turnOf([fileChange(dir, [{ path: join(dir, 'kept.txt'), kind: { type: 'delete' }, diff: '' }])])
+    await assert.rejects(reapplyTurn(dir, turn), (error: unknown) => {
+      assert.ok(error instanceof RevertError)
+      assert.match(error.message, /kept\.txt can't be deleted again: the agent recorded nothing of it/)
+      return true
+    })
+    assert.equal(await readFile(join(dir, 'kept.txt'), 'utf8'), 'somebody wrote this\n', 'nothing was deleted')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

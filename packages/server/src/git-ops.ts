@@ -145,7 +145,13 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
         const current = await readFile(absolute, 'utf8').catch(() => null)
         if (current === null) continue // already gone
         if (current !== change.diff) {
-          throw new Error(`${path} has been edited since the agent wrote it`)
+          /* A deletion the agent recorded nothing of can't be checked: what's
+             there now can't be told from what it deleted (review of #153). */
+          throw new Error(
+            change.kind.type === 'delete' && change.diff === ''
+              ? `${path} can't be deleted again: the agent recorded nothing of it, so what's there now can't be told from what it deleted`
+              : `${path} has been edited since the agent wrote it`,
+          )
         }
         await unlink(absolute)
       } else {

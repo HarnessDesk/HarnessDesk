@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, test } from 'node:test'
+import { after, test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
 import { commit, commitDiff, createBranch, log, refs } from '../src/git-history.js'
@@ -322,6 +322,9 @@ test('a repository that names its commits in SHA-256 opens them', async (t) => {
   const next = await sha(dir, 'HEAD')
   assert.equal((await commit(dir, next)).parents[0], head)
   assert.match(await commitDiff(dir, next, 'a.txt'), /^\+b$/m)
+  // Review of #150: and a branch made at a 64-character id.
+  await createBranch(dir, 'from-256', head)
+  assert.equal(await sha(dir, 'from-256'), head)
 })
 
 test('a renamed file opens as the rename it was, not as a file added from nothing', async () => {
@@ -391,3 +394,72 @@ test('a copied file opens as itself, without the edits made to its source', asyn
   assert.doesNotMatch(patch, /FIVE/, "the source's edit is not in the copy's patch")
 })
 
+/**
+ * A `git` on PATH that writes each call to a log and hands it to the real one.
+ * With `old`, it answers the object-format question the way a git before 2.29
+ * does, by echoing the flag back. The count it returns is of the calls holding
+ * `words`.
+ */
+const loggedGit = async (t: TestContext, old: boolean): Promise<(words: string) => Promise<number>> => {
+  const real = (await promisify(execFile)('sh', ['-c', 'command -v git'])).stdout.trim()
+  const dir = await mkdtemp(join(tmpdir(), 'hd-logged-git-'))
+  const log = join(dir, 'calls.log')
+  const echo = old ? `if [ "$3" = rev-parse ] && [ "$4" = --show-object-format ]; then echo --show-object-format; exit 0; fi\n` : ''
+  await writeFile(join(dir, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\n${echo}exec '${real}' "$@"\n`, { mode: 0o755 })
+  const was = process.env['PATH']
+  process.env['PATH'] = `${dir}:${was ?? ''}`
+  t.after(async () => {
+    if (was === undefined) delete process.env['PATH']
+    else process.env['PATH'] = was
+    await rm(dir, { recursive: true, force: true })
+  })
+  return async (words) => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter((line) => line.includes(words)).length
+}
+
+test("a repository's object format is asked once, and a git that doesn't know the question reads as SHA-1 (review of #150)", async (t) => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await writeFile(join(dir, 'b.txt'), 'b\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const head = await sha(dir, 'HEAD')
+  const calls = await loggedGit(t, true)
+  // Two files of a root commit, each read against the empty tree, before the commit itself is opened.
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
+  assert.match(await commitDiff(dir, head, 'b.txt'), /^\+b$/m)
+  assert.equal(await calls('rev-parse --show-object-format'), 1, 'asked once for the repository')
+})
+
+test("the files of an opened commit reuse its own list rather than asking for it again (review of #150)", async (t) => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await writeFile(join(dir, 'a.txt'), 'a\nb\n')
+  await writeFile(join(dir, 'c.txt'), 'c\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'two')
+  const head = await sha(dir, 'HEAD')
+  const calls = await loggedGit(t, false)
+  assert.equal((await commit(dir, head)).files.length, 2)
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+b$/m)
+  assert.match(await commitDiff(dir, head, 'c.txt'), /^\+c$/m)
+  assert.equal(await calls('diff --name-status'), 1, "the commit's own list, reused by each file it opens")
+})
+
+test('a branch whose local upstream was deleted reads as gone too (review of #150)', async () => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await git(dir, 'branch', 'base')
+  await git(dir, 'branch', '--track', 'topic', 'base')
+  await git(dir, 'branch', '-D', 'base')
+  const branches = (await refs(dir))?.branches ?? []
+  const named = (name: string) => branches.find((branch) => branch.name === name)
+  assert.equal(named('topic')?.gone, true)
+  assert.equal(named('main')?.gone, false, 'the control: no upstream, nothing gone')
+})
