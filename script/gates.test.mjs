@@ -824,6 +824,25 @@ test('what counts as a documented repository path (#223)', () => {
   }
 })
 
+test('an invented path in a fenced sample is a candidate, and ALLOWED is its escape hatch (#223)', () => {
+  /* The expensive direction for this gate is the false red, and this is its
+     shape: a fenced sample naming a file in the *reader's* project reads
+     exactly like a path in ours, because `pathsIn` has no view of fences. That
+     is deliberate — a real path inside a fenced block has to resolve too — so
+     the way out is the allowlist, and this is what using it looks like.
+     `src/server.js` is the entry the tree really carries for this reason
+     (asked for in round 1 of #278, so the hatch is visible before someone
+     meets it as a red build). */
+  const sample = ['```md', 'Add a card that says: fix `src/server.js`', '```'].join('\n')
+  assert.deepEqual(pathsIn(sample), ['src/server.js'], 'a fence does not hide a candidate')
+  const named = new Map([['src/server.js', new Set(['docs/rooms.md'])]])
+  // Without an entry it is a red gate, which is the report a contributor meets first.
+  assert.match(docPathProblems(named, () => false, new Map())[0], /resolves nowhere/)
+  // With one, the gate is green and the reason is on the record beside the path.
+  const allowed = new Map([['src/server.js', "an invented file name in a demo board card"]])
+  assert.deepEqual(docPathProblems(named, () => false, allowed), [])
+})
+
 test('every allowlisted doc path still names something outside this tree (#223)', () => {
   const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
   for (const [value, reason] of ALLOWED) {
@@ -843,12 +862,54 @@ test("a real account's address in a tracked file fails the secrets scan (#204)",
     "git('-c', 'user.email=t@example.invalid', 'commit')",
     "await git(dir, 'remote', 'add', 'origin', 'git@github.com:openma/harnessdesk.git')",
     "await git(dir, 'remote', 'add', 'origin', 'ssh://deploy@github.com/openma/harnessdesk.git')",
+    "await git(dir, 'remote', 'add', 'origin', 'ssh://git@github.com:22/openma/harnessdesk.git')",
+    "await git(dir, 'remote', 'add', 'origin', 'ssh://git@github.com')",
+    "expect(repoKey('git@github.com-work:AcmeCo/ledger-api.git')).toBe('github.com/acmeco/ledger-api')",
+    '<InputGroupInput {...control} placeholder="git@github.com:…" />',
+    /* The scp arm's own control: a remote whose user is not one of the service
+       names, so nothing but the host-then-path shape can excuse it. Without a
+       line like this the arm is unreachable from the tests — every scp remote
+       the tree writes today says `git@`, and a rule no test can reach is a
+       rule nothing holds. */
+    "await git(dir, 'remote', 'set-url', 'origin', 'deploy@github.com:openma/harnessdesk.git')",
     "'https://review-user:fake-secret@github.com/openma/harnessdesk.git'",
     "const spoof = 'http://127.0.0.1:54321@evil.com/steal'",
     "render('menubar.svg', 50, 36, join(assetsDir, 'trayTemplate@2x.png'))",
   ]) {
     assert.deepEqual(offendersIn('a.ts', line), [], line)
   }
+  /* Every shape that puts a character after an address and used to be excused
+     for it. The exemption was a bare `^[:/]` on the next character, so a prose
+     clause, a port, a smiley and a trailing path all read as a git remote —
+     and the retina rule matched a domain *prefix*, so any host under a `2x.`
+     subdomain read as an image file. All three seats measured this class in
+     round 1 of #278: the gate passing a real address is the one failure it
+     exists to prevent.
+
+     The domains are RFC 2606 `.invalid` names rather than the live ones the
+     reviews used to demonstrate it. They are unregistrable by definition, so
+     the fixtures cannot name anybody's real mailbox — which is the same rule
+     13 this gate enforces, applied to the gate's own test. */
+  for (const line of [
+    'See jane@northwind.invalid: the notes', // hd-secrets-ok
+    'Contact jane@northwind.invalid for help', // hd-secrets-ok
+    'user@northwind.invalid/path', // hd-secrets-ok
+    'real@northwind.invalid:443', // hd-secrets-ok
+    'real@northwind.invalid:8080/tickets', // hd-secrets-ok
+    'hacker@northwind.invalid:)', // hd-secrets-ok
+    'alice@2x.northwind.invalid', // hd-secrets-ok
+    'alice@2x.png.northwind.invalid', // hd-secrets-ok
+  ]) {
+    const refused = offendersIn('a.ts', line)
+    assert.equal(refused.length, 1, line)
+    assert.match(refused[0], /rule 13/, line)
+  }
+  /* A service local part stays exempt on any domain, and that is a decision
+     rather than an oversight: the account an address discloses is its local
+     part, and an unattended role address is nobody's. Round 1 asked for it to
+     be said out loud, so it is pinned here — changing it is a deliberate diff
+     against a test, not a quiet edit to a regex. */
+  assert.deepEqual(offendersIn('a.ts', 'noreply@northwind.invalid'), [])
   // A person in front of a real domain is the half of rule 13 a gate can catch.
   const found = offendersIn('a.ts', "const owner = 'j.roe@northwind-trading.co'") // hd-secrets-ok
   assert.equal(found.length, 1)

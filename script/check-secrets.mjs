@@ -66,19 +66,37 @@ const PLACEHOLDER_DOMAINS = new Set([
   'harnessdesk.app',
 ])
 
-/** Local parts that name a service rather than a person — the rule's own allowances. */
+/**
+ * Local parts that name a service rather than a person.
+ *
+ * The account an address discloses is its local part, so these stay exempt on
+ * any domain, sanctioned or not — deliberately, and that is what the rule says
+ * it does: it refuses *an account*, and an unattended role address is not one.
+ * Round 1 of #278 asked for the choice to be stated rather than assumed, so it
+ * is stated here and pinned by a test. Measured over the tree: all seventeen
+ * occurrences are `git@`, and four of them — `git@github.com-work:…` in the
+ * project tests, the `git@github.com:…` composer placeholder — have no other
+ * exemption to fall back on, so narrowing this would go red on real lines.
+ *
+ * The residual it leaves is an affiliation rather than an account: a
+ * `noreply@acme.co` still says this tree knows about `acme.co`. Rule 13
+ * governs accounts; if a domain ever needs governing, that is a different rule
+ * with a different roster.
+ */
 const IMPERSONAL_LOCAL = /^(?:git|no-?reply)$/i
 
 /**
  * Home directory names a committed path may carry.
  *
- * Measured from the tree the day this rule landed: nineteen distinct segments
- * across roughly three hundred occurrences, every one of them a placeholder or
- * the demo persona. Listing them is the reconciliation #204 asked for — a real
- * login name has no shape to match on, so the only way to refuse one is to say
- * which names are stand-ins. `shane` is the project's public demo persona,
- * whose home appears in the preview fixture and the site's recorded wire;
- * `linuxbrew` is a system account rather than a person.
+ * Measured from the tree the day this rule landed: seventeen distinct segments
+ * over 341 occurrences, every one of them a placeholder or the demo persona.
+ * Fourteen of the seventeen are named here; the other three are excused by
+ * shape below — a dotfile directory, and the two elisions. Listing them is the
+ * reconciliation #204 asked for — a real login name has no shape to match on,
+ * so the only way to refuse one is to say which names are stand-ins. `shane`
+ * is the project's public demo persona, whose home appears in the preview
+ * fixture and the site's recorded wire; `linuxbrew` is a system account rather
+ * than a person.
  */
 const PLACEHOLDER_HOMES = new Set([
   'a',
@@ -143,15 +161,26 @@ const PATTERNS = [
       const [whole, local, domain] = match
       if (PLACEHOLDER_DOMAINS.has(domain.toLowerCase())) return true
       if (IMPERSONAL_LOCAL.test(local)) return true
-      // `@2x` is the retina asset convention, so the "domain" is a filename.
-      if (/^[0-9]+x(?:\.|$)/.test(domain)) return true
-      /* The userinfo of a URL or a git remote names a host to reach, not
-         somebody's mailbox. Both spellings appear in the git tests: the
-         scp-style remote, where a colon follows the host, and the URL form,
-         where a slash does or the scheme precedes it. */
-      const after = line.slice(match.index + whole.length)
-      if (/^[:/]/.test(after)) return true
-      return /:\/\/[^\s"'`]*$/.test(line.slice(0, match.index))
+      /* `@2x` is the retina asset convention, so the "domain" is really a
+         filename — which means it has to look like one, anchored at both ends.
+         As a prefix match this sanctioned every domain that merely *starts*
+         with a retina suffix, so an address at `2x.` anything was exempt. */
+      if (/^[0-9]+x\.(?:png|jpe?g|gif|webp|avif)$/i.test(domain)) return true
+      /* The userinfo of a URL — a scheme, then credentials, then the host to
+         reach — names no mailbox. This is the arm that carries every such line
+         in the tree: seven of them, each with `ssh://`, `http://` or
+         `https://` in front. */
+      if (/:\/\/[^\s"'`]*$/.test(line.slice(0, match.index))) return true
+      /* An scp-style remote: host, then `:`, then a path. The remainder has to
+         be path-shaped and unbroken, because that is the whole of what
+         separates a remote from ordinary prose continuing after an address.
+         This was a bare `^[:/]` on the next character, which excused a clause
+         (`…@host: the notes`), a port (`…@host:443`), a smiley (`…@host:)`)
+         and any trailing path (`…@host/path`) — the gate's one job given away
+         by four characters, found by all three seats in round 1 of #278. A
+         leading port is refused along with them: digits before the slash are a
+         URL authority that lost its scheme, not a remote's path. */
+      return /^:(?!\d+\/)[A-Za-z0-9_.~-]*\/[^\s]/.test(line.slice(match.index + whole.length))
     },
   },
   {
