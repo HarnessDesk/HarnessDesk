@@ -25,7 +25,7 @@ test('the PATH walk is one text in the three packages that need it (#129)', () =
 type Strip = (source: string, fileName: string, options: { readonly strict: boolean }) => string
 
 /**
- * The layering gate's comment stripper, borrowed.
+ * The stripper the gates share, borrowed.
  *
  * What stood here was a line-start pattern, which is the technique the other
  * half of this pull request exists to replace — and it had the same hole, in
@@ -41,7 +41,7 @@ type Strip = (source: string, fileName: string, options: { readonly strict: bool
  */
 const stripper = async (): Promise<Strip> => {
   const gate: { withoutComments: Strip } = await import(
-    pathToFileURL(join(checkout(), 'script', 'check-layering.mjs')).href
+    pathToFileURL(join(checkout(), 'script', 'lib', 'without-comments.mjs')).href
   )
   return gate.withoutComments
 }

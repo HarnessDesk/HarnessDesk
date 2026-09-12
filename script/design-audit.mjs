@@ -23,7 +23,8 @@ import { fileURLToPath } from 'node:url'
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
-import { bareSource, ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
+import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
+import { withoutComments } from './lib/without-comments.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -97,6 +98,22 @@ const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 
 /** Strip comments so prose about a value is not counted as the value. */
 const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
+
+/**
+ * A `.tsx` file's code, with its comments gone.
+ *
+ * `bare` above is for CSS and must not be pointed at TypeScript: `/*` opens a
+ * comment for it wherever it appears, so `files: ['src/api/**']` in
+ * `preview/main.tsx` opened one that ran 149 lines to the next `*` + `/`, and
+ * every rule here was blind to that stretch (#229). The compiler's parser is
+ * the only thing that tells a comment from a string, and it is the one the
+ * layering gate already reads. Parsed once per file, however many rules ask.
+ */
+const parsed = new Map()
+export const codeOf = (file) => {
+  if (!parsed.has(file)) parsed.set(file, withoutComments(read(file), file, { strict: true }))
+  return parsed.get(file)
+}
 
 const findings = {
   wrongVariant: [],
@@ -275,7 +292,7 @@ export const sheetsOf = (dir, file, name, source, uiSrc) => {
   const sheets = new Map()
   const crossImports = []
   // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
-  for (const { binding, file: spec } of stylesheetImports(source)) {
+  for (const { binding, file: spec } of stylesheetImports(source, file, { strict: true })) {
     const sheet = resolveStylesheet(dir, spec, uiSrc)
     // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
     if (!ownsStylesheet(file, sheet)) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
@@ -399,7 +416,7 @@ const ARBITRARY = /\b(?:text|rounded|h|w|size|p[xytblr]?|m[xytblr]?|gap(?:-[xy])
 
 for (const file of tsxFiles()) {
   if (file.includes(`${path.sep}design${path.sep}`) && !file.includes('.test.')) {
-    for (const match of bare(read(file)).matchAll(ARBITRARY)) {
+    for (const match of codeOf(file).matchAll(ARBITRARY)) {
       findings.arbitraryUtility.push(`${label(file)}: ${match[0]}`)
     }
   }
@@ -420,7 +437,7 @@ for (const file of tsxFiles()) {
   //
   // The recorded baseline is the four surfaces that are deliberately not
   // dialogs. It is a ceiling, not a target: a fifth is new drift.
-  const code = bareSource(source)
+  const code = codeOf(file)
   if (dir !== PRIMITIVES && /aria-modal/.test(code)) {
     findings.handRolledOverlay.push(`${name}: aria-modal outside design/primitives`)
   }

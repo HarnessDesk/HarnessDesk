@@ -9,6 +9,15 @@ describe('sessionLabel', () => {
     expect(sessionLabel('<context switching in Go', null)).toBe('<context switching in Go')
   })
 
+  it('keeps a prompt that is literally a <context> tag as its name (#224)', () => {
+    // Nothing writes a bare `<context>`, so reading one as an envelope only
+    // ever cost the user's own words their name: this row read "Untitled
+    // session" and the next turn renamed the conversation for good.
+    expect(sessionLabel(null, '<context> what does this tag do?')).toBe('<context> what does this tag do?')
+    // The control: the envelope a writer does produce still names nothing here.
+    expect(sessionLabel(null, '<context source="Uncommitted changes">')).toBe('Untitled session')
+  })
+
   it('prefers the title', () => {
     expect(sessionLabel('Pong', 'build pong')).toBe('Pong')
   })

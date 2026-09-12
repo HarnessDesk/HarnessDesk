@@ -212,9 +212,15 @@ export const findChatWorkspace = (
  * A prompt as the user wrote it, with any context block HarnessDesk put in
  * front of it removed — a hand-off packet or a referenced conversation is
  * for the model, not a description of the conversation.
+ *
+ * The protocol's own reader does the removing. A pattern of this file's own
+ * was a third opinion on what an envelope is, and it disagreed with the
+ * protocol at both edges: it cut out a `<context\nsource="x">` block whose
+ * label `splitContext` could not read, so `titleOf` fell through to a label
+ * that was never found and named the conversation nothing (#224). Whatever
+ * `splitContext` reads as a block is what comes out, by construction.
  */
-export const stripEnvelope = (value: string): string =>
-  value.replace(/<context(?=\s+source="|>)[^>]*>[\s\S]*?<\/context>\s*/g, '').trim()
+export const stripEnvelope = (value: string): string => splitContext(value).text.trim()
 
 /**
  * How much of a line names a chat: 120 characters, where the desk's other

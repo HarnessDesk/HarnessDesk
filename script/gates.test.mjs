@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { withoutComments } from './check-layering.mjs'
+import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { sheetsOf, squaresOf } from './design-audit.mjs'
+import { codeOf, sheetsOf, squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
@@ -286,6 +286,35 @@ test('a rule is filed under the class it is about', (t) => {
   assert.equal(found.get('tabClose'), 18)
   assert.equal(found.get('solo'), 20)
   assert.equal(found.has('tray'), false)
+})
+
+test('the design audit reads a .tsx through the compiler, so a string is not a comment (#229)', (t) => {
+  /* The audit tracked comment state one line at a time, and stripped block
+     comments with a pattern: a `//` inside a template literal that spans
+     lines was cut as though it opened one, and `['src/api/**']` opened a
+     block comment that ran to the next star-slash — 149 lines of
+     `preview/main.tsx`, which every rule below was blind to. Both are the
+     failures `withoutComments` above was written for (#123, #228). */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-audit-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'Diff.tsx')
+  fs.writeFileSync(
+    file,
+    [
+      "const rule = { files: ['src/api/**'], dependsOn: [] }",
+      'const diff = `@@ -84,6 +84,17 @@',
+      '+  // worktree list reports the local registry, which outlives the remote:',
+      ' }`',
+      '// a real comment',
+      'export const Diff = () => <button aria-modal="true">{diff}{String(rule)}</button>',
+    ].join('\n'),
+  )
+  const code = codeOf(file)
+  assert.match(code, /outlives the remote:/)
+  assert.match(code, /dependsOn/)
+  // The controls: a real comment still goes, and the tag the rules walk is whole.
+  assert.doesNotMatch(code, /a real comment/)
+  assert.match(code, /<button aria-modal="true">/)
 })
 
 test("a comment's divider becomes a heading rather than a rule and a stray line", () => {

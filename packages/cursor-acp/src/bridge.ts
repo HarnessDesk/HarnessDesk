@@ -18,6 +18,8 @@ import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
+import { opensEnvelope } from '@harnessdesk/protocol'
+
 import {
   chatPath,
   cursorMeta,
@@ -463,16 +465,17 @@ export const titleOf = (text: string): string => {
  * a context block was stored under the envelope's first line,
  * `<context source="…">`, for good. That line is read as its label now, and an
  * envelope whose label can't be read as no name at all, so the next turn names
- * it (review, round 4). The envelope opens `<context source="`, the only way
- * `wrapContext` writes one, or `<context>` bare: a name that only starts with
- * the word, a prompt about `<context-free grammars>` or `<context switching`,
- * is the user's own, and read as an envelope it was renamed by the next turn
- * (#188, and the review of #207).
+ * it (review, round 4). What opens an envelope is the protocol's to say, and
+ * it says `<context source="`, the only way `wrapContext` writes one: a name
+ * that only starts with the word, a prompt about `<context-free grammars>` or
+ * `<context switching`, is the user's own, and read as an envelope it was
+ * renamed by the next turn (#188, and the review of #207). A pattern of this
+ * file's own was one of four copies of that question (#224).
  */
 const storedName = (stored: string | null | undefined): string | null => {
   if (!stored) return null
-  if (!/^<context(?:\s+source="|>)/.test(stored)) return stored
-  const quoted = /^<context\s+source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
+  if (!opensEnvelope(stored)) return stored
+  const quoted = /^<context source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
   if (quoted === undefined) return null
   try {
     return firstLine(JSON.parse(quoted) as string) || null

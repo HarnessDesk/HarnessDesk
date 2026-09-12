@@ -604,7 +604,10 @@ test('a message that is only a context block is named by what the block says it 
     titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>'),
     'Handed off from Claude Code — “x”',
   )
-  assert.equal(titleOf('<context>only context</context>'), '')
+  // An envelope with no label is one written with an empty `source`; a bare
+  // `<context>` is not an envelope at all, and is the user's own words (#224).
+  assert.equal(titleOf(wrapContext('', 'only context')), '')
+  assert.equal(titleOf('<context>only context</context>'), '<context>only context</context>')
   // Round 1 of #167: the envelope writes its label with JSON.stringify, so a quote or a backslash arrives escaped.
   for (const label of ['Handed off from Claude Code — “fix: "404" on reload”', 'Handed off from C:\\work\\retry', 'Plain']) {
     assert.equal(titleOf(wrapContext(label, '## Goal\nstuff')), label, label)
@@ -620,14 +623,16 @@ test('a message of several context blocks is named by the first, and by one line
 test('a stored preview that says nothing gives way to the next turn\'s title', () => {
   // Round 1 of #167: an empty preview from a context-only first turn was kept with ??, for good.
   assert.equal(previewFor('', 'Fix the bug'), 'Fix the bug')
-  assert.equal(previewFor(undefined, '<context>only context</context>'), null)
+  assert.equal(previewFor(undefined, wrapContext('', 'only context')), null)
   assert.equal(previewFor('Earlier name', 'Fix the bug'), 'Earlier name')
 })
 
 test('a preview an older bridge stored as the envelope’s first line reads as its label', () => {
   // Round 4 of #167: rows written before #47's fix kept `<context source="…">` as their name for good.
   assert.equal(previewFor('<context source="Handed off from Claude Code — \\"x\\"">', 'Fix the bug'), 'Handed off from Claude Code — "x"')
-  assert.equal(previewFor('<context>', 'Fix the bug'), 'Fix the bug', 'an envelope with no label is no name')
+  assert.equal(previewFor('<context source="">', 'Fix the bug'), 'Fix the bug', 'an envelope with no label is no name')
+  // #224: nothing writes a bare `<context>`, so a stored name that is one is a name.
+  assert.equal(previewFor('<context>', 'Fix the bug'), '<context>')
   assert.equal(previewFor('<context source="Handed off', 'Fix the bug'), 'Fix the bug', 'nor is a label cut short')
   // #188: the envelope opens `<context` and a space or `>`, so words that only start with it are the user's own.
   assert.equal(previewFor('<context-free grammars, explained', 'Fix the bug'), '<context-free grammars, explained')
@@ -635,6 +640,18 @@ test('a preview an older bridge stored as the envelope’s first line reads as i
   // Nor is a space after it: the envelope is `<context source="…">` or `<context>` (review of #207, round 1).
   assert.equal(previewFor('<context switching in Go', 'Fix the bug'), '<context switching in Go')
   assert.equal(titleOf('<context switching in Go'), '<context switching in Go')
+})
+
+test('an envelope is what wrapContext writes, so any other whitespace before `source=` is the user\u2019s words (#224)', () => {
+  /* One question asked in four places in three spellings. `stripEnvelope` had
+     a pattern of its own that took *any* whitespace before `source=`, so it
+     cut this block out; `splitContext` requires the one space `wrapContext`
+     writes and so could not read its label. With nothing left and no label to
+     fall back to, the conversation was named nothing at all. */
+  assert.equal(titleOf('<context\nsource="Git">\nOn main\n</context>'), '<context')
+  assert.equal(titleOf('<context  source="Git">\nOn main\n</context>'), '<context  source="Git">')
+  // The control: the one space wrapContext writes is read, label and all.
+  assert.equal(titleOf(wrapContext('Git', 'On main')), 'Git')
 })
 
 test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {
@@ -670,7 +687,7 @@ test('a conversation is named through a turn: by its block\'s label, or by the n
 
     const unlabelled = await runtime.createSession({ cwd: WORKDIR })
     ids.push(String(unlabelled.id))
-    await say(unlabelled, '<context>only context</context>')
+    await say(unlabelled, wrapContext('', 'only context'))
     assert.equal(preview(unlabelled.id), null, 'nothing to be named by yet')
     await say(unlabelled, 'Fix the bug')
     assert.equal(preview(unlabelled.id), 'Fix the bug', 'so the next turn names it')
@@ -914,7 +931,7 @@ test('a chat that opened with only a context block is named by its label, in Cur
   // A block with no label names nothing, and the next message names the chat.
   writeChat(home, cwd, 'unlabelled', {
     messages: [
-      { role: 'user', text: '<user_query>\n<context>only context</context>\n</user_query>' },
+      { role: 'user', text: `<user_query>\n${wrapContext('', 'only context')}\n</user_query>` },
       { role: 'user', text: '<user_query>\nFix the bug\n</user_query>' },
     ],
   })

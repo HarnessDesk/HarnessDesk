@@ -88,8 +88,30 @@ export const isHandoffSource = (label: string): boolean => label.startsWith(HAND
  * Whether a line opens an envelope, whole or not. `splitContext` leaves a
  * block that was cut off before it closed in the text, markup and all, and
  * nothing should read that as the person's words.
+ *
+ * One question, asked in one place. It was asked in four, in three different
+ * spellings — here, in the Cursor bridge's `storedName`, in its
+ * `stripEnvelope`, and in the renderer's `sessionLabel` — and they agreed on
+ * everything `wrapContext` writes and differed at the edges. Round 1 of #207
+ * was a divergence between two of the copies, and nothing stopped a fifth
+ * (#224).
+ *
+ * It is `CONTEXT_OPEN` plus the quote, so the predicate and `PATTERN` cannot
+ * drift: an envelope is what `wrapContext` writes and nothing else. Two
+ * shapes that used to pass here are the user's own words now, and both were
+ * read by one copy and unreadable to another:
+ *
+ * - `<context\nsource="x">` — any whitespace before `source=`. `stripEnvelope`
+ *   cut the block out; `splitContext` could not read its label, so a
+ *   conversation opening with one was named nothing at all.
+ * - `<context>` bare. Nothing writes it — `wrapContext` and the Codex
+ *   adapter's preamble both write `source=` — so it only ever stood in for
+ *   "an envelope with no label", which `<context source="` cut short already
+ *   covers. Keeping it cost a prompt that is literally `<context> what does
+ *   this tag do?` its name: the row read "Untitled session", and the next
+ *   turn renamed the conversation for good.
  */
-export const opensEnvelope = (line: string): boolean => /^<context(?:\s+source="|>)/.test(line)
+export const opensEnvelope = (text: string): boolean => text.startsWith(`${CONTEXT_OPEN}"`)
 
 /**
  * What a conversation's first message is called, before it's cut to a row's
