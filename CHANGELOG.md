@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A conversation docked to a panel no longer takes the screen when the app
+  reopens** — a layout saved with one conversation in front and a second docked
+  to the side came back with the docked one in the middle as well, over the one
+  you had been reading, which was then nowhere on screen. Each conversation is
+  brought back where the layout has it: the one in front in front, the docked
+  one docked, both of them loaded.
+- **Undoing a turn clears it from every window at once** — after "Undo the last
+  turn" the conversation kept drawing the turn it had just dropped, in the pane
+  that asked and in any other window open on it, until something happened to
+  read the conversation again. Every view is told, and drops it together.
 - **A name can no longer reorder the text around it or hide inside itself** —
   a profile name carrying a bidirectional override or a zero-width space drew
   one way in the sidebar seat and another in the settings rail, and could hold

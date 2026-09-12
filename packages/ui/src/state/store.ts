@@ -2954,21 +2954,30 @@ export class AppStore {
 
   /**
    * Every conversation on screen whose transcript the host no longer holds
-   * live is resumed from history — in a pane *or* in a panel.
+   * live is resumed from history — in a pane *or* in a panel, and each of
+   * them where it already is.
    *
    * Walking only the split tree left a docked transcript blank until somebody
-   * clicked it, which is a conversation that restored as an empty box.
+   * clicked it, which is a conversation that restored as an empty box. Then
+   * walking both put every one of them in the middle: `openSession` reveals
+   * what it opens unless told otherwise, and main is a slot, so the docked
+   * one — resumed last — took the pane from the conversation saved there. The
+   * person reopened the app to find a different conversation in front and the
+   * one they were reading nowhere on screen (#257). A restore is not
+   * navigation: nothing here may move what the layout has already placed.
    */
   async #resumeVisible(): Promise<void> {
-    const docked = mountedViewsIn(this.#snapshot.workbench).map((entry) => entry.mounted.view)
-    const onScreen = [...panes(this.#snapshot.layout.root).map((pane) => pane.view), ...docked]
-    for (const view of onScreen) {
+    const onScreen = [
+      ...panes(this.#snapshot.layout.root).map((pane) => ({ view: pane.view, docked: false })),
+      ...mountedViewsIn(this.#snapshot.workbench).map((entry) => ({ view: entry.mounted.view, docked: true })),
+    ]
+    for (const { view, docked } of onScreen) {
       const session = view.kind === 'conversation' ? view.session : null
       if (!session) continue
       const known = this.#snapshot.sessions.get(session)
       if (known?.status.type === 'active' || known?.status.type === 'idle') continue
       const { runtime, id } = splitSessionKey(session)
-      await this.openSession(id, { runtime, restoring: true })
+      await this.openSession(id, { runtime, restoring: true, ...(docked ? { reveal: false } : {}) })
     }
   }
 

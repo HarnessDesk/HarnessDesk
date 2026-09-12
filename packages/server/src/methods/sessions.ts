@@ -196,6 +196,18 @@ export const sessionMethods = {
        copy holds, and forgets a transcript with no turn left (review of
        #236, round 1). */
     await ctx.transcripts.dropTurns(runtime, id, params.turns)
+    /* And every window is told. This answered `null` and pushed nothing, so
+       each view went on drawing the dropped turns until something read the
+       conversation again — the pane that asked among them, and any other
+       window on the same conversation (#259). What goes out is the
+       conversation as it now stands: `session/started` is the whole-session
+       event an adapter re-emits when one it has already announced has changed
+       under the windows, and a view folding it in drops the turns that are no
+       longer in it. */
+    const record = ctx.registry.get(runtime, id)
+    if (record) {
+      ctx.push({ method: 'event', params: { runtime, event: { type: 'session/started', session: record.session } } })
+    }
     return null
   },
 
