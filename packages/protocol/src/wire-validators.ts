@@ -280,6 +280,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     sessionId: isString,
     turnId: isString,
     direction: optional(literalUnion('undo', 'redo')),
+    skipUnrecoverable: optional(isBoolean),
   }),
   'session/compact': shape({ runtime: isString, sessionId: isString }),
   'session/memory': shape({ runtime: isString, sessionId: isString, enabled: isBoolean }),

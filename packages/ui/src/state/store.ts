@@ -3496,9 +3496,19 @@ export class AppStore {
    * Puts back the files one turn changed. The host reverses that turn's diff
    * and refuses whole when a file was edited since, so there is nothing to
    * warn about beforehand — the refusal is the warning.
+   *
+   * One refusal has a second door, and the answer says so. A turn holding a
+   * deletion the agent recorded no content for cannot be undone whole — an
+   * empty file written where the real one was is the loss an undo exists to
+   * prevent — and `unrecoverable` on the answer means the rest of that turn
+   * still can be, with `skipUnrecoverable` (#237).
    */
-  revertTurn(turnId: string, key = this.#snapshot.activeSessionKey): Promise<boolean> {
-    return this.#applyTurn(turnId, 'undo', key)
+  revertTurn(
+    turnId: string,
+    key = this.#snapshot.activeSessionKey,
+    options: { readonly skipUnrecoverable?: boolean } = {},
+  ): Promise<TurnUndo> {
+    return this.#applyTurn(turnId, 'undo', key, options)
   }
 
   /**
@@ -3506,7 +3516,7 @@ export class AppStore {
    * the user did not mean is otherwise unrecoverable: the agent's edits are
    * not in git, and nothing else on the machine remembers them.
    */
-  redoTurn(turnId: string, key = this.#snapshot.activeSessionKey): Promise<boolean> {
+  redoTurn(turnId: string, key = this.#snapshot.activeSessionKey): Promise<TurnUndo> {
     return this.#applyTurn(turnId, 'redo', key)
   }
 
@@ -3514,25 +3524,41 @@ export class AppStore {
     turnId: string,
     direction: 'undo' | 'redo',
     key = this.#snapshot.activeSessionKey,
-  ): Promise<boolean> {
-    if (!key) return false
+    options: { readonly skipUnrecoverable?: boolean } = {},
+  ): Promise<TurnUndo> {
+    if (!key) return { done: false, unrecoverable: false }
     try {
-      const { files } = await this.transport.request('session/revertTurn', { ...address(key), turnId, direction })
+      const { files, skipped } = await this.transport.request('session/revertTurn', {
+        ...address(key),
+        turnId,
+        direction,
+        ...(options.skipUnrecoverable ? { skipUnrecoverable: true } : {}),
+      })
       const one = files.length === 1
+      // What was left out is named. "Put 2 files back" on a turn that touched
+      // three is a report with the interesting half missing, and this is a
+      // partial success rather than a success — hence the warning.
+      const without =
+        skipped.length > 0
+          ? ` ${skipped.join(', ')} ${skipped.length === 1 ? 'was' : 'were'} left alone: the agent recorded nothing to put back there.`
+          : ''
       this.notice(
-        'info',
-        direction === 'undo'
+        skipped.length > 0 ? 'warning' : 'info',
+        (direction === 'undo'
           ? one
             ? `Put ${files[0]} back.`
             : `Put ${files.length} files back.`
           : one
             ? `Wrote the turn's change to ${files[0]} again.`
-            : `Wrote the turn's changes to ${files.length} files again.`,
+            : `Wrote the turn's changes to ${files.length} files again.`) + without,
       )
-      return true
+      return { done: true, unrecoverable: false }
     } catch (error) {
       this.notice('error', describe(error))
-      return false
+      /* Read off the code the host put on the refusal, never off the sentence:
+         the interface can only offer the way out if it can tell this failure
+         from every other one, and English changes. */
+      return { done: false, unrecoverable: (error as { code?: unknown }).code === 'turnPartlyUnrecoverable' }
     }
   }
 
@@ -4875,6 +4901,18 @@ const focusedPaneViewOf = (layout: Layout): PaneView | null => {
  */
 const isHeldElsewhere = (error: unknown): boolean =>
   error instanceof Error && (error as { code?: unknown }).code === 'sessionBusy'
+
+/**
+ * What an undo or a redo came to.
+ *
+ * `unrecoverable` is the one refusal with a way out: the turn holds a deletion
+ * the agent recorded no content for, and everything else in it could still be
+ * put back if asked (#237).
+ */
+export interface TurnUndo {
+  readonly done: boolean
+  readonly unrecoverable: boolean
+}
 
 const describe = (error: unknown): string => {
   const said = error instanceof Error ? error.message : String(error)

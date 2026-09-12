@@ -28,6 +28,91 @@ export const describeUncommitted = (changes: WorktreeChanges): string => {
   return `${parts.join(' and ')} file${changes.modified + changes.untracked === 1 ? '' : 's'}`
 }
 
+/**
+ * What git ignores, split by whether losing it costs anything.
+ *
+ * The porcelain gives the distinction away for free: git collapses a directory
+ * it ignores whole to a name ending in `/`, and a whole ignored directory is
+ * the rebuildable kind — `node_modules/`, `.venv/`, `dist/`. What is left is a
+ * *file*, and a file git never had is a file nothing on the machine can put
+ * back. An `.env` is the case this exists for: it makes the checkout read as
+ * clean, it goes with the folder, and then it is gone (#209).
+ */
+export const splitIgnored = (
+  changes: WorktreeChanges,
+): { readonly gone: readonly string[]; readonly rebuildable: readonly string[] } => {
+  const gone: string[] = []
+  const rebuildable: string[] = []
+  for (const entry of changes.ignored) (entry.endsWith('/') ? rebuildable : gone).push(entry)
+  return { gone, rebuildable }
+}
+
+/** "2 files and 1 folder" — counted over what is shown, plus whatever is beyond it. */
+export const describeIgnored = (changes: WorktreeChanges): string => {
+  const { gone, rebuildable } = splitIgnored(changes)
+  const beyond = changes.ignoredCount - (gone.length + rebuildable.length)
+  const parts: string[] = []
+  if (gone.length > 0) parts.push(`${gone.length} file${gone.length === 1 ? '' : 's'}`)
+  if (rebuildable.length > 0) parts.push(`${rebuildable.length} folder${rebuildable.length === 1 ? '' : 's'}`)
+  const said = parts.join(' and ') || `${changes.ignoredCount} entries`
+  return beyond > 0 ? `${said} and ${beyond} more` : said
+}
+
+/** A few names for a sentence, rather than a second listing. */
+const named = (entries: readonly string[]): string =>
+  entries.length <= 3 ? entries.join(', ') : `${entries.slice(0, 3).join(', ')} and ${entries.length - 3} more`
+
+/**
+ * What git ignores here, named before the folder goes.
+ *
+ * Both verbs that take a worktree's folder delete these — `git worktree
+ * remove` without being forced, and the `rm` that ends a bring-back — and
+ * `git status` counts none of them, so the checkout reads as clean. The
+ * dialogs used to say so in general ("anything git ignores there, such as an
+ * .env file") and name nothing, which is the difference between a warning and
+ * a fact: a person cannot copy out a file they have not been told is there.
+ *
+ * Files and rebuildable folders are said differently on purpose. Losing
+ * `node_modules/` costs an install; losing an `.env` that was never in git
+ * costs the file.
+ */
+export const IgnoredEntries = ({
+  changes,
+  className,
+}: {
+  changes: WorktreeChanges
+  className?: string
+}) => {
+  if (changes.ignoredCount === 0) return null
+  const { gone, rebuildable } = splitIgnored(changes)
+  return (
+    <Alert tone="warning" className={className}>
+      <AlertIcon />
+      <AlertContent>
+        <AlertTitle>{`This also deletes ${describeIgnored(changes)} git ignores here`}</AlertTitle>
+        <ul className="my-1 list-disc pl-4 font-mono text-sm break-all text-(--hd-secondary-foreground)">
+          {changes.ignored.map((entry) => (
+            <li key={entry}>{entry}</li>
+          ))}
+          {changes.ignoredCount > changes.ignored.length && (
+            <li className="list-none font-sans">and {changes.ignoredCount - changes.ignored.length} more</li>
+          )}
+        </ul>
+        <AlertDescription>
+          {gone.length > 0 && (
+            <>
+              {named(gone)} {gone.length === 1 ? 'is' : 'are'} not in git, so nothing can put{' '}
+              {gone.length === 1 ? 'it' : 'them'} back — copy {gone.length === 1 ? 'it' : 'them'} out
+              first if you need {gone.length === 1 ? 'it' : 'them'}.{' '}
+            </>
+          )}
+          {rebuildable.length > 0 && <>{named(rebuildable)} can be built again.</>}
+        </AlertDescription>
+      </AlertContent>
+    </Alert>
+  )
+}
+
 export const UncommittedFiles = ({
   changes,
   title,

@@ -338,6 +338,18 @@ export interface WorktreeChanges {
   /** Commits on the branch no upstream has. The branch is kept, so these are a note, not a loss. */
   readonly unpushedCommits: number
   readonly files: readonly string[]
+  /**
+   * What git ignores in the checkout — an `.env`, `node_modules/` — collapsed
+   * per directory and capped for the wire; `ignoredCount` is the truth.
+   *
+   * Here because `git status` never counts these and both verbs that take the
+   * folder delete them anyway: `git worktree remove` without `--force`, and
+   * the `rm` that ends a bring-back. A checkout holding an `.env` reads as
+   * clean, and that `.env` was never in git, so nothing anywhere can put it
+   * back. The dialogs name these before anything moves.
+   */
+  readonly ignored: readonly string[]
+  readonly ignoredCount: number
 }
 
 export interface WorkspaceEntry {
@@ -936,8 +948,25 @@ export interface HostMethods {
       readonly turnId: string
       /** Default `'undo'`, which is what the method is named for. */
       readonly direction?: 'undo' | 'redo'
+      /**
+       * Put back everything the undo *can*, leaving out the deletions the
+       * agent recorded no content for.
+       *
+       * Without it such a turn refuses whole, which is the right default: a
+       * file restored as an empty one is the loss an undo exists to prevent.
+       * But the refusal left the recoverable half — the updates, and the
+       * deletions that were recorded — with no way to ask for it. This is
+       * that second, explicit choice; the refusal names the files it would
+       * leave out, and `skipped` names them again afterwards. Ignored on a
+       * redo, which has nothing of the kind to skip.
+       */
+      readonly skipUnrecoverable?: boolean
     }
-    result: { readonly files: readonly string[] }
+    result: {
+      readonly files: readonly string[]
+      /** Deletions deliberately left out, named. Empty unless `skipUnrecoverable` asked for it. */
+      readonly skipped: readonly string[]
+    }
   }
   'session/compact': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }

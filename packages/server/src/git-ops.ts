@@ -23,13 +23,31 @@ const git = async (root: string, args: readonly string[]): Promise<string> => {
 }
 
 export class RevertError extends Error {
+  /**
+   * Named on the wire only when there *is* a way out — when leaving the
+   * unrecoverable files out would still put something back. The interface
+   * offers that second choice off this code rather than off the sentence,
+   * which would break the first time the sentence was improved
+   * (`packages/protocol/src/errors.ts` sets the convention).
+   */
+  wireCode?: string
+
   constructor(
     message: string,
     /** Files already put back before the refusal, so the user knows the state. */
     readonly reverted: readonly string[],
+    /**
+     * Files this undo cannot put back at all, because the agent recorded no
+     * content for them. Named in the message too — this is the same list,
+     * readable without parsing English.
+     */
+    readonly unrecoverable: readonly string[] = [],
+    /** Whether the rest of the turn could still be put back without them. */
+    recoverable = false,
   ) {
     super(message)
     this.name = 'RevertError'
+    if (unrecoverable.length > 0 && recoverable) this.wireCode = 'turnPartlyUnrecoverable'
   }
 }
 
@@ -54,6 +72,18 @@ const locate = async (root: string, top: string, path: string): Promise<{ absolu
 
 /** Which way a turn's edits are being applied. */
 export type TurnDirection = 'undo' | 'redo'
+
+/** What one pass did, and what it deliberately did not do. */
+export interface TurnApplied {
+  /** Paths, relative to the repository, that were put back or written again. */
+  readonly files: string[]
+  /**
+   * Deletions left out on purpose: the agent recorded no content for them, so
+   * there is nothing to put back. Empty unless the caller asked for them to be
+   * skipped — without that, one of these refuses the whole pass.
+   */
+  readonly skipped: string[]
+}
 
 /**
  * `git apply` of one patch — reversed for an undo, forward for a redo —
@@ -92,8 +122,20 @@ const patchFor = (inRepo: string, change: FileChange): string =>
  * A redo is not a second undo of the undo: it applies the same recorded diff
  * forward, so a turn can be put back and taken away as often as the working
  * tree still matches, and never more than once at a time.
+ *
+ * One refusal has a second door. An undo of a turn holding a deletion the
+ * agent recorded no content for refuses whole, because writing that back as an
+ * empty file is the loss an undo exists to prevent — and `skipUnrecoverable`
+ * asks for the rest of the turn instead, naming what it left out. It is the
+ * caller's explicit second choice, never a fallback: the default stays the
+ * refusal (#237).
  */
-export const applyTurn = async (root: string, turn: Turn, direction: TurnDirection = 'undo'): Promise<string[]> => {
+export const applyTurn = async (
+  root: string,
+  turn: Turn,
+  direction: TurnDirection = 'undo',
+  options: { readonly skipUnrecoverable?: boolean } = {},
+): Promise<TurnApplied> => {
   const changes = turn.items.flatMap((item) => (item.type === 'fileChange' ? item.changes : []))
   if (changes.length === 0) throw new RevertError('This turn did not change any files.', [])
   const top = await canonical((await topLevel(root)) ?? root)
@@ -102,7 +144,11 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
   if (turn.diff && turn.diff.trim().length > 0) {
     try {
       await applyPatch(top, turn.diff, direction)
-      return paths
+      /* Nothing is skipped here even when asked: the aggregated diff carries
+         the deleted file's content itself, so there is no blank deletion to
+         step around. It is also why the refusal below can only arise without
+         one, which is why this path needs no second choice. */
+      return { files: paths, skipped: [] }
     } catch (error) {
       throw new RevertError(
         direction === 'undo'
@@ -120,19 +166,43 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
      front, before anything is touched, so nothing is half put back. A file
      that really was empty is refused too; it is the one that costs nothing to
      make again. */
+  let pending = changes
+  let skipped: string[] = []
   if (direction === 'undo') {
     const blank = changes.filter((change) => change.kind.type === 'delete' && change.diff === '')
     if (blank.length > 0) {
       const names = [...new Set(await Promise.all(blank.map(async (change) => (await locate(root, top, change.path)).inRepo)))]
-      throw new RevertError(
-        `Cannot put back ${names.join(', ')}: the agent recorded no content for ${names.length === 1 ? 'it' : 'them'}. Nothing was changed.`,
-        [],
-      )
+      const rest = changes.filter((change) => !blank.includes(change))
+      const said = `the agent recorded no content for ${names.length === 1 ? 'it' : 'them'}`
+      /* The refusal stands as the default. What it lacked was a second door:
+         a person who wants the recoverable half — the updates, and the
+         deletions that *were* recorded — had no way to ask for it, and the
+         refusal already knew exactly what it would be leaving out (#237). */
+      if (!options.skipUnrecoverable) {
+        throw new RevertError(
+          `Cannot put back ${names.join(', ')}: ${said}. Nothing was changed.`,
+          [],
+          names,
+          rest.length > 0,
+        )
+      }
+      // Asked to skip them, with nothing else in the turn: there is no
+      // recoverable half to put back, and saying so beats reporting success.
+      if (rest.length === 0) {
+        throw new RevertError(
+          `Cannot put back ${names.join(', ')}: ${said}, and this turn changed nothing else. Nothing was changed.`,
+          [],
+          names,
+          false,
+        )
+      }
+      pending = rest
+      skipped = names
     }
   }
 
   const done: string[] = []
-  for (const change of direction === 'undo' ? [...changes].reverse() : changes) {
+  for (const change of direction === 'undo' ? [...pending].reverse() : pending) {
     const { absolute, inRepo: path } = await locate(root, top, change.path)
     // An undo takes an added file away and writes a deleted one back; a redo
     // does the opposite. Either way the file must still be what the agent
@@ -170,14 +240,16 @@ export const applyTurn = async (root: string, turn: Turn, direction: TurnDirecti
       )
     }
   }
-  return done
+  return { files: done, skipped }
 }
 
 /** One turn's edits taken off disk — its diff, reversed. */
-export const revertTurn = (root: string, turn: Turn): Promise<string[]> => applyTurn(root, turn, 'undo')
+export const revertTurn = async (root: string, turn: Turn): Promise<string[]> =>
+  (await applyTurn(root, turn, 'undo')).files
 
 /** The same edits written again after an undo — its diff, forward. */
-export const reapplyTurn = (root: string, turn: Turn): Promise<string[]> => applyTurn(root, turn, 'redo')
+export const reapplyTurn = async (root: string, turn: Turn): Promise<string[]> =>
+  (await applyTurn(root, turn, 'redo')).files
 
 const describeGit = (error: unknown): string => {
   const text = error instanceof Error ? error.message : String(error)

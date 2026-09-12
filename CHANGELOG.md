@@ -7,6 +7,35 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A worktree that goes names what git ignores in it first** — removing a
+  worktree, or bringing one back to the main checkout, deletes the folder and
+  everything git ignores inside it: an `.env`, a `.venv`, `node_modules`. Git
+  counts none of that as a change, so the checkout read as clean and the
+  removal dialog said "only the checkout goes" — then took an `.env` that was
+  in no commit and no backup. Both dialogs now list those entries before
+  anything moves, and say which kind each one is: a folder that can be built
+  again, or a file that is in git nowhere and cannot be got back.
+- **An undo that cannot go whole can now go as far as it goes** — a turn that
+  deleted several files, one of which the agent recorded no content for, could
+  not be undone at all. Refusing is right — writing that file back as an empty
+  one is the loss an undo exists to prevent — but the updates and the recorded
+  deletions beside it were recoverable and there was no way to ask for them.
+  The refusal now offers *Undo the rest*, which puts back everything it can and
+  names what it left exactly as it was.
+- **A throwaway browser profile goes before the desk does** — when pages are
+  set to open in a separate window and the profile is not kept, quitting asked
+  Chrome to stop and removed the profile only once Chrome had gone. Nothing
+  waited for that, and the desk exits a moment after, so the profile — cookies
+  and logins of whatever the agent signed into — could be left on disk. The
+  quit now waits for the browser to exit, still bounded so it cannot hang on
+  one.
+- **A saved PDF's folder does not outlive the desk that made it** — a page
+  saved as a PDF goes in a folder under the system temp directory that is
+  removed when the plugin stops or the desk quits. A crash or a force quit runs
+  neither, and the folder stayed until the operating system got round to it.
+  Each folder now carries the process that made it, and a desk starting up
+  removes only the folders whose process is gone — never a folder another
+  running desk is still using.
 - **A plugin's workspace grant stops at the workspace, symlinks included** — a
   link inside the open folder pointing anywhere else was treated as part of the
   folder, so a plugin granted workspace access could read and write through it
