@@ -54,6 +54,16 @@ interface Profile {
   not stored. A name read from the file is kept as it was written: tidying it
   on the read would lose a later build's longer cap, or its own spacing, on
   the next whole write of anything.
+- One exception to "kept as it was written", decided in #235: a name never
+  carries the bidirectional controls (U+202A–U+202E, U+2066–U+2069) or the
+  zero-width space (U+200B), whether it was typed here, read from the file or
+  — later — supplied by an account. They reorder the characters around them or
+  hide inside the name, and no name needs them. The zero-width joiner (U+200D)
+  and non-joiner (U+200C) are kept, because a family emoji is a joiner sequence
+  and Persian spelling needs the non-joiner: stripping those would mangle real
+  names silently, which is worse than the attack it prevents. The rule lives
+  where a name is read (`readName`) rather than at each drawing surface, so
+  every surface draws the same string instead of each one remembering to.
 - A stored profile is read defensively and forward: a hand edit this build
   cannot read is the default rather than a broken seat, and whatever a later
   build stored — a face this build does not ship, a picture, a field an
@@ -153,7 +163,9 @@ which is how a room row's own tile holds it.
 
 - `lib/profile.test.ts` — default name, tidying, empty and default names not
   stored, the character-safe cap, patches keeping unmentioned fields, reading
-  unreadable files as the default, a later build's name kept as written.
+  unreadable files as the default, a later build's name kept as written; the
+  controls a name may not carry, dropped on all three reads, and the joiner
+  and non-joiner a real name needs, kept.
 - `lib/avatars.test.ts` — the table equals the folder minus `black`; every
   offered face resolves to its file; ids recognised only when shipped.
 - `state/store.profile.test.ts` — whole-profile writes; no write for no

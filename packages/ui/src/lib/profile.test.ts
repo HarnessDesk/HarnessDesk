@@ -113,6 +113,84 @@ describe('what was stored', () => {
   })
 })
 
+/**
+ * Which invisible controls a name may carry (#235).
+ *
+ * Two directions, and the second matters more. The controls that reorder the
+ * text around them or hide inside it come out wherever a name is read — typed
+ * here, read from the file, and one day supplied by an account — because no
+ * name needs them. The two that are spelling stay, and a blunt "strip every
+ * zero-width and bidi control" would pass everything in the first block below
+ * while silently mangling every name in the second.
+ */
+describe('the controls a name may not carry', () => {
+  const banned: [string, string][] = [
+    ['left-to-right embedding', '‪'],
+    ['right-to-left embedding', '‫'],
+    ['pop directional formatting', '‬'],
+    ['left-to-right override', '‭'],
+    ['right-to-left override', '‮'],
+    ['left-to-right isolate', '⁦'],
+    ['right-to-left isolate', '⁧'],
+    ['first strong isolate', '⁨'],
+    ['pop directional isolate', '⁩'],
+    ['zero-width space', '​'],
+  ]
+
+  it.each(banned)('drops the %s from a stored name', (_what, control) => {
+    expect(readProfile({ name: `Jane${control}Doe` })).toEqual({ name: 'JaneDoe' })
+  })
+
+  it.each(banned)('drops the %s from a name typed here', (_what, control) => {
+    expect(applyProfile({}, { name: `Jane${control}Doe` })).toEqual({ name: 'JaneDoe' })
+  })
+
+  it.each(banned)('never draws the %s, whatever path put it in the field', (_what, control) => {
+    // The drawing read, for the name an account will one day hand straight to
+    // the snapshot without passing `readProfile` or an edit made here.
+    expect(profileName({ name: `Jane${control}Doe` })).toBe('JaneDoe')
+  })
+
+  it('reads a name that was nothing else as the default', () => {
+    expect(readProfile({ name: '​‮⁩' })).toEqual({})
+    expect(applyProfile({ name: 'Jane' }, { name: '⁦ ⁩' })).toEqual({})
+  })
+
+  it('sees the default through them, so "Reset" is still offered for something', () => {
+    expect(applyProfile({}, { name: 'Harness​Desk' })).toEqual({})
+  })
+
+  it('spends the cap on characters a person can see', () => {
+    // They come out before the forty are counted, or a name could carry ten of
+    // them and lose ten of its own letters to make room.
+    expect(applyProfile({}, { name: '​'.repeat(10) + 'x'.repeat(PROFILE_NAME_MAX) }).name).toBe(
+      'x'.repeat(PROFILE_NAME_MAX),
+    )
+  })
+})
+
+describe('the controls a real name needs', () => {
+  // Kept, and the reason the blunt rule was rejected: 👨‍👩‍👧 is a
+  // zero-width-joiner sequence, and می‌خواهم is misspelled without the
+  // non-joiner. Both must read exactly as they did before any of this existed.
+  const family = '👨‍👩‍👧'
+  const persian = 'می‌خواهم'
+
+  it('holds those two examples itself, so a mangled source file cannot pass quietly', () => {
+    expect([...family].filter((character) => character === '‍')).toHaveLength(2)
+    expect(persian).toContain('‌')
+  })
+
+  it.each([
+    ['a family emoji', family],
+    ['a Persian name', persian],
+  ])('keeps %s whole — read, typed and drawn', (_what, name) => {
+    expect(readProfile({ name })).toEqual({ name })
+    expect(applyProfile({}, { name })).toEqual({ name })
+    expect(profileName({ name })).toBe(name)
+  })
+})
+
 it('tells two profiles apart by what they show', () => {
   expect(sameProfile({ name: 'A', avatar: 'dj' }, { name: 'A', avatar: 'dj' })).toBe(true)
   expect(sameProfile({ name: 'A' }, { name: 'A', avatar: 'dj' })).toBe(false)

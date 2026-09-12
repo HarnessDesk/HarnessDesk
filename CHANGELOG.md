@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A name can no longer reorder the text around it or hide inside itself** —
+  a profile name carrying a bidirectional override or a zero-width space drew
+  one way in the sidebar seat and another in the settings rail, and could hold
+  characters nothing on screen accounted for. Those controls come out now
+  wherever a name is read. A family emoji and a Persian name spelled with a
+  zero-width non-joiner are untouched: those characters are spelling, and a
+  name that needs them keeps them.
 - **One Escape closes one thing in Settings and in the dashboard** — with a
   menu open inside either window, one Escape closed the menu *and* the window,
   so the thing you were looking at went along with the thing you meant to
