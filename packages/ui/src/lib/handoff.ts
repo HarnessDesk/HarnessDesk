@@ -192,9 +192,45 @@ const carriedGoal = (session: Session): string | null => {
   return null
 }
 
-/** The one-line lineage a reader sees first, in the draft and in the packet. */
-export const lineageLine = (source: HandoffSource): string =>
-  `${HANDOFF_PREFIX}${source.agentName} — “${titleOf(source.session)}”`
+/**
+ * A label that is itself a lineage line, read back into its parts.
+ *
+ * Unwrapped as far as it goes, so a packet written before this rule existed —
+ * one hop nested inside the next — still collapses to the work it was always
+ * about. The agent kept is the outermost, which is the one that has just been
+ * left; the conversation kept is the innermost, which is the one the work
+ * started in.
+ */
+const lineageOf = (name: string): { readonly agent: string; readonly conversation: string } | null => {
+  const pattern = new RegExp(`^${HANDOFF_PREFIX}(.+?) — “([\\s\\S]*)”(?: \\(via .+\\))?$`)
+  const first = pattern.exec(name)
+  if (!first) return null
+  let conversation = first[2] ?? ''
+  for (let deeper = pattern.exec(conversation); deeper; deeper = pattern.exec(conversation)) {
+    conversation = deeper[2] ?? ''
+  }
+  return { agent: first[1] ?? '', conversation }
+}
+
+/**
+ * The one-line lineage a reader sees first, in the draft and in the packet.
+ *
+ * A conversation opened by a hand-off is called by that hand-off's label
+ * (#231), so handing it on again named the next packet after the last packet:
+ * `Handed off from Gemini CLI — “Handed off from Claude Code — “Migrate
+ * webhooks””`, one hop nested in the next with its smart quotes, and another
+ * layer for every hop after that (#249). A name that is itself a lineage line
+ * is read rather than quoted: the packet is named for the work, and the agent
+ * being left is recorded once after it, so a chain stays one line deep however
+ * far it runs.
+ */
+export const lineageLine = (source: HandoffSource): string => {
+  const name = titleOf(source.session)
+  const earlier = lineageOf(name)
+  return earlier
+    ? `${HANDOFF_PREFIX}${source.agentName} — “${earlier.conversation}” (via ${earlier.agent})`
+    : `${HANDOFF_PREFIX}${source.agentName} — “${name}”`
+}
 
 export const buildHandoff = (source: HandoffSource, carry: Carry): string | null => {
   const { session } = source

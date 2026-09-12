@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
+import { stripEscapes } from '@harnessdesk/protocol'
+
 import type {
   RuntimeId,
   RuntimeProcess,
@@ -201,15 +203,14 @@ export const defaultShell = (
  * Raw TTY bytes as readable text: escape sequences out, and each line kept
  * as whatever a carriage return last overwrote it with — a progress bar that
  * redrew itself two hundred times reads as its final state, once.
+ *
+ * The escapes are `stripEscapes`, shared with the transcript and the test
+ * plugin (#233). The clauses that used to stand here were this file's own
+ * and knew nothing of the charset escape `tput sgr0` resets with, so a chip
+ * showing a terminal that had run one carried a raw ESC and a stray `(B`.
  */
 export const plainTerminalText = (raw: string): string =>
-  raw
-    // eslint-disable-next-line no-control-regex
-    .replace(/\x1b\][^]*?(?:\x07|\x1b\\)/g, '') // OSC (titles, hyperlinks)
-    // eslint-disable-next-line no-control-regex
-    .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '') // CSI (colours, cursor moves)
-    // eslint-disable-next-line no-control-regex
-    .replace(/\x1b[@-_]/g, '') // bare ESC sequences
+  stripEscapes(raw)
     // A PTY ends every line \r\n. Fold that first, or the overwrite rule
     // below reads each whole line as overwritten by nothing and eats it.
     .replace(/\r\n/g, '\n')

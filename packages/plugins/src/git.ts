@@ -59,17 +59,48 @@ export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
  * block, that *ends* in the mark. A sample of the mark in a code fence, or
  * a mention of it in a code span, is the author's and is not the line —
  * the desk's own line is the one it wrote, and it wrote the mark last.
+ *
+ * A fence is closed by its own character, and that is the rule one toggled
+ * flag cannot express: a block opened with ``` is closed only by ```, and a
+ * `~~~` line inside it is content (#157). Two more of CommonMark's rules
+ * decide ordinary descriptions as often: a closing fence is at least as long
+ * as the fence that opened it, so the four backticks a description quotes a
+ * fenced sample with are not closed by the three inside it; and a closing
+ * fence carries no info string, so a ```js *within* a block is content too.
+ * Four spaces of indent is an indented code block rather than a fence, and a
+ * fence that is never closed runs to the end of the document — which is what
+ * falling out of this loop does.
  */
 const markedLineIn = (lines: readonly string[]): number | null => {
-  let fenced = false
+  // The fence standing open: which character opened it and how long it was.
+  // Empty means the reader is outside one.
+  let openChar = ''
+  let openLength = 0
   let found: number | null = null
-  lines.forEach((line, index) => {
-    if (/^\s*(?:```|~~~)/.test(line)) {
-      fenced = !fenced
-      return
+  for (const [index, line] of lines.entries()) {
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+    const marks = fence?.[1] ?? ''
+    // Whatever follows the fence characters: an info string on an opening
+    // fence, and on a closing one only whitespace — a trailing carriage
+    // return included, because GitHub hands a body back with the line
+    // endings it was written with.
+    const after = fence?.[2] ?? ''
+    if (openChar !== '') {
+      if (marks.startsWith(openChar) && marks.length >= openLength && after.trim() === '') {
+        openChar = ''
+        openLength = 0
+      }
+      continue
     }
-    if (!fenced && /<!-- harnessdesk:signature -->\s*$/.test(line)) found = index
-  })
+    // A backtick fence's info string may hold no backtick, so a line of
+    // prose spelling two code spans opens nothing.
+    if (marks !== '' && !(marks.startsWith('`') && after.includes('`'))) {
+      openChar = marks[0] ?? ''
+      openLength = marks.length
+      continue
+    }
+    if (/<!-- harnessdesk:signature -->\s*$/.test(line)) found = index
+  }
   return found
 }
 

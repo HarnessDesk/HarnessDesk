@@ -429,3 +429,36 @@ test('a body copied out of a read and passed back without the mark still loses e
     'the line the desk signed with last time, read off GitHub’s copy, is the one replaced',
   )
 })
+
+test('a fence is closed by its own character, at its own length, with nothing after it (#157)', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const sample = `sample ${SIGNATURE_MARK}`
+  /* GitHub does not treat the two fence characters as interchangeable, and one
+     toggled flag cannot say which opened the block. Each body below ends
+     *inside* a fence, so every mark in it is the author's and the desk has
+     none of its own: a body that reads one of them as the desk's line deletes
+     a line of somebody's code block on the next pr_update. */
+  const inside = [
+    // A tilde fence inside a backtick fence, and the reverse.
+    ['```', '~~~', sample, '~~~', '```'],
+    ['~~~', '```', sample, '```', '~~~'],
+    // Four backticks quoting a three-backtick sample: how a description shows
+    // a fenced block at all, and the commonest of these shapes by far.
+    ['````', '```', sample, '```', '````'],
+    // A closing fence carries no info string, so the ```js is content.
+    ['```', '```js', sample, '```'],
+    // Unclosed, which CommonMark runs to the end of the document.
+    ['```', sample],
+  ]
+  for (const lines of inside) {
+    const body = lines.join('\n')
+    assert.equal(previousSignature(body), null, body)
+    assert.equal(signBody(body, line), `${body}\n\n${line} ${SIGNATURE_MARK}`, body)
+  }
+  // A body GitHub hands back with CRLF endings closes its fences the same way.
+  assert.equal(previousSignature(`\`\`\`\r\n${sample}\r\n\`\`\`\r\nOld line ${SIGNATURE_MARK}`), 'Old line')
+  // Controls, true before this rule and after it: a plain fence hides its
+  // mark, and a mark outside every fence is the desk's own line.
+  assert.equal(previousSignature(['```', sample, '```'].join('\n')), null)
+  assert.equal(previousSignature(`Old line ${SIGNATURE_MARK}`), 'Old line')
+})
