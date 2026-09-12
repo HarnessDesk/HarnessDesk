@@ -110,7 +110,7 @@ export class StateStore {
     this.#loaded = true
     // One write makes every minted id durable; without it each launch would
     // mint anew, which is the opposite of an identity.
-    if (minted) await this.#persist()
+    if (minted) await this.#persist().catch(() => {})
     return this.#state
   }
 
@@ -154,15 +154,16 @@ export class StateStore {
       null,
       2,
     )
-    this.#writes = this.#writes
-      .then(async () => {
-        await mkdir(dirname(this.file), { recursive: true })
-        // Write-then-rename so a crash mid-write cannot truncate the file.
-        const temp = `${this.file}.${process.pid}.tmp`
-        await writeFile(temp, `${snapshot}\n`)
-        await rename(temp, this.file)
-      })
-      .catch(() => {})
-    await this.#writes
+    const previous = this.#writes
+    const current = (async () => {
+      await previous.catch(() => {})
+      await mkdir(dirname(this.file), { recursive: true })
+      // Write-then-rename so a crash mid-write cannot truncate the file.
+      const temp = `${this.file}.${process.pid}.tmp`
+      await writeFile(temp, `${snapshot}\n`)
+      await rename(temp, this.file)
+    })()
+    this.#writes = current.catch(() => {})
+    await current
   }
 }

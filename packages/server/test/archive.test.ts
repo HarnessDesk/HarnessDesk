@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -208,3 +208,76 @@ test('the archive file survives being unreadable, and reads back what it wrote',
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('concurrent load calls both await reading and observe populated entries', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-archive-load-'))
+  try {
+    const file = join(dir, 'archive.json')
+    const initial = {
+      version: 1,
+      entries: [
+        { runtime: 'fake', sessionId: 's1', archivedAt: 123 },
+        { runtime: 'fake', sessionId: 's2', archivedAt: 456 },
+      ],
+    }
+    await writeFile(file, JSON.stringify(initial))
+
+    const archive = new SessionArchive(file)
+    let secondSawCount = -1
+    const p1 = archive.load()
+    const p2 = (async () => {
+      await archive.load()
+      secondSawCount = archive.count(runtimeId('fake'))
+    })()
+
+    await Promise.all([p1, p2])
+    assert.equal(secondSawCount, 2, 'the concurrent load caller saw the populated archive entries')
+    assert.equal(archive.has(runtimeId('fake'), sessionId('s1')), true)
+    assert.equal(archive.has(runtimeId('fake'), sessionId('s2')), true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a write failure in session archive rejects the caller and does not poison subsequent writes', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-archive-fail-'))
+  try {
+    const sub = join(dir, 'sub')
+    await writeFile(sub, 'blocking-file')
+    const archive = new SessionArchive(join(sub, 'archive.json'))
+    await archive.load()
+
+    // The write must reject when filesystem fails (#307)
+    await assert.rejects(archive.set(runtimeId('fake'), sessionId('s1'), true))
+
+    // Once the obstruction is cleared, subsequent writes succeed and are not poisoned
+    await rm(sub)
+    await assert.doesNotReject(archive.set(runtimeId('fake'), sessionId('s2'), true))
+    assert.equal(archive.has(runtimeId('fake'), sessionId('s2')), true)
+
+    // The control: a reloaded archive reads back the successfully written entry
+    const reloaded = new SessionArchive(join(sub, 'archive.json'))
+    await reloaded.load()
+    assert.equal(reloaded.has(runtimeId('fake'), sessionId('s2')), true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('session/archive wire call rejects when host archive cannot be persisted', async () => {
+  const rig = await start({ archiveHistory: false })
+  try {
+    rig.runtime.history.push(summary('a'))
+    // Obstruct persistence by placing a directory at archive.json path
+    const archivePath = join(rig.stateDir, 'archive.json')
+    await mkdir(archivePath)
+
+    await assert.rejects(
+      rig.client.call('session/archive', { runtime: 'fake', sessionId: 'a', archived: true }),
+    )
+  } finally {
+    await rig.close()
+  }
+})
+
+
