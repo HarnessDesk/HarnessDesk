@@ -310,6 +310,41 @@ describe('what round one of the review found', () => {
     expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
   })
 
+  it('a late failure from the previous agent does not clear the next agent’s routes', async () => {
+    /* `loadRoutes` guards its catch path exactly as `loadSkills` does, and
+       only the skills guard had a test (#131). Written against `loadRoutes`
+       directly rather than through `refreshRuntime`: `refreshRuntime` returns
+       at its own guard before it ever reaches `loadRoutes`, so a switch made
+       while it is in flight would leave this request unsent and the test
+       green for the wrong reason. */
+    await seat()
+    let failCodex: () => void = () => {}
+    const gate = new Promise<never>((_, reject) => {
+      failCodex = () => reject(new Error('codex went away'))
+    })
+    // Observed here so the rejection is never “unhandled” between the switch
+    // and the moment `loadRoutes` catches it.
+    gate.catch(() => undefined)
+    const claudeRoute = {
+      id: 'r-claude',
+      name: 'claude-only',
+      endpoint: 'https://example.invalid',
+      wireProtocol: 'openai',
+      credentialRef: 'ref',
+    }
+    answers['routes/list'] = (params: unknown) =>
+      (params as { runtime: string }).runtime === CODEX ? gate : [claudeRoute]
+
+    const codexRoutes = store.loadRoutes()
+    await store.selectRuntime(CLAUDE)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.getSnapshot().routes).toEqual([claudeRoute])
+    failCodex()
+    await codexRoutes
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.getSnapshot().routes).toEqual([claudeRoute])
+  })
+
   it('a refresh’s health and account land in the per-runtime maps, not only the singular slots', async () => {
     await seat()
     answers['runtime/health'] = { state: 'unavailable', reason: 'crashed', message: 'Codex exited.' }

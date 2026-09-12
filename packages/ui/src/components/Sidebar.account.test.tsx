@@ -280,6 +280,53 @@ it('the badge card’s Usage verb opens the dashboard on that agent', () => {
   expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
 })
 
+it('a seat inside the menu offers Usage too, on the same account as the badge below it', () => {
+  /* Two cards for one account that offered different verbs. The badge's card
+     has opened the dashboard scoped to its agent since it was built; the
+     seats in the menu — the same accounts, one card each — were handed no
+     `onOpenUsage` at all, so their Do band had nothing but the switch (#131).
+     The menu's own Dashboard row opens the dashboard on everything, which is
+     a different question from "this seat". */
+  vi.useFakeTimers()
+  const onOpenUsage = vi.fn()
+  const claudeAccount = signedIn('olivia@acme.dev')
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [codex, claude],
+    activeRuntime: CLAUDE,
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: claudeAccount },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, selectRuntime: vi.fn(async () => {}) } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AccountFooter onOpenSettings={() => {}} onOpenUsage={onOpenUsage} onSignIn={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  click(row())
+  const codexSeat = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('shane@example.com'),
+  )
+  const trigger = codexSeat?.querySelector('[data-slot="hover-card-trigger"]')
+  if (!trigger) throw new Error('no card trigger on the menu seat')
+  act(() => {
+    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+  })
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  const usage = [...document.querySelectorAll('[data-slot="agent-card"] button')].find(
+    (b) => b.textContent?.trim() === 'Usage',
+  )
+  if (!usage) throw new Error('no Usage verb on the menu seat card')
+  click(usage)
+  // Scoped to the seat the card is about, not to the default agent.
+  expect(onOpenUsage).toHaveBeenCalledWith(CODEX)
+})
+
 it('is you once you have chosen: your name and your face, with the pen still beside them', () => {
   mount({ profile: { name: 'Jane', avatar: 'wizard' } })
   const seat = row()

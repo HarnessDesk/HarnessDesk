@@ -14,7 +14,7 @@ import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } 
 import { Btn, Dialog, Input } from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
-import { wrapContext } from '../lib/context-envelope'
+import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
 import { CARRY_LABEL } from '../lib/handoff'
 import { brandOf } from '../lib/identity'
 import { attachmentName, dragHasFiles, imageFilesOf, vetImageFiles } from '../lib/images'
@@ -104,7 +104,16 @@ const nextAttachmentId = (): string => `att-${++attachmentCounter}`
  * first few lines, and an honest count of the rest.
  */
 const notePreview = (note: { readonly name: string; readonly text?: string }): string => {
-  const body = (note.text ?? '').replace(/^<context source=[^\n]*\n?/, '').replace(/\n?<\/context>$/, '')
+  const raw = note.text ?? ''
+  /* Read back with the protocol's own reader rather than a fifth hand-rolled
+     spelling of "does this open an envelope" (#289). The block is one the
+     composer itself wrapped, so this could never produce #224's failure — but
+     a fifth copy is a fifth thing to diverge, and `splitContext` also puts an
+     escaped `</context>` in the body back the way the person typed it, which
+     the regex left on screen as `<\/context>`. Text that is not an envelope
+     is shown whole: it is somebody's words, not markup. */
+  const blocks = opensEnvelope(raw) ? splitContext(raw).injections : []
+  const body = blocks.length > 0 ? blocks.map((block) => block.text).join('\n') : raw
   const lines = body.split('\n').filter((line) => line.trim().length > 0)
   const head = lines.slice(0, 6).join('\n')
   const rest = lines.length - 6

@@ -567,6 +567,11 @@ export const AccountFooter = ({
                   side="right"
                   align="start"
                   className={styles.seatTrigger}
+                  /* The same verbs as the badge's card on the row below: two
+                     cards for one account that offered different things were
+                     the whole of the complaint. The menu's Dashboard row opens
+                     the dashboard on everything; this opens it on this seat. */
+                  onOpenUsage={onOpenUsage}
                 >
                   <span
                     className={styles.seatAvatar}
