@@ -2,7 +2,8 @@ import { createContext, useContext, useMemo, type ComponentType, type ReactNode 
 
 import type { CapabilityContribution, UiSlot } from '@harnessdesk/protocol'
 
-import { useSnapshot } from '../state/context'
+import { contributionsHere, scopeHere } from '../lib/contributions'
+import { useSessionKey, useSnapshot } from '../state/context'
 
 /**
  * The slot registry.
@@ -109,6 +110,7 @@ export const Slot = ({
   fallback?: ReactNode
 }): ReactNode => {
   const snapshot = useSnapshot()
+  const key = useSessionKey()
   const table = useSlotRegistry()
 
   const occupants = useMemo(() => {
@@ -122,7 +124,9 @@ export const Slot = ({
         contribution: undefined as CapabilityContribution | undefined,
       }))
 
-    const contributed = snapshot.contributions
+    /* Only what applies here: a row scoped to one project, one agent or one
+       conversation was drawn in every one of them. `lib/contributions.ts`. */
+    const contributed = contributionsHere(snapshot.contributions, scopeHere(snapshot, key))
       .filter((entry): entry is Extract<CapabilityContribution, { kind: 'ui' }> =>
         entry.kind === 'ui' &&
         entry.slot === name &&
@@ -141,7 +145,7 @@ export const Slot = ({
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
     return [...builtins, ...contributed].sort((a, b) => a.order - b.order)
-  }, [name, snapshot, table])
+  }, [key, name, snapshot, table])
 
   if (occupants.length === 0) return fallback ?? null
 
@@ -157,10 +161,11 @@ export const Slot = ({
 /** True when anything would render into a slot. Used to decide whether to show chrome. */
 export const useSlotFilled = (name: UiSlot): boolean => {
   const snapshot = useSnapshot()
+  const key = useSessionKey()
   const table = useSlotRegistry()
   return (
     table.occupants(name).some((entry) => !entry.when || entry.when(snapshot)) ||
-    snapshot.contributions.some(
+    contributionsHere(snapshot.contributions, scopeHere(snapshot, key)).some(
       (entry) =>
         entry.kind === 'ui' &&
         entry.slot === name &&

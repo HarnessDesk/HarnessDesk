@@ -7,6 +7,22 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A context chip with nothing to say no longer refuses the message** —
+  attaching *Last test run* to a brand-new draft stopped the send with an error,
+  because a draft has run nothing of its own and the provider treated that as a
+  failure. A provider with nothing to add now leaves the chip off the message
+  and says which one it left off; a chip whose plugin has gone — switched off,
+  uninstalled, or not back yet after a restart — comes off the draft itself,
+  instead of refusing every send until somebody notices it. A provider that
+  genuinely fails still stops the send, which is what that rule was written for.
+- **A plugin's chip, command, panel or row is offered only where it applies** —
+  a contribution can be narrowed to one project, one agent or one conversation,
+  and the window offered all of them everywhere: the composer's Add context
+  list, the slash palette, a contributed panel and a contributed row each asked
+  what *kind* a contribution was and never where it applied, so a command that
+  the host would then refuse to run was still listed. They ask both now, and the
+  extension kernel refuses to resolve a chip from outside its scope even if
+  something asks.
 - **A worktree that goes names what git ignores in it first** — removing a
   worktree, or bringing one back to the main checkout, deletes the folder and
   everything git ignores inside it: an `.env`, a `.venv`, `node_modules`. Git

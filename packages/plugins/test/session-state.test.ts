@@ -105,9 +105,10 @@ test('the last test run is the one this conversation started', async (t) => {
   const inA = await kernel.resolveOne(chip.id, undefined, A)
   assert.match(inA?.text ?? '', /Test run from/, 'A can see its own run')
 
-  await assert.rejects(
-    () => kernel.resolveOne(chip.id, undefined, B),
-    /No test run recorded yet/,
+  const inB = await kernel.resolveOne(chip.id, undefined, B)
+  assert.equal(
+    inB?.text,
+    '',
     'B ran nothing, so it has no last run — it must not be handed A\'s',
   )
 })

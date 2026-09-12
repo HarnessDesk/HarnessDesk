@@ -185,9 +185,14 @@ export const testsPlugin: HarnessPlugin = {
         chip: { description: 'The most recent verdict and its failing file:lines.' },
         resolve: (scope: ScopeQuery) => {
           const lastRun = sessions.get(scope).last
-          if (!lastRun) {
-            throw new Error('No test run recorded yet — run /test or the run_tests tool first.')
-          }
+          /* Nothing recorded for *this* conversation is not a failure: a draft
+             has run nothing yet, and a new conversation must not be handed
+             another's report. A provider with nothing to add resolves to
+             nothing — the composer leaves the chip off the message and names
+             what it left off — where throwing refused the send outright, which
+             is reserved for a provider that should have answered and could
+             not. See docs/extending.md and the composer's send. */
+          if (!lastRun) return ''
           const minutes = Math.round((Date.now() - lastRun.at) / 60_000)
           const when = minutes <= 1 ? 'just now' : `${minutes} minutes ago`
           return `Test run from ${when}:\n${lastRun.report}`

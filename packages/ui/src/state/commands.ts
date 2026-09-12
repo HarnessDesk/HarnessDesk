@@ -1,5 +1,6 @@
 import type { CapabilityContribution, ConfigOption, RuntimeId } from '@harnessdesk/protocol'
 
+import { offeredHere } from '../lib/contributions'
 import { summonable } from '../panels/views'
 import type { AppSnapshot, AppStore } from './store'
 
@@ -247,7 +248,13 @@ const resolvePath = (store: AppStore, argument: string): string | null => {
 
 /** Built-ins plus whatever plugins currently contribute, filtered by availability. */
 export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] => {
-  const contributed: CommandDefinition[] = snapshot.contributions
+  /* What applies where the palette was opened. The renderer is pushed every
+     contribution whatever its scope, so a command narrowed to one project,
+     one agent or one conversation was listed in all of them — and `command/run`
+     would then not find it, because the host applies the scope the palette
+     did not. `lib/contributions.ts`. */
+  const offered = offeredHere(snapshot, snapshot.activeSessionKey)
+  const contributed: CommandDefinition[] = offered
     .filter((entry): entry is Extract<typeof entry, { kind: 'command' }> => entry.kind === 'command')
     .map((entry) => ({
       name: entry.name,
@@ -282,7 +289,7 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
     ...optionCommands(snapshot),
     ...BUILTIN_COMMANDS,
     ...viewCommands(),
-    ...panelCommands(snapshot),
+    ...panelCommands(snapshot, offered),
     ...contributed,
     ...agentCommands,
   ].filter((command) => !command.available || command.available(snapshot))
@@ -299,8 +306,11 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
  * The command opens it in the first area the contribution declares; where it
  * goes after that is the person's, and is remembered per project.
  */
-const panelCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
-  snapshot.contributions
+const panelCommands = (
+  snapshot: AppSnapshot,
+  offered: readonly CapabilityContribution[],
+): CommandDefinition[] =>
+  offered
     .filter(
       (entry): entry is Extract<CapabilityContribution, { kind: 'ui' }> =>
         entry.kind === 'ui' && Array.isArray(entry.mounts) && entry.mounts.length > 0,
