@@ -328,7 +328,12 @@ export class BrowserService extends Service {
     private readonly runtime: HostRuntime,
   ) {
     super(ctx, 'browser')
-    ctx.effect(() => () => void this.close().catch(() => {}), 'browser-shutdown')
+    /* The disposer's promise is handed back rather than discarded. Cordis
+       awaits what a disposer returns, so `void` here left `kernel.dispose()`
+       nothing to wait for: both engines' `close()` happen to be synchronous
+       today, and the first one that yields would outlive the quit — #212
+       again, latent (round 3 of #244). */
+    ctx.effect(() => () => this.close().catch(() => {}), 'browser-shutdown')
   }
 
   /** The gate, then the page — the two lines every call below starts with. */

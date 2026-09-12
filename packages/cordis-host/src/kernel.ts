@@ -132,9 +132,17 @@ export class ExtensionKernel implements CapabilityRegistry {
   readonly #store = new ContributionStore()
   readonly #runtime: HostRuntime
   readonly #plugins = new Map<string, Loaded>()
+  /** The host's own services, in the order they were installed. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly #services: any[] = []
   readonly #logger: KernelLogger
   readonly #trusted: Set<string>
   #counter = 0
+
+  /** One host service on the root, kept so that `dispose` can stop it. */
+  #install(service: Parameters<Context['plugin']>[0]): void {
+    this.#services.push(this.#root.plugin(service))
+  }
 
   constructor(options: KernelOptions = {}) {
     this.#logger = options.logger ?? {}
@@ -144,82 +152,82 @@ export class ExtensionKernel implements CapabilityRegistry {
 
     // Services are installed on the root, so every plugin can inject them.
     const runtime = this.#runtime
-    this.#root.plugin(class extends ToolsService {
+    this.#install(class extends ToolsService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends HooksService {
+    this.#install(class extends HooksService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends ContextService {
+    this.#install(class extends ContextService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends CommandsService {
+    this.#install(class extends CommandsService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends UiService {
+    this.#install(class extends UiService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends FsService {
+    this.#install(class extends FsService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends HttpService {
+    this.#install(class extends HttpService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends ShellService {
+    this.#install(class extends ShellService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends BrowserService {
+    this.#install(class extends BrowserService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends EditorService {
+    this.#install(class extends EditorService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends TeamService {
+    this.#install(class extends TeamService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends ForgeService {
+    this.#install(class extends ForgeService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends IosService {
+    this.#install(class extends IosService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends AndroidService {
+    this.#install(class extends AndroidService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends WorkspaceService {
+    this.#install(class extends WorkspaceService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
     })
-    this.#root.plugin(class extends PluginInfoService {
+    this.#install(class extends PluginInfoService {
       constructor(ctx: Context) {
         super(ctx, runtime)
       }
@@ -356,6 +364,17 @@ export class ExtensionKernel implements CapabilityRegistry {
   async dispose(): Promise<void> {
     for (const entry of [...this.#plugins.values()]) await this.#stop(entry)
     this.#plugins.clear()
+    /* Then the host's own services, newest first. Stopping only the plugins
+       left every effect a service registered on its own scope running past
+       the quit, the browser's shutdown among them: the one that ends the CDP
+       connection and removes a profile that was never meant to be kept. */
+    for (const fiber of this.#services.splice(0).reverse()) {
+      try {
+        await fiber.dispose()
+      } catch (error) {
+        this.#logger.warn?.('service disposal threw', { error: String(error) })
+      }
+    }
   }
 
   // ------------------------------------------------------- CapabilityRegistry

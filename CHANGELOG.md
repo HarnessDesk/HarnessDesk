@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The audit answers with what just happened** — Activity and the Library's
+  change history read the audit log, and an entry recorded a moment earlier
+  could be missing from the answer: a command a policy rule had just denied,
+  or a library write just applied, was absent until something asked again.
+  A read now waits for what was recorded before it was asked.
+
 - **Plugin settings are still there tomorrow** — a setting typed into a
   plugin's page in Settings is kept and put back at the next launch. Until
   now the host held them in memory only and wrote none of them down, so the
@@ -21,10 +27,12 @@ move is real work and is not news to a person weighing an upgrade.
   launch will not have it. It used to show the new value and keep the old one
   on disk, with nothing said until a relaunch quietly put it back.
 
+
 - **`read_file` stops at the byte limit its setting names** — it counted
   characters, so a file of three-byte characters ran to three times the limit.
   Chinese or Japanese text now comes back about a third as long as before; the
   Workspace files plugin's *Read limit, in bytes* setting raises it.
+
 - **Local or a new worktree, said where you type** — a new conversation's
   composer now leads with where it will run: **Local** (the folder as it is),
   a worktree the project already has, or **New worktree**, which is made when

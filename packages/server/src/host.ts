@@ -2329,7 +2329,7 @@ export class Host {
       ? {
           name: gateway.name,
           endpoint: gateway.endpoint,
-          credentialRef: await this.#credentials.store(`${gateway.name} key`, gateway.apiKey),
+          credentialRef: await this.#credentials.store(`${gateway.name} key`, gateway.apiKey, { kind: 'gateway' }),
         }
       : undefined
     const runtime = await accounts.add(of.info, spec)

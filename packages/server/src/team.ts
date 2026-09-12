@@ -555,6 +555,7 @@ export class Team {
    * spend the user's tokens.
    */
   configure(next: Partial<TeamSettings>): void {
+    const inboundBefore = this.#settings.inboundDefault
     this.#settings = {
       answersInRoom: next.answersInRoom ?? DEFAULT_TEAM_SETTINGS.answersInRoom,
       recordMutedAttempts:
@@ -574,6 +575,8 @@ export class Team {
           ? Math.floor(next.messageChars)
           : DEFAULT_TEAM_SETTINGS.messageChars,
     }
+    // The default is the mode of every member without one of its own.
+    if (this.#settings.inboundDefault !== inboundBefore) this.#pushStates(null)
   }
 
   /** What the engine is currently set to — the settings page reads this. */
@@ -1017,6 +1020,13 @@ export class Team {
       )
     }
     this.#persistInbound()
+    /* The member's room draws the mode, so the room is told. Nothing was
+       pushed before, and a second view of the room kept drawing the old mode
+       until something unrelated made it ask again. */
+    const key = keyOf(runtime, sessionId)
+    for (const board of this.#boards.values()) {
+      if (board.members.includes(key)) this.#port.changed(this.#stateOf(board))
+    }
   }
 
   /**
@@ -2183,6 +2193,10 @@ export class Team {
       channel: [...board.channel],
       messaging: board.messaging,
       nicknames: { ...board.nicknames },
+      // What `inboundFor` resolves, for each member of this room.
+      inbound: Object.fromEntries(
+        board.members.map((key) => [key, this.#inbound.get(key) ?? this.#settings.inboundDefault]),
+      ),
       plans: [...board.plans],
       problem: this.#problem,
     }

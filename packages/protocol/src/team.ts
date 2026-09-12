@@ -307,6 +307,17 @@ export interface TeamState {
    * is the whole problem the nickname was introduced to solve.
    */
   readonly nicknames?: Readonly<Record<string, string>>
+  /**
+   * What each member does with a message sent to it, keyed like `members`:
+   * its own mode, or the default when it was never given one. The same answer
+   * `team/peers` gives as `inbound`.
+   *
+   * Travels with the board so that every view of the room is told when it
+   * changes. The roster is a pull, and a mode set in one pane was drawn as the
+   * old one in every other pane, window and client until something unrelated
+   * made it ask again.
+   */
+  readonly inbound?: Readonly<Record<string, TeamInbound>>
   /** The goals on this board, newest last. */
   readonly plans?: readonly Plan[]
   /**

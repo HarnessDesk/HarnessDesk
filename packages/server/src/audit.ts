@@ -128,6 +128,13 @@ export class AuditLog {
 
   /** Entries under `root` (all, when omitted) within the window, newest first. */
   async query(options: { root?: string; sinceDays?: number } = {}): Promise<AuditEntry[]> {
+    /* Everything appended before the question is part of its answer. The
+       writes are queued so that `append` never makes the fan-out wait on a
+       disk, and reading the file without waiting for them answered one write
+       early: the policy path appends its decision and pushes the notice about
+       it in the same tick, so a client answering that notice read the log
+       before the decision was in it. */
+    await this.#writes
     let raw: string
     try {
       raw = await readFile(this.#path, 'utf8')

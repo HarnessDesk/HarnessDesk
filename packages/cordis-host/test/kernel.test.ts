@@ -6,7 +6,7 @@ import { test } from 'node:test'
 
 import { runtimeId, sessionId, type ExtensionEvent } from '@harnessdesk/protocol'
 
-import { ExtensionKernel, type HarnessPlugin } from '../src/index.js'
+import { ExtensionKernel, setBrowserEngine, type HarnessPlugin } from '../src/index.js'
 
 /**
  * The extension kernel, exercised through the real Cordis runtime.
@@ -48,6 +48,59 @@ test('a plugin loads, registers a tool, and the registry exposes it', async (t) 
   const plugins = kernel.plugins()
   assert.equal(plugins[0]?.state.type, 'active')
   assert.deepEqual(plugins[0]?.injects, ['tools'])
+})
+
+test('disposing the kernel stops the host services too, so the browser is closed', async (t) => {
+  /* The browser service's shutdown ends the CDP connection and removes a
+     profile that was never meant to be kept. It is an effect on the service's
+     own scope, and the kernel used to stop only the plugins. */
+  let closed = 0
+  let release = (): void => {}
+  /* The close finishes only when this test lets it, so the assertion is about
+     *waiting* rather than about timing.
+
+     Measured, all three ways. A fake that counts immediately passes either
+     way. A fake that yields a microtask first — what round 3 suggested — also
+     passes with the promise discarded, because `dispose()`'s own awaits drain
+     the microtask queue before the assertion runs. A `setTimeout` does catch
+     it, but only by assuming 0ms lands after whatever else dispose does, which
+     is a race to lose on a loaded machine. Releasing the close by hand asks
+     the question directly instead: is dispose still pending while the close is
+     in flight (round 3 of #244)? */
+  const closing = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  setBrowserEngine({
+    ensure: () => Promise.reject(new Error('nothing drives this engine')),
+    close: async () => {
+      await closing
+      closed += 1
+    },
+  })
+  t.after(() => {
+    release()
+    setBrowserEngine(null)
+  })
+  const kernel = new ExtensionKernel()
+  await kernel.load(echoTool)
+  await settle()
+  // The control: the engine is the one installed, and nothing has closed it.
+  assert.equal(closed, 0)
+
+  let finished = false
+  const done = kernel.dispose().then(() => {
+    finished = true
+  })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(finished, false, 'dispose waits for the close it started, rather than only starting it')
+  assert.equal(closed, 0)
+
+  release()
+  await done
+  assert.equal(closed, 1)
+  // Once: a second dispose has nothing left to stop.
+  await kernel.dispose()
+  assert.equal(closed, 1)
 })
 
 test('invoking a plugin tool returns its result', async (t) => {

@@ -292,7 +292,20 @@ const rig = (
     }
     snapshot = snapshotOf()
   }
-  return { store, leaves, says, broadcasts, signals }
+  /** The host pushes the room's state again, the way it does after any change. */
+  const pushes = async (board: Partial<TeamState>): Promise<void> => {
+    team = { ...team, ...board }
+    snapshot = snapshotOf()
+    act(() => {
+      root.render(
+        <StoreProvider store={store}>
+          <TeamRoomPane room={ROOM} />
+        </StoreProvider>,
+      )
+    })
+    await act(async () => {})
+  }
+  return { store, leaves, says, broadcasts, signals, pushes }
 }
 
 /** Mounts, then flushes the roster fetch so the rail is populated. */
@@ -1645,4 +1658,23 @@ it('the room’s top row carries the window’s own controls when the sidebar is
   const snapshot = { ...store.getSnapshot(), narrowWindow: true }
   await render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
   expect(toggle()).not.toBeNull()
+})
+
+it('a name or a mode set in another view is drawn here when the room’s state arrives', async () => {
+  /* Two panes on one room, or two windows, or another client: the one that
+     sets a member to hold is told by its own answer, and every other view only
+     by the room's state. The roster is a pull, and before the state carried
+     the mode the others kept drawing the old one. */
+  const { store, pushes } = rig()
+  await render(store)
+  // The control: the roster as fetched, holding nothing.
+  expect(row('Codex').textContent).not.toContain('messages held')
+
+  await pushes({
+    nicknames: { [sessionKey('codex', 'c1')]: 'Mender' },
+    inbound: { [sessionKey('codex', 'c1')]: 'hold' },
+  })
+  expect(row('Mender').textContent).toContain('messages held')
+  // From the push alone: the roster was not asked for again.
+  expect(store.teamPeers).toHaveBeenCalledTimes(1)
 })

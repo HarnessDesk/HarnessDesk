@@ -54,12 +54,17 @@ const runtime = {
   presentation: { name: 'OpenAI Codex' },
 } as unknown as RuntimeInfo
 
-const KEY: StoredCredential = { ref: 'cred_a', name: 'Proxy key', createdAt: Date.UTC(2026, 0, 9), owner: null }
-const ORPHAN: StoredCredential = {
+const KEY: StoredCredential = {
+  ref: 'cred_a',
+  name: 'Proxy key',
+  createdAt: Date.UTC(2026, 0, 9),
+  owner: { kind: 'endpoint' },
+}
+const UNUSED: StoredCredential = {
   ref: 'cred_b',
-  name: 'Old gateway key',
+  name: 'Spare proxy key',
   createdAt: Date.UTC(2025, 10, 2),
-  owner: null,
+  owner: { kind: 'endpoint' },
 }
 /* Two keys with owners of their own. Same store, same list, different verbs:
    an agent's is cleared from its sign-in page and a gateway account's goes
@@ -128,13 +133,14 @@ const removeOn = (name: string): HTMLButtonElement | undefined => {
 }
 
 it('names each key by the endpoint that uses it, and the one nothing uses', async () => {
-  mount([KEY, ORPHAN])
+  mount([KEY, UNUSED])
   await act(async () => {})
 
   expect(container.textContent).toContain('Stored keys · 2')
   expect(container.textContent).toContain('Used by Acme proxy')
-  /* The leak, said out loud. This is the row that could not be reached at
-     all: a key with no owner, and until now no way to remove it. */
+  /* An endpoint's own key that no route refers to: it says so, and it can be
+     removed from here. A key written by something else is not drawn in this
+     section at all, so there is no orphan row any more (round 3 of #244). */
   expect(container.textContent).toContain('No endpoint uses it')
 })
 
@@ -165,10 +171,10 @@ it('forgetting a key confirms first, says what breaks, and drops the row', async
 })
 
 it('a key nothing names is housekeeping, and says so instead', async () => {
-  mount([ORPHAN], [])
+  mount([UNUSED], [])
   await act(async () => {})
 
-  act(() => removeOn('Old gateway key')?.click())
+  act(() => removeOn('Spare proxy key')?.click())
   expect(document.body.textContent).toContain('cannot be recovered')
   expect(document.body.textContent).not.toContain('will stop working')
 })
@@ -224,4 +230,17 @@ it('a list of nothing but owned keys draws no section at all', async () => {
   await act(async () => {})
   expect(container.textContent).not.toContain('Stored keys')
   expect(container.textContent).toContain('Custom endpoints')
+})
+
+it('a key nothing here can name is listed nowhere, rather than offered for deletion', async () => {
+  /* The third writer, before it exists: a kind of key this build has never
+     heard of, as a newer host would store it. This section used to list
+     whatever nobody claimed, which is how two live keys came to be offered
+     for deletion; it lists what the endpoint dialog stored. */
+  mount([KEY, { ...UNUSED, ref: 'cred_e', name: 'Plugin key', owner: null }])
+  await act(async () => {})
+
+  // The control: the section is drawn, with the endpoint's key in it.
+  expect(container.textContent).toContain('Proxy key')
+  expect(container.textContent).not.toContain('Plugin key')
 })
