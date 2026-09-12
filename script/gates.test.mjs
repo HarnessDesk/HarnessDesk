@@ -1075,14 +1075,32 @@ test('a home directory that is not a declared placeholder fails the secrets scan
     " * `/Users/<name>/…` in full.",
     " * any *other* `/Users/…` path is still audited",
     " * a URL is not a home directory: `https://acme.dev/home/settings`",
+    /* The Windows shape, in both spellings the tree writes it: escaped inside
+       a source string, bare in prose. Every one of these is a line really in
+       the tree, and all four segments are excused by the same roster and the
+       same shape rules the POSIX arm uses. */
+    "    'C:\\\\Users\\\\someone\\\\project',",
+    "  const paths = candidatePaths({ commands: ['gemini'] }, { home: 'C:\\\\Users\\\\x', platform: 'win32' })",
+    " * `C:\\Users\\foo` returned as `C:\\\\Users\\\\foo`, and a label with a line",
+    "               `C:\\\\Users\\\\…\\\\skill.md` as the file's name. `basename`",
   ]) {
     assert.deepEqual(offendersIn('a.ts', line), [], line)
   }
-  // Somebody's actual home directory is the leak this catches, under either root.
+  // Somebody's actual home directory is the leak this catches, under any root.
   const mac = offendersIn('a.ts', "const root = '/Users/jroe/code/HarnessDesk'") // hd-secrets-ok
   assert.equal(mac.length, 1)
   assert.match(mac[0], /rule 13/)
   assert.match(offendersIn('a.ts', "const root = '/home/jroe/code'")[0], /rule 13/) // hd-secrets-ok
+  /* Windows was invisible to this rule until #296: the screenshot audit that
+     reuses it was asked to stop being macOS-only, and the roster it reuses can
+     only answer for the shapes it reads. Both spellings, because a path in a
+     source string is escaped and one in prose is not. */
+  const windows = offendersIn('a.ts', "const root = 'C:\\\\Users\\\\jroe\\\\code'") // hd-secrets-ok
+  assert.equal(windows.length, 1)
+  assert.match(windows[0], /rule 13/)
+  assert.match(offendersIn('a.ts', 'see C:\\Users\\jroe for it')[0], /rule 13/) // hd-secrets-ok
+  // And a drive letter that is not C, since the shape is the rule, not the drive.
+  assert.match(offendersIn('a.ts', "const root = 'D:\\\\Users\\\\jroe'")[0], /rule 13/) // hd-secrets-ok
 })
 
 test('a section whose heading is the first line of the file is found (#269)', () => {

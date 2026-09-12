@@ -31,6 +31,8 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../lib/desk.mjs'
+import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
+import { TILDIFY, USER, refuseUnpublishable, refuseUnvouchedAccounts } from './audit.mjs'
 import { REPOS } from './cast.mjs'
 import { HOME, WORK } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
@@ -82,20 +84,38 @@ try {
   await sleep(2500)
   await dismissNotices(cdp).catch(() => {})
 
-  // The same money stubs the stills use — a recording leaks exactly as much as
-  // a photograph does, and for longer.
+  /* The same stubs the stills use — a recording leaks exactly as much as a
+     photograph does, and for longer. The accounts matter more here than they
+     do there: a still is audited before it is written and a GIF cannot be,
+     so for a recording the answer *is* the protection. */
   await cdp.eval(
     `(() => {
       const s = ${STORE}
       if (s.__shotsPatched) return true
       const real = s.transport.request.bind(s.transport)
       const canned = { 'usage/reports': ${q(USAGE)}, 'usage/ledger': ${q(LEDGER)}, 'usage/scan': ${q(SCAN)} }
-      s.transport.request = (m, p) => (m in canned ? Promise.resolve(canned[m]) : real(m, p))
+      const accounts = ${q(ACCOUNTS)}
+      const anonymous = ${q(ANONYMOUS)}
+      s.transport.request = (m, p) =>
+        m === 'runtime/account'
+          ? Promise.resolve(accounts[p?.runtime] ?? anonymous)
+          : m in canned
+            ? Promise.resolve(canned[m])
+            : real(m, p)
       s.__shotsPatched = true
       return true
     })()`,
     60_000,
   )
+  /* Asked again, because the window asked first: see `stageAnswers` in
+     shoot.mjs. No longer swallowed — a rename or a dead renderer should stop
+     the take rather than be ignored — but that is the smaller half. Neither
+     verb can fail loudly: both catch every request they make, and both return
+     early and silently when a later pass overtook them, having patched
+     nothing. What the recording is actually held up by is the gate below,
+     which reads the answers back. */
+  await cdp.eval(`${STORE}.loadAccounts()`, 60_000)
+  await cdp.eval(`${STORE}.refreshRuntime({ history: false })`, 60_000)
   await cdp.eval(`${STORE}.setTheme(${q(THEME)}); true`)
   await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
   await sleep(1200)
@@ -105,17 +125,11 @@ try {
 
   /* Hide this machine's home before a single frame is taken, not after: a GIF
      cannot be audited frame by frame the way a still can, so the substitution
-     has to be in place for the whole recording. */
-  const tildify = `(() => {
-    const home = ${q(homedir())}
-    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-    let node
-    while ((node = walk.nextNode())) {
-      if (node.nodeValue?.includes(home)) node.nodeValue = node.nodeValue.split(home).join('~')
-    }
-    return true
-  })()`
-  await cdp.eval(tildify)
+     has to be in place for the whole recording. The stills' copy of this
+     walked `[title]` and this one did not, which left a tooltip carrying the
+     real home standing through the take that has no frame-by-frame backstop.
+     One copy now, in `audit.mjs`. */
+  await cdp.eval(TILDIFY(homedir()))
 
   const frames = []
   const collected = []
@@ -127,11 +141,37 @@ try {
     cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {})
   })
 
+  /**
+   * Refused before it is recorded, not after.
+   *
+   * A GIF cannot be audited frame by frame, so the check has to happen where
+   * it still means something. This is that point, and it is the load-bearing
+   * one: nothing has been captured and nothing has been written, so a refusal
+   * here costs a launch. The two later gates cost a take. Optimising for the
+   * early refusal is why the full audit runs here and only the account half
+   * runs during the recording.
+   */
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, subject: 'recording' })
+
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1 })
   const startedAt = Date.now()
   await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
-  await sleep(9000)
+  /* The same nine seconds, asked six times instead of slept through. The one
+     door neither bracket can see is the middle of the take — a second account
+     slot, an agent registered from the interface — and it is an account door,
+     so this is the account half only. It reads the store and touches no DOM:
+     sweeping every `[title]` six times during a screencast would record the
+     jank into the artifact. */
+  for (let sample = 0; sample < 6; sample += 1) {
+    await sleep(1500)
+    await refuseUnvouchedAccounts(cdp, { name: NAME, vouched: VOUCHED })
+  }
   await cdp.send('Page.stopScreencast')
+
+  /* And once more before a single frame reaches the disk. Account state can
+     change mid-take, and the frames are written below — so this is the last
+     moment at which refusing still costs nothing but the take. */
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, subject: 'recording' })
 
   say(`frames ${collected.length}`)
   if (collected.length === 0) throw new Error('the screencast delivered no frames')

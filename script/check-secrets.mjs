@@ -113,15 +113,17 @@ const CODE_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org'])
 /**
  * Home directory names a committed path may carry.
  *
- * Measured from the tree the day this rule landed: seventeen distinct segments
- * over 341 occurrences, every one of them a placeholder or the demo persona.
- * Fourteen of the seventeen are named here; the other three are excused by
- * shape below — a dotfile directory, and the two elisions. Listing them is the
- * reconciliation #204 asked for — a real login name has no shape to match on,
- * so the only way to refuse one is to say which names are stand-ins. `shane`
- * is the project's public demo persona, whose home appears in the preview
- * fixture and the site's recorded wire; `linuxbrew` is a system account rather
- * than a person.
+ * Re-measured over the tree at this head, with the Windows shape below now
+ * counted too: eighteen distinct segments over 347 occurrences, every one of
+ * them a placeholder or the demo persona. Fifteen of the eighteen are named
+ * here; the other three are excused by shape below — a dotfile directory, and
+ * the two elisions. Listing them is the reconciliation #204 asked for — a real
+ * login name has no shape to match on, so the only way to refuse one is to say
+ * which names are stand-ins. `shane` is the project's public demo persona,
+ * whose home appears in the preview fixture and the site's recorded wire;
+ * `linuxbrew` is a system account rather than a person. `foo` arrived with the
+ * Windows shape: both of its occurrences are `C:\\Users\\foo` in prose about
+ * how a label is escaped.
  */
 const PLACEHOLDER_HOMES = new Set([
   'a',
@@ -129,6 +131,7 @@ const PLACEHOLDER_HOMES = new Set([
   'agent',
   'alice',
   'dev',
+  'foo',
   'linuxbrew',
   'me',
   'sam',
@@ -139,6 +142,26 @@ const PLACEHOLDER_HOMES = new Set([
   'user2',
   'x',
 ])
+
+/**
+ * Is this home directory's segment a declared stand-in rather than a person?
+ *
+ * One function for both shapes of home path below. A second copy would be a
+ * second opinion about what counts as a placeholder, and this file already
+ * says why that is the thing to avoid: the roster is the rule.
+ */
+const homeExempt = (match) => {
+  const segment = match[1] ?? ''
+  // A dotfile directory under a bare home root is not a person's login name.
+  if (segment.startsWith('.')) return true
+  /* A segment that is not a name: an ellipsis where the writer elided one, or
+     an angle-bracket placeholder standing in for it. Both are the opposite of
+     a leak, and the tree writes them in prose *about* home paths — including
+     in the screenshot audit whose whole job is finding real ones. Found by
+     this rule's first run, which is what #204 expected a first run to be for. */
+  if (/[…<>]/.test(segment)) return true
+  return PLACEHOLDER_HOMES.has(segment.toLowerCase())
+}
 
 const PATTERNS = [
   { label: 'OpenAI API key', pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
@@ -247,19 +270,24 @@ const PATTERNS = [
        entries of a PATH, or a `file://`. `/var/home` is where Fedora
        Silverblue and SteamOS put one. */
     pattern: /(?<=^|[\s"'`(=\[,:]|file:\/\/)(?:\/var)?\/(?:Users|home)\/([^/\s"'`,)\]]+)/g,
-    exempt: (match) => {
-      const segment = match[1] ?? ''
-      // A dotfile directory under a bare home root is not a person's login name.
-      if (segment.startsWith('.')) return true
-      /* A segment that is not a name: an ellipsis where the writer elided one,
-         or an angle-bracket placeholder standing in for it. Both are the
-         opposite of a leak, and the tree writes them in prose *about* home
-         paths — including in the screenshot audit whose whole job is finding
-         real ones. Found by this rule's first run, which is what #204 expected
-         a first run to be for. */
-      if (/[…<>]/.test(segment)) return true
-      return PLACEHOLDER_HOMES.has(segment.toLowerCase())
-    },
+    exempt: homeExempt,
+  },
+  {
+    /* The same rule, in the shape Windows writes a home directory.
+     *
+     * One roster and one decision (`homeExempt`), two shapes — because a
+     * POSIX home and a Windows home share no characters to match on, not
+     * because they are two questions. The screenshot audit asks this gate the
+     * same question about a rendered frame (#296), and the frame it was asked
+     * about had a `C:\\Users\\…` path in it that every arm here read straight
+     * past.
+     *
+     * One or two backslashes, because a path written in a source string is
+     * escaped and one written in prose is not, and both are published the
+     * same. The segment ends at the next separator of either kind. */
+    label: 'a home directory that is not a declared placeholder (AGENTS.md rule 13)',
+    pattern: /(?<=^|[\s"'`(=\[,:])[A-Za-z]:\\{1,2}Users\\{1,2}([^\\/\s"'`,)\]]+)/g,
+    exempt: homeExempt,
   },
 ]
 
