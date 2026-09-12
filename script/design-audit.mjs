@@ -301,14 +301,24 @@ const TARGET_FLOOR = 24
  * The pieces of a selector list, or of one selector, split on `separators` at
  * the top level only: a comma inside `:not(…)` or a space inside `[data-x=" "]`
  * separates nothing.
+ *
+ * Depth is counted outside quotes only. A `(` in an attribute value —
+ * `[data-x="("]` — raised a depth that the closing `]` lowered once, so every
+ * separator after it in the selector looked nested and the list stopped
+ * splitting: the rule was then filed under its last selector alone, and the
+ * first one was dropped (#267).
  */
 const outside = (text, separators) => {
   const parts = []
   let depth = 0
   let at = 0
+  let quote = ''
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index]
-    if (character === '(' || character === '[') depth += 1
+    if (quote) {
+      if (character === quote && text[index - 1] !== '\\') quote = ''
+    } else if (character === '"' || character === "'") quote = character
+    else if (character === '(' || character === '[') depth += 1
     else if (character === ')' || character === ']') depth -= 1
     else if (depth === 0 && separators.includes(character)) {
       parts.push(text.slice(at, index))
@@ -320,7 +330,7 @@ const outside = (text, separators) => {
 }
 
 /**
- * The class one selector is about: the last class of its *subject*, the
+ * The classes one selector is about: the classes of its *subject*, the
  * compound at the end.
  *
  * `.tray .tabClose` is a rule about `tabClose`; taking the first class filed
@@ -330,17 +340,29 @@ const outside = (text, separators) => {
  * inside the class, not about it: 13px of icon inside a button was counted as
  * a 13px button (#185).
  */
-const subjectClass = (selector) => {
-  let subject = outside(selector, ' \t\n>+~').pop() ?? ''
+const subjectClasses = (selector) => {
+  const subject = outside(selector, ' \t\n>+~').pop() ?? ''
   // What a `:not(…)` or `:has(…)` holds is about other elements, not this one:
   // `.mark:not(.a .b)` is a rule about `mark`. Innermost first, for nesting.
-  let shorter = subject.replace(/\([^()]*\)/g, '')
-  while (shorter !== subject) {
-    subject = shorter
-    shorter = subject.replace(/\([^()]*\)/g, '')
+  let stripped = subject
+  let shorter = stripped.replace(/\([^()]*\)/g, '')
+  while (shorter !== stripped) {
+    stripped = shorter
+    shorter = stripped.replace(/\([^()]*\)/g, '')
   }
-  const classes = [...subject.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)]
-  return classes.length > 0 ? classes[classes.length - 1][1] : null
+  // Every class on the compound, not its last: `.foo.bar` is one element
+  // wearing both names, and the component may reach it by either. Filing the
+  // rule under `bar` alone hid it from a control carrying `styles.foo` (#267).
+  const classes = [...stripped.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1])
+  if (classes.length > 0) return classes
+  /* `:is(…)` and `:where(…)` are the exception to the stripping above: where
+     nothing else names the subject, what they hold *is* it, so `:is(.a, .b)`
+     is a rule about both rather than a rule about nothing. Only where nothing
+     else does — an element matching `.delta:is(.epsilon)` is named `delta`,
+     and `epsilon` only narrows which deltas (#267). */
+  return [...subject.matchAll(/:(?:is|where)\(([^()]+)\)/g)]
+    .flatMap((match) => outside(match[1], ','))
+    .flatMap((argument) => subjectClasses(argument))
 }
 
 /** `class` → the px of a rule that declares an equal literal width and height. */
@@ -352,8 +374,7 @@ export const squaresOf = (cssPath) => {
     if (!width || !height || width[1] !== height[1]) continue
     // Every selector in the list, since `.a, .b` is one rule about two things.
     for (const selector of outside(rule[1], ',')) {
-      const name = subjectClass(selector)
-      if (name) out.set(name, Number(height[1]))
+      for (const name of subjectClasses(selector)) out.set(name, Number(height[1]))
     }
   }
   return out

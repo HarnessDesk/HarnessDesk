@@ -490,10 +490,19 @@ describe("an accent's light face outranks a palette's on source order alone, so 
      to find a face put somewhere unexpected (review, round 1). The element
      the face is written on is not part of the question either: `:root[…]` and
      a bare `[…]` declare one just as `body[…]` does, and reading only `body`
-     left a sheet holding either invisible to `declaring` below (#226). */
+     left a sheet holding either invisible to `declaring` below (#226).
+     Optional, but not *anything*: the match starts at a selector boundary, and
+     the element is one the page itself is. Unanchored, the engine retried a
+     character along whenever the prefix failed and read a face out of
+     `.card[…]`, `#main[…]` and the bare attribute inside a `:not(…)` list;
+     unrestricted, `div[…]` counted too, though a face on a region wins by
+     inheritance rather than by the source order pinned below (#266). */
   const faces = (css: string, kind: 'palette' | 'accent') => [
     ...bare(css).matchAll(
-      new RegExp(`(?:[A-Za-z:][\\w-]*)?\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`, 'g'),
+      new RegExp(
+        `(?<=^|[\\s,>+~}])(?:body|html|:root)?\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`,
+        'g',
+      ),
     ),
   ]
   const declaring = (kind: 'palette' | 'accent') =>
@@ -534,5 +543,42 @@ describe("an accent's light face outranks a palette's on source order alone, so 
     // Math.min of nothing is Infinity, which passes; the accents have to be there to be after anything (review, round 1).
     expect(accents.length).toBeGreaterThan(0)
     expect(Math.min(...accents)).toBeGreaterThan(Math.max(...palettes))
+  })
+
+  /* #266: #226 made the element a face is written on optional, so that
+     `:root[…]` and a bare `[…]` count as well as `body[…]`. The match was
+     never anchored to a selector boundary, though, so when the prefix failed
+     the engine retried one character along and read a face out of things that
+     declare none: `card` out of `.card[…]`, `main` out of `#main[…]`, and the
+     bare attribute out of a `:not(…)` list. Nothing in the tree is spelled any
+     of those ways, so this never fired — what it cost was the check's meaning
+     rather than a wrong answer, and a check whose meaning has drifted is one
+     nobody can read a failure from. */
+  it('reads a face only where one is declared', () => {
+    const sheet = [
+      "body[data-hd-palette='shadcn'] { --a: 1 }",
+      "body[data-hd-palette='shadcn'][data-hd-dark-theme] { --a: 2 }",
+      ":root[data-hd-palette='editorial'] { --a: 3 }",
+      "a,[data-hd-palette='editor'] { --a: 4 }",
+      ".card[data-hd-palette='x'] { --a: 5 }",
+      "#main[data-hd-palette='x'] { --a: 6 }",
+      ":not([data-hd-palette='x'], .b) { --a: 7 }",
+      "div[data-hd-palette='x'] { --a: 8 }",
+    ].join('\n')
+    const real = [
+      "body[data-hd-palette='shadcn']",
+      "body[data-hd-palette='shadcn'][data-hd-dark-theme]",
+      ":root[data-hd-palette='editorial']",
+      "[data-hd-palette='editor']",
+    ]
+    const declared = faces(sheet, 'palette').map((match) => match[0])
+    /* The control: every spelling the tree really uses is read before this
+       change and after it, so a narrower match cannot go unnoticed. */
+    for (const face of real) expect(declared, `${face} declares a face`).toContain(face)
+    /* `.card[…]` and `#main[…]` are a face scoped to a class or an id, not one
+       declared on the page; `div[…]` scopes one to a region, where it wins by
+       inheritance rather than by the source order this check pins; and the
+       attribute inside `:not(…)` is a face the rule deliberately excludes. */
+    expect(declared).toEqual(real)
   })
 })
