@@ -67,3 +67,12 @@ describe('shortLabel', () => {
     expect(shortLabel('Add a New game button to the board', 20)).toBe('Add a New game…')
   })
 })
+
+describe('sessionLabel, for a message that is only blocks', () => {
+  it('is called by its first block, the hand-off, in the list and in the header alike (#186)', () => {
+    // A hand-off sent with a context chip and nothing typed: the packet first, then the chip.
+    const handOff = '<context source="Handed off from Claude — “Migrate”">\n## Goal\nMigrate\n</context>\n<context source="Git">\nOn main\n</context>'
+    expect(sessionLabel(null, handOff)).toBe('Handed off from Claude — “Migrate”')
+    expect(sessionLabel(null, handOff, 'New session')).toBe('Handed off from Claude — “Migrate”')
+  })
+})

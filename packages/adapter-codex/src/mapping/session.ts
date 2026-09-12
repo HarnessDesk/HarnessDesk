@@ -14,6 +14,8 @@ import {
   type TokenUsage,
   type Turn,
   type TurnStatus,
+  openingOf,
+  splitContext,
 } from '@harnessdesk/protocol'
 import type { CodexProtocol } from '@harnessdesk/codex'
 
@@ -84,7 +86,9 @@ const gitInfo = (thread: CodexThread) =>
  * That context is plumbing, not what the person said, so labels strip it.
  */
 export const stripContext = (text: string): string =>
-  text.replace(/<context source="[^"]*">[\s\S]*?<\/context>/g, '').trim()
+  // The protocol's own reader: a pattern of this file's stopped at the first quote, so a label with an escaped one stayed in (#186).
+  // Trimmed, as that pattern's result was (review of #231).
+  splitContext(text).text.trim()
 
 /**
  * A thread's name from the message that opened it, for a thread Codex will
@@ -107,11 +111,17 @@ export const nameFromMessage = (text: string, limit = 60): string | null => {
   return `${body.replace(/[\s,;:.!?—-]+$/, '')}…`
 }
 
-export const mapSummary = (thread: CodexThread, runtime: RuntimeId = CODEX_RUNTIME_ID): SessionSummary => ({
+export const mapSummary = (
+  thread: CodexThread,
+  runtime: RuntimeId = CODEX_RUNTIME_ID,
+  /** A block label this adapter wrote itself, which a conversation isn't called by (`automaticContext`). */
+  skip?: (label: string) => boolean,
+): SessionSummary => ({
   id: sessionId(thread.id),
   runtime,
   title: thread.name === null ? null : stripContext(thread.name) || null,
-  preview: stripContext(thread.preview) || null,
+  // Cut where every other producer cuts, so a name's length doesn't depend on which of them made it (#188, review of #231).
+  preview: openingOf(thread.preview, skip ? { skip } : {}).slice(0, 120) || null,
   cwd: thread.cwd,
   status: mapStatus(thread.status),
   createdAt: toMillis(thread.createdAt),
@@ -124,6 +134,14 @@ export const mapSession = (
   extras: {
     /** Which Codex account this thread was read through; see `CodexRuntimeOptions.id`. */
     readonly runtime?: RuntimeId
+    /**
+     * The very predicate the listing paths hand `mapSummary` —
+     * `automaticContext` over the live registry. A session read or started
+     * had no way to ask for it, so one conversation was called two things:
+     * the hand-off in the sidebar, and the `Git` block the adapter prepends
+     * once it opened (review of #231, round 3).
+     */
+    readonly skip?: (label: string) => boolean
     readonly settings?: SessionSettings
     readonly options?: readonly ConfigOption[]
     readonly usage?: SessionUsage | null
@@ -134,7 +152,7 @@ export const mapSession = (
     readonly itemsLoaded: boolean
   },
 ): Session => ({
-  ...mapSummary(thread, extras.runtime ?? CODEX_RUNTIME_ID),
+  ...mapSummary(thread, extras.runtime ?? CODEX_RUNTIME_ID, extras.skip),
   turns: thread.turns.map(mapTurn),
   itemsLoaded: extras.itemsLoaded,
   forkedFrom: thread.forkedFromId ? sessionId(thread.forkedFromId) : null,

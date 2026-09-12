@@ -154,6 +154,17 @@ export const toCodexToolResponse = (result: ToolResult): DynamicToolCallResponse
  * decide to call something in order to know the conventions of the repository
  * it is working in.
  */
+/**
+ * Whether a block's label is one this adapter prepends itself: a context
+ * provider's that is not a chip, which `contextPreamble` puts in front of a
+ * message. A conversation isn't called by what the adapter added to it
+ * (review of #231).
+ */
+export const automaticContext = (registry: CapabilityRegistry | null | undefined): ((label: string) => boolean) => {
+  const labels = new Set((registry?.list('context', {}) ?? []).filter((entry) => !entry.chip).map((entry) => entry.label))
+  return (label) => labels.has(label)
+}
+
 export const contextPreamble = (
   entries: readonly { label: string; text: string }[],
 ): string | null => {

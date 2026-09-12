@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 
-import { sessionKey, splitContext, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, projectRootOf, type ProjectGroup } from '../lib/projects'
@@ -825,22 +825,19 @@ const rowOf = (session: Session): SessionSummary => ({
 })
 
 /**
- * The first thing the person typed, for a row with no name yet — their words
- * alone, with any envelope the desk sent beside them taken off here rather
- * than left for every reader to strip. Every text block of a message is
- * read, not the first: the composer puts attached context — a page, a
- * plan — in blocks of its own *before* the typed words, so the first block
- * of a message with chips is all envelope and strips to nothing.
+ * How the opening message is called, for a row with no name yet, by the rule
+ * every adapter's preview follows (`openingOf`): the person's first line, or
+ * for a message that's only blocks, the block that says what the
+ * conversation is. It reads every text block of a message, because the
+ * composer puts attached context in blocks of its own before the typed words.
+ * The first message that says anything answers (review of #231).
  */
 const firstAsk = (session: Session): string | null => {
   for (const turn of session.turns) {
     for (const item of turn.items) {
       if (item.type !== 'userMessage') continue
-      for (const block of item.content) {
-        if (block.type !== 'text') continue
-        const words = splitContext(block.text).text.trim()
-        if (words.length > 0) return words
-      }
+      const opening = openingOf(item.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n'))
+      if (opening) return opening
     }
   }
   return null

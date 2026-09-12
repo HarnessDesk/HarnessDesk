@@ -44,7 +44,7 @@ import {
   type Unsubscribe,
 } from '@harnessdesk/protocol'
 
-import { contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
+import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
 import { CodexExtensions } from './extensions.js'
@@ -696,6 +696,20 @@ export class CodexRuntime implements AgentRuntime {
    * Only on the first page: later pages are Codex's alone, or a live row
    * would repeat itself down the list.
    */
+  /**
+   * The block labels this adapter writes itself, which no conversation is
+   * named by. Read from the registry on every call rather than kept, because
+   * a plugin can be enabled or disabled while the runtime is up.
+   *
+   * One predicate for every producer of a preview here — the list, the
+   * search, `readSession` and the `session/started` event. Two of them had it
+   * and two did not, which is a conversation that answers to one name in the
+   * sidebar and another the moment it is opened (review of #231, round 3).
+   */
+  #automatic(): (label: string) => boolean {
+    return automaticContext(this.#capabilities)
+  }
+
   async listSessions(query: ListSessionsQuery = {}): Promise<Page<SessionSummary>> {
     const onlyArchived = query.archived === 'only'
     const response = await this.#server.request('thread/list', {
@@ -705,7 +719,7 @@ export class CodexRuntime implements AgentRuntime {
       // archived threads and nothing else, which is what `only` means.
       archived: onlyArchived,
     })
-    const stored = response.data.map((thread) => mapSummary(thread, this.#id))
+    const stored = response.data.map((thread) => mapSummary(thread, this.#id, this.#automatic()))
     const live =
       query.cursor
         ? []
@@ -726,7 +740,7 @@ export class CodexRuntime implements AgentRuntime {
   async searchSessions(query: string): Promise<Page<SessionSummary>> {
     const response = await this.#server.request('thread/search', { searchTerm: query })
     return {
-      data: response.data.map((result) => mapSummary(result.thread, this.#id)),
+      data: response.data.map((result) => mapSummary(result.thread, this.#id, this.#automatic())),
       nextCursor: response.nextCursor,
     }
   }
@@ -771,6 +785,7 @@ export class CodexRuntime implements AgentRuntime {
       { ...thread, turns },
       {
         runtime: this.#id,
+        skip: this.#automatic(),
         itemsLoaded: true,
         // Codex answers `thread/read` with no token figures whatsoever, so the
         // last ones it reported are carried across from the live session — the
@@ -956,6 +971,7 @@ export class CodexRuntime implements AgentRuntime {
       type: 'session/started',
       session: mapSession(thread, {
         runtime: this.#id,
+        skip: this.#automatic(),
         settings: settingsFromState(state),
         options: session.options(),
         // A thread we just started has no history to load, so its transcript

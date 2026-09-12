@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
-import { sessionId, type AgentEvent } from '@harnessdesk/protocol'
+import { sessionId, type AgentEvent, wrapContext } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
 
@@ -1381,6 +1381,63 @@ test('a bridge token is claimed for its runtime before the open, and for its ses
     const opened = tokens.filter((_token, index) => order[index] === 'open')
     const named = tokens.filter((_token, index) => order[index] === 'session')
     for (const token of named) assert.ok(opened.includes(token), 'every session claim names a token that was opened first')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a conversation opened with only context blocks is called by the first one, not cut short (#186)', async (t) => {
+  // The preview was the raw message cut at 120 characters, so no block arrived whole and the row read "Untitled session".
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-opening-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: join(dir, 'store.json') },
+  })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([
+      { type: 'text', text: wrapContext('Handed off from Claude Code', `## Goal\nfinish the migration\n${'- a step taken\n'.repeat(20)}`) },
+      { type: 'text', text: wrapContext('Git', `On branch main.\n${'M  src/file.ts\n'.repeat(20)}`) },
+    ])
+    await tape.until((event) => event.type === 'turn/completed')
+    const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
+    assert.equal(row?.preview, 'Handed off from Claude Code')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a first message cut off inside a block names nothing (review of #231)', async (t) => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-cut-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: join(dir, 'store.json') },
+  })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: '<context source="Handed off from Claude Code — “Migrate the web' }])
+    await tape.until((event) => event.type === 'turn/completed')
+    const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
+    assert.ok(row)
+    assert.equal(row.preview, null)
   } finally {
     await runtime.dispose()
   }

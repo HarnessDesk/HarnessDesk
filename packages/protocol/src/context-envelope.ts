@@ -79,6 +79,45 @@ export const splitContext = (raw: string): SplitText => {
   return { injections, text }
 }
 
+/** The label every hand-off packet carries: `Handed off from <agent> — “<conversation>”`. */
+export const HANDOFF_PREFIX = 'Handed off from '
+
+export const isHandoffSource = (label: string): boolean => label.startsWith(HANDOFF_PREFIX)
+
+/**
+ * Whether a line opens an envelope, whole or not. `splitContext` leaves a
+ * block that was cut off before it closed in the text, markup and all, and
+ * nothing should read that as the person's words.
+ */
+export const opensEnvelope = (line: string): boolean => /^<context(?:\s+source="|>)/.test(line)
+
+/**
+ * What a conversation's first message is called, before it's cut to a row's
+ * width. That is the first line of the person's own words, after any context
+ * blocks. For a message that's only blocks, it is the block that says what
+ * the conversation is, a hand-off or a message from another agent, wherever
+ * it sits; otherwise the first block the caller doesn't pass over.
+ *
+ * Not simply the first block. The composer sends a hand-off's packet first
+ * (`Composer.tsx`), but an adapter can put blocks of its own in front of it,
+ * and Codex's does: the Git plugin's, on by default. So the first block of a
+ * hand-off to Codex was "Git" (review of #231). `skip` is for the labels an
+ * adapter wrote itself.
+ *
+ * A block cut off before it closed names nothing, because its markup is not
+ * words (review of #231). Read where the preview is made, from the whole
+ * message: a preview cut at 120 characters holds no whole block to read a
+ * label from, and one stripped of its blocks holds nothing at all (#186).
+ */
+export const openingOf = (raw: string, options: { readonly skip?: (label: string) => boolean } = {}): string => {
+  const { text, injections } = splitContext(raw)
+  const lineOf = (value: string): string => value.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
+  const said = lineOf(text)
+  if (said) return opensEnvelope(said) ? '' : said
+  const labels = injections.map((block) => block.label).filter((label) => !options.skip?.(label))
+  return lineOf(labels.find((label) => isHandoffSource(label) || isAgentMessageSource(label)) ?? labels[0] ?? '')
+}
+
 /**
  * A stable identity for a block the desk composed itself — a page's
  * annotations, on their way to the composer as a chip rather than as text in

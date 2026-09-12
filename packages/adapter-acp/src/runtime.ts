@@ -57,6 +57,7 @@ import {
   peelUserContent,
   refuseOptionValue,
   SessionGoneError,
+  openingOf,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -1347,7 +1348,8 @@ export class AcpRuntime implements AgentRuntime {
         // loaded here has no turns of its own to take one from — the agent
         // keeps the transcript — and a row with neither name nor ask reads
         // as "Untitled session" while the agent knows exactly what it is.
-        const preview = row.preview?.trim()
+        // By the rule every producer's preview follows (review of #231).
+        const preview = openingOf(row.preview ?? '').slice(0, 120)
         if (preview) this.#previews.set(makeSessionId(row.sessionId), preview)
       }
       const named = live.map((summary) => {
@@ -1367,7 +1369,7 @@ export class AcpRuntime implements AgentRuntime {
             // What the conversation opened with, for the rows an agent
             // leaves unnamed — the same split a live session has, where the
             // title is the agent's name and the preview is the ask.
-            preview: row.preview?.trim() || null,
+            preview: openingOf(row.preview ?? '').slice(0, 120) || null,
             cwd: row.cwd,
             status: { type: 'notLoaded' },
             createdAt: row.updatedAt ? Date.parse(row.updatedAt) : 0,
@@ -2627,7 +2629,8 @@ class AcpSession implements AgentSession {
       title: this.#host.titleOf(this.id),
       preview:
         preview?.type === 'userMessage'
-          ? preview.content.map((part) => (part.type === 'text' ? part.text : '')).join(' ').slice(0, 120)
+          ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
+            openingOf(preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')).slice(0, 120) || null
           : // Loaded, not replayed: the agent's own record of how this
             // conversation opened stands in for turns this process never saw.
             this.#host.previewOf(this.id),

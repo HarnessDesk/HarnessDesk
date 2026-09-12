@@ -9,11 +9,15 @@ import {
   sessionId,
   type AgentEvent,
   type Approval,
+  runtimeId,
   type Session,
+  wrapContext,
 } from '@harnessdesk/protocol'
+import { ExtensionKernel } from '@harnessdesk/cordis-host'
 
+import { automaticContext } from '../src/capabilities.js'
 import { CodexRuntime } from '../src/index.js'
-import { nameFromMessage } from '../src/mapping/session.js'
+import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/session.js'
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
@@ -253,7 +257,7 @@ test('history lists and searches map onto session summaries', async (t) => {
   await runtime.start()
 
   const listed = await runtime.listSessions({ pageSize: 10 })
-  assert.equal(listed.data.length, 3)
+  assert.equal(listed.data.length, 4)
   assert.equal(listed.data[0]?.preview, 'List the files here.')
   // A conversation whose first message came from HarnessDesk carries the
   // envelope HarnessDesk prepended for the model. It is plumbing, not what
@@ -835,4 +839,152 @@ test('checkInstallation moves an idle runtime onto an upgraded binary, and waits
     else process.env['FAKE_CODEX_VERSION'] = saved
     await runtime.dispose()
   }
+})
+
+test('a conversation that opened with only context blocks is called by the first one (#186)', async (t) => {
+  // Listed: Codex's stored preview is the raw first message, blocks and all.
+  const opening = `${wrapContext('Handed off from Claude Code', '## Goal\nfinish the migration')}\n${wrapContext('Git', 'On branch main.')}`
+  const thread = {
+    id: 'thread-9',
+    sessionId: 'thread-9',
+    forkedFromId: null,
+    preview: opening,
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    path: '/tmp/rollout.jsonl',
+    cwd: '/w',
+    cliVersion: '0.149.0',
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
+    name: null,
+    turns: [],
+  } as unknown as Parameters<typeof mapSummary>[0]
+  assert.equal(mapSummary(thread).preview, 'Handed off from Claude Code')
+  // Live: the opening kept when the first message is sent had its blocks stripped and nothing left.
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/w' })
+  await session.send([
+    { type: 'text', text: wrapContext('Handed off from Claude Code', '## Goal\nfinish the migration') },
+    { type: 'text', text: wrapContext('Git', 'On branch main.') },
+  ])
+  // The session the runtime hands back is Codex's own, whose summary the list is made from.
+  assert.equal((session as unknown as { summary(): { preview: string | null } }).summary().preview, 'Handed off from Claude Code')
+})
+
+/** A stored Codex thread, as `thread/list` returns one. */
+const storedThread = (preview: string): Parameters<typeof mapSummary>[0] =>
+  ({
+    id: 'thread-10',
+    sessionId: 'thread-10',
+    forkedFromId: null,
+    preview,
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    path: '/tmp/rollout.jsonl',
+    cwd: '/w',
+    cliVersion: '0.149.0',
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: null,
+    name: null,
+    turns: [],
+  }) as unknown as Parameters<typeof mapSummary>[0]
+
+test('a hand-off to Codex is called by the hand-off, not by the block the adapter puts in front of it (review of #231)', async (t) => {
+  /* A real kernel with a context provider that is not a chip, the way the Git
+     plugin registers its block: the adapter prepends it to every message. */
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load({
+    manifest: { id: 'branch', name: 'branch' },
+    plugin: {
+      name: 'branch',
+      inject: ['context'],
+      apply: (ctx: { context: { register(entry: { label: string; resolve: () => Promise<string> }): void } }) =>
+        ctx.context.register({ label: 'Git', resolve: async () => 'On branch main.' }),
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const previewOf = (session: unknown): string | null => (session as { summary(): { preview: string | null } }).summary().preview
+
+  const handed = await runtime.createSession({ cwd: '/w' })
+  await handed.send([{ type: 'text', text: wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish the migration') }])
+  assert.equal(previewOf(handed), 'Handed off from Claude Code — “Migrate webhooks”')
+
+  const chipped = await runtime.createSession({ cwd: '/w' })
+  await chipped.send([{ type: 'text', text: wrapContext('Uncommitted changes', 'M src/a.ts') }])
+  assert.equal(previewOf(chipped), 'Uncommitted changes')
+
+  // Listed: Codex stored the message with the adapter's block in front of the chip.
+  const listed = storedThread(`${wrapContext('Git', 'On branch main.')}\n\n${wrapContext('Uncommitted changes', 'M src/a.ts')}`)
+  assert.equal(mapSummary(listed, runtimeId('codex'), automaticContext(kernel)).preview, 'Uncommitted changes')
+  // The control: the same stored message, read without the kernel, starts with the adapter's block.
+  assert.equal(mapSummary(listed).preview, 'Git')
+})
+
+test('the listed preview is cut where the live one is, and a stripped name is trimmed (review of #231)', () => {
+  assert.equal(mapSummary(storedThread(`Retry the checkout call ${'on a 502 '.repeat(40)}`)).preview?.length, 120)
+  assert.equal(stripContext('  Retry the checkout call  '), 'Retry the checkout call')
+  assert.equal(stripContext(`${wrapContext('Git', 'On branch main.')}\n  Retry it  `), 'Retry it')
+})
+
+/** A context provider that is not a chip, the way the Git plugin registers its block. */
+const gitKernel = async (t: { after(fn: () => unknown): void }): Promise<ExtensionKernel> => {
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load({
+    manifest: { id: 'branch', name: 'branch' },
+    plugin: {
+      name: 'branch',
+      inject: ['context'],
+      apply: (ctx: { context: { register(entry: { label: string; resolve: () => Promise<string> }): void } }) =>
+        ctx.context.register({ label: 'Git', resolve: async () => 'On branch main.' }),
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  return kernel
+}
+
+test('a preview that is the person’s own words reads the same listed as opened', async (t) => {
+  // The control for the pair below: nothing here needs a predicate at all.
+  const kernel = await gitKernel(t)
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const listed = (await runtime.listSessions({ pageSize: 10 })).data.find((row) => String(row.id) === 'thread-2')
+  assert.equal(listed?.preview, 'Another')
+  assert.equal((await runtime.readSession(sessionId('thread-2'))).preview, 'Another')
+})
+
+test('a conversation is called the same thing opened as it is in the list (review of #231, round 3)', async (t) => {
+  /* The two listing paths handed `mapSummary` the labels this adapter
+     prepends; `mapSession` had no parameter to take them, so `readSession`
+     and the `session/started` event went on naming a conversation after the
+     adapter's own block. Both paths, one thread, one answer. */
+  const kernel = await gitKernel(t)
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  // thread-4 opened with the adapter's own Git block ahead of the person's chip.
+  const listed = (await runtime.listSessions({ pageSize: 10 })).data.find((row) => String(row.id) === 'thread-4')
+  const opened = await runtime.readSession(sessionId('thread-4'))
+  assert.equal(listed?.preview, 'Uncommitted changes')
+  assert.equal(opened.preview, listed?.preview, 'the conversation that opens is the one the list named')
 })
