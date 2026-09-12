@@ -7,6 +7,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A plugin's Access list says what the plugin may actually do** — the list on
+  a plugin's page wrote its own sentences rather than the ones the install
+  dialog had already shown, and had drifted from them. A plugin allowed to
+  reach the whole network was described as "Reach *", which reads as a hostname
+  with a typo. Worse, five of the grants a plugin can hold had no sentence on
+  that page at all, so the Browser, Android and iOS Simulator plugins — each of
+  which declares exactly one of them — said they could do "nothing beyond
+  reading what the agent sends it". Both surfaces read from one list now, so
+  what you agreed to at install is what the page keeps saying.
 - **A conversation docked to a panel no longer takes the screen when the app
   reopens** — a layout saved with one conversation in front and a second docked
   to the side came back with the docked one in the middle as well, over the one
