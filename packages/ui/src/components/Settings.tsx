@@ -337,15 +337,18 @@ const RoutesRows = () => {
  * under an empty endpoint list is a permanent reminder of a state that is
  * fine.
  *
- * **Route keys only, and the rule is "nothing else owns it".** The same store
+ * **Route keys only, and the rule is "the endpoint's own".** The same store
  * holds every agent's sign-in key and every gateway account's, and review
  * caught this section listing each in turn — an active
  * `agent:codex:OPENAI_API_KEY` drew as "No endpoint uses it", because no
  * endpoint ever does, and then so did a gateway account's key. Both have
  * doors of their own that do more than delete: the agent's page reloads the
  * runtime's secrets, and an account's key goes with the account. Asking "is
- * it an agent's" got the second class wrong, so the host answers "what owns
- * it" and this lists the ones nothing does.
+ * it an agent's" got the second class wrong, so the host says what *wrote*
+ * each key and this lists the endpoints' own. A key whose writer this section
+ * cannot name is not drawn here at all: listing whatever nobody else claimed
+ * is what made a new kind of writer read as an endpoint's leftover (round 3
+ * of #244).
  */
 const KeysRows = () => {
   const store = useStore()

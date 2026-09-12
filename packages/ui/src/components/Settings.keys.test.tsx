@@ -60,9 +60,9 @@ const KEY: StoredCredential = {
   createdAt: Date.UTC(2026, 0, 9),
   owner: { kind: 'endpoint' },
 }
-const ORPHAN: StoredCredential = {
+const UNUSED: StoredCredential = {
   ref: 'cred_b',
-  name: 'Old gateway key',
+  name: 'Spare proxy key',
   createdAt: Date.UTC(2025, 10, 2),
   owner: { kind: 'endpoint' },
 }
@@ -133,13 +133,14 @@ const removeOn = (name: string): HTMLButtonElement | undefined => {
 }
 
 it('names each key by the endpoint that uses it, and the one nothing uses', async () => {
-  mount([KEY, ORPHAN])
+  mount([KEY, UNUSED])
   await act(async () => {})
 
   expect(container.textContent).toContain('Stored keys · 2')
   expect(container.textContent).toContain('Used by Acme proxy')
-  /* The leak, said out loud. This is the row that could not be reached at
-     all: a key with no owner, and until now no way to remove it. */
+  /* An endpoint's own key that no route refers to: it says so, and it can be
+     removed from here. A key written by something else is not drawn in this
+     section at all, so there is no orphan row any more (round 3 of #244). */
   expect(container.textContent).toContain('No endpoint uses it')
 })
 
@@ -170,10 +171,10 @@ it('forgetting a key confirms first, says what breaks, and drops the row', async
 })
 
 it('a key nothing names is housekeeping, and says so instead', async () => {
-  mount([ORPHAN], [])
+  mount([UNUSED], [])
   await act(async () => {})
 
-  act(() => removeOn('Old gateway key')?.click())
+  act(() => removeOn('Spare proxy key')?.click())
   expect(document.body.textContent).toContain('cannot be recovered')
   expect(document.body.textContent).not.toContain('will stop working')
 })
@@ -236,7 +237,7 @@ it('a key nothing here can name is listed nowhere, rather than offered for delet
      heard of, as a newer host would store it. This section used to list
      whatever nobody claimed, which is how two live keys came to be offered
      for deletion; it lists what the endpoint dialog stored. */
-  mount([KEY, { ...ORPHAN, ref: 'cred_e', name: 'Plugin key', owner: null }])
+  mount([KEY, { ...UNUSED, ref: 'cred_e', name: 'Plugin key', owner: null }])
   await act(async () => {})
 
   // The control: the section is drawn, with the endpoint's key in it.
