@@ -587,6 +587,67 @@ test('a rule about what is inside a control is not a rule about the control (#18
   assert.equal(found.get('mark'), 10, 'a space inside :not() separates nothing')
 })
 
+test('a rule on two classes at once is a rule about both of them (#267)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-subject-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'x.module.css')
+  fs.writeFileSync(file, ['.solo { width: 20px; height: 20px; }', '.foo.bar { width: 22px; height: 22px; }'].join('\n'))
+  const found = squaresOf(file)
+  // The control: a subject wearing one class is read the same either way.
+  assert.equal(found.get('solo'), 20, 'a single-class subject is still read')
+  assert.equal(found.get('bar'), 22, 'the last class of the compound was always read')
+  // `.foo.bar` is one element wearing two names, and the component may reach
+  // it by either. Filing the rule under the last name alone left it invisible
+  // to a button carrying `styles.foo`, which is the lookup that counts.
+  assert.equal(found.get('foo'), 22, 'every class on the subject compound names the same element')
+})
+
+test('a bare :is() is the subject rather than a pseudo-class to strip (#267)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-subject-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'x.module.css')
+  fs.writeFileSync(
+    file,
+    [
+      '.solo { width: 20px; height: 20px; }',
+      ':is(.alpha, .beta) { width: 21px; height: 21px; }',
+      ':where(.gamma) { width: 23px; height: 23px; }',
+      '.delta:is(.epsilon) { width: 25px; height: 25px; }',
+    ].join('\n'),
+  )
+  const found = squaresOf(file)
+  // The control: stripping `(…)` is right for every other pseudo-class, and
+  // an ordinary subject must keep reading the same.
+  assert.equal(found.get('solo'), 20, 'an ordinary subject is unaffected')
+  assert.equal(found.get('delta'), 25, 'a class outside the :is() names the subject, as it always did')
+  // Stripping `(…)` left `:is`, which holds no class, so the rule was filed
+  // under nothing at all — the one shape where the parentheses *are* the
+  // subject rather than a statement about other elements.
+  assert.equal(found.get('alpha'), 21, 'both arguments of a bare :is() are the subject')
+  assert.equal(found.get('beta'), 21)
+  assert.equal(found.get('gamma'), 23, ':where() is the same shape at no specificity')
+  // Conservative on purpose: an element matching `.delta:is(.epsilon)` is
+  // named `delta`, and `epsilon` only narrows which deltas. A rule about a
+  // 25px delta is not a rule about every epsilon.
+  assert.equal(found.has('epsilon'), false, 'a class that only narrows the subject does not become one')
+})
+
+test('a parenthesis inside an attribute value separates nothing (#267)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-subject-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'x.module.css')
+  fs.writeFileSync(file, ['.a[data-x="("], .b .c { width: 24px; height: 24px; }', '.solo { width: 20px; height: 20px; }'].join('\n'))
+  const found = squaresOf(file)
+  // The control: the rule is read, and its last selector was always right.
+  assert.equal(found.get('solo'), 20)
+  assert.equal(found.get('c'), 24, 'the last selector of the list was always read')
+  // The `(` in the value raised the depth that the closing `]` lowered once,
+  // so every separator after it looked nested: the comma never split the
+  // list, and the first selector of the rule was dropped on the floor.
+  assert.equal(found.get('a'), 24, 'the comma after a quoted ( still separates the list')
+  assert.equal(found.has('b'), false, 'a descendant of the subject is not the subject')
+})
+
 test('the audit reads a stylesheet imported from another folder, and one behind the alias (#185)', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-sheets-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))

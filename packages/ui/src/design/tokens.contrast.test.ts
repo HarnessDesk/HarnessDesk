@@ -486,16 +486,53 @@ describe("an accent's light face outranks a palette's on source order alone, so 
   const sheets = import.meta.glob<string>('../**/*.css', { query: '?raw', import: 'default', eager: true })
   const fromSrc = (spec: string, dir: string) => new URL(spec, `file:///src/${dir}/`).pathname.replace(/^\/src\//, '')
   const bare = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '')
-  /* Any quoting, and in a group of selectors too: the control below is there
-     to find a face put somewhere unexpected (review, round 1). The element
-     the face is written on is not part of the question either: `:root[…]` and
-     a bare `[…]` declare one just as `body[…]` does, and reading only `body`
-     left a sheet holding either invisible to `declaring` below (#226). */
-  const faces = (css: string, kind: 'palette' | 'accent') => [
-    ...bare(css).matchAll(
-      new RegExp(`(?:[A-Za-z:][\\w-]*)?\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?(?=\\s*[,{])`, 'g'),
-    ),
-  ]
+  /* A face is an *entire selector* of a rule's selector list — `body[…]`,
+     `:root[…]`, or the attribute on its own — with nothing before it and
+     nothing after it. That is the whole rule, and it is the boundary the
+     previous spelling could not express. Anchoring the characters around the
+     attribute cannot see nesting: a space and a comma separate arguments
+     inside `:is(…)` exactly as they separate selectors at the top level, so
+     `:is(.a, [data-hd-palette='x'], .b)` satisfied both a boundary-before and
+     a separator-after test and was read as a face. Only the first and last
+     slots of such a list were refused, and only by accident of which lookaround
+     happened to fail (#266, review round 1). Reading the selector instead of
+     its neighbourhood refuses every slot of every such list, at any nesting
+     depth, with no set of characters to keep widening — while still taking the
+     one shape that is indistinguishable from a character's distance:
+     `a, [data-hd-palette='editor']`, where the face really is a whole selector
+     of a group.
+
+     Held to the elements the page itself is, on purpose. A face on a region —
+     `div[…]`, or one reached by a combinator like `main > […]` — wins over its
+     subtree by inheriting custom properties, never by the `@import` source
+     order pinned below, so it is not a member of the set `declaring` asks
+     about (#226, #266). Refusing is the quiet direction, though, so the sheets
+     that mention a face and the sheets that declare one are held equal below. */
+  const selectors = (css: string) => {
+    const out: { text: string; index: number }[] = []
+    let depth = 0
+    let quote = ''
+    let at = 0
+    const take = (end: number) => {
+      const raw = css.slice(at, end)
+      out.push({ text: raw.trim(), index: at + (raw.length - raw.trimStart().length) })
+      at = end + 1
+    }
+    for (let index = 0; index < css.length; index += 1) {
+      const character = css[index]
+      if (quote) {
+        if (character === quote && css[index - 1] !== '\\') quote = ''
+      } else if (character === '"' || character === "'") quote = character
+      else if (character === '(' || character === '[') depth += 1
+      else if (character === ')' || character === ']') depth -= 1
+      else if (depth === 0 && (character === ',' || character === '{' || character === '}' || character === ';')) take(index)
+    }
+    return out
+  }
+  const faces = (css: string, kind: 'palette' | 'accent') => {
+    const face = new RegExp(`^(?:body|html|:root)?\\[data-hd-${kind}=["']?\\w+["']?\\](?:\\[data-hd-dark-theme\\])?$`)
+    return selectors(bare(css)).filter((selector) => face.test(selector.text))
+  }
   const declaring = (kind: 'palette' | 'accent') =>
     Object.entries(sheets)
       .filter(([, css]) => faces(css, kind).length > 0)
@@ -507,6 +544,28 @@ describe("an accent's light face outranks a palette's on source order alone, so 
     // The control: the two order checks below pass on nothing if these read nothing.
     expect(declaring('accent')).toEqual(['styles/shadcn-themes.css'])
     expect(declaring('palette')).toEqual(['styles/editor.css', 'styles/editorial.css', 'styles/shadcn-themes.css'])
+  })
+
+  /** Every sheet whose text carries the attribute at all, in any shape. */
+  const mentioning = (kind: 'palette' | 'accent') =>
+    Object.entries(sheets)
+      .filter(([, css]) => new RegExp(`\\[data-hd-${kind}=`).test(bare(css)))
+      .map(([file]) => fromSrc(file, 'design'))
+      .sort()
+
+  it('reads a face out of every sheet that mentions one', () => {
+    /* `faces` refuses far more spellings than it takes, and refusing is the
+       direction that goes quiet: a face written tomorrow in a shape it will
+       not read simply drops out of `declaring`, and the equality above still
+       passes on the three sheets it always had. The sheet would still *say*
+       `data-hd-palette=` somewhere, so this is what fails instead — loudly,
+       and naming the sheet (review, round 1). Per sheet and not per
+       occurrence: `body[data-hd-palette='editorial'] ::selection` is a rule
+       about the selection inside an editorial page and declares nothing, so
+       that sheet carries three mentions and two faces. */
+    for (const kind of ['palette', 'accent'] as const) {
+      expect(mentioning(kind), `a sheet mentions a ${kind} face that faces() does not read`).toEqual(declaring(kind))
+    }
   })
 
   /* A palette face in a CSS module fails the check below, and should: Vite
@@ -528,11 +587,72 @@ describe("an accent's light face outranks a palette's on source order alone, so 
   })
 
   it('declares the accents after every palette face in their own sheet', () => {
-    const palettes = faces(accentSheet, 'palette').map((match) => match.index ?? 0)
-    const accents = faces(accentSheet, 'accent').map((match) => match.index ?? 0)
+    const palettes = faces(accentSheet, 'palette').map((face) => face.index)
+    const accents = faces(accentSheet, 'accent').map((face) => face.index)
     expect(palettes.length).toBeGreaterThan(0)
     // Math.min of nothing is Infinity, which passes; the accents have to be there to be after anything (review, round 1).
     expect(accents.length).toBeGreaterThan(0)
     expect(Math.min(...accents)).toBeGreaterThan(Math.max(...palettes))
+  })
+
+  /* #266: #226 made the element a face is written on optional, so that
+     `:root[…]` and a bare `[…]` count as well as `body[…]`. The match was
+     never anchored to a selector boundary, though, so when the prefix failed
+     the engine retried one character along and read a face out of things that
+     declare none: `card` out of `.card[…]`, `main` out of `#main[…]`, and the
+     bare attribute out of a `:not(…)` list. Nothing in the tree is spelled any
+     of those ways, so this never fired — what it cost was the check's meaning
+     rather than a wrong answer, and a check whose meaning has drifted is one
+     nobody can read a failure from. */
+  it('reads a face only where one is declared', () => {
+    const sheet = [
+      "body[data-hd-palette='shadcn'] { --a: 1 }",
+      "body[data-hd-palette='shadcn'][data-hd-dark-theme] { --a: 2 }",
+      ":root[data-hd-palette='editorial'] { --a: 3 }",
+      "a,[data-hd-palette='editor'] { --a: 4 }",
+      "a, [data-hd-palette='sand'] { --a: 5 }",
+      ".card[data-hd-palette='x'] { --a: 6 }",
+      "#main[data-hd-palette='x'] { --a: 7 }",
+      "div[data-hd-palette='x'] { --a: 8 }",
+      ":not([data-hd-palette='x'], .b) { --a: 9 }",
+      ":is(.a, [data-hd-palette='x']) { --a: 10 }",
+      ":is(.a, [data-hd-palette='x'], .b) { --a: 11 }",
+      ":is(.a,[data-hd-palette='x'],.b) { --a: 12 }",
+      ":not(.a, [data-hd-palette='x'], .b) { --a: 13 }",
+      ":not(.a,[data-hd-palette='x'],.b) { --a: 14 }",
+      ":where(.a, [data-hd-palette='x'], .b) { --a: 15 }",
+      ":where(.a,[data-hd-palette='x'],.b) { --a: 16 }",
+      ":has(.a, [data-hd-palette='x'], .b) { --a: 17 }",
+      ":has(.a,[data-hd-palette='x'],.b) { --a: 18 }",
+      ":is(.a, :not(.b, [data-hd-palette='x'], .c), .d) { --a: 19 }",
+      "main > [data-hd-palette='x'] { --a: 20 }",
+      "main [data-hd-palette='x'] { --a: 21 }",
+      "body[data-hd-palette='shadcn'] ::selection { --a: 22 }",
+    ].join('\n')
+    const real = [
+      "body[data-hd-palette='shadcn']",
+      "body[data-hd-palette='shadcn'][data-hd-dark-theme]",
+      ":root[data-hd-palette='editorial']",
+      "[data-hd-palette='editor']",
+      "[data-hd-palette='sand']",
+    ]
+    const declared = faces(sheet, 'palette').map((face) => face.text)
+    /* The control, and the assertion a careless fix breaks: a face really can
+       be a bare attribute standing as one selector of a top-level group, with
+       a space before it or without one, and every spelling the tree uses is
+       read before this change and after it. Widening the set of characters
+       refused before a face would take these with it. */
+    for (const face of real) expect(declared, `${face} declares a face`).toContain(face)
+    /* `.card[…]` and `#main[…]` are a face scoped to a class or an id, not one
+       declared on the page; `div[…]`, `main > […]` and `main […]` scope one to
+       a region, where it wins by inheritance rather than by the source order
+       this check pins; `body[…] ::selection` is a rule about the selection
+       inside such a page rather than a face; and an attribute inside `:is(…)`,
+       `:not(…)`, `:where(…)` or `:has(…)` is an argument of a pseudo-class,
+       whichever slot of the list it sits in and however the list is spaced.
+       The first and last slots were already refused, but only because one
+       lookaround or the other happened to fail; every middle slot was read as
+       a face, and so was a face reached by a combinator (review, round 1). */
+    expect(declared).toEqual(real)
   })
 })
