@@ -346,3 +346,43 @@ test('a chip provider can resolve to an image beside its text; auto context neve
   // an image can never ride a turn uninvited.
   assert.deepEqual(await kernel.resolveContext({}), [])
 })
+
+test('a chip scoped to one conversation is not resolved for another', async (t) => {
+  /* `list` has applied a contribution's scope since it existed, but resolving
+     one by id did not look at it — so a chip nothing should have offered
+     answered anyway, for whichever conversation asked. */
+  const scoped: HarnessPlugin = {
+    manifest: { id: 'scoped', name: 'Scoped' },
+    plugin: {
+      name: 'scoped',
+      inject: ['context'],
+      apply(ctx: any) {
+        ctx.context.register({
+          label: 'Only in s1',
+          form: 'resource',
+          chip: { description: 'One conversation.' },
+          scope: { kind: 'session', sessionId: sessionId('s1') },
+          resolve: () => 'what s1 has been doing',
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(scoped)
+  await settle()
+
+  const contribution = kernel.list('context', { sessionId: sessionId('s1') })[0]
+  assert.ok(contribution, 'listed for the conversation it is scoped to')
+  assert.deepEqual(kernel.list('context', { sessionId: sessionId('s2') }), [], 'and not for another')
+
+  // The control: asked in scope, it answers.
+  const inScope = await kernel.resolveOne(contribution.id, undefined, { sessionId: sessionId('s1') })
+  assert.equal(inScope?.text, 'what s1 has been doing')
+
+  assert.equal(
+    await kernel.resolveOne(contribution.id, undefined, { sessionId: sessionId('s2') }),
+    null,
+    'another conversation gets nothing, not s1 state',
+  )
+})

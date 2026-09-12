@@ -952,8 +952,10 @@ test('the last test run becomes a chip: nothing before a run, the verdict after'
 
   const chip = kernel.list('context').find((entry) => entry.label === 'Last test run')
   assert.ok(chip?.chip, 'declared as a chip, never automatic context')
-  // Before any run there is nothing to attach, and the error says what to do.
-  await assert.rejects(kernel.resolveOne(chip!.id, undefined, {}), /No test run recorded yet/)
+  // Before any run there is nothing to attach — which resolves to nothing
+  // rather than refusing, so attaching it to a fresh draft does not block the
+  // send. A provider that *fails* is the case that still throws.
+  assert.equal((await kernel.resolveOne(chip!.id, undefined, {}))?.text, '')
 
   const verdict = text(await kernel.invokeTool(toolNamed(kernel, 'run_tests'), {}, {}))
   assert.match(verdict, /PASS/)

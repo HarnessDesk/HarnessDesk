@@ -9,10 +9,11 @@ import {
   type KeyboardEvent,
 } from 'react'
 
-import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent, splitSessionKey } from '@harnessdesk/protocol'
+import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
 import { Btn, Dialog, Input } from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
+import { contributionsHere, scopeHere } from '../lib/contributions'
 import { wrapContext } from '../lib/context-envelope'
 import { CARRY_LABEL } from '../lib/handoff'
 import { brandOf } from '../lib/identity'
@@ -167,13 +168,20 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const canType = Boolean(session) || (ready && Boolean(snapshot.workspace))
   // A hand-off chip rides on the draft only; it leaves with the first message.
   const handoff = session ? null : snapshot.draftHandoff
+  /* What may be offered *here* — this conversation, its agent, this project.
+     Asked once and used twice: the same scope decides which providers the +
+     menu lists and which conversation a chip is then resolved for, so the
+     composer cannot offer something it would go on to ask the wrong question
+     about. A contribution scoped to one project or one conversation used to be
+     offered in every one of them (`lib/contributions.ts`). */
+  const scope = useMemo(() => scopeHere(snapshot, key), [snapshot, key])
   // Context providers that asked to be chips (docs/extending.md).
   const chipProviders = useMemo(
     () =>
-      snapshot.contributions.filter(
+      contributionsHere(snapshot.contributions, scope).filter(
         (entry): entry is Extract<typeof entry, { kind: 'context' }> => entry.kind === 'context' && !!entry.chip,
       ),
-    [snapshot.contributions],
+    [snapshot.contributions, scope],
   )
   const [refPrompt, setRefPrompt] = useState<(typeof chipProviders)[number] | null>(null)
   // Whether the agent this draft will go to can look at an image at all. The
@@ -225,6 +233,32 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     },
     [addContext, chipProviders],
   )
+  /*
+   * A chip whose provider is no longer offered comes off the draft.
+   *
+   * A provider can leave while a draft sits there: its plugin is switched off
+   * in Settings, uninstalled, or has not come back after a restart — and one
+   * scoped to a conversation is not offered in another. The chip left behind
+   * can never resolve, so it refused *every* send with "That context provider
+   * is no longer available", and the only way out was to notice the chip and
+   * take it off by hand. It takes itself off now, and says so, which is the
+   * same rule as not offering it in the first place applied a moment later.
+   */
+  useEffect(() => {
+    const withdrawn = attachments.filter(
+      (entry) =>
+        entry.kind === 'context'
+        && !chipProviders.some((provider) => String(provider.id) === entry.contextId),
+    )
+    if (withdrawn.length === 0) return
+    setAttachments((current) => current.filter((entry) => !withdrawn.includes(entry)))
+    for (const entry of withdrawn) {
+      store.notice(
+        'warning',
+        `${entry.name} is no longer offered for this conversation, so it came off the message.`,
+      )
+    }
+  }, [attachments, chipProviders, store])
   /**
    * A task reworded in the Tasks panel is something to send in its own right.
    * The note is the whole message then — the agent is being told to use the
@@ -512,8 +546,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     }
 
     // Context chips resolve through their plugin now, with the workspace the
-    // message is about. A chip that cannot resolve stops the send: a message
-    // silently missing the context it promised would mislead the agent.
+    // message is about. A chip that *fails* stops the send: a message silently
+    // missing the context it promised would mislead the agent. A provider with
+    // nothing to add for this conversation has broken no promise, and is
+    // handled below rather than treated as a failure.
     /* `key`, not `snapshot.activeSessionKey`: this composer belongs to a pane,
        and in a split or a room column the app's focused conversation is a
        different one — `activeSessionKey` even falls back to *another* pane's
@@ -521,23 +557,17 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
        `interrupt`, `retirePlanEdits`) is addressed with `key`; a chip resolved
        against anything else describes a conversation the message is not going
        to. */
-    const addressed = key ? splitSessionKey(key) : null
     for (const chip of attachments.filter((entry) => entry.kind === 'context')) {
       try {
         const resolved = await store.transport.request('context/resolve', {
           id: chip.contextId ?? '',
           ...(chip.ref ? { ref: chip.ref } : {}),
-          // Runtime and conversation have to come from one place. `activeRuntime`
-          // is the app's idea of which agent a *new* conversation would run as;
-          // the focused pane may hold a conversation belonging to a different
-          // one, and pairing the two asks about a conversation that does not
-          // exist. `Sidebar.tsx` derives it from the key for the same reason.
-          ...(addressed
-            ? { runtime: addressed.runtime, sessionId: addressed.id }
-            : snapshot.activeRuntime
-              ? { runtime: snapshot.activeRuntime }
-              : {}),
-          ...(snapshot.workspace?.path ? { workspaceRoot: snapshot.workspace.path } : {}),
+          // The same scope the chip was offered under. Runtime and conversation
+          // have to come from one place: `activeRuntime` is the app's idea of
+          // which agent a *new* conversation would run as, and the focused pane
+          // may hold a conversation belonging to a different one — pairing the
+          // two asks about a conversation that does not exist.
+          ...scope,
         })
         // An image provider (a screenshot chip) resolves to a picture where
         // the agent takes one, and to its text alone — with the omission
@@ -546,6 +576,15 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         const note = dropped
           ? `${resolved.text}\n\n(A screenshot was taken, but ${agentName} does not accept images.)`.trim()
           : resolved.text
+        if (note.trim().length === 0 && !resolved.image) {
+          /* The provider is here, working, and has nothing for this
+             conversation — a fresh draft has no test run of its own to report.
+             That is not a broken promise, so the message goes without it; what
+             it went without is named, because a chip that vanished silently is
+             the other half of the same problem. */
+          store.notice('info', `${chip.name} had nothing to add, so it was left off this message.`)
+          continue
+        }
         if (note.trim().length > 0) content.push({ type: 'text', text: wrapContext(resolved.label, note) })
         if (resolved.image && acceptsImages) {
           content.push({ type: 'image', url: resolved.image.dataUrl, name: resolved.image.name ?? resolved.label })
@@ -617,8 +656,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     handoff,
     images.length,
     key,
-    snapshot.activeRuntime,
-    snapshot.workspace?.path,
+    scope,
     store,
     text,
   ])

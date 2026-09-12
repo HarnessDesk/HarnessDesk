@@ -149,6 +149,18 @@ ctx.tools.register({
 
 Valid scopes are `global` · `workspace` · `agent` · `session` · `turn`.
 
+Scope decides where a contribution is **offered**, not only where it may run.
+The composer's **Add context** list, the slash palette, a contributed panel and
+a contributed row each ask whether a contribution applies to the conversation in
+front of you, and the host refuses a call from outside its scope — so a tool
+narrowed to one repository is not offered in another, and a chip narrowed to one
+conversation is not offered, or resolved, in another.
+
+`turn` is the exception, and deliberately: it narrows a hook or a tool *inside* a
+running turn, and nothing in the window offers a turn-scoped contribution,
+because the two calls the window can make on one (`command/run`,
+`context/resolve`) name a conversation and never a turn.
+
 ## Contributing capabilities
 
 ### Tools
@@ -290,6 +302,12 @@ ctx.context.register({
 - `prompt` means the provider needs a reference; the composer asks for it
   inline. `match` is a regular expression over pasted text: a pasted GitHub
   URL becomes a chip instead of a line of text, the way Codex treats one.
+- **Nothing to add is not a failure.** A provider with nothing for *this*
+  conversation — `Last test run` in a draft that has run nothing — resolves to
+  an empty string. The composer leaves the chip off the message and names what
+  it left off. Throwing is for a provider that should have answered and could
+  not: that stops the send, because a message silently missing what its chip
+  promised misleads the agent.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
   `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,

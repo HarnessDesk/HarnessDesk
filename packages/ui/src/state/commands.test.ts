@@ -179,3 +179,88 @@ describe('availableCommands', () => {
     expect(deploy?.kind.type).toBe('action')
   })
 })
+
+/**
+ * Where a contributed command is offered.
+ *
+ * A contribution carries a scope, and the palette was pushed every one of them
+ * regardless — so a command narrowed to one conversation was listed in all of
+ * them, and `command/run` would then not find it, because the host applies the
+ * scope the palette did not.
+ */
+describe('the scope a contribution declares', () => {
+  const command = (name: string, scope: unknown) => ({
+    kind: 'command',
+    id: name,
+    owner: 'p#1',
+    revision: 1,
+    scope,
+    name,
+    description: `Run ${name}`,
+  })
+
+  const panel = (label: string, scope: unknown) => ({
+    kind: 'ui',
+    id: label,
+    owner: 'p#1',
+    revision: 1,
+    scope,
+    slot: 'sidebar.panel',
+    label,
+    order: 0,
+    component: 'hd.panel',
+    mounts: ['right'],
+  })
+
+  /** Conversation `s1` of agent `codex`, focused. */
+  const inConversation = (contributions: readonly unknown[]): AppSnapshot => {
+    const session = {
+      id: 's1',
+      runtime: 'codex',
+      cwd: '/w',
+      status: { type: 'idle' },
+      createdAt: 0,
+      updatedAt: 0,
+      turns: [],
+      itemsLoaded: true,
+    } as unknown as Session
+    const key = sessionKey('codex', 's1')
+    return snapshot({
+      activeSessionKey: key,
+      activeSessionId: session.id as never,
+      sessions: new Map([[key, session]]),
+      contributions,
+    } as never)
+  }
+
+  test('keeps a command scoped to another conversation out of the palette', () => {
+    const names = availableCommands(
+      inConversation([
+        command('everywhere', { kind: 'global' }),
+        command('elsewhere', { kind: 'session', sessionId: 's9' }),
+      ]),
+    ).map((entry) => entry.name)
+    // The control, in the same reading: an unscoped command is still offered,
+    // so the absence below is a scope being applied and not an empty list.
+    expect(names).toContain('everywhere')
+    expect(names).not.toContain('elsewhere')
+  })
+
+  test("keeps another conversation's panel out of the palette too", () => {
+    const names = availableCommands(
+      inConversation([
+        panel('Coverage', { kind: 'global' }),
+        panel('Elsewhere', { kind: 'session', sessionId: 's9' }),
+      ]),
+    ).map((entry) => entry.name)
+    expect(names).toContain('coverage')
+    expect(names).not.toContain('elsewhere')
+  })
+
+  test('offers one scoped to the conversation in front of you', () => {
+    const names = availableCommands(
+      inConversation([command('here', { kind: 'session', sessionId: 's1' })]),
+    ).map((entry) => entry.name)
+    expect(names).toContain('here')
+  })
+})

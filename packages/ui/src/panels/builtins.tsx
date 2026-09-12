@@ -25,6 +25,7 @@ import {
   TerminalIcon,
   TrajectoryIcon,
 } from '../components/Icons'
+import { offeredHere } from '../lib/contributions'
 import { useSnapshot } from '../state/context'
 import { resolveComponent } from '../slots/registry'
 import { EmptyState } from '../design/ui'
@@ -160,7 +161,10 @@ const PluginView = () => {
   const mount = useMount()
   const snapshot = useSnapshot()
   const view = mount?.view.kind === 'plugin' ? mount.view : null
-  const contribution = snapshot.contributions.find(
+  /* Among what applies here: a panel scoped to one project or one conversation
+     is not this one's, and a tab that outlived its scope says so below rather
+     than drawing another conversation's panel. `lib/contributions.ts`. */
+  const contribution = offeredHere(snapshot, snapshot.activeSessionKey).find(
     (entry) => entry.kind === 'ui' && String(entry.id) === view?.contribution,
   )
   const Component = contribution?.kind === 'ui' ? resolveComponent(contribution.component) : undefined
@@ -170,7 +174,7 @@ const PluginView = () => {
       <EmptyState
         icon={<PluginIcon />}
         title={view.label}
-        description="The plugin that provides this panel is not running. It will fill in when the plugin loads; closing the panel forgets it."
+        description="The plugin that provides this panel is not running, or does not apply to this conversation. It will fill in when it does; closing the panel forgets it."
       />
     )
   }

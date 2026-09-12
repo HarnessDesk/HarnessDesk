@@ -433,8 +433,12 @@ in [extending.md](extending.md).
   plugin context providers, or changes the project folder.
 - **Chips** ride above the textarea and resolve at send: files, images, skills,
   a referenced conversation, a hand-off packet, a plugin's context provider. A
-  chip that cannot resolve stops the send rather than letting a message go out
-  missing what it promised.
+  chip that *fails* to resolve stops the send rather than letting a message go
+  out missing what it promised. Three things that look the same are not: a
+  provider that does not apply to this conversation is never offered; one whose
+  plugin has gone takes its chip off the draft and says so, rather than refusing
+  every send; and one that is here with nothing to add is left off the message
+  and named.
 - **The agent chip** names who reads the next message. For a conversation that
   is the agent it belongs to, and the menu offers to hand the conversation to
   another agent — summary, full transcript, or files changed. For a draft it

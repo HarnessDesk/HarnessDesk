@@ -4,6 +4,7 @@ import { asActor } from './provenance.js'
 import {
   NO_PERMISSIONS,
   pluginInstanceId,
+  scopeApplies,
   type CapabilityContribution,
   type CapabilityRegistry,
   type ContextImage,
@@ -479,6 +480,11 @@ export class ExtensionKernel implements CapabilityRegistry {
   ): Promise<{ label: string; text: string; image?: ContextImage } | null> {
     const entry = this.#store.get(id)
     if (!entry || entry.contribution.kind !== 'context' || !entry.resolver) return null
+    /* `list` has always applied the contribution's scope; resolving one by id
+       did not, so a chip scoped to one conversation answered for whoever asked.
+       Nothing offers it out of scope now, and this is the half that does not
+       depend on the caller having asked the right question. */
+    if (!scopeApplies(entry.contribution.scope, scope)) return null
     const value = await withTimeout(Promise.resolve(entry.resolver(scope, ref)), 30_000)
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
