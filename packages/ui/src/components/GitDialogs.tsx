@@ -175,8 +175,22 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
    */
   const wholeTree = concluding !== null || (chosen.length === choices.length && choices.length === rows.length)
 
+  /**
+   * Whether there is a commit to make at all — a different question from how
+   * many files go into it, and answering it with the file count shut the only
+   * door out of a conclusion (#248).
+   *
+   * Measured on git 2.50.1: resolve a conflict to the content already
+   * committed, `git add` it, and `git status --porcelain` prints nothing while
+   * `MERGE_HEAD` is still there — `git commit` then succeeds and writes the
+   * merge commit with both parents. So a conclusion is a commit the repository
+   * is waiting for whatever the rows say, and the count decides nothing here.
+   * Without one, no rows really is nothing to commit, and still reads that way.
+   */
+  const commitable = concluding !== null || chosen.length > 0
+
   const commit = async (): Promise<void> => {
-    if (message.trim().length === 0 || chosen.length === 0) return
+    if (message.trim().length === 0 || !commitable) return
     setBusy(true)
     setError(null)
     try {
@@ -204,13 +218,18 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
           <Btn
             variant="primary"
             onClick={() => void commit()}
-            disabled={busy || message.trim().length === 0 || chosen.length === 0}
+            disabled={busy || message.trim().length === 0 || !commitable}
           >
             {busy
               ? 'Committing…'
-              : chosen.length === 1
-                ? 'Commit 1 file'
-                : `Commit ${chosen.length} files`}
+              : chosen.length === 0 && concluding !== null
+                ? /* Nothing is going in file by file: the commit is the
+                     conclusion itself, so the button says so rather than
+                     counting to zero. */
+                  `Commit the ${concluding}`
+                : chosen.length === 1
+                  ? 'Commit 1 file'
+                  : `Commit ${chosen.length} files`}
           </Btn>
           <Btn onClick={() => onDone(false)} disabled={busy}>
             Cancel
@@ -231,15 +250,23 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void commit()
           }}
         />
-        {concluding !== null && rows.length > 0 && (
+        {concluding !== null && (
           <span className={styles.note}>
-            A {concluding} is concluded by a single commit of the whole tree — every file below goes in.
+            A {concluding} is concluded by a single commit of the whole tree
+            {choices.length > 0 ? ' — every file below goes in.' : '.'}
           </span>
         )}
         {plan === null ? (
           <div className={styles.quiet}>Reading the working tree…</div>
         ) : rows.length === 0 ? (
-          <div className={styles.quiet}>The working tree is clean — there is nothing to commit.</div>
+          <div className={styles.quiet}>
+            {concluding === null
+              ? 'The working tree is clean — there is nothing to commit.'
+              : /* Clean and still owed a commit: git keeps the conclusion in a
+                   pseudo-ref, not in the status it prints, so a tree with
+                   nothing left to record is exactly when it needs one. */
+                `The working tree is clean — the ${concluding} still needs this commit.`}
+          </div>
         ) : (
           <div className={styles.files} role="group" aria-label="Files to commit">
             {rows.map((file) => {

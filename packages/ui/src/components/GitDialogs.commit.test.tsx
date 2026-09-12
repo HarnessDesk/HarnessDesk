@@ -25,6 +25,20 @@ import { CommitDialog } from './GitDialogs'
  * the shape off the rows instead meant an `AD` row — a row with no box, so
  * never one of the chosen — forced pathspecs, and pathspecs during a merge are
  * `fatal: cannot do a partial commit during a merge` (measured, git 2.50.1).
+ *
+ * Whether there is a commit at all is a third question, and answering it with
+ * the same count shut the door the other way. Measured on git 2.50.1:
+ *
+ *     git merge side            # CONFLICT (content): Merge conflict in a.txt
+ *     printf 'main\n' > a.txt   # resolved to what HEAD already holds
+ *     git add a.txt
+ *     git status --porcelain    # prints nothing at all
+ *     git rev-parse MERGE_HEAD  # 43df4dc…, the merge is still there
+ *     git commit -m settle      # succeeds: one commit, two parents
+ *
+ * So an empty file list during a conclusion is not a clean tree that owes git
+ * nothing — it is the commit git is waiting for, and the only way to finish
+ * (#248). With nothing underway, an empty list still means what it says.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -201,4 +215,71 @@ it('asks a merge with no moot row for everything, as it always did (#248)', asyn
      the `AD` row that separated them. */
   const asked = await commitAsked(await show(FILES.filter((file) => file.path !== 'ghost.txt'), 'merge'))
   expect(asked && 'paths' in asked).toBe(false)
+})
+
+// ------------------------------------------------- a conclusion with no rows
+
+it('commits a conclusion that has nothing left to record (#248)', async () => {
+  const request = await show([], 'merge')
+  // A message, so the button's other guard is not the one under test.
+  write('a message')
+  expect(commitButton()?.textContent).toBe('Commit the merge')
+  expect(commitButton()?.disabled).toBe(false)
+  await act(async () => {
+    commitButton()?.click()
+    await Promise.resolve()
+  })
+  const asked = request.mock.calls.find(([method]) => method === 'git/commitAll')?.[1]
+  // The plain commit, which is the one git takes here and writes as the merge.
+  expect(asked).toEqual({ root: '/w', message: 'a message' })
+})
+
+it('tells a clean tree what the conclusion still owes (#248)', async () => {
+  await show([], 'merge')
+  expect(document.body.textContent).toContain('the merge still needs this commit')
+  /* Not the ordinary empty tree's line: with a merge underway it is a claim
+     the button beside it contradicts. */
+  expect(document.body.textContent).not.toContain('there is nothing to commit')
+  /* And the note is no longer suppressed for having no rows to point at — nor
+     does it promise files below when there are none below. */
+  expect(document.body.textContent).toContain('A merge is concluded by a single commit of the whole tree')
+  expect(document.body.textContent).not.toContain('every file below goes in')
+})
+
+it('commits a cherry-pick that has nothing left to record (#248)', async () => {
+  const asked = await commitAsked(await show([], 'cherry-pick'))
+  expect(asked).toEqual({ root: '/w', message: 'a message' })
+  expect(document.body.textContent).toContain('the cherry-pick still needs this commit')
+})
+
+it('commits a revert that has nothing left to record (#248)', async () => {
+  const asked = await commitAsked(await show([], 'revert'))
+  expect(asked).toEqual({ root: '/w', message: 'a message' })
+  expect(document.body.textContent).toContain('the revert still needs this commit')
+})
+
+it('concludes a merge whose only row records nothing (#248)', async () => {
+  /* The same shut door one row along: a row, so not the empty tree, and no
+     choice in it, so the count is zero all the same. */
+  const request = await show(FILES.filter((file) => file.path === 'ghost.txt'), 'merge')
+  expect(rows()).toHaveLength(1)
+  expect(boxes()).toHaveLength(0)
+  expect(commitButton()?.textContent).toBe('Commit the merge')
+  expect(document.body.textContent).not.toContain('every file below goes in')
+  expect(await commitAsked(request)).toEqual({ root: '/w', message: 'a message' })
+})
+
+it('has nothing to commit with a clean tree and nothing underway (#248)', async () => {
+  /* The control: true before the fix and after it. A clean tree that owes git
+     nothing is the one empty case where a shut button is the honest answer. */
+  const request = await show([])
+  write('a message')
+  expect(document.body.textContent).toContain('The working tree is clean — there is nothing to commit.')
+  expect(commitButton()?.textContent).toBe('Commit 0 files')
+  expect(commitButton()?.disabled).toBe(true)
+  await act(async () => {
+    commitButton()?.click()
+    await Promise.resolve()
+  })
+  expect(request.mock.calls.some(([method]) => method === 'git/commitAll')).toBe(false)
 })

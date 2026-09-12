@@ -217,6 +217,36 @@ test('a commit cannot be narrowed while a merge is being concluded (#248)', asyn
   assert.equal((await git(dir, 'rev-parse', 'HEAD^@')).trim().split('\n').length, 2)
 })
 
+test('a merge settled to what was already committed is concluded by a plain commit (#248)', async () => {
+  /* The state no file list can show: a conflict resolved to the content HEAD
+     already holds. Measured rather than assumed, because a surface that counts
+     rows to decide whether a commit exists gets this one exactly wrong — the
+     rows are gone and the commit is still owed. */
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'side')
+  await writeFile(join(dir, 'a.txt'), 'side\n')
+  await git(dir, 'commit', '-qam', 'side')
+  await git(dir, 'checkout', '-q', 'main')
+  await writeFile(join(dir, 'a.txt'), 'main\n')
+  await git(dir, 'commit', '-qam', 'main')
+  await git(dir, 'merge', 'side').catch(() => {})
+  await writeFile(join(dir, 'a.txt'), 'main\n')
+  await git(dir, 'add', 'a.txt')
+
+  // git prints nothing, and is still holding the merge in its pseudo-ref.
+  assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
+  const settled = await status(dir)
+  assert.deepEqual(settled?.files, [])
+  assert.equal(settled?.concluding, 'merge')
+
+  // The commit the dialog now sends from that state, and git takes it.
+  await commitAll(dir, 'settle the merge')
+  assert.equal((await status(dir))?.concluding, null)
+  // Two parents: the merge itself, not an empty commit standing beside it.
+  assert.equal((await git(dir, 'rev-parse', 'HEAD^@')).trim().split('\n').length, 2)
+  assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
+})
+
 test('a partial commit of a rename carries both of its paths', async () => {
   const dir = await seedRepo()
   await git(dir, 'mv', 'a.txt', 'moved.txt')
