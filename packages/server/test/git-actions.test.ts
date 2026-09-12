@@ -7,6 +7,7 @@ import { after, test } from 'node:test'
 import { promisify } from 'node:util'
 
 import {
+  checkoutCommit,
   cherryPick,
   commitAll,
   createTag,
@@ -575,4 +576,7 @@ test('the write verbs take a SHA-256 commit by its full id', async (t) => {
   assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'a\n')
   assert.deepEqual((await cherryPick(dir, second)).conflicts, [])
   assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'a\nb\n')
+  // Review of #150: and checking one out, detached.
+  await checkoutCommit(dir, first)
+  assert.equal(await sha(dir, 'HEAD'), first)
 })

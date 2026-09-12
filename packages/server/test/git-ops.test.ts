@@ -95,7 +95,7 @@ test('refuses when the user edited the file since, naming what was put back', as
     ])
     await assert.rejects(revertTurn(dir, turn), (error: unknown) => {
       assert.ok(error instanceof RevertError)
-      assert.match(error.message, /new\.txt has been edited since/)
+      assert.match(error.message, /Stopped at new\.txt: it has been edited since/)
       assert.deepEqual(error.reverted, ['a.txt'])
       return true
     })
@@ -171,7 +171,7 @@ test('redo refuses to overwrite what the user put in the way, naming what it wro
     await writeFile(join(dir, 'new.txt'), 'mine now\n')
     await assert.rejects(reapplyTurn(dir, turn), (error: unknown) => {
       assert.ok(error instanceof RevertError)
-      assert.match(error.message, /new\.txt exists again/)
+      assert.match(error.message, /Stopped at new\.txt: it exists again/)
       assert.deepEqual(error.reverted, ['a.txt'])
       return true
     })
@@ -273,3 +273,39 @@ test('a blank deletion refuses the whole undo, beside an update and a deletion t
   }
 })
 
+test("redo leaves alone a file a blank deletion recorded nothing of, and says why (review of #153)", async () => {
+  // Undo refuses a blank deletion up front; redo's side was not pinned.
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'kept.txt'), 'somebody wrote this\n')
+    const turn = turnOf([fileChange(dir, [{ path: join(dir, 'kept.txt'), kind: { type: 'delete' }, diff: '' }])])
+    await assert.rejects(reapplyTurn(dir, turn), (error: unknown) => {
+      assert.ok(error instanceof RevertError)
+      assert.match(error.message, /Stopped at kept\.txt: it can't be deleted again: the agent recorded nothing of it/)
+      return true
+    })
+    assert.equal(await readFile(join(dir, 'kept.txt'), 'utf8'), 'somebody wrote this\n', 'nothing was deleted')
+    // Review of #238, round 1: an empty file there matched the nothing recorded, and went.
+    await writeFile(join(dir, 'kept.txt'), '')
+    await assert.rejects(reapplyTurn(dir, turn), /can't be deleted again/)
+    assert.equal(await readFile(join(dir, 'kept.txt'), 'utf8'), '', 'an empty file is left too')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('redo refuses a recorded deletion whose file was edited since, and deletes one that was not (review of #238, round 1)', async () => {
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'kept.txt'), 'changed since\n')
+    const turn = turnOf([fileChange(dir, [{ path: join(dir, 'kept.txt'), kind: { type: 'delete' }, diff: 'as the agent saw it\n' }])])
+    await assert.rejects(reapplyTurn(dir, turn), /Stopped at kept\.txt: it has been edited since the agent wrote it/)
+    assert.equal(await readFile(join(dir, 'kept.txt'), 'utf8'), 'changed since\n')
+    // The control: the file as the agent saw it is deleted again.
+    await writeFile(join(dir, 'kept.txt'), 'as the agent saw it\n')
+    await reapplyTurn(dir, turn)
+    await assert.rejects(stat(join(dir, 'kept.txt')))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

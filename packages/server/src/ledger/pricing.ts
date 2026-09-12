@@ -34,12 +34,25 @@ export interface PricingOptions {
 
 const CATALOGUE_URL = 'https://models.dev/api.json'
 
-/** What a dated id adds to its undated name: `-20251001`, `-2024-11-20`, `@20240620`, `-latest`. */
-const DATED = /^[-@](?:\d{8}|\d{4}-\d{2}-\d{2}|latest)$/
+/**
+ * What a dated id adds to its undated name: `-20251001`, `-2024-11-20`,
+ * `@20240620`, `-latest`. A date that exists: any eight digits made
+ * `-99991301` one (review of #153), and a real month with a day it doesn't
+ * have made `-20260231` one (review of #238, round 1).
+ */
+const DATED = /^[-@](?:(\d{4})(\d{2})(\d{2})|(\d{4})-(\d{2})-(\d{2})|latest)$/
+const isDate = (suffix: string): boolean => {
+  const match = DATED.exec(suffix)
+  if (!match) return false
+  if (match[0].endsWith('latest')) return true
+  const [year, month, day] = (match[1] !== undefined ? match.slice(1, 4) : match.slice(4, 7)).map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
 
 /** Whether `long` is `short` with nothing added but a date. */
 const datedFormOf = (long: string, short: string): boolean =>
-  long.length > short.length && long.startsWith(short) && DATED.test(long.slice(short.length))
+  long.length > short.length && long.startsWith(short) && isDate(long.slice(short.length))
 const DAY = 86_400_000
 const PER_MILLION = 1_000_000
 
@@ -187,7 +200,9 @@ export class Pricing {
     const models = this.#catalogue[vendor]?.models
     if (!models) return null
     const exact = models[key] ?? models[model]
-    if (exact) return ratesFrom(exact.cost)
+    // An exact entry with no price gives way to a dated form that has one, as a dated form with none does (review of #153).
+    const exactRates = exact ? ratesFrom(exact.cost) : null
+    if (exactRates) return exactRates
     /* A dated id and its undated name are one model, and nothing else is.
        Providers date their ids (`claude-haiku-4-5-20251001`) where the
        catalogue usually carries the undated one; the catalogue sometimes

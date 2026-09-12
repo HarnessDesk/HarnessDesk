@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import type {
@@ -29,10 +31,18 @@ import { isSha } from './git-revision.js'
 
 const run = promisify(execFile)
 
+/* Commits as they are recorded, not as `git replace` would show them. A
+   replacement gives a commit another tree and other parents under the same
+   id, and what `commit` keeps for a commit's files would then pair a base
+   from before the replacement with a patch from after it (review of #238,
+   round 1). The history reads the objects themselves, as
+   `git --no-replace-objects` does. The environment is built per call, since
+   PATH is read at the call. */
 const git = async (root: string, args: readonly string[]): Promise<string> => {
   const { stdout } = await run('git', ['-C', root, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
+    env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' },
   })
   return stdout
 }
@@ -271,15 +281,111 @@ const diffBase = async (root: string, sha: string): Promise<string | null> => {
  * repository only when a root commit needs it; a git too old to answer is a
  * SHA-1 repository.
  */
-const EMPTY_TREES: Readonly<Record<string, string>> = {
+type ObjectFormat = 'sha1' | 'sha256'
+const EMPTY_TREES: Readonly<Record<ObjectFormat, string>> = {
   sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
   sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
 }
+/**
+ * Each repository's answer: its object format never changes, and it was asked
+ * again for every root-commit file opened (review of #150). By the `.git` the
+ * folder holds, not by the folder: a repository made again at the same path,
+ * perhaps in the other format, is another `.git` and is asked again (review of
+ * #238, round 1).
+ */
+const formats = new Map<string, ObjectFormat>()
+const repositoryAt = async (root: string): Promise<string> => {
+  const found = await stat(join(root, '.git')).catch(() => null)
+  return found ? `${root}\0${found.ino}\0${found.birthtimeMs}` : root
+}
+
+/** The question, which is also the answer a git too old to know it gives. */
+const QUESTION = '--show-object-format'
+/** A git whose option parser refuses it, rather than handing it back. */
+const OLD_GIT = /unknown option|^usage: git rev-parse/im
+
+/**
+ * The repository's object format, or null when git could not answer this
+ * time — SHA-1 for this read, and asked again next time rather than kept.
+ *
+ * Only a git too old for the question — 2.29 brought it — reads as null, and
+ * it says so in one of exactly two ways: `rev-parse` hands an option it does
+ * not know straight back and exits 0 (measured on git 2.50.1, `git rev-parse
+ * --bogus-thing` prints `--bogus-thing`), or its option parser refuses it with
+ * exit 129 and "unknown option".
+ *
+ * Every other failure used to be swallowed here too, answering SHA-1 for a
+ * wrapper on PATH, an unreadable repository, a timeout (review of #238, round
+ * 2). In a SHA-256 repository that names an object which does not exist, and
+ * git calls every diff against it an unknown revision — one of the refusals
+ * `asked` reads as "no" — so the commit came back as an empty patch,
+ * indistinguishable from one that changed nothing. A wrong answer is worse
+ * than none: those are thrown instead. Both callers already throw for a commit
+ * id they will not take, and the pane answers a failed `git/commit` with "could
+ * not read that commit" rather than drawing a commit that touched nothing.
+ */
+const askFormat = async (root: string): Promise<ObjectFormat | null> => {
+  let answer: string | null
+  try {
+    answer = await asked(root, ['rev-parse', QUESTION])
+  } catch (error) {
+    const failure = error as { code?: unknown; stderr?: unknown }
+    const stderr = typeof failure.stderr === 'string' ? failure.stderr : ''
+    if (failure.code === 129 && OLD_GIT.test(stderr)) return null
+    throw error
+  }
+  // A folder outside a repository, or one before its first commit: `asked`
+  // read those as "no" already.
+  if (answer === null) return null
+  const format = answer.trim()
+  if (format === 'sha1' || format === 'sha256') return format
+  // The flag handed back verbatim: a git that never knew it.
+  if (format === QUESTION) return 'sha1'
+  throw new Error(`git named an object format this build does not know: "${format}".`)
+}
+
 const emptyTree = async (root: string): Promise<string> => {
-  // A git that does not know the flag — whether it refuses it or echoes it
-  // back — is a SHA-1 repository, the only format such a git has.
-  const format = await asked(root, ['rev-parse', '--show-object-format']).catch(() => null)
-  return EMPTY_TREES[format?.trim() ?? 'sha1'] ?? EMPTY_TREES['sha1']!
+  const repository = await repositoryAt(root)
+  let format = formats.get(repository)
+  if (format === undefined) {
+    const answer = await askFormat(root)
+    // A git that couldn't answer this time is asked again next time.
+    if (answer !== null) formats.set(repository, answer)
+    format = answer ?? 'sha1'
+  }
+  return EMPTY_TREES[format]
+}
+
+/**
+ * What `commit` worked out for a commit, its base and its file list, kept for
+ * the files it opens next: each file ran a whole-commit `--name-status` of its
+ * own, 64 ms on a 2,032-file commit (review of #150). A commit's files never
+ * change; only the last few commits are kept. Sixteen commits whatever their
+ * size, so a commit of a hundred thousand files keeps its list until fifteen
+ * others have been opened after it.
+ *
+ * Kept by a full object id only. Four to 63 hex characters can name a branch
+ * as well, `beef` or `2024`, which git reads as the branch, and a branch moves
+ * (review of #238, round 1).
+ */
+type Opened = { readonly base: string; readonly entries: ReturnType<typeof listed> }
+const opened = new Map<string, Opened>()
+const FULL_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+const remember = (root: string, sha: string, value: Opened): void => {
+  if (!FULL_ID.test(sha)) return
+  const key = `${root}\0${sha}`
+  opened.delete(key)
+  opened.set(key, value)
+  for (const oldest of opened.keys()) {
+    if (opened.size <= 16) break
+    opened.delete(oldest)
+  }
+}
+
+/** Forgets what was kept, for a test that needs a cold read (review of #238, round 1). */
+export const forgetKnown = (): void => {
+  formats.clear()
+  opened.clear()
 }
 
 /**
@@ -326,7 +432,10 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
     }
   }
 
-  const files: GitCommitFile[] = listed(nameStatus).map(({ letter, path, oldPath }) => {
+  const entries = listed(nameStatus)
+  remember(root, sha, { base, entries })
+  if (fullSha && fullSha.trim() !== sha) remember(root, fullSha.trim(), { base, entries })
+  const files: GitCommitFile[] = entries.map(({ letter, path, oldPath }) => {
     const count = counts.get(path) ?? { added: 0, removed: 0 }
     return {
       path,
@@ -381,14 +490,15 @@ const listed = (nameStatus: string | null): { letter: string; path: string; oldP
 /** One file's patch at one commit, against the same base the file list used. */
 export const commitDiff = async (root: string, sha: string, path: string): Promise<string> => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
-  const base = (await diffBase(root, sha)) ?? (await emptyTree(root))
+  const known = opened.get(`${root}\0${sha}`)
+  const base = known?.base ?? (await diffBase(root, sha)) ?? (await emptyTree(root))
   /* A rename is two paths, and a pathspec naming only the new one hides the
      old one from git: with nothing to pair it with, the file read as added
      from nothing, every line new. #68. The old path comes from the same
      name-status the file list is built from, so the patch shows what the list
      said — a rename, and only what changed across it. */
-  const entry = listed(
-    await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]),
+  const entry = (
+    known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]))
   ).find((file) => file.path === path)
   /* Renames only. A rename's two paths are one file; a copy's are two, and
      naming the source brought the source's own edits into the copy's patch

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, test } from 'node:test'
+import { after, beforeEach, test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
-import { commit, commitDiff, createBranch, log, refs } from '../src/git-history.js'
+import { commit, commitDiff, createBranch, forgetKnown, log, refs } from '../src/git-history.js'
 
 /**
  * The history reader against a real repository, built once: two branches, a
@@ -92,6 +92,9 @@ const repo = (): Promise<string> => {
   })()
   return built
 }
+
+/** Each test reads cold: what the history keeps for a repository outlives the test that made it (review of #238, round 1). */
+beforeEach(() => forgetKnown())
 
 test('log walks newest first with parents, identities and decorations', async () => {
   const dir = await repo()
@@ -315,6 +318,8 @@ test('a repository that names its commits in SHA-256 opens them', async (t) => {
   const head = await sha(dir, 'HEAD')
   assert.equal(head.length, 64, 'the control: this repository really is SHA-256')
   assert.equal((await commit(dir, head)).sha, head)
+  // Review of #238, round 1: the prefixes longer than a SHA-1 that git takes in a SHA-256 repository.
+  for (const length of [41, 50, 63]) assert.equal((await commit(dir, head.slice(0, length))).sha, head, `${length} characters`)
   assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
   // And a commit after it, read against its 64-character parent.
   await writeFile(join(dir, 'a.txt'), 'a\nb\n')
@@ -322,6 +327,9 @@ test('a repository that names its commits in SHA-256 opens them', async (t) => {
   const next = await sha(dir, 'HEAD')
   assert.equal((await commit(dir, next)).parents[0], head)
   assert.match(await commitDiff(dir, next, 'a.txt'), /^\+b$/m)
+  // Review of #150: and a branch made at a 64-character id.
+  await createBranch(dir, 'from-256', head)
+  assert.equal(await sha(dir, 'from-256'), head)
 })
 
 test('a renamed file opens as the rename it was, not as a file added from nothing', async () => {
@@ -336,6 +344,8 @@ test('a renamed file opens as the rename it was, not as a file added from nothin
   await git(dir, 'add', '.')
   await git(dir, 'commit', '-qm', 'rename, with one line changed')
   const head = await sha(dir, 'HEAD')
+  // Opened on its own first, as nothing has kept its file list: the rename comes from git's own list (#68, review of #238, round 1).
+  assert.match(await commitDiff(dir, head, 'new.txt'), /^rename from old\.txt$/m)
   const listedAs = (await commit(dir, head)).files.find((file) => file.path === 'new.txt')
   assert.equal(listedAs?.oldPath, 'old.txt', 'the control: the file list calls it a rename')
 
@@ -383,6 +393,8 @@ test('a copied file opens as itself, without the edits made to its source', asyn
   await git(dir, 'add', '.')
   await git(dir, 'commit', '-qm', 'copy it, and edit the source')
   const head = await sha(dir, 'HEAD')
+  // Opened on its own first, as nothing has kept its file list (review of #238, round 1).
+  assert.doesNotMatch(await commitDiff(dir, head, 'new.txt'), /FIVE/, "read cold, the source's edit is not in the copy's patch either")
   const listedAs = (await commit(dir, head)).files.find((file) => file.path === 'new.txt')
   assert.equal(listedAs?.oldPath, 'old.txt', 'the control: git lists it as a copy')
 
@@ -391,3 +403,177 @@ test('a copied file opens as itself, without the edits made to its source', asyn
   assert.doesNotMatch(patch, /FIVE/, "the source's edit is not in the copy's patch")
 })
 
+/**
+ * A `git` on PATH that writes each call to a log and hands it to the real one.
+ * With `echo`, it answers the object-format question the way a git before 2.29
+ * does, by echoing the flag back; with `refuse`, the way one that refuses it
+ * does, with exit 129. With `broken`, it fails the question the way a modern
+ * git in trouble does — exit 128, and a reason that is neither an unknown
+ * option nor anything git says to mean "no". The count it returns is of the
+ * calls holding `words`.
+ */
+const loggedGit = async (t: TestContext, mode: 'real' | 'echo' | 'refuse' | 'broken'): Promise<(words: string) => Promise<number>> => {
+  const real = (await promisify(execFile)('sh', ['-c', 'command -v git'])).stdout.trim()
+  const dir = await mkdtemp(join(tmpdir(), 'hd-logged-git-'))
+  const log = join(dir, 'calls.log')
+  const asking = 'if [ "$3" = rev-parse ] && [ "$4" = --show-object-format ]; then'
+  const echo = {
+    real: '',
+    echo: `${asking} echo --show-object-format; exit 0; fi\n`,
+    refuse: `${asking} echo 'error: unknown option' >&2; exit 129; fi\n`,
+    broken: `${asking} echo 'fatal: unable to read config file' >&2; exit 128; fi\n`,
+  }[mode]
+  await writeFile(join(dir, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\n${echo}exec '${real}' "$@"\n`, { mode: 0o755 })
+  const was = process.env['PATH']
+  process.env['PATH'] = `${dir}:${was ?? ''}`
+  t.after(async () => {
+    if (was === undefined) delete process.env['PATH']
+    else process.env['PATH'] = was
+    await rm(dir, { recursive: true, force: true })
+  })
+  return async (words) => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter((line) => line.includes(words)).length
+}
+
+test("a repository's object format is asked once, one read after another, and a git that echoes the question reads as SHA-1 (review of #150)", async (t) => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await writeFile(join(dir, 'b.txt'), 'b\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const head = await sha(dir, 'HEAD')
+  const calls = await loggedGit(t, 'echo')
+  // Two files of a root commit, each read against the empty tree, before the commit itself is opened.
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
+  assert.match(await commitDiff(dir, head, 'b.txt'), /^\+b$/m)
+  assert.equal(await calls('rev-parse --show-object-format'), 1, 'asked once for the repository')
+})
+
+test("the files of an opened commit reuse its own list rather than asking for it again (review of #150)", async (t) => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await writeFile(join(dir, 'a.txt'), 'a\nb\n')
+  await writeFile(join(dir, 'c.txt'), 'c\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'two')
+  const head = await sha(dir, 'HEAD')
+  const calls = await loggedGit(t, 'real')
+  assert.equal((await commit(dir, head)).files.length, 2)
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+b$/m)
+  assert.match(await commitDiff(dir, head, 'c.txt'), /^\+c$/m)
+  assert.equal(await calls('diff --name-status'), 1, "the commit's own list, reused by each file it opens")
+})
+
+test('a branch whose local upstream was deleted reads as gone too (review of #150)', async () => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await git(dir, 'branch', 'base')
+  await git(dir, 'branch', '--track', 'topic', 'base')
+  await git(dir, 'branch', '-D', 'base')
+  const branches = (await refs(dir))?.branches ?? []
+  const named = (name: string) => branches.find((branch) => branch.name === name)
+  assert.equal(named('topic')?.gone, true)
+  assert.equal(named('main')?.gone, false, 'the control: no upstream, nothing gone')
+})
+
+test('a git that refuses the object-format question reads as SHA-1, and is asked again next time (review of #238, round 1)', async (t) => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await writeFile(join(dir, 'b.txt'), 'b\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const head = await sha(dir, 'HEAD')
+  const calls = await loggedGit(t, 'refuse')
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
+  assert.match(await commitDiff(dir, head, 'b.txt'), /^\+b$/m)
+  // A failed ask is not kept: the next root-commit read asks again rather than trusting a guess for good.
+  assert.equal(await calls('rev-parse --show-object-format'), 2)
+})
+
+test('a modern git that fails the object-format question for its own reasons is not taken for an old one (review of #238, round 2)', async (t) => {
+  const dir = await tempDir()
+  const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (!made) return t.skip('this git cannot make a SHA-256 repository')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const head = await sha(dir, 'HEAD')
+  assert.equal(head.length, 64, 'the control: this repository really is SHA-256')
+  // The control read, with the question answered: the root commit has a real patch to lose.
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m, 'the control: read against the right empty tree, the patch is there')
+  forgetKnown()
+  await loggedGit(t, 'broken')
+  /* Answering SHA-1 here names an object a SHA-256 repository does not have,
+     and git calls the diff against it an unknown revision — one of the
+     refusals `asked` reads as "no". The whole patch would come back empty,
+     which is indistinguishable from a commit that changed nothing. */
+  await assert.rejects(
+    commitDiff(dir, head, 'a.txt'),
+    /unable to read config file/,
+    'a git that fails the question for its own reasons must not read as a pre-2.29 git',
+  )
+  await assert.rejects(
+    commit(dir, head),
+    /unable to read config file/,
+    'and the same when the commit itself is opened, which is what the pane asks for first',
+  )
+})
+
+test('a repository made again at the same path, in the other object format, is asked again (review of #238, round 1)', async (t) => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  assert.match(await commitDiff(dir, await sha(dir, 'HEAD'), 'a.txt'), /^\+a$/m)
+  await rm(join(dir, '.git'), { recursive: true, force: true })
+  const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (!made) return t.skip('this git cannot make a SHA-256 repository')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one, again')
+  const head = await sha(dir, 'HEAD')
+  assert.equal(head.length, 64, 'the control: the repository really was made again, in SHA-256')
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m)
+})
+
+test('a branch named like a commit id is read afresh, since a branch moves (review of #238, round 1)', async () => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'x.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await git(dir, 'branch', 'beef')
+  await commit(dir, 'beef')
+  await writeFile(join(dir, 'x.txt'), 'b\n')
+  await git(dir, 'commit', '-qam', 'two')
+  await git(dir, 'branch', '-f', 'beef', 'HEAD')
+  // `beef` is the second commit now: its patch is the line it changed, not the file against the first commit's base.
+  const patch = await commitDiff(dir, 'beef', 'x.txt')
+  assert.match(patch, /^-a$/m)
+  assert.match(patch, /^\+b$/m)
+})
+
+test('a commit reads as recorded, whatever git replace says of it (review of #238, round 1)', async () => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  await writeFile(join(dir, 'x.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  await writeFile(join(dir, 'x.txt'), 'b\n')
+  await git(dir, 'commit', '-qam', 'two')
+  const two = await sha(dir, 'HEAD')
+  // To a git that honours replacements, `two` is now a root commit, and its file an added one.
+  await git(dir, 'replace', '--graft', two)
+  assert.equal((await commit(dir, two)).parents.length, 1, 'its recorded parent')
+  forgetKnown()
+  const patch = await commitDiff(dir, two, 'x.txt')
+  assert.match(patch, /^-a$/m)
+  assert.doesNotMatch(patch, /^new file mode/m)
+})
