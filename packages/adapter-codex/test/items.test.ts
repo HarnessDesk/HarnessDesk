@@ -3,10 +3,13 @@ import { test } from 'node:test'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
+import { toCodexToolResponse } from '../src/capabilities.js'
 import { mapItem } from '../src/mapping/items.js'
 import * as fixtures from './fixtures/items.js'
 
 const map = (item: Parameters<typeof mapItem>[0]): AgentItem => mapItem(item)
+type Dynamic = Extract<Parameters<typeof mapItem>[0], { type: 'dynamicToolCall' }>
+const dynamic = fixtures.dynamicToolCall as Dynamic
 
 test('every fixture maps to an item and keeps its id', () => {
   for (const item of fixtures.allItems) {
@@ -128,9 +131,16 @@ test('a dynamic tool’s result reads as its text and its picture, not as the JS
     // Nothing on the desk plays audio, so that part stays as it came, both before and after.
     { type: 'json', value: { type: 'inputAudio', audioUrl: 'https://example.test/brief.mp3' } },
   ])
-  assert.deepEqual(map(fixtures.dynamicToolCall).type === 'toolCall' && map(fixtures.dynamicToolCall), {
-    ...map(fixtures.dynamicToolCall),
+  // Field by field: an expected value built out of the actual one checks only what it overrides (#242).
+  assert.deepEqual(map(fixtures.dynamicToolCall), {
+    id: 'call-dyn-1',
+    type: 'toolCall',
+    tool: 'format',
+    source: { kind: 'dynamic', namespace: 'local' },
+    status: 'completed',
+    args: { path: '/w/src/a.ts' },
     result: [{ type: 'text', text: 'formatted 1 file' }],
+    durationMs: 15,
   })
 })
 
@@ -175,4 +185,105 @@ test('a namespaced functionCallOutput keeps its namespace, and content items map
   if (mapped.type !== 'toolCall') return
   assert.deepEqual(mapped.source, { kind: 'dynamic', namespace: 'harnessdesk' })
   assert.deepEqual(mapped.result, [{ type: 'text', text: 'opened' }])
+})
+
+test('a failed dynamic call shows the reason it came with, and the constant only when it came with none (#241)', () => {
+  const failed = (contentItems: Dynamic['contentItems']) =>
+    map({ ...dynamic, id: 'call-dyn-3', status: 'failed', contentItems, success: false })
+  const reason = 'HarnessDesk has no tool named format. Its plugin was reloaded or removed after this session started.'
+  const said = failed([{ type: 'inputText', text: reason }])
+  assert.equal(said.type === 'toolCall' && said.error, reason)
+  // The control: the call is failed either way.
+  assert.equal(said.type === 'toolCall' && said.status, 'failed')
+  for (const nothing of [null, [], [{ type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' }], [{ type: 'inputText', text: '  ' }]] as Dynamic['contentItems'][]) {
+    const none = failed(nothing)
+    assert.equal(none.type === 'toolCall' && none.error, 'Tool reported failure', JSON.stringify(nothing))
+  }
+})
+
+test('a dynamic result with no parts is an empty result, and one with none at all has no result (#242)', () => {
+  const empty = map({ ...dynamic, contentItems: [] })
+  assert.deepEqual(empty.type === 'toolCall' ? empty.result : 'not a tool call', [])
+  const none = map({ ...dynamic, contentItems: null })
+  assert.equal(none.type === 'toolCall' && 'result' in none, false)
+})
+
+test('a part that is not an object keeps its place, rather than taking the item down (#242)', () => {
+  const mapped = map({ ...dynamic, contentItems: [null, 'loose words', { type: 'inputText', text: 'formatted 1 file' }] as never })
+  assert.deepEqual(mapped.type === 'toolCall' ? mapped.result : null, [
+    { type: 'json', value: null },
+    { type: 'text', text: 'loose words' },
+    { type: 'text', text: 'formatted 1 file' },
+  ])
+})
+
+test('what the desk sends Codex for a plugin tool reads back as what the tool returned (#242)', () => {
+  /* Both halves live in this package and were only ever tested apart. The fixture that stood in for the reply had
+     a shape Codex can't send, which is how #205 went unseen. */
+  const back = (result: Parameters<typeof toCodexToolResponse>[0]) => {
+    const response = toCodexToolResponse(result)
+    return map({ ...dynamic, status: response.success ? 'completed' : 'failed', contentItems: response.contentItems, success: response.success })
+  }
+  const ok = back({ ok: true, content: [{ type: 'text', text: 'Opened: Quarterly report' }, { type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=' }] })
+  assert.deepEqual(ok.type === 'toolCall' ? ok.result : null, [
+    { type: 'text', text: 'Opened: Quarterly report' },
+    { type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: '' },
+  ])
+  assert.equal(ok.type === 'toolCall' && 'error' in ok, false)
+  const refused = back({ ok: false, error: 'The hook refused this call.' })
+  assert.equal(refused.type === 'toolCall' && refused.error, 'The hook refused this call.')
+  /* And the reason is a result part too, not only the error. The renderer draws the error in place of the
+     result, so this pins the transcript's shape rather than the frame: a regression that dropped the parts of
+     a failed call would still derive the error from them and pass on `error` alone (review of #245). */
+  assert.deepEqual(refused.type === 'toolCall' ? refused.result : null, [
+    { type: 'text', text: 'The hook refused this call.' },
+  ])
+})
+
+test('a failure that came with several text parts says all of them, in order (#245)', () => {
+  const mapped = map({
+    ...dynamic,
+    id: 'call-dyn-4',
+    status: 'failed',
+    success: false,
+    contentItems: [
+      { type: 'inputText', text: 'The hook refused this call.' },
+      { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+      { type: 'inputText', text: 'Edit the hook to allow it.' },
+    ],
+  })
+  // `failureOf` joins every text part with a newline; a reason that arrives in pieces arrives whole.
+  assert.equal(
+    mapped.type === 'toolCall' && mapped.error,
+    'The hook refused this call.\nEdit the hook to allow it.',
+  )
+  // The control: the parts the error skipped are still on the result, the picture among them.
+  assert.deepEqual(mapped.type === 'toolCall' ? mapped.result : null, [
+    { type: 'text', text: 'The hook refused this call.' },
+    { type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: '' },
+    { type: 'text', text: 'Edit the hook to allow it.' },
+  ])
+})
+
+test('a contentItems that is not a list keeps what came, rather than taking the item down (#245)', () => {
+  /* Measured before the guard, on the built mapper: every one of these threw `TypeError: items.map is not a
+     function`. The element guard shipped with #242 runs too late to catch a container. */
+  const loose = map({ ...dynamic, contentItems: 'the hook refused this call.' as never })
+  assert.deepEqual(loose.type === 'toolCall' ? loose.result : null, [
+    { type: 'text', text: 'the hook refused this call.' },
+  ])
+  const object = map({ ...dynamic, contentItems: { type: 'inputText', text: 'formatted 1 file' } as never })
+  assert.deepEqual(object.type === 'toolCall' ? object.result : null, [
+    { type: 'json', value: { type: 'inputText', text: 'formatted 1 file' } },
+  ])
+  // Not `undefined` and not `[]`: a container we can't read is neither "nothing came" nor "no parts came".
+  assert.equal(loose.type === 'toolCall' && 'result' in loose, true)
+  // And a failed call whose whole reason arrived as the container still says it, which is what #241 was for.
+  const failed = map({
+    ...dynamic,
+    status: 'failed',
+    success: false,
+    contentItems: 'the hook refused this call.' as never,
+  })
+  assert.equal(failed.type === 'toolCall' && failed.error, 'the hook refused this call.')
 })
