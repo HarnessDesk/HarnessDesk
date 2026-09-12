@@ -342,12 +342,19 @@ describe('what round one of the review found', () => {
     answers['runtime/skills'] = (params: unknown) =>
       (params as { runtime: string }).runtime === CODEX ? gate : [{ name: 'claude-only' }]
 
+    calls.length = 0
     const toggling = store.setSkillEnabled({ name: 'review' }, false)
     allowToggle()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    // The control: the toggle really landed, so the re-read it starts is in
-    // flight before the default moves — without this the rest proves nothing.
+    // The control, and the ordering this test rests on, asserted rather than
+    // timed: the toggle landed, and the re-read it starts was really sent for
+    // the agent about to be switched away from. A tick that stopped being
+    // enough would fail here, where the reason is legible, instead of leaving
+    // the guard below unreached and the test green for the wrong reason.
     expect(calls.map((call) => call.method)).toContain('runtime/skills/setEnabled')
+    expect(
+      calls.filter((call) => call.method === 'runtime/skills' && (call.params as { runtime: string }).runtime === CODEX),
+    ).toHaveLength(1)
     await store.selectRuntime(CLAUDE)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
