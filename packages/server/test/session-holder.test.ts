@@ -12,7 +12,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { Host, StateStore, serve } from '../src/index.js'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -263,3 +263,49 @@ test('a refusal that is not about writers keeps its own explanation', async (t) 
   assert.notEqual(failure.code, 'sessionBusy')
   assert.match(failure.message, /could not reopen this conversation: Session not found/)
 })
+
+test('session/list marks a folder that is gone before anything opens it, and leaves existing folders unmarked', async (t) => {
+  const rig = await twoAccounts()
+  t.after(() => close(rig))
+  const client = await Client.connect(rig.server)
+  t.after(() => client.close())
+
+  const goneDir = join(rig.stateDir, 'deleted-worktree')
+  const existingDir = join(rig.stateDir, 'live-checkout')
+  await mkdir(existingDir, { recursive: true })
+
+  rig.primary.history.push(
+    {
+      id: sessionId('ghost'),
+      runtime: PRIMARY,
+      title: 'Ran in the deleted worktree',
+      cwd: goneDir,
+      status: { type: 'idle' },
+      createdAt: 0,
+      updatedAt: 0,
+    } as SessionSummary,
+    {
+      id: sessionId('alive'),
+      runtime: PRIMARY,
+      title: 'Ran in the checkout',
+      cwd: existingDir,
+      status: { type: 'idle' },
+      createdAt: 0,
+      updatedAt: 0,
+    } as SessionSummary,
+  )
+
+  const page = (await client.call('session/list', { runtime: PRIMARY })) as Page<SessionSummary>
+  const ghost = page.data.find((row) => String(row.id) === 'ghost')
+  const alive = page.data.find((row) => String(row.id) === 'alive')
+
+  assert.equal(ghost?.folderGone, true, 'the row whose folder is gone is marked before opening')
+  assert.equal(alive?.folderGone, undefined, 'the row whose folder exists is unmarked (control)')
+
+  // If the folder is recreated, the next listing reflects that without cache staleness.
+  await mkdir(goneDir, { recursive: true })
+  const refreshed = (await client.call('session/list', { runtime: PRIMARY })) as Page<SessionSummary>
+  const restored = refreshed.data.find((row) => String(row.id) === 'ghost')
+  assert.equal(restored?.folderGone, undefined, 'recreated folder is unmarked on the next listing')
+})
+

@@ -368,4 +368,6 @@ export interface SessionSummary {
   /** The repository this session's folder belongs to; null outside one. */
   readonly repo?: RepoInfo | null
   readonly archived?: boolean
+  /** Whether the folder this session ran in no longer exists on disk. */
+  readonly folderGone?: boolean
 }

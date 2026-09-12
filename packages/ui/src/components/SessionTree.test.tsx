@@ -931,3 +931,57 @@ it('marks a row whose folder is gone, and leaves the others unmarked', () => {
   // The refusal is the hover line, so the row answers "why" without a click.
   expect(marks[0]?.getAttribute('title')).toContain('folder no longer exists')
 })
+
+it('shows the folder-gone mark before any click with the listing-sourced sentence', () => {
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const summary = (id: string, title: string, cwd: string): SessionSummary =>
+    ({
+      id,
+      runtime: runtime.id,
+      title,
+      preview: null,
+      cwd,
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+      archived: false,
+    }) as unknown as SessionSummary
+  const listingSaid = "This conversation's folder no longer exists (/repo/gone)."
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    runtimes: [runtime],
+    history: [
+      summary('s-gone', 'Ran in the worktree', '/repo/gone'),
+      summary('s-here', 'Ran in the checkout', '/repo'),
+    ],
+    foldersGone: new Map([['/repo/gone', listingSaid]]),
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  const marks = [...container.querySelectorAll('[role="img"]')].filter((one) =>
+    one.getAttribute('aria-label')?.startsWith('Folder is gone'),
+  )
+  expect(marks).toHaveLength(1)
+  expect(marks[0]?.getAttribute('title')).toContain("This conversation's folder no longer exists (/repo/gone).")
+})
+

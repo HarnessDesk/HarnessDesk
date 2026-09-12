@@ -116,6 +116,106 @@ describe('opening a conversation whose folder is gone', () => {
   })
 })
 
+describe('listing conversations before anything opens them', () => {
+  const LIVE = '/w/live-checkout'
+
+  it('marks a folder in foldersGone immediately on listing, before any click', async () => {
+    answers['session/list'] = {
+      data: [
+        {
+          id: sessionId('ghost'),
+          runtime: RUNTIME,
+          cwd: GONE,
+          status: { type: 'idle' },
+          createdAt: 0,
+          updatedAt: 0,
+          folderGone: true,
+        },
+        {
+          id: sessionId('alive'),
+          runtime: RUNTIME,
+          cwd: LIVE,
+          status: { type: 'idle' },
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      cursor: null,
+    }
+    await store.selectRuntime(RUNTIME)
+    await store.loadHistory({ reset: true })
+
+    // Marked before any click or openSession call (#294)
+    expect(store.getSnapshot().foldersGone.has(GONE)).toBe(true)
+    expect(store.getSnapshot().foldersGone.get(GONE)).toContain('folder no longer exists')
+    // Control: existing folder is not marked
+    expect(store.getSnapshot().foldersGone.has(LIVE)).toBe(false)
+  })
+
+  it('forgets the folder when a subsequent listing finds it restored', async () => {
+    answers['session/list'] = {
+      data: [
+        {
+          id: sessionId('ghost'),
+          runtime: RUNTIME,
+          cwd: GONE,
+          status: { type: 'idle' },
+          createdAt: 0,
+          updatedAt: 0,
+          folderGone: true,
+        },
+      ],
+      cursor: null,
+    }
+    await store.selectRuntime(RUNTIME)
+    await store.loadHistory({ reset: true })
+    expect(store.getSnapshot().foldersGone.has(GONE)).toBe(true)
+
+    // The folder is restored; the next listing reflects that.
+    answers['session/list'] = {
+      data: [
+        {
+          id: sessionId('ghost'),
+          runtime: RUNTIME,
+          cwd: GONE,
+          status: { type: 'idle' },
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      cursor: null,
+    }
+    await store.loadHistory({ reset: true })
+    expect(store.getSnapshot().foldersGone.has(GONE)).toBe(false)
+  })
+
+  it('preserves an existing refusal sentence when a listing confirms the folder is gone', async () => {
+    // A refusal already recorded the agent's exact words.
+    answers['session/read'] = session('s-1', GONE)
+    refusals['session/resume'] = folderGone(SAID)
+    await store.openSession(sessionId('s-1'), { runtime: RUNTIME })
+    expect(store.getSnapshot().foldersGone.get(GONE)).toBe(SAID)
+
+    // A later listing confirms the folder is gone; it does not overwrite the agent's sentence.
+    answers['session/list'] = {
+      data: [
+        {
+          id: sessionId('s-1'),
+          runtime: RUNTIME,
+          cwd: GONE,
+          status: { type: 'idle' },
+          createdAt: 0,
+          updatedAt: 0,
+          folderGone: true,
+        },
+      ],
+      cursor: null,
+    }
+    await store.loadHistory({ reset: true })
+    expect(store.getSnapshot().foldersGone.get(GONE)).toBe(SAID)
+  })
+})
+
 /**
  * The colder case: a conversation this desk has never opened, whose folder has
  * also gone. The host has no stored transcript to fall back on, so the read

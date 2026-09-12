@@ -1371,7 +1371,9 @@ export class AppStore {
         ),
       ])
       const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
+      const nextFoldersGone = this.#foldersGoneFor(merged)
       this.#patch({
+        ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
         history: options.reset
           ? merged
           : [...this.#snapshot.history, ...merged.filter(
@@ -1409,8 +1411,11 @@ export class AppStore {
               .catch(() => [] as SessionSummary[]),
           ),
       )
+      const results = pages.flat().sort((a, b) => b.updatedAt - a.updatedAt)
+      const nextFoldersGone = this.#foldersGoneFor(results)
       this.#patch({
-        history: pages.flat().sort((a, b) => b.updatedAt - a.updatedAt),
+        ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
+        history: results,
         historyCursor: null,
       })
     } catch (error) {
@@ -1418,6 +1423,45 @@ export class AppStore {
     } finally {
       this.#patch({ historyLoading: false })
     }
+  }
+
+  /**
+   * Syncs `foldersGone` from the folders measured in a session listing.
+   *
+   * The listing's measurement and the refusal's measurement are the same
+   * predicate asked at two moments; the later measurement is the fresher one.
+   * Folders present in `rows` overwrite their entry in `foldersGone`: marked
+   * gone if any row in that folder has `folderGone: true`, and cleared if the
+   * folder exists again. Existing refusal sentences are preserved so the
+   * agent's own words survive.
+   */
+  #foldersGoneFor(rows: readonly SessionSummary[]): ReadonlyMap<string, string> | null {
+    if (rows.length === 0) return null
+    const measured = new Map<string, boolean>()
+    for (const row of rows) {
+      if (!row.cwd) continue
+      if (row.folderGone) {
+        measured.set(row.cwd, true)
+      } else if (!measured.has(row.cwd)) {
+        measured.set(row.cwd, false)
+      }
+    }
+
+    let changed = false
+    const next = new Map(this.#snapshot.foldersGone)
+    for (const [folder, gone] of measured) {
+      if (gone) {
+        if (!next.has(folder)) {
+          next.set(folder, `This conversation's folder no longer exists (${folder}).`)
+          changed = true
+        }
+      } else {
+        if (next.delete(folder)) {
+          changed = true
+        }
+      }
+    }
+    return changed ? next : null
   }
 
   // ----------------------------------------------------------------- sessions

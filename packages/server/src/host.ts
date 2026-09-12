@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
@@ -2571,20 +2571,39 @@ export class Host {
   }
 
   /**
-   * Stamps every row with the repository its folder belongs to.
+   * Stamps every row with the repository its folder belongs to and whether
+   * its folder is gone from disk.
    *
    * Grouping the session list needs this and the agents cannot supply it:
    * one of them reports a git remote and the rest report nothing, so a
    * conversation an ACP agent had in a worktree had no way to say which
    * project it was about and became a project of its own. The host is the one
    * party that can ask git, so it does — once per folder, cached.
+   *
+   * The existence check marks conversations whose folder was deleted before
+   * anything clicks them (#294). Fresh on every listing — 40 folders in
+   * parallel take ~0.24ms, so no cache is kept.
    */
   async #withRepos(page: Page<SessionSummary>): Promise<Page<SessionSummary>> {
     const folders = [...new Set(page.data.map((row) => row.cwd))]
-    const repos = new Map(
-      await Promise.all(folders.map(async (cwd) => [cwd, await this.#repoOf(cwd)] as const)),
-    )
-    return { ...page, data: page.data.map((row) => ({ ...row, repo: repos.get(row.cwd) ?? null })) }
+    const [repos, existence] = await Promise.all([
+      Promise.all(folders.map(async (cwd) => [cwd, await this.#repoOf(cwd)] as const)),
+      Promise.all(folders.map(async (cwd) => [cwd, await isDirectory(cwd)] as const)),
+    ])
+    const repoMap = new Map(repos)
+    const existsMap = new Map(existence)
+    return {
+      ...page,
+      data: page.data.map((row) => {
+        const repo = repoMap.get(row.cwd) ?? null
+        const gone = !existsMap.get(row.cwd)
+        return {
+          ...row,
+          repo,
+          ...(gone ? { folderGone: true } : {}),
+        }
+      }),
+    }
   }
 
   #routeToHolders(runtime: AgentRuntime, page: Page<SessionSummary>): Page<SessionSummary> {
@@ -2796,6 +2815,21 @@ const failureOf = (turn: Turn): TeamTurnFailure | null => {
         ? 'auth'
         : 'stopped'
   return { cause, message: pauseReason(turn) }
+}
+
+/**
+ * Whether a path is still a directory an agent could be started in.
+ *
+ * Kept identical in semantics to `isDirectory` in
+ * `packages/adapter-acp/src/runtime.ts` so the listing-sourced fact and the
+ * refusal-sourced fact cannot drift.
+ */
+const isDirectory = async (path: string): Promise<boolean> => {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 /**
