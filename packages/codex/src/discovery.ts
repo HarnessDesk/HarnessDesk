@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { CodexError } from './errors.js'
+import { whichOnPath } from './which.js'
 
 const run = promisify(execFile)
 
@@ -68,15 +69,8 @@ const probe = async (path: string): Promise<CodexInstallation | null> => {
   }
 }
 
-const fromPathLookup = async (): Promise<string | null> => {
-  try {
-    const { stdout } = await run('/usr/bin/which', ['codex'], { timeout: 5_000 })
-    const found = stdout.trim().split('\n')[0]
-    return found && found.length > 0 ? found : null
-  } catch {
-    return null
-  }
-}
+// A PATH walk. `/usr/bin/which` is absent on Windows and on minimal images, and there Codex read as not installed (#129).
+const fromPathLookup = async (): Promise<string | null> => whichOnPath('codex')
 
 /**
  * Locates Codex: an explicit override if given, otherwise the **newest** of

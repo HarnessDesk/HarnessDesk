@@ -1,8 +1,6 @@
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
-import { promisify } from 'node:util'
-
-const run = promisify(execFile)
+import { whichOnPath as findOnPath } from './which.js'
 
 /**
  * The agent CLI behind a bridge.
@@ -39,15 +37,8 @@ export interface ExecutableResolverOptions {
   readonly versionOf?: (path: string, args: readonly string[]) => Promise<string | null>
 }
 
-const whichOnPath = async (command: string): Promise<string | null> => {
-  try {
-    const { stdout } = await run('/usr/bin/which', [command], { timeout: 5_000 })
-    const found = stdout.trim().split('\n')[0]
-    return found && found.length > 0 ? found : null
-  } catch {
-    return null
-  }
-}
+// A PATH walk. `/usr/bin/which` is absent on Windows and on minimal images, and there every agent read as not installed (#129).
+const whichOnPath = async (command: string): Promise<string | null> => findOnPath(command)
 
 /**
  * The version line, or null — and back within the timeout whatever the

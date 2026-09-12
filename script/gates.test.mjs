@@ -672,3 +672,91 @@ test('a section is read to the next heading, and a renamed one is empty rather t
   assert.equal(/unrelated/.test(sectionOf(doc, '## The gate')), false)
   assert.equal(sectionOf(doc, '## Renamed'), '')
 })
+
+test('a comment after a closing bracket, a dot or a semicolon is stripped too (#123)', () => {
+  // The pattern only opened a comment after start, whitespace or one of `{([,=:`.
+  for (const source of ['getValue()/* Codex */', '};/* Codex */', 'list[0]/* Codex */', 'a./* Codex */b', 'x;// Codex']) {
+    assert.doesNotMatch(withoutComments(source), /Codex/, source)
+  }
+  // And a string keeps what only looks like a comment inside it.
+  assert.match(withoutComments("const s = '/* Codex */'"), /Codex/)
+})
+
+test("a block comment keeps its line breaks, so a line number read from the result is the file's (#123)", () => {
+  const lines = withoutComments('a\n/* one\ntwo */\nb Codex').split('\n')
+  assert.equal(lines.length, 4)
+  assert.equal(lines.findIndex((line) => line.includes('Codex')), 3)
+})
+
+test('a regex literal holding a backtick opens no template string, so what follows it is still read (#123)', () => {
+  // Items.tsx, where a scan that skipped quoted strings lost its place for sixty lines.
+  const source = "const parts = text.split(/(`[^`\\n]+`)/g)\n/** Codex */\nconst a = 1\n"
+  assert.doesNotMatch(withoutComments(source), /Codex/)
+})
+
+test('JSX text is text: an apostrophe opens no string, and a // in it is not a comment (#123)', () => {
+  assert.doesNotMatch(withoutComments("const A = () => <p>Don't {/* Codex */} go</p>\n", 'a.tsx'), /Codex/)
+  assert.match(withoutComments('const A = () => <p>// Codex</p>\n', 'a.tsx'), /\/\/ Codex/)
+})
+
+test('a .ts file is parsed as TypeScript, so a generic arrow is not read as a JSX tag (#123)', () => {
+  assert.doesNotMatch(withoutComments('const id = <T,>(x: T) => x // Codex\n', 'a.ts'), /Codex/)
+  assert.doesNotMatch(withoutComments('const id = <T>(x: T) => x // Codex\n', 'a.ts'), /Codex/)
+})
+
+test("a doc comment comes out whole, even with a // after a link inside it (#123)", () => {
+  // The comment's own nodes sit inside it; reading trivia at them re-emitted the lines after the link.
+  const out = withoutComments('/**\n * See {@link Foo} // then more\n * Codex\n */\nconst a = 1\n')
+  assert.doesNotMatch(out, /Codex/)
+  assert.equal(out.split('\n').length, 6)
+})
+
+test("a .tsx caller is parsed as TSX, so a call after a // in JSX text still counts (#123)", () => {
+  // Parsed as TypeScript, the // in the JSX text opened a comment and took the call with it.
+  const source = "const A = () => <p>see // {request('team/state')}</p>\n"
+  assert.deepEqual([...reachedBy(['team/state'], [{ file: 'a.tsx', text: source }])], ['team/state'])
+})
+
+test('a .js file is read as JavaScript, JSX and all, so a comment after a tag goes (review of #228, round 1)', () => {
+  // Read as TypeScript, `</p> // Codex` was a regex literal and the comment stayed.
+  assert.doesNotMatch(withoutComments('const A = () => <p>x</p> // Codex\n', 'r.js'), /Codex/)
+  assert.doesNotMatch(withoutComments('const a = 1 // Codex\n', 'r.cjs'), /Codex/)
+})
+
+test('a file TypeScript could not parse is refused by name when a gate reads it (review of #228, round 1)', () => {
+  assert.throws(() => withoutComments('const = ;\n', 'bad.ts', { strict: true }), /bad\.ts:1: TypeScript could not parse this file/)
+  // Leniently, what a test hands it is still stripped: an unterminated comment at the end is a comment.
+  assert.doesNotMatch(withoutComments('const a = 1 /* Codex', 'fine.ts'), /Codex/)
+})
+
+test("code the old pattern deleted stays: a // in a regex literal, and a comment in a template's text (review of #228, round 1)", () => {
+  assert.ok(withoutComments("const path = uri.replace(/^file:\\/\\//, '')\n").includes("/^file:\\/\\//, '')"))
+  assert.ok(withoutComments('const page = `/** Fields whose value must never leave the page */ keep`\n').includes('Fields whose value'))
+})
+
+test('reachedBy refuses a caller file TypeScript could not parse, by name (review of #228, round 2)', () => {
+  /* `withoutComments`'s own refusal was tested directly and never through the
+     caller that uses it. `check-reachable` hands every real caller file over
+     as `{ file, text }` so it is parsed as what it is, and `strict` is what
+     makes an unreadable one stop the gate: a recovered parse can leave a
+     comment inside a token, and a method named in that comment would count as
+     a call — which is the one failure that turns this check into decoration. */
+  assert.throws(
+    () => reachedBy(['team/state'], [{ file: 'broken.ts', text: "const = ;\nawait request('team/state')\n" }]),
+    /broken\.ts:1: TypeScript could not parse this file/,
+  )
+  // The controls: a caller file that parses still counts, and a bare string is still read leniently.
+  assert.deepEqual([...reachedBy(['team/state'], [{ file: 'fine.ts', text: "await request('team/state')\n" }])], ['team/state'])
+  assert.deepEqual([...reachedBy(['team/state'], ["await request('team/state')\n"])], ['team/state'])
+})
+
+test('a .jsx file is read as JavaScript, which is the branch it now shares (review of #228, round 2)', () => {
+  /* `kindOf` named `ScriptKind.JSX` in a branch of its own that nothing could
+     reach — neither gate reads a `.jsx`. The parser gives JS and JSX one
+     language variant, so the extension belongs on the JS branch and the dead
+     one is gone. Read as TypeScript, `</p> // Codex` is a regex literal and
+     the comment survives, which is what this asserts is not happening. */
+  assert.doesNotMatch(withoutComments('const A = () => <p>x</p> // Codex\n', 'r.jsx'), /Codex/)
+  // The control: the extension is what decides, and a `.ts` is still TypeScript.
+  assert.match(withoutComments('const A = () => <p>x</p> // Codex\n', 'a.ts'), /Codex/)
+})

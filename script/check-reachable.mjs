@@ -125,8 +125,11 @@ const filesUnder = (dir) => {
  */
 const CALL_BEFORE = /\brequest\(\s*$/
 
+/** `sources` are texts, or `{ file, text }` so that each is parsed as what it is. */
 export const reachedBy = (methods, sources) => {
-  const text = sources.map((source) => withoutComments(source)).join('\n')
+  const text = sources
+    .map((source) => (typeof source === 'string' ? withoutComments(source) : withoutComments(source.text, source.file, { strict: true })))
+    .join('\n')
   return new Set(
     methods.filter((method) => {
       const needle = `'${method}'`
@@ -152,7 +155,7 @@ if (isMain) {
 
   const sources = CALLERS.flatMap((dir) => filesUnder(join(root, dir)))
     .filter((file) => !/\.test\.[cm]?[jt]sx?$/.test(file))
-    .map((file) => readFileSync(file, 'utf8'))
+    .map((file) => ({ file, text: readFileSync(file, 'utf8') }))
 
   const reached = reachedBy(methods, sources)
   const unreached = methods.filter((method) => !reached.has(method))
