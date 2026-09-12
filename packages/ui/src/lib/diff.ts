@@ -89,6 +89,17 @@ const classifier = (): { readonly kind: (raw: string) => LineKind; readonly widt
   }
 }
 
+/**
+ * A line as it is handed out: without the `\r` that a CRLF payload leaves on
+ * the end of every line `split('\n')` produces. Only a *trailing* one is the
+ * line-ending artefact — a `\r` inside a line is content, and stays.
+ *
+ * This is the module's one definition of that boundary, and the three readers
+ * that hand a line to a person or to an agent all draw by it: `parseDiff`,
+ * `asAdditions` and `splitHunks` (#171).
+ */
+const withoutCr = (text: string): string => (text.endsWith('\r') ? text.slice(0, -1) : text)
+
 export const parseDiff = (diff: string): DiffLine[] => {
   const lines: DiffLine[] = []
   const classify = classifier()
@@ -108,9 +119,9 @@ export const parseDiff = (diff: string): DiffLine[] => {
       const hunk = HUNK.exec(raw)
       oldNumber = Number(hunk?.[2])
       newNumber = Number(hunk?.[3])
-      lines.push({ kind, text: raw, oldNumber: null, newNumber: null })
+      lines.push({ kind, text: withoutCr(raw), oldNumber: null, newNumber: null })
     } else if (kind === 'meta') {
-      lines.push({ kind, text: raw, oldNumber: null, newNumber: null })
+      lines.push({ kind, text: withoutCr(raw), oldNumber: null, newNumber: null })
     } else {
       /* A line is its marks and then its text, one mark per parent. A line
          with a `-` is not in the result, and is in each parent marked `-`;
@@ -125,20 +136,28 @@ export const parseDiff = (diff: string): DiffLine[] => {
       const inFirst = inResult ? marks[0] !== '+' : marks[0] === '-'
       const old = inFirst ? oldNumber++ : null
       const now = inResult ? newNumber++ : null
-      lines.push({ kind, text, oldNumber: kind === 'add' ? null : old, newNumber: now })
+      lines.push({ kind, text: withoutCr(text), oldNumber: kind === 'add' ? null : old, newNumber: now })
     }
   }
 
   return lines
 }
 
-/** Whole-file content, as runtimes send for added files, shown as all additions. */
+/**
+ * Whole-file content, as runtimes send for added files, shown as all additions.
+ *
+ * A CRLF file's lines each keep a `\r` after `split('\n')`, exactly as a CRLF
+ * diff's do, so they are handed out by the same rule `parseDiff` draws with.
+ * They were not, and an added or deleted file written on Windows was the one
+ * payload still showing the character — `asRemovals` reads through here, so it
+ * showed it too (review of #250, round 2).
+ */
 export const asAdditions = (content: string): DiffLine[] => {
   const lines = content.split('\n')
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
   return lines.map((text, index) => ({
     kind: 'add' as const,
-    text,
+    text: withoutCr(text),
     oldNumber: null,
     newNumber: index + 1,
   }))
@@ -234,7 +253,7 @@ export const countFileChange = (change: {
 }): { added: number; removed: number } => countDrawn(change.diff, wholeFileOf(change.kind.type))
 
 export interface DiffHunk {
-  /** The `@@ …` line, verbatim. */
+  /** The `@@ …` line as it is drawn: verbatim but for a CRLF diff's `\r`. */
   readonly header: string
   /** Header plus body — a unified-diff fragment that reads on its own. */
   readonly text: string
@@ -247,8 +266,14 @@ export interface DiffHunk {
  */
 export const splitHunks = (diff: string): DiffHunk[] => {
   const hunks: { header: string; lines: string[] }[] = []
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('@@')) {
+  for (const raw of diff.split('\n')) {
+    /* Stripped once, here, so neither the head a reader sees nor the fragment
+       `reviseHunk` quotes to the agent carries the character out of the
+       interface. `HUNK` reads the line the same either way — it closes on a
+       `\r` as well as on a space or the line's end (review of #250, round 2). */
+    const line = withoutCr(raw)
+    // The strict pattern, as everywhere else: `@@ -1 +1 @@not-a-hunk` is text (#171).
+    if (HUNK.test(line)) {
       hunks.push({ header: line, lines: [line] })
       continue
     }
@@ -451,7 +476,7 @@ export const splitByFile = (diff: string): FileDiff[] => {
        writes there names it better than its `diff --git` line can — see
        `namedBelow`. From the first hunk on, a `+++` line is content. */
     if (current.introducing) {
-      if (line.startsWith('@@')) current.introducing = false
+      if (HUNK.test(line)) current.introducing = false
       else current.path = namedBelow(line) ?? current.path
     }
     current.lines.push(line)

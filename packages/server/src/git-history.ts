@@ -504,7 +504,8 @@ export const commitDiff = async (root: string, sha: string, path: string): Promi
      naming the source brought the source's own edits into the copy's patch
      (review, round 1). A copy opens as the file it made. */
   const paths = entry?.letter === 'R' && entry.oldPath ? [entry.oldPath, path] : [path]
-  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', base, sha, '--', ...paths])) ?? ''
+  // a/ and b/ whatever the repository's diff settings say, as in git.ts (#171).
+  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base, sha, '--', ...paths])) ?? ''
 }
 
 // ------------------------------------------------------------ createBranch

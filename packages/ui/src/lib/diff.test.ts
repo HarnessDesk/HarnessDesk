@@ -662,3 +662,94 @@ describe('an added or deleted file of blank lines only', () => {
   })
 })
 
+describe('the hunk checks that were loose, CRLF text, and an octopus merge (#171)', () => {
+  test('a line that only starts like a hunk header opens no hunk', () => {
+    expect(splitHunks('@@ -1 +1 @@\n-a\n+b\n@@ -1 +1 @@not-a-hunk\n').map((hunk) => hunk.header)).toEqual(['@@ -1 +1 @@'])
+  })
+
+  test('nor ends a file\'s introduction, so the name below still names it', () => {
+    const file = ['diff --git a/x b/x', '@@ -1 +1 @@not-a-hunk', '--- a/old name.txt', '+++ b/new name.txt', '@@ -1 +1 @@', '-a', '+b'].join('\n')
+    expect(splitByFile(file).map((one) => one.path)).toEqual(['new name.txt'])
+  })
+
+  test('a CRLF diff draws its lines without the carriage return', () => {
+    expect(parseDiff('@@ -1 +1 @@\r\n-a\r\n+b\r\n').map((line) => line.text)).toEqual(['@@ -1 +1 @@', 'a', 'b'])
+    // The control: the kinds were always right.
+    expect(parseDiff('@@ -1 +1 @@\r\n-a\r\n+b\r\n').map((line) => line.kind)).toEqual(['hunk', 'remove', 'add'])
+  })
+
+  test('an octopus merge, three parents and a line none of them had: one mark per parent', () => {
+    // git show --cc of a clean octopus of three branches, amended by hand, byte for byte.
+    const octopus = [
+      'diff --cc f.txt',
+      'index 545f6fe,12523a3,3c324f9..6dbfa61',
+      '--- a/f.txt',
+      '+++ b/f.txt',
+      '@@@@ -1,6 -1,6 -1,6 +1,6 @@@@',
+      '   one',
+      ' --two',
+      ' --three',
+      '  -four',
+      ' ++two (first)',
+      '-  three',
+      '-  four',
+      '+++three, by hand',
+      '+ +four (second)',
+      '   five',
+      '-- six',
+      '++ six (third)',
+      '',
+    ].join('\n')
+    const drawn = parseDiff(octopus)
+      .filter((line) => line.kind !== 'meta')
+      .map((line) => [line.kind, line.text, line.oldNumber, line.newNumber])
+    expect(drawn).toEqual([
+      ['hunk', '@@@@ -1,6 -1,6 -1,6 +1,6 @@@@', null, null],
+      ['context', 'one', 1, 1],
+      ['remove', 'two', null, null],
+      ['remove', 'three', null, null],
+      ['remove', 'four', null, null],
+      ['add', 'two (first)', null, 2],
+      ['remove', 'three', 3, null],
+      ['remove', 'four', 4, null],
+      ['add', 'three, by hand', null, 3],
+      ['add', 'four (second)', null, 4],
+      ['context', 'five', 5, 5],
+      ['remove', 'six', 6, null],
+      ['add', 'six (third)', null, 6],
+    ])
+    expect(countChanges(octopus)).toEqual({ added: 4, removed: 6 })
+    expect(splitByFile(octopus).map((one) => one.path)).toEqual(['f.txt'])
+  })
+})
+
+/**
+ * Round 2 of the review of #250. The first round stripped the artefact where
+ * `parseDiff` draws and stopped there, so the two other readers that hand a
+ * line out kept it: `asAdditions` draws added and deleted files, so one written
+ * on Windows still showed the character, and `splitHunks` text is what
+ * `reviseHunk` quotes to the agent, so it left the interface entirely.
+ */
+describe('the carriage returns the first round left behind (#250)', () => {
+  const crlf = 'one\r\ntwo\r\n'
+
+  test('whole-file content draws without the carriage return', () => {
+    expect(asAdditions(crlf).map((line) => line.text)).toEqual(['one', 'two'])
+    expect(asRemovals(crlf).map((line) => line.text)).toEqual(['one', 'two'])
+    // The control: the numbering was always right, and is untouched.
+    expect(asAdditions(crlf).map((line) => line.newNumber)).toEqual([1, 2])
+    expect(asRemovals(crlf).map((line) => line.oldNumber)).toEqual([1, 2])
+  })
+
+  test('a CRLF hunk carries none into its head, nor into what is quoted to the agent', () => {
+    const [hunk] = splitHunks('@@ -1 +1 @@\r\n-a\r\n+b\r\n')
+    expect(hunk?.header).toBe('@@ -1 +1 @@')
+    expect(hunk?.text).toBe('@@ -1 +1 @@\n-a\n+b')
+  })
+
+  test('a carriage return inside a line is content, and stays', () => {
+    // Only the line ending is the artefact; a bare CR in the middle is text.
+    expect(asAdditions('a\rb\r\n').map((line) => line.text)).toEqual(['a\rb'])
+    expect(splitHunks('@@ -1 +1 @@\r\n+a\rb\r\n')[0]?.text).toBe('@@ -1 +1 @@\n+a\rb')
+  })
+})

@@ -577,3 +577,20 @@ test('a commit reads as recorded, whatever git replace says of it (review of #23
   assert.match(patch, /^-a$/m)
   assert.doesNotMatch(patch, /^new file mode/m)
 })
+
+test('commitDiff names files a/ and b/, whatever the repository\'s diff settings say (#171)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-noprefix-commit-'))
+  try {
+    await git(dir, 'init', '-q', '-b', 'main')
+    await writeFile(join(dir, 'f.txt'), 'one\n')
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'one')
+    await writeFile(join(dir, 'f.txt'), 'two\n')
+    await git(dir, 'commit', '-qam', 'two')
+    await git(dir, 'config', 'diff.noprefix', 'true')
+    assert.ok(!(await git(dir, 'diff', 'HEAD~1', 'HEAD')).includes('a/f.txt'), 'the control: the setting took')
+    assert.ok((await commitDiff(dir, await sha(dir, 'HEAD'), 'f.txt')).includes('diff --git a/f.txt b/f.txt'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

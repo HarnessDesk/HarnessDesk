@@ -897,6 +897,42 @@ test('git_log falls back through the setting as it does through the argument', a
   assert.equal(await two({ limit: 1 }), 1, 'and the asked limit still wins')
 })
 
+test('git_diff names files a/ and b/, whatever the repository is configured to show (#171)', async (t) => {
+  /* Review of #250 found a fourth patch-producing call left unpinned: the
+     three the host makes for its own parser were pinned, and this one — the
+     patch an agent reads and applies — was not. Under diff.noprefix the
+     `diff --git` line named no readable path, and `git apply -p1` could not
+     take the patch it handed back. */
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { execFileSync } = await import('node:child_process')
+  const dir = mkdtempSync(join(tmpdir(), 'hd-git-diff-prefix-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const git = (...args: string[]): string => String(execFileSync('git', args, { cwd: dir }))
+  git('init', '-q', '-b', 'main')
+  writeFileSync(join(dir, 'f.txt'), 'one\n')
+  git('add', '.')
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base')
+  writeFileSync(join(dir, 'f.txt'), 'two\n')
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(gitPlugin)
+  await settle()
+  kernel.setWorkspace({ root: dir, branch: 'main' })
+
+  for (const setting of ['diff.noprefix', 'diff.mnemonicPrefix']) {
+    git('config', setting, 'true')
+    // The control: the setting took, and git's own diff drops or changes the prefixes.
+    assert.ok(!git('diff').includes('diff --git a/f.txt b/f.txt'), setting)
+    const read = text(await kernel.invokeTool(toolNamed(kernel, 'git_diff'), {}, {}))
+    assert.ok(read.includes('diff --git a/f.txt b/f.txt'), `${setting}: ${read.split('\n')[0]}`)
+    assert.ok(read.includes('--- a/f.txt') && read.includes('+++ b/f.txt'), setting)
+    git('config', '--unset', setting)
+  }
+})
+
 test('the last test run becomes a chip: nothing before a run, the verdict after', async (t) => {
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
