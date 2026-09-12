@@ -1,0 +1,113 @@
+# Fix a thing, have it reviewed, act on the verdict, repeat until it passes.
+#
+# This is the loop that was run by hand for a day against this repository —
+# one agent fixing issues and opening pull requests, three reviewing each one,
+# rounds repeating until unanimous — with the merge kept by the person, because
+# `main` here carries no branch protection and `gh pr merge` will merge a red
+# pull request without a word.
+#
+# Edit `seat:` for the agents and models you actually have. Everything else
+# works as written. Try it with dry run first: it spends nothing and prints
+# every seat it would open.
+name: Fix and review
+description: One fixer, three reviewers, and the merge stays yours.
+
+inputs:
+  work:
+    label: What to fix
+    default: The issue or the change to make
+
+# Seconds one await_work call blocks before it answers "nothing yet". A seat
+# loops on that answer inside its one turn, so this is only how often it says
+# so — not how long it may wait.
+wait: 240
+
+roles:
+  fixer:
+    kind: agent
+    seat: cursor=gpt-5.3-codex/xhigh
+    count: 1
+    permission: publish
+    outcomes: [published, cannot]
+    order: |
+      You fix things and open pull requests for them. On each card: make the
+      change, run the project's own gate, commit on a branch of your own, push
+      it, and open a pull request. Answer `published` with the pull request's
+      number and url in your note and its branch in your context package, or
+      `cannot` if the card asks for something that should not be done — and say
+      which part, in your note.
+
+      When the card carries reviews from a previous round, the whole job is to
+      answer every one of them: fix what is real, and say in your note why
+      anything you did not change did not need changing. Push to the same
+      branch and the same pull request.
+
+  reviewer:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    count: 3
+    permission: read
+    outcomes: [approve, request-changes]
+    order: |
+      You review the pull request the card names, on your own, without reading
+      what the other reviewers said. Read the diff, then read enough of the
+      code around it to know whether the change is right — not only whether it
+      is tidy.
+
+      Answer `approve` only if you would merge it as it stands. Otherwise
+      answer `request-changes` and put every finding in your context package:
+      the file, the line, what breaks, and the input that breaks it. A finding
+      with no failing case is a suggestion; mark it as one.
+
+  referee:
+    kind: person
+    outcomes: [merged, dropped]
+
+seed:
+  role: fixer
+  title: "{{work}}"
+  detail: |
+    {{work}}
+
+    Open a pull request for it when it is done and working.
+
+rules:
+  # Every rule is tried in file order and the first match fires, so the
+  # unhappy branch is written first: one reviewer asking for changes sends the
+  # work back however many approved.
+  - id: review-it
+    on: fixer
+    when: { every: published }
+    then:
+      role: reviewer
+      title: "Review round {{round}} — {{n}} of {{count}}"
+      detail: |
+        Review the pull request the fixer's context package names. You are one
+        of {{count}} reviewers on this round and you will not see the others'
+        answers.
+
+  - id: fix-again
+    on: reviewer
+    when: { any: request-changes }
+    then:
+      role: fixer
+      title: "Answer round {{round}}'s reviews"
+      detail: |
+        Every reviewer's findings are attached to this card. Answer all of
+        them, push to the same branch, and publish again.
+
+  - id: hand-to-the-person
+    on: reviewer
+    when: { every: approve }
+    then:
+      role: referee
+      title: "Merge it — every reviewer approved"
+      detail: |
+        All {{count}} reviewers approved. Their reviews are attached. Merging
+        is yours: no agent in this flow may do it.
+
+# Where a canvas keeps node positions. The engine never reads this.
+layout:
+  fixer: { x: 40, y: 40 }
+  reviewer: { x: 300, y: 40 }
+  referee: { x: 560, y: 40 }

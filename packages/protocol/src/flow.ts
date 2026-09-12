@@ -81,8 +81,15 @@ export interface FlowRole {
   /** How many seats of this role — `reviewer` times 3 opens a round of three. */
   readonly count: number
   readonly permission: FlowPermission
-  /** Which agent to seat. Required for `agent`, refused for the others. */
-  readonly seat?: FlowSeat | null
+  /**
+   * Which agent to seat. Required for `agent`, refused for the others.
+   *
+   * A list, because a race is two *different* models on one round and the
+   * round is the unit: one `competitor` role of two seats is one round of two
+   * cards, which is exactly the shape a rule fires on. One seat and a `count`
+   * above 1 repeats it, which is the reviewer-times-three case.
+   */
+  readonly seats: readonly FlowSeat[]
   /** The command behind a `check`. Required for `check`, refused for the others. */
   readonly check?: FlowCheck | null
   /**
