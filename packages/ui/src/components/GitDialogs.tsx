@@ -38,13 +38,21 @@ import styles from './GitDialogs.module.css'
 
 const reason = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-const STATUS_LETTER: Record<GitFileStatus['status'], string> = {
+/**
+ * One row of the commit dialog: a path and what committing it records. Every
+ * `GitFileStatus` word, plus `nothing` — which is not a state a file can be
+ * in, but what a commit makes of one pair of them.
+ */
+type CommitRow = { readonly path: string; readonly status: GitFileStatus['status'] | 'nothing' }
+
+const STATUS_LETTER: Record<CommitRow['status'], string> = {
   modified: 'M',
   added: 'A',
   deleted: 'D',
   renamed: 'R',
   untracked: 'U',
   conflicted: '!',
+  nothing: '—',
 }
 
 // ------------------------------------------------------------------- commit
@@ -56,26 +64,50 @@ const STATUS_LETTER: Record<GitFileStatus['status'], string> = {
  * index entry, the row said "modified" (#180). Otherwise the index's word
  * stands, because it says what the commit records against the last one: `AM`
  * is still an addition.
+ *
+ * `AD` — added to the index, then deleted from the working tree — is the one
+ * pair neither word fits. The path is in no commit and in no tree, so nothing
+ * is recorded for it either way. Measured on git 2.50.1: named on its own,
+ * `git commit -- <path>` exits 1 with "nothing to commit"; named beside
+ * another file, the commit succeeds and mentions only the other; and the
+ * all-files branch's `git add -A` drops the staged add outright. So the row
+ * says it records nothing and carries no box to check, rather than claiming a
+ * deletion the commit does not make (#248).
+ *
+ * It stays in the list rather than being dropped from it. The path is in the
+ * Changes panel either way, and this is the one surface that can say why it is
+ * not going in — a row that simply vanishes is a gap the reader has to close
+ * alone. Keeping it also holds `everything` below false, which sends the
+ * commit down the pathspec branch: measured, that is the only branch that
+ * leaves the staged add where it is instead of erasing it.
  */
-const onePerPath = (files: readonly GitFileStatus[]): GitFileStatus[] => {
-  const byPath = new Map<string, GitFileStatus>()
+const onePerPath = (files: readonly GitFileStatus[]): CommitRow[] => {
+  const first = new Map<string, GitFileStatus>()
+  const goneFromTree = new Set<string>()
   for (const file of files) {
-    const was = byPath.get(file.path)
-    if (!was) byPath.set(file.path, file)
-    else if (!file.staged && file.status === 'deleted') byPath.set(file.path, { ...was, status: 'deleted' })
+    if (!first.has(file.path)) first.set(file.path, file)
+    if (!file.staged && file.status === 'deleted') goneFromTree.add(file.path)
   }
-  return [...byPath.values()]
+  return [...first.values()].map((file) => ({
+    path: file.path,
+    status: !goneFromTree.has(file.path)
+      ? file.status
+      : file.staged && file.status === 'added'
+        ? 'nothing'
+        : 'deleted',
+  }))
 }
 
 /**
  * The toolbar's Commit: the dirty files with a check each, a message, one
  * button. Unchecking a file leaves it dirty for a later commit; with every
- * file checked the commit is asked without pathspecs, which is also the only
- * shape git takes while a merge is being concluded.
+ * row checked the commit is asked without pathspecs, which is also the only
+ * shape git takes while a merge is being concluded. A row that records
+ * nothing cannot be checked, so its presence alone keeps that shape away.
  */
 export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: boolean) => void }) => {
   const store = useStore()
-  const [files, setFiles] = useState<readonly GitFileStatus[] | null>(null)
+  const [files, setFiles] = useState<readonly CommitRow[] | null>(null)
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -97,7 +129,10 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
     }
   }, [root, store])
 
-  const chosen = (files ?? []).filter((file) => !excluded.has(file.path))
+  /* A row that records nothing is not a file to commit: it is never chosen,
+     so the count on the button and the pathspecs sent both stay true to what
+     the commit will contain. */
+  const chosen = (files ?? []).filter((file) => file.status !== 'nothing' && !excluded.has(file.path))
 
   const commit = async (): Promise<void> => {
     if (message.trim().length === 0 || chosen.length === 0) return
@@ -163,6 +198,21 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
         ) : (
           <div className={styles.files} role="group" aria-label="Files to commit">
             {files.map((file) => {
+              if (file.status === 'nothing') {
+                /* Declared and greyed rather than withdrawn: the path is in
+                   the Changes panel, so a row missing here reads as an
+                   oversight instead of an answer. */
+                return (
+                  <div key={file.path} className={styles.file} data-moot="">
+                    <span className={styles.blank} />
+                    <span className={styles.status} data-status="nothing">
+                      {STATUS_LETTER.nothing}
+                    </span>
+                    <span className={styles.path}>{file.path}</span>
+                    <span className={styles.records}>records nothing</span>
+                  </div>
+                )
+              }
               const on = !excluded.has(file.path)
               return (
                 <button
