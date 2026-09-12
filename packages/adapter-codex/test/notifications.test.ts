@@ -120,7 +120,11 @@ test('a balance that is there is read, a zero included, and one that is not is n
           limitName: null,
           primary: null,
           secondary: null,
-          credits: { hasCredits: true, unlimited: false, balance: value as string | null },
+          // No cast: `n()` sends the whole notification through `unknown`, so
+          // an inner one would narrow nothing — it only read as if the values
+          // below were all strings, which is the half of this test that
+          // matters (review of #207, round 2).
+          credits: { hasCredits: true, unlimited: false, balance: value },
           planType: 'team',
           rateLimitReachedType: null,
         },
@@ -130,6 +134,11 @@ test('a balance that is there is read, a zero included, and one that is not is n
   }
   assert.equal(balance('0'), 0)
   // Read by truthiness, only a string zero came through (#85, one layer down).
+  // A numeric balance is not a shape Codex's own payload has — generated
+  // `CreditsSnapshot.balance` is `string | null` — so this is a contract on the
+  // reading, held against a payload that changes rather than against any
+  // fixture we ship: the one numeric-balance fixture, `fake-runtime.ts`, hands
+  // back a whole `RateLimits` and never comes through here (review of #207).
   assert.equal(balance(0), 0, 'a numeric zero is a balance, not none')
   assert.equal(balance('12.5'), 12.5)
   assert.equal(balance(null), null)

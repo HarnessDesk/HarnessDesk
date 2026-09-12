@@ -2339,6 +2339,15 @@ class AcpSession implements AgentSession {
   #currentTurn: MutableTurn | null = null
   /** What the agent has said about tokens, if anything. Null until it does. */
   #usage: SessionUsage | null = null
+  /**
+   * Set once a turn went by that nobody could account for.
+   *
+   * The chain cannot be read off the total alone, which is why this is a flag
+   * rather than an inference: an empty total is the *start* of the chain, so an
+   * unknown first turn would leave the next known one opening a fresh exact
+   * count over a hole. Never cleared — a gap is permanent.
+   */
+  #writeChainBroken = false
 
   /** True while a turn is in flight. */
   get busy(): boolean {
@@ -2559,10 +2568,13 @@ class AcpSession implements AgentSession {
         // that says nothing at all, from its own record if it keeps one.
         const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
         if (usage) this.#recordTurnUsage(usage)
-        // A turn the agent's own record could not account for is not the one
-        // before it: its figures are unknown, so the last turn shows none
-        // rather than the previous turn's under this one's name.
-        else if (this.#host.usageRecord) this.#forgetLastTurn()
+        // A turn nobody could account for is not the one before it: its figures
+        // are unknown, so the last turn shows none rather than the previous
+        // turn's under this one's name. For every runtime, not only the ones
+        // that keep a record of their own — an agent that reports usage on some
+        // turns and not others is the commoner shape, and it was the one left
+        // showing turn one's tokens and cache chip under turn two (#159).
+        else this.#forgetLastTurn()
         this.#finishTurn(turn, response.stopReason)
       })
       .catch((error: unknown) => this.#failTurn(turn, describeAcp(error)))
@@ -3029,6 +3041,9 @@ class AcpSession implements AgentSession {
 
   /** The last turn's figures withdrawn: this turn's are unknown, and the ones before it are not its. */
   #forgetLastTurn(): void {
+    // Ahead of the early return: a *first* turn nobody could account for
+    // leaves no figures to withdraw and still breaks the write chain.
+    this.#writeChainBroken = true
     if (!this.#usage) return
     this.#usage = { ...this.#usage, last: NO_TOKENS }
     this.#emit({ type: 'usage/updated', sessionId: this.id, usage: this.#usage })
@@ -3041,8 +3056,11 @@ class AcpSession implements AgentSession {
     // The running total carries a write count only while the chain of turns
     // behind it is unbroken. An empty total is the start of the chain, not a
     // gap in it; a total that has tokens but no write count is a gap, and a
-    // gap is permanent.
-    const priorKnown = previous.cacheWriteTokens !== undefined || previous.totalTokens === 0
+    // gap is permanent. A turn that reported *nothing* is a gap the total
+    // cannot show at all — it never got here to leave a mark — which is what
+    // `#writeChainBroken` remembers on its behalf.
+    const priorKnown =
+      !this.#writeChainBroken && (previous.cacheWriteTokens !== undefined || previous.totalTokens === 0)
     const cacheWriteTotal =
       priorKnown && turn.cacheWriteTokens !== undefined
         ? (previous.cacheWriteTokens ?? 0) + turn.cacheWriteTokens

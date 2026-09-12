@@ -559,8 +559,7 @@ const Card = ({
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
   // "not metered" — it is an account with nothing to run out of.
-  const credits = report.credits
-  const balance = credits?.remaining !== undefined && credits.remaining !== null ? credits : null
+  const balance = balanceOf(report.credits)
   const state = stateOf(report, view)
   const hero = view.hero
   const agent = info?.presentation.name ?? String(report.runtime)
@@ -575,7 +574,7 @@ const Card = ({
       ? '—'
       : `${hero.remainingPercent}%`
     : balance
-      ? amount(balance.remaining as number, balance.unit)
+      ? amount(balance.remaining, balance.unit)
       : (money ?? '—')
   const word = hero
     ? 'left'
@@ -923,6 +922,43 @@ const windowLength = (ms: number): string => {
   return `${days}-day`
 }
 
+/** A prepaid balance a card can actually print: every figure in it nameable. */
+interface Balance {
+  readonly remaining: number
+  /** Null where the source knows what is left but not what is gone. */
+  readonly used: number | null
+  readonly unit: string
+}
+
+/**
+ * The balance a card may print, or none at all.
+ *
+ * `UsageCredits.remaining` is typed `number | null` and `NaN` is a number to
+ * both `typeof` and that type, so the card read it, cast it, and printed "NaN
+ * credits" in the place a figure goes. `describeLimits` has refused a
+ * non-finite balance since round 1 of #207 and Codex's `balanceOf` since #207
+ * itself — which left the guard on the producer's side of a type that cannot
+ * express the difference, protecting Settings and not the Dashboard (#225).
+ * Any later meter that computes a remaining by arithmetic reopens it, and one
+ * already does: `claude-file.ts` subtracts two fields of a file another
+ * application writes.
+ *
+ * So the reading is done here, where the figure is printed. A balance nobody
+ * can name is no balance: the card mutes rather than captioning a word as
+ * money. `used` is read on its own, because a source may know what is left
+ * without knowing what is gone. A zero balance is still a balance (#85) —
+ * only what is not finite is none.
+ *
+ * Exported for `Usage.balance.test.tsx`, the way `stateOf` and `noteGlyph` are.
+ */
+export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
+  if (!credits) return null
+  const remaining = credits.remaining
+  if (typeof remaining !== 'number' || !Number.isFinite(remaining)) return null
+  const used = typeof credits.used === 'number' && Number.isFinite(credits.used) ? credits.used : null
+  return { remaining, used, unit: credits.unit }
+}
+
 /** A balance in whatever unit the vendor keeps it in. */
 const amount = (value: number, unit: string): string =>
   unit === 'USD' ? (formatMoney(value) ?? '—') : `${value.toLocaleString()} ${unit}`
@@ -963,7 +999,7 @@ export const noteGlyph = (tone: Tone | undefined): ReactNode =>
 const noteOf = (
   report: UsageReport,
   view: ReportView,
-  balance: { remaining: number | null; used?: number | null; unit: string } | null,
+  balance: Balance | null,
   hasSpend: boolean,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
@@ -983,8 +1019,8 @@ const noteOf = (
   // A balance beside a plan lane, not instead of it: the headline percentage is
   // the plan's included usage, and a pay-as-you-go balance is a second pot.
   if (view.hero && balance) {
-    const used = typeof balance.used === 'number' ? `, ${amount(balance.used, balance.unit)} used` : ''
-    return { text: `${amount(balance.remaining as number, balance.unit)} left on top of the plan${used}` }
+    const used = balance.used === null ? '' : `, ${amount(balance.used, balance.unit)} used`
+    return { text: `${amount(balance.remaining, balance.unit)} left on top of the plan${used}` }
   }
   // The badge in the header carries the standing now, so this line is only
   // worth its height when there is a *consequence* the badge cannot state.
