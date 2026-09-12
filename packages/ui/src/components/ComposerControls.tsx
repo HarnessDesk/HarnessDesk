@@ -978,8 +978,23 @@ export const PlaceControl = () => {
   // them apart. Written whole, a long one squeezed the agent and the model
   // off the row, and the ellipsis cut the very end that differs. The whole
   // name is on hover and in the menu.
-  const leaf = (name: string | null): string => name?.split('/').filter(Boolean).at(-1) ?? 'Worktree'
-  const word = armed ? 'New worktree' : chosen ? leaf(chosen.branch) : linked ? leaf(branch) : 'Local'
+  //
+  // The fallback is what a place is called when it has no branch to be called
+  // by. A worktree on a detached HEAD is still a worktree; the main checkout
+  // is never one, and already answers to `Local` under this same laptop when
+  // it is the folder that is open — so it answers to it here too. Named at
+  // each call rather than defaulted: this read `chosen` where the badge one
+  // line below reads `chosenMain`, and with a branch present the two could
+  // never be caught disagreeing (#301).
+  const leaf = (name: string | null, fallback: string): string =>
+    name?.split('/').filter(Boolean).at(-1) ?? fallback
+  const word = armed
+    ? 'New worktree'
+    : chosen
+      ? leaf(chosen.branch, chosenMain ? 'Local' : 'Worktree')
+      : linked
+        ? leaf(branch, 'Worktree')
+        : 'Local'
   const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (

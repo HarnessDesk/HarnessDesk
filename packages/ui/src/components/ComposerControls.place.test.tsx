@@ -271,3 +271,38 @@ it('asks that of the worktrees under it too, not only of the main checkout', () 
   expect(row('harnessdesk/promo')?.disabled).toBe(true)
   expect(row('Main checkout')?.disabled).toBe(false)
 })
+
+it('calls the main checkout by its own name when it is on a detached HEAD', () => {
+  /* The word beside the glyph read `chosen`; the badge one line below it
+     reads `chosenMain`. With a branch the two could never be caught
+     disagreeing — `leaf` answered with the branch either way — but a main
+     checkout on a detached HEAD fell through to `leaf`'s worktree fallback,
+     so the chip wore the laptop, said "Starts in the main checkout" on
+     hover, and read `Worktree` (#301). `Local` is what this same place is
+     called under this same glyph when it is the folder that is open. */
+  rig({
+    workspace: IN_TREE,
+    worktrees: [{ path: MAIN.path, branch: null, head: 'a', isMain: true, managed: false }, ...CHECKOUTS.slice(1)] as Worktree[],
+    draftPlace: { kind: 'existing', path: MAIN.path, branch: null },
+  })
+
+  expect(trigger()?.textContent).toContain('Local')
+  expect(trigger()?.textContent).not.toContain('Worktree')
+  // The control on the half that was already right: the hover sentence drops
+  // its branch clause rather than inventing one, before and after the fix.
+  expect(trigger()?.title).toBe('Starts in the main checkout')
+})
+
+it('still calls a worktree on a detached HEAD a worktree', () => {
+  /* The control on the fix: the fallback it moves off the main checkout is
+     the right answer for the rows that really are worktrees, and stays
+     theirs. Passes both before and after. */
+  rig({
+    workspace: IN_TREE,
+    worktrees: CHECKOUTS,
+    draftPlace: { kind: 'existing', path: SIBLING, branch: null },
+  })
+
+  expect(trigger()?.textContent).toContain('Worktree')
+  expect(trigger()?.title).toBe('Starts in the worktree on a detached HEAD')
+})

@@ -289,6 +289,13 @@ describe('picking the agent already picked', () => {
 
 describe('what round one of the review found', () => {
   it('a late failure from the previous agent does not clear the next agent’s skills', async () => {
+    /* Against `loadSkills` directly rather than through `refreshRuntime`.
+       Driven through `refreshRuntime`, this test could not fail: that method
+       captures the runtime, awaits its own `Promise.all`, and returns at its
+       own guard before calling either loader — so a switch made while it was
+       in flight left `runtime/skills` unsent and the guard below unreached.
+       Deleting that guard kept all 2513 tests in this package green (#298).
+       `loadRoutes`' sibling below was written this way from the start. */
     await seat()
     let failCodex: () => void = () => {}
     const gate = new Promise<never>((_, reject) => {
@@ -300,12 +307,59 @@ describe('what round one of the review found', () => {
     answers['runtime/skills'] = (params: unknown) =>
       (params as { runtime: string }).runtime === CODEX ? gate : [{ name: 'claude-only' }]
 
-    const codexRefresh = store.refreshRuntime()
+    const codexSkills = store.loadSkills()
+    await store.selectRuntime(CLAUDE)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // The control: the switch really did read the next agent's skills, so the
+    // assertion after the failure cannot be green for a list never written.
+    expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
+    failCodex()
+    await codexSkills
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
+  })
+
+  it('the skills guard is reachable from the settings toggle, not only from a direct call', async () => {
+    /* What the test above cannot say on its own. `refreshRuntime` returns
+       before reaching `loadSkills`, so that route can never exercise the
+       guard — which leaves the question of whether the guard is defence in
+       depth or does a job nothing else does. It does a job: `setSkillEnabled`
+       calls `loadSkills` directly once the toggle lands, and the skill switch
+       on the settings page calls that. Flip a skill, make the other agent the
+       default while the re-read is still in flight, and the rejection arrives
+       to find the default already moved on. */
+    await seat()
+    let allowToggle: () => void = () => {}
+    const toggled = new Promise<void>((resolve) => {
+      allowToggle = () => resolve()
+    })
+    let failCodex: () => void = () => {}
+    const gate = new Promise<never>((_, reject) => {
+      failCodex = () => reject(new Error('codex went away'))
+    })
+    gate.catch(() => undefined)
+    answers['runtime/skills/setEnabled'] = () => toggled
+    answers['runtime/skills'] = (params: unknown) =>
+      (params as { runtime: string }).runtime === CODEX ? gate : [{ name: 'claude-only' }]
+
+    calls.length = 0
+    const toggling = store.setSkillEnabled({ name: 'review' }, false)
+    allowToggle()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // The control, and the ordering this test rests on, asserted rather than
+    // timed: the toggle landed, and the re-read it starts was really sent for
+    // the agent about to be switched away from. A tick that stopped being
+    // enough would fail here, where the reason is legible, instead of leaving
+    // the guard below unreached and the test green for the wrong reason.
+    expect(calls.map((call) => call.method)).toContain('runtime/skills/setEnabled')
+    expect(
+      calls.filter((call) => call.method === 'runtime/skills' && (call.params as { runtime: string }).runtime === CODEX),
+    ).toHaveLength(1)
     await store.selectRuntime(CLAUDE)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
     failCodex()
-    await codexRefresh
+    await toggling
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(store.getSnapshot().skills).toEqual([{ name: 'claude-only' }])
   })
