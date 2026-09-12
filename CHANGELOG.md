@@ -7,6 +7,21 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A conversation whose folder is gone is a state now, not a toast per open** —
+  opening one (every conversation that ran in a worktree that has since been
+  deleted) painted its transcript and then threw an error toast, which stayed
+  until its × was pressed. Four such conversations were four toasts, three of
+  them word-for-word identical because a review room's three members had shared
+  one worktree, and the sentence arrived with the agent introduced twice:
+  "Cursor could not reopen this conversation: Cursor cannot open this
+  conversation: …". Now the refusal is named on the wire, so the app can tell it
+  from every other reason a conversation will not reopen: the pane says the
+  folder is gone and the transcript is read-only, where the composer would be
+  and in the agent's own words; the sidebar row wears a mark, so a folder that
+  took several conversations only has to be discovered once; and the way
+  forward — **Open a copy in another folder** — carries the conversation over
+  as a hand-off packet, the same verb a worktree brought home uses. No toast
+  for this case at all. Every other reopen failure still toasts as it did.
 - **The "Default" chip says the same thing wherever you find it** — the agent
   marked as the one new sessions run as read "needs sign-in" in the agent list
   and green on its own page and its account's page, because the list asked

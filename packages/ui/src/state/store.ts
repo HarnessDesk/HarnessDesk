@@ -1482,6 +1482,12 @@ export class AppStore {
       this.#setSession(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
+      // A conversation that reopened is the only evidence its folder is back.
+      if (this.#snapshot.foldersGone.has(live.cwd)) {
+        const left = new Map(this.#snapshot.foldersGone)
+        left.delete(live.cwd)
+        this.#patch({ foldersGone: left })
+      }
     } catch (error) {
       // A conversation another writer holds is a special kind of failure: the
       // read above already succeeded, so the transcript is on screen and whole
@@ -1493,6 +1499,20 @@ export class AppStore {
           label: 'Open a copy',
           run: () => void this.forkSession(key),
         })
+      } else if (isFolderGone(error) && this.#snapshot.sessions.get(key)) {
+        /* A state, not an occurrence — so it is recorded and drawn, and
+           nothing is announced. The read above succeeded (the host falls back
+           to its own transcript when the agent cannot), so the conversation is
+           on screen and whole; what is gone is the folder it ran in, and with
+           it the ability to add to it. The pane says so where the composer
+           would be, the row wears a mark, and the folder is what all of it is
+           keyed on: a deleted worktree takes every conversation that ran in
+           it, and the three members of one review room used to arrive as three
+           identical toasts. Kept on a layout restore for the same reason the
+           held-elsewhere case is: the transcript is right there, and emptying
+           the pane would throw away the only copy left of it. */
+        const folder = this.#snapshot.sessions.get(key)?.cwd
+        if (folder) this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(folder, describe(error)) })
       } else if (options.restoring) {
         // The layout remembered a conversation the backend no longer holds
         // — an ended ephemeral session, an ACP agent that was restarted.
@@ -1820,6 +1840,24 @@ export class AppStore {
     } catch (error) {
       this.notice('error', describe(error))
     }
+  }
+
+  /**
+   * Carry a conversation whose folder is gone into one that exists.
+   *
+   * Not a fork: forking asks the agent to load the conversation from the
+   * folder that is missing, which is the wall this started at — and most
+   * agents behind the bridge cannot fork at all. What travels is the hand-off
+   * packet, the same verb a worktree brought home uses for this exact
+   * situation, landing as a chip on a fresh draft in the agent it already
+   * belongs to. Where the draft starts is left to the composer's Work in
+   * control rather than guessed at here: the one folder this app can be sure
+   * about is the open workspace, and a conversation that ran in a deleted
+   * worktree of another project does not belong there by default.
+   */
+  async openCopyElsewhere(key = this.#snapshot.activeSessionKey): Promise<void> {
+    if (!key) return
+    await this.handOff(splitSessionKey(key).runtime, 'summary', key)
   }
 
   /** Sets or clears the session's standing objective. */
@@ -4910,6 +4948,18 @@ const focusedPaneViewOf = (layout: Layout): PaneView | null => {
  */
 const isHeldElsewhere = (error: unknown): boolean =>
   error instanceof Error && (error as { code?: unknown }).code === 'sessionBusy'
+
+/**
+ * A conversation whose folder is no longer on the machine.
+ *
+ * Read off the code for the reason `isHeldElsewhere` is: the sentence is the
+ * agent's and may be improved, and this is the one *gone* with somewhere to
+ * go afterwards. Named on the wire by the adapter and kept across the host by
+ * `session/resume`; before that this arrived as a plain error and could only
+ * have been recognised by its English.
+ */
+const isFolderGone = (error: unknown): boolean =>
+  error instanceof Error && (error as { code?: unknown }).code === 'sessionFolderGone'
 
 /**
  * What an undo or a redo came to.

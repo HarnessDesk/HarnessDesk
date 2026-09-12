@@ -18,6 +18,7 @@ import {
   CopyIcon,
   EveryoneIcon,
   ExpandAllIcon,
+  FolderGoneIcon,
   FolderIcon,
   FolderOpenIcon,
   ForkIcon,
@@ -114,6 +115,7 @@ const SessionRow = ({
   // one has something to look at — the Background tasks panel, once opened.
   const backgrounded = (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length
   const worktree = isWorktreeSession(summary)
+  const folderGone = snapshot.foldersGone.get(summary.cwd) ?? null
   const active = snapshot.activeSessionKey === key
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
@@ -237,6 +239,24 @@ const SessionRow = ({
                     title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}
                   >
                     <BranchIcon size={11} />
+                  </span>
+                )}
+                {/* The folder this conversation ran in is no longer on the
+                    machine, so it can be read and not continued. On the same
+                    right rail as the worktree glyph, in the same ink and for
+                    the same reason: both are facts about *where* a row ran,
+                    asked of the whole list at once. It says so before the
+                    click — a deleted worktree usually takes several
+                    conversations, and one refusal is enough to know about all
+                    of them. */}
+                {folderGone && (
+                  <span
+                    className={styles.rowGone}
+                    role="img"
+                    aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
+                    title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}
+                  >
+                    <FolderGoneIcon size={11} />
                   </span>
                 )}
               </span>

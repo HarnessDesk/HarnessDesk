@@ -1,4 +1,14 @@
-import { isSessionBusy, sessionId as makeSessionId, type AgentSession, type Session } from '@harnessdesk/protocol'
+import {
+  folderGoneOf,
+  isFolderGone,
+  isSessionBusy,
+  isSessionGone,
+  sessionId as makeSessionId,
+  SessionFolderGoneError,
+  SessionGoneError,
+  type AgentSession,
+  type Session,
+} from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
 import type { MethodsUnder } from './context.js'
@@ -73,7 +83,18 @@ export const sessionMethods = {
       // The same sentence a reopen gives, because it is the same event to
       // the person reading it: the agent's own words alone ("Session not
       // found") name neither the agent nor what was being attempted.
-      throw new Error(ctx.sessions.cannotReopen(runtime, error))
+      //
+      // The *code* survives with it, the way `#reattach` has always kept it.
+      // Flattening every refusal to a plain `Error` here threw away the one
+      // thing a caller cannot recover by reading English — and this is the
+      // path the app opens a conversation on, so `sessionGone` reached the
+      // renderer from a restart and never from a click (#127).
+      const sentence = ctx.sessions.cannotReopen(runtime, error)
+      throw isFolderGone(error)
+        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+        : isSessionGone(error)
+          ? new SessionGoneError(sentence)
+          : new Error(sentence)
     }
     // Resume returns metadata only; the transcript comes from a full read so
     // the user sees their history immediately rather than an empty pane.

@@ -484,6 +484,27 @@
   color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
 }
 
+/* A conversation whose folder has been deleted, marked on the same right rail
+   as the worktree glyph and in the same ink. Deliberately not a colour of its
+   own: this is a fact about where the row ran, like the glyph beside it, and
+   not an alarm — the conversation is perfectly readable. */
+.rowGone {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.rowWorktree + .rowGone {
+  margin-left: 4px;
+}
+
+.row[data-active] .rowGone,
+.row[data-open] .rowGone {
+  color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
+}
+
 .rowMeta {
   display: flex;
   align-items: center;

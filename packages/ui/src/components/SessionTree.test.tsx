@@ -870,3 +870,64 @@ it('reads the ask past the context blocks the composer puts before it', () => {
   expect(row?.textContent).not.toContain('Untitled session')
   expect(row?.textContent).not.toContain('the page it was looking at')
 })
+
+/**
+ * The mark that says so before the click.
+ *
+ * A deleted worktree takes every conversation that ran in it, so one refusal
+ * is enough to know about all of them — which is the case this came from: a
+ * review room's three members in one worktree (#127). The mark is a glyph on
+ * the same right rail as the worktree one, in the same ink, because both are
+ * facts about *where* a row ran.
+ */
+it('marks a row whose folder is gone, and leaves the others unmarked', () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const summary = (id: string, title: string, cwd: string): SessionSummary =>
+    ({
+      id,
+      runtime: runtime.id,
+      title,
+      preview: null,
+      cwd,
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+      archived: false,
+    }) as unknown as SessionSummary
+  const said = 'Agent cannot open this conversation: its folder no longer exists (/repo/gone).'
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    runtimes: [runtime],
+    history: [
+      summary('s-gone', 'Ran in the worktree', '/repo/gone'),
+      summary('s-here', 'Ran in the checkout', '/repo'),
+    ],
+    foldersGone: new Map([['/repo/gone', said]]),
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  const marks = [...container.querySelectorAll('[role="img"]')].filter((one) =>
+    one.getAttribute('aria-label')?.startsWith('Folder is gone'),
+  )
+  expect(marks).toHaveLength(1)
+  // The refusal is the hover line, so the row answers "why" without a click.
+  expect(marks[0]?.getAttribute('title')).toContain('folder no longer exists')
+})

@@ -8,6 +8,7 @@ import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
   holderOf,
+  isFolderGone,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -1577,6 +1578,14 @@ export class Host {
 
   /** Why a conversation would not come back, in the agent's name and its own words. */
   #cannotReopen(runtime: AgentRuntime, error: unknown): string {
+    /* A refusal that already names the agent and says what is wrong is not
+       improved by being introduced. The folder-gone one is exactly that — the
+       adapter writes "Cursor cannot open this conversation: its folder no
+       longer exists (…)" — and wrapping it produced the sentence twice in one
+       line: "Cursor could not reopen this conversation: Cursor cannot open
+       this conversation: …". Passed through whole instead, which is also what
+       lets a pane print the refusal in the adapter's own words. */
+    if (isFolderGone(error)) return describeError(error)
     // JSON-RPC's `message` is often a code word — "Invalid params", "Internal
     // error" — and the sentence a person can act on is the one the agent put
     // in `error.data`, which `AcpError` carries as `details`.

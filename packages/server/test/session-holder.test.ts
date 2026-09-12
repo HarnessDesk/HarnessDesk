@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   runtimeId,
   SessionBusyError,
+  SessionFolderGoneError,
   sessionId,
   type Page,
   type Session,
@@ -211,6 +212,40 @@ test('an account too busy to say its own name still gets the refusal out', async
   // The agent's own name is the fallback when the account cannot give one.
   assert.match(failure.message, /Fake Runtime/)
   assert.ok(Date.now() - started < 4_000, 'the refusal must not wait on a hung account')
+})
+
+/**
+ * The folder-gone refusal, across the host.
+ *
+ * Two things had to survive `session/resume` and neither did. The code, which
+ * is the only way the app can tell this refusal from every other "gone"
+ * without reading English — it was flattened to a plain `Error` here, so the
+ * one path a *click* takes lost it while a restart's path kept it. And the
+ * sentence, which the host introduced even though the adapter had already
+ * named the agent and said what was wrong, producing it twice in one line.
+ */
+test('a folder that is gone keeps its code, and is not introduced twice', async (t) => {
+  const rig = await twoAccounts()
+  t.after(() => close(rig))
+  const client = await Client.connect(rig.server)
+  t.after(() => client.close())
+
+  const gone = '/w/worktrees/release-plan'
+  rig.primary.resumeFailure = new SessionFolderGoneError(
+    `Fake Runtime cannot open this conversation: its folder no longer exists (${gone}).`,
+    gone,
+  )
+  const failure = await client
+    .call('session/resume', { runtime: PRIMARY, sessionId: sessionId('ghost') })
+    .then(() => null, (error: unknown) => error as Error & { code?: string })
+
+  assert.ok(failure)
+  assert.equal(failure.code, 'sessionFolderGone')
+  // The adapter's own words, whole and once: no "could not reopen this
+  // conversation:" in front of a sentence that already explains itself.
+  assert.doesNotMatch(failure.message, /could not reopen/)
+  assert.equal(failure.message.match(/cannot open this conversation/g)?.length, 1)
+  assert.match(failure.message, /folder no longer exists/)
 })
 
 test('a refusal that is not about writers keeps its own explanation', async (t) => {

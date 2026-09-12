@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
-import { sessionId, type AgentEvent, wrapContext } from '@harnessdesk/protocol'
+import { isFolderGone, isSessionGone, sessionId, type AgentEvent, wrapContext } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
 
@@ -1277,6 +1277,14 @@ test('a conversation whose folder is gone says so, rather than failing inside th
     await assert.rejects(() => runtime.resumeSession(sessionId('ghost')), (error: Error) => {
       assert.match(error.message, /folder no longer exists/)
       assert.match(error.message, new RegExp(gone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      /* Named on the wire, and the folder carried as a field. The sentence is
+         for the person; these two are what let the interface offer the way
+         out — a copy somewhere that exists — without recognising English.
+         Still a `SessionGoneError`, so "will asking again help" is unchanged. */
+      assert.equal((error as { wireCode?: string }).wireCode, 'sessionFolderGone')
+      assert.equal((error as { folder?: string }).folder, gone)
+      assert.ok(isSessionGone(error))
+      assert.ok(isFolderGone(error))
       return true
     })
     // Nothing was registered for a session that never opened.

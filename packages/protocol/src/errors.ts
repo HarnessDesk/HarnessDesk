@@ -55,14 +55,57 @@ export const holderOf = (error: unknown): string | null => {
  * could not reach.
  */
 export class SessionGoneError extends Error {
-  readonly wireCode = 'sessionGone'
+  /* Declared as `string` rather than as the literal so a *kind* of gone can
+     name itself — see `SessionFolderGoneError`. `wireCodeOf` reads it either
+     way, and the narrowing bought nothing: nobody assigns this. */
+  readonly wireCode: string = 'sessionGone'
   constructor(message: string) {
     super(message)
     this.name = 'SessionGoneError'
   }
 }
 
-export const isSessionGone = (error: unknown): boolean => wireCodeOf(error) === 'sessionGone'
+/**
+ * The conversation's own folder is gone, so the agent will not reopen it.
+ *
+ * A *kind* of gone, and given its own code because it is the one gone with a
+ * way out. Every other reason a conversation will not come back leaves nothing
+ * to offer — the agent keeps no store, or no longer has the id, and there is
+ * no folder to blame and nothing to do. This one has both: the transcript is
+ * still readable from the host's own store, and the work can go on somewhere
+ * that exists. An interface can only offer that if it can tell this refusal
+ * from every other gone without reading English, which is what the code is for.
+ *
+ * It stays a `SessionGoneError`, so every caller that only asks "will asking
+ * again help" — `isSessionGone`, and the room that lets a member go — keeps
+ * the answer it had.
+ */
+export class SessionFolderGoneError extends SessionGoneError {
+  override readonly wireCode = 'sessionFolderGone'
+  constructor(
+    message: string,
+    /** The folder that is no longer there, as the agent recorded it. */
+    readonly folder: string | null = null,
+  ) {
+    super(message)
+    this.name = 'SessionFolderGoneError'
+  }
+}
+
+export const isSessionGone = (error: unknown): boolean => {
+  const code = wireCodeOf(error)
+  return code === 'sessionGone' || code === 'sessionFolderGone'
+}
+
+/** Whether a refusal is the one with a folder to blame and a way forward. */
+export const isFolderGone = (error: unknown): boolean =>
+  wireCodeOf(error) === 'sessionFolderGone'
+
+/** The folder a gone conversation named, when the thrower had it in hand. */
+export const folderGoneOf = (error: unknown): string | null => {
+  const folder = error instanceof Error ? (error as { folder?: unknown })['folder'] : null
+  return typeof folder === 'string' && folder.trim() ? folder : null
+}
 
 /**
  * Whether an agent answered a reopen by saying the id names nothing.

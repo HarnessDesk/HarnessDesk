@@ -52,10 +52,11 @@ const session = (over: Partial<Session> = {}): Session =>
     ...over,
   }) as Session
 
-const rig = (one: Session | null) => {
+const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new Map()) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
+    foldersGone,
     workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
     runtimes: [
       {
@@ -270,4 +271,30 @@ it('the empty pane’s Sign in names this pane’s agent, not the default', () =
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
   expect(onSignIn).toHaveBeenCalledWith('codex')
+})
+
+/**
+ * The folder a conversation ran in has been deleted.
+ *
+ * The transcript is whole — the host serves its own copy when the agent
+ * cannot — so the pane is not broken, it is read-only, and the composer is
+ * the thing that has to go: a box that invites a message nothing can deliver
+ * is the lie this replaces (#127).
+ */
+it('puts the reason where the composer would be, in the agent’s own words', () => {
+  const said = 'Codex cannot open this conversation: its folder no longer exists (/repo).'
+  render(rig(session({ updatedAt: 9_000 }), new Map([['/repo', said]])).store)
+
+  expect(container.textContent).toContain('folder is gone')
+  expect(container.textContent).toContain(said)
+  expect(container.textContent).toContain('Open a copy in another folder')
+  // Nothing to type into: there is nowhere for it to go.
+  expect(container.querySelector('textarea')).toBeNull()
+})
+
+it('leaves the composer alone when the folder is where it always was', () => {
+  render(rig(session({ updatedAt: 9_000 })).store)
+
+  expect(container.textContent).not.toContain('folder is gone')
+  expect(container.querySelector('textarea')).not.toBeNull()
 })

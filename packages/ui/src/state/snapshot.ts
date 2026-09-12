@@ -319,6 +319,22 @@ export interface AppSnapshot {
 
   readonly approvals: readonly PendingApproval[]
   readonly notices: readonly Notice[]
+  /**
+   * Folders an agent has refused to reopen a conversation in because they are
+   * no longer there, each with the refusal in the agent's own words.
+   *
+   * Keyed on the **folder**, not on the conversation and not on the sentence,
+   * because that is the shape of the fact: a deleted worktree takes every
+   * conversation that ran in it, and a review room's three members in one
+   * worktree are one piece of news three times over. One entry answers the
+   * pane's note, the row's mark and the card's caution for all of them.
+   *
+   * A state, so it is drawn where it applies rather than announced: this is
+   * not something that *happened*, it is how this conversation now is, and it
+   * will be just as true at the next launch. Cleared the moment a conversation
+   * in that folder reopens, which is the only evidence the folder is back.
+   */
+  readonly foldersGone: ReadonlyMap<string, string>
   /** Worktrees of the open workspace's repository, refreshed with git status. */
   readonly worktrees: readonly Worktree[]
   /**
@@ -614,6 +630,7 @@ const EMPTY: AppSnapshot = {
   loadingSessions: new Set(),
   approvals: [],
   notices: [],
+  foldersGone: new Map(),
   worktrees: [],
   teams: new Map(),
   newWorktreeFor: null,
@@ -663,5 +680,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   sessions: new Map(),
   queues: new Map(),
   tasks: new Map(),
+  foldersGone: new Map(),
   loadingSessions: new Set(),
 })
