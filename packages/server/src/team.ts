@@ -1565,6 +1565,19 @@ export class Team {
   }
 
   /**
+   * Asks every waiter on this board again.
+   *
+   * A card becoming claimable always goes through `#commit`, so waking from
+   * the write covers it. This is for the one thing that changes what a waiter
+   * should hear *without* changing the board: a flow run ending. Without it a
+   * seat waits out its whole block on a flow that is over.
+   */
+  nudgeRoom(id: string): void {
+    const board = this.#board(id)
+    if (board) this.#wake(board)
+  }
+
+  /**
    * Lets every waiting seat go, with a reason. The desk is closing, or the
    * room is; either way a tool call held open across it is a turn that never
    * ends.
@@ -3025,7 +3038,27 @@ export class Team {
     const wanted = intent.role
     if (!wanted) return null
     const key = keyOf(caller.runtime, caller.sessionId)
-    if (board.roles[key] === wanted) return null
+    if (board.roles[key] === wanted) {
+      /* One addressed card at a time. A round is N sibling cards and N seats,
+         and nothing in the board's own rules stopped the first reviewer to
+         ask taking all three — it would have claimed one, been offered the
+         next, and the other two seats would have waited on a round one of
+         them had already swallowed. Scoped to addressed work on purpose: a
+         member holding several ordinary cards is how a board has always
+         worked, and every board without a flow is untouched. */
+      const held = board.intents.find(
+        (entry) =>
+          entry.state === 'claimed' &&
+          entry.role &&
+          entry.id !== intent.id &&
+          entry.claim?.runtime === caller.runtime &&
+          entry.claim.sessionId === caller.sessionId,
+      )
+      if (held) {
+        return `Refused: you are already holding #${held.id} — ${held.title}. Finish or release it before taking another; the rest of this round is for the other seats.`
+      }
+      return null
+    }
     /* Named the way the room names them — through the same lazy naming the
        rail and every signal use, so the refusal says "Codex holds that role"
        rather than nothing at all for the first minutes of a conversation's

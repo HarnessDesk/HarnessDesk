@@ -37,6 +37,7 @@ import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
 import type { SessionRecord, SessionRegistry } from '../registry.js'
 import type { StateStore } from '../state.js'
+import type { Flows } from '../flows.js'
 import type { Team } from '../team.js'
 import type { Terminals } from '../terminals.js'
 import type { TranscriptStore } from '../transcripts.js'
@@ -74,6 +75,7 @@ export interface HostContext {
   readonly terminals: Terminals
   readonly worktrees: Worktrees
   readonly team: Team
+  readonly flows: Flows
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher

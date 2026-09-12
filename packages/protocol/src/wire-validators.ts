@@ -406,6 +406,12 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     room: isString,
     id: isNumber,
     action: literalUnion('reopen', 'abandon', 'done', 'release', 'block'),
+    /* What the person answered, on a card a flow addressed to them. `who:
+       person` is a step and not an absence, and this is the word the next rule
+       branches on — so the same warning as `reason` applies twice over: a verb
+       on the wire type and not in this list is refused by the host, and
+       nothing but a running app catches it. */
+    outcome: optional(isString),
     /* Read on `block` and ignored by the rest. Adding the verb to the wire
        type and not to this list makes the host refuse it — and the refusal
        arrives as a rejected promise the surface reports as "the board is as it
@@ -440,6 +446,22 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'team/room/delete': shape({ room: isString }),
   'team/room/join': shape({ room: isString, runtime: isString, sessionId: isString }),
   'team/room/leave': shape({ room: isString, runtime: isString, sessionId: isString }),
+
+  'flow/list': shape({ root: isString }),
+  'flow/read': shape({ root: isString, path: isString }),
+  'flow/dry': shape({
+    root: isString,
+    source: isString,
+    answers: optional(recordOf(arrayOf(isString))),
+  }),
+  'flow/start': shape({
+    room: isString,
+    source: isString,
+    path: optional(isString),
+    vars: optional(recordOf(isString)),
+  }),
+  'flow/stop': shape({ run: isString }),
+  'flow/runs': shape({ room: isString }),
 
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),

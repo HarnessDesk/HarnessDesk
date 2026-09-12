@@ -78,6 +78,7 @@ import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
 import { redactorFor } from './diagnostics.js'
+import { Flows, runCheck } from './flows.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { LocalFiles, confine, describeWorkspace } from './workspace.js'
@@ -325,6 +326,11 @@ export class Host {
    * gets it through `forgePlane`.
    */
   readonly #forge: ForgePlane
+  /**
+   * The flow engine. Holds the runs, opens the round a finished round earns,
+   * and is the only thing on this plane that spends anything.
+   */
+  readonly #flows: Flows
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -460,6 +466,80 @@ export class Host {
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
     })
+    this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
+      /* Opened with the seat's picks, then *read back*: a runtime drops a
+         pick it declines rather than failing, so a seat that believes it is
+         running at an effort it is not is a seat with an unchecked claim on
+         it. Whatever it is really running is what the record and the room
+         say it is. */
+      seat: async (seat, where) => {
+        const runtime = this.#runtime({ runtime: seat.runtime })
+        const live = await runtime.createSession({
+          cwd: where.cwd,
+          ...(seat.model ? { model: seat.model } : {}),
+          options: {
+            ...(seat.effort ? { effort: seat.effort } : {}),
+            ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+          },
+        })
+        const session = this.#attach(runtime, live.id, live)
+        await live.setTitle(where.title).catch(() => {})
+        await this.#names.set(runtime.info.id, live.id, where.title)
+        for (const [id, value] of Object.entries({
+          ...(seat.model ? { model: seat.model } : {}),
+          ...(seat.effort ? { effort: seat.effort } : {}),
+          ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+        })) {
+          const option = live.options().find((one) => one.id === id)
+          if (!option || String(option.currentValue) === String(value)) continue
+          await live.setOption(id, value as never).catch((error: unknown) => {
+            this.#logger.warn('a flow seat could not take a pick', {
+              runtime: seat.runtime,
+              option: id,
+              value: String(value),
+              error: describeError(error),
+            })
+          })
+        }
+        const ran = live.options()
+        const label = [
+          runtime.info.presentation.name,
+          ...['model', 'effort'].map((id) => {
+            const option = ran.find((one) => one.id === id)
+            if (!option) return null
+            const choice =
+              option.type === 'select'
+                ? option.choices.find((one) => String(one.value) === String(option.currentValue))
+                : undefined
+            return choice?.label ?? (option.currentValue == null ? null : String(option.currentValue))
+          }),
+          ran.find((one) => one.id === 'thinking')?.currentValue === true ? 'thinking' : null,
+        ]
+          .filter((one): one is string => Boolean(one))
+          .join(' · ')
+        return { runtime: String(runtime.info.id), sessionId: String(session.id), label }
+      },
+      order: async (runtime, sessionId, text) => {
+        const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+        await live.send([{ type: 'text', text }])
+      },
+      join: async (room, runtime, sessionId) => {
+        const id = makeSessionId(sessionId)
+        const known = this.registry.get(runtime as RuntimeId, id)?.session
+        await this.#team.joinRoom(room, runtime as RuntimeId, sessionId, {
+          title: this.#names.nameOf(runtime as RuntimeId, id) ?? known?.title ?? null,
+          agent: this.#runtime({ runtime }).info.presentation.name,
+          cwd: known?.cwd ?? '',
+          model: known?.settings?.model ?? null,
+          at: Date.now(),
+        })
+      },
+      isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
+      run: (command, where) => runCheck(command, where),
+      changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#team.attachFlows(this.#flows)
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
       log: (message, details) => this.#logger.warn(message, details),
@@ -672,6 +752,11 @@ export class Host {
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
     await this.#team.load()
+    /* After the rooms, because a run reconciles against the board it left
+       behind: a quit between the last card of a round finishing and the next
+       round opening is a run that has to be asked, on this launch, whether
+       its board moved on without it. */
+    await this.#flows.load()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
@@ -784,6 +869,10 @@ export class Host {
     this.#ledger?.close()
     await runtimesGone
     this.#runtimes.clear()
+    /* Every seat parked inside `await_work` is a tool call held open, and a
+       held tool call across a quit is a turn that never ends. */
+    this.#team.stopWaiting('the desk is closing')
+    await this.#flows.flush()
     await this.#team.flush()
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
@@ -918,6 +1007,7 @@ export class Host {
       terminals: this.#terminals,
       worktrees: this.#worktrees,
       team: this.#team,
+      flows: this.#flows,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,

@@ -9,6 +9,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
+import type { FlowDryRun, FlowFile, FlowRun } from './flow.js'
 import type {
   Library,
   LibraryDefinition,
@@ -1364,6 +1365,15 @@ export interface HostMethods {
       readonly action: 'reopen' | 'abandon' | 'done' | 'release' | 'block'
       /** Why it is stopped. Read on `block`, ignored by the others. */
       readonly reason?: string
+      /**
+       * What the person answered, on a card a flow addressed to them.
+       *
+       * `who: person` is a step in a flow and not an absence: the round opens,
+       * the card appears addressed to them, the loop waits, and this is the
+       * word the next rule branches on. Read on `done`; the other verbs say
+       * nothing about the merits.
+       */
+      readonly outcome?: string
     }
     result: null
   }
@@ -1457,6 +1467,47 @@ export interface HostMethods {
     result: null
   }
   'team/peers': { params: { readonly room: string }; result: readonly TeamPeerInfo[] }
+
+  // -- flows: the referee's policy, declared up front. The board is still the
+  // board; a flow is what addresses its cards and what opens the next round.
+  /** The flows a project offers, from `.harnessdesk/flows`. One that will not parse is listed with its problem. */
+  'flow/list': { params: { readonly root: string }; result: readonly FlowFile[] }
+  /** One flow's text, exactly as it is on disk — what the author edits and what a dry run is taken of. */
+  'flow/read': { params: { readonly root: string; readonly path: string }; result: string }
+  /**
+   * What this flow would do, spending nothing: every seat it would open with
+   * the request cost, every check command verbatim, a trace of the loop
+   * against outcomes the caller supplies, and everything wrong with it.
+   *
+   * Takes the *text* rather than a path so the dialog can check what is in the
+   * box, not what was last saved.
+   */
+  'flow/dry': {
+    params: {
+      readonly root: string
+      readonly source: string
+      /** What each successive round of a role should be pretended to answer. */
+      readonly answers?: Readonly<Record<string, readonly string[]>>
+    }
+    result: FlowDryRun
+  }
+  /**
+   * Seats the flow and opens its seed round. The only call on this plane that
+   * spends anything, and the only one a person can reach by pressing something.
+   */
+  'flow/start': {
+    params: {
+      readonly room: string
+      readonly source: string
+      readonly path?: string
+      readonly vars?: Readonly<Record<string, string>>
+    }
+    result: FlowRun
+  }
+  /** Stops a run. The cards stay as the record; every seat is told to stand down. */
+  'flow/stop': { params: { readonly run: string }; result: FlowRun }
+  /** Every run this room has had, oldest first. */
+  'flow/runs': { params: { readonly room: string }; result: readonly FlowRun[] }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {
@@ -1935,6 +1986,15 @@ export type WireNotification =
        */
       readonly method: 'team/removed'
       readonly params: { readonly room: string }
+    }
+  | {
+      /**
+       * One room's flow runs, whole, for the reason the board is sent whole:
+       * a round opening changes what every card beside it means, and a run's
+       * record is read as one thing or not at all.
+       */
+      readonly method: 'flow/changed'
+      readonly params: { readonly room: string; readonly runs: readonly FlowRun[] }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
 
