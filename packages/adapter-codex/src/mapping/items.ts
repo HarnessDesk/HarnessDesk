@@ -218,6 +218,16 @@ const mapDynamicContent = (
   items: readonly CodexProtocol.v2.DynamicToolCallOutputContentItem[] | null,
 ): ToolResultContent[] | undefined => {
   if (!items) return undefined
+  /* The guard above defends a malformed *part*. A malformed *container* —
+     `contentItems` as a string or an object — reached `.map` and threw, which
+     the live path swallows in the app-server's listener catch (dropping the
+     whole item) and the load path does not (taking the turn, and with it the
+     session). Neither `undefined` nor `[]` is an honest answer here: those
+     already mean "no content came" and "the call returned no parts", and a
+     container we cannot read is neither. So it keeps what came, exactly as a
+     malformed part does — and a container that is a bare string still reads as
+     its text, so a failed call's reason survives (review of #245). */
+  if (!Array.isArray(items)) return [mapToolContent(items)]
   return items.map(mapDynamicPart)
 }
 

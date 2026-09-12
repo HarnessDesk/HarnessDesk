@@ -232,4 +232,58 @@ test('what the desk sends Codex for a plugin tool reads back as what the tool re
   assert.equal(ok.type === 'toolCall' && 'error' in ok, false)
   const refused = back({ ok: false, error: 'The hook refused this call.' })
   assert.equal(refused.type === 'toolCall' && refused.error, 'The hook refused this call.')
+  /* And the reason is a result part too, not only the error. The renderer draws the error in place of the
+     result, so this pins the transcript's shape rather than the frame: a regression that dropped the parts of
+     a failed call would still derive the error from them and pass on `error` alone (review of #245). */
+  assert.deepEqual(refused.type === 'toolCall' ? refused.result : null, [
+    { type: 'text', text: 'The hook refused this call.' },
+  ])
+})
+
+test('a failure that came with several text parts says all of them, in order (#245)', () => {
+  const mapped = map({
+    ...dynamic,
+    id: 'call-dyn-4',
+    status: 'failed',
+    success: false,
+    contentItems: [
+      { type: 'inputText', text: 'The hook refused this call.' },
+      { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+      { type: 'inputText', text: 'Edit the hook to allow it.' },
+    ],
+  })
+  // `failureOf` joins every text part with a newline; a reason that arrives in pieces arrives whole.
+  assert.equal(
+    mapped.type === 'toolCall' && mapped.error,
+    'The hook refused this call.\nEdit the hook to allow it.',
+  )
+  // The control: the parts the error skipped are still on the result, the picture among them.
+  assert.deepEqual(mapped.type === 'toolCall' ? mapped.result : null, [
+    { type: 'text', text: 'The hook refused this call.' },
+    { type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: '' },
+    { type: 'text', text: 'Edit the hook to allow it.' },
+  ])
+})
+
+test('a contentItems that is not a list keeps what came, rather than taking the item down (#245)', () => {
+  /* Measured before the guard, on the built mapper: every one of these threw `TypeError: items.map is not a
+     function`. The element guard shipped with #242 runs too late to catch a container. */
+  const loose = map({ ...dynamic, contentItems: 'the hook refused this call.' as never })
+  assert.deepEqual(loose.type === 'toolCall' ? loose.result : null, [
+    { type: 'text', text: 'the hook refused this call.' },
+  ])
+  const object = map({ ...dynamic, contentItems: { type: 'inputText', text: 'formatted 1 file' } as never })
+  assert.deepEqual(object.type === 'toolCall' ? object.result : null, [
+    { type: 'json', value: { type: 'inputText', text: 'formatted 1 file' } },
+  ])
+  // Not `undefined` and not `[]`: a container we can't read is neither "nothing came" nor "no parts came".
+  assert.equal(loose.type === 'toolCall' && 'result' in loose, true)
+  // And a failed call whose whole reason arrived as the container still says it, which is what #241 was for.
+  const failed = map({
+    ...dynamic,
+    status: 'failed',
+    success: false,
+    contentItems: 'the hook refused this call.' as never,
+  })
+  assert.equal(failed.type === 'toolCall' && failed.error, 'the hook refused this call.')
 })
