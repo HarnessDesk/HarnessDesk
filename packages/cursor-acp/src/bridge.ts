@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -1333,7 +1334,17 @@ export class CursorAcpBridge {
     this.#previews.delete(chatId)
     writeIndex(readIndex().filter((row) => row.sessionId !== chatId))
     const path = chatPath(chatId)
-    const removed = path !== null && trashChat(path) ? [path] : []
+    let removed: string[] = []
+    try {
+      removed = path !== null && trashChat(path) ? [path] : []
+    } finally {
+      try {
+        const scratchDir = join(tmpdir(), 'harnessdesk-cursor-acp', chatId)
+        rmSync(scratchDir, { recursive: true, force: true })
+      } catch {
+        // Failing to remove scratch artifacts must not abort session deletion.
+      }
+    }
     return { removed, disposition: 'trash' }
   }
 

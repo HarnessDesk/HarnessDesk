@@ -1408,3 +1408,30 @@ test('the briefing goes ahead of the first prompt the agent reads, and not again
     await runtime.dispose()
   }
 })
+
+test('deleteSession removes temporary artifacts left by tool plugins and image spills', async () => {
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['-e', ''],
+      env: { HD_TOOLS_SOCKET: '/tmp/nowhere.sock' },
+    },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    const scratchDir = join(SCRATCH_TMP, 'harnessdesk-cursor-acp', String(session.id))
+    assert.equal(existsSync(scratchDir), true, 'session scratch directory exists before delete')
+
+    await runtime.deleteSession(session.id)
+    assert.equal(existsSync(scratchDir), false, 'session scratch directory is removed after delete')
+  } finally {
+    await runtime.dispose()
+  }
+})
