@@ -407,15 +407,22 @@ test('a copied file opens as itself, without the edits made to its source', asyn
  * A `git` on PATH that writes each call to a log and hands it to the real one.
  * With `echo`, it answers the object-format question the way a git before 2.29
  * does, by echoing the flag back; with `refuse`, the way one that refuses it
- * does, with exit 129. The count it returns is of the calls holding
- * `words`.
+ * does, with exit 129. With `broken`, it fails the question the way a modern
+ * git in trouble does — exit 128, and a reason that is neither an unknown
+ * option nor anything git says to mean "no". The count it returns is of the
+ * calls holding `words`.
  */
-const loggedGit = async (t: TestContext, mode: 'real' | 'echo' | 'refuse'): Promise<(words: string) => Promise<number>> => {
+const loggedGit = async (t: TestContext, mode: 'real' | 'echo' | 'refuse' | 'broken'): Promise<(words: string) => Promise<number>> => {
   const real = (await promisify(execFile)('sh', ['-c', 'command -v git'])).stdout.trim()
   const dir = await mkdtemp(join(tmpdir(), 'hd-logged-git-'))
   const log = join(dir, 'calls.log')
   const asking = 'if [ "$3" = rev-parse ] && [ "$4" = --show-object-format ]; then'
-  const echo = { real: '', echo: `${asking} echo --show-object-format; exit 0; fi\n`, refuse: `${asking} echo 'error: unknown option' >&2; exit 129; fi\n` }[mode]
+  const echo = {
+    real: '',
+    echo: `${asking} echo --show-object-format; exit 0; fi\n`,
+    refuse: `${asking} echo 'error: unknown option' >&2; exit 129; fi\n`,
+    broken: `${asking} echo 'fatal: unable to read config file' >&2; exit 128; fi\n`,
+  }[mode]
   await writeFile(join(dir, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\n${echo}exec '${real}' "$@"\n`, { mode: 0o755 })
   const was = process.env['PATH']
   process.env['PATH'] = `${dir}:${was ?? ''}`
@@ -488,6 +495,35 @@ test('a git that refuses the object-format question reads as SHA-1, and is asked
   assert.match(await commitDiff(dir, head, 'b.txt'), /^\+b$/m)
   // A failed ask is not kept: the next root-commit read asks again rather than trusting a guess for good.
   assert.equal(await calls('rev-parse --show-object-format'), 2)
+})
+
+test('a modern git that fails the object-format question for its own reasons is not taken for an old one (review of #238, round 2)', async (t) => {
+  const dir = await tempDir()
+  const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (!made) return t.skip('this git cannot make a SHA-256 repository')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'one')
+  const head = await sha(dir, 'HEAD')
+  assert.equal(head.length, 64, 'the control: this repository really is SHA-256')
+  // The control read, with the question answered: the root commit has a real patch to lose.
+  assert.match(await commitDiff(dir, head, 'a.txt'), /^\+a$/m, 'the control: read against the right empty tree, the patch is there')
+  forgetKnown()
+  await loggedGit(t, 'broken')
+  /* Answering SHA-1 here names an object a SHA-256 repository does not have,
+     and git calls the diff against it an unknown revision — one of the
+     refusals `asked` reads as "no". The whole patch would come back empty,
+     which is indistinguishable from a commit that changed nothing. */
+  await assert.rejects(
+    commitDiff(dir, head, 'a.txt'),
+    /unable to read config file/,
+    'a git that fails the question for its own reasons must not read as a pre-2.29 git',
+  )
+  await assert.rejects(
+    commit(dir, head),
+    /unable to read config file/,
+    'and the same when the commit itself is opened, which is what the pane asks for first',
+  )
 })
 
 test('a repository made again at the same path, in the other object format, is asked again (review of #238, round 1)', async (t) => {

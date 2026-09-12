@@ -281,7 +281,8 @@ const diffBase = async (root: string, sha: string): Promise<string | null> => {
  * repository only when a root commit needs it; a git too old to answer is a
  * SHA-1 repository.
  */
-const EMPTY_TREES: Readonly<Record<string, string>> = {
+type ObjectFormat = 'sha1' | 'sha256'
+const EMPTY_TREES: Readonly<Record<ObjectFormat, string>> = {
   sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
   sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
 }
@@ -292,23 +293,67 @@ const EMPTY_TREES: Readonly<Record<string, string>> = {
  * perhaps in the other format, is another `.git` and is asked again (review of
  * #238, round 1).
  */
-const formats = new Map<string, string>()
+const formats = new Map<string, ObjectFormat>()
 const repositoryAt = async (root: string): Promise<string> => {
   const found = await stat(join(root, '.git')).catch(() => null)
   return found ? `${root}\0${found.ino}\0${found.birthtimeMs}` : root
 }
+
+/** The question, which is also the answer a git too old to know it gives. */
+const QUESTION = '--show-object-format'
+/** A git whose option parser refuses it, rather than handing it back. */
+const OLD_GIT = /unknown option|^usage: git rev-parse/im
+
+/**
+ * The repository's object format, or null when git could not answer this
+ * time — SHA-1 for this read, and asked again next time rather than kept.
+ *
+ * Only a git too old for the question — 2.29 brought it — reads as null, and
+ * it says so in one of exactly two ways: `rev-parse` hands an option it does
+ * not know straight back and exits 0 (measured on git 2.50.1, `git rev-parse
+ * --bogus-thing` prints `--bogus-thing`), or its option parser refuses it with
+ * exit 129 and "unknown option".
+ *
+ * Every other failure used to be swallowed here too, answering SHA-1 for a
+ * wrapper on PATH, an unreadable repository, a timeout (review of #238, round
+ * 2). In a SHA-256 repository that names an object which does not exist, and
+ * git calls every diff against it an unknown revision — one of the refusals
+ * `asked` reads as "no" — so the commit came back as an empty patch,
+ * indistinguishable from one that changed nothing. A wrong answer is worse
+ * than none: those are thrown instead. Both callers already throw for a commit
+ * id they will not take, and the pane answers a failed `git/commit` with "could
+ * not read that commit" rather than drawing a commit that touched nothing.
+ */
+const askFormat = async (root: string): Promise<ObjectFormat | null> => {
+  let answer: string | null
+  try {
+    answer = await asked(root, ['rev-parse', QUESTION])
+  } catch (error) {
+    const failure = error as { code?: unknown; stderr?: unknown }
+    const stderr = typeof failure.stderr === 'string' ? failure.stderr : ''
+    if (failure.code === 129 && OLD_GIT.test(stderr)) return null
+    throw error
+  }
+  // A folder outside a repository, or one before its first commit: `asked`
+  // read those as "no" already.
+  if (answer === null) return null
+  const format = answer.trim()
+  if (format === 'sha1' || format === 'sha256') return format
+  // The flag handed back verbatim: a git that never knew it.
+  if (format === QUESTION) return 'sha1'
+  throw new Error(`git named an object format this build does not know: "${format}".`)
+}
+
 const emptyTree = async (root: string): Promise<string> => {
-  // A git that does not know the flag — whether it refuses it or echoes it
-  // back — is a SHA-1 repository, the only format such a git has.
   const repository = await repositoryAt(root)
   let format = formats.get(repository)
   if (format === undefined) {
-    const answer = await asked(root, ['rev-parse', '--show-object-format']).catch(() => null)
-    format = answer?.trim() ?? 'sha1'
+    const answer = await askFormat(root)
     // A git that couldn't answer this time is asked again next time.
-    if (answer !== null) formats.set(repository, format)
+    if (answer !== null) formats.set(repository, answer)
+    format = answer ?? 'sha1'
   }
-  return EMPTY_TREES[format] ?? EMPTY_TREES['sha1']!
+  return EMPTY_TREES[format]
 }
 
 /**
