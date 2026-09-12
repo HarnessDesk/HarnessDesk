@@ -626,6 +626,29 @@ it('a chip carries the room’s own name card, and the ✕ stays outside it', ()
   expect(chip.querySelector('button[aria-label="Remove"]')).not.toBeNull()
 })
 
+/**
+ * An addressee chip carries no tooltip of its own.
+ *
+ * The card is on the mark and the name inside the chip, so a `title` on the
+ * chip put two boxes over one rest. What it said is said elsewhere, twice
+ * over: a recipient mid-turn and one whose harness cannot reach the board's
+ * tools are both sentences the line under the text carries (the two tests
+ * above this file's send cases pin those words), and both facts are bands on
+ * the card itself. "Goes to this one alone" is what a chip *is* — the anchor
+ * beside them names the audience, and the menu that builds it says nobody
+ * else is woken.
+ */
+it('an addressee chip says how the message lands once, and not as a box over its card', () => {
+  rig()
+  act(() => type('@op'))
+  act(() => press('Enter'))
+  const chip = container.querySelector('[data-slot="composer-chip"]') as HTMLElement
+  // The control: the chip is drawn, and names the member it carries.
+  expect(chip).not.toBeNull()
+  expect(chip.textContent).toContain('Opus')
+  expect(chip.hasAttribute('title')).toBe(false)
+})
+
 it('a composer with no card given draws the chip unwrapped', () => {
   rig()
   act(() => type('@op'))

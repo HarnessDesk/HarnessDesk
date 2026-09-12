@@ -232,10 +232,27 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           )}
         </span>
         <span className="min-w-0 flex-1 pt-px">
+          {/* The whole of a name that does not fit.
+              A card is 288px wide beside a 16px tile, so a long name truncates
+              here as well as in the row it was opened from — and the row's own
+              tooltip is gone wherever a card opens on the same rest, which left
+              a long conversation title cut in both places and whole in neither.
+              This is a *different* rest, on a surface the reader has already
+              chosen to open, so it stacks no second box on the trigger's; and
+              it is one attribute for every card in the app rather than one per
+              caller. Unconditional, because nothing here can know whether a
+              name fits its line: where it does, the tooltip repeats it, which
+              is what a native title does everywhere and costs a rest nobody
+              makes. */}
           <span className="flex items-baseline gap-1.5 text-sm leading-tight font-semibold">
-            <span className="truncate">{subject.name}</span>
+            <span className="truncate" title={subject.name}>
+              {subject.name}
+            </span>
             {also && (
-              <span className="min-w-0 truncate text-xs font-normal text-(--hd-muted-foreground)">
+              <span
+                className="min-w-0 truncate text-xs font-normal text-(--hd-muted-foreground)"
+                title={also}
+              >
                 {also}
               </span>
             )}

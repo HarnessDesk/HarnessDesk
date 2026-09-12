@@ -941,8 +941,14 @@ const IntentCard = ({
             /* Said once. With the conversation loaded, the card on the names
                says who holds this and opens it, and a native tooltip on the
                same rest stacks a second box on the card — so there the
-               sentence is the description a screen reader reads instead. With
-               no card to show, it stays the tooltip. */
+               sentence is the description the platform *exposes* instead. With
+               no card to show, it stays the tooltip.
+
+               "Exposes" to the letter: what was measured is that Chromium 148
+               reports `aria-description` and `title` alike as the button's
+               description in the accessibility tree. What any one assistive
+               technology then announces is its own business, and
+               `aria-description` is still ARIA 1.3. */
             {...(session
               ? { 'aria-description': `Open the conversation ${holderName} is holding this in` }
               : { title: `Open the conversation ${holderName} is holding this in` })}

@@ -498,13 +498,16 @@ export const RoomComposer = ({
             <ComposerChip
               key={one.key}
               className="bg-(--hd-accent-dim) text-(--hd-accent)"
-              title={
-                one.canUseBoard
-                  ? one.busy
-                    ? `${one.peer.nickname} is working — this waits for the turn to end.`
-                    : `Goes to ${one.peer.nickname} alone.`
-                  : `${one.peer.nickname} will read this, but cannot claim work — the board's tools are not reachable from it.`
-              }
+              /* No tooltip of its own. The card is on the mark and the name
+                 inside this chip, so a `title` here stacked a second box on
+                 the same rest — and what it said is already said elsewhere,
+                 twice over. A recipient mid-turn, and one whose harness cannot
+                 reach the board's tools, are both sentences the line under the
+                 text carries for the audience as a whole; both facts are bands
+                 on the card itself, the Running band's state and the refusal
+                 caution. And "goes to this one alone" is what a chip *is* —
+                 the anchor beside them names the audience, and the menu that
+                 builds it says nobody else is woken. */
               onRemove={() => setTo((current) => current.filter((key) => key !== one.key))}
             >
               {/* The mark and the name together, as one trigger — the rule
