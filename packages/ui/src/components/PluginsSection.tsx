@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import { splitSessionKey, type CapabilityContribution, type PluginInstance, type PluginState } from '@harnessdesk/protocol'
+import {
+  describePermissions,
+  splitSessionKey,
+  type CapabilityContribution,
+  type PluginInstance,
+  type PluginState,
+} from '@harnessdesk/protocol'
 
 import { livePlugins, supersededPlugins } from '../lib/plugins'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
@@ -196,20 +202,6 @@ const contributionCounts = (plugin: PluginInstance): [CapabilityContribution['ki
   return order.filter((kind) => counts.has(kind)).map((kind) => [kind, counts.get(kind) ?? 0])
 }
 
-const grantsOf = (plugin: PluginInstance): string[] => {
-  const out: string[] = []
-  if (plugin.permissions.workspace.read && plugin.permissions.workspace.write) out.push('Read and write the workspace')
-  else if (plugin.permissions.workspace.write) out.push('Write the workspace')
-  else if (plugin.permissions.workspace.read) out.push('Read the workspace')
-  if (plugin.permissions.shell) out.push('Run shell commands')
-  for (const host of plugin.permissions.network.hosts) out.push(`Reach ${host}`)
-  if (plugin.permissions.agents.invoke) out.push('Start agents')
-  if (plugin.permissions.ui.contribute) out.push('Add to the interface')
-  if (plugin.permissions.team) out.push('Message your other conversations')
-  if (plugin.permissions.forge) out.push('Sign pull requests for the conversation, and record them in it')
-  return out
-}
-
 const PluginToggle = ({ plugin }: { plugin: PluginInstance }) => {
   const store = useStore()
   return (
@@ -268,7 +260,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
   // screens; everywhere else they teach a vocabulary nobody needs.
   const [wire, setWire] = useState(false)
   const counts = contributionCounts(plugin)
-  const grants = grantsOf(plugin)
+  const grants = describePermissions(plugin.permissions)
   const byKind = useMemo(() => {
     const groups = new Map<CapabilityContribution['kind'], CapabilityContribution[]>()
     for (const contribution of plugin.contributions) {
@@ -330,11 +322,14 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
 
       <SectionHead name="Access" />
       <Rows>
-        {grants.length === 0 ? (
-          <Row title="Nothing beyond reading what the agent sends it" />
-        ) : (
-          grants.map((grant) => <Row key={grant} title={grant} />)
-        )}
+        {/* `describePermissions` never answers with nothing — a plugin holding
+            no grant gets the sentence saying so — so there is no empty case to
+            carry here. The key takes the index because two identical lines are
+            reachable: `secrets` is read off the manifest without deduplication,
+            and a manifest may list one twice. */}
+        {grants.map((grant, at) => (
+          <Row key={`${at}-${grant}`} title={grant} />
+        ))}
       </Rows>
 
       {plugin.configSchema && (
