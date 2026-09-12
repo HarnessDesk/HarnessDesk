@@ -5,7 +5,7 @@ import { isBusy, type Worktree, type WorktreeChanges } from '@harnessdesk/protoc
 import { ConfirmDialog } from '../design'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { HomeIcon } from './Icons'
-import { UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
+import { IgnoredEntries, UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
 
 /**
  * Bringing a worktree's work back to the main checkout.
@@ -26,9 +26,15 @@ import { UncommittedFiles, WorktreeProblem, describeUncommitted } from './Worktr
  * where the message can be read before it goes.
  *
  * It draws with nothing of its own. The dialog body already sets and spaces
- * its sentences; the two things here that are not sentences — the files git
- * has not got, and a refusal — are the design system's `Alert`, shared with
- * the removal dialog through `WorktreeAlerts`.
+ * its sentences; the three things here that are not sentences — the files git
+ * has not got, what git ignores, and a refusal — are the design system's
+ * `Alert`, shared with the removal dialog through `WorktreeAlerts`.
+ *
+ * What git ignores is *named* rather than alluded to. This dialog used to say
+ * the folder goes "with anything git ignores there, such as an .env file or
+ * node_modules", which is a warning about a category; a person can only act on
+ * the actual list, because it is the only thing that tells them whether there
+ * is an `.env` here at all (#209).
  */
 
 const COMMIT_ASK =
@@ -130,9 +136,10 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
           </>
         )}{' '}
         to <span className="font-mono">{worktree.branch}</span>, with every commit made here. The
-        worktree's folder is removed, and with it anything git ignores there, such as an .env file
-        or node_modules; the branch is not.
+        worktree's folder is removed, and with it anything git ignores there; the branch is not.
       </p>
+
+      {changes && <IgnoredEntries className={RHYTHM} changes={changes} />}
 
       {mainChanges && carried > 0 && (
         <p>

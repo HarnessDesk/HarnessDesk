@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -320,6 +320,73 @@ const pdfName = (title: string | undefined): string => {
   return clean === '' ? 'page' : clean
 }
 
+/** The `hd-pdf-` folders this build can name an owner for. */
+const PDF_OWNER = /^hd-pdf-(\d+)-/
+
+/**
+ * Whether a pid is a process right now.
+ *
+ * Signal 0 sends nothing; it asks. `ESRCH` is "no such process", and `EPERM`
+ * is a process owned by somebody else — which is still a process, and the
+ * answer that matters here is existence, not reachability.
+ */
+const running = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as { code?: unknown }).code === 'EPERM'
+  }
+}
+
+/**
+ * The saved-PDF folders of desks that are no longer running.
+ *
+ * A folder lives as long as the plugin that asked for it, so it goes when that
+ * plugin stops or the desk quits. A crash, a force quit, and a supervised
+ * plugin child that is killed rather than shut down all run no disposer, and
+ * the folder then stays until the OS clears its temp directory (#234).
+ *
+ * Sweeping every `hd-pdf-*` folder at start would be the wrong fix: several
+ * desks run on one machine at once — the review desks do — and it would take a
+ * live one's files while it was using them. So each folder is named for the
+ * process that made it, and only the folders whose process is gone are
+ * removed. A name no owner can be read out of is left alone: it belongs to a
+ * build that named them differently, and guessing is the mistake this exists
+ * to avoid.
+ *
+ * Returns what it removed, which is what a test can assert on.
+ */
+export const sweepAbandonedPdfFolders = (): string[] => {
+  const swept: string[] = []
+  const root = tmpdir()
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    return swept
+  }
+  for (const entry of entries) {
+    // A directory, and not a link to one: `isDirectory()` is false for a
+    // symlink, so a link planted in the temp directory is never followed.
+    if (!entry.isDirectory()) continue
+    const owner = Number(PDF_OWNER.exec(entry.name)?.[1])
+    if (!Number.isSafeInteger(owner) || owner <= 0 || running(owner)) continue
+    try {
+      rmSync(join(root, entry.name), { recursive: true, force: true })
+      swept.push(entry.name)
+    } catch {
+      // Another desk quitting at this moment is removing its own folder.
+    }
+  }
+  return swept
+}
+
+/* Once per process rather than once per service: the sweep reads the whole
+   temp directory, and a host installs this service once but a test suite
+   builds many kernels. */
+let swept = false
+
 export class BrowserService extends Service {
   static [Service.tracker] = { associate: 'browser', property: 'ctx' }
 
@@ -334,6 +401,13 @@ export class BrowserService extends Service {
        today, and the first one that yields would outlive the quit — #212
        again, latent (round 3 of #244). */
     ctx.effect(() => () => this.close().catch(() => {}), 'browser-shutdown')
+    /* And the folders left by a desk that never got to run that disposer.
+       Here rather than at kernel start because this is the service that makes
+       them, so the sweep cannot outlive the reason for it (#234). */
+    if (!swept) {
+      swept = true
+      sweepAbandonedPdfFolders()
+    }
   }
 
   /** The gate, then the page — the two lines every call below starts with. */
@@ -455,7 +529,9 @@ export class BrowserService extends Service {
     let folder = ''
     try {
       this.ctx.effect(() => {
-        folder = mkdtempSync(join(tmpdir(), 'hd-pdf-'))
+        /* Named for this process, so a folder a crash left behind can be told
+           from a folder another live desk is still using (#234). */
+        folder = mkdtempSync(join(tmpdir(), `hd-pdf-${process.pid}-`))
         return () => rmSync(folder, { recursive: true, force: true })
       }, 'pdf-folder')
     } catch (error) {
@@ -1228,8 +1304,58 @@ const systemEngine: BrowserEngine = {
 
 // ------------------------------------------------------------ Chrome engine
 
+/**
+ * SIGTERM, then SIGKILL, then give up — resolving when the child is gone.
+ *
+ * The wait is the point. `close()` used to hang its profile sweep off the
+ * child's `exit` event and return before that event, and both quit paths end
+ * the process a moment later: `bin.ts` exits after the log flush, and the
+ * desktop's `before-quit` calls `app.quit()`. Chrome takes longer to go than a
+ * log flush takes, so the event reached a process that was no longer there and
+ * the throwaway profile stayed on disk — exactly what "not kept" promises will
+ * not happen (#243).
+ *
+ * Bounded twice, because a quit must not hang on a browser. The escalation to
+ * SIGKILL is the one this already had; the second timer is for the case SIGKILL
+ * cannot answer — a process wedged in uninterruptible I/O — after which the
+ * sweep runs anyway, which is no worse than the old behaviour and no longer
+ * the normal path.
+ */
+const stopped = (child: ChildProcess): Promise<void> =>
+  new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) return resolve()
+    let settled = false
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(escalate)
+      clearTimeout(abandon)
+      resolve()
+    }
+    child.once('exit', finish)
+    const escalate = setTimeout(() => child.kill('SIGKILL'), 3_000)
+    const abandon = setTimeout(finish, 5_000)
+    escalate.unref()
+    abandon.unref()
+    child.kill('SIGTERM')
+  })
+
+/**
+ * Test hook: the Chrome the next `close()` acts on, without starting one.
+ *
+ * `ensureChrome` fills these in for real. A test that wants to prove what
+ * `close()` *waits* for cannot start a browser — a CI runner has none — and the
+ * question is about the child's lifetime, which any child process can stand in
+ * for.
+ */
+export const setChromeProcess = (child: ChildProcess | null, disposableDir: string | null): void => {
+  state.child = child
+  state.disposableDir = disposableDir
+  state.profileDir = disposableDir
+}
+
 /** The user's own Chrome, headed, in a profile of its own — the headless host's engine. */
-const chromeEngine: BrowserEngine = {
+export const chromeEngine: BrowserEngine = {
   async ensure() {
     await ensureChrome()
     return {
@@ -1242,23 +1368,17 @@ const chromeEngine: BrowserEngine = {
     state.connection?.socket.close()
     state.connection = null
     state.child = null
-    if (child) {
-      child.kill('SIGTERM')
-      const escalate = setTimeout(() => child.kill('SIGKILL'), 3_000)
-      escalate.unref()
-    }
     if (state.profileDir) rmSync(join(state.profileDir, 'DevToolsActivePort'), { force: true })
     // A profile that is not kept goes with the browser: nothing an agent
     // signed into outlives the session, which is what "not kept" promises.
     const disposable = state.disposableDir
     state.disposableDir = null
-    if (disposable) {
-      const sweep = () => rmSync(disposable, { recursive: true, force: true })
-      // A browser that already died fires no further `exit`; sweeping on
-      // that event alone left the profile behind whenever Chrome went first.
-      if (child && child.exitCode === null && child.signalCode === null) child.once('exit', sweep)
-      else sweep()
-    }
+    /* Awaited, not hung off `exit` and forgotten. A browser that had already
+       died resolves at once, which is the case the old code special-cased; the
+       one it got wrong was the browser still running, because nothing waited
+       for it and the process removing the profile was about to end (#243). */
+    if (child) await stopped(child)
+    if (disposable) rmSync(disposable, { recursive: true, force: true })
   },
 }
 

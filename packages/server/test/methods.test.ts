@@ -134,7 +134,7 @@ test('a worktree is brought home or removed only from a repository the window ha
         },
         changes: async (path: string) => {
           asked.push(`changes ${path}`)
-          return { modified: 0, untracked: 0, unpushedCommits: 0, files: [] }
+          return { modified: 0, untracked: 0, unpushedCommits: 0, files: [], ignored: [], ignoredCount: 0 }
         },
       },
     })

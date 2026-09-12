@@ -325,9 +325,11 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 checks the worktree's branch out in the main checkout and removes the worktree
 — a checkout, not a merge, so nothing is folded into whatever the main tree was
 on. It is offered on HarnessDesk's own worktrees; a checkout you made yourself
-is yours to move. The folder goes, and anything git ignores in it (an `.env`,
-`node_modules`) goes with it; the dialog says so first, and waits while a
-conversation in the worktree is still working. Uncommitted work stops it: the dialog lists the files and offers to ask the agent to commit them. If
+is yours to move. The folder goes, and anything git ignores in it goes with
+it — the dialog **names those entries**, because `git status` counts none of
+them and a category ("such as an `.env`") is not something a person can copy
+out; a file git never had is said apart from a folder that can be built again.
+It waits while a conversation in the worktree is still working. Uncommitted work stops it: the dialog lists the files and offers to ask the agent to commit them. If
 the main checkout will not take the switch, git's own sentence says why and the
 worktree is put back from its branch, the message naming what git ignored there
 — and on the rare occasion git will not allow even that, the message says the
@@ -335,6 +337,11 @@ folder is gone and the branch kept, and what lived in it closes. A switch git
 reports as failed after making it (a failing post-checkout hook) completes, and
 git's words come up as a warning. The conversation cannot follow its folder, so
 a draft opens in the main checkout carrying it as a hand-off.
+
+**Removing a worktree names what goes with it.** "Remove this worktree…" reads
+the checkout first and lists every uncommitted file before it will discard one,
+and lists what git ignores there on the same footing: the branch is kept either
+way, but the folder goes and an `.env` in it goes with the folder.
 
 **Background work has a chip, then a panel.** While an agent has work running
 that outlives the turn — a watcher, a test run sent to the background — the

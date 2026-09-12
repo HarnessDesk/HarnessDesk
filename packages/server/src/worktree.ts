@@ -41,6 +41,12 @@ export class WorktreeDirtyError extends Error {
   }
 }
 
+/**
+ * How many ignored entries travel on the wire. The count beside them is the
+ * whole truth; this is what a dialog can read without becoming a listing.
+ */
+const SHOWN_IGNORED = 40
+
 const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`
 
 const describeChanges = (changes: WorktreeChanges): string => {
@@ -294,7 +300,21 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
       // A brand-new repository with no commits; nothing to count.
     }
   }
-  return { modified, untracked, unpushedCommits, files }
+  /* What git ignores is not in `status` and goes anyway. `git worktree remove`
+     deletes it without being forced and so does the `rm` that ends a
+     bring-back, so a checkout holding an `.env` reads as clean here and is
+     emptied silently. That `.env` was never in git, so nothing can put it
+     back — which makes naming it the whole fix (#209). Read with directories
+     collapsed, so `node_modules/` is one entry rather than thirty thousand. */
+  const ignored = await ignoredIn(path)
+  return {
+    modified,
+    untracked,
+    unpushedCommits,
+    files,
+    ignored: ignored.slice(0, SHOWN_IGNORED),
+    ignoredCount: ignored.length,
+  }
 }
 
 /**

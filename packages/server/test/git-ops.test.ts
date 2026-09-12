@@ -8,7 +8,7 @@ import { promisify } from 'node:util'
 
 import { turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { DirtyTreeError, RevertError, checkout, listBranches, reapplyTurn, revertTurn } from '../src/git-ops.js'
+import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn } from '../src/git-ops.js'
 
 /**
  * Reverting a turn and switching branches against a real repository. The
@@ -305,6 +305,63 @@ test('redo refuses a recorded deletion whose file was edited since, and deletes 
     await writeFile(join(dir, 'kept.txt'), 'as the agent saw it\n')
     await reapplyTurn(dir, turn)
     await assert.rejects(stat(join(dir, 'kept.txt')))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('the recoverable half of a turn goes back when asked, and the blank deletion is left alone (#237)', async () => {
+  /* The refusal is right and stays the default. What it lacked was a second
+     door: the updates and the recorded deletions in the same turn can still be
+     put back, and the refusal already knew exactly what it would leave out. */
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+    await rm(join(dir, 'gone.txt'))
+    const turn = turnOf([
+      fileChange(dir, [
+        { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+        { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: 'bye\n' },
+        { path: join(dir, 'empty.txt'), kind: { type: 'delete' }, diff: '' },
+      ]),
+    ])
+
+    // The refusal names the file structurally, and says a way out exists
+    // without the interface having to read English for it.
+    await assert.rejects(applyTurn(dir, turn, 'undo'), (error: unknown) => {
+      assert.ok(error instanceof RevertError)
+      assert.deepEqual(error.unrecoverable, ['empty.txt'])
+      assert.equal((error as { wireCode?: string }).wireCode, 'turnPartlyUnrecoverable')
+      return true
+    })
+    // The control: the refusal moved nothing, as it always did.
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
+    await assert.rejects(stat(join(dir, 'gone.txt')))
+
+    const applied = await applyTurn(dir, turn, 'undo', { skipUnrecoverable: true })
+    assert.deepEqual([...applied.files].sort(), ['a.txt', 'gone.txt'])
+    assert.deepEqual(applied.skipped, ['empty.txt'], 'and it reports what it left out')
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\ntwo\nthree\n', 'the update went back')
+    assert.equal(await readFile(join(dir, 'gone.txt'), 'utf8'), 'bye\n', 'and the recorded deletion')
+    await assert.rejects(stat(join(dir, 'empty.txt')), 'the blank deletion was left, not written back empty')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a turn with nothing but a blank deletion has no recoverable half, and says so rather than reporting success', async () => {
+  const dir = await repo()
+  try {
+    await rm(join(dir, 'gone.txt'))
+    const turn = turnOf([fileChange(dir, [{ path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: '' }])])
+    await assert.rejects(applyTurn(dir, turn, 'undo', { skipUnrecoverable: true }), (error: unknown) => {
+      assert.ok(error instanceof RevertError)
+      assert.match(error.message, /changed nothing else/)
+      // No second door to offer, so no code inviting the interface to draw one.
+      assert.equal((error as { wireCode?: string }).wireCode, undefined)
+      return true
+    })
+    await assert.rejects(stat(join(dir, 'gone.txt')), 'and still nothing was written')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

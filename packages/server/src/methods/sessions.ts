@@ -204,7 +204,9 @@ export const sessionMethods = {
     const turn = record?.session.turns.find((entry) => entry.id === params.turnId)
     if (!record || !turn) throw new Error('That turn is not loaded; open the conversation first.')
     const direction = params.direction ?? 'undo'
-    const files = await gitOps.applyTurn(record.session.cwd, turn, direction)
+    const { files, skipped } = await gitOps.applyTurn(record.session.cwd, turn, direction, {
+      ...(params.skipUnrecoverable ? { skipUnrecoverable: true } : {}),
+    })
     ctx.audit.append({
       at: Date.now(),
       runtime: record.runtime,
@@ -213,7 +215,7 @@ export const sessionMethods = {
       kind: direction === 'undo' ? 'turn/reverted' : 'turn/reapplied',
       steps: files.length,
     })
-    return { files }
+    return { files, skipped }
   },
 
   'session/compact': async (ctx, params) => {

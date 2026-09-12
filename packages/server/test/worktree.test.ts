@@ -536,3 +536,29 @@ test("the main checkout's uncommitted edits come along onto the branch", async (
   assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/carry')
   assert.equal(await readFile(join(repo, 'notes.txt'), 'utf8'), 'notes, edited and not committed\n', 'the edit came along')
 })
+
+test('what git ignores is named before the folder goes, and a file is told from a rebuildable folder', async (t) => {
+  /* #209: `git status` counts none of this, so the checkout reads as clean and
+     `git worktree remove` deletes it without being forced. An `.env` that was
+     never in git is then unrecoverable, which is why the inventory the dialogs
+     read has to carry it. */
+  const { repo, worktrees } = await fixture(t)
+  const wt = await worktrees.create(repo, { name: 'secrets' })
+  await writeFile(join(wt.path, '.gitignore'), '.env\nnode_modules/\n')
+  await git(wt.path, 'add', '.gitignore')
+  await git(wt.path, 'commit', '-q', '-m', 'ignore them')
+  await writeFile(join(wt.path, '.env'), 'TOKEN=never-in-git\n')
+  await mkdir(join(wt.path, 'node_modules', 'pkg'), { recursive: true })
+  await writeFile(join(wt.path, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1\n')
+
+  const held = await worktrees.changes(wt.path)
+  // The control, and the whole reason this was a bug: git calls the tree clean.
+  assert.equal(held.modified + held.untracked, 0, 'status counts none of it')
+  assert.deepEqual([...held.ignored].sort(), ['.env', 'node_modules/'], 'collapsed per directory')
+  assert.equal(held.ignoredCount, 2)
+
+  // And the removal takes them anyway, without force — the fact the dialogs
+  // now say out loud before anyone presses it.
+  await worktrees.remove(wt.path)
+  await assert.rejects(() => stat(join(wt.path, '.env')))
+})

@@ -20,6 +20,13 @@ import styles from './TurnFiles.module.css'
  * nowhere else: they are not committed, and the agent would have to be asked
  * to do the work again. The button pair is the whole safety net for pressing
  * Undo on the wrong card.
+ *
+ * A third button appears only after one particular refusal. A turn holding a
+ * deletion the agent recorded no content for cannot be undone whole, and that
+ * refusal is right — writing an empty file back over the real one is the loss
+ * an undo exists to prevent. What was missing was the other half: the updates
+ * and the recorded deletions in the same turn can still go back, and *Undo the
+ * rest* asks for exactly that, leaving the file the notice named alone (#237).
  */
 
 const basename = (path: string): string => path.split('/').pop() ?? path
@@ -34,6 +41,9 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const key = useSessionKey()
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
+  // Offered only once the host has refused for this reason; never up front,
+  // because most turns have nothing unrecoverable in them.
+  const [partly, setPartly] = useState(false)
   const files = useMemo(() => totalsByFile(changes), [changes])
   if (files.length === 0) return null
 
@@ -41,15 +51,21 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
   const verb = files.every((file) => file.kind === 'add') ? 'Created' : files.every((file) => file.kind === 'delete') ? 'Deleted' : 'Edited'
 
-  const apply = async (direction: 'undo' | 'redo'): Promise<void> => {
+  const apply = async (direction: 'undo' | 'redo', skipUnrecoverable = false): Promise<void> => {
     if (!key || busy) return
     setBusy(true)
     try {
-      const done = direction === 'undo' ? await store.revertTurn(turn.id, key) : await store.redoTurn(turn.id, key)
+      const result =
+        direction === 'undo'
+          ? await store.revertTurn(turn.id, key, skipUnrecoverable ? { skipUnrecoverable: true } : {})
+          : await store.redoTurn(turn.id, key)
       // Only a refusal leaves the card where it was: the host is all-or-
       // nothing, so a failure means the tree is untouched and the offer
       // stands unchanged.
-      if (done) setReverted(direction === 'undo')
+      if (result.done) {
+        setReverted(direction === 'undo')
+        setPartly(false)
+      } else setPartly(result.unrecoverable)
     } finally {
       setBusy(false)
     }
@@ -84,16 +100,30 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                 <RedoIcon size={13} />
               </button>
             ) : (
-              <button
-                type="button"
-                className={styles.action}
-                onClick={() => void apply('undo')}
-                disabled={busy}
-                title="Put these files back the way they were before this turn. Refuses if you have edited one since."
-              >
-                {busy ? 'Undoing…' : 'Undo'}
-                <UndoIcon size={13} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={styles.action}
+                  onClick={() => void apply('undo')}
+                  disabled={busy}
+                  title="Put these files back the way they were before this turn. Refuses if you have edited one since."
+                >
+                  {busy ? 'Undoing…' : 'Undo'}
+                  <UndoIcon size={13} />
+                </button>
+                {partly && (
+                  <button
+                    type="button"
+                    className={styles.action}
+                    onClick={() => void apply('undo', true)}
+                    disabled={busy}
+                    title="Put back everything this turn can. The file just named is left exactly as it is — the agent recorded nothing to put back there."
+                  >
+                    {busy ? 'Undoing…' : 'Undo the rest'}
+                    <UndoIcon size={13} />
+                  </button>
+                )}
+              </>
             ))}
           <button
             type="button"

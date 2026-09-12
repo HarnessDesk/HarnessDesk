@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -11,7 +12,15 @@ import {
   type BrowserEngine,
   type HarnessPlugin,
 } from '../src/index.js'
-import { KEY_NAMES, characterKey, namedKey, unknownKeyMessage } from '../src/browser.js'
+import {
+  KEY_NAMES,
+  characterKey,
+  chromeEngine,
+  namedKey,
+  setChromeProcess,
+  sweepAbandonedPdfFolders,
+  unknownKeyMessage,
+} from '../src/browser.js'
 
 /**
  * The browser service against an engine that is not Chrome. What the
@@ -920,4 +929,83 @@ test('a saved PDF goes when its plugin is turned off, and a save in flight then 
     else process.env['TMPDIR'] = was
   }
   assert.deepEqual(readdirSync(scratch), [])
+})
+
+test('a saved PDF folder left by a crash is swept at start, and a live desk\u2019s folder is not (#234)', async (t) => {
+  /* The folder is tied to the scope of the plugin that saved it, so it goes
+     when that plugin stops or the desk quits. A crash and a force quit run no
+     disposer. A sweep of every `hd-pdf-*` folder would be the wrong fix —
+     several desks share a machine, the review desks among them — so the folder
+     carries the pid that made it and only a dead owner's folder goes. */
+  const scratch = mkdtempSync(join(tmpdir(), 'hd-pdf-sweep-'))
+  t.after(() => rmSync(scratch, { recursive: true, force: true }))
+  const was = process.env['TMPDIR']
+  process.env['TMPDIR'] = scratch
+  try {
+    // A process that has certainly finished: spawned, waited for, and reaped.
+    const dead = spawnSync(process.execPath, ['-e', '0']).pid
+    const mine = join(scratch, `hd-pdf-${process.pid}-live`)
+    const crashed = join(scratch, `hd-pdf-${dead}-crashed`)
+    const unnamed = join(scratch, 'hd-pdf-refusal-x')
+    for (const dir of [mine, crashed, unnamed]) mkdirSync(dir, { recursive: true })
+    writeFileSync(join(crashed, 'Quarterly report.pdf'), 'x')
+
+    assert.deepEqual(sweepAbandonedPdfFolders(), [basename(crashed)])
+    assert.equal(existsSync(crashed), false, 'the folder whose process is gone went, with what was in it')
+    /* The controls. A sweep that took either of these would be the bug the pid
+       exists to prevent: the first is a desk that is still running, and the
+       second names no process at all, so nothing can be concluded about it. */
+    assert.equal(existsSync(mine), true, 'a live process keeps its folder')
+    assert.equal(existsSync(unnamed), true, 'a folder with no owner in its name is left alone')
+  } finally {
+    if (was === undefined) delete process.env['TMPDIR']
+    else process.env['TMPDIR'] = was
+  }
+})
+
+test('closing a Chrome that keeps nothing waits for it to exit before the profile goes (#243)', async (t) => {
+  const profile = mkdtempSync(join(tmpdir(), 'hd-browser-close-'))
+  t.after(() => rmSync(profile, { recursive: true, force: true }))
+  /* A stand-in Chrome that ignores SIGTERM and exits when this test says so,
+     so the assertion is about *waiting* rather than about timing. #244's own
+     test records why: a fake that merely yields passes whether the close was
+     awaited or only started, because the awaits around it drain the microtask
+     queue first. Releasing the exit by hand asks the question directly. */
+  const child = spawn(
+    process.execPath,
+    [
+      '-e',
+      "process.on('SIGTERM', () => {}); process.stdin.on('data', () => process.exit(0)); " +
+        "setInterval(() => {}, 1000); process.stdout.write('ready\\n')",
+    ],
+    { stdio: ['pipe', 'pipe', 'ignore'] },
+  )
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  })
+  /* Waited for by its own word, not by a head start: SIGTERM arriving before
+     the handler is installed would kill it outright and this test would pass
+     for the wrong reason on a loaded machine. */
+  await new Promise<void>((resolve, reject) => {
+    child.stdout?.once('data', () => resolve())
+    child.once('exit', () => reject(new Error('the stand-in browser exited before it was ready')))
+  })
+
+  setChromeProcess(child, profile)
+  t.after(() => setChromeProcess(null, null))
+  // The control: the profile is on disk before anything is asked of it.
+  assert.equal(existsSync(profile), true)
+
+  let finished = false
+  const done = chromeEngine.close().then(() => {
+    finished = true
+  })
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  assert.equal(finished, false, 'close waits for Chrome to exit, rather than only signalling it')
+  assert.equal(existsSync(profile), true, 'and the profile is still there while it waits')
+
+  child.stdin?.write('go\n')
+  await done
+  assert.equal(finished, true)
+  assert.equal(existsSync(profile), false, 'the throwaway profile went with the browser it belonged to')
 })

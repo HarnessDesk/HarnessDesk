@@ -8,14 +8,26 @@ import {
 } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { runtimeId, sessionKey, type RuntimeInfo, type Session, type SessionId, type TeamPeerInfo, type TeamState } from '@harnessdesk/protocol'
+import {
+  runtimeId,
+  sessionKey,
+  type RuntimeInfo,
+  type Session,
+  type SessionId,
+  type TeamPeerInfo,
+  type TeamState,
+  type Worktree,
+  type WorktreeChanges,
+} from '@harnessdesk/protocol'
 
+import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
 import { ChangesView, TrajectoryView } from '../components/Details'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { Settings, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
+import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
@@ -1181,6 +1193,70 @@ const Frame = ({ title, children }: { title: string; children: ReactNode }) => (
   </section>
 )
 
+/**
+ * The two worktree dialogs, on a store of their own.
+ *
+ * They are the one pair of screens that cannot be reached from the page's main
+ * fixture: each reads `worktree/changes` over the wire and neither is a pane,
+ * so the interesting state — a checkout git calls clean that is holding an
+ * `.env` — has no way to be arranged except by answering that read. A dialog
+ * also covers the page while it is open, so this is off by default and chosen
+ * from the dial above.
+ *
+ * The values are the ones worth looking at: nothing uncommitted, and two
+ * ignored entries of the two different kinds — a file git never had, and a
+ * folder that can be built again (#209).
+ */
+const DIALOG_TREE: Worktree = {
+  path: '/state/worktrees/storefront-1a/checkout-retry',
+  branch: 'harnessdesk/checkout-retry',
+  head: 'b',
+  isMain: false,
+  managed: true,
+}
+
+const DIALOG_MAIN: Worktree = { path: '/work/storefront', branch: 'main', head: 'a', isMain: true, managed: false }
+
+const DIALOG_CHANGES: WorktreeChanges = {
+  modified: 0,
+  untracked: 0,
+  unpushedCommits: 2,
+  files: [],
+  ignored: ['.env', 'node_modules/'],
+  ignoredCount: 2,
+}
+
+const WorktreeDialogs = ({ which, onClose }: { which: 'remove' | 'bring back'; onClose: () => void }) => {
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    /* A runtime with no brand in it. The bring-back dialog asks the agent to
+       commit only when the tree is dirty, which this fixture's never is, so the
+       name is off camera — and `pnpm layering` is right that a brand name
+       written into the shell is how that rule rots. */
+    runtimes: [runtime('agent', 'The agent')],
+    activeRuntime: runtimeId('agent'),
+    worktrees: [DIALOG_MAIN, DIALOG_TREE],
+    sessions: new Map(),
+  } as unknown as AppSnapshot
+  const dialogStore = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request: async () => DIALOG_CHANGES },
+    removeWorktree: async () => false,
+    bringWorktreeHome: async () => null,
+  } as unknown as AppStore
+  return (
+    <StoreProvider store={dialogStore}>
+      {which === 'remove' ? (
+        <RemoveWorktree worktree={DIALOG_TREE} onClose={onClose} />
+      ) : (
+        <BringHome worktree={DIALOG_TREE} onClose={onClose} />
+      )}
+    </StoreProvider>
+  )
+}
+
 const Dial = <T extends string>({
   label,
   value,
@@ -1228,6 +1304,7 @@ const Preview = () => {
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
+  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back'>('off')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -1262,7 +1339,14 @@ const Preview = () => {
           options={['default', 'square', 'round'] as const}
           onChange={(next) => store.setCorners(next)}
         />
+        <Dial
+          label="worktree dialog"
+          value={dialog}
+          options={['off', 'remove', 'bring back'] as const}
+          onChange={setDialog}
+        />
       </div>
+      {dialog !== 'off' && <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />}
       {/* The board, in a pane of its own — which is one of the two shapes it
           really has (the other is the room's right half, further down). It is
           first here because it is the widest surface the token layer touches:

@@ -40,7 +40,7 @@ const TREE: Worktree = {
   isMain: false,
   managed: true,
 }
-const CLEAN: WorktreeChanges = { modified: 0, untracked: 0, unpushedCommits: 2, files: [] }
+const CLEAN: WorktreeChanges = { modified: 0, untracked: 0, unpushedCommits: 2, files: [], ignored: [], ignoredCount: 0 }
 
 const rig = async ({
   changes = CLEAN,
@@ -94,7 +94,7 @@ it('says which branch the main checkout leaves and which it takes, before anythi
   const text = document.body.textContent ?? ''
   expect(text).toContain('repo switches from main to harnessdesk/parser, with every commit made here.')
   expect(text).toContain(
-    "The worktree's folder is removed, and with it anything git ignores there, such as an .env file or node_modules; the branch is not.",
+    "The worktree's folder is removed, and with it anything git ignores there; the branch is not.",
   )
   expect(text).toContain('a new one opens in repo carrying what happened here')
   expect(button('Bring it back')).toBeDefined()
@@ -128,7 +128,7 @@ it('does not offer the move while work is uncommitted, and offers the commit ins
   }
   window.addEventListener('harnessdesk:compose', listen)
   const { store, onClose } = await rig({
-    changes: { modified: 1, untracked: 1, unpushedCommits: 0, files: ['src/parser.ts', 'notes.md'] },
+    changes: { modified: 1, untracked: 1, unpushedCommits: 0, files: ['src/parser.ts', 'notes.md'], ignored: [], ignoredCount: 0 },
   })
 
   const text = document.body.textContent ?? ''
@@ -164,7 +164,7 @@ it('says what it could not read, and offers no move it cannot back', async () =>
 })
 
 it('says what the main checkout has not committed, since git carries it onto the branch', async () => {
-  await rig({ mainChanges: { modified: 2, untracked: 0, unpushedCommits: 0, files: ['a.ts', 'b.ts'] } })
+  await rig({ mainChanges: { modified: 2, untracked: 0, unpushedCommits: 0, files: ['a.ts', 'b.ts'], ignored: [], ignoredCount: 0 } })
 
   expect(document.body.textContent).toContain(
     'repo has 2 modified files not committed. Git carries them onto harnessdesk/parser, or refuses the switch if they clash with it.',
@@ -178,4 +178,19 @@ it('holds the move while a conversation in the worktree is still working', async
 
   expect(document.body.textContent).toContain('A conversation in this worktree is still working.')
   expect(button('Bring it back')?.disabled).toBe(true)
+})
+
+it('names what git ignores there, rather than alluding to the category (#209)', async () => {
+  /* The sentence used to offer "such as an .env file or node_modules", which
+     is a warning about a class of file. Only the list tells a person whether
+     there is an `.env` in *this* folder, and it is the last moment anything
+     can be copied out of it. */
+  await rig({ changes: { ...CLEAN, ignored: ['.env.local', 'node_modules/'], ignoredCount: 2 } })
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('This also deletes 1 file and 1 folder git ignores here')
+  expect(text).toContain('.env.local')
+  expect(text).toContain('.env.local is not in git, so nothing can put it back')
+  // The control: ignored files are named, not a refusal — the move still goes.
+  expect(button('Bring it back')).toBeDefined()
 })
