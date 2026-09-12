@@ -141,17 +141,31 @@ const base = (params: {
  * showing a piece of it.
  */
 export const stdinInputOf = (composed: string): string => {
-  const parts = composed.split(/\s+/)
-  if (parts[0] !== 'write_stdin') return composed
-  let at = 1
-  while (at < parts.length && parts[at]?.startsWith('--')) {
-    // `--flag=value` carries its value; `--flag value` takes the next word.
-    at += parts[at]?.includes('=') ? 1 : 2
+  const tokenRegex = /\S+/g
+  const first = tokenRegex.exec(composed)
+  if (!first || first[0] !== 'write_stdin' || first.index !== 0) return composed
+  let lastIndex = tokenRegex.lastIndex
+  while (true) {
+    const flagMatch = tokenRegex.exec(composed)
+    if (!flagMatch || !flagMatch[0].startsWith('--')) break
+    if (flagMatch[0].includes('=')) {
+      // `--flag=value` carries its value.
+      lastIndex = tokenRegex.lastIndex
+    } else {
+      // `--flag value` takes the next word.
+      const valMatch = tokenRegex.exec(composed)
+      if (valMatch) {
+        lastIndex = tokenRegex.lastIndex
+      } else {
+        lastIndex = flagMatch.index + flagMatch[0].length
+        break
+      }
+    }
   }
-  // Rejoined from the original rather than from the split, so the text keeps
-  // the whitespace it was typed with — a heredoc, a trailing newline.
-  const consumed = parts.slice(0, at).join(' ')
-  const rest = composed.slice(composed.indexOf(consumed) + consumed.length)
+  // Sliced directly from the original token offset rather than doing an indexOf
+  // on a rejoined string, so irregular whitespace between flags does not corrupt
+  // the slice index and the remaining text keeps the whitespace it was typed with.
+  const rest = composed.slice(lastIndex)
   return rest.replace(/^[ \t]/, '')
 }
 
