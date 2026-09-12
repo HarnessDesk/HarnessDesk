@@ -67,28 +67,62 @@ export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
  * as the fence that opened it, so the four backticks a description quotes a
  * fenced sample with are not closed by the three inside it; and a closing
  * fence carries no info string, so a ```js *within* a block is content too.
- * Four spaces of indent is an indented code block rather than a fence, and a
- * fence that is never closed runs to the end of the document — which is what
- * falling out of this loop does.
+ * A fence that is never closed runs to the end of the document, which is
+ * what falling out of this loop does.
+ *
+ * Indentation is read loosely on purpose, because the two ways of being
+ * wrong are not equally bad. A line wrongly believed to be *inside* a fence
+ * is merely not spliced — the desk appends its signature where it would have
+ * replaced one, and a duplicated line is the whole cost. A line wrongly
+ * believed to be *outside* one is spliced out of somebody else's pull
+ * request body. So every doubt here resolves to "inside": any depth of
+ * indent, and any depth of `>`, may open a fence — where CommonMark would
+ * call four spaces an indented code block, and would allow a fence inside a
+ * list item at its container's indent plus three (#275 r1). The container's
+ * indent cannot be measured without a block parser, but the *opener's* can,
+ * and that is enough: a fence closes only on a line no deeper in indent and
+ * no shallower in `>` than the one that opened it. Both halves lean the same
+ * way. A fence line deeper than its opener is content rather than a close,
+ * and a fence left open inside a quote is not closed by the bare fence below
+ * the quote — which CommonMark reads as opening a new block, so the line
+ * under it is the author's on either reading.
+ *
+ * What the rule still cannot see is where a container begins or ends. It
+ * never notices a list or a quote *ending*, so a fence the container closed
+ * runs on here; nor does it model an indented code block, so a mark inside
+ * one reads as fenced. A fence closed deeper than it opened runs on too. The
+ * cost of every one of those is the same and it is paid in the safe
+ * direction: a real signature below the run-on is not found, so the desk
+ * appends its line where it would have replaced one. A duplicated signature
+ * is a line that should have gone; never a line that should have stayed.
  */
 const markedLineIn = (lines: readonly string[]): number | null => {
-  // The fence standing open: which character opened it and how long it was.
-  // Empty means the reader is outside one.
+  // The fence standing open: which character opened it, how many of them
+  // there were, and how deep it sat. Empty means the reader is outside one.
   let openChar = ''
   let openLength = 0
+  let openIndent = 0
+  let openQuotes = 0
   let found: number | null = null
   for (const [index, line] of lines.entries()) {
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
-    const marks = fence?.[1] ?? ''
+    // Whitespace and blockquote markers both count as depth: a fence under a
+    // list item or inside a quote is a fence, and reading it as anything else
+    // is what deletes somebody's line.
+    const fence = /^([\s>]*)(`{3,}|~{3,})(.*)$/.exec(line)
+    const indent = fence?.[1]?.length ?? 0
+    const quotes = (fence?.[1]?.match(/>/g) ?? []).length
+    const marks = fence?.[2] ?? ''
     // Whatever follows the fence characters: an info string on an opening
     // fence, and on a closing one only whitespace — a trailing carriage
     // return included, because GitHub hands a body back with the line
     // endings it was written with.
-    const after = fence?.[2] ?? ''
+    const after = fence?.[3] ?? ''
     if (openChar !== '') {
-      if (marks.startsWith(openChar) && marks.length >= openLength && after.trim() === '') {
+      if (marks.startsWith(openChar) && marks.length >= openLength && indent <= openIndent && quotes >= openQuotes && after.trim() === '') {
         openChar = ''
         openLength = 0
+        openIndent = 0
+        openQuotes = 0
       }
       continue
     }
@@ -97,6 +131,8 @@ const markedLineIn = (lines: readonly string[]): number | null => {
     if (marks !== '' && !(marks.startsWith('`') && after.includes('`'))) {
       openChar = marks[0] ?? ''
       openLength = marks.length
+      openIndent = indent
+      openQuotes = quotes
       continue
     }
     if (/<!-- harnessdesk:signature -->\s*$/.test(line)) found = index
