@@ -66,3 +66,29 @@ test('every failure keyword keeps its description whole, and a line without digi
   assert.deepEqual(extractFailures('✖ the retry waits 250ms'), ['the retry waits 250ms'])
   assert.deepEqual(extractFailures('FAIL src/auth.test.ts'), ['src/auth.test.ts'])
 })
+
+test('failure lines are read through colour, cut at 160 characters, and stop at 20 (#174)', () => {
+  // A runner that forces colour wraps the keyword in escape codes.
+  const esc = String.fromCharCode(27)
+  assert.deepEqual(extractFailures(`${esc}[31mFAIL${esc}[39m src/auth.test.ts`), ['src/auth.test.ts'])
+  // A keyword with only whitespace after it names nothing.
+  assert.deepEqual(extractFailures('FAIL    '), [])
+  // Each entry is cut at 160 characters, and there are at most 20.
+  assert.equal(extractFailures(`FAIL ${'x'.repeat(300)}`)[0]?.length, 160)
+  assert.equal(extractFailures(Array.from({ length: 30 }, (_, n) => `FAIL test ${n}`).join('\n')).length, 20)
+  // A line both patterns read gives both: its file and line, and its description.
+  assert.deepEqual(extractFailures('FAIL src/auth.test.ts:42 (15ms)'), ['src/auth.test.ts:42', 'src/auth.test.ts:42 (15ms)'])
+})
+
+test('a failure line keeps its place through the escapes runners write around it (review of #221, round 1)', () => {
+  const ESC = String.fromCharCode(27)
+  // The cursor hidden before the colour, and a file written as an OSC 8 link, as vitest and jest write one.
+  assert.deepEqual(extractFailures(`${ESC}[?25l${ESC}[31m FAIL ${ESC}[39m src/auth.test.ts`), ['src/auth.test.ts'])
+  assert.deepEqual(extractFailures(`FAIL ${ESC}]8;;file:///w/src/auth.test.ts${ESC}\\src/auth.test.ts:42${ESC}]8;;${ESC}\\`), ['src/auth.test.ts:42'])
+})
+
+test('a failure line keeps its place through the charset escape `tput sgr0` resets with (review of #221, round 2)', () => {
+  // ncurses writes ESC ( B before its SGR reset, and the `(B` it left held the keyword off the start of its line.
+  assert.deepEqual(extractFailures('\x1b(B\x1b[mFAIL\x1b(B\x1b[m auth > signs in'), ['auth > signs in'])
+  assert.deepEqual(extractFailures('\x1b(0qqq\x1b(B'), [], 'a line-drawing switch and back is no failure')
+})

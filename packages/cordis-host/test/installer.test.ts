@@ -337,7 +337,15 @@ test('a record is taken only whole, and loading reads the same one the listing d
   await install(FIXTURE)
   const record = join(root, 'sample', '.harnessdesk-source.json')
   const copy = { kind: 'local', path: join(root, 'sample') }
-  for (const partial of [{ kind: 'local' }, { kind: 'npm' }, { kind: 'npm', specifier: '' }, { kind: 'git', url: 'x' }]) {
+  // #172: and one whose path or specifier is only spaces.
+  for (const partial of [
+    { kind: 'local' },
+    { kind: 'npm' },
+    { kind: 'npm', specifier: '' },
+    { kind: 'git', url: 'x' },
+    { kind: 'local', path: '   ' },
+    { kind: 'npm', specifier: ' ' },
+  ]) {
     await writeFile(record, JSON.stringify(partial))
     assert.deepEqual((await listInstalled())[0]?.source, copy, JSON.stringify(partial))
   }

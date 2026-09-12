@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { test } from 'node:test'
 
-import { ExtensionKernel, hostAllowed, pathWithin } from '../src/index.js'
+import { ExtensionKernel, hostAllowed, pathWithin, PermissionDenied, PermissionGate } from '../src/index.js'
 
 /**
  * The permission engine is the boundary between "plugin system" and "arbitrary
@@ -26,6 +26,71 @@ test('host matching allows exact names and one wildcard label', () => {
   assert.equal(hostAllowed(['*.example.com'], 'notexample.com'), false)
   assert.equal(hostAllowed(['API.Example.COM'], 'api.example.com'), true, 'case-insensitive')
   assert.equal(hostAllowed([], 'api.example.com'), false, 'empty list denies')
+})
+
+test('a trailing dot and leading zeros name the same host and port (#172)', () => {
+  assert.equal(hostAllowed(['example.com'], 'example.com.'), true, "a name written with the root's dot")
+  assert.equal(hostAllowed(['example.com.'], 'example.com'), true)
+  assert.equal(hostAllowed(['localhost:03000'], 'localhost:3000'), true, 'a port written with leading zeros')
+  assert.equal(hostAllowed(['*.example.com'], 'example.com.'), false, 'the apex is still not the wildcard')
+  assert.equal(hostAllowed(['.'], 'example.com'), false, 'a dot alone names nothing')
+  // Review of #221, round 1: `*.` is not `*` with a dot on it, and a port is its digits, however long.
+  assert.equal(hostAllowed(['*.'], 'evil.com'), false)
+  assert.equal(hostAllowed(['*.'], 'anything.at.all'), false)
+  assert.equal(hostAllowed(['example.com:99999999999999999999'], 'example.com:100000000000000000000'), false)
+  // Review of #221, round 2: `*.` with a port names nothing either, and a wildcard written with the root's dot is the wildcard.
+  assert.equal(hostAllowed(['*.:443'], 'evil.com:443'), false)
+  assert.equal(hostAllowed(['*.example.com.'], 'api.example.com'), true)
+  assert.equal(hostAllowed(['*.example.com.'], 'example.com'), false, 'and still not its apex')
+})
+
+test("a URL written with the root's trailing dot reaches the gate as its host (review of #221, round 1)", () => {
+  // The dot only ever arrives through URL.hostname: new URL('http://localhost./').hostname is 'localhost.'.
+  const gate = (hosts: string[]) =>
+    new PermissionGate({ network: { hosts } } as unknown as ConstructorParameters<typeof PermissionGate>[0], () => null)
+  assert.doesNotThrow(() => gate(['localhost']).assertNetwork('http://localhost.:3000/'))
+  assert.doesNotThrow(() => gate(['localhost:3000']).assertNetwork('http://localhost.:3000/'))
+  assert.throws(() => gate(['example.com']).assertNetwork('http://localhost.:3000/'), PermissionDenied)
+})
+
+test('an IPv6 port written with leading zeros is the same port too (review of #221, round 2)', () => {
+  assert.equal(hostAllowed(['[::1]:03000'], '[::1]:3000'), true)
+  assert.equal(hostAllowed(['[::1]:03000'], '[::1]:3001'), false)
+  const gate = new PermissionGate(
+    { network: { hosts: ['[::1]:03000'] } } as unknown as ConstructorParameters<typeof PermissionGate>[0],
+    () => null,
+  )
+  assert.doesNotThrow(() => gate.assertNetwork('http://[::1]:3000/'))
+  assert.throws(() => gate.assertNetwork('http://[::1]:3001/'), PermissionDenied)
+})
+
+test('ws and wss have their own default ports at the gate (#172)', async (t) => {
+  // Only http had been tried through the gate. A fetch of a ws: URL fails after the gate, which is all this needs.
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  const fetcher = (id: string, hosts: string[], url: string) =>
+    kernel.load({
+      manifest: { id, name: id, permissions: { network: { hosts } } },
+      plugin: {
+        name: id,
+        inject: ['tools', 'http'],
+        apply(ctx: any) {
+          ctx.tools.register({ name: id, description: '', inputSchema: {}, execute: async () => (await ctx.http.fetch(url)).body })
+        },
+      },
+    })
+  await fetcher('ws_80', ['127.0.0.1:80'], 'ws://127.0.0.1/')
+  await fetcher('wss_80', ['127.0.0.1:80'], 'wss://127.0.0.1/')
+  await fetcher('wss_443', ['127.0.0.1:443'], 'wss://127.0.0.1/')
+  await settle()
+  const call = async (tool: string) => {
+    const result = await kernel.invokeTool(kernel.list('tool').find((entry) => entry.name === tool)!.id, {}, {})
+    return result.ok ? 'ok' : result.error
+  }
+  const denied = /is not in this plugin's allowed hosts/
+  assert.doesNotMatch(await call('ws_80'), denied, 'ws: is port 80 to the gate')
+  assert.match(await call('wss_80'), denied, 'and wss: is not')
+  assert.doesNotMatch(await call('wss_443'), denied, 'wss: is port 443')
 })
 
 test('path containment rejects lookalike siblings and escapes', () => {

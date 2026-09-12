@@ -242,3 +242,109 @@ test('a dialog that fails is logged, not left to crash the shell', async () => {
     process.off('unhandledRejection', onUnhandled)
   }
 })
+
+test('an answer that throws is logged, not left to crash the shell (#175)', async () => {
+  // The dialog answered Restart Now, and quitAndInstall threw.
+  const updater = fakeUpdater()
+  updater.quitAndInstall = () => {
+    throw new Error('the installer is gone')
+  }
+  const logged = []
+  const unhandled = []
+  const onUnhandled = (reason) => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const flow = attachAppUpdates({
+      updater,
+      env: {},
+      packaged: true,
+      version: '0.1.0',
+      onMenu: () => {},
+      showDialog: () => Promise.resolve(0),
+      log: (message) => logged.push(message),
+    })
+    updater.emit('update-downloaded', { version: '0.2.0' })
+    flow.check(true)
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(unhandled, [])
+    assert.ok(logged.includes('app update install failed'), 'logged as the install, not the dialog')
+    flow.dispose()
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})
+
+test('Restart to Update from the menu that fails is logged and said, not left to crash the shell (review of #221, round 1)', () => {
+  // The menu is the usual way to install, and its click called quitAndInstall with nothing around it.
+  const updater = fakeUpdater()
+  updater.quitAndInstall = () => {
+    throw new Error('the bundle is gone')
+  }
+  const logged = []
+  const dialogs = []
+  const flow = attachAppUpdates({
+    updater,
+    env: {},
+    packaged: true,
+    version: '0.1.0',
+    onMenu: () => {},
+    showDialog: (request) => {
+      dialogs.push(request)
+      return Promise.resolve(0)
+    },
+    log: (message) => logged.push(message),
+  })
+  updater.emit('update-downloaded', { version: '0.2.0' })
+  assert.equal(flow.menu().label, 'Restart to Update (0.2.0)')
+  assert.doesNotThrow(() => flow.menu().click())
+  assert.ok(logged.includes('app update install failed'))
+  assert.equal(dialogs.at(-1)?.type, 'error')
+  flow.dispose()
+})
+
+test('an install that fails the way electron-updater fails is said, from the menu and from the offer (review of #221, round 2)', async () => {
+  // BaseUpdater.install catches its installer's throw and emits `error`; MacUpdater forwards the native
+  // updater's. Nothing throws, and no route to an install leaves `interactive` set.
+  for (const route of ['menu', 'offer']) {
+    const updater = fakeUpdater()
+    updater.quitAndInstall = () => {
+      updater.calls.installs += 1
+      updater.emit('error', new Error("No update filepath provided, can't quit and install"))
+    }
+    const logged = []
+    const dialogs = []
+    const flow = attachAppUpdates({
+      updater,
+      env: {},
+      packaged: true,
+      version: '0.1.0',
+      onMenu: () => {},
+      showDialog: (request) => {
+        dialogs.push(request)
+        return Promise.resolve(0)
+      },
+      log: (message) => logged.push(message),
+    })
+    if (route === 'menu') {
+      updater.emit('update-downloaded', { version: '0.2.0' })
+      // The control: an error nobody asked about stays out of the way, downloaded or not.
+      updater.emit('error', new Error('a later background check failed'))
+      assert.deepEqual(dialogs, [], route)
+      flow.menu().click()
+    } else {
+      flow.check(true)
+      updater.emit('checking-for-update')
+      updater.emit('update-available', { version: '0.2.0' })
+      updater.emit('update-downloaded', { version: '0.2.0' })
+      // The offer answers Restart Now a tick later.
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    assert.equal(updater.calls.installs, 1, route)
+    assert.equal(dialogs.at(-1)?.type, 'error', route)
+    assert.match(dialogs.at(-1)?.detail ?? '', /No update filepath/, route)
+    assert.equal(logged.filter((line) => line === 'app update install failed').length, 1, route)
+    assert.equal(flow.menu().label, 'Restart to Update (0.2.0)', `${route}: the update is still there`)
+    flow.dispose()
+  }
+})

@@ -71,3 +71,12 @@ test('under a menu bar, a title bar half on the work area is enough and less is 
   assert.equal(isVisibleOn({ x: 100, y: 5, width: 800, height: 600 }, [laptop]), true, '20 of its 40px below the menu bar')
   assert.equal(isVisibleOn({ x: 100, y: 4, width: 800, height: 600 }, [laptop]), false, '19px is not enough')
 })
+
+test('a display above or to the left of the main one is a display like any other (#175)', () => {
+  // Negative coordinates were handled by the arithmetic, and no fixture had one.
+  const left = { workArea: { x: -1920, y: 0, width: 1920, height: 1080 } }
+  const above = { workArea: { x: 0, y: -1440, width: 2560, height: 1440 } }
+  assert.equal(isVisibleOn({ x: -1500, y: 100, width: 1200, height: 800 }, [laptop, left]), true)
+  assert.equal(isVisibleOn({ x: 200, y: -1300, width: 1200, height: 800 }, [laptop, above]), true)
+  assert.equal(isVisibleOn({ x: -1500, y: 100, width: 1200, height: 800 }, [laptop]), false, 'the display on the left unplugged')
+})

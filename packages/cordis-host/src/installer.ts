@@ -235,8 +235,9 @@ export const loadInstalled = async (directory: string): Promise<HarnessPlugin> =
 const isPluginSource = (value: unknown): value is PluginSource => {
   if (typeof value !== 'object' || value === null) return false
   const source = value as { kind?: unknown; path?: unknown; specifier?: unknown }
-  if (source.kind === 'local') return typeof source.path === 'string' && source.path !== ''
-  if (source.kind === 'npm') return typeof source.specifier === 'string' && source.specifier !== ''
+  // A path or a specifier of spaces names nothing, as an empty one doesn't (#172).
+  if (source.kind === 'local') return typeof source.path === 'string' && source.path.trim() !== ''
+  if (source.kind === 'npm') return typeof source.specifier === 'string' && source.specifier.trim() !== ''
   return false
 }
 

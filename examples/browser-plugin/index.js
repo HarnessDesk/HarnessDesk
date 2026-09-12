@@ -19,7 +19,15 @@
  * then decoded too, so a page showing the markup `&lt;div&gt;` read as a tag
  * (#169).
  */
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+/** One entity's text: a named one, or any character by its number, decimal or hex, as the kernel's copy reads them (#174). */
+const decodeEntity = (entity, name) => {
+  const lower = name.toLowerCase()
+  if (Object.hasOwn(ENTITIES, lower)) return ENTITIES[lower]
+  const code = lower.startsWith('#x') ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10)
+  return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : entity
+}
 
 /** Minimal HTML → readable text. Deliberately dumb; readability is the agent's job. */
 const htmlToText = (html) =>
@@ -30,7 +38,7 @@ const htmlToText = (html) =>
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&(amp|lt|gt|quot|#39|nbsp);/gi, (entity, name) => ENTITIES[name.toLowerCase()] ?? entity)
+    .replace(/&(amp|lt|gt|quot|apos|nbsp|#\d{1,7}|#x[0-9a-f]{1,6});/gi, decodeEntity)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s+/g, '\n')
     .trim()

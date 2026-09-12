@@ -927,6 +927,35 @@ test('the last test run becomes a chip: nothing before a run, the verdict after'
   assert.match(resolved?.text ?? '', /PASS/)
 })
 
+test('the verdict reads the run without its escape codes, tail and all (review of #221, round 2)', async (t) => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'hd-tests-colour-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  // A runner forcing colour: a hidden cursor, a red FAIL, a file link, and a failed run's exit code.
+  writeFileSync(
+    join(dir, 'fail.js'),
+    [
+      "process.stdout.write('\\x1b[?25l\\x1b[31mFAIL\\x1b[39m src/a.test.ts > adds\\n')",
+      "process.stdout.write('\\x1b]8;;file:///a.ts\\x07src/a.ts:9\\x1b]8;;\\x07\\n')",
+      'process.exit(1)',
+    ].join('\n'),
+  )
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { test: 'node fail.js' } }))
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(testsPlugin)
+  await settle()
+  kernel.setWorkspace({ root: dir, branch: null })
+
+  const verdict = text(await kernel.invokeTool(toolNamed(kernel, 'run_tests'), {}, {}))
+  assert.match(verdict, /^FAIL/)
+  assert.match(verdict, /Output tail:[\s\S]*FAIL src\/a\.test\.ts > adds/, 'the tail is there, as plain text')
+  assert.doesNotMatch(verdict, /\x1b/, 'and no escape reaches the model or the person')
+})
+
 test('no built-in asks to write the workspace', async () => {
   // the editor-plane decision. HarnessDesk declines ACP's `fs` capability because execution
   // belongs to the agent and its own sandbox; a file write projected to every
@@ -1020,6 +1049,9 @@ test('htmlToText decodes each entity once, so escaped markup stays escaped', () 
   // #59: `&amp;` went first, and the `&lt;` it uncovered was decoded again.
   assert.equal(htmlToText('&amp;lt;div&amp;gt;'), '&lt;div&gt;')
   assert.equal(htmlToText('Fish &amp; chips &lt;3 &#39;n&#39; &quot;more&quot;&nbsp;!'), `Fish & chips <3 'n' "more" !`)
+  // Review of #221, round 1: any character by its number, decimal or hex, still once, and a number that names none stays.
+  assert.equal(htmlToText('&#38;lt; &#x3C;b&#x3e; &#x27;q&apos;'), `&lt; <b> 'q'`)
+  assert.equal(htmlToText('&#xD800; &#1114112;'), '&#xD800; &#1114112;')
 })
 
 test('htmlToText reads entities in any case, leaves unknown ones alone, and decodes each once', () => {
@@ -1027,6 +1059,8 @@ test('htmlToText reads entities in any case, leaves unknown ones alone, and deco
   assert.equal(htmlToText('&AMP; &Lt; &QUOT;x&quot;'), '& < "x"')
   assert.equal(htmlToText('&copy; &bogus; &amp;&amp;'), '&copy; &bogus; &&')
   assert.equal(htmlToText('&amp;amp;lt;'), '&amp;lt;')
+  // #174: the HTML5 and hex spellings of the same quote.
+  assert.equal(htmlToText('it&apos;s &#x27;quoted&#X27;'), "it's 'quoted'")
 })
 
 test('read_file stops at the byte limit it is named for, and never cuts a character in half', async (t) => {
