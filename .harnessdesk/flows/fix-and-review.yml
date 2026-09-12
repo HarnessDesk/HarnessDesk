@@ -28,7 +28,7 @@ wait: 240
 roles:
   fixer:
     kind: agent
-    seat: cursor=gpt-5.3-codex/medium
+    seat: cursor=gpt-5.3-codex/xhigh
     count: 1
     permission: publish
     outcomes: [published, cannot]

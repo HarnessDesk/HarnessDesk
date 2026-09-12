@@ -81,7 +81,7 @@ wait: 240
 roles:
   fixer:
     kind: agent                       # agent | person | check
-    seat: cursor=gpt-5.3-codex/medium # runtime[=model][/effort][+thinking]
+    seat: cursor=gpt-5.3-codex/xhigh  # runtime[=model][/effort][+thinking]
     count: 1                          # how many cards a round of this opens
     permission: publish               # read | publish | merge
     outcomes: [published, cannot]     # the only words it may answer
@@ -137,7 +137,7 @@ layout:
 | key | what it is |
 | --- | --- |
 | `kind` | `agent` seats a conversation. `person` opens a card addressed to you. `check` runs a command. |
-| `seat` | `runtime[=model][/effort][+thinking]`, or a **list** of them — one per card of the round, which is how a race runs two different models. Required for `agent`, refused for the others. Effort is the largest cost multiplier in a flow: it applies to every round trip the seat makes, not once. |
+| `seat` | `runtime[=model][/effort][+thinking]`, or a **list** of them — one per card of the round, which is how a race runs two different models. Required for `agent`, refused for the others. The effort words are the runtime's own; one it does not offer is refused before any seat opens. |
 | `count` | How many cards a round of this role opens. Defaults to the number of seats listed. |
 | `permission` | `read`, `publish` or `merge`. See below. |
 | `outcomes` | The only words this role may answer. The engine refuses anything else. |
@@ -277,16 +277,27 @@ one round of three reviews cost:
 | fixer (Codex 5.3, extra-high effort) | 46, and 26 on the second run |
 | reviewer (Gemini 3.8 Flash, high) | 31, 34, 38 |
 
-Two levers, in order of size:
+**What is not the lever: effort.** It changes how many reasoning tokens a
+round trip spends, and on Cursor a turn at `xhigh` is billed the same one
+request as any other. The effort choices are the runtime's, not this format's
+— Cursor's Codex offers `default, low, high, xhigh` and no `medium` — and a
+seat naming one it does not offer is refused before anything is opened.
 
-- **Effort.** It multiplies the reasoning tokens on every one of those round
-  trips. The flows shipped here seat their fixer at `medium` rather than
-  `xhigh` for that reason; raise it when the work earns it.
-- **The block.** After each answer a waiting seat calls `await_work` again, so
-  a short block is a seat paying to be told nothing. This is why the block is
-  clamped to what the agent will actually hold open and **named in the order**
-  — left to guess it, two seats chose ten seconds, which is six billed round
-  trips a minute to do nothing.
+**What is the lever: how often a seat is made to think.** After each answer a
+waiting seat calls `await_work` again, so a short block is a seat paying to be
+told nothing. The block is therefore clamped to what the agent will actually
+hold a tool call open for and **named in the standing order**: left to guess
+it, two seats chose ten seconds, which is six round trips a minute to do
+nothing.
+
+**What is still unexplained.** Cursor's own usage events carry a
+`billing_mode` of `BILLING_MODE_SEAT` (flat, one per prompt) or
+`BILLING_MODE_TOKEN` (priced by tokens), plus `is_token_based_call` and
+`max_mode`. The seats in the first runs here billed token-based — fractional
+rows — while standing workers on the same account, same models, same minute
+billed flat. `max_mode` was false on every seat. Which of the two a call gets
+is decided by Cursor's server; nothing in the client sets it, so this is
+recorded as measured and not explained.
 
 ## What makes a seat wait for free
 

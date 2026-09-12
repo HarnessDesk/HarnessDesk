@@ -1,5 +1,7 @@
+import type { Flow, FlowProblem } from '@harnessdesk/protocol'
+
 import { dryRun, parseFlow, validateFlow } from '../flow.js'
-import type { MethodsUnder } from './context.js'
+import type { HostContext, MethodsUnder } from './context.js'
 
 /**
  * Flows: reading one, checking one, and running one.
@@ -20,8 +22,7 @@ export const flowMethods = {
    * billed, no card reaches a board, and a check's command is printed rather
    * than run.
    */
-  'flow/dry': (ctx, params) => {
-    void ctx
+  'flow/dry': async (ctx, params) => {
     const { flow, problems } = parseFlow(params.source)
     if (!flow) {
       return {
@@ -38,7 +39,10 @@ export const flowMethods = {
       ...(params.answers ? { answers: params.answers } : {}),
       repo: params.root,
     })
-    return { ...report, problems: [...problems, ...report.problems] }
+    return {
+      ...report,
+      problems: [...problems, ...report.problems, ...(await unavailableSeats(ctx, flow))],
+    }
   },
 
   'flow/start': (ctx, params) =>
@@ -53,6 +57,51 @@ export const flowMethods = {
 
   'flow/runs': (ctx, params) => ctx.flows.runsFor(params.room),
 } satisfies MethodsUnder<'flow/'>
+
+/**
+ * Seats this desk cannot actually open: an agent it does not have, or a model
+ * that agent does not offer.
+ *
+ * `flow.ts` is pure and cannot ask a runtime anything, so this is the half of
+ * validation that needs the desk. It belongs in the dry run because that is
+ * the surface a person reads *before* pressing the thing, and the failure it
+ * catches is otherwise found at seating — which is late, even though nothing
+ * is spent: a flow that opens three of four seats and then stops is a room
+ * somebody has to clean up.
+ *
+ * Effort is deliberately not checked here. A runtime declares its efforts per
+ * *session*, so asking would mean opening one, and a dry run that opens a
+ * conversation is not a dry run. The start path refuses it by name with the
+ * choices listed, before any seat is opened.
+ */
+const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProblem[]> => {
+  const problems: FlowProblem[] = []
+  for (const role of flow.roles) {
+    for (const [index, seat] of role.seats.entries()) {
+      const at = `roles.${role.id}.seat${role.seats.length > 1 ? `[${index}]` : ''}`
+      const runtime = ctx.runtimes.get(seat.runtime)
+      if (!runtime) {
+        problems.push({
+          level: 'error',
+          at,
+          text: `this desk has no agent called "${seat.runtime}" — it has ${[...ctx.runtimes.ids()].join(', ') || 'none'}`,
+        })
+        continue
+      }
+      if (!seat.model) continue
+      const models = await runtime.listModels().catch(() => [])
+      if (models.length === 0) continue
+      if (!models.some((one) => one.id === seat.model)) {
+        problems.push({
+          level: 'error',
+          at,
+          text: `${runtime.info.presentation.name} does not offer a model called "${seat.model}"`,
+        })
+      }
+    }
+  }
+  return problems
+}
 
 /** Re-exported so `flow/dry` and the start path cannot drift about what is valid. */
 export { validateFlow }
