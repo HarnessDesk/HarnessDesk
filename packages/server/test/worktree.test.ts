@@ -6,7 +6,15 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { WorktreeDirtyError, Worktrees, isManagedWorktree, repositoryOf, samePath, slugify } from '../src/worktree.js'
+import {
+  WorktreeDirtyError,
+  Worktrees,
+  isManagedWorktree,
+  putBack,
+  repositoryOf,
+  samePath,
+  slugify,
+} from '../src/worktree.js'
 
 /**
  * Worktrees against a real git repository in a temporary directory. The
@@ -319,8 +327,35 @@ test('samePath matches paths across Windows and POSIX separators and drive casin
   )
 })
 
+test('putBack recognizes the worktree on Windows across forward and backward slashes (#317)', async (t) => {
+  const { repo } = await fixture(t)
+  const fakeWorktree = {
+    path: 'C:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+    branch: 'feature',
+    head: 'abc',
+    isMain: false,
+    managed: true,
+  }
+  const windowsTarget = 'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc\\feature'
 
-
+  await assert.rejects(
+    putBack(
+      repo,
+      windowsTarget,
+      'feature',
+      new Error('checkout failed'),
+      repo,
+      [],
+      async () => [fakeWorktree],
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.match(error.message, /so the worktree was put back from its branch/)
+      assert.doesNotMatch(error.message, /could not be put back/)
+      return true
+    },
+  )
+})
 test('a worktree starts from the branch it was told to, not from HEAD', async (t) => {
   const { repo, worktrees } = await fixture(t)
   // A second branch with a commit the main branch does not have, so "which

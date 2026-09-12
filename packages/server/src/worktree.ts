@@ -142,7 +142,7 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
     return null
   }
   if (!common || !dir || !here) return null
-  if (dir === common) return { root: await canonical(here), worktree: false }
+  if (samePath(dir, common)) return { root: await canonical(here), worktree: false }
   const main = await mainCheckoutOf(path)
   return main === null ? null : { root: main, worktree: true }
 }
@@ -374,8 +374,17 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
       .map((line) => canonical(line.slice('worktree '.length))),
   )
   const opened = await Promise.all(roots.map((root) => canonical(root)))
-  const within = (inner: string, outer: string): boolean =>
-    inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
+  const within = (inner: string, outer: string): boolean => {
+    const normInner = inner.replace(/\\/g, '/').replace(/\/+$/, '')
+    const normOuter = outer.replace(/\\/g, '/').replace(/\/+$/, '')
+    const prefix = `${normOuter}/`
+    const isWin =
+      process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normInner) && /^[a-zA-Z]:\//.test(normOuter))
+    if (isWin ? normInner.toLowerCase() === normOuter.toLowerCase() : normInner === normOuter) return true
+    return isWin
+      ? normInner.toLowerCase().startsWith(prefix.toLowerCase())
+      : normInner.startsWith(prefix)
+  }
   if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return
   throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
 }
@@ -508,19 +517,20 @@ export const bringHome = async (
  * not the exit status: `worktree add` reports a failing hook too, after it has
  * done its work.
  */
-const putBack = async (
+export const putBack = async (
   main: string,
   target: string,
   branch: string,
   refused: unknown,
   stateDir: string,
   ignored: readonly string[],
+  listFn: (main: string, stateDir: string) => Promise<Worktree[]> = list,
 ): Promise<never> => {
   const failed = await git(main, ['worktree', 'add', target, branch]).then(
     () => null,
     (error: unknown) => error,
   )
-  const back = failed === null || (await list(main, stateDir).catch(() => [])).some((entry) => samePath(entry.path, target))
+  const back = failed === null || (await listFn(main, stateDir).catch(() => [])).some((entry) => samePath(entry.path, target))
   if (back) {
     const without = ignored.length > 0 ? `, without what git ignores there: ${named(ignored)}` : ''
     throw new Error(

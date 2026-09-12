@@ -8,7 +8,7 @@ import { isRevisionName } from './git-revision.js'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
 
-import { changes, worktreeHome, WorktreeDirtyError } from './worktree.js'
+import { changes, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
 
@@ -249,7 +249,7 @@ export const list = async (root: string, stateDir: string): Promise<GitWorktree[
       branch: record.branch,
       head: record.head,
       isMain: index === 0,
-      isCurrent: (await canonical(record.path)) === here,
+      isCurrent: samePath(await canonical(record.path), here),
       bare: record.bare,
       detached: record.detached,
       locked: record.locked,
@@ -266,7 +266,7 @@ export const list = async (root: string, stateDir: string): Promise<GitWorktree[
 const find = async (worktrees: readonly GitWorktree[], path: string): Promise<GitWorktree | null> => {
   const target = await canonical(path)
   for (const entry of worktrees) {
-    if ((await canonical(entry.path)) === target) return entry
+    if (samePath(await canonical(entry.path), target)) return entry
   }
   return null
 }
@@ -343,7 +343,7 @@ const destination = async (
   if (!main) throw new Error('This repository has no main checkout to sit beside.')
   const beside = dirname(await canonical(main))
   const target = await canonicalDestination(isAbsolute(trimmed) ? trimmed : resolve(beside, trimmed))
-  if (target === beside || !under(target, beside)) {
+  if (samePath(target, beside) || !under(target, beside)) {
     throw new Error(`New worktrees are made beside the repository, under ${beside}.`)
   }
   for (const entry of worktrees) {
