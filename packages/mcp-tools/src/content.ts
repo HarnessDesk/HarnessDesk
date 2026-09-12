@@ -5,9 +5,42 @@
  * imported, so that this can be tested (review of #187, round 2).
  */
 
+export interface GatewayTool {
+  namespace: string
+  name: string
+  description: string
+  inputSchema: unknown
+}
+
 export type GatewayResult =
   | { ok: true; content: ({ type: 'text'; text: string } | { type: 'image'; url: string; mimeType?: string })[] }
   | { ok: false; error: string }
+
+/**
+ * Builds a uniquely keyed map of MCP tools from gateway tools.
+ * Namespaces disambiguate only on clashes. When collisions recur (e.g. three or
+ * more tools sharing a name, or distinct namespaces normalizing to the same prefix),
+ * suffixes with incrementing counters to ensure no tool is silently dropped (#318).
+ */
+export const buildToolIndex = (tools: readonly GatewayTool[]): Map<string, GatewayTool> => {
+  const byName = new Map<string, GatewayTool>()
+  for (const tool of tools) {
+    if (!byName.has(tool.name)) {
+      byName.set(tool.name, tool)
+      continue
+    }
+    const base = `${tool.namespace.replace(/#\d+$/, '')}_${tool.name}`
+    let key = base
+    let count = 2
+    while (byName.has(key)) {
+      key = `${base}_${count}`
+      count += 1
+    }
+    byName.set(key, tool)
+  }
+  return byName
+}
+
 
 /**
  * An image part becomes MCP image content, which carries bytes: the data URL's
