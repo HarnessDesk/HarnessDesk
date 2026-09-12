@@ -630,7 +630,7 @@ const planRestoreCopy = (
 }
 
 /** The Agent Skills frontmatter an authored skill must at least carry. */
-const AUTHORED = /^---\n[\s\S]*?\bname:\s*\S[\s\S]*?\n---\n/
+const AUTHORED = /^---\r?\n[\s\S]*?\bname:\s*\S[\s\S]*?\r?\n---\r?\n/
 
 const planAuthorSkill = (
   state: PlanState,

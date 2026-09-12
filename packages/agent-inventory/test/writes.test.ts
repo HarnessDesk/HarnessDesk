@@ -383,6 +383,25 @@ test('authoring requires frontmatter and installs to every named agent', async (
   })
 })
 
+test('authoring accepts CRLF line endings in frontmatter', async () => {
+  await withHome(async (home, libraryDir) => {
+    const agents = [agent('codex')]
+    const crlf = '---\r\nname: notes\r\ndescription: Keeps notes\r\n---\r\nWrite them down.\r\n'
+    const plan = await planLibrary(agents, [
+      {
+        kind: 'authorSkill',
+        name: 'notes',
+        content: crlf,
+        targetRuntimes: [runtimeId('codex')],
+      },
+    ], { libraryDir, home })
+    assert.deepEqual(plan.ops.map((one) => one.action), ['create'])
+    const results = await applyLibrary(plan.ops, { libraryDir, home })
+    assert.deepEqual(results.map((one) => one.outcome), ['done'])
+    assert.equal(await readFile(join(home, '.codex/skills/notes/SKILL.md'), 'utf8'), crlf)
+  })
+})
+
 test('a name that is not one path segment never becomes a path', async () => {
   await withHome(async (home, libraryDir) => {
     const plan = await planLibrary([agent('codex')], [
