@@ -11,6 +11,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { dismissOverlays } from './Popover'
 import { TeamBoardPane } from './TeamBoardPane'
 
 /**
@@ -910,3 +911,30 @@ it('a wrapped goal leaves the band, and its work stays on the board', async () =
   expect(container.textContent).toContain('Finished')
 })
 
+/**
+ * A card's menu is a floating panel, and it owes what every floating panel owes:
+ * it goes when something takes the screen (#214).
+ *
+ * It is drawn at `--hd-z-popover`, above the modal layer — as a menu opened
+ * *inside* Settings has to be — and it is modal in its own right, with a focus
+ * scope. Left open over the Settings window, the Usage window or a sidebar
+ * floating over a narrow window, it covered a surface it could not be clicked
+ * through and held the focus that surface had just taken. Radix closes on
+ * Escape and on a press outside; a window opening is neither, which is what
+ * `hd:dismiss-overlays` exists to say.
+ */
+it('the card’s menu goes when something takes the screen (#214)', async () => {
+  const { store } = rig([intent({ id: 1, state: 'open' })])
+  await render(store)
+
+  const items = await menuItems(1)
+  // The control: the menu really is open, so a pass below cannot be a menu
+  // that was never there. Both assertions held before this was fixed.
+  expect(items.length).toBeGreaterThan(0)
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
+
+  await act(async () => {
+    dismissOverlays()
+  })
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+})

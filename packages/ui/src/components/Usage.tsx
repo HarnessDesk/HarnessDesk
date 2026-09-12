@@ -63,7 +63,7 @@ import {
   type Tint,
 } from '../design/ui'
 import { Menu, MenuItem } from './Menu'
-import { dismissOverlays, Popover } from './Popover'
+import { dismissOverlays, Popover, useEscapeSurface } from './Popover'
 import styles from './Usage.module.css'
 
 /**
@@ -134,16 +134,17 @@ export const Usage = ({
 
   useEffect(dismissOverlays, [])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      // Spent on this window, and said so — a sidebar floating under it stays.
-      event.preventDefault()
-      onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  /*
+   * Escape closes the window — unless something inside it answered first.
+   *
+   * It used to be a `document` listener registered when the window mounted, so
+   * it ran *ahead* of the listener a menu opened inside the window adds later,
+   * and one press closed the menu and the window both (#206). On the shared
+   * stack the window is the surface on top only until a menu opens over it, and
+   * the key is still marked spent, so a sidebar floating under the window and
+   * an approval waiting in the pane behind it both stand aside.
+   */
+  useEscapeSurface(true, onClose)
 
   // Countdowns are the point of half this screen, so the clock has to move.
   // Once a minute is enough for figures measured in hours and days.

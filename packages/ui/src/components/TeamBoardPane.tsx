@@ -14,6 +14,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { HandOut } from './HandOut'
 import { SessionHoverCard } from './AgentCards'
+import { useDismissOverlays } from './Popover'
 import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
@@ -836,6 +837,18 @@ const IntentCard = ({
 }) => {
   const snapshot = useSnapshot()
 
+  /*
+   * The menu's open state is held here rather than left to Radix, because
+   * something other than the menu has to be able to close it. Radix closes on
+   * Escape and on a press outside, and a window taking the screen is neither:
+   * Settings, Usage and — in a narrow window — the floating sidebar announce
+   * themselves instead, and a menu drawn at `--hd-z-popover` outranks all
+   * three, so this one hung over whichever of them opened, modal, holding the
+   * focus they had just taken (#214).
+   */
+  const [menuOpen, setMenuOpen] = useState(false)
+  useDismissOverlays(menuOpen, () => setMenuOpen(false))
+
   const runtime = intent.claim
     ? (snapshot.runtimes.find((one) => one.id === intent.claim?.runtime) ?? null)
     : null
@@ -1063,7 +1076,7 @@ const IntentCard = ({
       }
       actions={
         verbs.length > 0 ? (
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <BoardMenuButton aria-label={`What to do with #${intent.id}`} />
             </DropdownMenuTrigger>

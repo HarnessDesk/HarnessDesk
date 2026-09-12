@@ -7,6 +7,27 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **One Escape closes one thing in Settings and in the dashboard** — with a
+  menu open inside either window, one Escape closed the menu *and* the window,
+  so the thing you were looking at went along with the thing you meant to
+  dismiss. The menu closes now and the window stays; a second Escape closes the
+  window.
+- **A card menu on the board no longer hangs over the window that opened** —
+  opening Settings, the dashboard, or the sidebar in a narrow window while a
+  card's menu was open left the menu drawn on top of them, holding the keyboard,
+  over a surface it could not be clicked through. It closes now with everything
+  else that floats.
+- **A panel collapsed on its own can be opened again** — a dock holding a single
+  view that draws its own header — a file, a terminal, the repository — drew no
+  tab strip, so "collapse to the tabs" left an empty band with nothing in it to
+  press. A collapsed panel always draws its strip now, and the control that
+  brings it back is on it.
+- **A second finger on a panel divider no longer stops the window animating** —
+  beginning a second resize on a divider before the first had ended left the
+  window marked as resizing for the rest of the session: no transitions
+  anywhere, the resize cursor stuck, nothing selectable and every embedded page
+  inert. A divider ignores a second pointer while it is being dragged, and a
+  suppression nothing is holding is given back.
 - **A context chip with nothing to say no longer refuses the message** —
   attaching *Last test run* to a brand-new draft stopped the send with an error,
   because a draft has run nothing of its own and the provider treated that as a

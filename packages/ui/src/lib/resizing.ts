@@ -81,3 +81,34 @@ export const markDragging = (node: Element | null | undefined, on: boolean): voi
   if (on) node.setAttribute('data-dragging', '')
   else node.removeAttribute('data-dragging')
 }
+
+/**
+ * The last line of defence: a suppression nothing is holding any more.
+ *
+ * Every seam pairs its own `beginResize` with its own `endResize`, and the
+ * seams in this repository now refuse a second `pointerdown` while they hold a
+ * grab — but the count is global, and one caller that begins twice leaves the
+ * whole window suppressed for the rest of the session, which is the worst state
+ * this file can produce (#252). A seam that cannot be reached from here — a
+ * vendored one, a plugin's, a copy written next year — would take the window
+ * with it.
+ *
+ * So the invariant is checked where it is cheap and certain. A drag is a
+ * pointer held down on something this file marked, so when the last pointer
+ * lifts and nothing in the document is marked, there is no drag: whatever is
+ * left of the count is owed to nobody. Read after the pointer's own handlers
+ * have run (the window, bubbling), so a gesture that ended tidily has already
+ * given its own suppression back and is not seen here at all — and a second
+ * drag still under a finger keeps its mark, and its suppression with it.
+ */
+const abandoned = (): void => {
+  if (depth === 0) return
+  if (document.querySelector('[data-dragging]') !== null) return
+  depth = 0
+  document.documentElement.removeAttribute(FLAG)
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerup', abandoned)
+  window.addEventListener('pointercancel', abandoned)
+}

@@ -579,6 +579,13 @@ const DockSplit = ({ area, branch }: { area: DockId; branch: DockBranch }) => {
         onChange={show}
         onCommit={(next) => store.resizePanelSplit(area, branch.id, next)}
         onPointerDown={(event) => {
+          /* A grab is already held: a second finger on the seam, or a pen
+             beside a mouse. `beginResize` is counted and `stop` runs once, so
+             a second begin here would be a suppression nothing ever gives
+             back — the window left with no transitions, a frozen cursor and
+             inert guest frames for the rest of the session (#252). The drag in
+             progress keeps the seam. */
+          if (grab.current !== null) return
           const bounds = container.current?.getBoundingClientRect()
           if (!bounds) return
           event.preventDefault()
@@ -640,7 +647,16 @@ const StackPanel = ({
    * row, with expand and close in both.
    */
   const owns = shown ? views.get(shown.view.kind)?.ownsChrome === true : false
-  const strip = !(owns && stack.views.length === 1)
+  /*
+   * Collapsed, the strip is drawn whatever the stack holds — because the body
+   * is not. A lone view that draws its own header was the one case with
+   * neither: "collapse to the tabs" hid the layer that held the header, the
+   * section was left empty (1199 × 1 px, with one file docked at the bottom),
+   * and nothing in the dock could bring it back (#232). `mount.tsx` reads the
+   * same rule for `chrome`, so while the strip is the panel's, the verbs are
+   * the panel's too, and the ✕ is not drawn twice.
+   */
+  const strip = collapsed || !(owns && stack.views.length === 1)
 
   return (
     <DockPanel edge={AREA_EDGE[area]} collapsed={collapsed} className={styles.panel}>

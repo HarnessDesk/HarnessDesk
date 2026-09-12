@@ -105,6 +105,7 @@ export const useMountControls = (): MountControls | null => {
     const dock = area === 'main' ? null : snapshot.workbench[area]
     const holding = dock ? stackOf(dock, id) : null
     const alone = holding ? holding.views.length === 1 : true
+    const collapsed = dock?.collapsed ?? false
     // The view promises to draw the controls, and there is no tab strip worth
     // keeping. Both, and the panel steps back.
     const owns = views.get(view.kind)?.ownsChrome === true
@@ -122,7 +123,7 @@ export const useMountControls = (): MountControls | null => {
       moveTo: (to: AreaId) => store.moveView(id, to),
       splittable: holding ? holding.views.length > 1 : false,
       split: (direction: 'row' | 'column') => store.splitPanel(id, direction),
-      collapsed: dock?.collapsed ?? false,
+      collapsed,
       toggleCollapse: () => {
         if (area !== 'main') store.togglePanel(area)
       },
@@ -134,7 +135,14 @@ export const useMountControls = (): MountControls | null => {
        * expand and its way back out: reported from the running app as "there
        * is no way to close it".
        */
-      chrome: owns && (area === 'main' || alone) ? 'own' : 'panel',
+      /*
+       * And collapsed, the chrome is the panel's whatever the view promised:
+       * the view is not drawn at all then, so a header of its own is a header
+       * nobody can see. `Workbench.tsx` draws the strip for the same reason —
+       * were these two to disagree, the strip would print a ✕ on the tab and
+       * `PanelActions` another beside it (#232).
+       */
+      chrome: owns && (area === 'main' || (alone && !collapsed)) ? 'own' : 'panel',
       zoom: snapshot.workbench.zoom?.area === area ? snapshot.workbench.zoom.scope : null,
       zoomScope: area === 'main' ? 'window' : 'content',
       setZoom: (next: Zoom['scope']) => {

@@ -149,6 +149,11 @@ const SplitView = ({ split }: { split: Split }) => {
   }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    /* A grab already held is a second pointer on the seam — a second finger, a
+       pen beside a mouse. `stop` runs once however many pointers went down, so
+       a second `beginResize` here is a suppression nothing gives back, and the
+       window keeps `data-hd-resizing` for the rest of the session (#252). */
+    if (grab.current !== null) return
     const bounds = container.current?.getBoundingClientRect()
     if (!bounds) return
     event.preventDefault()
