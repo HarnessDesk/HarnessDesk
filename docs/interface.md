@@ -161,6 +161,14 @@ nothing, having no window buttons to clear.
 sessions, files (through the runtime's own search), and slash commands,
 grouped in a fixed order and scored within each group.
 
+**⌘[ and ⌘] step back and forward** through what the middle has shown — a
+conversation or a room — and `/back` and `/forward` are the same pair in the
+palette and the composer. The header's arrows do the same thing and fold away
+in a header under 520px, which a wide window reaches as soon as a panel is
+docked and the sidebar is away; the keys do not depend on that room. While a
+browser pane is the one you are working in, the same two keys step that
+page's history instead, as its other browser keys do.
+
 ## The sidebar
 
 Three slots at the top, because that space is the most valuable in the app and

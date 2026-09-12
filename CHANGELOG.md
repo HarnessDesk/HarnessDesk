@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Back and forward have keys, and commands** — ⌘[ and ⌘] step back and
+  forward through what the middle has shown, and `/back` and `/forward` do the
+  same from the palette and the composer. The header's two arrows were the only
+  way to either, and a header narrower than 520px folds them — which an
+  ordinary wide window reaches as soon as a panel is docked and the sidebar is
+  away, leaving history two presses and a layout change out of reach. The
+  arrows are unchanged; this is a second way in, and it does not depend on how
+  much room the header has. While a browser pane is the one you are working in,
+  the same two keys step that page's history instead, as its other browser keys
+  already do.
 - **A plugin's Access list says what the plugin may actually do** — the list on
   a plugin's page wrote its own sentences rather than the ones the install
   dialog had already shown, and had drifted from them. A plugin allowed to

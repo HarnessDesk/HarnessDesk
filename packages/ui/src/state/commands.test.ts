@@ -5,7 +5,7 @@ import { sessionKey, type ConfigOption, type Session } from '@harnessdesk/protoc
 import { emptyLayout } from './layout'
 
 import { BUILTIN_COMMANDS, availableCommands, matchCommands, optionCommands } from './commands'
-import type { AppSnapshot } from './store'
+import type { AppSnapshot, AppStore } from './store'
 
 /**
  * Command resolution. The property that matters most: a plugin-contributed
@@ -262,5 +262,73 @@ describe('the scope a contribution declares', () => {
       inConversation([command('here', { kind: 'session', sessionId: 's1' })]),
     ).map((entry) => entry.name)
     expect(names).toContain('here')
+  })
+})
+
+/**
+ * Back and forward, as entries in the shared list.
+ *
+ * The window controls' two arrows were the only callers of `navigateBack` and
+ * `navigateForward`, and the header folds them under 520px (#254). A command
+ * is the route that no width can take — the palette and the composer read this
+ * list, so one entry is both. What makes the entry worth anything is the verb
+ * behind it: a command registered against nothing would satisfy "the palette
+ * offers Back" and do nothing when chosen, so these run it and watch.
+ */
+describe('back and forward', () => {
+  const wherever = (overrides: Partial<AppSnapshot>): AppSnapshot =>
+    snapshot(overrides as Partial<AppSnapshot>)
+
+  const spy = () => {
+    const went: string[] = []
+    const store = {
+      navigateBack: async () => void went.push('back'),
+      navigateForward: async () => void went.push('forward'),
+    } as unknown as AppStore
+    return { store, went }
+  }
+
+  const named = (name: string, snap: AppSnapshot) =>
+    availableCommands(snap).find((command) => command.name === name)
+
+  test('are offered once there is somewhere to go', () => {
+    const names = availableCommands(
+      wherever({ navCanBack: true, navCanForward: true } as Partial<AppSnapshot>),
+    ).map((command) => command.name)
+    expect(names).toContain('back')
+    expect(names).toContain('forward')
+  })
+
+  test('and step the history rather than merely existing', async () => {
+    const snap = wherever({ navCanBack: true, navCanForward: true } as Partial<AppSnapshot>)
+
+    const back = spy()
+    const backCommand = named('back', snap)
+    expect(backCommand?.kind.type).toBe('action')
+    if (backCommand?.kind.type !== 'action') return
+    await backCommand.kind.run(back.store, '')
+    expect(back.went).toEqual(['back'])
+
+    const forward = spy()
+    const forwardCommand = named('forward', snap)
+    if (forwardCommand?.kind.type !== 'action') return
+    await forwardCommand.kind.run(forward.store, '')
+    // Each reaches its own verb: one wired to the other would pass a test that
+    // only asked whether *something* was called.
+    expect(forward.went).toEqual(['forward'])
+  })
+
+  test('and are withdrawn, each on its own, when that way is a dead end', () => {
+    const onlyBack = availableCommands(
+      wherever({ navCanBack: true, navCanForward: false } as Partial<AppSnapshot>),
+    ).map((command) => command.name)
+    expect(onlyBack).toContain('back')
+    expect(onlyBack).not.toContain('forward')
+
+    const neither = availableCommands(wherever({})).map((command) => command.name)
+    expect(neither).not.toContain('back')
+    expect(neither).not.toContain('forward')
+    // Control: withdrawing those two did not empty the list.
+    expect(neither).toContain('new')
   })
 })

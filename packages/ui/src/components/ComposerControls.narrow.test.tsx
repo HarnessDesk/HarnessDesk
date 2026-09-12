@@ -161,6 +161,52 @@ it('folds the model’s name with every other word when the toolbar is narrow', 
   expect(model().getAttribute('aria-label')).toBe('Small · medium — model and reasoning')
 })
 
+/**
+ * The fold happens at the width the constant names, and nothing straddles it.
+ *
+ * #145 reported the model as the one control that kept its label when the rest
+ * dropped to glyphs, and #192 settled it the way this file's other tests
+ * describe — the name folds with the words. What nothing held was the *edge*:
+ * both existing tests sit well clear of it (500 and 700), so the exception
+ * could come back anywhere between them, or the threshold could move, without
+ * a red. A boundary is the only place this rule can break quietly.
+ */
+it('folds at the width the constant names, and not a pixel earlier', () => {
+  // 560 is the constant: narrow is `width < NARROW_TOOLBAR`, so the width
+  // itself still has the room.
+  draw(560)
+  expect(triggers()).toHaveLength(2)
+  expect(model().textContent).toContain('Small')
+  expect(model().title).toBe('Model and reasoning')
+
+  resize(559)
+  // One pixel under, and the words are gone — the model's with them.
+  for (const trigger of triggers()) expect(trigger.textContent?.trim()).toBe('')
+  expect(model().title).toBe('Small · medium — model and reasoning')
+
+  // And it is a threshold, not a one-way trip.
+  resize(560)
+  expect(model().textContent).toContain('Small')
+})
+
+/**
+ * Above the fold nobody is the exception either — in the other direction.
+ *
+ * The narrow test asserts every control is down to its mark. This is the same
+ * question asked of the wide side: the model says its name *and so does its
+ * neighbour*, so a change that folded the model alone to buy room would be as
+ * visible as the one that kept it alone.
+ */
+it('keeps every control’s words, the model’s among them, while there is room', () => {
+  draw(700)
+  expect(triggers()).toHaveLength(2)
+  for (const trigger of triggers()) expect(trigger.textContent?.trim()).not.toBe('')
+  // The permission control is the neighbour, saying its own current choice.
+  const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
+  expect(permission?.textContent).toContain('Ask first')
+  expect(model().textContent).toContain('Small')
+})
+
 it('keeps the chevrons while there is room for them, and folds them at a phone’s width', () => {
   draw(500)
   expect(triggers()).toHaveLength(2)

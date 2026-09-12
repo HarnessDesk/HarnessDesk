@@ -281,6 +281,8 @@ desktop app) and passes them to the agent environment at startup.
 | `⌘U` | Dashboard |
 | `⌘K` | Command palette |
 | `⌘W` | Close the focused pane |
+| `⌘[` | Back, to what the middle showed before |
+| `⌘]` | Forward, after going back |
 | `Enter` | Send — while a turn runs, queue for when it ends |
 | `⌘Enter` | Steer the running turn, where the agent can |
 | `⇧Enter` | New line |

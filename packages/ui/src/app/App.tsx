@@ -98,6 +98,12 @@ export const App = () => {
         case 'toggle-sidebar':
           store.toggleSidebar()
           return
+        case 'nav-back':
+          void store.navigateBack()
+          return
+        case 'nav-forward':
+          void store.navigateForward()
+          return
         case 'show-changes':
           store.setDetailsTab('changes')
           return
