@@ -173,3 +173,20 @@ test('a runtime that goes away takes its shells with it', async () => {
   await terminals.dispose()
   assert.equal(kills, 2, 'dispose then kills the one still running, and not the dead one again')
 })
+
+/**
+ * The chip is read by a model and by a person, and a file link is exactly the
+ * part of a line either of them wants. The escapes are shared with the
+ * transcript and the test plugin now (#233); this holds the chip to the two
+ * shapes the shared rule brought with it.
+ */
+test('an OSC 8 file link keeps its text, and a charset escape leaves nothing behind (#233)', () => {
+  const ESC = '\u001b'
+  assert.equal(
+    plainTerminalText(`FAIL ${ESC}]8;;file:///w/src/auth.test.ts${ESC}\\ src/auth.test.ts:42 ${ESC}]8;;${ESC}\\ done`),
+    'FAIL  src/auth.test.ts:42  done',
+  )
+  // ESC ( B is what `tput sgr0` resets with; it is neither a CSI nor a
+  // two-byte escape, and it used to reach the chip whole.
+  assert.equal(plainTerminalText(`${ESC}(B${ESC}[mplain`), 'plain')
+})

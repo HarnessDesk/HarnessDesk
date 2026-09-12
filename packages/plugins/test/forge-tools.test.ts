@@ -429,3 +429,186 @@ test('a body copied out of a read and passed back without the mark still loses e
     'the line the desk signed with last time, read off GitHub’s copy, is the one replaced',
   )
 })
+
+test('a fence is closed by its own character, at its own length, with nothing after it (#157)', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const sample = `sample ${SIGNATURE_MARK}`
+  /* GitHub does not treat the two fence characters as interchangeable, and one
+     toggled flag cannot say which opened the block. Each body below ends
+     *inside* a fence, so every mark in it is the author's and the desk has
+     none of its own: a body that reads one of them as the desk's line deletes
+     a line of somebody's code block on the next pr_update. */
+  const inside = [
+    // A tilde fence inside a backtick fence, and the reverse.
+    ['```', '~~~', sample, '~~~', '```'],
+    ['~~~', '```', sample, '```', '~~~'],
+    // Four backticks quoting a three-backtick sample: how a description shows
+    // a fenced block at all, and the commonest of these shapes by far.
+    ['````', '```', sample, '```', '````'],
+    // A closing fence carries no info string, so the ```js is content.
+    ['```', '```js', sample, '```'],
+    // Unclosed, which CommonMark runs to the end of the document.
+    ['```', sample],
+  ]
+  for (const lines of inside) {
+    const body = lines.join('\n')
+    assert.equal(previousSignature(body), null, body)
+    assert.equal(signBody(body, line), `${body}\n\n${line} ${SIGNATURE_MARK}`, body)
+  }
+  // A body GitHub hands back with CRLF endings closes its fences the same way.
+  assert.equal(previousSignature(`\`\`\`\r\n${sample}\r\n\`\`\`\r\nOld line ${SIGNATURE_MARK}`), 'Old line')
+  // Controls, true before this rule and after it: a plain fence hides its
+  // mark, and a mark outside every fence is the desk's own line.
+  assert.equal(previousSignature(['```', sample, '```'].join('\n')), null)
+  assert.equal(previousSignature(`Old line ${SIGNATURE_MARK}`), 'Old line')
+})
+
+test('a fence indented under a list or a quote is still a fence, and the mark in it is the author’s (#275 r1)', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const sample = `sample ${SIGNATURE_MARK}`
+  /* CommonMark puts a fenced block inside a list item at its container's
+     indent plus up to three, so four spaces under `- item` is an ordinary
+     fence rather than an indented code block. Reading only `^ {0,3}` put the
+     reader *outside* these fences, and that is the direction that deletes:
+     the mark in the sample reads as the desk's own line, and the next
+     pr_update splices out that line of somebody's code. Every body here ends
+     inside a fence, so the desk has no line of its own in any of them. */
+  const inside = [
+    // A fenced sample under a list item, at the container's indent plus two.
+    ['- item', '', '    ```', `    ${sample}`, '    ```'],
+    // A nested list indents its container further still.
+    ['- outer', '  - inner', '', '      ```', `      ${sample}`, '      ```'],
+    // A blockquote's marker is depth of another kind, and was never read as
+    // depth at all — this shape mis-read before the fence rules as well.
+    ['> ```', `> ${sample}`, '> ```'],
+    ['- item', '', '  > ```', `  > ${sample}`, '  > ```'],
+    // Deep enough that CommonMark calls it an indented code block rather than
+    // a fence. The mark inside one is still not the desk's line, so reading
+    // it as fenced is the harmless way to be wrong.
+    ['Prose:', '', '        ```', `        ${sample}`, '        ```'],
+  ]
+  for (const lines of inside) {
+    const body = lines.join('\n')
+    assert.equal(previousSignature(body), null, body)
+    assert.equal(signBody(body, line), `${body}\n\n${line} ${SIGNATURE_MARK}`, body)
+  }
+  // A fence left open inside a quote is not closed by the bare fence below
+  // the quote: CommonMark opens a new block there, so the line under it is
+  // the author's on either reading, and counting `>` as depth is what sees
+  // it. Reading `>` as nothing at all made this line the desk's.
+  assert.equal(previousSignature(['> ```', '> a', '```', `Old line ${SIGNATURE_MARK}`].join('\n')), null)
+  // A top-level block whose *content* is an indented fence line. Closing on
+  // depth it never opened at would end the block there and expose the sample
+  // under it — which is exactly how the rule before #157 read this shape, and
+  // what reading any indent as an opener would bring back without this.
+  assert.equal(previousSignature(['```', '    ```', sample, '```'].join('\n')), null)
+  // Controls, true before this rule and after it. An indented fence still
+  // *closes*, which is what keeps the looseness from reading a whole body as
+  // one unterminated block: the desk's own line below the sample is found and
+  // replaced, not appended to.
+  const closed = ['- item', '', '    ```', `    ${sample}`, '    ```', '', `Old line ${SIGNATURE_MARK}`]
+  assert.equal(previousSignature(closed.join('\n')), 'Old line')
+  assert.equal(signBody(closed.join('\n'), line), [...closed.slice(0, -1), `${line} ${SIGNATURE_MARK}`].join('\n'))
+  // And the three rules #157 fixed hold at depth too: the longer fence a
+  // description quotes a sample with is not closed by the shorter one inside
+  // it, so the line below the real close is the desk's.
+  const quoted = ['- item', '', '    ````', '    ```', `    ${sample}`, '    ```', '    ````', '', `Old line ${SIGNATURE_MARK}`]
+  assert.equal(previousSignature(quoted.join('\n')), 'Old line')
+  // An indent of three or less was always read as a fence.
+  assert.equal(previousSignature(['1. item', '', '   ```', `   ${sample}`, '   ```'].join('\n')), null)
+  assert.equal(previousSignature(`Old line ${SIGNATURE_MARK}`), 'Old line')
+})
+
+test('a quoted fence does not close an indented one, and a body that ends inside a fence has no line to replace (#275 r2)', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const sample = `sample ${SIGNATURE_MARK}`
+  /* Whitespace and `>` are different kinds of depth, and one bought its way
+     past the other while both were measured as the length of one prefix:
+     `> ` is shorter than four spaces and deeper in quotes at the same time,
+     so a quoted fence under an opener indented four satisfied `indent <=
+     openIndent` *and* `quotes >= openQuotes` at once and closed a block
+     CommonMark still reads as open. Every body here ends inside a fence, so
+     every mark in it is the author's; reading one as the desk's own line
+     splices a line of somebody's code block out on the next pr_update. */
+  const inside = [
+    ['- item', '', '    ```', '    code before', '> ```', `    ${sample}`],
+    ['    ```', '    code', '> ```', sample],
+    ['    ```', `    ${sample}`, '> ```', `below the false close ${SIGNATURE_MARK}`],
+    ['    ~~~', '    code', '> ~~~', sample],
+  ]
+  for (const lines of inside) {
+    const body = lines.join('\n')
+    assert.equal(previousSignature(body), null, body)
+    assert.equal(signBody(body, line), `${body}\n\n${line} ${SIGNATURE_MARK}`, body)
+  }
+  // A run-on costs only a duplicated line while there is no earlier mark to
+  // fall back on. Here the quote's fence is never closed and swallows the
+  // desk's own line, and the marked line above it is the author's — pasted
+  // out of another description — so handing that back is a deletion rather
+  // than a duplicate. A body ending inside a fence yields no line at all.
+  const swallowed = [`Pasted from another description ${SIGNATURE_MARK}`, '> ```', '> code', `Old line ${SIGNATURE_MARK}`]
+  assert.equal(previousSignature(swallowed.join('\n')), null)
+  assert.equal(signBody(swallowed.join('\n'), line), `${swallowed.join('\n')}\n\n${line} ${SIGNATURE_MARK}`)
+  // Controls, true before this rule and after it. A fence opened inside a
+  // quote still closes inside the same quote, at that depth or a shallower
+  // indent, and the desk's line below it is replaced rather than appended to.
+  const quoted = ['> ```', `> ${sample}`, '> ```', '', `Old line ${SIGNATURE_MARK}`]
+  assert.equal(previousSignature(quoted.join('\n')), 'Old line')
+  assert.equal(signBody(quoted.join('\n'), line), [...quoted.slice(0, -1), `${line} ${SIGNATURE_MARK}`].join('\n'))
+  assert.equal(previousSignature(['  > ```', '  > code', '> ```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
+  // A fence opened deeper in `>` is not closed by a shallower one, nor by a
+  // wider indent inside the same quote.
+  assert.equal(previousSignature(['> > ```', `> > ${sample}`, '> ```', `Old line ${SIGNATURE_MARK}`].join('\n')), null)
+  assert.equal(previousSignature(['> ```', '> code', '>     ```', sample].join('\n')), null)
+  // And round 1's list-indented close still fires.
+  assert.equal(previousSignature(['- item', '', '    ```', `    ${sample}`, '    ```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
+})
+
+test('a tab does not close a fence that spaces opened, and whitespace is matched letter for letter (#275 r3)', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const sample = `sample ${SIGNATURE_MARK}`
+  /* The whitespace before a fence was a count of characters, and a tab is one
+     character while being nothing like one space: a tab closer measured one
+     against a four-space opener's four and closed a block CommonMark reads as
+     open — r2's deletion by another route, reachable by opening a fence in one
+     editor and closing it in another. Counting CommonMark's columns instead
+     does not repair it, since a tab from column 0 and four spaces both stand
+     at column 4 and `4 <= 4` closes, and it turns the safe reverse into a
+     second deletion; so the whitespace is compared as the text it is. Every
+     body here ends inside a fence, so every mark in it is the author's. */
+  const inside = [
+    // The measured shape: a four-space opener, a tab offered as its close.
+    ['    ```', '    code', '\t```', `    ${sample}`],
+    // The reverse, safe under the count as well: four spaces do not close a
+    // tab-indented opener.
+    ['\t```', '\tcode', '    ```', `    ${sample}`],
+    // The same pair inside a quote, where the whitespace stands after the
+    // marker and the two quote depths match.
+    ['> ```', '> code', '>\t```', sample],
+    ['>\t```', '>\tcode', '> ```', sample],
+    // A tab against a space-then-tab: shorter than its opener, and still not
+    // the text its opener stood on.
+    [' \t```', ' \tcode', '\t```', sample],
+    // The tilde twin of the first, since the whitespace rule knows nothing of
+    // which character opened the fence.
+    ['    ~~~', '    code', '\t~~~', `    ${sample}`],
+  ]
+  for (const lines of inside) {
+    const body = lines.join('\n')
+    assert.equal(previousSignature(body), null, body)
+    assert.equal(signBody(body, line), `${body}\n\n${line} ${SIGNATURE_MARK}`, body)
+  }
+  // Controls, true before this rule and after it, and the reason it is not
+  // simply "a tab closes nothing": a tab-indented fence closes on its own tab,
+  // and on the empty prefix of it, so the desk's own line below one is
+  // replaced rather than appended to.
+  const tabbed = ['\t```', `\t${sample}`, '\t```', '', `Old line ${SIGNATURE_MARK}`]
+  assert.equal(previousSignature(tabbed.join('\n')), 'Old line')
+  assert.equal(signBody(tabbed.join('\n'), line), [...tabbed.slice(0, -1), `${line} ${SIGNATURE_MARK}`].join('\n'))
+  assert.equal(previousSignature(['\t```', `\t${sample}`, '```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
+  // And spaces answer exactly as counting them answered, which is what keeps
+  // every row of r1's and r2's tables where it was: a shallower close still
+  // closes, a deeper one still does not.
+  assert.equal(previousSignature(['    ```', `    ${sample}`, '  ```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
+  assert.equal(previousSignature(['  ```', '  code', '    ```', sample].join('\n')), null)
+})

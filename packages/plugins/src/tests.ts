@@ -1,6 +1,6 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 
-import type { ScopeQuery } from '@harnessdesk/protocol'
+import { stripEscapes, type ScopeQuery } from '@harnessdesk/protocol'
 
 import { PerSession } from './session-state.js'
 
@@ -78,15 +78,15 @@ export const extractFailures = (output: string): readonly string[] => failuresIn
 /**
  * A runner's output without its escape codes. A runner that forces colour
  * wraps the keyword in them, and a `FAIL` behind one never matched (#174).
- * Every shape a runner writes goes: CSI with any parameters, the cursor's
- * `?25l` among them; OSC to BEL or to ESC-backslash, which is how vitest and
- * jest write a file link; the charset escapes, `ESC ( B` among them, which is
- * how `tput sgr0` resets; and the two-byte escapes. Plain SGR alone left a
- * hidden cursor in front of `FAIL` and a link's bytes in the entry (review of
- * #221, rounds 1 and 2).
+ *
+ * The rule is `stripEscapes`, shared with the transcript and the terminal
+ * chip since #233 — this one had learned the most and the other two had not
+ * learned it: CSI with any parameters, the cursor's `?25l` among them; OSC to
+ * BEL or to ESC-backslash taken lazily, which is how vitest and jest write a
+ * file link; the charset escapes, `ESC ( B` among them, which is how `tput
+ * sgr0` resets; and the two-byte escapes.
  */
-export const withoutEscapes = (output: string): string =>
-  output.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[ -/]+[0-~]|\x1b[@-Z\\-_]/g, '')
+export const withoutEscapes = (output: string): string => stripEscapes(output)
 
 /** The failures in output whose escapes are out already. */
 const failuresIn = (plain: string): readonly string[] => {

@@ -38,7 +38,12 @@ Every agent understands Markdown.
 The packet is built by `packages/ui/src/lib/handoff.ts` and wrapped in a
 context envelope (`<context source="Handed off from <agent> — “<title>”">`):
 
-- **Lineage**: names the originating agent and conversation title.
+- **Lineage**: names the originating agent and conversation title. A
+  conversation that was itself opened by a hand-off is called by that
+  hand-off’s label, so the next packet is named for the work rather than for
+  the packet that carried it, with the agent just left recorded once after it
+  — `Handed off from Gemini CLI — “Migrate webhooks” (via Claude Code)`. A
+  chain stays one line deep however many hops it runs.
 - **`## Goal`**: the original objective. A hand-off hop usually starts with
   instructions like "take it from here", but `carriedGoal` preserves the root
   objective across chains of hand-offs so the original goal is never lost.

@@ -21,3 +21,24 @@ test('leaves brackets that are not escape parameters alone', () => {
   expect(stripAnsi(snapshot)).toBe(snapshot)
   expect(stripAnsi('plain text')).toBe('plain text')
 })
+
+test('an OSC 8 file link keeps the text it wrapped (#233)', () => {
+  /* vitest and jest write a failing file as a link. The OSC clause that used
+     to live here excluded BEL from its body but not ESC, so the match ran
+     from the link's opening to the last terminator on the line and carried
+     the file and line away with it: this whole line read `FAIL  done`. */
+  const ESC = '\u001b'
+  expect(stripAnsi(`FAIL ${ESC}]8;;file:///w/src/auth.test.ts${ESC}\\ src/auth.test.ts:42 ${ESC}]8;;${ESC}\\ done`)).toBe(
+    'FAIL  src/auth.test.ts:42  done',
+  )
+  // The same link written with the other terminator, which always worked.
+  expect(stripAnsi(`FAIL ${ESC}]8;;file:///w/a.test.ts\u0007a.test.ts:42${ESC}]8;;\u0007 done`)).toBe(
+    'FAIL a.test.ts:42 done',
+  )
+})
+
+test('the charset escape `tput sgr0` resets with leaves no ESC in the transcript', () => {
+  // ESC ( B is neither a CSI nor a two-byte escape, and used to survive whole.
+  const ESC = '\u001b'
+  expect(stripAnsi(`${ESC}(B${ESC}[mplain`)).toBe('plain')
+})

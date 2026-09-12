@@ -411,3 +411,42 @@ describe('the files a packet lists', () => {
     expect(packet).toContain('- `count.ts` — update (+1 −0)')
   })
 })
+
+describe('the lineage of a chain', () => {
+  /* A conversation opened by a hand-off is called by that hand-off's label
+     (#231), so naming the next packet after it wrote the first hop inside the
+     second, smart quotes and all — and a layer more for every hop after
+     that (#249). */
+  it('names the work and the agent just left, not the packet that carried it', () => {
+    const handed = session({ title: null, preview: 'Handed off from Claude Code — “Migrate webhooks”' })
+    expect(lineageLine({ agentName: 'Gemini CLI', session: handed })).toBe(
+      'Handed off from Gemini CLI — “Migrate webhooks” (via Claude Code)',
+    )
+  })
+
+  it('stays one line deep however many hops it runs', () => {
+    // The label the hop above produced, read back as the next hop's source.
+    const twice = session({ title: 'Handed off from Gemini CLI — “Migrate webhooks” (via Claude Code)' })
+    expect(lineageLine({ agentName: 'Codex', session: twice })).toBe(
+      'Handed off from Codex — “Migrate webhooks” (via Gemini CLI)',
+    )
+    // A packet written before this rule, with one hop nested in the next,
+    // still collapses to the work it was always about.
+    const nested = session({ title: 'Handed off from Gemini CLI — “Handed off from Claude Code — “Migrate webhooks””' })
+    expect(lineageLine({ agentName: 'Codex', session: nested })).toBe(
+      'Handed off from Codex — “Migrate webhooks” (via Gemini CLI)',
+    )
+  })
+
+  it('and the packet a chained hand-off builds carries that label', () => {
+    const chained = session({ title: 'Handed off from Claude Code — “Build the pong game”' })
+    expect(buildHandoff({ agentName: 'Gemini CLI', session: chained }, 'summary')!).toContain(
+      '<context source="Handed off from Gemini CLI — “Build the pong game” (via Claude Code)">',
+    )
+  })
+
+  it('control: a conversation named by its own work is still named by it', () => {
+    expect(lineageLine(source)).toBe('Handed off from Claude Code — “Build the pong game”')
+    expect(lineageLine({ agentName: 'X', session: session({ title: null, preview: 'hi there' }) })).toContain('“hi there”')
+  })
+})
