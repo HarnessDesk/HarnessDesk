@@ -1383,3 +1383,17 @@ test('a profile written through app/state/set replaces the stored one whole, and
   await client.call('app/state/set', { patch: { profile: {} } })
   assert.deepEqual(await stored(), {})
 })
+
+test('app/state/set wire call rejects when state cannot be persisted to disk', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const stateFile = join(harness.stateDir, 'state.json')
+  await rm(stateFile, { force: true })
+  await mkdir(stateFile)
+
+  await assert.rejects(client.call('app/state/set', { patch: { theme: 'dark' } }))
+})
+

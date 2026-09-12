@@ -125,3 +125,27 @@ test('a preference is replaced whole — the merge is one level deep — and a r
   assert.deepEqual(again.state.preferences['profile'], {})
   assert.equal(again.state.preferences['theme'], 'dark')
 })
+
+test('a write failure rejects the caller, and the queue continues working for subsequent writes', async (t) => {
+  const dir = await dirFor()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const sub = join(dir, 'sub')
+  await writeFile(sub, 'blocking-file')
+
+  const store = new StateStore(join(sub, 'state.json'))
+  await store.load()
+
+  // The write must reject when the filesystem write fails, not swallow it (#306)
+  await assert.rejects(store.setPreferences({ theme: 'dark' }))
+
+  // Once the obstruction is removed, the subsequent write must succeed and not be poisoned
+  await rm(sub)
+  await assert.doesNotReject(store.setPreferences({ theme: 'light' }))
+  assert.equal(store.state.preferences['theme'], 'light')
+
+  // The control: a newly loaded store from the written file reads back the state
+  const reloaded = new StateStore(join(sub, 'state.json'))
+  await reloaded.load()
+  assert.equal(reloaded.state.preferences['theme'], 'light')
+})
+

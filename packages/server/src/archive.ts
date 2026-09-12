@@ -51,6 +51,7 @@ const keyOf = (runtime: string, id: string): string => `${runtime} ${id}`
 export class SessionArchive {
   readonly #entries = new Map<string, Entry>()
   #loaded = false
+  #loading: Promise<void> | null = null
   #writes: Promise<void> = Promise.resolve()
 
   constructor(private readonly file: string) {}
@@ -62,21 +63,27 @@ export class SessionArchive {
    */
   async load(): Promise<void> {
     if (this.#loaded) return
-    this.#loaded = true
-    try {
-      const parsed = JSON.parse(await readFile(this.file, 'utf8')) as Partial<Stored>
-      if (parsed.version !== FORMAT || !Array.isArray(parsed.entries)) return
-      for (const entry of parsed.entries) {
-        if (typeof entry?.runtime !== 'string' || typeof entry?.sessionId !== 'string') continue
-        this.#entries.set(keyOf(entry.runtime, entry.sessionId), {
-          runtime: entry.runtime,
-          sessionId: entry.sessionId,
-          archivedAt: typeof entry.archivedAt === 'number' ? entry.archivedAt : 0,
-        })
+    if (this.#loading) return this.#loading
+    this.#loading = (async () => {
+      try {
+        const parsed = JSON.parse(await readFile(this.file, 'utf8')) as Partial<Stored>
+        if (parsed.version !== FORMAT || !Array.isArray(parsed.entries)) return
+        for (const entry of parsed.entries) {
+          if (typeof entry?.runtime !== 'string' || typeof entry?.sessionId !== 'string') continue
+          this.#entries.set(keyOf(entry.runtime, entry.sessionId), {
+            runtime: entry.runtime,
+            sessionId: entry.sessionId,
+            archivedAt: typeof entry.archivedAt === 'number' ? entry.archivedAt : 0,
+          })
+        }
+      } catch {
+        // No archive yet, or one this build cannot read. Either is empty.
+      } finally {
+        this.#loaded = true
+        this.#loading = null
       }
-    } catch {
-      // No archive yet, or one this build cannot read. Either is empty.
-    }
+    })()
+    return this.#loading
   }
 
   has(runtime: RuntimeId, id: SessionId): boolean {
@@ -124,16 +131,17 @@ export class SessionArchive {
       null,
       2,
     )
-    this.#writes = this.#writes
-      .then(async () => {
-        await mkdir(dirname(this.file), { recursive: true })
-        // Write-then-rename, like every other file the host owns: a crash
-        // mid-write must not leave an archive that will not parse.
-        const temp = `${this.file}.${process.pid}.tmp`
-        await writeFile(temp, `${snapshot}\n`)
-        await rename(temp, this.file)
-      })
-      .catch(() => {})
-    await this.#writes
+    const previous = this.#writes
+    const current = (async () => {
+      await previous.catch(() => {})
+      await mkdir(dirname(this.file), { recursive: true })
+      // Write-then-rename, like every other file the host owns: a crash
+      // mid-write must not leave an archive that will not parse.
+      const temp = `${this.file}.${process.pid}.tmp`
+      await writeFile(temp, `${snapshot}\n`)
+      await rename(temp, this.file)
+    })()
+    this.#writes = current.catch(() => {})
+    await current
   }
 }
