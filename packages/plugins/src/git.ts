@@ -72,33 +72,55 @@ export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
  *
  * Indentation is read loosely on purpose, because the two ways of being
  * wrong are not equally bad. A line wrongly believed to be *inside* a fence
- * is merely not spliced — the desk appends its signature where it would have
- * replaced one, and a duplicated line is the whole cost. A line wrongly
- * believed to be *outside* one is spliced out of somebody else's pull
- * request body. So every doubt here resolves to "inside": any depth of
- * indent, and any depth of `>`, may open a fence — where CommonMark would
- * call four spaces an indented code block, and would allow a fence inside a
- * list item at its container's indent plus three (#275 r1). The container's
- * indent cannot be measured without a block parser, but the *opener's* can,
- * and that is enough: a fence closes only on a line no deeper in indent and
- * no shallower in `>` than the one that opened it. Both halves lean the same
- * way. A fence line deeper than its opener is content rather than a close,
- * and a fence left open inside a quote is not closed by the bare fence below
- * the quote — which CommonMark reads as opening a new block, so the line
- * under it is the author's on either reading.
+ * is ordinarily not spliced at all — the desk appends its signature where it
+ * would have replaced one, and a duplicated line is the whole cost. A line
+ * wrongly believed to be *outside* one is spliced out of somebody else's
+ * pull request body. So doubt resolves to "inside": any depth of indent, and
+ * any depth of `>`, may open a fence — where CommonMark would call four
+ * spaces an indented code block, and would allow a fence inside a list item
+ * at its container's indent plus three (#275 r1).
+ *
+ * The depth a fence closes at is two measurements rather than one, and they
+ * are counted apart: the whitespace before the fence, and the number of `>`
+ * before it. The invariant that holds is that a fence closes only on a line
+ * at *the same* quote depth and no deeper in whitespace than the one that
+ * opened it. Counting the `>` characters into the indent coupled the two
+ * clauses and let one pay for the other: `> ` is shorter than four spaces
+ * while being deeper in quotes, so a `> ` fence under an opener indented
+ * four satisfied both halves of `indent <= openIndent && quotes >=
+ * openQuotes` at once and closed a block CommonMark still reads as open
+ * (#275 r2). Equality on the quote depth is what forbids that; measuring
+ * whitespace apart from the markers is what keeps each clause meaning one
+ * thing. Both now lean the same way: a fence line deeper in whitespace than
+ * its opener is content rather than a close, and a fence left open inside a
+ * quote is not closed by the bare fence below the quote — which CommonMark
+ * reads as opening a new block, so the line under it is the author's on
+ * either reading.
  *
  * What the rule still cannot see is where a container begins or ends. It
  * never notices a list or a quote *ending*, so a fence the container closed
  * runs on here; nor does it model an indented code block, so a mark inside
- * one reads as fenced. A fence closed deeper than it opened runs on too. The
- * cost of every one of those is the same and it is paid in the safe
- * direction: a real signature below the run-on is not found, so the desk
- * appends its line where it would have replaced one. A duplicated signature
- * is a line that should have gone; never a line that should have stayed.
+ * one reads as fenced. A fence closed deeper than it opened, or at another
+ * quote depth, runs on too.
+ *
+ * A run-on usually costs a duplicated signature and nothing worse: the real
+ * line below it is not found, so the desk appends where it would have
+ * replaced. It is not always that cheap, and the claim that it always was is
+ * wrong (#275 r2). This returns the *last* marked line outside a fence, so a
+ * run-on that swallows the desk's own line hands back an earlier marked line
+ * in its place — an author's, pasted out of another description — and that
+ * is the line the next update splices. A body that ends inside an open fence
+ * therefore yields no line at all rather than an earlier one, which covers
+ * every body the desk itself wrote, since the line the desk writes is always
+ * the last. What is left is an agent-supplied body carrying a mark above a
+ * run-on that closes again further down; seeing that needs the block parser
+ * this deliberately is not, and it costs a duplicated line rather than a
+ * deleted one only as long as no false close intervenes.
  */
 const markedLineIn = (lines: readonly string[]): number | null => {
   // The fence standing open: which character opened it, how many of them
-  // there were, and how deep it sat. Empty means the reader is outside one.
+  // there were, and how deep it sat — in whitespace and in `>` apart, since
+  // they are different kinds of depth. Empty means the reader is outside one.
   let openChar = ''
   let openLength = 0
   let openIndent = 0
@@ -107,10 +129,12 @@ const markedLineIn = (lines: readonly string[]): number | null => {
   for (const [index, line] of lines.entries()) {
     // Whitespace and blockquote markers both count as depth: a fence under a
     // list item or inside a quote is a fence, and reading it as anything else
-    // is what deletes somebody's line.
+    // is what deletes somebody's line. They are counted apart, so that adding
+    // a `>` cannot buy a line its way past the whitespace clause.
     const fence = /^([\s>]*)(`{3,}|~{3,})(.*)$/.exec(line)
-    const indent = fence?.[1]?.length ?? 0
-    const quotes = (fence?.[1]?.match(/>/g) ?? []).length
+    const prefix = fence?.[1] ?? ''
+    const quotes = (prefix.match(/>/g) ?? []).length
+    const indent = prefix.length - quotes
     const marks = fence?.[2] ?? ''
     // Whatever follows the fence characters: an info string on an opening
     // fence, and on a closing one only whitespace — a trailing carriage
@@ -118,7 +142,7 @@ const markedLineIn = (lines: readonly string[]): number | null => {
     // endings it was written with.
     const after = fence?.[3] ?? ''
     if (openChar !== '') {
-      if (marks.startsWith(openChar) && marks.length >= openLength && indent <= openIndent && quotes >= openQuotes && after.trim() === '') {
+      if (marks.startsWith(openChar) && marks.length >= openLength && quotes === openQuotes && indent <= openIndent && after.trim() === '') {
         openChar = ''
         openLength = 0
         openIndent = 0
@@ -137,7 +161,11 @@ const markedLineIn = (lines: readonly string[]): number | null => {
     }
     if (/<!-- harnessdesk:signature -->\s*$/.test(line)) found = index
   }
-  return found
+  // A body that ends inside a fence is one this reader lost track of, and the
+  // last line it saw outside one is not the desk's — the desk's is the last
+  // line of all, and the run-on swallowed it. Handing back the line above
+  // instead would splice whatever the author had pasted there.
+  return openChar === '' ? found : null
 }
 
 /**
