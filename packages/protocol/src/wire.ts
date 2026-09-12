@@ -141,12 +141,23 @@ export interface GitFileStatus {
   readonly staged: boolean
 }
 
+/** An operation a commit concludes, rather than one a commit begins. */
+export type GitConclusion = 'merge' | 'cherry-pick' | 'revert'
+
 export interface GitStatus {
   readonly root: string
   readonly branch?: string | null
   readonly ahead: number
   readonly behind: number
   readonly files: readonly GitFileStatus[]
+  /**
+   * What a commit here would conclude, when one of those is underway; `null`
+   * for an ordinary commit. It decides the *shape* that commit has to take
+   * rather than decorating it — measured on git 2.50.1, `git commit --
+   * <paths>` is refused outright while `MERGE_HEAD` or `CHERRY_PICK_HEAD`
+   * exists — so a surface that offers a narrower commit needs to know.
+   */
+  readonly concluding?: GitConclusion | null
 }
 
 /** One commit as the history table shows it. Times are epoch milliseconds. */
@@ -1472,8 +1483,9 @@ export interface HostMethods {
   /**
    * Stages and commits: the named files exactly (untracked ones included,
    * a staged rename widened to carry its origin), or, without `paths`,
-   * everything — which is also how a conflicted merge or revert is
-   * concluded. An explicitly empty list refuses rather than widening.
+   * everything — which is the only shape that concludes a merge, a
+   * cherry-pick or a revert. Naming paths during one of those refuses, as
+   * does an explicitly empty list; neither widens quietly to everything.
    */
   'git/commitAll': {
     params: { readonly root: string; readonly message: string; readonly paths?: readonly string[] }

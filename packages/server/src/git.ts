@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
+import { access } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 import { parsePorcelain } from './porcelain.js'
-import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
+import type { GitConclusion, GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 /** Git status and diffs for the changes view. Read-only: nothing here mutates a repo. */
 
@@ -29,6 +31,56 @@ const STATUS_CODES: Record<string, GitFileStatus['status']> = {
 /** The states git reports while a merge is unresolved (git-status(1), "Short Format"). */
 const UNMERGED = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'])
 
+/**
+ * The pseudo-refs `git commit` looks for, and what each says it is
+ * concluding. In git's order: `determine_whence` reads `MERGE_HEAD` first
+ * and asks the sequencer afterwards.
+ */
+const CONCLUSIONS = [
+  ['MERGE_HEAD', 'merge'],
+  ['CHERRY_PICK_HEAD', 'cherry-pick'],
+  ['REVERT_HEAD', 'revert'],
+] as const satisfies readonly (readonly [string, GitConclusion])[]
+
+/**
+ * What a commit in this repository would conclude, or `null` for an ordinary
+ * one — the evidence a commit's *shape* is chosen on, so that the choice is
+ * never inferred from something else.
+ *
+ * These are the files `git commit` itself consults to decide what it is
+ * finishing, so asking the same question of the same files cannot disagree
+ * with git about the answer. Asked through `rev-parse --git-path`, which
+ * finds them where they actually are: inside a linked worktree `.git` is a
+ * file, the pseudo-refs live in that worktree's own directory under the main
+ * repository, and `<root>/.git/MERGE_HEAD` would miss every merge.
+ *
+ * Measured on git 2.50.1: a partial commit is refused outright while
+ * `MERGE_HEAD` exists ("cannot do a partial commit during a merge") or
+ * `CHERRY_PICK_HEAD` does ("… during a cherry-pick"). A revert's is not —
+ * `git commit` never reads `REVERT_HEAD` — but the partial commit it takes
+ * there clears the pseudo-ref and records a commit that says it is the
+ * revert while holding only part of it, so all three are reported alike and
+ * `commitAll` treats them alike.
+ */
+export const concluding = async (root: string): Promise<GitConclusion | null> => {
+  const args = CONCLUSIONS.flatMap(([file]) => ['--git-path', file])
+  const printed = await git(root, ['rev-parse', ...args]).catch(() => '')
+  const where = printed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  if (where.length !== CONCLUSIONS.length) return null
+  for (const [index, [, what]] of CONCLUSIONS.entries()) {
+    const path = resolve(root, where[index] ?? '')
+    const there = await access(path).then(
+      () => true,
+      () => false,
+    )
+    if (there) return what
+  }
+  return null
+}
+
 /** Returns null when `root` is not inside a repository, which is not an error. */
 export const status = async (root: string): Promise<GitStatus | null> => {
   let top: string
@@ -38,9 +90,10 @@ export const status = async (root: string): Promise<GitStatus | null> => {
     return null
   }
 
-  const [branch, porcelain] = await Promise.all([
+  const [branch, porcelain, underway] = await Promise.all([
     git(top, ['rev-parse', '--abbrev-ref', 'HEAD']).then((out) => out.trim()).catch(() => null),
     git(top, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']).catch(() => ''),
+    concluding(top),
   ])
 
   const files: GitFileStatus[] = []
@@ -75,7 +128,14 @@ export const status = async (root: string): Promise<GitStatus | null> => {
     // No upstream configured; leaving both at zero is the honest answer.
   }
 
-  return { root: top, branch: branch && branch !== 'HEAD' ? branch : null, ahead, behind, files }
+  return {
+    root: top,
+    branch: branch && branch !== 'HEAD' ? branch : null,
+    ahead,
+    behind,
+    files,
+    concluding: underway,
+  }
 }
 
 export const diff = async (

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { GitFileStatus } from '@harnessdesk/protocol'
+import type { GitConclusion, GitFileStatus } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -18,6 +18,13 @@ import { CommitDialog } from './GitDialogs'
  * tree, it is in no commit and in no tree. The row says it records nothing,
  * carries no box to check, and is left out of the pathspecs the commit is
  * asked with (#248).
+ *
+ * Which of the two shapes the commit is asked in is the other half, and it is
+ * decided on the repository's state: a merge, cherry-pick or revert is
+ * concluded by one commit of the whole tree, whatever the rows say. Reading
+ * the shape off the rows instead meant an `AD` row — a row with no box, so
+ * never one of the chosen — forced pathspecs, and pathspecs during a merge are
+ * `fatal: cannot do a partial commit during a merge` (measured, git 2.50.1).
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -52,10 +59,10 @@ const FILES: GitFileStatus[] = [
 ]
 
 /** Renders the dialog over one `git/status` answer; returns the transport spy. */
-const show = async (files: readonly GitFileStatus[]) => {
+const show = async (files: readonly GitFileStatus[], concluding: GitConclusion | null = null) => {
   const request = vi.fn(async (method: string, _params?: unknown) =>
     method === 'git/status'
-      ? { root: '/w', branch: 'main', ahead: 0, behind: 0, files }
+      ? { root: '/w', branch: 'main', ahead: 0, behind: 0, files, concluding }
       : { sha: 'c0ffee1234567890' },
   )
   const snapshot: AppSnapshot = emptySnapshot()
@@ -146,4 +153,52 @@ it('cannot be asked to commit a path that records nothing on its own (#248)', as
   write('a message')
   expect(commitButton()?.textContent).toBe('Commit 0 files')
   expect(commitButton()?.disabled).toBe(true)
+})
+
+/** The parameters the dialog asked `git/commitAll` with, after pressing it. */
+const commitAsked = async (
+  request: Awaited<ReturnType<typeof show>>,
+): Promise<{ readonly paths?: readonly string[] } | undefined> => {
+  write('a message')
+  await act(async () => {
+    commitButton()?.click()
+    await Promise.resolve()
+  })
+  return request.mock.calls.find(([method]) => method === 'git/commitAll')?.[1] as
+    | { readonly paths?: readonly string[] }
+    | undefined
+}
+
+it('concludes a merge with the whole tree, whatever the rows record (#248)', async () => {
+  const asked = await commitAsked(await show(FILES, 'merge'))
+  /* No pathspecs at all. The `AD` row carries no box, so it was never one of
+     the chosen and the old rule read that as "not everything" — which sent
+     `git commit -- notes.md new.ts both.txt` into a merge, where git answers
+     `fatal: cannot do a partial commit during a merge` and the merge cannot
+     be concluded at all while that path sits there. */
+  expect(asked).toEqual({ root: '/w', message: 'a message' })
+  expect(asked && 'paths' in asked).toBe(false)
+})
+
+it('gives a merge conclusion no box to untick, and says why (#248)', async () => {
+  await show(FILES, 'merge')
+  expect(boxes()).toHaveLength(0)
+  expect(document.body.textContent).toContain('A merge is concluded by a single commit of the whole tree')
+  // The rows still account for every path, and `AD` still says what it records.
+  expect(rows()).toHaveLength(4)
+  expect(statusOf('ghost.txt')).toBe('nothing')
+  expect(commitButton()?.textContent).toBe('Commit 3 files')
+})
+
+it('names the operation it is concluding (#248)', async () => {
+  await show(FILES, 'cherry-pick')
+  expect(document.body.textContent).toContain('A cherry-pick is concluded by')
+})
+
+it('asks a merge with no moot row for everything, as it always did (#248)', async () => {
+  /* The control for the rule above: with no row that records nothing, the old
+     inference and the new decision agree, so this passes either way. It is
+     the `AD` row that separated them. */
+  const asked = await commitAsked(await show(FILES.filter((file) => file.path !== 'ghost.txt'), 'merge'))
+  expect(asked && 'paths' in asked).toBe(false)
 })

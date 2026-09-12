@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { GitFileStatus, GitMergeOutcome, GitRefsSummary, GitResetMode } from '@harnessdesk/protocol'
+import type {
+  GitConclusion,
+  GitFileStatus,
+  GitMergeOutcome,
+  GitRefsSummary,
+  GitResetMode,
+} from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
 import { Dialog } from '../design/primitives/Dialog'
@@ -55,6 +61,14 @@ const STATUS_LETTER: Record<CommitRow['status'], string> = {
   nothing: '—',
 }
 
+/**
+ * What the dialog read the working tree as: one row a path, and what a commit
+ * here would conclude. The second is not decoration — it decides the shape the
+ * commit has to be asked in, so it is read once, beside the rows, from the same
+ * answer.
+ */
+type CommitPlan = { readonly rows: readonly CommitRow[]; readonly concluding: GitConclusion | null }
+
 // ------------------------------------------------------------------- commit
 
 /**
@@ -77,9 +91,10 @@ const STATUS_LETTER: Record<CommitRow['status'], string> = {
  * It stays in the list rather than being dropped from it. The path is in the
  * Changes panel either way, and this is the one surface that can say why it is
  * not going in — a row that simply vanishes is a gap the reader has to close
- * alone. Keeping it also holds `everything` below false, which sends the
- * commit down the pathspec branch: measured, that is the only branch that
- * leaves the staged add where it is instead of erasing it.
+ * alone. Its presence is also a reason to name paths rather than commit
+ * everything, since the all-files branch's `git add -A` erases the staged add a
+ * pathspec commit leaves alone — but a reason weighed where the shape is
+ * chosen, below, rather than a side effect of how the rows happen to look.
  */
 const onePerPath = (files: readonly GitFileStatus[]): CommitRow[] => {
   const first = new Map<string, GitFileStatus>()
@@ -100,14 +115,16 @@ const onePerPath = (files: readonly GitFileStatus[]): CommitRow[] => {
 
 /**
  * The toolbar's Commit: the dirty files with a check each, a message, one
- * button. Unchecking a file leaves it dirty for a later commit; with every
- * row checked the commit is asked without pathspecs, which is also the only
- * shape git takes while a merge is being concluded. A row that records
- * nothing cannot be checked, so its presence alone keeps that shape away.
+ * button. Unchecking a file leaves it dirty for a later commit.
+ *
+ * Which of git's two shapes the commit is asked in — everything, or exactly
+ * these paths — is decided at `wholeTree` below, on the repository's own
+ * state. It used to be read off the rows, and that let a question of
+ * presentation decide what git was asked to do (#248).
  */
 export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: boolean) => void }) => {
   const store = useStore()
-  const [files, setFiles] = useState<readonly CommitRow[] | null>(null)
+  const [plan, setPlan] = useState<CommitPlan | null>(null)
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -119,31 +136,54 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
       .request('git/status', { root })
       .then((status) => {
         // One row a file: status lists a file staged and changed again twice, one entry a column (#31).
-        if (!cancelled) setFiles(onePerPath(status?.files ?? []))
+        if (!cancelled) {
+          setPlan({ rows: onePerPath(status?.files ?? []), concluding: status?.concluding ?? null })
+        }
       })
       .catch(() => {
-        if (!cancelled) setFiles([])
+        if (!cancelled) setPlan({ rows: [], concluding: null })
       })
     return () => {
       cancelled = true
     }
   }, [root, store])
 
+  const rows = plan?.rows ?? []
+  const concluding = plan?.concluding ?? null
   /* A row that records nothing is not a file to commit: it is never chosen,
      so the count on the button and the pathspecs sent both stay true to what
      the commit will contain. */
-  const chosen = (files ?? []).filter((file) => file.status !== 'nothing' && !excluded.has(file.path))
+  const choices = rows.filter((file) => file.status !== 'nothing')
+  /* While a conclusion is underway there is nothing to narrow — every file
+     goes in — so the exclusions a person made before are not applied to a
+     commit that could not honour them. */
+  const chosen = concluding ? choices : choices.filter((file) => !excluded.has(file.path))
+
+  /**
+   * The one decision about shape, made on evidence rather than inferred.
+   *
+   * A conclusion is asked for without pathspecs because that is the only
+   * shape it takes: `git commit -- <paths>` during a merge is
+   * `fatal: cannot do a partial commit during a merge`. Otherwise paths are
+   * named for either of two reasons — somebody unticked a row, or a row
+   * records nothing, whose staged add `git add -A` would erase — and when
+   * neither holds, the plain commit of everything.
+   *
+   * Read off `chosen` alone, as it was, a row with no box to tick counted as
+   * one nobody had ticked, so the mere presence of an `AD` path forced the
+   * pathspec shape and blocked every merge conclusion behind it (#248).
+   */
+  const wholeTree = concluding !== null || (chosen.length === choices.length && choices.length === rows.length)
 
   const commit = async (): Promise<void> => {
     if (message.trim().length === 0 || chosen.length === 0) return
     setBusy(true)
     setError(null)
     try {
-      const everything = chosen.length === (files ?? []).length
       const { sha } = await store.transport.request('git/commitAll', {
         root,
         message: message.trim(),
-        ...(everything ? {} : { paths: chosen.map((file) => file.path) }),
+        ...(wholeTree ? {} : { paths: chosen.map((file) => file.path) }),
       })
       store.notice('info', `Committed ${shortSha(sha)}.`)
       onDone(true)
@@ -191,13 +231,18 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void commit()
           }}
         />
-        {files === null ? (
+        {concluding !== null && rows.length > 0 && (
+          <span className={styles.note}>
+            A {concluding} is concluded by a single commit of the whole tree — every file below goes in.
+          </span>
+        )}
+        {plan === null ? (
           <div className={styles.quiet}>Reading the working tree…</div>
-        ) : files.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className={styles.quiet}>The working tree is clean — there is nothing to commit.</div>
         ) : (
           <div className={styles.files} role="group" aria-label="Files to commit">
-            {files.map((file) => {
+            {rows.map((file) => {
               if (file.status === 'nothing') {
                 /* Declared and greyed rather than withdrawn: the path is in
                    the Changes panel, so a row missing here reads as an
@@ -210,6 +255,22 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
                     </span>
                     <span className={styles.path}>{file.path}</span>
                     <span className={styles.records}>records nothing</span>
+                  </div>
+                )
+              }
+              if (concluding !== null) {
+                /* Ticked and moot: the file is going in, and leaving it out
+                   is not a choice this commit has to offer. Greyed rather
+                   than withdrawn, so the row still accounts for the path. */
+                return (
+                  <div key={file.path} className={styles.file} data-moot="">
+                    <span className={styles.check} data-on="">
+                      <CheckIcon size={11} />
+                    </span>
+                    <span className={styles.status} data-status={file.status}>
+                      {STATUS_LETTER[file.status]}
+                    </span>
+                    <span className={styles.path}>{file.path}</span>
                   </div>
                 )
               }
