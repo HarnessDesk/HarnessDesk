@@ -85,10 +85,22 @@ const DialogHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
   />
 )
 
+/* Write the proceeding action first: `row-reverse` paints it rightmost.
+ *
+ * That is the rule everywhere else in this app — `Dialog.module.css`'s
+ * `.footer`, the `footer` prop on `Dialog` ("write the confirming one
+ * first"), and `AlertDialogFooter`, aligned in #200 — and the stock shadcn
+ * spelling (`flex-row justify-end`) was the one footer still painting in
+ * written order. A footer written the app's way would have put the
+ * proceeding action on the left.
+ *
+ * No `justify-end`: a reversed row already packs to the right, and adding it
+ * back packs the buttons to the left, which is the trap this spelling is
+ * here to close. */
 const DialogFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="dialog-footer"
-    className={cn('flex flex-row justify-end gap-2', className)}
+    className={cn('flex flex-row-reverse gap-2', className)}
     {...props}
   />
 )

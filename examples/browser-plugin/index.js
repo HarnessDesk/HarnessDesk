@@ -38,6 +38,14 @@ const htmlToText = (html) =>
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
+    /* Case-insensitive, which the numeric forms need: `&#X27;` is `&#x27;`,
+       and `A`-`F` are as good as `a`-`f`. The named ones come along for the
+       ride, so this reader also decodes `&AMP;` (which HTML does define) and
+       `&NBSP;` (which it does not) — accepted rather than fixed, because a
+       table of which names HTML spells in upper case is more machinery than a
+       deliberately dumb reader earns. The cost is a page that wrote `&NBSP;`
+       meaning to show it, which is rarer than the hex escape the flag is for,
+       and nothing here renders the result as markup. */
     .replace(/&(amp|lt|gt|quot|apos|nbsp|#\d{1,7}|#x[0-9a-f]{1,6});/gi, decodeEntity)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s+/g, '\n')
