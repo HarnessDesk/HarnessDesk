@@ -880,8 +880,8 @@ const HandoffSheet = ({
 }
 
 /**
- * Where the conversation being written will run: the open folder, or a
- * worktree of it.
+ * Where the conversation being written will run: the open folder, a
+ * worktree of it, or — from a worktree — the main checkout.
  *
  * Codex and Claude both put this beside the composer, and here it was made
  * invisibly. The header's git control already says where a *session* runs —
@@ -903,6 +903,12 @@ const HandoffSheet = ({
  * Each place has a glyph of its own — a laptop, a branch, a branch with a
  * plus — because a narrow toolbar keeps the glyph and drops the word, and
  * an armed worktree used to differ from an existing one by colour alone.
+ *
+ * The main checkout is a place too, and from a worktree it is the one a
+ * person is most likely to want next — so it is a row of its own there,
+ * under the laptop the header already gives it. It is not listed with the
+ * worktrees below: those are checkouts HarnessDesk cut, and this one was
+ * here first.
  */
 export const PlaceControl = () => {
   const store = useStore()
@@ -923,14 +929,50 @@ export const PlaceControl = () => {
   // started in from here and from the sidebar alike. The folder already open
   // is the first row, not one of these.
   const others = snapshot.worktrees.filter((entry) => entry.managed && entry.path !== workspace.path)
+  /**
+   * The main checkout, offered only from a worktree of it.
+   *
+   * It is never `managed` — that word means a checkout HarnessDesk cut, and
+   * the main one was here first — so the filter above has always missed it,
+   * and from a linked worktree this control could name every place except
+   * the one the work came from (#255). Moving between a worktree and the
+   * main checkout is the whole of #143, and this was the half the control
+   * could not express: the header sends a *branch* back, but a person who
+   * simply wants the next conversation in the main checkout had to open it
+   * as the project first.
+   *
+   * `isMain` is git's own answer rather than a path comparison — the host
+   * takes it from the first entry of `worktree list --porcelain`, which is
+   * the main worktree however the repository is laid out.
+   */
+  const main = linked ? (snapshot.worktrees.find((entry) => entry.isMain && entry.path !== workspace.path) ?? null) : null
+  /**
+   * Why a place cannot be started in, where the app has proof of it.
+   *
+   * `newSession` refuses a folder in `foldersGone` outright (#297), so a row
+   * pointing at one is a row that cannot work. Greyed with the agent's own
+   * words rather than withdrawn: a place that was in this menu yesterday and
+   * is missing today is a worse answer than one that says what happened.
+   *
+   * Asked of every row that names a folder, so the main checkout and the
+   * worktrees under it answer to one question rather than to two copies of
+   * it. The open folder is not among them: a window whose own project is
+   * gone is a state the pane already draws.
+   */
+  const gone = (path: string): string | false => snapshot.foldersGone.get(path) ?? false
+  /* Pointed at the main checkout, which is a place and not a worktree: the
+     chip must wear neither the branch glyph nor the worktree badge for it. */
+  const chosenMain = chosen !== null && main !== null && chosen.path === main.path
 
   const title = armed
     ? `Starts in a new worktree on ${armedBranch}, made when you send`
-    : chosen
-      ? `Starts in the worktree on ${chosen.branch ?? 'a detached HEAD'}`
-      : linked
-        ? `Starts in this worktree${branch ? `, on ${branch}` : ''}`
-        : `Starts in ${folder}${branch ? `, on ${branch}` : ''}`
+    : chosenMain
+      ? `Starts in the main checkout${chosen?.branch ? `, on ${chosen.branch}` : ''}`
+      : chosen
+        ? `Starts in the worktree on ${chosen.branch ?? 'a detached HEAD'}`
+        : linked
+          ? `Starts in this worktree${branch ? `, on ${branch}` : ''}`
+          : `Starts in ${folder}${branch ? `, on ${branch}` : ''}`
   // A branch by its last segment: the prefix is a namespace a person's
   // worktrees share (`claude/…`, `harnessdesk/…`) and the end is what tells
   // them apart. Written whole, a long one squeezed the agent and the model
@@ -938,7 +980,7 @@ export const PlaceControl = () => {
   // name is on hover and in the menu.
   const leaf = (name: string | null): string => name?.split('/').filter(Boolean).at(-1) ?? 'Worktree'
   const word = armed ? 'New worktree' : chosen ? leaf(chosen.branch) : linked ? leaf(branch) : 'Local'
-  const tagged = !armed && (chosen !== null || linked)
+  const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (
     <InToolbar refer={ref}>
@@ -973,6 +1015,17 @@ export const PlaceControl = () => {
               selected={place === null}
               onSelect={() => store.startDraftIn(null)}
             />
+            {main && (
+              <MenuItem
+                icon={<LocalIcon size={14} />}
+                label="Main checkout"
+                value={main.branch ?? undefined}
+                title={`${main.branch ?? '(detached)'} — ${main.path}`}
+                selected={chosenMain}
+                disabled={gone(main.path)}
+                onSelect={() => store.startDraftIn({ kind: 'existing', path: main.path, branch: main.branch })}
+              />
+            )}
             <MenuItem
               icon={<NewWorktreeIcon size={14} />}
               label={armed ? 'New worktree' : 'New worktree…'}
@@ -996,6 +1049,7 @@ export const PlaceControl = () => {
                     label={entry.branch ?? '(detached)'}
                     title={`${entry.branch ?? '(detached)'} — ${entry.path}`}
                     selected={chosen?.path === entry.path}
+                    disabled={gone(entry.path)}
                     onSelect={() =>
                       store.startDraftIn({ kind: 'existing', path: entry.path, branch: entry.branch ?? null })
                     }

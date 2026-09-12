@@ -267,4 +267,30 @@ describe('opening a copy of a conversation whose folder is gone', () => {
     expect(created()).toHaveLength(0)
     expect(store.getSnapshot().notices.at(-1)?.message).toContain('Choose a project folder')
   })
+
+  it('refuses a draft pointed at the gone folder by a place of its own', async () => {
+    /* The other way a folder reaches `newSession`. The refusal above reads
+       the *open* folder; the composer's Work in control can point a draft at
+       a checkout by path instead — a worktree, or the main checkout (#255) —
+       and that path arrives as an explicit `cwd`, past the open folder
+       entirely. The open folder here is fine; only the chosen place is gone. */
+    await openGone()
+    await store.selectRuntime(RUNTIME)
+    store.newDraft()
+    store.startDraftIn({ kind: 'existing', path: GONE, branch: null })
+    /* The shape under test, checked rather than assumed: a draft in front
+       with that place on it. Without both, `send` never reaches
+       `newSession` and the assertion below would hold for the wrong
+       reason. And `session/create` is answered, so a run that got that far
+       would succeed — the negative has something to catch. */
+    expect(store.getSnapshot().activeRuntime).toBe(RUNTIME)
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'existing', path: GONE })
+    answers['session/create'] = session('s-2', HOME)
+
+    await store.send([{ type: 'text', text: 'Carry on over there.' }])
+
+    expect(created()).toHaveLength(0)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('Choose a project folder')
+  })
 })
