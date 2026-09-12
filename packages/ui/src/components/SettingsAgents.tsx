@@ -1470,6 +1470,12 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
    * null with the pin still recorded. Told as one sentence, the recorded pin
    * promised "the newest copy that is new enough answers" while the line above
    * it said none qualified (#251), so that state gets its own sentence.
+   *
+   * The unpinned half had the same hole: with no pin recorded the rule still
+   * promised a copy answered in every state where `chosen` is null — nothing
+   * installed new enough, or nothing installed at all. Both halves are keyed
+   * on `chosen` now, and the empty machine gets the sentence that is true of
+   * it, the way `installSummary` tells those two apart for the line above.
    */
   const rule = pinHolds(install)
     ? 'A pinned copy answers even when a newer one is installed.'
@@ -1477,7 +1483,11 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
       ? install.chosen
         ? 'The pinned copy is gone or too old, so the newest copy that is new enough answers until you pin another.'
         : 'The pinned copy is gone or too old, and nothing else installed is new enough, so no installed copy answers.'
-      : 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
+      : install.chosen
+        ? 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
+        : install.copies.length > 0
+          ? 'No copy installed is new enough; install or update one and it is picked up on the next check.'
+          : 'No copy is installed; install one and it is picked up on the next check.'
   return (
     <>
       <SectionHead name="Install" />
