@@ -1494,25 +1494,43 @@ export class AppStore {
       // — what is missing is only the ability to add to it. The pane keeps
       // what it painted, and the way forward is a copy, which the agent will
       // make even while the original is held.
+      /* What the pane managed to paint. The read above usually succeeds even
+         when the reopen cannot — the host serves its own stored transcript
+         when the agent will not — but on a conversation this desk has never
+         opened there is no host copy either, and then both halves fail. */
+      const painted = this.#snapshot.sessions.get(key)
+      /* The folder it ran in, whether or not its transcript arrived: the
+         sidebar row carries the folder too, and where nothing was painted the
+         row is the only place it is written down. */
+      const goneFolder = isFolderGone(error)
+        ? (painted?.cwd ??
+          this.#snapshot.history.find((one) => one.runtime === runtime && one.id === id)?.cwd ??
+          null)
+        : null
+      /* True when nothing else is going to say it: either this folder has not
+         been heard of before, or it could not be identified at all — and a
+         refusal nobody can key on must not be silently swallowed. */
+      const firstForFolder = goneFolder === null || !this.#snapshot.foldersGone.has(goneFolder)
+      /* Recorded before anything is decided, so every conversation that folder
+         took is marked from the first refusal — not only the one clicked. */
+      if (goneFolder !== null) {
+        this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
+      }
       if (isHeldElsewhere(error)) {
         this.notice('error', describe(error), {
           label: 'Open a copy',
           run: () => void this.forkSession(key),
         })
-      } else if (isFolderGone(error) && this.#snapshot.sessions.get(key)) {
-        /* A state, not an occurrence — so it is recorded and drawn, and
-           nothing is announced. The read above succeeded (the host falls back
-           to its own transcript when the agent cannot), so the conversation is
-           on screen and whole; what is gone is the folder it ran in, and with
-           it the ability to add to it. The pane says so where the composer
-           would be, the row wears a mark, and the folder is what all of it is
-           keyed on: a deleted worktree takes every conversation that ran in
-           it, and the three members of one review room used to arrive as three
-           identical toasts. Kept on a layout restore for the same reason the
-           held-elsewhere case is: the transcript is right there, and emptying
-           the pane would throw away the only copy left of it. */
-        const folder = this.#snapshot.sessions.get(key)?.cwd
-        if (folder) this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(folder, describe(error)) })
+      } else if (isFolderGone(error) && painted) {
+        /* A state, not an occurrence — so it is drawn and nothing is
+           announced. The conversation is on screen and whole; what is gone is
+           the folder it ran in, and with it the ability to add to it. The pane
+           says so where the composer would be and the row wears a mark, both
+           keyed on the folder: a deleted worktree takes every conversation
+           that ran in it, and the three members of one review room used to
+           arrive as three identical toasts. Kept on a layout restore for the
+           reason the held-elsewhere case is — the transcript is right there,
+           and emptying the pane would throw away the only copy left of it. */
       } else if (options.restoring) {
         // The layout remembered a conversation the backend no longer holds
         // — an ended ephemeral session, an ACP agent that was restarted.
@@ -1531,7 +1549,12 @@ export class AppStore {
           )
           if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
         }
-      } else {
+      } else if (!isFolderGone(error) || firstForFolder) {
+        /* Nothing was painted, so there is no pane to carry the state and no
+           transcript to call read-only — the news has nowhere else to go. Said
+           once for the **folder** rather than once per conversation, which is
+           the whole of the original complaint: one deleted worktree, three
+           members, three identical toasts. */
         this.#backgroundNotice('error', describe(error))
       }
     } finally {

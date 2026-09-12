@@ -116,6 +116,52 @@ describe('opening a conversation whose folder is gone', () => {
   })
 })
 
+/**
+ * The colder case: a conversation this desk has never opened, whose folder has
+ * also gone. The host has no stored transcript to fall back on, so the read
+ * fails with the reopen and nothing is painted — there is no pane to carry the
+ * state and no transcript to call read-only.
+ *
+ * The news has nowhere else to go, so it is still said. Once for the folder,
+ * though, not once per conversation: one deleted worktree with three members
+ * in it is one piece of news, which is the whole of the original complaint.
+ */
+describe('when the transcript could not be read either', () => {
+  beforeEach(() => {
+    refusals['session/resume'] = folderGone()
+  })
+
+  it('says it once for the folder, however many conversations it took', async () => {
+    /* The sidebar row is where the folder is written down when nothing was
+       painted — so the list is loaded the way the app loads it, and only then
+       do the reads start failing. */
+    answers['session/list'] = {
+      data: ['s-1', 's-2', 's-3'].map((id) => ({
+        id: sessionId(id),
+        runtime: RUNTIME,
+        cwd: GONE,
+        status: { type: 'idle' },
+        createdAt: 0,
+        updatedAt: 0,
+      })),
+      cursor: null,
+    }
+    await store.selectRuntime(RUNTIME)
+    await store.loadHistory({ reset: true })
+    expect(store.getSnapshot().history).toHaveLength(3)
+
+    refusals['session/read'] = folderGone()
+    for (const id of ['s-1', 's-2', 's-3']) {
+      await store.openSession(sessionId(id), { runtime: RUNTIME })
+    }
+
+    expect(store.getSnapshot().notices).toHaveLength(1)
+    expect(store.getSnapshot().notices[0]?.message).toContain('folder no longer exists')
+    // And every row that folder took is marked, from the one refusal.
+    expect(store.getSnapshot().foldersGone.get(GONE)).toBe(SAID)
+  })
+})
+
 describe('every other reason a conversation will not reopen', () => {
   it('still says so, because that one is news', async () => {
     // The control on the change above. A reopen that failed for any other
