@@ -62,7 +62,7 @@ export const extractHit = (query: string, text: string): SearchHit | null => {
 
   // Trim long lines around the match, keeping the match visible.
   if (line.length > MAX_LINE_LEN) {
-    const pad = Math.floor((MAX_LINE_LEN - needle.length) / 2)
+    const pad = Math.max(0, Math.floor((MAX_LINE_LEN - needle.length) / 2))
     let trimStart = Math.max(0, matchStart - pad)
     let trimEnd = Math.min(line.length, matchEnd + pad)
     if (trimEnd - trimStart < MAX_LINE_LEN) {

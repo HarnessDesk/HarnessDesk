@@ -53,6 +53,26 @@ describe('extractHit', () => {
     expect(hit).not.toBeNull()
     expect(hit!.line).toBe('second line has the match')
   })
+  it('handles queries longer than MAX_LINE_LEN without producing negative span offsets', () => {
+    const query = 'x'.repeat(130)
+    const text = 'prefix ' + query + ' suffix'
+    const hit = extractHit(query, text)
+    expect(hit).not.toBeNull()
+    expect(hit!.spans[0]?.start).toBeGreaterThanOrEqual(0)
+    expect(hit!.line.slice(hit!.spans[0]!.start, hit!.spans[0]!.end)).toBe(query)
+
+    // At the start of a long line
+    const hitStart = extractHit(query, query + ' suffix')
+    expect(hitStart).not.toBeNull()
+    expect(hitStart!.spans[0]?.start).toBe(0)
+    expect(hitStart!.line.slice(hitStart!.spans[0]!.start, hitStart!.spans[0]!.end)).toBe(query)
+
+    // At the end of a long line
+    const hitEnd = extractHit(query, 'prefix ' + query)
+    expect(hitEnd).not.toBeNull()
+    expect(hitEnd!.spans[0]?.start).toBeGreaterThanOrEqual(0)
+    expect(hitEnd!.line.slice(hitEnd!.spans[0]!.start, hitEnd!.spans[0]!.end)).toBe(query)
+  })
 })
 
 describe('highlightAll', () => {
