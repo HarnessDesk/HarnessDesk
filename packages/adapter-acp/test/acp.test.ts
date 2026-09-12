@@ -362,6 +362,99 @@ test('a turn of no calls keeps a running cache-write count, because its zeros ar
   }
 })
 
+test('a turn that reports no usage at all shows no last turn, whatever the runtime keeps', async () => {
+  // Only a runtime with a usage record withdrew the last turn, because only
+  // that path knew it had asked and got nothing. An agent that reports usage
+  // on some turns and not others left `last` holding the previous turn's
+  // figures, and the tail draws `last` under the final turn as its own: turn
+  // one's 900 tokens and its cache chip appeared under turn two (#159).
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  const completed = (count: number) => (event: AgentEvent) =>
+    event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === count
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'count for me' }])
+    await tape.until(completed(1))
+    assert.equal((await runtime.readSession(session.id)).usage?.last.totalTokens, 900, 'a turn that did report is read')
+    await session.send([{ type: 'text', text: 'hello there' }])
+    await tape.until(completed(2))
+    const usage = (await runtime.readSession(session.id)).usage
+    assert.equal(usage?.last.totalTokens, 0, 'unknown, so nothing: not the first turn under the second one’s name')
+    assert.equal(usage?.total.totalTokens, 900, 'and the total keeps what it knew')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('one turn nobody could account for makes the running cache-write count unknown from then on', async () => {
+  // `#recordTurnUsage` states this rule and keeps it for a turn that reported
+  // *zeros*; a turn that reported nothing at all never reached it, so the
+  // total went on adding and claimed an exact write count for a conversation
+  // with a hole in it (#159).
+  let reads = 0
+  const runtime = withRecord({
+    mark: () => 0,
+    since: () => {
+      reads += 1
+      if (reads === 1) return { totalTokens: 150, inputTokens: 100, outputTokens: 50, cachedReadTokens: 20, cachedWriteTokens: 50 }
+      if (reads === 2) return null
+      return { totalTokens: 60, inputTokens: 40, outputTokens: 20, cachedReadTokens: 10, cachedWriteTokens: 20 }
+    },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const completed = (count: number) => (event: AgentEvent) =>
+    event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === count
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'turn one' }])
+    await tape.until(completed(1))
+    assert.equal(
+      (await runtime.readSession(session.id)).usage?.total.cacheWriteTokens,
+      50,
+      'while every turn is accounted for the count is exact',
+    )
+    await session.send([{ type: 'text', text: 'turn two' }])
+    await tape.until(completed(2))
+    await session.send([{ type: 'text', text: 'turn three' }])
+    await tape.until(completed(3))
+    const usage = (await runtime.readSession(session.id)).usage
+    assert.equal(usage?.total.totalTokens, 210, 'the turns that did report still add up')
+    assert.equal(usage?.total.cacheWriteTokens, undefined, 'and the write total is unknown, permanently')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an unaccountable *first* turn is a gap too, not the start of a chain', async () => {
+  // The chain reads an empty total as its own beginning, so without a flag of
+  // its own the gap is invisible exactly when it comes first (#159).
+  let reads = 0
+  const runtime = withRecord({
+    mark: () => 0,
+    since: () =>
+      ++reads === 1 ? null : { totalTokens: 60, inputTokens: 40, outputTokens: 20, cachedReadTokens: 10, cachedWriteTokens: 20 },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  const completed = (count: number) => (event: AgentEvent) =>
+    event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === count
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'turn one' }])
+    await tape.until(completed(1))
+    await session.send([{ type: 'text', text: 'turn two' }])
+    await tape.until(completed(2))
+    const usage = (await runtime.readSession(session.id)).usage
+    assert.equal(usage?.total.totalTokens, 60, 'the turn that did report is in the total')
+    assert.equal(usage?.total.cacheWriteTokens, undefined, 'a chain that begins in a gap has no exact start')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a record that cannot be read leaves the turn without usage rather than a guess', async () => {
   for (const mark of [() => null, () => { throw new Error('locked') }]) {
     let reads = 0
