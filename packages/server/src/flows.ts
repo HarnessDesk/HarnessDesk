@@ -97,6 +97,18 @@ export interface FlowStart {
   readonly vars?: Readonly<Record<string, string>>
 }
 
+/**
+ * How many times one seat may be handed its order again inside the window.
+ *
+ * A turn is a request wherever the vendor bills by turn, so this is money.
+ * Three inside an hour is enough to carry a seat over a model that stopped
+ * after its last card or a window that lapsed; a seat that needs a fourth is
+ * one something is actually wrong with, and a stalled run somebody can see
+ * beats an account quietly draining.
+ */
+const REARM_BUDGET = 3
+const REARM_WINDOW_MS = 60 * 60 * 1000
+
 const now = (): number => Date.now()
 
 /**
@@ -151,6 +163,8 @@ export class Flows implements TeamFlows {
    * forever.
    */
   #turning = new Map<string, Promise<void>>()
+  /** When each seat was last handed its order again, for the budget below. */
+  #rearms = new Map<string, number[]>()
   #writes: Promise<void> = Promise.resolve()
 
   constructor(dir: string, team: Team, port: FlowPort) {
@@ -385,6 +399,104 @@ export class Flows implements TeamFlows {
       }),
     )
     this.#turning.set(run.id, queued)
+  }
+
+  /**
+   * A seat's turn ended. If its run is still going, hand it its order again.
+   *
+   * A seat has exactly one turn and it is meant to outlive the run. When one
+   * ends anyway — the model decided it was finished after its last card, a
+   * usage window ran out, a harness refused the next call — the flow stalls
+   * in silence: its cards stay open, nobody is waiting on them, and the only
+   * sign is a room that stopped moving. Every one of those was seen in the
+   * hand-rolled version of this, and re-arming by hand was the standing chore
+   * it left behind.
+   *
+   * **Re-rendered from the role, never replayed from a stored string.** That
+   * is the bug this must not re-introduce: a publishing seat that came back
+   * from a re-arm carrying a reader's git rule then refused the very card it
+   * was seated for.
+   *
+   * Budgeted, because a seat that cannot start is one that would otherwise be
+   * re-armed forever, and each re-arm is a turn somebody pays for. The budget
+   * is per seat and per hour; past it the run is left stalled and visible
+   * rather than quietly draining an account.
+   */
+  async reArm(runtime: string, sessionId: string): Promise<void> {
+    const key = String(sessionKey(runtime as never, sessionId as never))
+    const run = [...this.#runs.values()].find(
+      (one) => one.state === 'running' && one.seats.some((seat) => seat.key === key),
+    )
+    if (!run) return
+    const seat = run.seats.find((one) => one.key === key) as FlowSeatRecord
+    const role = run.flow.roles.find((one) => one.id === seat.role)
+    if (!role) return
+    /* A turn that ended in the same second the run settled is not a seat that
+       stopped early: it is a seat that was told to stand down and did as it
+       was asked. The run's own state is checked above; this covers the race
+       between the stand-down and the turn's end reaching the host. */
+    const spent = (this.#rearms.get(key) ?? []).filter((at) => now() - at < REARM_WINDOW_MS)
+    if (spent.length >= REARM_BUDGET) {
+      this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
+        run: run.id,
+        role: seat.role,
+        seat: seat.seat,
+        spent: spent.length,
+      })
+      this.#runs.set(run.id, {
+        ...run,
+        record: [
+          ...run.record,
+          {
+            at: now(),
+            kind: 'stopped',
+            role: seat.role,
+            seat: seat.seat,
+            text: `stopped answering: ${spent.length} turns ended inside the hour, so it is not being re-armed again`,
+          },
+        ],
+      })
+      this.#save(run.id)
+      return
+    }
+    this.#rearms.set(key, [...spent, now()])
+    const name = this.#team.stateFor(run.room).nicknames?.[key] ?? seat.seat
+    try {
+      await this.#port.order(
+        seat.runtime,
+        seat.sessionId,
+        renderOrder(
+          orderVars(role, run.flow, {
+            name,
+            member: name,
+            room: this.#team.stateFor(run.room).name,
+            repo: seat.cwd,
+            runtime: seat.runtime,
+          }),
+        ),
+      )
+    } catch (error) {
+      this.#port.log('a flow seat could not be re-armed', {
+        run: run.id,
+        role: seat.role,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return
+    }
+    this.#runs.set(this.#runs.get(run.id)!.id, {
+      ...(this.#runs.get(run.id) as StoredRun),
+      record: [
+        ...(this.#runs.get(run.id) as StoredRun).record,
+        {
+          at: now(),
+          kind: 'seated',
+          role: seat.role,
+          seat: seat.seat,
+          text: `re-armed: its turn ended while the flow was still running (${spent.length + 1} this hour)`,
+        },
+      ],
+    })
+    this.#save(run.id)
   }
 
   /** Why this seat should stop waiting — the one thing that may end its turn. */

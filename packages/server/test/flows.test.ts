@@ -446,3 +446,52 @@ test('the record says who did what, on which seat, with which outcome', async (t
     ['fixer', 'reviewer'],
   )
 })
+
+test('a seat whose turn dies is handed its order again, with the permission it was seated for', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  assert.equal(one.orders.length, 4)
+
+  /* The bug this guards, which was hit in the hand-rolled version: a
+     publishing seat came back from a re-arm carrying a reader's git rule and
+     then refused the very card it was seated for. The order is re-rendered
+     from the role, never replayed from a stored string. */
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 5)
+  const again = one.orders[4]!
+  assert.match(again.text, /You publish\./)
+  assert.match(again.text, /exactly one of published, cannot/)
+  assert.equal(again.text, one.orders[0]!.text, 'the re-armed order is the order it was seated with')
+
+  // And the record says it happened, so a re-arm is never silent.
+  const record = one.flows.runsFor(one.room)[0]!.record
+  assert.ok(record.some((entry) => entry.kind === 'seated' && /re-armed/.test(entry.text ?? '')))
+})
+
+test('re-arming is budgeted, so a seat that cannot start does not drain an account', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  // Three inside the hour, and then it stops and says why rather than going on.
+  assert.equal(one.orders.length, 4 + 3)
+  const record = one.flows.runsFor(one.room)[0]!.record
+  assert.ok(
+    record.some((entry) => entry.kind === 'stopped' && /not being re-armed again/.test(entry.text ?? '')),
+    'the run records that it stopped re-arming, so a stalled flow is visible',
+  )
+})
+
+test('a seat of a settled run is not re-armed — standing down is not dying', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'cannot' }, fixer)
+  await one.flows.flush()
+  assert.equal(one.flows.runsFor(one.room)[0]?.state, 'settled')
+
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4, 'a seat told to stand down is not handed its order again')
+})

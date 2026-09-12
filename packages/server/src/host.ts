@@ -2207,6 +2207,14 @@ export class Host {
           ? { ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
           : undefined,
       )
+      /* A seat of a running flow has exactly one turn, and it is meant to
+         outlive the run. When one ends anyway — the model decided it was
+         finished, a usage window ran out, a harness refused the next call —
+         the flow stalls silently: cards stay open, nobody is waiting on them,
+         and the only sign is a room that stopped moving. So the seat is
+         handed its order again. Budgeted, because a seat that cannot start is
+         a seat that would otherwise be re-armed forever. */
+      void this.#flows.reArm(runtime, String(event.sessionId))
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))
