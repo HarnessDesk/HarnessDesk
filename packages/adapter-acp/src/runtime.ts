@@ -427,7 +427,12 @@ const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
   return text === '' ? null : text
 }
 
-/** Whether a path is still a directory an agent could be started in. */
+/**
+ * Whether a path is still a directory an agent could be started in.
+ *
+ * Kept identical in semantics to `isDirectory` in `packages/server/src/host.ts`
+ * so the refusal-sourced fact and the listing-sourced fact cannot drift.
+ */
 const isDirectory = (path: string): boolean => {
   try {
     return statSync(path).isDirectory()
