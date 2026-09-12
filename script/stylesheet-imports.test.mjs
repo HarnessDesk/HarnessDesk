@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { bareSource, ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
+import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
+import { withoutComments } from './lib/without-comments.mjs'
 
 test('a stylesheet import is read whatever its file is called', () => {
   // #91: letters alone skipped seven stylesheets, panel-playground.module.css among them.
@@ -56,7 +57,7 @@ test('a commented-out import is not an import', () => {
   const source = [
     "// import gone from './line-comment.module.css'",
     "/* import also from './block-comment.module.css' */",
-    // Round 2: a line comment after code, which bareSource leaves in.
+    // Round 2: a line comment after code, which the whole-line rule leaves in.
     "const x = 1 // import trailing from './trailing-comment.module.css'",
     "import kept from './kept.module.css'",
   ].join('\n')
@@ -74,9 +75,58 @@ test('an aliased import is resolved against the UI source before it is compared'
 
 test('a trailing line comment is not code, and a URL is', () => {
   // Round 4 of #183's review: `x = 1 // styles.removed` counted as a use of `removed`.
-  assert.equal(bareSource('const x = 1 // styles.removed'), 'const x = 1 ')
-  assert.equal(bareSource("const url = 'https://example.com/a' // a link"), "const url = 'https://example.com/a' ")
-  assert.equal(bareSource('<p>see http://example.com</p>'), '<p>see http://example.com</p>')
+  assert.equal(withoutComments('const x = 1 // styles.removed'), 'const x = 1 ')
+  assert.equal(withoutComments("const url = 'https://example.com/a' // a link"), "const url = 'https://example.com/a' ")
+  assert.equal(withoutComments('<p>see http://example.com</p>', 'a.tsx'), '<p>see http://example.com</p>')
+})
+
+test('a // inside a template literal that spans lines is not a comment (#229)', () => {
+  /* The audit read comment state one line at a time, so a `//` inside a
+     template literal opened a comment and the rest of the line went. The
+     shape is already in the repository — `preview/sidebar-fixture.ts` holds a
+     diff whose lines begin `+  // …` — and was spared only because the audit
+     reads `.tsx` and that file is `.ts`. Cut this way, a fixture's diff loses
+     text mid-string and every rule below reads what is left. */
+  const source = [
+    'const diff = `@@ -84,6 +84,17 @@',
+    '+  const all = parsePorcelain(raw)',
+    '+  // worktree list reports the local registry, which outlives the remote:',
+    '+  // a branch deleted upstream keeps its row here forever.',
+    ' }`',
+    'export const Diff = () => <button className={styles.tiny}>{diff}</button>',
+  ].join('\n')
+  const code = withoutComments(source, 'Diff.tsx', { strict: true })
+  assert.match(code, /outlives the remote:/)
+  assert.match(code, /a branch deleted upstream/)
+  // The controls: the literal is still closed, and a real comment still goes.
+  assert.equal((code.match(/`/g) ?? []).length, (source.match(/`/g) ?? []).length)
+  assert.doesNotMatch(withoutComments('const a = 1 // gone\n', 'a.tsx'), /gone/)
+})
+
+test('a glob in a string opens no block comment, so the code after it is still read (#229)', () => {
+  /* Live in `packages/ui/src/preview/main.tsx`: `files: ['src/api/**']` opened
+     a comment for the old stripper that ran 149 lines to the next `*` + `/`,
+     and every design rule was blind to that stretch. The same failure
+     `check-layering` learned first (#123). */
+  const source = [
+    "const rule = { files: ['src/api/**'], dependsOn: [] }",
+    "import styles from './Panel.module.css'",
+    '/* a real comment, further down */',
+    'const b = styles.gone',
+  ].join('\n')
+  assert.deepEqual(stylesheetImports(source, 'Panel.tsx', { strict: true }), [{ binding: 'styles', file: 'Panel.module.css' }])
+  const code = withoutComments(source, 'Panel.tsx', { strict: true })
+  assert.match(code, /const b = styles\.gone/)
+  // The control: the real comment after it is still stripped.
+  assert.doesNotMatch(code, /a real comment/)
+})
+
+test('an import is read through the parser the audit shares with the layering gate (#229)', () => {
+  // `.tsx`, so `<T>(x: T) => x` after it is a tag and not a generic — the file
+  // name is what tells the parser which language it is reading.
+  const source = ["import styles from './Panel.module.css'", 'const A = () => <p>// not a comment</p>'].join('\n')
+  assert.deepEqual(stylesheetImports(source, 'Panel.tsx', { strict: true }), [{ binding: 'styles', file: 'Panel.module.css' }])
+  assert.match(withoutComments(source, 'Panel.tsx', { strict: true }), /\/\/ not a comment/)
 })
 
 test('a relative import is normalised before it is compared, so a detour is not another folder (review of #183, round 5)', () => {

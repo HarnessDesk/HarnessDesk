@@ -32,7 +32,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { withoutComments } from './check-layering.mjs'
+import { withoutComments } from './lib/without-comments.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 

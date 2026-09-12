@@ -107,7 +107,46 @@ test('a block cut off before it closed names nothing (review of #231)', () => {
   assert.equal(openingOf('<context source="Handed off from Claude Code — “Migrate'), '')
   assert.equal(openingOf(`${wrapContext('Git', 'On branch main.')}\n<context source="Handed off from Cla`), '')
   assert.equal(opensEnvelope('<context source="x'), true)
-  assert.equal(opensEnvelope('<context>'), true)
   // A word that only starts with it is a word.
   assert.equal(opensEnvelope('<context-free grammars'), false)
+})
+
+test('one predicate decides what opens an envelope, and it agrees with the reader (#224)', () => {
+  /* The question was asked in four places in three spellings: here, the
+     Cursor bridge's `storedName` and `stripEnvelope`, and the renderer's
+     `sessionLabel`. They agreed on everything `wrapContext` writes and
+     differed at the edges, and round 1 of #207 was a divergence between two
+     of the copies. The property that keeps them together is this one: a
+     string opens an envelope exactly when a complete block of that shape is
+     one `splitContext` can read. Anything else is words. */
+  const reads = (open: string): boolean => splitContext(`${open}\nbody\n</context>`).injections.length === 1
+  for (const open of [
+    '<context source="Git">',
+    '<context source="">',
+    '<context source="a\\"b">',
+    '<context\nsource="Git">',
+    '<context  source="Git">',
+    '<context\tsource="Git">',
+    '<context>',
+    '<context-free grammars>',
+    '<context switching in Go>',
+  ]) {
+    assert.equal(opensEnvelope(open), reads(open), `${JSON.stringify(open)}: the predicate and the reader disagree`)
+  }
+  // The controls, spelled out: what wrapContext writes opens one; the rest do not.
+  assert.equal(opensEnvelope(wrapContext('Git', 'On branch main.')), true)
+  assert.equal(opensEnvelope('<context\nsource="Git">'), false)
+  assert.equal(opensEnvelope('<context>'), false)
+})
+
+test('a bare <context> is the user\u2019s own words, not an envelope (#224)', () => {
+  /* The branch existed for the tests rather than for anything `wrapContext`
+     writes — nothing in this repository writes a `<context>` without a
+     `source` — and it cost a prompt that is literally one its name. An
+     envelope with no label is `<context source="">`, which is still read. */
+  assert.equal(opensEnvelope('<context> what does this tag do?'), false)
+  assert.equal(openingOf('<context> what does this tag do?'), '<context> what does this tag do?')
+  // The control: the labelless envelope a writer could actually produce.
+  assert.equal(opensEnvelope(wrapContext('', 'body')), true)
+  assert.equal(splitContext(wrapContext('', 'body')).injections[0]?.label, '')
 })

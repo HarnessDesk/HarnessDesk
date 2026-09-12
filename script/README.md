@@ -1,12 +1,15 @@
 # `script/`
 
 Everything here is plain Node with no build step — run any of it with
-`node script/<name>.mjs`. Two gates, `check-layering.mjs` and
-`check-reachable.mjs`, read source with TypeScript's own parser, so they need
-the checkout's dependencies installed — as does
-`packages/server/test/which-copies.test.ts`, which borrows the same stripper
-rather than deciding what a comment is a second time; `pnpm verify` and CI
-install first. Several take `--help`-ish flags documented in their
+`node script/<name>.mjs`. Telling a comment from code is one answer in one
+place, [`script/lib/without-comments.mjs`](lib/without-comments.mjs) —
+TypeScript's own parser, so what comes off is what the compiler would drop.
+`check-layering.mjs`, `check-reachable.mjs`, `design-audit.mjs` and
+`packages/server/test/which-copies.test.ts` all read it rather than deciding a
+second time: the audit kept a copy of its own, and it cut a `//` inside a
+template literal as though it opened a comment (#229). They need the
+checkout's dependencies installed for the parser; `pnpm verify` and CI install
+first. Several take `--help`-ish flags documented in their
 own header comment, which is the authority; this page exists so you know they
 are here at all.
 
