@@ -80,3 +80,18 @@ test('the stdin text is read out of whatever argv Codex composed, not one exact 
   assert.equal(stdinInputOf('something else entirely'), 'something else entirely')
   assert.equal(stdinInputOf(''), '')
 })
+
+test('arguments with irregular whitespace do not corrupt the extracted stdin (#311)', () => {
+  // Control: single-spaced arguments succeed before and after.
+  assert.equal(stdinInputOf('write_stdin --session-id 42 yes'), 'yes')
+  // Multiple spaces between flag and value (#311 reproduction).
+  assert.equal(stdinInputOf('write_stdin --session-id   42 yes'), 'yes')
+  // Multiple spaces between write_stdin and flags.
+  assert.equal(stdinInputOf('write_stdin   --session-id 42 yes'), 'yes')
+  // Multiple spaces across multiple flags and values.
+  assert.equal(stdinInputOf('write_stdin   --session-id   42   --eof   false yes please'), 'yes please')
+  assert.equal(stdinInputOf('write_stdin   --session-id=42   --encoding=utf8 yes please'), 'yes please')
+  // Stdin text preserving leading whitespace even when flags have irregular spacing.
+  assert.equal(stdinInputOf('write_stdin   --session-id   42   two  spaces'), '  two  spaces')
+})
+
