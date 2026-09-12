@@ -81,27 +81,39 @@ export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
  * at its container's indent plus three (#275 r1).
  *
  * The depth a fence closes at is two measurements rather than one, and they
- * are counted apart: the whitespace before the fence, and the number of `>`
+ * are read apart: the whitespace before the fence, and the number of `>`
  * before it. The invariant that holds is that a fence closes only on a line
- * at *the same* quote depth and no deeper in whitespace than the one that
- * opened it. Counting the `>` characters into the indent coupled the two
- * clauses and let one pay for the other: `> ` is shorter than four spaces
- * while being deeper in quotes, so a `> ` fence under an opener indented
- * four satisfied both halves of `indent <= openIndent && quotes >=
- * openQuotes` at once and closed a block CommonMark still reads as open
- * (#275 r2). Equality on the quote depth is what forbids that; measuring
- * whitespace apart from the markers is what keeps each clause meaning one
- * thing. Both now lean the same way: a fence line deeper in whitespace than
- * its opener is content rather than a close, and a fence left open inside a
- * quote is not closed by the bare fence below the quote — which CommonMark
- * reads as opening a new block, so the line under it is the author's on
- * either reading.
+ * at *the same* quote depth whose whitespace is a literal *prefix* of the
+ * whitespace its opener stood on. Counting the `>` characters into the
+ * indent coupled the two clauses and let one pay for the other: `> ` is
+ * shorter than four spaces while being deeper in quotes, so a `> ` fence
+ * under an opener indented four satisfied both halves of `indent <=
+ * openIndent && quotes >= openQuotes` at once and closed a block CommonMark
+ * still reads as open (#275 r2). Equality on the quote depth is what forbids
+ * that, and a fence left open inside a quote is still not closed by the bare
+ * fence below the quote — which CommonMark reads as opening a new block, so
+ * the line under it is the author's on either reading.
+ *
+ * The whitespace is compared as text rather than as a number of characters,
+ * because a tab is one character and is not one space (#275 r3). Counted, a
+ * tab closer measured one against a four-space opener's four and closed it —
+ * the same deletion as r2's, and reachable by opening a fence in one editor
+ * and closing it in another. Counting CommonMark's columns instead, with a
+ * tab advancing to the next multiple of four, does not repair that shape at
+ * all: the tab stands at column 4 and so do the four spaces, `4 <= 4`, and it
+ * still closes — while a tab *opener* becomes wide enough for a four-space
+ * closer to fit inside it, so the direction that was safe starts deleting
+ * too. A prefix can do neither. It is the same comparison as the count
+ * wherever indentation is all spaces, which is nearly everywhere; it admits
+ * no close the count refused; and whitespace it cannot line up letter for
+ * letter — a tab against spaces, in either direction — leaves the fence open,
+ * which is the cheap way to be wrong.
  *
  * What the rule still cannot see is where a container begins or ends. It
  * never notices a list or a quote *ending*, so a fence the container closed
  * runs on here; nor does it model an indented code block, so a mark inside
  * one reads as fenced. A fence closed deeper than it opened, or at another
- * quote depth, runs on too.
+ * quote depth, or on whitespace that is not its opener's, runs on too.
  *
  * A run-on usually costs a duplicated signature and nothing worse: the real
  * line below it is not found, so the desk appends where it would have
@@ -119,22 +131,24 @@ export const SIGNATURE_MARK = '<!-- harnessdesk:signature -->'
  */
 const markedLineIn = (lines: readonly string[]): number | null => {
   // The fence standing open: which character opened it, how many of them
-  // there were, and how deep it sat — in whitespace and in `>` apart, since
-  // they are different kinds of depth. Empty means the reader is outside one.
+  // there were, the whitespace it stood on, and how many `>` stood before it.
+  // Empty means the reader is outside one.
   let openChar = ''
   let openLength = 0
-  let openIndent = 0
+  let openSpace = ''
   let openQuotes = 0
   let found: number | null = null
   for (const [index, line] of lines.entries()) {
     // Whitespace and blockquote markers both count as depth: a fence under a
     // list item or inside a quote is a fence, and reading it as anything else
-    // is what deletes somebody's line. They are counted apart, so that adding
-    // a `>` cannot buy a line its way past the whitespace clause.
+    // is what deletes somebody's line. They are read apart — the markers
+    // counted, the whitespace kept as the text it is — so that adding a `>`
+    // cannot buy a line its way past the whitespace clause, and so that a tab
+    // is never taken for the one space it is the same length as.
     const fence = /^([\s>]*)(`{3,}|~{3,})(.*)$/.exec(line)
     const prefix = fence?.[1] ?? ''
     const quotes = (prefix.match(/>/g) ?? []).length
-    const indent = prefix.length - quotes
+    const space = prefix.replace(/>/g, '')
     const marks = fence?.[2] ?? ''
     // Whatever follows the fence characters: an info string on an opening
     // fence, and on a closing one only whitespace — a trailing carriage
@@ -142,10 +156,10 @@ const markedLineIn = (lines: readonly string[]): number | null => {
     // endings it was written with.
     const after = fence?.[3] ?? ''
     if (openChar !== '') {
-      if (marks.startsWith(openChar) && marks.length >= openLength && quotes === openQuotes && indent <= openIndent && after.trim() === '') {
+      if (marks.startsWith(openChar) && marks.length >= openLength && quotes === openQuotes && openSpace.startsWith(space) && after.trim() === '') {
         openChar = ''
         openLength = 0
-        openIndent = 0
+        openSpace = ''
         openQuotes = 0
       }
       continue
@@ -155,7 +169,7 @@ const markedLineIn = (lines: readonly string[]): number | null => {
     if (marks !== '' && !(marks.startsWith('`') && after.includes('`'))) {
       openChar = marks[0] ?? ''
       openLength = marks.length
-      openIndent = indent
+      openSpace = space
       openQuotes = quotes
       continue
     }

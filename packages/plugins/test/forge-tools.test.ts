@@ -563,3 +563,52 @@ test('a quoted fence does not close an indented one, and a body that ends inside
   // And round 1's list-indented close still fires.
   assert.equal(previousSignature(['- item', '', '    ```', `    ${sample}`, '    ```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
 })
+
+test('a tab does not close a fence that spaces opened, and whitespace is matched letter for letter (#275 r3)', () => {
+  const line = '🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)'
+  const sample = `sample ${SIGNATURE_MARK}`
+  /* The whitespace before a fence was a count of characters, and a tab is one
+     character while being nothing like one space: a tab closer measured one
+     against a four-space opener's four and closed a block CommonMark reads as
+     open — r2's deletion by another route, reachable by opening a fence in one
+     editor and closing it in another. Counting CommonMark's columns instead
+     does not repair it, since a tab from column 0 and four spaces both stand
+     at column 4 and `4 <= 4` closes, and it turns the safe reverse into a
+     second deletion; so the whitespace is compared as the text it is. Every
+     body here ends inside a fence, so every mark in it is the author's. */
+  const inside = [
+    // The measured shape: a four-space opener, a tab offered as its close.
+    ['    ```', '    code', '\t```', `    ${sample}`],
+    // The reverse, safe under the count as well: four spaces do not close a
+    // tab-indented opener.
+    ['\t```', '\tcode', '    ```', `    ${sample}`],
+    // The same pair inside a quote, where the whitespace stands after the
+    // marker and the two quote depths match.
+    ['> ```', '> code', '>\t```', sample],
+    ['>\t```', '>\tcode', '> ```', sample],
+    // A tab against a space-then-tab: shorter than its opener, and still not
+    // the text its opener stood on.
+    [' \t```', ' \tcode', '\t```', sample],
+    // The tilde twin of the first, since the whitespace rule knows nothing of
+    // which character opened the fence.
+    ['    ~~~', '    code', '\t~~~', `    ${sample}`],
+  ]
+  for (const lines of inside) {
+    const body = lines.join('\n')
+    assert.equal(previousSignature(body), null, body)
+    assert.equal(signBody(body, line), `${body}\n\n${line} ${SIGNATURE_MARK}`, body)
+  }
+  // Controls, true before this rule and after it, and the reason it is not
+  // simply "a tab closes nothing": a tab-indented fence closes on its own tab,
+  // and on the empty prefix of it, so the desk's own line below one is
+  // replaced rather than appended to.
+  const tabbed = ['\t```', `\t${sample}`, '\t```', '', `Old line ${SIGNATURE_MARK}`]
+  assert.equal(previousSignature(tabbed.join('\n')), 'Old line')
+  assert.equal(signBody(tabbed.join('\n'), line), [...tabbed.slice(0, -1), `${line} ${SIGNATURE_MARK}`].join('\n'))
+  assert.equal(previousSignature(['\t```', `\t${sample}`, '```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
+  // And spaces answer exactly as counting them answered, which is what keeps
+  // every row of r1's and r2's tables where it was: a shallower close still
+  // closes, a deeper one still does not.
+  assert.equal(previousSignature(['    ```', `    ${sample}`, '  ```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
+  assert.equal(previousSignature(['  ```', '  code', '    ```', sample].join('\n')), null)
+})
