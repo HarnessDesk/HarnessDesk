@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A draft pointed at the main checkout no longer calls it a worktree when that
+  checkout is on a detached HEAD** — the word beside the *Work in* glyph read
+  which place was chosen, while the badge beside it read whether that place was
+  the main checkout. With a branch to name, the two could never be caught
+  disagreeing; with none, the word fell through to its worktree fallback, so the
+  chip wore the laptop and said "Starts in the main checkout" on hover next to
+  the word *Worktree*. It reads *Local* there now — what this same place is
+  called under this same glyph when it is the folder that is open.
 - **From a worktree, the composer can start the next conversation in the main
   checkout** — *Work in* listed the open folder, a new worktree, and HarnessDesk's
   own worktrees of the project, and the main checkout is none of those: it is not
