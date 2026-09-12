@@ -52,37 +52,49 @@ test('a managed directory given with a trailing separator keeps the package name
   )
 })
 
-test('the spellings of a managed directory that reach the name, and the one that does not', () => {
+test('every spelling of a managed directory reaches the package name', () => {
   /* `relative` is not only a fix for the trailing separator — but it is also
      not the four-case fix I first wrote here. Measured through `readChannel`
      rather than against `relative` on its own:
 
-         managedDir              before        after
+         managedDir              #116          now
          /opt/hd/agents          claude-code   claude-code
-         /opt/hd/agents/         laude-code    claude-code   ← fixed
-         /                       laude-code    claude-code   ← fixed
-         /opt//hd//agents        (not managed) (not managed)
-         /opt/hd/agents//        (not managed) (not managed)
+         /opt/hd/agents/         laude-code    claude-code   ← fixed by #116
+         /                       laude-code    claude-code   ← fixed by #116
+         /opt//hd//agents        (not managed) claude-code   ← fixed by #117
+         /opt/hd/agents//        (not managed) claude-code   ← fixed by #117
+         /opt/hd/./agents        (not managed) claude-code   ← fixed by #117
 
-     The repeated-separator spellings never reach the slice at all: `under()`
-     compares with `startsWith` and rejects them first, so they read as an
-     ordinary path both before and after. `relative` does normalise them, which
-     is what made them look like part of this change; the guard above it means
-     they are not. That is a real if minor gap of its own — a managed directory
-     spelled with a doubled separator is silently not managed — and it belongs
-     to the containment-as-prefix family, not to this fix. */
+     The repeated-separator spellings never reached the slice at all: `under()`
+     compared with `startsWith` and rejected them before `relative` was ever
+     asked, so such an install read as an ordinary `path` entry with no package
+     name and the update command that would keep it current was silently never
+     offered. #116 pinned them here as unchanged for exactly that reason — the
+     guard above `relative`, not `relative`, was what rejected them. #117 is
+     that guard: it resolves both sides before comparing, so the spellings that
+     name one directory are now read as one directory. */
   const installed = `${sep}opt${sep}hd${sep}agents${sep}claude-code${sep}bin${sep}claude`
   const read = (managedDir: string, path = installed) =>
     readChannel(path, { managedDir, realpath: (at) => at, platform: 'linux' })
 
-  for (const spelling of [`${sep}opt${sep}hd${sep}agents`, `${sep}opt${sep}hd${sep}agents${sep}`]) {
-    assert.equal(read(spelling).packageName, 'claude-code', `managedDir ${JSON.stringify(spelling)}`)
+  for (const spelling of [
+    `${sep}opt${sep}hd${sep}agents`,
+    `${sep}opt${sep}hd${sep}agents${sep}`,
+    `${sep}opt${sep}${sep}hd${sep}${sep}agents`,
+    `${sep}opt${sep}hd${sep}agents${sep}${sep}`,
+    `${sep}opt${sep}hd${sep}.${sep}agents`,
+  ]) {
+    const reading = read(spelling)
+    const where = `managedDir ${JSON.stringify(spelling)}`
+    assert.equal(reading.channel, 'harnessdesk', where)
+    assert.equal(reading.packageName, 'claude-code', where)
   }
   assert.equal(read(sep, `${sep}claude-code${sep}bin${sep}claude`).packageName, 'claude-code', 'the root as a managed directory')
 
-  // Unchanged by this fix, and pinned so a later change to `under()` has to
-  // say so out loud rather than drift.
-  const doubled = read(`${sep}opt${sep}${sep}hd${sep}${sep}agents`)
-  assert.equal(doubled.channel, 'path')
-  assert.equal(doubled.packageName, null)
+  /* The control, and the reason this is normalisation rather than "compare
+     loosely": a directory that merely begins with the same letters is still a
+     different directory, and was never managed before this change either. */
+  const sibling = read(`${sep}opt${sep}hd${sep}agents-old`)
+  assert.equal(sibling.channel, 'path')
+  assert.equal(sibling.packageName, null)
 })
