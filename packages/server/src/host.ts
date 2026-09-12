@@ -501,6 +501,24 @@ export class Host {
             })
           })
         }
+        /* And a switch nobody asked for is turned *off*, not inherited. Picks
+           persist per agent on a desk, so the last seat's thinking switch is
+           the next one's default — twice the price of every round trip, under
+           a line nobody wrote. The same for a fast lane and for max mode: a
+           flow's seat says what it wants, and what it does not say it does not
+           get. */
+        for (const id of ['thinking', 'fast', 'max-mode']) {
+          if (id === 'thinking' && seat.thinking !== undefined) continue
+          const option = live.options().find((one) => one.id === id)
+          if (!option || option.disabled || option.currentValue !== true) continue
+          await live.setOption(id, false).catch((error: unknown) => {
+            this.#logger.warn('a flow seat inherited a switch it could not turn off', {
+              runtime: seat.runtime,
+              option: id,
+              error: describeError(error),
+            })
+          })
+        }
         const ran = live.options()
         const label = [
           runtime.info.presentation.name,

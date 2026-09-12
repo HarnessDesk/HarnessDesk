@@ -81,7 +81,7 @@ wait: 240
 roles:
   fixer:
     kind: agent                       # agent | person | check
-    seat: cursor=gpt-5.3-codex/xhigh  # runtime[=model][/effort][+thinking]
+    seat: cursor=gpt-5.3-codex/medium # runtime[=model][/effort][+thinking]
     count: 1                          # how many cards a round of this opens
     permission: publish               # read | publish | merge
     outcomes: [published, cannot]     # the only words it may answer
@@ -137,7 +137,7 @@ layout:
 | key | what it is |
 | --- | --- |
 | `kind` | `agent` seats a conversation. `person` opens a card addressed to you. `check` runs a command. |
-| `seat` | `runtime[=model][/effort][+thinking]`, or a **list** of them — one per card of the round, which is how a race runs two different models. Required for `agent`, refused for the others. |
+| `seat` | `runtime[=model][/effort][+thinking]`, or a **list** of them — one per card of the round, which is how a race runs two different models. Required for `agent`, refused for the others. Effort is the largest cost multiplier in a flow: it applies to every round trip the seat makes, not once. |
 | `count` | How many cards a round of this role opens. Defaults to the number of seats listed. |
 | `permission` | `read`, `publish` or `merge`. See below. |
 | `outcomes` | The only words this role may answer. The engine refuses anything else. |
@@ -210,9 +210,8 @@ Dry run **spends nothing** — no seat is opened, no request is billed, no card
 reaches a board, and a check's command is printed rather than run — and it
 prints:
 
-- every seat the flow would open, with what opening it costs (one request
-  each: a seat is opened and handed its order in a single turn and lives
-  inside it);
+- every seat the flow would open, and what **opening** it costs — one turn
+  each, since a seat is opened and handed its order in a single turn;
 - every check command, verbatim;
 - a trace of the loop against outcomes you supply, so both the approve path
   and the request-changes path are visible from one file;
@@ -261,13 +260,47 @@ could tell which were its own.
 
 ---
 
+## What a run costs
+
+One turn per agent seat to open it. That is the number the dry run shows, and
+it is **the entry fee, not the price**.
+
+A seat lives inside that one turn, which is what makes the loop possible on a
+plan that bills by turn — but living inside a turn is not the same as being
+free. Every step of `wait → claim → work → finish → wait` is a model round
+trip that re-sends the accumulated context, and on usage-based pricing each
+one is billed. Measured on the first live runs of this feature, one fix and
+one round of three reviews cost:
+
+| seat | tool calls, in one turn |
+| --- | --- |
+| fixer (Codex 5.3, extra-high effort) | 46, and 26 on the second run |
+| reviewer (Gemini 3.8 Flash, high) | 31, 34, 38 |
+
+Two levers, in order of size:
+
+- **Effort.** It multiplies the reasoning tokens on every one of those round
+  trips. The flows shipped here seat their fixer at `medium` rather than
+  `xhigh` for that reason; raise it when the work earns it.
+- **The block.** After each answer a waiting seat calls `await_work` again, so
+  a short block is a seat paying to be told nothing. This is why the block is
+  clamped to what the agent will actually hold open and **named in the order**
+  — left to guess it, two seats chose ten seconds, which is six billed round
+  trips a minute to do nothing.
+
 ## What makes a seat wait for free
 
 `await_work` is a team tool that blocks until the caller's board has a card it
-can take. It costs one tool call and nothing between calls, because the board
-is in the same process and a waiter is woken by the write that made its card
-claimable — nobody polls. That is what lets a seat live inside **one turn** for
-as long as the desk is up.
+can take. Nothing is spent *while* it blocks — the board is in the same
+process and a waiter is woken by the write that made its card claimable, so
+nobody polls and no tokens move. That is what lets a seat live inside **one
+turn** for as long as the desk is up.
+
+What it costs is one round trip per *answer*, which is why the block wants to
+be as long as the agent will hold it. It is clamped per runtime to a measured
+ceiling — Cursor's MCP client times a tool call out at exactly 60 seconds — and
+the number is written into the standing order, because a seat left to guess
+guesses low.
 
 The answer hands back the cycle number to pass next time. That is not
 decoration: two seats in an earlier hand-rolled version of this ended their

@@ -336,12 +336,18 @@ interface Waiter {
 /**
  * How long one `await_work` blocks when the caller does not say.
  *
- * Deliberately short of any vendor's tool timeout we have measured. A seat
- * that is cut off mid-wait sees an error rather than an answer, and the loop
- * has to survive that; a seat that is answered "nothing yet" simply calls
- * again. So the default errs towards more answers, and a flow may raise it.
+ * Short of every vendor tool timeout that has been measured — Cursor's MCP
+ * client gives up at sixty seconds — because this is the value a seat that
+ * *forgot* its instruction gets, and the failure to design for is a block
+ * nobody can hold rather than one that is shorter than asked. A seat cut off
+ * mid-wait sees an error where it expected an answer; a seat answered
+ * "nothing yet" simply calls again.
+ *
+ * A flow's own `wait` is clamped per runtime before it reaches the order
+ * (`waitFor` in flow.ts), so this is the floor under a mistake and not the
+ * number a seated agent normally uses.
  */
-const DEFAULT_WAIT_MS = 240_000
+const DEFAULT_WAIT_MS = 50_000
 /** And a ceiling, so a flow cannot park a tool call for an afternoon. */
 const WAIT_CEILING_MS = 900_000
 

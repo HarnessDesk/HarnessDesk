@@ -268,8 +268,19 @@ export interface FlowSeatPlan {
   readonly seat: string
   readonly runtime: string
   readonly permission: FlowPermission
-  /** Requests spent to open this seat and hand it its order — one turn each. */
-  readonly requests: number
+  /**
+   * Turns spent opening this seat: one. It is handed its standing order and
+   * lives inside that turn.
+   *
+   * **Not the price of the run**, and the difference is the whole of what a
+   * cost disclosure has to get right. A seat's turn is one turn and *many*
+   * inferences — measured on the first live runs: 26 to 46 model round trips
+   * per seat for one fix and one review round — because every step of
+   * wait → claim → work → finish → wait re-sends the accumulated context. On
+   * a plan that bills by turn this is the whole cost; on usage-based pricing
+   * it is the entry fee.
+   */
+  readonly turns: number
 }
 
 /** One step of the simulated loop: a round, and what it was taken to answer. */
@@ -292,8 +303,15 @@ export interface FlowDryRun {
   readonly flow: Flow | null
   readonly problems: readonly FlowProblem[]
   readonly seats: readonly FlowSeatPlan[]
-  /** Requests the flow would spend before its first card is claimed. */
-  readonly requests: number
+  /**
+   * Turns spent before the first card is claimed — one per agent seat.
+   *
+   * Deliberately *not* called requests. It was, and it was read as the price
+   * of the run, which under-reported it by an order of magnitude: what a seat
+   * costs after this is one inference per step of work, for as long as it
+   * stands. A surface drawing this has to say which number it is.
+   */
+  readonly seatingTurns: number
   /** Every command a `check` role would run, verbatim, before anything runs one. */
   readonly commands: readonly { readonly role: string; readonly run: string; readonly cwd: string }[]
   readonly trace: readonly FlowTrace[]

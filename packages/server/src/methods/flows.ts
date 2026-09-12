@@ -28,7 +28,7 @@ export const flowMethods = {
         flow: null,
         problems,
         seats: [],
-        requests: 0,
+        seatingTurns: 0,
         commands: [],
         trace: [],
         settled: false,

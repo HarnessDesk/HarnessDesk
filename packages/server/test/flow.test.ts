@@ -12,6 +12,7 @@ import {
   renderFlowTemplate,
   renderOrder,
   ruleFor,
+  waitFor,
   seatAt,
   validateFlow,
 } from '../src/flow.js'
@@ -142,7 +143,7 @@ test('the first matching rule fires, so the unhappy branch can be written first'
 
 test('dry run spends nothing, and says exactly what opening the flow would cost', () => {
   const report = dryRun(read(REVIEW))
-  assert.equal(report.requests, 4)
+  assert.equal(report.seatingTurns, 4)
   assert.deepEqual(
     report.seats.map((seat) => `${seat.role}#${seat.index} ${seat.seat} ${seat.permission}`),
     [
@@ -287,7 +288,7 @@ test('an agent role that may merge is flagged, and is not an error', () => {
 
 test('a read role is told not to push; a publish role is told exactly what it may push', () => {
   const flow = read(REVIEW)
-  const where = { name: 'Codex', member: 'Codex', room: 'Fix room', repo: '/work/repo' }
+  const where = { name: 'Codex', member: 'Codex', room: 'Fix room', repo: '/work/repo', runtime: 'cursor' }
   const fixer = renderOrder(orderVars(flow.roles[0]!, flow, where))
   const reviewer = renderOrder(orderVars(flow.roles[1]!, flow, where))
 
@@ -312,7 +313,7 @@ test('a slot inside a slot is expanded, and an unknown slot is left standing', (
   assert.ok(GIT_RULES.read.includes('{{repo}}'))
   const flow = read(REVIEW)
   const order = renderOrder(
-    orderVars(flow.roles[1]!, flow, { name: 'Gemini', member: 'Gemini', room: 'Fix room', repo: '/work/repo' }),
+    orderVars(flow.roles[1]!, flow, { name: 'Gemini', member: 'Gemini', room: 'Fix room', repo: '/work/repo', runtime: 'cursor' }),
   )
   assert.doesNotMatch(order, /\{\{repo\}\}/)
   assert.match(order, /Stay inside \/work\/repo\./)
@@ -329,9 +330,35 @@ test('a permission is read off the role every time an order is rendered', () => 
   // demoted, and then refused the card it was seated for. Nothing stores the
   // rendered text, so the second rendering is the first one again.
   const flow = read(REVIEW)
-  const where = { name: 'Codex', member: 'Codex', room: 'Fix room', repo: '/work/repo' }
+  const where = { name: 'Codex', member: 'Codex', room: 'Fix room', repo: '/work/repo', runtime: 'cursor' }
   const first = renderOrder(orderVars(flow.roles[0]!, flow, where))
   const again = renderOrder(orderVars(flow.roles[0]!, flow, where))
   assert.equal(first, again)
   assert.match(again, /You publish\./)
+})
+
+test('a seat is told a block its own agent will hold open', () => {
+  // Measured, not guessed: Cursor's MCP client times a tool call out at 60
+  // seconds, so every seat's first `await_work` in the first live run of this
+  // came back `MCP error -32001: Request timed out` and each model then
+  // invented its own block. The flow may ask for four minutes; what a Cursor
+  // seat is told is fifty seconds.
+  assert.equal(waitFor('cursor', 240), 50)
+  assert.equal(waitFor('cursor', 20), 20)
+  // An agent nobody has measured keeps the conservative figure rather than
+  // the flow's own — a ceiling nobody has measured is one this cannot claim.
+  assert.equal(waitFor('some-new-agent', 600), 50)
+
+  const flow = read(REVIEW)
+  const order = renderOrder(
+    orderVars(flow.roles[1]!, flow, {
+      name: 'Gemini',
+      member: 'Gemini',
+      room: 'Fix room',
+      repo: '/work/repo',
+      runtime: 'cursor',
+    }),
+  )
+  assert.match(order, /block_ms: 50000/)
+  assert.doesNotMatch(order, /\{\{blockMs\}\}/)
 })

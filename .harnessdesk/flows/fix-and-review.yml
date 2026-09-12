@@ -18,14 +18,17 @@ inputs:
     default: The issue or the change to make
 
 # Seconds one await_work call blocks before it answers "nothing yet". A seat
-# loops on that answer inside its one turn, so this is only how often it says
-# so — not how long it may wait.
+# loops on that answer inside its one turn, so this is how often it says so —
+# not how long it may wait. It is clamped to what the seat's own agent will
+# hold a tool call open for (Cursor: 60s, measured), because every answer is a
+# model round trip and a seat that is woken more often costs more to do
+# nothing.
 wait: 240
 
 roles:
   fixer:
     kind: agent
-    seat: cursor=gpt-5.3-codex/xhigh
+    seat: cursor=gpt-5.3-codex/medium
     count: 1
     permission: publish
     outcomes: [published, cannot]

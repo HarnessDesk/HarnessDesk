@@ -322,6 +322,7 @@ export class Flows implements TeamFlows {
             member: name,
             room: this.#team.stateFor(request.room).name,
             repo: seat.cwd,
+            runtime: seat.runtime,
           }),
         ),
       )

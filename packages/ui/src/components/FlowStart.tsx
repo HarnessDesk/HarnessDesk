@@ -11,11 +11,17 @@ import styles from './FlowStart.module.css'
  * it.
  *
  * The dry run is not a preview, it is the safety. A flow opens several agents
- * on somebody's repository and spends a request per seat, and the only honest
- * moment to show that is *before* the person presses the thing — so this
- * surface is the report, with Start underneath it rather than beside it:
- * every seat and what opening it costs, every command a check would run
- * verbatim, and a trace of the loop.
+ * on somebody's repository and keeps them working, and the only honest moment
+ * to show that is *before* the person presses the thing — so this surface is
+ * the report, with Start underneath it rather than beside it: every seat,
+ * what opening them costs and the fact that it is not what *running* them
+ * costs, every command a check would run verbatim, and a trace of the loop.
+ *
+ * The cost line has been wrong once already and the correction is the lesson:
+ * it said "4 requests", which reads as the price of the run and under-reported
+ * it by an order of magnitude, because a seat lives inside one turn and keeps
+ * thinking — 26 to 46 model round trips each, measured, for one fix and one
+ * review round. A disclosure that can be misread as the total is not one.
  *
  * It runs against the flow's **text**, not its path, so what is checked is
  * what is about to run rather than what was last saved. A flow with an error
@@ -194,7 +200,7 @@ export const FlowStart = ({
                 ? 'It opens no agents'
                 : `It opens ${report.seats.length} ${report.seats.length === 1 ? 'agent' : 'agents'}`}
               <span className={styles.cost}>
-                {report.requests} {report.requests === 1 ? 'request' : 'requests'}
+                {report.seatingTurns} {report.seatingTurns === 1 ? 'turn' : 'turns'} to seat
               </span>
             </h4>
             <ul className={styles.seats}>
@@ -239,6 +245,18 @@ export const FlowStart = ({
                 </li>
               ))}
             </ol>
+            {report.seats.length > 0 && (
+              /* The number above is the entry fee, not the price, and a cost
+                 disclosure that lets that be misread is not one. A seat lives
+                 inside its one turn and keeps thinking: measured on the first
+                 live runs, 26 to 46 model round trips per seat for one fix
+                 and one review round. */
+              <p className={styles.note}>
+                That is what opening them costs. Each seat then keeps working inside its one turn —
+                one round trip per step, for as long as the flow runs — so on usage-based pricing the
+                run costs more than the seating.
+              </p>
+            )}
             {!report.settled && report.trace.length > 0 && (
               <p className={styles.note}>
                 Simulated {report.trace.length} rounds without reaching an end — against these answers

@@ -20,7 +20,7 @@ roles:
     # One seat per card, so the two attempts are two different models. Give it
     # a single seat instead and both cards run the same one.
     seat:
-      - cursor=gpt-5.3-codex/xhigh
+      - cursor=gpt-5.3-codex/medium
       - cursor=claude-4.6-opus/max+thinking
     count: 2
     permission: read
