@@ -131,6 +131,53 @@ const send = async (): Promise<void> => {
 
 beforeEach(() => queue.mockClear())
 
+/** Hands over one note chip, holding whatever the test wants it to hold. */
+const handOverBlock = (name: string, block: string): void => {
+  act(() => {
+    window.dispatchEvent(
+      new CustomEvent('harnessdesk:compose', {
+        detail: {
+          text: '',
+          attachments: [{ name, path: noteKey(name, block), kind: 'note', text: block }],
+        },
+      }),
+    )
+  })
+}
+
+/** The hover text of the chip whose name contains `name`. */
+const chipTitle = (name: string): string => {
+  const chip = [...container.querySelectorAll('span')].find((node) =>
+    node.textContent?.includes(name),
+  )
+  return chip?.getAttribute('title') ?? ''
+}
+
+describe('the hover text of a note chip', () => {
+  it('reads the block back with the reader that owns the envelope (#289)', () => {
+    /* `notePreview` trimmed the envelope with a fifth hand-rolled spelling of
+       "does this open a context block". It cannot produce #224's failure — the
+       composer wrote the block itself moments earlier — but a fifth copy is a
+       fifth thing to drift, and the regex left `wrapContext`'s escaping on
+       screen: a page comment that mentions the closing tag was previewed with
+       a backslash in it that the person never typed. */
+    mount()
+    handOverBlock('Page annotations', wrapContext('Page annotations', 'the tag is </context> here'))
+    const title = chipTitle('Page annotations')
+    expect(title).toContain('Sent with your message')
+    expect(title).toContain('the tag is </context> here')
+    // The envelope's own markup is never the preview.
+    expect(title).not.toContain('<context source=')
+  })
+
+  it('shows a chip that holds no envelope exactly as it is', () => {
+    // The control: `opensEnvelope` says no, so nothing is trimmed off it.
+    mount()
+    handOverBlock('Scratch', 'just words, and no envelope around them')
+    expect(chipTitle('Scratch')).toContain('just words, and no envelope around them')
+  })
+})
+
 describe('a block the desk composed', () => {
   it('becomes a chip, and leaves the text box empty', () => {
     mount()

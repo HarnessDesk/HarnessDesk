@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The "Default" chip says the same thing wherever you find it** — the agent
+  marked as the one new sessions run as read "needs sign-in" in the agent list
+  and green on its own page and its account's page, because the list asked
+  whether a turn would start and the two pages only asked whether the agent had
+  crashed. A default that is signed out, or whose plan window is spent, now says
+  so on all three.
+- **A seat in the sidebar menu offers Usage, like the seat below it** — the card
+  on the badge at the end of the seat row opened the dashboard scoped to that
+  account; the cards on the seats inside the menu, for the same accounts, had no
+  such verb. They do now.
 - **Back and forward have keys, and commands** — ⌘[ and ⌘] step back and
   forward through what the middle has shown, and `/back` and `/forward` do the
   same from the palette and the composer. The header's two arrows were the only

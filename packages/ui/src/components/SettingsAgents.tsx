@@ -17,6 +17,7 @@ import type {
 import {
   accountIdentity,
   agentGroups,
+  agentKey,
   accountKey,
   accountName,
   connectionLabel,
@@ -134,6 +135,27 @@ export const agentReadiness = (
   // Nothing signed in anywhere. An agent that runs without an account is
   // ready like that; every other one is waiting on a credential.
   return siblings.some((entry) => entry.capabilities.account) ? 'signin' : 'ready'
+}
+
+/**
+ * What the "Default" chip says, wherever it is drawn.
+ *
+ * The chip means "new sessions run as this", so the only state worth wearing
+ * is the one the rest of the app answers with: would a turn sent right now
+ * start. That was derived three ways — the agent's full readiness in the list
+ * header, and `unavailable → broken, else ready` on each of the two detail
+ * pages the header links to. Health alone cannot see a missing credential or
+ * a spent plan window, so a default that was signed out read "needs sign-in"
+ * in the list and green on its own page, and one at its limit read green on
+ * both pages while the list said otherwise (#131).
+ *
+ * One derivation now, and it is the list's: `agentReadiness` over every
+ * account the agent holds. `siblings` is looked up rather than passed because
+ * the detail pages are reached by id and hold one runtime, not the group.
+ */
+export const defaultChipState = (info: RuntimeInfo, snapshot: AppSnapshot): Readiness => {
+  const group = agentGroups(snapshot.runtimes).find((entry) => agentKey(entry.info) === agentKey(info))
+  return agentReadiness(group?.siblings ?? [info], snapshot)
 }
 
 /**
@@ -466,7 +488,10 @@ const AgentBlock = ({
               reader has to decode. A healthy agent shows none of the three. */}
           <span className={styles.headMeta}>
             {/* The default's chip wears the agent's own state: a default that
-                has crashed is not a green one. */}
+                has crashed is not a green one — nor is one that is signed out
+                or out of credit. `state` is `agentReadiness` over this agent's
+                accounts, which is what `defaultChipState` returns for the two
+                detail pages, so all three say the same thing (#131). */}
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
             {count !== null && <span className={styles.headCount}>{count}</span>}
             {state !== 'ready' && <Chip state={state} />}
@@ -1253,10 +1278,7 @@ const AccountDetail = ({
           desc="The composer starts on this account."
           control={
             snapshot.activeRuntime === info.id ? (
-              <Chip
-                state={snapshot.healthByRuntime[info.id]?.state === 'unavailable' ? 'broken' : 'ready'}
-                label="Default"
-              />
+              <Chip state={defaultChipState(info, snapshot)} label="Default" />
             ) : (
               <Btn small onClick={() => void store.selectRuntime(info.id)}>
                 Make default
@@ -1650,7 +1672,11 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
         blurb={info.presentation.tagline}
         actions={
           active ? (
-            <Chip state={health?.state === 'unavailable' ? 'broken' : 'ready'} label="Default" />
+            /* The snapshot's health, not this page's one-shot read: the chip is
+               only drawn for the default, whose health the store keeps current
+               as `runtime/healthChanged` arrives. `health` below still answers
+               "why will it not start", which is a different question. */
+            <Chip state={defaultChipState(info, snapshot)} label="Default" />
           ) : (
             /* Never disabled for a down agent: choosing one is how it is
                restarted, which is what its own health advises. */
