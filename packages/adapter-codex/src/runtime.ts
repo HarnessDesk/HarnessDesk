@@ -705,6 +705,10 @@ export class CodexRuntime implements AgentRuntime {
    * search, `readSession` and the `session/started` event. Two of them had it
    * and two did not, which is a conversation that answers to one name in the
    * sidebar and another the moment it is opened (review of #231, round 3).
+   *
+   * Once per invocation, never once per row. The registry cannot change while
+   * a synchronous `map` runs, so a page of forty conversations needs one walk
+   * of it, not forty (#274).
    */
   #automatic(): (label: string) => boolean {
     return automaticContext(this.#capabilities)
@@ -719,7 +723,8 @@ export class CodexRuntime implements AgentRuntime {
       // archived threads and nothing else, which is what `only` means.
       archived: onlyArchived,
     })
-    const stored = response.data.map((thread) => mapSummary(thread, this.#id, this.#automatic()))
+    const skip = this.#automatic()
+    const stored = response.data.map((thread) => mapSummary(thread, this.#id, skip))
     const live =
       query.cursor
         ? []
@@ -739,8 +744,9 @@ export class CodexRuntime implements AgentRuntime {
 
   async searchSessions(query: string): Promise<Page<SessionSummary>> {
     const response = await this.#server.request('thread/search', { searchTerm: query })
+    const skip = this.#automatic()
     return {
-      data: response.data.map((result) => mapSummary(result.thread, this.#id, this.#automatic())),
+      data: response.data.map((result) => mapSummary(result.thread, this.#id, skip)),
       nextCursor: response.nextCursor,
     }
   }

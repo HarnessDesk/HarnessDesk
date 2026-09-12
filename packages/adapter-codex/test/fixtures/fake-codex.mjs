@@ -1113,12 +1113,25 @@ rl.on('line', (line) => {
       send({ id, result: { data: storedThreads(), nextCursor: null, backwardsCursor: null } })
       return
 
-    case 'thread/search':
+    case 'thread/search': {
+      // The real app-server searches what it has stored, and answers with as
+      // many threads as match. A fixture that answers exactly one row
+      // whatever was asked cannot show a caller doing per-row work on the
+      // page it got back (#274).
+      const term = String(params?.searchTerm ?? '').toLowerCase()
+      const hits = storedThreads().filter((entry) =>
+        `${entry.id} ${entry.preview}`.toLowerCase().includes(term),
+      )
       send({
         id,
-        result: { data: [{ thread: thread(), snippet: 'files' }], nextCursor: null, backwardsCursor: null },
+        result: {
+          data: hits.map((entry) => ({ thread: entry, snippet: term })),
+          nextCursor: null,
+          backwardsCursor: null,
+        },
       })
       return
+    }
 
     case 'thread/read': {
       // The thread that was asked for, as the app-server answers: a read and a

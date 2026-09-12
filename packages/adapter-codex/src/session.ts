@@ -134,10 +134,16 @@ export class CodexSession implements AgentSession {
    * from the first turn, under the name the conversation is already shown by.
    */
   summary(): SessionSummary {
+    // One predicate for the row. It is read here rather than kept, because a
+    // plugin can be enabled or disabled while this session is open — but the
+    // preview `mapSummary` computes is overridden on the very next line, so
+    // building a second predicate only to throw the first one's answer away
+    // was work for nothing (#274).
+    const skip = automaticContext(this.deps.capabilities)
     return {
-      ...mapSummary(this.deps.thread, this.runtime, automaticContext(this.deps.capabilities)),
+      ...mapSummary(this.deps.thread, this.runtime, skip),
       title: this.#name === null ? null : stripContext(this.#name) || null,
-      preview: openingOf(this.deps.thread.preview ?? '', { skip: automaticContext(this.deps.capabilities) }).slice(0, 120) || this.#opening,
+      preview: openingOf(this.deps.thread.preview ?? '', { skip }).slice(0, 120) || this.#opening,
       cwd: this.#state.cwd,
       status: this.#currentTurnId === null ? { type: 'idle' } : { type: 'active' },
       updatedAt: this.#touchedAt,
