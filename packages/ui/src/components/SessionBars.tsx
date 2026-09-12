@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
 
 import { elapsedSince } from '../lib/clock'
+import { totalsByFile, type FileTotal } from '../lib/turn-view'
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { CheckIcon, CrossIcon, DiffIcon, GoalIcon, TerminalIcon } from './Icons'
 import styles from './SessionBars.module.css'
@@ -131,37 +132,23 @@ export const JobsBar = () => {
   )
 }
 
-/** Files the session produced, collected from every file-change item. */
-export const useDeliverables = (session: Session | null) =>
-  useMemo(() => {
-    if (!session) return []
-    const byPath = new Map<string, { path: string; kind: string; added: number; removed: number }>()
-    for (const item of allItems(session)) {
-      if (item.type !== 'fileChange') continue
-      for (const change of (item as FileChangeItem).changes) {
-        const counts = countLines(change.diff)
-        const existing = byPath.get(change.path)
-        byPath.set(change.path, {
-          path: change.path,
-          kind: change.kind.type,
-          added: (existing?.added ?? 0) + counts.added,
-          removed: (existing?.removed ?? 0) + counts.removed,
-        })
-      }
-    }
-    return [...byPath.values()]
-  }, [session])
+/**
+ * Files the session produced: every file-change item's changes, totalled per
+ * file by the turn card's own rule (`totalsByFile`). Each change is counted as
+ * the file view draws it, an added file's content all added lines and a `++`
+ * inside a hunk a line like any other (#155); and a scratch file made and
+ * removed in the session is left out, as the turn card leaves it out (review
+ * of #236, round 1).
+ */
+export const deliverablesOf = (session: Session | null): FileTotal[] =>
+  session
+    ? totalsByFile(
+        allItems(session).flatMap((item) => (item.type === 'fileChange' ? (item as FileChangeItem).changes : [])),
+      )
+    : []
 
-const countLines = (diff: string): { added: number; removed: number } => {
-  let added = 0
-  let removed = 0
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+++') || line.startsWith('---')) continue
-    if (line.startsWith('+')) added += 1
-    else if (line.startsWith('-')) removed += 1
-  }
-  return { added, removed }
-}
+/** `deliverablesOf`, kept while the session is the same one. */
+export const useDeliverables = (session: Session | null) => useMemo(() => deliverablesOf(session), [session])
 
 export const Deliverables = () => {
   const store = useStore()

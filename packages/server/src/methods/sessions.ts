@@ -187,7 +187,15 @@ export const sessionMethods = {
     await live.rollback(params.turns)
     // The conversation dropped those turns, so the host stops claiming
     // them: a later read that no longer lists them is right, not behind.
-    ctx.registry.forgetTurns(ctx.runtimes.resolve(params).info.id, makeSessionId(params.sessionId), params.turns)
+    const runtime = ctx.runtimes.resolve(params).info.id
+    const id = makeSessionId(params.sessionId)
+    ctx.registry.forgetTurns(runtime, id, params.turns)
+    /* And so does the transcript store, which fills a thinner read in from
+       what it recorded: untold, it brought the dropped turns back after a
+       restart (#156). It drops them from what it kept, whatever the host's
+       copy holds, and forgets a transcript with no turn left (review of
+       #236, round 1). */
+    await ctx.transcripts.dropTurns(runtime, id, params.turns)
     return null
   },
 

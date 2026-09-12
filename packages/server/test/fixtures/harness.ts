@@ -25,8 +25,12 @@ export interface Harness {
   readonly stateDir: string
 }
 
-export const start = async (options: Partial<HostOptions> = {}): Promise<Harness> => {
-  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-test-'))
+/**
+ * A host on a state directory of its own, or on `at`: the one a halted host
+ * left, for a test of what survives a relaunch.
+ */
+export const start = async (options: Partial<HostOptions> = {}, at?: string): Promise<Harness> => {
+  const stateDir = at ?? (await mkdtemp(join(tmpdir(), 'harnessdesk-test-')))
   const runtime = new FakeRuntime()
   const host = new Host({
     logger: silent,
@@ -39,6 +43,12 @@ export const start = async (options: Partial<HostOptions> = {}): Promise<Harness
   await host.start()
   const server = await serve({ host, logger: silent, port: 0 })
   return { host, runtime, server, stateDir }
+}
+
+/** The host and its server stopped, and its state left where it is, for another host to start on. */
+export const halt = async (harness: Harness): Promise<void> => {
+  await harness.server.close()
+  await harness.host.dispose()
 }
 
 export const stop = async (harness: Harness): Promise<void> => {
@@ -115,10 +125,11 @@ export class Client {
     this.#socket.send(payload)
   }
 
-  async until(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  /** Waits for `predicate`, failing with what was awaited when it names it. */
+  async until(predicate: () => boolean, timeoutMs = 5_000, what = 'a condition'): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (!predicate()) {
-      if (Date.now() > deadline) throw new Error('timed out waiting for a condition')
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
   }
