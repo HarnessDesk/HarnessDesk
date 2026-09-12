@@ -35,9 +35,18 @@ import type { AvatarId } from './avatars'
  * does not carry is a name that says nothing — blank, every build's spelling
  * of the default — and a `name` that is not a string: the name stays a
  * string, and an account is expected to supply a string there too.
+ *
+ * The one thing a name does not keep is the handful of controls that reorder
+ * text or hide inside it rather than spell it (`HIDDEN_CONTROLS`). A later
+ * build's spacing and its longer cap are that build's business; a name that
+ * draws itself backwards is nobody's.
  */
 export interface Profile {
-  /** What you are called, as stored: tidied when typed here, as written when not. Absent means the default. */
+  /**
+   * What you are called, as stored: tidied when typed here, as written when
+   * not — less the controls no name carries (`HIDDEN_CONTROLS`). Absent means
+   * the default.
+   */
   readonly name?: string
   /**
    * Which face, as stored: one of the ids this build ships, or whatever a
@@ -84,8 +93,37 @@ const graphemes =
 export const characters = (text: string): string[] =>
   graphemes ? Array.from(graphemes.segment(text), (part) => part.segment) : Array.from(text)
 
+/**
+ * The invisible controls a name may not carry, wherever it came from: the
+ * bidirectional embeddings, overrides and isolates (U+202A–U+202E,
+ * U+2066–U+2069), which reorder the characters around them, and the zero-width
+ * space (U+200B), which hides itself inside the name. None of them is spelling,
+ * and a name that reads one way in the seat and another beside a message in a
+ * room is not a name.
+ *
+ * Deliberately *not* every invisible, which is why this is a list rather than
+ * "the format characters". The zero-width joiner (U+200D) is what makes a
+ * family emoji one face rather than three, and the zero-width non-joiner
+ * (U+200C) is required spelling in Persian and other scripts. Stripping those
+ * to be thorough would mangle real names silently, which is a worse defect
+ * than the reordering it would prevent (#235).
+ */
+const HIDDEN_CONTROLS = /[​‪-‮⁦-⁩]/g
+
+/**
+ * A name as this desk reads one.
+ *
+ * Applied where a name arrives — the stored file, an edit made here, and one
+ * day an account — and again where it is drawn, so every surface draws the
+ * same string. Keeping the string untouched and isolating it at each drawing
+ * surface was the other answer: it never alters a name, but it makes every
+ * future surface responsible for remembering, and a surface that forgets is
+ * the same defect again.
+ */
+const readName = (name: string): string => name.replace(HIDDEN_CONTROLS, '')
+
 const tidyName = (name: string): string =>
-  characters(name.replace(/\s+/g, ' ').trim())
+  characters(readName(name).replace(/\s+/g, ' ').trim())
     .slice(0, PROFILE_NAME_MAX)
     .join('')
     .trim()
@@ -168,7 +206,8 @@ export const readProfile = (raw: unknown): Profile => {
   const record = raw as Readonly<Record<string, unknown>>
   const later = Object.fromEntries(Object.entries(record).filter(([field]) => field !== 'name' && field !== 'avatar'))
   const name = record['name']
-  return settle(later, typeof name === 'string' && name.trim() !== '' ? name : undefined, record['avatar'])
+  const read = typeof name === 'string' ? readName(name) : ''
+  return settle(later, read.trim() !== '' ? read : undefined, record['avatar'])
 }
 
 /**
@@ -182,9 +221,13 @@ export const storedProfile = (profile: Profile): Readonly<Record<string, unknown
   ...(profile.avatar !== undefined ? { avatar: profile.avatar } : {}),
 })
 
-/** What to call you on screen. */
+/**
+ * What to call you on screen — and the last read before any surface draws it,
+ * so a name that reached the field by a path this build does not have yet is
+ * still held to `HIDDEN_CONTROLS`.
+ */
 export const profileName = (profile: Profile): string =>
-  profile.name?.trim() || DEFAULT_PROFILE_NAME
+  readName(profile.name ?? '').trim() || DEFAULT_PROFILE_NAME
 
 /** Whether anything has been chosen — the question a "Reset" answers. */
 export const isDefaultProfile = (profile: Profile): boolean =>
