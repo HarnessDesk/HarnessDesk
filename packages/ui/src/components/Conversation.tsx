@@ -51,6 +51,7 @@ import { splitTasks, tasksChipLabel } from '../lib/tasks'
 import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
 import { BringHome } from './BringHome'
+import { FolderGone } from './FolderGone'
 import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
@@ -479,6 +480,9 @@ export const Conversation = ({
   const [removingWorktree, setRemovingWorktree] = useState(false)
   const [bringingHome, setBringingHome] = useState(false)
   const loading = key ? snapshot.loadingSessions.has(key) : false
+  /* Keyed on the folder rather than on this conversation: the fact belongs to
+     the folder, and every conversation that ran in it is in the same state. */
+  const folderGone = session ? (snapshot.foldersGone.get(session.cwd) ?? null) : null
 
   const items = useMemo(() => (session ? allItems(session) : []), [session])
   const busy = session ? isBusy(session) : false
@@ -682,7 +686,15 @@ export const Conversation = ({
           <GoalBar />
           <MessageQueue />
         </div>
-        <Composer onChooseProject={onChooseProject} />
+        {/* The composer, or the reason there is not one. A conversation whose
+            folder has been deleted cannot be added to by anybody — so the box
+            that implies it can is replaced by the note saying so, rather than
+            left sitting there to be typed into and refused. */}
+        {folderGone && session ? (
+          <FolderGone folder={session.cwd} said={folderGone} />
+        ) : (
+          <Composer onChooseProject={onChooseProject} />
+        )}
       </div>
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />

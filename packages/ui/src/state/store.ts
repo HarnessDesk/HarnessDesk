@@ -1482,17 +1482,55 @@ export class AppStore {
       this.#setSession(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
+      // A conversation that reopened is the only evidence its folder is back.
+      if (this.#snapshot.foldersGone.has(live.cwd)) {
+        const left = new Map(this.#snapshot.foldersGone)
+        left.delete(live.cwd)
+        this.#patch({ foldersGone: left })
+      }
     } catch (error) {
       // A conversation another writer holds is a special kind of failure: the
       // read above already succeeded, so the transcript is on screen and whole
       // — what is missing is only the ability to add to it. The pane keeps
       // what it painted, and the way forward is a copy, which the agent will
       // make even while the original is held.
+      /* What the pane managed to paint. The read above usually succeeds even
+         when the reopen cannot — the host serves its own stored transcript
+         when the agent will not — but on a conversation this desk has never
+         opened there is no host copy either, and then both halves fail. */
+      const painted = this.#snapshot.sessions.get(key)
+      /* The folder it ran in, whether or not its transcript arrived: the
+         sidebar row carries the folder too, and where nothing was painted the
+         row is the only place it is written down. */
+      const goneFolder = isFolderGone(error)
+        ? (painted?.cwd ??
+          this.#snapshot.history.find((one) => one.runtime === runtime && one.id === id)?.cwd ??
+          null)
+        : null
+      /* True when nothing else is going to say it: either this folder has not
+         been heard of before, or it could not be identified at all — and a
+         refusal nobody can key on must not be silently swallowed. */
+      const firstForFolder = goneFolder === null || !this.#snapshot.foldersGone.has(goneFolder)
+      /* Recorded before anything is decided, so every conversation that folder
+         took is marked from the first refusal — not only the one clicked. */
+      if (goneFolder !== null) {
+        this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
+      }
       if (isHeldElsewhere(error)) {
         this.notice('error', describe(error), {
           label: 'Open a copy',
           run: () => void this.forkSession(key),
         })
+      } else if (isFolderGone(error) && painted) {
+        /* A state, not an occurrence — so it is drawn and nothing is
+           announced. The conversation is on screen and whole; what is gone is
+           the folder it ran in, and with it the ability to add to it. The pane
+           says so where the composer would be and the row wears a mark, both
+           keyed on the folder: a deleted worktree takes every conversation
+           that ran in it, and the three members of one review room used to
+           arrive as three identical toasts. Kept on a layout restore for the
+           reason the held-elsewhere case is — the transcript is right there,
+           and emptying the pane would throw away the only copy left of it. */
       } else if (options.restoring) {
         // The layout remembered a conversation the backend no longer holds
         // — an ended ephemeral session, an ACP agent that was restarted.
@@ -1511,7 +1549,12 @@ export class AppStore {
           )
           if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
         }
-      } else {
+      } else if (!isFolderGone(error) || firstForFolder) {
+        /* Nothing was painted, so there is no pane to carry the state and no
+           transcript to call read-only — the news has nowhere else to go. Said
+           once for the **folder** rather than once per conversation, which is
+           the whole of the original complaint: one deleted worktree, three
+           members, three identical toasts. */
         this.#backgroundNotice('error', describe(error))
       }
     } finally {
@@ -1550,7 +1593,11 @@ export class AppStore {
   ): Promise<SessionKey | null> {
     const runtime = options.runtime ?? this.#snapshot.activeRuntime
     const workspace = options.cwd ?? this.#snapshot.workspace?.path
-    if (!runtime || !workspace) {
+    /* A folder this app has proof is gone is never where a session starts.
+       Without this, the open folder being the deleted one turned every way
+       out of it — the copy a folder-gone conversation offers included — back
+       into the same refused `session/create`. */
+    if (!runtime || !workspace || this.#snapshot.foldersGone.has(workspace)) {
       this.notice('warning', 'Choose a project folder before starting a session.')
       return null
     }
@@ -1645,8 +1692,13 @@ export class AppStore {
      * Where the draft starts, when that is not where the source ran — a
      * worktree brought back to the main checkout hands its conversation to
      * the folder the work now lives in, because the one it ran in is gone.
+     *
+     * `null` is a third answer, and a different one from leaving this out:
+     * carry everything except the folder. A conversation whose folder has
+     * been deleted has no folder worth naming, and the source's is the one
+     * place its copy must not start — see `openCopyElsewhere`.
      */
-    options: { readonly cwd?: string } = {},
+    options: { readonly cwd?: string | null } = {},
   ): Promise<void> {
     if (!key) {
       // Nothing open to carry — the usage banner offers this over an empty
@@ -1681,7 +1733,19 @@ export class AppStore {
     if (!drafted) this.newDraft()
     this.#parkedHandoff = null
     this.#patch({
-      draftHandoff: { runtime, sessionId: id as SessionId, carry, agentName, title, cwd: options.cwd ?? open?.cwd ?? null },
+      draftHandoff: {
+        runtime,
+        sessionId: id as SessionId,
+        carry,
+        agentName,
+        title,
+        /* Absent means the source's folder, which is right for an ordinary
+           hand-off: the packet names that folder as ground truth. Explicit
+           `null` means no folder at all, and is not the same instruction —
+           `??` folded the two together, so the one caller with a folder to
+           drop could not drop it. */
+        cwd: options.cwd !== undefined ? options.cwd : (open?.cwd ?? null),
+      },
     })
   }
 
@@ -1820,6 +1884,38 @@ export class AppStore {
     } catch (error) {
       this.notice('error', describe(error))
     }
+  }
+
+  /**
+   * Carry a conversation whose folder is gone into one that exists.
+   *
+   * Not a fork: forking asks the agent to load the conversation from the
+   * folder that is missing, which is the wall this started at — and most
+   * agents behind the bridge cannot fork at all. What travels is the hand-off
+   * packet, the same verb a worktree brought home uses for this exact
+   * situation, landing as a chip on a fresh draft in the agent it already
+   * belongs to. Where the draft starts is left to the composer's Work in
+   * control rather than guessed at here: the one folder this app can be sure
+   * about is the open workspace, and a conversation that ran in a deleted
+   * worktree of another project does not belong there by default.
+   *
+   * Saying that takes an explicit `null`, because a hand-off carries the
+   * source conversation's folder unless it is told otherwise — and here that
+   * folder is the deleted one. So the button promised *another* folder and
+   * handed back the same one: the draft started in it, and the first message
+   * hit the wall the banner exists to escape. `null` is "carry everything
+   * except the folder", which leaves the draft on the open folder — what the
+   * Work in control beside the composer already shows, so the control and the
+   * draft finally name one place, and the person can move it before sending.
+   *
+   * The conversation's own repository would be the better destination and is
+   * not available: the host reads a folder's repository by running git inside
+   * it, so a session whose folder is gone comes back with `repo: null`. The
+   * one field that would name it is empty exactly when it is needed.
+   */
+  async openCopyElsewhere(key = this.#snapshot.activeSessionKey): Promise<void> {
+    if (!key) return
+    await this.handOff(splitSessionKey(key).runtime, 'summary', key, { cwd: null })
   }
 
   /** Sets or clears the session's standing objective. */
@@ -4910,6 +5006,18 @@ const focusedPaneViewOf = (layout: Layout): PaneView | null => {
  */
 const isHeldElsewhere = (error: unknown): boolean =>
   error instanceof Error && (error as { code?: unknown }).code === 'sessionBusy'
+
+/**
+ * A conversation whose folder is no longer on the machine.
+ *
+ * Read off the code for the reason `isHeldElsewhere` is: the sentence is the
+ * agent's and may be improved, and this is the one *gone* with somewhere to
+ * go afterwards. Named on the wire by the adapter and kept across the host by
+ * `session/resume`; before that this arrived as a plain error and could only
+ * have been recognised by its English.
+ */
+const isFolderGone = (error: unknown): boolean =>
+  error instanceof Error && (error as { code?: unknown }).code === 'sessionFolderGone'
 
 /**
  * What an undo or a redo came to.

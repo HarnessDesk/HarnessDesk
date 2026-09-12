@@ -56,6 +56,7 @@ import {
   findOption,
   peelUserContent,
   refuseOptionValue,
+  SessionFolderGoneError,
   SessionGoneError,
   openingOf,
 } from '@harnessdesk/protocol'
@@ -1822,8 +1823,12 @@ export class AcpRuntime implements AgentRuntime {
     // agent and comes back as a bare "Internal error" that names nothing —
     // so it is checked here, while the folder's name is still in hand.
     if (!isDirectory(cwd)) {
-      throw new SessionGoneError(
+      // Named on the wire as well as in the sentence: this is the one refusal
+      // with somewhere to go afterwards, and the interface offers that by the
+      // code rather than by recognising the words. See `SessionFolderGoneError`.
+      throw new SessionFolderGoneError(
         `${this.#config.name} cannot open this conversation: its folder no longer exists (${cwd}).`,
+        cwd,
       )
     }
     const session = AcpSession.forReplay(this, id, cwd)

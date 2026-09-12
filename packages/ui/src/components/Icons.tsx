@@ -12,6 +12,7 @@ import {
   Eraser,
   FolderGit2,
   FolderInput,
+  FolderX,
   House,
   Laptop,
   GitMerge,
@@ -243,6 +244,8 @@ export const FileIcon = icon(File, 'FileIcon')
 export const FolderIcon = icon(Folder, 'FolderIcon')
 /** Choosing a different folder. */
 export const FolderOpenIcon = icon(FolderOpen, 'FolderOpenIcon')
+/** A folder that is no longer on the machine. */
+export const FolderGoneIcon = icon(FolderX, 'FolderGoneIcon')
 /** Bringing something in from elsewhere on the machine. */
 export const ImportIcon = icon(Import, 'ImportIcon')
 /* Saving something out of the app. Was `FileIcon`, which is what a *file* is

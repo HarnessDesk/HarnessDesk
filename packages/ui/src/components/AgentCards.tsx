@@ -1007,6 +1007,7 @@ const SessionCardBody = ({
     const live = snapshot.sessions.get(key)
     const busy = busyNow(live)
     const agentName = info?.presentation.name ?? session.runtime
+    const gone = snapshot.foldersGone.get(session.cwd) ?? null
 
     return {
       kind: 'session',
@@ -1025,10 +1026,17 @@ const SessionCardBody = ({
       meter: meterOf(snapshot, key, agentName),
       on: { where: groundOf(session.cwd, session.git?.branch) },
       /* An archived conversation says so once, here, rather than everywhere
-         its row appears. */
-      cautions: session.archived
-        ? [{ tone: 'quiet', text: 'Archived. It is not in the sidebar until you restore it.' }]
-        : [],
+         its row appears. The folder being gone is the other fact a row cannot
+         carry: the band above already prints the folder, and this says what
+         has happened to it. */
+      cautions: [
+        ...(gone
+          ? [{ tone: 'warning' as const, text: `${gone} The transcript is read-only.` }]
+          : []),
+        ...(session.archived
+          ? [{ tone: 'quiet' as const, text: 'Archived. It is not in the sidebar until you restore it.' }]
+          : []),
+      ],
       ...(actions ? { actions } : {}),
     }
   }, [snapshot, session, actions, now])
