@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -101,6 +102,66 @@ test('path containment follows symlinks, so a link out of the root leads out of 
   assert.equal(pathWithin(root, join(root, 'inward', 'a.ts')), true, 'a link back into the root')
   assert.equal(pathWithin(root, join(root, 'sub', 'new.txt')), true, 'a file about to be created')
   assert.equal(pathWithin(root, join(root, 'a', 'b', 'c.txt')), true, 'a branch about to be created')
+})
+
+test('a link out of the root leads out of it where `realpathSync.native` cannot answer', async (t) => {
+  /*
+   * The musl case the fallback in `resolved` exists for, which nothing reached.
+   * `uv_fs_realpath` opens the path and reads its name back through
+   * `/proc/self/fd`, so on a musl build with no `/proc` it fails for a path that
+   * is plainly there — and it fails with `ENOENT`, the same code an absent path
+   * gets. `resolved` returned on that code before trying the JS implementation,
+   * so on that machine every level answered `null`, `canonical` climbed to its
+   * lexical bailout, and `pathWithin` was a string comparison again: exactly the
+   * defect #110 was filed against, in the one environment the fallback was
+   * written for.
+   *
+   * Stubbed rather than skipped. The environment is a property of the libc Node
+   * was linked against and nothing else here could reach it; `.native` is a
+   * writable property on the exported function, so replacing it puts the real
+   * `resolved` in front of a native that cannot answer and leaves every other
+   * line of it alone.
+   */
+  const fixture = await linkedFixture()
+  if (!fixture) return t.skip('this filesystem does not make symlinks')
+  const { base, root } = fixture
+
+  const native = realpathSync.native
+  let refusals = 0
+  /* Scoped to the fixture, so everything else on this machine — the module
+     loader included — goes on getting the real answer. */
+  realpathSync.native = ((path: string) => {
+    if (!path.startsWith(base)) return native(path)
+    refusals += 1
+    const error = new Error(`ENOENT: no such file or directory, realpath '${path}'`) as NodeJS.ErrnoException
+    error.code = 'ENOENT'
+    throw error
+  }) as typeof realpathSync.native
+  // Registered before the fixture's own cleanup, because `t.after` runs FIFO.
+  t.after(() => {
+    realpathSync.native = native
+  })
+  t.after(() => rm(base, { recursive: true, force: true }))
+
+  /* The controls. A lexical comparison answers both of these correctly, so they
+     hold whether or not the fallback is reached, and a failure below cannot be a
+     fixture that never got built or a file that never ran. */
+  assert.equal(pathWithin(root, join(root, 'inside.txt')), true, 'a real file inside the root')
+  assert.equal(pathWithin(root, join(base, 'work-other', 'a.ts')), false, 'a lookalike sibling')
+
+  // The defect: with `.native` unable to answer, the link is followed by the JS
+  // implementation or by nothing at all.
+  assert.equal(pathWithin(root, join(root, 'link', 'passwd')), false)
+  assert.equal(pathWithin(root, join(root, 'link', 'new.txt')), false, 'and for a file that does not exist yet')
+
+  // And here too, containment must not curdle into refusal.
+  assert.equal(pathWithin(root, join(root, 'inward', 'a.ts')), true, 'a link back into the root')
+  assert.equal(pathWithin(root, join(root, 'sub', 'new.txt')), true, 'a file about to be created')
+
+  /* Not an assertion about containment: it says the stub was really in the path,
+     so a replacement that silently did not take cannot pass this test by
+     answering the ordinary case twice. */
+  assert.ok(refusals > 0, 'the native implementation was asked, and could not answer')
 })
 
 test('a plugin granted the workspace cannot read out of it through a symlink', async (t) => {

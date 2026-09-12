@@ -100,14 +100,28 @@ export const hostAllowed = (allowed: readonly string[], host: string): boolean =
  * documented to need `/proc` mounted when Node is linked against musl. Losing
  * it there should cost the ordering of `..`, which no caller here can even
  * produce — every one of them resolves before calling — and not cost the
- * following of links, which is the whole point. A path that is simply absent is
- * absent for both, so that case never pays for the second ask.
+ * following of links, which is the whole point.
+ *
+ * **Every native failure falls through to the fallback, `ENOENT` included.**
+ * This used to return on that code, reading it as "absent for both, so never pay
+ * for the second ask" — but `ENOENT` is precisely what musl without `/proc`
+ * reports for a path that is plainly there: `uv_fs_realpath` opens the path and
+ * reads its name back through `/proc/self/fd`, so the missing thing it names is
+ * `/proc`, not the path. Returning on it made the fallback unreachable in the
+ * one environment it exists for. `canonical` then saw `null` at every level,
+ * climbed to its lexical bailout, and containment was a string comparison
+ * again — a symlink out of the workspace reading as inside it, which is #110
+ * itself. An absent path is asked about twice now, and the second ask is what it
+ * costs: measured here, ~11µs for `.native` to fail and ~15µs more for the JS
+ * one to fail behind it, so a write guard on a path four levels below an
+ * existing directory goes from 65µs to 128µs. A path that exists is untouched at
+ * ~16µs, because the first ask answers it. That is the price of the answer being
+ * right on a machine this code cannot detect it is running on.
  */
 const resolved = (path: string): string | null => {
   try {
     return realpathSync.native(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+  } catch {
     try {
       return realpathSync(path)
     } catch {
