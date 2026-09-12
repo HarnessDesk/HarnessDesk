@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url'
 
 import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE } from '../lib/desk.mjs'
 import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
-import { COLLECT, reasonsFor } from './audit.mjs'
+import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { REPOS } from './cast.mjs'
 import { HOME, WORK } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
@@ -73,16 +73,6 @@ const HEIGHT = Number(flag('height', '900'))
 const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
 const REPO = join(WORK, REPOS[0].dir)
 const say = (line) => process.stdout.write(`  ${line}\n`)
-
-/**
- * The username this machine runs as.
- *
- * One of the things no frame may contain, and no longer the only one — the
- * audit that called it "the one string" passed a real name and a real address
- * on a seat (#296). It is still worth its own check: it is the one name this
- * machine is certain to know.
- */
-const USER = homedir().split('/').filter(Boolean).pop() ?? ''
 
 const busy = await deskInUse(HOME)
 if (busy) {
@@ -170,52 +160,13 @@ try {
 
   /**
    * Nothing is written until this passes. See `audit.mjs` for what it asks and
-   * which way it errs; collected here because only the driver has the window.
+   * which way it errs; asked from here because only the driver has the window.
    */
-  const audit = async (name) => {
-    const seen = await cdp.json(
-      `(() => {
-        const seen = ${COLLECT}
-        seen.accounts = ${STORE}.getSnapshot().accountsByRuntime ?? {}
-        return seen
-      })()`,
-    )
-    const reasons = reasonsFor(seen ?? {}, { user: USER, vouched: VOUCHED })
-    if (reasons.length > 0) {
-      throw new Error(`${name}: this frame is not publishable —\n    ${reasons.join('\n    ')}`)
-    }
-  }
+  const audit = (name) => refuseUnpublishable(cdp, { name, user: USER, vouched: VOUCHED })
 
-  /**
-   * Write this machine's home as `~`, the way the app writes it elsewhere.
-   *
-   * `shortPath` is applied in the Library, the skill sheet and every diff
-   * label, but the repository pane's header prints its root absolute — it has
-   * no `home` to shorten against, because home reaches the renderer on the
-   * library scan rather than on the app snapshot. That is a real if small
-   * defect and it is filed as one; it is not this rig's to fix mid-take.
-   *
-   * So the substitution happens here, and it is deliberately the narrowest one
-   * that helps: the exact home prefix becomes `~`, and nothing else changes.
-   * The audit therefore still means something — any *other* home path, under
-   * any root, and any bare occurrence of the username, still throws.
-   */
+  /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
-    await cdp.eval(
-      `(() => {
-        const home = ${q(homedir())}
-        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-        let node
-        while ((node = walk.nextNode())) {
-          if (node.nodeValue?.includes(home)) node.nodeValue = node.nodeValue.split(home).join('~')
-        }
-        for (const el of document.querySelectorAll('[title]')) {
-          const t = el.getAttribute('title')
-          if (t?.includes(home)) el.setAttribute('title', t.split(home).join('~'))
-        }
-        return true
-      })()`,
-    )
+    await cdp.eval(TILDIFY(homedir()))
     await sleep(150)
   }
 

@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { ACCOUNTS, ANONYMOUS, VOUCHED, accountFor } from './shots/accounts.mjs'
-import { COLLECT, accountReasons, reasonsFor, textReasons } from './shots/audit.mjs'
+import {
+  COLLECT,
+  TILDIFY,
+  accountReasons,
+  reasonsFor,
+  refuseUnpublishable,
+  refuseUnvouchedAccounts,
+  textReasons,
+} from './shots/audit.mjs'
 import { CAST, CONVERSATIONS, OLIVIA, REPOS, SHANE } from './shots/cast.mjs'
 
 /**
@@ -184,13 +195,16 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
   ])
 })
 
-test('the invented desk the rig stages is still publishable (#296)', () => {
-  /* The direction that stops this from becoming "refuse everything". Built out
-     of `cast.mjs` itself rather than out of prose about it, so that widening
-     the audit against the real staged strings is what is being asserted — the
-     twelve agents, their conversations, the repositories, the seat accounts
-     and a tildified path. If any arm above starts refusing the rig's own desk,
-     this is what goes red. */
+/**
+ * The invented desk the rig actually stages, as one window.
+ *
+ * Built out of `cast.mjs` itself rather than out of prose about it, so what is
+ * asserted is the real staged strings — the twelve agents, their
+ * conversations, the repositories, the seat accounts and a tildified path.
+ * Shared by every accept-direction test below: a still that must still be
+ * written, and a recording that must still be recorded.
+ */
+const stagedWindow = () => {
   const lines = [
     'Workspaces',
     ...REPOS.map((repo) => `${repo.name} \u2014 ${repo.blurb}`),
@@ -204,12 +218,152 @@ test('the invented desk the rig stages is still publishable (#296)', () => {
     'Signed in',
     '~/work/storefront',
   ]
-  const seen = {
+  return {
     ...frame(lines.join('\n'), [
       ['title', '~/work/storefront'],
       ['alt', 'Codex'],
     ]),
     accounts: Object.fromEntries(CAST.map((agent) => [agent.id, accountFor(agent.id)])),
   }
-  assert.deepEqual(reasonsFor(seen, { user: USER, vouched: VOUCHED }), [])
+}
+
+test('the invented desk the rig stages is still publishable (#296)', () => {
+  /* The direction that stops this from becoming "refuse everything". If any
+     arm above starts refusing the rig's own desk, this is what goes red. */
+  assert.deepEqual(reasonsFor(stagedWindow(), { user: USER, vouched: VOUCHED }), [])
+})
+
+/**
+ * A CDP client that answers for one window, and remembers what it was asked.
+ *
+ * It routes on the expression because the two gates ask different questions:
+ * `SEEN` collects the frame *and* the seats, the mid-take poll asks for the
+ * seats alone. Answering both from one object would let the poll be handed a
+ * whole window, whose keys are not runtimes — which passes vacuously, and is
+ * exactly the shape of miss this file exists for.
+ */
+const fakeCdp = (window) => ({
+  asked: [],
+  json(expression) {
+    this.asked.push(expression)
+    return Promise.resolve(expression.includes('document') ? window() : (window().accounts ?? {}))
+  },
+})
+
+/** One seat holding somebody the rig did not invent. */
+const REAL_SEAT = { cline: { accounts: [{ kind: 'agent', label: 'Jordan Roe', email: 'j.roe@northwind-trading.invalid' }] } } // hd-secrets-ok
+
+test('a recording is refused when the re-staged accounts did not take (#296)', async () => {
+  /* The critical unguarded branch: the recording path has no frame-by-frame
+     backstop, so a staging step that did not take is published. And the
+     failure does not throw — `loadAccounts()` catches every request it makes,
+     and returns early when a later pass overtook it, resolving successfully
+     having patched nothing. So un-swallowing the call was never the fix. The
+     gate reads the map back instead. */
+  const cdp = fakeCdp(() => ({ ...stagedWindow(), accounts: REAL_SEAT }))
+  await assert.rejects(
+    refuseUnpublishable(cdp, { name: 'turn-light', user: USER, vouched: VOUCHED, subject: 'recording' }),
+    (error) => {
+      assert.match(error.message, /this recording is not publishable/)
+      assert.match(error.message, /cline/, 'the seat to look at is named')
+      /* And what it found is not quoted, for the reason the username is not:
+         if this arm is right, it is holding somebody's account. */
+      assert.doesNotMatch(error.message, /Jordan Roe/)
+      assert.doesNotMatch(error.message, /j\.roe/)
+      return true
+    },
+  )
+})
+
+test('an ordinary take against the rig\'s invented desk still records (#296)', async () => {
+  /* The other direction, and the one that stops this from becoming "refuse
+     every recording". Both gates, over the desk the rig really stages. */
+  const cdp = fakeCdp(stagedWindow)
+  await refuseUnpublishable(cdp, { name: 'turn-light', user: USER, vouched: VOUCHED, subject: 'recording' })
+  await refuseUnvouchedAccounts(cdp, { name: 'turn-light', vouched: VOUCHED })
+  /* The poll asked the store, not the DOM: a `[title]` sweep six times during
+     a screencast is jank recorded into the artifact. */
+  assert.doesNotMatch(cdp.asked[1], /document/)
+  assert.match(cdp.asked[1], /accountsByRuntime/)
+})
+
+test('a seat that arrives mid-take is refused before the frames are written (#296)', async () => {
+  /* The one door neither bracket can see. An account that appears after the
+     staging did — a second slot, an agent registered from the interface — is
+     the third read-through door `accounts.mjs` names, and the only one that
+     opens while the screencast is running. */
+  let sample = 0
+  const cdp = fakeCdp(() => ({ ...stagedWindow(), accounts: (sample += 1) > 2 ? REAL_SEAT : stagedWindow().accounts }))
+  await refuseUnvouchedAccounts(cdp, { name: 'turn-light', vouched: VOUCHED })
+  await refuseUnvouchedAccounts(cdp, { name: 'turn-light', vouched: VOUCHED })
+  await assert.rejects(
+    refuseUnvouchedAccounts(cdp, { name: 'turn-light', vouched: VOUCHED }),
+    /this recording is not publishable/,
+  )
+})
+
+test('the recording path refuses before it records and before it writes (#296)', () => {
+  /* The gate above is only worth having if the recording actually asks it, and
+     nothing else in this file can see that: `gif.mjs` launches an Electron app
+     at import, so its order is read rather than run. Both positions matter —
+     before the screencast, because a refusal there costs a launch rather than
+     a take; and after it, before a single frame reaches the disk. */
+  const gif = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'shots/gif.mjs'), 'utf8')
+  // The call, not the import line — matching the bare name would pass on the import alone.
+  const first = gif.indexOf('refuseUnpublishable(cdp')
+  const last = gif.lastIndexOf('refuseUnpublishable(cdp')
+  const poll = gif.indexOf('refuseUnvouchedAccounts(cdp')
+  const starts = gif.indexOf("Page.startScreencast")
+  const stops = gif.indexOf("Page.stopScreencast")
+  const writes = gif.indexOf('writeFileSync(join(FRAMES')
+  for (const [what, at] of [['the gate', first], ['the poll', poll], ['the screencast', starts], ['the write', writes]]) {
+    assert.notEqual(at, -1, `gif.mjs still has ${what}`)
+  }
+  assert.ok(first < starts, 'the recording is refused before a frame is captured')
+  assert.ok(poll > starts && poll < stops, 'and asked again while it records')
+  assert.ok(last > stops && last < writes, 'and once more before a frame reaches the disk')
+  assert.notEqual(first, last, 'the two gates are two calls')
+  /* And the re-ask that closes the boot race is not swallowed. It is the
+     smaller half — neither verb can fail loudly, which is why the gates read
+     the answers back — but a dead renderer should stop the take, not be
+     ignored by the one path with no frame-by-frame backstop. */
+  const reAsk = gif.split('\n').filter((line) => line.includes('cdp.eval') && /loadAccounts|refreshRuntime/.test(line))
+  assert.equal(reAsk.length, 2, 'both slots are re-asked')
+  for (const line of reAsk) assert.doesNotMatch(line, /catch/, line.trim())
+})
+
+test('the substitution both drivers run covers attributes, not only text (#296)', () => {
+  /* Why this is a test and not a detail: there were two copies of `tildify`
+     and they had drifted — the stills walked `[title]` and the recording did
+     not. Widening the audit to read attributes without closing that would have
+     refused every ordinary recording, for a tooltip the rig itself left there.
+     It runs in the renderer, so it is exercised here against a document of our
+     own, the way `COLLECT` is. */
+  /* A declared placeholder home, not a lookalike needing `hd-secrets-ok`:
+     the substitution is literal, so the fixture may as well be one the
+     tracked-files gate already sanctions. */
+  const home = '/home/someone'
+  const text = [{ nodeValue: `Opened ${home}/work/storefront` }, { nodeValue: 'nothing to change' }]
+  const titled = {
+    value: `${home}/work/storefront`,
+    getAttribute: (name) => (name === 'title' ? titled.value : null),
+    setAttribute: (name, value) => {
+      titled.value = value
+    },
+  }
+  const asked = []
+  let next = 0
+  const document = {
+    body: {},
+    createTreeWalker: () => ({ nextNode: () => text[next++] ?? null }),
+    querySelectorAll: (selector) => {
+      asked.push(selector)
+      return [titled]
+    },
+  }
+  new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
+  assert.equal(text[0].nodeValue, 'Opened ~/work/storefront')
+  assert.equal(text[1].nodeValue, 'nothing to change')
+  assert.deepEqual(asked, ['[title]'])
+  assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
 })

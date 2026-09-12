@@ -40,7 +40,56 @@
  * desk — `dev@example.com`, the demo persona, twelve fictional agents — still
  * passes.
  */
+import { homedir } from 'node:os'
+
 import { offendersIn } from '../check-secrets.mjs'
+import { STORE } from '../lib/desk.mjs'
+
+/**
+ * The username this machine runs as.
+ *
+ * One of the things no frame may contain, and no longer the only one — the
+ * audit that called it "the one string" passed a real name and a real address
+ * on a seat (#296). It is still worth its own check: it is the one name this
+ * machine is certain to know. It lives here rather than in a driver because
+ * both drivers need it and there is one right answer.
+ */
+export const USER = homedir().split('/').filter(Boolean).pop() ?? ''
+
+/**
+ * Write this machine's home as `~`, the way the app writes it elsewhere.
+ *
+ * `shortPath` is applied in the Library, the skill sheet and every diff label,
+ * but the repository pane's header prints its root absolute — it has no `home`
+ * to shorten against, because home reaches the renderer on the library scan
+ * rather than on the app snapshot. That is a real if small defect and it is
+ * filed as one; it is not this rig's to fix mid-take.
+ *
+ * So the substitution happens here, and it is deliberately the narrowest one
+ * that helps: the exact home prefix becomes `~`, and nothing else changes. The
+ * audit therefore still means something — any *other* home path, under any
+ * root, and any bare occurrence of the username, still throws.
+ *
+ * **It walks attributes, and that is why it is here rather than in a driver.**
+ * There were two copies of this, and they had drifted: the stills' walked
+ * `[title]` and the recording's walked text nodes only. So a tooltip carrying
+ * the real home was substituted before a photograph and left standing through
+ * a recording — the recording being the take that cannot be audited frame by
+ * frame. One copy, and the drift cannot come back.
+ */
+export const TILDIFY = (home) => `(() => {
+  const home = ${JSON.stringify(home)}
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  let node
+  while ((node = walk.nextNode())) {
+    if (node.nodeValue?.includes(home)) node.nodeValue = node.nodeValue.split(home).join('~')
+  }
+  for (const element of document.querySelectorAll('[title]')) {
+    const title = element.getAttribute('title')
+    if (title?.includes(home)) element.setAttribute('title', title.split(home).join('~'))
+  }
+  return true
+})()`
 
 /**
  * Every string the window is showing, collected in the renderer.
@@ -63,6 +112,19 @@ export const COLLECT = `(() => {
     documentTitle: document.title ?? '',
     attributes,
   }
+})()`
+
+/**
+ * Everything one decision needs from a live window: the frame, and the seats.
+ *
+ * One expression rather than two calls, because the halves have to be read at
+ * the same instant — an account map fetched a second after the text is a map
+ * of a desk that is no longer the one in the picture.
+ */
+export const SEEN = `(() => {
+  const seen = ${COLLECT}
+  seen.accounts = ${STORE}.getSnapshot().accountsByRuntime ?? {}
+  return seen
 })()`
 
 /**
@@ -138,3 +200,40 @@ export const reasonsFor = (seen, options = {}) => [
   ...textReasons(seen, options),
   ...accountReasons(seen.accounts ?? {}, options),
 ]
+
+/**
+ * Refuse the take unless the window is publishable *right now*.
+ *
+ * Both drivers ask this, and it is deliberately a question about state rather
+ * than about whether a staging call succeeded. The re-ask that closes the boot
+ * race cannot fail loudly: `loadAccounts()` catches every request it makes,
+ * and drops its own answer on the floor when a later pass overtook it — it
+ * resolves, having patched nothing. So a driver that only stopped swallowing
+ * errors would still record a real seat. Reading the map back is the only
+ * thing that knows.
+ */
+export const refuseUnpublishable = async (cdp, { name, user, vouched, subject = 'frame' }) => {
+  const seen = await cdp.json(SEEN)
+  const reasons = reasonsFor(seen ?? {}, { user, vouched })
+  if (reasons.length > 0) {
+    throw new Error(`${name}: this ${subject} is not publishable —\n    ${reasons.join('\n    ')}`)
+  }
+}
+
+/**
+ * The same question about the seats alone — cheap enough to ask mid-take.
+ *
+ * A recording is bracketed by the full audit, and neither bracket can see the
+ * middle. The one door that opens there is an account arriving after the
+ * staging did: a second slot, or an agent registered from the interface. That
+ * door is an account door by definition, so this asks only the account half —
+ * and asks it of the store, touching no DOM, because sweeping every `[title]`
+ * six times during a screencast would be jank recorded into the artifact.
+ */
+export const refuseUnvouchedAccounts = async (cdp, { name, vouched, subject = 'recording' }) => {
+  const accounts = await cdp.json(`${STORE}.getSnapshot().accountsByRuntime ?? {}`)
+  const reasons = accountReasons(accounts ?? {}, { vouched })
+  if (reasons.length > 0) {
+    throw new Error(`${name}: this ${subject} is not publishable —\n    ${reasons.join('\n    ')}`)
+  }
+}
