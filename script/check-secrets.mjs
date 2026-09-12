@@ -73,17 +73,42 @@ const PLACEHOLDER_DOMAINS = new Set([
  * any domain, sanctioned or not — deliberately, and that is what the rule says
  * it does: it refuses *an account*, and an unattended role address is not one.
  * Round 1 of #278 asked for the choice to be stated rather than assumed, so it
- * is stated here and pinned by a test. Measured over the tree: all seventeen
- * occurrences are `git@`, and four of them — `git@github.com-work:…` in the
- * project tests, the `git@github.com:…` composer placeholder — have no other
- * exemption to fall back on, so narrowing this would go red on real lines.
+ * is stated here and pinned by a test.
  *
- * The residual it leaves is an affiliation rather than an account: a
- * `noreply@acme.co` still says this tree knows about `acme.co`. Rule 13
- * governs accounts; if a domain ever needs governing, that is a different rule
- * with a different roster.
+ * Measured over the tree at this head: 22 occurrences need this arm, every
+ * one of them a `git` or a `noreply` local part, and seven of them have no
+ * other exemption to fall back on — the aliased-host remotes in the project
+ * tests and the composer's placeholder among them — so narrowing this would go
+ * red on real lines to close a hole nobody has used. Round 1 of #278 put the
+ * figure at seventeen and round 2 measured 22; the move is this branch's own
+ * fixtures and prose, not the tree, and the count is quoted here rather than
+ * left implied because the last one went stale in one round. Re-measure with
+ * `node script/check-secrets.mjs` after widening either roster.
+ *
+ * The residual it leaves is an affiliation rather than an account: a `noreply`
+ * at an unsanctioned domain still says this tree knows about that domain. Rule
+ * 13 governs accounts; if a domain ever needs governing, that is a different
+ * rule with a different roster.
  */
 const IMPERSONAL_LOCAL = /^(?:git|no-?reply)$/i
+
+/**
+ * Hosts where `user@host:path` is a remote to push to, not somebody's mailbox.
+ *
+ * The scp arm below cannot tell those two apart by shape, because there is no
+ * difference: an address followed by a colon and a path is spelled the same way
+ * whether the host serves git or mail. Round 2 of #278 named the two shapes it
+ * therefore let through, and the answer is the idiom this file already uses
+ * twice — say which names are sanctioned, because a real one and a stand-in
+ * look alike. A gate whose whole job is refusing addresses should not keep an
+ * arm that matches on a shape that cannot decide.
+ *
+ * These are the three the tree writes. Adding a fourth — a self-hosted forge,
+ * another provider — is one reviewable line, which is the cost this trades for:
+ * `a false positive costs a minute; a leaked token costs a rotation and an
+ * apology`, as the header of this file puts it.
+ */
+const CODE_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org'])
 
 /**
  * Home directory names a committed path may carry.
@@ -167,20 +192,50 @@ const PATTERNS = [
          with a retina suffix, so an address at `2x.` anything was exempt. */
       if (/^[0-9]+x\.(?:png|jpe?g|gif|webp|avif)$/i.test(domain)) return true
       /* The userinfo of a URL — a scheme, then credentials, then the host to
-         reach — names no mailbox. This is the arm that carries every such line
-         in the tree: seven of them, each with `ssh://`, `http://` or
-         `https://` in front. */
-      if (/:\/\/[^\s"'`]*$/.test(line.slice(0, match.index))) return true
-      /* An scp-style remote: host, then `:`, then a path. The remainder has to
-         be path-shaped and unbroken, because that is the whole of what
-         separates a remote from ordinary prose continuing after an address.
+         reach — names no mailbox. What is sanctioned is exactly that shape: a
+         scheme name, `://`, and then only the characters a URL authority may
+         carry before the `@`. An allowlist, for the same reason the rosters
+         above are one — a mailbox and a userinfo are spelled alike, so the only
+         way to separate them is to say which spelling is which.
+
+         It read `:\/\/[^\s"'`]*$` until round 2 of #278, which asked only that
+         some `://` sit behind the address with no space or quote between. Prose
+         and spaced table cells did refuse, and that much was worth confirming;
+         but the unbroken run was free to contain `/`, `?`, `#`, `|`, `)` and
+         `+`, so a mailbox further along the same token rode the earlier scheme
+         — a query parameter, a path segment, a fragment, a `file:///` path, a
+         pipe table with no spaces, a Markdown link glued to an address. An
+         authority ends at the first `/`, `?` or `#`; a run that reaches the `@`
+         through one of those is not the userinfo, it is something later in the
+         URL. Both seats proposed narrowing by excluding punctuation, and each
+         list missed shapes the other caught — `|` and `)`, or `?` and `#` on a
+         URL with no path — which is the argument for naming what may appear
+         instead of guessing what may not. This arm carries eight lines in the
+         tree; all eight still pass it. */
+      if (/[a-z][a-z0-9+.-]*:\/\/[A-Za-z0-9._~%+:-]*$/i.test(line.slice(0, match.index))) return true
+      /* An scp-style remote: a sanctioned host, then `:`, then a path. The
+         remainder has to be path-shaped and unbroken, and the host has to be
+         one of the forges above.
+
          This was a bare `^[:/]` on the next character, which excused a clause
          (`…@host: the notes`), a port (`…@host:443`), a smiley (`…@host:)`)
          and any trailing path (`…@host/path`) — the gate's one job given away
          by four characters, found by all three seats in round 1 of #278. A
          leading port is refused along with them: digits before the slash are a
-         URL authority that lost its scheme, not a remote's path. */
-      return /^:(?!\d+\/)[A-Za-z0-9_.~-]*\/[^\s]/.test(line.slice(match.index + whole.length))
+         URL authority that lost its scheme, not a remote's path.
+
+         The shape alone still left two false greens, named in round 2: an
+         address with a relative path after the colon, and one with an absolute
+         path, neither of which needs a space the way prose does — a fixture, a
+         YAML value or a table cell need not put one there. Nothing in the shape
+         can refuse those without also refusing a real remote, so the host
+         decides instead. Measured over the tree: three lines reach this
+         arm, and all three are this gate's own fixtures — every remote written
+         anywhere else says `git@`, which the service-local rule excuses first.
+         Requiring a known forge therefore costs nothing the tree writes today,
+         and closes both shapes. */
+      const pathShaped = /^:(?!\d+\/)[A-Za-z0-9_.~-]*\/[^\s]/.test(line.slice(match.index + whole.length))
+      return pathShaped && CODE_HOSTS.has(domain.toLowerCase())
     },
   },
   {
@@ -293,7 +348,8 @@ if (isMain) {
         ' the ordinary rules apply.\n' +
         '\nAn address or a home directory is rule 13: use a placeholder, or add the' +
         ' stand-in to PLACEHOLDER_DOMAINS or PLACEHOLDER_HOMES in' +
-        ' script/check-secrets.mjs with the others.\n',
+        ' script/check-secrets.mjs with the others. An scp-style remote at a forge' +
+        ' this project does not already push to goes in CODE_HOSTS beside them.\n',
     )
     process.exit(1)
   }

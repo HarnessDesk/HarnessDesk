@@ -872,8 +872,15 @@ test("a real account's address in a tracked file fails the secrets scan (#204)",
        the tree writes today says `git@`, and a rule no test can reach is a
        rule nothing holds. */
     "await git(dir, 'remote', 'set-url', 'origin', 'deploy@github.com:openma/harnessdesk.git')",
+    /* The other two forges the tree writes, so the roster is exercised rather
+       than merely declared: drop either name and one of these goes red. */
+    "await git(dir, 'remote', 'set-url', 'origin', 'deploy@gitlab.com:openma/harnessdesk.git')",
+    "await git(dir, 'remote', 'set-url', 'origin', 'deploy@bitbucket.org:openma/harnessdesk.git')",
     "'https://review-user:fake-secret@github.com/openma/harnessdesk.git'",
     "const spoof = 'http://127.0.0.1:54321@evil.com/steal'",
+    /* A percent-encoded userinfo: the allowlist has to carry `%` and `:`, and
+       nothing else in the tree spells both. */
+    "const url = 'https://user%40name:pass@northwind.invalid/repo.git'",
     "render('menubar.svg', 50, 36, join(assetsDir, 'trayTemplate@2x.png'))",
   ]) {
     assert.deepEqual(offendersIn('a.ts', line), [], line)
@@ -899,6 +906,51 @@ test("a real account's address in a tracked file fails the secrets scan (#204)",
     'hacker@northwind.invalid:)', // hd-secrets-ok
     'alice@2x.northwind.invalid', // hd-secrets-ok
     'alice@2x.png.northwind.invalid', // hd-secrets-ok
+  ]) {
+    const refused = offendersIn('a.ts', line)
+    assert.equal(refused.length, 1, line)
+    assert.match(refused[0], /rule 13/, line)
+  }
+  /* Round 2 of #278: the same failure wearing a scheme. The arm asked only
+     that *some* `://` sit behind the address with nothing but non-space,
+     non-quote characters in between, so a run containing `/`, `?`, `#`, `|`,
+     `)` or `+` carried a mailbox further along the same token past the gate.
+     Two seats measured the class independently and named these rows; every one
+     of them is pinned here.
+
+     The last three are the rows that separate the two repairs the reviews
+     proposed. A fragment or a query on a URL with no path has no `/` to stop a
+     rule that excludes only `/`; a pipe table cell and a Markdown link have no
+     `?` or `#` to stop a rule that excludes only those. Excluding punctuation
+     misses whichever shape the list forgot, which is why the arm names the
+     characters a URL authority may carry instead of guessing at the ones it
+     may not. */
+  for (const line of [
+    'https://example.com/path?email=real@northwind.invalid', // hd-secrets-ok
+    'https://example.com/u/real@northwind.invalid', // hd-secrets-ok
+    'https://example.com/path#real@northwind.invalid', // hd-secrets-ok
+    'file:///tmp/real@northwind.invalid', // hd-secrets-ok
+    'https://example.com/path+real@northwind.invalid', // hd-secrets-ok
+    'https://example.com?email=real@northwind.invalid', // hd-secrets-ok
+    'https://example.com#real@northwind.invalid', // hd-secrets-ok
+    '|https://example.com|real@northwind.invalid|', // hd-secrets-ok
+    '[text](https://example.com)real@northwind.invalid', // hd-secrets-ok
+  ]) {
+    const refused = offendersIn('a.ts', line)
+    assert.equal(refused.length, 1, line)
+    assert.match(refused[0], /rule 13/, line)
+  }
+  /* An address with a path after the colon is spelled exactly like a remote,
+     so the shape cannot refuse one without refusing the other and the host
+     decides instead. Round 2 named both of these as residuals on the argument
+     that prose puts a space after a colon — which a fixture, a YAML value or a
+     table cell need not do. A forge outside the roster is refused with them:
+     that is the control proving the roster is what excuses the line above
+     rather than the path shape it shares. */
+  for (const line of [
+    'jane@northwind.invalid:notes/x', // hd-secrets-ok
+    'user@northwind.invalid:/abs/path', // hd-secrets-ok
+    'deploy@northwind.invalid:openma/harnessdesk.git', // hd-secrets-ok
   ]) {
     const refused = offendersIn('a.ts', line)
     assert.equal(refused.length, 1, line)
