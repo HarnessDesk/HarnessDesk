@@ -534,13 +534,29 @@ export class TranscriptStore {
   }
 }
 
-/** The first thing the person sent: its text parts in order, a block each and their own words. */
-const firstMessage = (turns: readonly Turn[]): string => {
+/**
+ * How the conversation opened: the first message that *says* something, read
+ * whole — its text parts in order, a block each and the person's own words.
+ *
+ * The first message, full stop, was not the same thing. A message can carry
+ * no text at all — a pasted screenshot, a file mention, a skill, and nothing
+ * typed — and that one returned an empty string and stopped, so a transcript
+ * whose *next* message asked in words was left with no name and read
+ * "Untitled session" (review of #231, round 3). Nothing else in a user
+ * message can speak: `UserContent` is text, image, localImage, skill or
+ * mention, and a tool's result is an item of its own, never a message of the
+ * person's. So a message of images alone says nothing, and this walks on to
+ * the one that does — which is exactly what the other two producers of a
+ * first ask do (`SessionTree`, and the renderer's store).
+ */
+const firstOpening = (turns: readonly Turn[]): string => {
   for (const turn of turns) {
     for (const item of turn.items) {
-      if (item.type === 'userMessage' && Array.isArray(item.content)) {
-        return item.content.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('\n')
-      }
+      if (item.type !== 'userMessage' || !Array.isArray(item.content)) continue
+      const opening = openingOf(
+        item.content.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('\n'),
+      )
+      if (opening) return opening
     }
   }
   return ''
@@ -592,7 +608,7 @@ const firstMatch = (
  */
 const summaryOf = (stored: Stored): SessionSummary => {
   // The first message whole, its blocks included: its first text part alone was often a block, and its first line the envelope's (#186).
-  const preview = stored.preview ?? (openingOf(firstMessage(stored.turns)).slice(0, 120) || null)
+  const preview = stored.preview ?? (firstOpening(stored.turns).slice(0, 120) || null)
   return {
     id: stored.id,
     runtime: stored.runtime,

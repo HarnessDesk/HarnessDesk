@@ -272,6 +272,30 @@ const startLogin = (type) => {
   }
   return response
 }
+/**
+ * What Codex has stored: what `thread/list` returns, and what `thread/read`
+ * answers for each of them.
+ */
+const storedThreads = () => [
+  thread(),
+  thread({ id: 'thread-2', name: 'Named thread', preview: 'Another' }),
+  // A thread whose first message was sent from HarnessDesk with a context
+  // chip riding along: Codex stores the envelope too.
+  thread({
+    id: 'thread-3',
+    name: null,
+    preview: '<context source="Uncommitted changes">\nStatus: ## main\n</context>\n\nReply with exactly: ok',
+  }),
+  // A first message that is nothing but blocks, the adapter's own Git
+  // preamble ahead of the chip the person attached.
+  thread({
+    id: 'thread-4',
+    name: null,
+    preview:
+      '<context source="Git">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes">\nStatus: ## main\n</context>',
+  }),
+]
+
 /** dynamicTools the client declared on thread/start, so the tool round trip is testable. */
 let declaredTools = []
 
@@ -1086,24 +1110,7 @@ rl.on('line', (line) => {
     }
 
     case 'thread/list':
-      send({
-        id,
-        result: {
-          data: [
-            thread(),
-            thread({ id: 'thread-2', name: 'Named thread', preview: 'Another' }),
-            // A thread whose first message was sent from HarnessDesk with a
-            // context chip riding along: Codex stores the envelope too.
-            thread({
-              id: 'thread-3',
-              name: null,
-              preview: '<context source="Uncommitted changes">\nStatus: ## main\n</context>\n\nReply with exactly: ok',
-            }),
-          ],
-          nextCursor: null,
-          backwardsCursor: null,
-        },
-      })
+      send({ id, result: { data: storedThreads(), nextCursor: null, backwardsCursor: null } })
       return
 
     case 'thread/search':
@@ -1113,11 +1120,16 @@ rl.on('line', (line) => {
       })
       return
 
-    case 'thread/read':
+    case 'thread/read': {
+      // The thread that was asked for, as the app-server answers: a read and a
+      // listing describe the same conversation, down to its stored preview.
+      // A thread the listing does not hold is one this process started.
+      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread()
       send({
         id,
         result: {
-          thread: thread({
+          thread: {
+            ...stored,
             turns: [
               {
                 id: 'turn-old',
@@ -1131,10 +1143,11 @@ rl.on('line', (line) => {
                 durationMs: 1000,
               },
             ],
-          }),
+          },
         },
       })
       return
+    }
 
     case 'thread/items/list': {
       // Two pages, so cursor handling is genuinely exercised. 0.149.0 wraps each

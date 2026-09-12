@@ -257,7 +257,7 @@ test('history lists and searches map onto session summaries', async (t) => {
   await runtime.start()
 
   const listed = await runtime.listSessions({ pageSize: 10 })
-  assert.equal(listed.data.length, 3)
+  assert.equal(listed.data.length, 4)
   assert.equal(listed.data[0]?.preview, 'List the files here.')
   // A conversation whose first message came from HarnessDesk carries the
   // envelope HarnessDesk prepended for the model. It is plumbing, not what
@@ -942,4 +942,49 @@ test('the listed preview is cut where the live one is, and a stripped name is tr
   assert.equal(mapSummary(storedThread(`Retry the checkout call ${'on a 502 '.repeat(40)}`)).preview?.length, 120)
   assert.equal(stripContext('  Retry the checkout call  '), 'Retry the checkout call')
   assert.equal(stripContext(`${wrapContext('Git', 'On branch main.')}\n  Retry it  `), 'Retry it')
+})
+
+/** A context provider that is not a chip, the way the Git plugin registers its block. */
+const gitKernel = async (t: { after(fn: () => unknown): void }): Promise<ExtensionKernel> => {
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load({
+    manifest: { id: 'branch', name: 'branch' },
+    plugin: {
+      name: 'branch',
+      inject: ['context'],
+      apply: (ctx: { context: { register(entry: { label: string; resolve: () => Promise<string> }): void } }) =>
+        ctx.context.register({ label: 'Git', resolve: async () => 'On branch main.' }),
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  return kernel
+}
+
+test('a preview that is the person’s own words reads the same listed as opened', async (t) => {
+  // The control for the pair below: nothing here needs a predicate at all.
+  const kernel = await gitKernel(t)
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const listed = (await runtime.listSessions({ pageSize: 10 })).data.find((row) => String(row.id) === 'thread-2')
+  assert.equal(listed?.preview, 'Another')
+  assert.equal((await runtime.readSession(sessionId('thread-2'))).preview, 'Another')
+})
+
+test('a conversation is called the same thing opened as it is in the list (review of #231, round 3)', async (t) => {
+  /* The two listing paths handed `mapSummary` the labels this adapter
+     prepends; `mapSession` had no parameter to take them, so `readSession`
+     and the `session/started` event went on naming a conversation after the
+     adapter's own block. Both paths, one thread, one answer. */
+  const kernel = await gitKernel(t)
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', capabilities: kernel })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  // thread-4 opened with the adapter's own Git block ahead of the person's chip.
+  const listed = (await runtime.listSessions({ pageSize: 10 })).data.find((row) => String(row.id) === 'thread-4')
+  const opened = await runtime.readSession(sessionId('thread-4'))
+  assert.equal(listed?.preview, 'Uncommitted changes')
+  assert.equal(opened.preview, listed?.preview, 'the conversation that opens is the one the list named')
 })

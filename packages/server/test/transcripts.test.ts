@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -479,5 +479,46 @@ test('a name read from the opening survives a restart, and a block cut short nam
     const [cut] = await again.search('Queue work')
     assert.ok(cut)
     assert.equal(cut.summary.preview, null)
+  })
+})
+
+/* A message with no text in it at all — a pasted screenshot and nothing
+   typed. It is still a `userMessage`, and the fallback stopped on it and
+   answered with nothing, so the ask in the very next message never named the
+   conversation. `SessionTree` and the renderer's store both walk on; the
+   host is the third producer and now it walks on too. */
+const shot = (id: string): AgentItem =>
+  ({ id, type: 'userMessage', content: [{ type: 'image', url: 'data:image/png;base64,AAA', name: 'shot.png' }] }) as unknown as AgentItem
+
+/** A file from before the metadata existed: no preview of its own, so the transcript answers. */
+const legacy = async (store: TranscriptStore, dir: string, id: string, turns: Turn[]): Promise<void> => {
+  store.record({ ...talk('codex', id, []), turns }, { now: true })
+  await store.flush()
+  const file = join(dir, 'codex', `${id}.json`)
+  const parsed = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
+  delete parsed['preview']
+  await writeFile(file, JSON.stringify(parsed))
+}
+
+test('a transcript is called by the words it opens with, and one where nobody spoke names nothing', async () => {
+  // The control for the pair below: the message the fallback stops on is the one that speaks.
+  await withStore(async (store, dir) => {
+    await legacy(store, dir, 'words', [turn('t1', [said('i0', 'userMessage', 'Rename the settings page')])])
+    await legacy(store, dir, 'silent', [turn('t1', [shot('i0'), said('a0', 'assistantMessage', 'A quiet conversation about nothing')])])
+    const again = new TranscriptStore(dir)
+    assert.equal((await again.search('Rename the settings'))[0]?.summary.preview, 'Rename the settings page')
+    assert.equal((await again.search('quiet conversation'))[0]?.summary.preview, null)
+  })
+})
+
+test('the fallback takes the first message that says something, not the first message (review of #231, round 3)', async () => {
+  await withStore(async (store, dir) => {
+    await legacy(store, dir, 'shot', [
+      turn('t1', [shot('i0')]),
+      turn('t2', [said('i1', 'userMessage', 'Retry the checkout call on a 502')]),
+    ])
+    // A second store over the same folder is the desk after a restart.
+    const again = new TranscriptStore(dir)
+    assert.equal((await again.search('Retry the checkout'))[0]?.summary.preview, 'Retry the checkout call on a 502')
   })
 })

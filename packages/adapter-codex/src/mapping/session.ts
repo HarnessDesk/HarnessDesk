@@ -134,6 +134,14 @@ export const mapSession = (
   extras: {
     /** Which Codex account this thread was read through; see `CodexRuntimeOptions.id`. */
     readonly runtime?: RuntimeId
+    /**
+     * The very predicate the listing paths hand `mapSummary` —
+     * `automaticContext` over the live registry. A session read or started
+     * had no way to ask for it, so one conversation was called two things:
+     * the hand-off in the sidebar, and the `Git` block the adapter prepends
+     * once it opened (review of #231, round 3).
+     */
+    readonly skip?: (label: string) => boolean
     readonly settings?: SessionSettings
     readonly options?: readonly ConfigOption[]
     readonly usage?: SessionUsage | null
@@ -144,7 +152,7 @@ export const mapSession = (
     readonly itemsLoaded: boolean
   },
 ): Session => ({
-  ...mapSummary(thread, extras.runtime ?? CODEX_RUNTIME_ID),
+  ...mapSummary(thread, extras.runtime ?? CODEX_RUNTIME_ID, extras.skip),
   turns: thread.turns.map(mapTurn),
   itemsLoaded: extras.itemsLoaded,
   forkedFrom: thread.forkedFromId ? sessionId(thread.forkedFromId) : null,
