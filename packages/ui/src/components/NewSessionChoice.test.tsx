@@ -48,6 +48,12 @@ const rig = (
     newDraft: vi.fn(),
     openTeamRoom: vi.fn(),
     createRoom: vi.fn().mockResolvedValue('r1'),
+    /* A project with no flows: the picker says so and the dialog is the
+       dialog it has always been, which is what every test below asserts. */
+    listFlows: vi.fn().mockResolvedValue([]),
+    readFlow: vi.fn(),
+    dryRunFlow: vi.fn(),
+    startFlow: vi.fn(),
   } as unknown as AppStore
   return { store }
 }

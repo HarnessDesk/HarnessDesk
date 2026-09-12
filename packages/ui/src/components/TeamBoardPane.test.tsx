@@ -122,6 +122,10 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
       { runtime: 'codex', sessionId: 'c1', title: 'API migration', agent: 'Codex', nickname: 'Alpha', busy: false, here: true },
     ]),
     openSession: vi.fn().mockResolvedValue(undefined),
+    /* A board with no flow, which is what every test in this file is about:
+       no card carries a role, nothing here holds one, and the pane behaves
+       exactly as it did before flows existed. */
+    loadFlowRuns: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   return { store }
 }

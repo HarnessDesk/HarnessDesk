@@ -16,6 +16,7 @@ You run agents, and you will never read this repository's source.
 | [message-queue.md](message-queue.md) | Typing while the agent works — what Enter does in every case |
 | [background-tasks.md](background-tasks.md) | Work an agent starts that outlives the turn, and how each agent reports it |
 | [multi-agent.md](multi-agent.md) | Hand-offs, `/race`, rooms, and every board and channel flow across vendors |
+| [flows.md](flows.md) | Declaring a room's policy up front — roles, rules and rounds — so a loop of agents runs without you routing every card |
 | [context-usage.md](context-usage.md) | The ring beside the model: how full the window is, and — where the agent can say — with what |
 | [usage-dashboard.md](usage-dashboard.md) | Every plan's limits and what the month cost, on one screen |
 | [browser-control.md](browser-control.md) | The browser inside the window, and which agents get its tools |
