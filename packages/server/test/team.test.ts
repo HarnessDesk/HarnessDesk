@@ -3542,3 +3542,125 @@ test('a member’s mode is pushed to its room, and a new default to every room',
   assert.equal(all.find((one) => one.id === elsewhere)?.inbound?.[claudeKey], 'refuse')
   assert.equal(all.find((one) => one.id === room)?.inbound?.[codexKey], 'hold')
 })
+
+// --------------------------------------------------------------- roles
+
+/*
+ * The two new primitives, and the promise that everything without them is
+ * untouched.
+ *
+ * A card has never had an assignee, so `claim_next` handed whatever was next
+ * to whoever asked — which is why a fixer and its reviewers had to live in
+ * separate rooms, and why a person had to carry every card between them. The
+ * role clause is one line in the claimable rule; the whole of the rest of this
+ * file is the control for it, because every test above it runs on a board
+ * where no card carries a role and no member holds one.
+ */
+
+test('a card addressed to a role is refused to everybody else, and taken by the holder', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.setRole(room, 'claude', 'k1', 'reviewer')
+  team.addIntentForFlow(room, { title: 'Fix the refill bug', role: 'fixer' })
+
+  // The reviewer cannot have it, and is told why and by whom.
+  const refused = await team.claim(1, claude)
+  assert.match(refused, /^Refused: #1 is addressed to fixer, and you are the reviewer\./)
+  assert.match(refused, /Codex holds that role/)
+  // Nor does it arrive as "the next card", which is the call a standing seat
+  // actually makes: an addressed card is not next for somebody else.
+  assert.match(await team.claimNext(claude), /^Nothing to take right now/)
+
+  // The holder takes it.
+  assert.match(await team.claim(1, codex), /^Claimed #1/)
+})
+
+test('a board with no flow claims exactly as it did: no role, no member role, no new field', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.addIntent({ title: 'Ordinary work' }, codex)
+
+  // Nobody holds a role and the card carries none, so the old rule is the
+  // whole rule — including "whoever asks first".
+  assert.equal(team.roleOf(room, 'claude', 'k1'), null)
+  assert.match(await team.claimNext(claude), /^Claimed #1/)
+  // And completing still needs nothing new.
+  assert.match(await team.complete(1, { note: 'done' }, claude), /^Completed #1/)
+  const state = team.stateFor(room)
+  assert.deepEqual(state.roles, {})
+  assert.equal(state.intents[0]?.role, null)
+  assert.equal(state.intents[0]?.outcome, null)
+})
+
+test('a role travels with the board, and leaving a room takes it away', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'claude', 'k1', 'reviewer')
+  assert.equal(team.stateFor(room).roles?.[sessionKey('claude', 'k1' as never)], 'reviewer')
+  // Names are assigned lazily, on the first look at the room.
+  await team.peersFor(room)
+
+  team.leaveRoom(room, 'claude' as RuntimeId, 'k1')
+  assert.equal(team.roleOf(room, 'claude', 'k1'), null)
+  // The nickname stays, as it always has — a role is a permission to claim,
+  // and a member that has gone must not keep one.
+  assert.ok(team.stateFor(room).nicknames?.[sessionKey('claude', 'k1' as never)])
+})
+
+test('an outcome is recorded on the card, and a flow may refuse one its role never declared', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  const refusals: string[] = []
+  const completed: number[] = []
+  team.attachFlows({
+    refuseOutcome: (_room, intent, outcome) =>
+      intent.role === 'reviewer' && outcome !== 'approve'
+        ? `Refused: reviewer answers approve. #${intent.id} says ${String(outcome)}.`
+        : null,
+    completed: (_room, intent) => void completed.push(intent.id),
+    standDown: () => null,
+  })
+  team.setRole(room, 'codex', 'c1', 'reviewer')
+  team.addIntentForFlow(room, { title: 'Review it', role: 'reviewer' })
+  await team.claim(1, codex)
+
+  const refused = await team.complete(1, { outcome: 'nope' }, codex)
+  refusals.push(refused)
+  assert.match(refused, /^Refused: reviewer answers approve/)
+  // Refused means nothing was written: the card is still claimed and holds no
+  // outcome, which is the difference between a guard and a warning.
+  assert.equal(team.stateFor(room).intents[0]?.state, 'claimed')
+  assert.equal(team.stateFor(room).intents[0]?.outcome, null)
+
+  assert.match(await team.complete(1, { outcome: 'approve', note: 'looks right' }, codex), /^Completed #1/)
+  assert.equal(team.stateFor(room).intents[0]?.outcome, 'approve')
+  assert.deepEqual(completed, [1])
+})
+
+test('await_work returns the moment a card this member can take appears', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.setRole(room, 'claude', 'k1', 'reviewer')
+
+  const fixer = team.awaitWork(codex, { blockMs: 30_000, cycle: 0 })
+  const reviewer = team.awaitWork(claude, { blockMs: 30_000, cycle: 0 })
+  // A card for the fixer wakes the fixer and nobody else.
+  team.addIntentForFlow(room, { title: 'Fix it', role: 'fixer' })
+  assert.match(await fixer, /^work: #1 Fix it\./)
+  assert.match(await fixer, /cycle: 1/)
+
+  // The reviewer is still waiting; a short block proves it answers rather
+  // than hanging, and says what to pass next.
+  team.stopWaiting('the desk is closing')
+  assert.match(await reviewer, /^stand down — the desk is closing/)
+})
+
+test('await_work answers "nothing yet" when its block passes, and says which cycle is next', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 4 })
+  assert.equal(answer, 'nothing yet. Call await_work again with cycle: 5.')
+})

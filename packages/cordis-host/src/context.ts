@@ -179,10 +179,27 @@ export interface HarnessContext {
     claim(intent: number, scope?: ScopeQuery, files?: readonly string[]): Promise<string>
     /** The next open, unblocked, unconflicted card, whichever it is, taken atomically. */
     claimNext(scope?: ScopeQuery, files?: readonly string[]): Promise<string>
+    /**
+     * Blocks until this conversation's board has a card it can take. What
+     * lets a seat live inside one turn: it costs one tool call and no tokens
+     * between calls, because the board wakes it rather than it polling.
+     */
+    awaitWork(
+      options: { readonly blockMs?: number; readonly cycle?: number },
+      scope?: ScopeQuery,
+    ): Promise<string>
     conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string>
     complete(
       intent: number,
-      args: { readonly note?: string; readonly handoff?: string },
+      args: {
+        readonly note?: string
+        readonly handoff?: string
+        /**
+         * The one word a rule branches on. Free-form at this seam; a card
+         * belonging to a flow is held to the outcomes its role declared.
+         */
+        readonly outcome?: string
+      },
       scope?: ScopeQuery,
     ): Promise<string>
     release(

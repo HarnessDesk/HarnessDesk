@@ -281,6 +281,15 @@ export interface ChildToHostMethods {
     }
     result: string
   }
+  /** Blocks until this conversation's board has a card it can take. */
+  'team/awaitWork': {
+    params: {
+      readonly scope: TeamCallScope
+      readonly cycle?: number
+      readonly blockMs?: number
+    }
+    result: string
+  }
   'team/conflicts': {
     params: { readonly scope: TeamCallScope; readonly paths: readonly string[] }
     result: string
@@ -291,6 +300,8 @@ export interface ChildToHostMethods {
       readonly intent: number
       readonly note?: string
       readonly handoff?: string
+      /** The one word a rule branches on. */
+      readonly outcome?: string
     }
     result: string
   }

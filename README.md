@@ -67,7 +67,7 @@ Full positioning: [VISION.md](VISION.md).
 - **Plugins.** Twelve built in — git, files, search, task list, team,
   checkpoints, guardrails, the browser, the iOS Simulator, Android, the web
   fetcher and the test runner. A plugin's tools reach *every* agent:
-  HarnessDesk offers each one an MCP server carrying its 61 built-in plugin
+  HarnessDesk offers each one an MCP server carrying its 62 built-in plugin
   tools, so a capability written once is available wherever you are working.
 
 ## What it looks like

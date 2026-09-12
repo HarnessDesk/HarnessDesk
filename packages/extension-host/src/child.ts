@@ -142,6 +142,7 @@ const remoteTeamEngine: TeamEngine = {
   addIntent: (args, scope) => askHost('team/addIntent', { scope, ...args }),
   claim: (intent, scope, files) => askHost('team/claim', { scope, intent, ...(files ? { files } : {}) }),
   claimNext: (scope, files) => askHost('team/claimNext', { scope, ...(files ? { files } : {}) }),
+  awaitWork: (scope, options) => askHost('team/awaitWork', { scope, ...options }),
   conflicts: (paths, scope) => askHost('team/conflicts', { scope, paths }),
   complete: (intent, args, scope) => askHost('team/complete', { scope, intent, ...args }),
   release: (intent, args, scope) => askHost('team/release', { scope, intent, ...args }),
