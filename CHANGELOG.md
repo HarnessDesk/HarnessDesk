@@ -16,7 +16,9 @@ move is real work and is not news to a person weighing an upgrade.
   arrows are unchanged; this is a second way in, and it does not depend on how
   much room the header has. While a browser pane is the one you are working in,
   the same two keys step that page's history instead, as its other browser keys
-  already do.
+  already do, and in a file editor they outdent and indent as they always have:
+  a key the surface you are working in has already answered no longer also
+  moves the desk out from under it.
 - **A plugin's Access list says what the plugin may actually do** — the list on
   a plugin's page wrote its own sentences rather than the ones the install
   dialog had already shown, and had drifted from them. A plugin allowed to

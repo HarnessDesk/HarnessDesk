@@ -82,3 +82,41 @@ describe('the handler behind the table', () => {
     expect(appSource).not.toMatch(/case 'nav-back':\s*\n\s*void store\.navigateForward\(\)/)
   })
 })
+
+describe('a chord the focused surface already answered', () => {
+  it('is not the window’s to run a second time', () => {
+    expect(shortcutFor({ ...chord('['), defaultPrevented: true })).toBeNull()
+    expect(shortcutFor({ ...chord(']'), defaultPrevented: true })).toBeNull()
+    // Controls: unspent, the same two chords are still ours — the rule reads
+    // the flag rather than withdrawing the keys.
+    expect(shortcutFor(chord('['))?.action).toBe('nav-back')
+    expect(shortcutFor(chord(']'))?.action).toBe('nav-forward')
+  })
+
+  it('holds for the whole table, not only the two that collide today', () => {
+    // ⌘[ in the editor is the instance; the class is any window-wide chord
+    // firing on top of a surface that has already spent the key.
+    for (const one of SHORTCUTS) {
+      const spent = {
+        key: one.key,
+        metaKey: true,
+        ctrlKey: false,
+        shiftKey: Boolean(one.shift),
+        defaultPrevented: true,
+      }
+      expect(shortcutFor(spent), `${one.action} ran on an event something else had handled`).toBeNull()
+    }
+    // Control: with the flag down every row in the table still matches, so the
+    // loop above cannot pass by the table being empty or the matcher broken.
+    for (const one of SHORTCUTS) {
+      const fresh = { key: one.key, metaKey: true, ctrlKey: false, shiftKey: Boolean(one.shift) }
+      expect(shortcutFor(fresh)?.action).toBe(one.action)
+    }
+  })
+
+  it('and the window hands the event over whole, so the flag can be read', () => {
+    // Destructuring the key and modifiers at the call site would drop the one
+    // field that says somebody else got there first.
+    expect(appSource).toMatch(/const shortcut = shortcutFor\(event\)/)
+  })
+})

@@ -167,7 +167,11 @@ palette and the composer. The header's arrows do the same thing and fold away
 in a header under 520px, which a wide window reaches as soon as a panel is
 docked and the sidebar is away; the keys do not depend on that room. While a
 browser pane is the one you are working in, the same two keys step that
-page's history instead, as its other browser keys do.
+page's history instead, as its other browser keys do. A file editor answers
+the pair too — there they outdent and indent — and while it has focus it keeps
+them: a chord the surface you are working in has already answered is not the
+window's to run a second time. Nothing that merely holds focus claims them,
+so the composer, a filter box and an empty desk all still navigate.
 
 ## The sidebar
 

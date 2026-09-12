@@ -247,6 +247,11 @@ export const App = () => {
   // One table decides which chords exist; this dispatches from it, and the
   // Keyboard shortcuts page prints the same rows. Two lists is the
   // arrangement where a page documents a key that stopped working.
+  //
+  // The whole event goes to `shortcutFor`, not its key and modifiers, because
+  // part of the answer is whether anything has already handled it. ⌘[ in the
+  // file editor outdents; without that check it would outdent *and* navigate
+  // away from the file being edited.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const shortcut = shortcutFor(event)
