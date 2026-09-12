@@ -119,6 +119,32 @@ export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
       },
     },
   },
+  /*
+   * Back and forward, as commands as well as keys.
+   *
+   * The arrows in the window controls were the only route to
+   * `navigateBack`/`navigateForward`, and a header narrower than 520px folds
+   * them — which a 1000px window reaches with a panel docked and the sidebar
+   * away. The palette and the composer read this one list, so an entry here is
+   * a palette row and a slash command at once, and neither depends on how much
+   * room the header has. The arrows are unchanged; this is a second way in.
+   *
+   * Offered exactly when there is somewhere to go, which is what the arrows
+   * say by being enabled. A palette has no greyed row, so the alternative to
+   * withdrawing the entry is offering one that does nothing.
+   */
+  {
+    name: 'back',
+    description: 'Go back to what the middle showed before',
+    available: (snapshot) => snapshot.navCanBack,
+    kind: { type: 'action', run: (store) => store.navigateBack() },
+  },
+  {
+    name: 'forward',
+    description: 'Go forward again, after going back',
+    available: (snapshot) => snapshot.navCanForward,
+    kind: { type: 'action', run: (store) => store.navigateForward() },
+  },
   {
     name: 'terminal',
     description: 'Open a terminal beside this pane, inside the runtime’s sandbox',
