@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { WorktreeDirtyError, Worktrees, repositoryOf, slugify } from '../src/worktree.js'
+import { WorktreeDirtyError, Worktrees, isManagedWorktree, repositoryOf, slugify } from '../src/worktree.js'
 
 /**
  * Worktrees against a real git repository in a temporary directory. The
@@ -225,6 +225,62 @@ test('names become branch-safe slugs', () => {
   assert.equal(slugify('  ..weird/../name..  '), 'weird-.-name')
   assert.match(slugify(''), /^work-/)
   assert.equal(slugify('a'.repeat(80)).length, 48)
+})
+
+test('managed worktrees are recognized on Windows across separator and casing differences (#317)', () => {
+  // Control: POSIX paths pass both before and after.
+  assert.equal(
+    isManagedWorktree(
+      '/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+      '/Users/alice/.harnessdesk/worktrees/repo-abc',
+    ),
+    true,
+  )
+
+  // Windows: git reports forward slashes while Node produces backslashes (#317 reproduction).
+  assert.equal(
+    isManagedWorktree(
+      'C:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    true,
+  )
+
+  // Windows: git reports backslashes.
+  assert.equal(
+    isManagedWorktree(
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc\\feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    true,
+  )
+
+  // Windows: drive letter casing differences.
+  assert.equal(
+    isManagedWorktree(
+      'c:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    true,
+  )
+
+  // Unmanaged checkouts remain unmanaged.
+  assert.equal(
+    isManagedWorktree(
+      'C:/Users/alice/projects/my-repo/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    false,
+  )
+
+  // Sibling folder with same prefix remains unmanaged.
+  assert.equal(
+    isManagedWorktree(
+      'C:/Users/alice/.harnessdesk/worktrees/repo-abc-extra/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    false,
+  )
 })
 
 test('a worktree starts from the branch it was told to, not from HEAD', async (t) => {

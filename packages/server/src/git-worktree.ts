@@ -91,8 +91,17 @@ const canonical = async (path: string): Promise<string> => {
   }
 }
 
-const under = (path: string, base: string): boolean =>
-  path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
+const under = (path: string, base: string): boolean => {
+  const normPath = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normBase = base.replace(/\\/g, '/').replace(/\/+$/, '')
+  const prefix = `${normBase}/`
+  const isWin =
+    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normPath) && /^[a-zA-Z]:\//.test(normBase))
+  if (isWin ? normPath.toLowerCase() === normBase.toLowerCase() : normPath === normBase) return true
+  return isWin
+    ? normPath.toLowerCase().startsWith(prefix.toLowerCase())
+    : normPath.startsWith(prefix)
+}
 
 const exists = async (path: string): Promise<boolean> => {
   try {
