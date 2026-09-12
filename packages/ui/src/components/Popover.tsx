@@ -1,25 +1,56 @@
 import { isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-
-/**
- * "Something took the screen." A modal announces itself so every floating
- * panel closes, because a panel outranks the modal layer by design and
- * would otherwise be painted over a dialog it cannot be clicked through.
- */
-export const DISMISS_OVERLAYS = 'hd:dismiss-overlays'
-
-/**
- * Called by anything that takes the whole window — a dialog, a palette — and
- * by a sidebar laid over a narrow window's conversation, both ways.
- *
- * `returnFocus` is for a caller that gives focus back, when it goes, to what
- * had it when it came: a menu holding focus hands it to its trigger first.
- */
-export const dismissOverlays = ({ returnFocus = false }: { readonly returnFocus?: boolean } = {}): void => {
-  document.dispatchEvent(new CustomEvent(DISMISS_OVERLAYS, { detail: { returnFocus } }))
-}
 import { createPortal } from 'react-dom'
 
+import { escapeSurface, onDismissOverlays, type DismissDetail } from '../lib/overlays'
+
 import styles from './Popover.module.css'
+
+/* The contract itself is in `lib/overlays.ts`, free of React so that anything
+   can take part in it; it is re-exported here because this is the module the
+   app has always asked for it by name. */
+export { DISMISS_OVERLAYS, dismissOverlays } from '../lib/overlays'
+export type { DismissDetail } from '../lib/overlays'
+
+/**
+ * Closes this floating thing when something takes the screen.
+ *
+ * Every menu owes this, and a menu that does not is a panel drawn over a window
+ * that cannot be clicked through it — the board's card menu, until it took part
+ * (#214). The handler is read fresh each time, so a caller may write it inline.
+ */
+export const useDismissOverlays = (
+  active: boolean,
+  onDismiss: (detail: DismissDetail) => void,
+): void => {
+  const held = useRef(onDismiss)
+  held.current = onDismiss
+  useEffect(() => {
+    if (!active) return
+    return onDismissOverlays((detail) => held.current(detail))
+  }, [active])
+}
+
+/**
+ * Answers Escape while it is the surface on top.
+ *
+ * For a surface that is neither a `Dialog` nor a menu: the two app windows, and
+ * anything else that takes the screen without going through either. `Dialog`
+ * answers on the window in the capture phase and stops the event dead, so it
+ * still outranks this; a menu spends the key on `document` and is heard first.
+ * What this settles is the order among the surfaces that are left — see
+ * `lib/overlays.ts`.
+ */
+export const useEscapeSurface = (active: boolean, close: () => void): void => {
+  const held = useRef(close)
+  held.current = close
+  useEffect(() => {
+    if (!active) return
+    return escapeSurface(() => {
+      held.current()
+      return true
+    })
+  }, [active])
+}
 
 /**
  * A menu anchored to its trigger.
@@ -145,35 +176,33 @@ export const Popover = ({
       setOpen(false)
       trigger.current?.focus()
     }
-    /*
-      A dialog opening is also a way of leaving. Menus have to outrank the
-      modal layer — one opened *inside* Settings must be on top of it — so a
-      menu left open behind a dialog paints over it and cannot be clicked,
-      which reads as a broken window. Nothing else dismisses it: a dialog
-      opened from the keyboard is not a pointerdown and not an Escape.
-
-      Asked to (`returnFocus`), a menu holding focus gives it to its trigger
-      on the way out, as Escape does. The floating sidebar asks: it gives
-      focus back, when it goes, to whatever had it when it came, and a row
-      unmounted in between is nowhere to give it back to. Settings and Usage
-      do not — they take no focus of their own, and focus handed to a trigger
-      behind them answered Enter by opening the menu again, above the window.
-      Focus held anywhere else stays put either way.
-    */
-    const onDismiss = (event: Event): void => {
-      const asked = (event as CustomEvent<{ readonly returnFocus?: boolean } | null>).detail?.returnFocus === true
-      if (asked && panel.current?.contains(document.activeElement)) trigger.current?.focus()
-      setOpen(false)
-    }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
     }
   }, [open])
+
+  /*
+    A dialog opening is also a way of leaving. Menus have to outrank the
+    modal layer — one opened *inside* Settings must be on top of it — so a
+    menu left open behind a dialog paints over it and cannot be clicked,
+    which reads as a broken window. Nothing else dismisses it: a dialog
+    opened from the keyboard is not a pointerdown and not an Escape.
+
+    Asked to (`returnFocus`), a menu holding focus gives it to its trigger
+    on the way out, as Escape does. The floating sidebar asks: it gives
+    focus back, when it goes, to whatever had it when it came, and a row
+    unmounted in between is nowhere to give it back to. Settings and Usage
+    do not — they take no focus of their own, and focus handed to a trigger
+    behind them answered Enter by opening the menu again, above the window.
+    Focus held anywhere else stays put either way.
+  */
+  useDismissOverlays(open, ({ returnFocus }) => {
+    if (returnFocus === true && panel.current?.contains(document.activeElement)) trigger.current?.focus()
+    setOpen(false)
+  })
 
   return (
     // `hd-no-drag` because menus live in the window's chrome — the conversation

@@ -25,7 +25,7 @@ import {
   WindowNavItem,
   WindowPage,
 } from './AppWindow'
-import { dismissOverlays } from './Popover'
+import { dismissOverlays, useEscapeSurface } from './Popover'
 import {
   AgentIcon,
   ArchiveIcon,
@@ -1777,16 +1777,17 @@ export const Settings = ({
   // Announcing the window closes them.
   useEffect(dismissOverlays, [])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      // Spent on this window, and said so — a sidebar floating under it stays.
-      event.preventDefault()
-      onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  /*
+   * Escape closes the window — unless something inside it answered first.
+   *
+   * It used to be a `document` listener registered when the window mounted, so
+   * it ran *ahead* of the listener a menu opened inside the window adds later,
+   * and one press closed the menu and the window both (#206). On the shared
+   * stack the window is the surface on top only until a menu opens over it, and
+   * the key is still marked spent, so a sidebar floating under the window and
+   * an approval waiting in the pane behind it both stand aside.
+   */
+  useEscapeSurface(true, onClose)
 
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
 

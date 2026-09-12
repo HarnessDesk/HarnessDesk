@@ -176,8 +176,11 @@ chosen rather than defaulted:
   the covered pane's own keys, an approval's Escape among them, cannot answer
   for it. A toast is drawn above it and stays in reach, an error's as well
   as one that leaves on its own: it is so often the answer to something done
-  in the sidebar. Settings and Usage do not yet hold the rule for a menu open
-  inside them ([#206](https://github.com/HarnessDesk/HarnessDesk/issues/206)).
+  in the sidebar. Settings and Usage hold the rule the same way, from the same
+  stack: `lib/overlays.ts` answers Escape on the window, after every menu on the
+  document, so a menu open inside either window takes the key and the window
+  stays — and the window marks the key spent, so this sidebar stands aside when
+  one is open over it.
 
 **The rule:** a window too narrow for a column covers the conversation rather
 than squeezing it, and only when asked.

@@ -1085,3 +1085,119 @@ it('a docked sidebar panel is a child of the sidebar column itself (review of #1
   expect(panels()).toHaveLength(1)
   expect(panels()[0]!.parentElement).toBe(container.querySelector('[data-testid="tree"]'))
 })
+
+/** Every control wearing this label — two of them is the bug, not a choice. */
+const labelled = (label: string): HTMLButtonElement[] =>
+  [...container.querySelectorAll<HTMLButtonElement>('button')].filter(
+    (entry) => entry.getAttribute('aria-label') === label,
+  )
+
+/**
+ * A panel you can collapse has to be a panel you can open again (#232).
+ *
+ * `docs/interface.md` promises it in one line — "collapsing keeps the views and
+ * shows the tab strip, which is the way back" — and one arrangement did not
+ * keep it: a stack holding a single view that draws its own header drew no
+ * strip, because the view's header *was* the panel's chrome. Collapsing then
+ * hid the layer that header was in and left the section empty, measured at
+ * 1199 × 1 px with one file docked at the bottom, with nothing in the dock to
+ * bring it back.
+ */
+it('a lone self-framing view collapsed still draws the way back (#232)', () => {
+  const harness = rig((start) => dock(start, 'bottom', { kind: 'git', root: '/repo' }))
+  render(harness.store)
+
+  /* The control, true before this fix and after: open, this stack draws no
+     strip at all. What the fix changes is the collapsed state, and a test that
+     could not tell the two apart would pass on a panel that never had a view. */
+  expect(tabs()).toEqual([])
+  expect(container.querySelector('[data-testid="view-git"]')).not.toBeNull()
+
+  act(() => control('Collapse to the tabs').click())
+  expect(harness.snapshot.workbench.bottom.collapsed).toBe(true)
+  // The view is gone, and with it the header it drew the verbs in.
+  expect(container.querySelector('[data-testid="view-git"]')).toBeNull()
+  expect(tabs()).toEqual(['repo'])
+  expect(
+    labelled('Show this panel'),
+    'a collapsed panel needs a control that shows it again',
+  ).toHaveLength(1)
+  /* And one ✕, not two: the tab carries the close, so the panel's verbs do
+     not. They wear the same label, which is what would make the pair a puzzle
+     rather than a choice — see `chrome` in `mount.tsx`. */
+  expect(labelled('Close repo')).toHaveLength(1)
+
+  act(() => labelled('Show this panel')[0]!.click())
+  expect(container.querySelector('[data-testid="view-git"]')).not.toBeNull()
+})
+
+/**
+ * Two pointers on one seam (#252).
+ *
+ * A mouse cannot do it — one pointer cannot press twice without lifting — but a
+ * second finger on a touch screen can, and so can a pen beside a mouse. Each
+ * seam called `beginResize` unconditionally and overwrote the grab it held,
+ * while only one `endResize` ever arrived: the document kept `data-hd-resizing`
+ * for the rest of the session, which turns off every transition in the window,
+ * the text caret and every guest frame. What is asserted is the state left
+ * *after* both pointers are gone.
+ */
+const pointFrom = (
+  node: HTMLElement,
+  type: string,
+  pointerId: number,
+  clientX: number,
+  clientY = 0,
+): void => {
+  act(() => {
+    node.dispatchEvent(
+      new PointerEvent(type, { bubbles: true, cancelable: true, pointerId, clientX, clientY }),
+    )
+  })
+}
+
+it('a second pointer on a split seam does not take the drag, and the window is given back (#252)', () => {
+  const { seam, box, resizePanelSplit } = splitRig('row')
+  pointFrom(seam, 'pointerdown', 1, 500)
+  // The control: a drag in flight suppresses the window, before and after.
+  expect(windowResizing()).toBe('vertical')
+
+  // A second finger lands on the seam the first is still holding.
+  pointFrom(seam, 'pointerdown', 2, 600)
+  pointFrom(seam, 'pointermove', 1, 600)
+  /* The delta is still the first pointer's — 500 to 600 of a thousand is a
+     tenth. Taken by the second, the drag would measure from 600 and show the
+     ratio it started at, which is the seam jumping out from under the finger
+     holding it. */
+  expect(parseFloat(splitShown(box))).toBeCloseTo(0.6, 5)
+
+  pointFrom(seam, 'pointerup', 2, 600)
+  pointFrom(seam, 'pointerup', 1, 600)
+  expect(windowResizing()).toBeNull()
+  expect(resizePanelSplit).toHaveBeenCalledTimes(1)
+})
+
+it('a second pointer on an area seam leaves no suppression behind (#252)', () => {
+  const harness = rig((start) => dock(start, 'bottom', { kind: 'activity' }))
+  render(harness.store)
+  const seam = seamAt('Resize the bottom panel')
+
+  // The control again, on this seam: one pointer, marked for the drag and
+  // given back at the end of it.
+  pointFrom(seam, 'pointerdown', 1, 0, 400)
+  expect(windowResizing()).toBe('horizontal')
+  pointFrom(seam, 'pointerup', 1, 0, 400)
+  expect(windowResizing()).toBeNull()
+
+  /* Now two. This seam is the shared one in `design/patterns/DockPanel.tsx`,
+     which still begins a resize per pointer, so what gives the window back
+     here is the net in `lib/resizing.ts`: when the last pointer lifts and
+     nothing in the document is marked as being dragged, a count left standing
+     is owed to nobody. */
+  pointFrom(seam, 'pointerdown', 1, 0, 400)
+  pointFrom(seam, 'pointerdown', 2, 0, 420)
+  pointFrom(seam, 'pointerup', 2, 0, 420)
+  pointFrom(seam, 'pointerup', 1, 0, 400)
+  expect(windowResizing()).toBeNull()
+})
+

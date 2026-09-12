@@ -14,7 +14,7 @@ import {
 } from 'react'
 
 import { Switch } from '../design/primitives/Kit'
-import { DISMISS_OVERLAYS } from './Popover'
+import { useDismissOverlays } from './Popover'
 
 import { CheckIcon, ChevronIcon } from './Icons'
 import styles from './Menu.module.css'
@@ -502,31 +502,31 @@ export const ContextMenu = ({
         onClose()
       }
     }
-    /*
-      Asked to (`returnFocus`), a menu holding focus gives it back on its way
-      out. This one opens at a point, not from a trigger, so it gives focus to
-      whatever had it before the menu took it: the floating sidebar keeps what
-      had focus as the place to come back to, and a row unmounted in between
-      is nowhere.
-    */
-    const onDismiss = (event: Event): void => {
-      const asked = (event as CustomEvent<{ readonly returnFocus?: boolean } | null>).detail?.returnFocus === true
-      if (asked && panel.current?.contains(document.activeElement)) previous.current?.focus({ preventScroll: true })
-      onClose()
-    }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown, true)
-    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
     window.addEventListener('resize', onClose)
     window.addEventListener('blur', onClose)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown, true)
-      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
       window.removeEventListener('resize', onClose)
       window.removeEventListener('blur', onClose)
     }
   }, [at, onClose])
+
+  /*
+    Asked to (`returnFocus`), a menu holding focus gives it back on its way
+    out. This one opens at a point, not from a trigger, so it gives focus to
+    whatever had it before the menu took it: the floating sidebar keeps what
+    had focus as the place to come back to, and a row unmounted in between
+    is nowhere.
+  */
+  useDismissOverlays(at !== null, ({ returnFocus }) => {
+    if (returnFocus === true && panel.current?.contains(document.activeElement)) {
+      previous.current?.focus({ preventScroll: true })
+    }
+    onClose()
+  })
 
   if (!at) return null
   return (
