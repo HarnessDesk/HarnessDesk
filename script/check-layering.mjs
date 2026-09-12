@@ -161,6 +161,29 @@ const BRANDS = /\b(Codex|DeepSeek|Claude Code|Gemini)\b/
 const DOCUMENTATION = /packages\/ui\/src\/design\/(explorer|showcase)\//
 
 /**
+ * How the parser should read a file, from its name.
+ *
+ * `.ts` and `.tsx` differ, and the difference is not cosmetic: `<T>(x: T) => x`
+ * is a generic arrow in one and a JSX tag in the other. A `.js`, `.mjs` or
+ * `.cjs` is read as JavaScript, JSX allowed — as TypeScript, `</p> // note` was
+ * a regex literal and the comment stayed (review of #228, round 1).
+ *
+ * `.jsx` rides the same branch rather than having one of its own. TypeScript
+ * gives `ScriptKind.JS` and `ScriptKind.JSX` one language variant, so the two
+ * parse identically, and the branch that named `JSX` separately was one no
+ * gate could reach: `walk` below takes `/\.tsx?$/` and `check-reachable`'s
+ * `filesUnder` takes `.ts`, `.tsx`, `.mjs`, `.cjs` and `.js`. Dead branches in
+ * the thing that decides what a rule sees are the ones worth not keeping
+ * (review of #228, round 2).
+ */
+const kindOf = (fileName) =>
+  /\.tsx$/.test(fileName)
+    ? ts.ScriptKind.TSX
+    : /\.[cm]?jsx?$/.test(fileName)
+      ? ts.ScriptKind.JS
+      : ts.ScriptKind.TS
+
+/**
  * Strips comments so the rule governs what users see, not what authors explain.
  *
  * TypeScript's own parser finds them, because nothing short of a parser can,
@@ -180,25 +203,14 @@ const DOCUMENTATION = /packages\/ui\/src\/design\/(explorer|showcase)\//
  * what is stripped here is exactly what the compiler would drop.
  *
  * A block comment keeps its line breaks, so a line number read from the result
- * is the file's own. Pass the file's name: `.ts` and `.tsx` parse differently,
- * and `<T>(x: T) => x` is a generic arrow in one and a JSX tag in the other. A
- * `.js`, `.mjs` or `.cjs` is read as JavaScript, JSX allowed: as TypeScript,
- * `</p> // note` was a regex literal, and the comment stayed (review of #228,
- * round 1).
+ * is the file's own. Pass the file's name — `kindOf` above reads the extension,
+ * and a file parsed as the wrong language is a file whose comments are in the
+ * wrong places.
  *
  * A gate reading a real file asks for `strict`, which refuses a file the parser
  * could not read, by name, rather than strip what it guessed: a recovered
  * parse can leave a comment inside a token, where nothing here reaches it.
  */
-const kindOf = (fileName) =>
-  /\.tsx$/.test(fileName)
-    ? ts.ScriptKind.TSX
-    : /\.jsx$/.test(fileName)
-      ? ts.ScriptKind.JSX
-      : /\.[cm]?js$/.test(fileName)
-        ? ts.ScriptKind.JS
-        : ts.ScriptKind.TS
-
 export const withoutComments = (source, fileName = 'source.ts', { strict = false } = {}) => {
   const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kindOf(fileName))
   const problem = strict ? file.parseDiagnostics?.[0] : undefined

@@ -3,7 +3,10 @@
 Everything here is plain Node with no build step — run any of it with
 `node script/<name>.mjs`. Two gates, `check-layering.mjs` and
 `check-reachable.mjs`, read source with TypeScript's own parser, so they need
-the checkout's dependencies installed; `pnpm verify` and CI install first. Several take `--help`-ish flags documented in their
+the checkout's dependencies installed — as does
+`packages/server/test/which-copies.test.ts`, which borrows the same stripper
+rather than deciding what a comment is a second time; `pnpm verify` and CI
+install first. Several take `--help`-ish flags documented in their
 own header comment, which is the authority; this page exists so you know they
 are here at all.
 

@@ -733,3 +733,30 @@ test("code the old pattern deleted stays: a // in a regex literal, and a comment
   assert.ok(withoutComments("const path = uri.replace(/^file:\\/\\//, '')\n").includes("/^file:\\/\\//, '')"))
   assert.ok(withoutComments('const page = `/** Fields whose value must never leave the page */ keep`\n').includes('Fields whose value'))
 })
+
+test('reachedBy refuses a caller file TypeScript could not parse, by name (review of #228, round 2)', () => {
+  /* `withoutComments`'s own refusal was tested directly and never through the
+     caller that uses it. `check-reachable` hands every real caller file over
+     as `{ file, text }` so it is parsed as what it is, and `strict` is what
+     makes an unreadable one stop the gate: a recovered parse can leave a
+     comment inside a token, and a method named in that comment would count as
+     a call — which is the one failure that turns this check into decoration. */
+  assert.throws(
+    () => reachedBy(['team/state'], [{ file: 'broken.ts', text: "const = ;\nawait request('team/state')\n" }]),
+    /broken\.ts:1: TypeScript could not parse this file/,
+  )
+  // The controls: a caller file that parses still counts, and a bare string is still read leniently.
+  assert.deepEqual([...reachedBy(['team/state'], [{ file: 'fine.ts', text: "await request('team/state')\n" }])], ['team/state'])
+  assert.deepEqual([...reachedBy(['team/state'], ["await request('team/state')\n"])], ['team/state'])
+})
+
+test('a .jsx file is read as JavaScript, which is the branch it now shares (review of #228, round 2)', () => {
+  /* `kindOf` named `ScriptKind.JSX` in a branch of its own that nothing could
+     reach — neither gate reads a `.jsx`. The parser gives JS and JSX one
+     language variant, so the extension belongs on the JS branch and the dead
+     one is gone. Read as TypeScript, `</p> // Codex` is a regex literal and
+     the comment survives, which is what this asserts is not happening. */
+  assert.doesNotMatch(withoutComments('const A = () => <p>x</p> // Codex\n', 'r.jsx'), /Codex/)
+  // The control: the extension is what decides, and a `.ts` is still TypeScript.
+  assert.match(withoutComments('const A = () => <p>x</p> // Codex\n', 'a.ts'), /Codex/)
+})

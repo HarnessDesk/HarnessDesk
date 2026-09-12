@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -77,4 +80,35 @@ test('discovery without an override runs the newest Codex it can find', async ()
   // is only chosen if it is newer, so the result is never older than that.
   const found = await discoverCodex(null)
   if (found) assert.ok(compareVersions(found.semver, MINIMUM_CODEX_VERSION) >= 0)
+})
+
+/**
+ * The PATH walk, which is what discovery does now instead of running
+ * `/usr/bin/which` (#129) — absent on Windows and on minimal images, where the
+ * spawn threw `ENOENT`, the `catch` answered null, and Codex read as *not
+ * installed* beside an installed Codex.
+ *
+ * The one test that reached this line asked `if (found)` before asserting
+ * anything, so it passed identically whether the walk worked or answered null
+ * on every machine; the adapter-acp half of this change got a real test and
+ * this half did not (review of #228, round 2). The fake reports a version
+ * above anything a real machine can have, so `newestOf` picks it over whatever
+ * is installed here and the assertion is about the walk rather than about the
+ * desk it runs on. Skipped on Windows, where an extensionless file marked
+ * executable is neither: there the walk rightly looks only for PATHEXT names,
+ * as the server's own test of it says.
+ */
+test('with no override, Codex is found by walking PATH (#129)', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-codex-path-'))
+  const cli = join(dir, 'codex')
+  writeFileSync(cli, '#!/bin/sh\necho codex-cli 99.0.0\n')
+  chmodSync(cli, 0o755)
+  const path = process.env['PATH']
+  process.env['PATH'] = dir
+  t.after(() => {
+    process.env['PATH'] = path
+  })
+  const found = await discoverCodex(null)
+  assert.equal(found?.path, cli)
+  assert.deepEqual(found?.semver, [99, 0, 0])
 })
