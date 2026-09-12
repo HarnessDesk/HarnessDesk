@@ -306,10 +306,16 @@ export function remove(files, outDir) {
 export const distSegments = (glob) => {
   const parts = glob.split('/')
   const [top, pkg, dist, tests, deep] = parts
-  if (parts.length !== 6 || pkg !== '*' || deep !== '**') {
+  /* The three segments read by position must be literal. Six segments with
+     `*` second and `**` fifth was the whole guard, so a glob wildcarded
+     elsewhere passed it and the positional read handed the walk a `*` as the
+     top directory — the error message promising more than the guard delivered
+     (#269). */
+  const literal = [top, dist, tests].every((segment) => segment !== undefined && !segment.includes('*'))
+  if (parts.length !== 6 || pkg !== '*' || deep !== '**' || !literal) {
     throw new Error(
       `prune-dist reads the test glob by position, and ${glob} is not that shape.\n` +
-        'It expects <packages>/*/<dist>/<test>/**/<file pattern>.',
+        'It expects <packages>/*/<dist>/<test>/**/<file pattern>, with those three named literally.',
     )
   }
   return { top, dist, tests }

@@ -87,6 +87,12 @@ jobs:
       - name: Recorded claims
         run: node script/check-claims.mjs
 
+      # The other pure-source check on the prose: every repository path the
+      # documentation names in backticks has to resolve to a file, or be
+      # recorded as naming something outside this tree.
+      - name: Doc paths
+        run: node script/check-doc-paths.mjs
+
       # The gate's own tests. `verify.mjs` runs these and CI did not, so a
       # regression in the checks themselves could merge while the local gate
       # stayed green.

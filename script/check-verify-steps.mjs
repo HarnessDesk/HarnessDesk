@@ -45,9 +45,15 @@ export const SECTIONS = new Map([
  * where they word it differently, the alternation says so.
  */
 export const DESCRIBED_AS = new Map([
-  ['lockfile installs', /lockfile/i],
-  ['build', /\bthe build\b/i],
-  ['node tests', /test suite/i],
+  /* Each of these three stood for a sentence and matched any mention of the
+     word in the section (#269). `/lockfile/i` matched `lockfileVersion`;
+     `/\bthe build\b/i` was satisfied by CONTRIBUTING.md's "fails the build"
+     three paragraphs below the list, so dropping "the build" from the list
+     itself would not have failed; `/test suite/i` by any sentence about a
+     suite. Each now matches the enumeration rather than the word. */
+  ['lockfile installs', /\blockfile\b/i],
+  ['build', /(?:\bruns|,)\s+the build\b/i],
+  ['node tests', /every test suite/i],
   ['gate tests', /gate scripts/i],
   ['ui typecheck', /UI typecheck/i],
   ['ui tests', /UI and desktop/i],
@@ -61,6 +67,7 @@ export const DESCRIBED_AS = new Map([
   ['design doc', /design-system gates/i],
   ['interface drift', /interface drift/i],
   ['recorded claims', /recorded-claims/i],
+  ['doc paths', /doc-paths/i],
   ['gate matches CI', /gate-against-CI|gate and CI to one list/i],
   ['codex protocol drift', /Codex protocol drift/i],
   ['steps are documented', /name every step the gate runs/i],
@@ -71,13 +78,39 @@ export const DESCRIBED_AS = new Map([
  *
  * A heading that is not there is an empty section rather than the whole file:
  * a renamed section should fail loudly, not quietly widen what counts.
+ *
+ * Read line by line, tracking fences, because the two shortcuts it replaced
+ * were each a way for this check to go quiet rather than red (#269):
+ *
+ * - it anchored on a newline before the heading, so a document whose target
+ *   heading is its **first line** read as having no such section — and an
+ *   empty section fails every pattern, which looks like the documents falling
+ *   silent rather than like the check being unable to see them;
+ * - it cut the section at the first `## ` anywhere below, **including one
+ *   inside a fenced code block**, so a section that grew a code sample
+ *   containing a Markdown heading would be truncated there and every step
+ *   named after it would report as unnamed.
+ *
+ * Both sections here open with a fenced `pnpm verify`, so the fence tracking
+ * is not hypothetical — it is one `## ` in a sample away from mattering.
+ * The heading is matched whole rather than as a prefix, so `## The gate`
+ * is no longer satisfied by a section called `## The gateway`.
  */
 export const sectionOf = (text, heading) => {
-  const start = text.indexOf(`\n${heading}`)
-  if (start === -1) return ''
-  const body = text.slice(start + heading.length + 1)
-  const next = body.search(/\n## /)
-  return next === -1 ? body : body.slice(0, next)
+  const lines = text.split('\n')
+  const body = []
+  let fenced = false
+  let found = false
+  for (const line of lines) {
+    if (/^\s*(?:```|~~~)/.test(line)) fenced = !fenced
+    if (!found) {
+      if (!fenced && line.trimEnd() === heading) found = true
+      continue
+    }
+    if (!fenced && line.startsWith('## ')) break
+    body.push(line)
+  }
+  return found ? `\n${body.join('\n')}` : ''
 }
 
 /**

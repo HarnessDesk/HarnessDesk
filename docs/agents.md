@@ -595,7 +595,7 @@ diverges.
 Measured against Codex 0.149.0: two app-server instances — one pointing to
 `~/.codex` and the other to a symlink farm — return identical thread
 histories and titles while reporting distinct identities (for example,
-`user@work.com` alongside an unauthenticated slot), and shared SQLite
+`user@acme.dev` alongside an unauthenticated slot), and shared SQLite
 databases pass `pragma quick_check`. Codex is designed for concurrent access
 between its CLI and desktop applications, using file locking across
 `sessions/`, database files, and `thread-writer-locks/`.
