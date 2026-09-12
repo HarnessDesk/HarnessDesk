@@ -7,7 +7,9 @@ import * as usage from './design-usage.mjs'
 import { sheetsOf, squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
-import { problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
+import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
+import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
+import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
@@ -759,4 +761,191 @@ test('a .jsx file is read as JavaScript, which is the branch it now shares (revi
   assert.doesNotMatch(withoutComments('const A = () => <p>x</p> // Codex\n', 'r.jsx'), /Codex/)
   // The control: the extension is what decides, and a `.ts` is still TypeScript.
   assert.match(withoutComments('const A = () => <p>x</p> // Codex\n', 'a.ts'), /Codex/)
+})
+
+/**
+ * The gates that read this repository's own text.
+ *
+ * Same class of failure as the parsers above, one subject over: a check that
+ * reads the documentation, the tracked files or the verify roster imprecisely
+ * does not report a wrong answer — it goes quiet. An empty section passes
+ * nothing and looks like the documents falling silent; a pattern that matches
+ * any mention of a word cannot fail; a path nobody resolved is a path nobody
+ * checked (#204, #223, #269).
+ */
+
+test('a repository path in the documentation that resolves nowhere fails (#223)', () => {
+  const named = new Map([['packages/ui/src/state/store.ts', new Set(['docs/architecture.md'])]])
+  // The control: a path that resolves from some base is not a problem.
+  assert.deepEqual(docPathProblems(named, () => true, new Map()), [])
+  /* Mis-rooted is the shape #94 reported and #189 fixed by hand: the file is
+     real, the path written for it is not, and nothing read the prose. */
+  const problems = docPathProblems(named, () => false, new Map())
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /resolves nowhere/)
+  assert.match(problems[0], /docs\/architecture\.md/, 'the report names the document to edit')
+})
+
+test('an allowlisted doc path is held to its own reason (#223)', () => {
+  const value = 'rmcp-client/src/oauth/store_lock.rs'
+  const named = new Map([[value, new Set(['docs/agents.md'])]])
+  const allowed = new Map([[value, "DeepSeek Harness's own Rust source"]])
+  // The control: a named path that resolves nowhere is exactly what the entry is for.
+  assert.deepEqual(docPathProblems(named, () => false, allowed), [])
+  /* An exception that outlives its reason is a hole nobody decided to leave
+     open, so both ways it can go stale are reported. Same idiom as a
+     DESCRIBED_AS entry for a step the gate no longer runs. */
+  assert.match(docPathProblems(named, () => true, allowed)[0], /it resolves now/)
+  assert.match(docPathProblems(new Map(), () => false, allowed)[0], /no document names it/)
+})
+
+test('what counts as a documented repository path (#223)', () => {
+  // The controls: both shapes the documents really use — rooted, and package-relative.
+  assert.deepEqual(pathsIn('see `packages/ui/src/lib/burn.ts` and `lib/limits.ts`'), [
+    'packages/ui/src/lib/burn.ts',
+    'lib/limits.ts',
+  ])
+  /* A path on the reader's machine, a glob, a placeholder, a URL, an npm
+     specifier, a shell command, a CSS value and a bare directory are none of
+     them files in this tree, and a gate that failed on them would be turned
+     off within a week. */
+  for (const text of [
+    '`~/.codex/config.toml`',
+    '`$CODEX_HOME/auth.json`',
+    '`~/.claude/agents/*.md`',
+    '`packages/server/src/methods/<domain>.ts`',
+    '`@google/gemini-cli@0.58.0`',
+    '`node script/diagram-export.mjs`',
+    '`https://example.com/a.ts`',
+    '`0 24px 60px / 0.3`',
+    '`packages/plugins`',
+  ]) {
+    assert.deepEqual(pathsIn(text), [], text)
+  }
+})
+
+test('every allowlisted doc path still names something outside this tree (#223)', () => {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  for (const [value, reason] of ALLOWED) {
+    assert.equal(fs.existsSync(path.join(repo, value)), false, `${value} is in this tree now: drop the entry`)
+    assert.ok(reason.length > 20, `${value} needs a reason, not a label`)
+  }
+})
+
+test("a real account's address in a tracked file fails the secrets scan (#204)", () => {
+  /* The controls: every address convention rule 13 names, and the shapes an
+     address appears in without being anybody's mailbox. All of these are lines
+     really in the tree — the git tests write four kinds of remote. */
+  for (const line of [
+    "const to = 'dev@example.com'",
+    "const to = 'olivia@acme.dev'",
+    "const to = 'shane@harnessdesk.app'",
+    "git('-c', 'user.email=t@example.invalid', 'commit')",
+    "await git(dir, 'remote', 'add', 'origin', 'git@github.com:openma/harnessdesk.git')",
+    "await git(dir, 'remote', 'add', 'origin', 'ssh://deploy@github.com/openma/harnessdesk.git')",
+    "'https://review-user:fake-secret@github.com/openma/harnessdesk.git'",
+    "const spoof = 'http://127.0.0.1:54321@evil.com/steal'",
+    "render('menubar.svg', 50, 36, join(assetsDir, 'trayTemplate@2x.png'))",
+  ]) {
+    assert.deepEqual(offendersIn('a.ts', line), [], line)
+  }
+  // A person in front of a real domain is the half of rule 13 a gate can catch.
+  const found = offendersIn('a.ts', "const owner = 'j.roe@northwind-trading.co'") // hd-secrets-ok
+  assert.equal(found.length, 1)
+  assert.match(found[0], /rule 13/)
+  // And the escape hatch still answers for a deliberate lookalike.
+  assert.deepEqual(offendersIn('a.ts', "const owner = 'j.roe@northwind-trading.co' // hd-secrets-ok"), [])
+})
+
+test('a home directory that is not a declared placeholder fails the secrets scan (#204)', () => {
+  /* The controls: every home-path convention the tree already holds. The last
+     three are why the rule cannot be a bare shape match — an elided or
+     bracketed segment is the opposite of a leak, and a URL path that reads
+     /home is not a home directory at all. */
+  for (const line of [
+    "const p = '/Users/x/.local/bin/claude'",
+    "projectsDirectory: '/home/dev/.claude/projects'",
+    "env: { PATH: '/opt/homebrew/bin:/Users/x/.local/bin:/usr/bin' }",
+    "'/home/linuxbrew/.linuxbrew/bin'",
+    "assert.equal(calls[0]?.[2], '/home/.codex/thread-writer-locks/thread-1.lock')",
+    "detectSkillActivations('Use [$review](/Users/u/.codex/skills/review/SKILL.md)')",
+    " * `/Users/<name>/…` in full.",
+    " * any *other* `/Users/…` path is still audited",
+    " * a URL is not a home directory: `https://acme.dev/home/settings`",
+  ]) {
+    assert.deepEqual(offendersIn('a.ts', line), [], line)
+  }
+  // Somebody's actual home directory is the leak this catches, under either root.
+  const mac = offendersIn('a.ts', "const root = '/Users/jroe/code/HarnessDesk'") // hd-secrets-ok
+  assert.equal(mac.length, 1)
+  assert.match(mac[0], /rule 13/)
+  assert.match(offendersIn('a.ts', "const root = '/home/jroe/code'")[0], /rule 13/) // hd-secrets-ok
+})
+
+test('a section whose heading is the first line of the file is found (#269)', () => {
+  const tail = ['', 'it runs the build', '', '## Next', '', 'unrelated'].join('\n')
+  /* `\n${heading}` cannot match at index 0, so a document whose target heading
+     is its first line read as having no such section — and an empty section
+     fails every pattern, which reads as both documents falling silent at once
+     rather than as the check being unable to see them. */
+  const first = sectionOf(`## The gate${tail}`, '## The gate')
+  assert.match(first, /it runs the build/)
+  assert.doesNotMatch(first, /unrelated/, 'the next heading still ends it')
+  // The control: the same section under a title, which is how both documents write it today.
+  const lower = sectionOf(`# Title\n\n## The gate${tail}`, '## The gate')
+  assert.match(lower, /it runs the build/)
+  assert.doesNotMatch(lower, /unrelated/)
+  // And a heading that is not there is still an empty section, not the whole file.
+  assert.equal(sectionOf(`## The gate${tail}`, '## Renamed'), '')
+})
+
+test('a ## inside a fenced code block does not end the section (#269)', () => {
+  const doc = [
+    '# Title',
+    '',
+    '## The gate',
+    '',
+    '```markdown',
+    '## not a heading, a sample',
+    '```',
+    '',
+    'it runs the build',
+    '',
+    '## Next',
+    '',
+    'unrelated',
+  ].join('\n')
+  const body = sectionOf(doc, '## The gate')
+  /* The section was cut at the sample, so every step named below it reported
+     as unnamed — a document that says everything failing as though it said
+     nothing. Both sections here already open with a fenced block. */
+  assert.match(body, /it runs the build/)
+  // The control: a real heading at the same level still ends the section.
+  assert.doesNotMatch(body, /unrelated/)
+})
+
+test('the three step patterns match the enumeration, not the word (#269)', () => {
+  // Each was satisfied by any mention of its word anywhere in the section.
+  assert.equal(DESCRIBED_AS.get('lockfile installs').test('lockfileVersion'), false)
+  assert.equal(DESCRIBED_AS.get('build').test('a brand name in rendered text fails the build.'), false)
+  assert.equal(DESCRIBED_AS.get('node tests').test('the test suite is slow today'), false)
+  /* The controls: each still matches the sentence it stands for, in both
+     documents' wording. The middle one is the one that was really load-bearing
+     — CONTRIBUTING.md says "fails the build" three paragraphs under its list,
+     so before this the list itself could have dropped the build and stayed green. */
+  assert.ok(DESCRIBED_AS.get('lockfile installs').test('validates the lockfile with pnpm install --frozen-lockfile'))
+  assert.ok(DESCRIBED_AS.get('lockfile installs').test('the lockfile install, the build'))
+  assert.ok(DESCRIBED_AS.get('build').test('runs the build, every test suite'))
+  assert.ok(DESCRIBED_AS.get('build').test('the lockfile install, the build, every test suite'))
+  assert.ok(DESCRIBED_AS.get('node tests').test('every test suite (Node packages, gate scripts, UI and desktop)'))
+})
+
+test('distSegments refuses a wildcard where it reads a fixed segment (#269)', () => {
+  // The control: today's glob is the shape it expects, and gives the three segments the walk needs.
+  assert.deepEqual(distSegments(TEST_GLOB), { top: 'packages', dist: 'dist', tests: 'test' })
+  /* Six segments with `*` second and `**` fifth was the whole guard, so both
+     of these passed it and the positional read handed the walk a wildcard as
+     the top directory — the error message promising more than it delivered. */
+  assert.throws(() => distSegments('*/*/*/test/**/*.test.js'), /not that shape/)
+  assert.throws(() => distSegments('packages/*/*/test/**/*.test.js'), /not that shape/)
 })

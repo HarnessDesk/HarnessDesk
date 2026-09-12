@@ -108,6 +108,11 @@ step('interface drift', () => run('node', ['script/check-interface-drift.mjs']))
 step('design doc', () => run('node', ['script/design-doc.mjs', '--check']))
 
 step('recorded claims', () => run('node', ['script/check-claims.mjs']))
+/* The prose is the one part of this repository the gate never read, which is
+   how two mis-rooted source paths sat in docs/extending.md until a person
+   noticed them (#94, #223). Every repository path the documentation names in
+   backticks has to resolve to a file. */
+step('doc paths', () => run('node', ['script/check-doc-paths.mjs']))
 // This file and `ci.yml` drifting apart is named in the header as what let a
 // broken build reach main once already; this is the check that says so.
 step('gate matches CI', () => run('node', ['script/check-verify-drift.mjs']))
