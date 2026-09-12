@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { WorktreeDirtyError, Worktrees, isManagedWorktree, repositoryOf, slugify } from '../src/worktree.js'
+import { WorktreeDirtyError, Worktrees, isManagedWorktree, repositoryOf, samePath, slugify } from '../src/worktree.js'
 
 /**
  * Worktrees against a real git repository in a temporary directory. The
@@ -282,6 +282,44 @@ test('managed worktrees are recognized on Windows across separator and casing di
     false,
   )
 })
+
+test('samePath matches paths across Windows and POSIX separators and drive casing (#317, round 1 review)', () => {
+  // Control: identical paths match.
+  assert.equal(samePath('/repo/sample', '/repo/sample'), true)
+  assert.equal(samePath('/repo/sample', '/repo/other'), false)
+
+  // Windows: git forward slashes vs Node backslashes (putBack case).
+  const gitEntryPath = 'C:/harnessdesk/worktrees/repo-abc/feature'
+  const nodeTargetPath = 'C:\\harnessdesk\\worktrees\\repo-abc\\feature'
+  assert.equal(
+    samePath(gitEntryPath, nodeTargetPath),
+    true,
+    'putBack checks entry.path against target across git/node separator variations',
+  )
+  // Direct simulation of putBack finding the worktree entry in list
+  const entries = [{ path: gitEntryPath }]
+  assert.equal(entries.some((entry) => samePath(entry.path, nodeTargetPath)), true)
+
+  // Windows: drive letter casing variation.
+  assert.equal(
+    samePath(
+      'c:/harnessdesk/worktrees/repo-abc/feature',
+      'C:\\harnessdesk\\worktrees\\repo-abc\\feature',
+    ),
+    true,
+  )
+
+  // Different paths do not match.
+  assert.equal(
+    samePath(
+      'C:/harnessdesk/worktrees/repo-abc/feature',
+      'C:\\harnessdesk\\worktrees\\repo-abc\\other',
+    ),
+    false,
+  )
+})
+
+
 
 test('a worktree starts from the branch it was told to, not from HEAD', async (t) => {
   const { repo, worktrees } = await fixture(t)

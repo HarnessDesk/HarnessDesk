@@ -520,7 +520,7 @@ const putBack = async (
     () => null,
     (error: unknown) => error,
   )
-  const back = failed === null || (await list(main, stateDir).catch(() => [])).some((entry) => entry.path === target)
+  const back = failed === null || (await list(main, stateDir).catch(() => [])).some((entry) => samePath(entry.path, target))
   if (back) {
     const without = ignored.length > 0 ? `, without what git ignores there: ${named(ignored)}` : ''
     throw new Error(
