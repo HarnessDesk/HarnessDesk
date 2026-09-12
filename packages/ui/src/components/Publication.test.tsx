@@ -117,6 +117,38 @@ describe('the publication row', () => {
     expect(container.querySelector('[data-slot="publication-state"]')).toBeNull()
   })
 
+  /* Said once. The card opens on the same rest as the chip and prints the
+     forge's own title in its crest, so a `title` on the chip was a second box
+     over the first — repeating the card's heading where the forge gave a
+     title, and the chip's own text where it did not. The whole of a long one
+     is on the card's heading, which carries it. */
+  it('carries no tooltip of its own, and the card holds the whole of the title', () => {
+    vi.useFakeTimers()
+    try {
+      const long =
+        'Cap the backoff and add jitter to the gateway retry policy, and cover both in retry.test.ts'
+      render(item({ title: long }))
+      const link = container.querySelector('a')!
+      // The control: the chip is still the address, and still points at the forge.
+      expect(link.textContent).toContain('acme/widgets #7')
+      expect(link.getAttribute('href')).toBe('https://github.com/acme/widgets/pull/7')
+      expect(link.hasAttribute('title')).toBe(false)
+
+      act(() => {
+        link.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      const heading = [...document.querySelectorAll('[data-slot="hover-card-content"] span')].find(
+        (one) => one.textContent === long,
+      )
+      expect(heading?.getAttribute('title')).toBe(long)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   /* The chip is one thing to focus, so a keyboard reaches its card the way a
      pointer does. #148 made every name card pointer-only for a while — right
      for a rail row full of controls, wrong here — and both reviewers of that

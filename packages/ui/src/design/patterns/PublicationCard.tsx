@@ -94,8 +94,18 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
             </span>
             <StatePill state={reference.state} />
           </span>
+          {/* The whole of a title the clamp cuts. The row's chip had a tooltip
+              carrying this and gave it up — the card opens on the same rest,
+              and two boxes on one rest is the rule this card broke — so the
+              heading is where a long title has to be readable in full. A
+              different rest, on a surface already opened on purpose. */}
           {reference.title && (
-            <span className="mt-0.5 line-clamp-2 block text-sm leading-tight font-semibold">{reference.title}</span>
+            <span
+              title={reference.title}
+              className="mt-0.5 line-clamp-2 block text-sm leading-tight font-semibold"
+            >
+              {reference.title}
+            </span>
           )}
         </span>
       </div>

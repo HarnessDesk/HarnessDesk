@@ -33,6 +33,7 @@ import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design/patterns/AgentCard'
 import {
+  HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_OPEN_DELAY,
   HOVER_CARD_SIDE_OFFSET,
   HOVER_CARD_WIDTH_REM,
@@ -78,9 +79,6 @@ import { AgentIcon } from './Icons'
  * that is the same for all of them.
  */
 let dragging = false
-const onDragStart = (): void => {
-  dragging = true
-}
 const onDragStop = (): void => {
   dragging = false
 }
@@ -89,13 +87,28 @@ const onDragStop = (): void => {
  * The ways out of a drag, and why these.
  *
  * `dragend` fires on the *source* and `drop` on the target, so a drag whose
- * source is unmounted mid-gesture — a card dragged out of a column that
- * re-renders under it — ends with neither. This flag is module-level, so a
- * miss is not a stale row: it is every hover card in the window refusing to
- * open, until some later drag happens to end properly. Review found it, and
- * the fix is that a pointer let go, or moving again with no button held,
- * means no drag is in progress, whatever the drag API did or did not say: the
- * browser sends the page nothing from the pointer while a native drag is on.
+ * source is unmounted mid-gesture — a board card dragged out of a column that
+ * re-renders under it — reaches neither of the window's listeners: an event
+ * dispatched at a node that has left the document travels up its *detached*
+ * ancestors and stops, and the window is not among them. This flag is
+ * module-level, so a miss is not a stale row: it is every hover card in the
+ * window refusing to open, until some later drag happens to end properly.
+ *
+ * Three ways out, because no one of them covers every pointer:
+ *
+ *   The source's own `dragend`.  Heard on the element the drag began on, so a
+ *        source that has left the document is still heard — and that is the
+ *        only exit a *finger* has. Chromium sends `pointercancel` as a native
+ *        drag begins, and by the Pointer Events contract a cancelled pointer
+ *        sends no `pointerup`; a finger off the glass sends no move either. So
+ *        without this the flag stayed set until the next tap, and until then
+ *        every card was refused — including one a keyboard's focus asked for,
+ *        which on a touch screen is the only way a card opens at all.
+ *   The window's `dragend` and `drop`.  The ordinary end of a drag whose
+ *        source is still drawn, and the end of one that landed somewhere.
+ *   A pointer let go, or moving again with no button held.  A mouse or a
+ *        trackpad, whatever the drag API did or did not say: the browser sends
+ *        the page nothing from the pointer while a native drag is on.
  *
  * Not `pointercancel`, though it reads like one. Chromium sends it the moment
  * a native drag begins — measured in this app's shell, dragging a board card:
@@ -103,6 +116,13 @@ const onDragStop = (): void => {
  * ended every drag five milliseconds after it started, and the gate held
  * nothing.
  */
+const onDragStart = (event: Event): void => {
+  dragging = true
+  /* Once: it removes itself when it fires, and where it never does — a source
+     Chromium has stopped dispatching to — it is held by nothing but the
+     detached node, and goes when that does. */
+  event.target?.addEventListener('dragend', onDragStop, { once: true })
+}
 const DRAG_ON = ['dragstart'] as const
 const DRAG_OFF = ['dragend', 'drop', 'pointerup'] as const
 const onPointerMove = (event: Event): void => {
@@ -132,12 +152,34 @@ const onPointerMove = (event: Event): void => {
  * after a press, or after a key and then a press. Two cases fall outside
  * that: a text field, which `:focus-visible` matches however it was focused,
  * and no trigger here holds one; and the window being brought back to the
- * front, where the browser gives back a focus it had — not measured, since
- * the rig cannot switch applications without driving the desktop. It starts
- * as a key, and goes back to one when no trigger is left to listen; in the
- * app the seat's own card keeps a trigger mounted throughout, so that reset
- * matters to tests, where every root unmounts between cases. Module-level
- * for the reason `dragging` is.
+ * front, where the browser gives back a focus it had. That second one has
+ * since been measured, in Chromium 152, reading `:focus-visible` beside every
+ * focus event on a chip:
+ *
+ *   A window switch is a real blur and a real focus.  The element that had
+ *        the focus is sent `blur` when the window loses it — while
+ *        `document.activeElement` stays what it was — and `focus` when the
+ *        window gives it back. So a card *is* asked for on the way back in;
+ *        the case is live, not moot.
+ *   `:focus-visible` is kept, not judged again.  A chip that had been clicked
+ *        came back still not matching it. This rule agrees: the press left the
+ *        flag reading "press", and nothing has moved it.
+ *   A key turns it on where the focus already is.  A keydown while an element
+ *        is focused makes it match `:focus-visible` at once, a key that moves
+ *        nothing included. That is the same key this rule counts — the
+ *        modifier of a Cmd-Tab, which reaches the page before the switch — so
+ *        a chip a key had touched comes back a keyboard's to both of them,
+ *        and its card opens.
+ *
+ * Which leaves nothing to tell apart: a focus the window gives back opens a
+ * card exactly where `:focus-visible` would have drawn a ring. Measured for
+ * the state kept across the switch was the *not*-visible half; the visible
+ * half is the same keeping read the other way round, and is inferred.
+ *
+ * It starts as a key, and goes back to one when no trigger is left to listen;
+ * in the app the seat's own card keeps a trigger mounted throughout, so that
+ * reset matters to tests, where every root unmounts between cases.
+ * Module-level for the reason `dragging` is.
  */
 let keyboard = true
 const onKey = (): void => {
@@ -189,7 +231,16 @@ const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || 
  * positioner's viewport also takes off a gutter it works out from the root's
  * and the body's widths (`getViewportRect`); in this app the body has no
  * margin and hides its overflow, and the widths were measured equal, so that
- * is nothing.
+ * is nothing. What it *does* take off is `collisionPadding`, and that is
+ * read here too — from the one constant the content is given it by, which
+ * takes no such prop from callers (`design/ui/hover-card.tsx`). A padding
+ * given to the positioner alone would make it the stricter of the two, which
+ * is the one direction that produces a trade.
+ *
+ * The rem is passed in rather than read here. This runs on every answer the
+ * positioner writes, Radix's own style writes included, and the root's font
+ * size cannot change under an open card without the window resizing — so it
+ * is read once, as the card opens, and that reading is current for that open.
  *
  * So a side found to have room here is one the positioner finds room on too,
  * edge for edge. Measured in the shell with the room beside a row at the
@@ -204,10 +255,12 @@ const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || 
  * on this ruler; should either change, the watch in `AgentHoverCard` closes a
  * card the positioner trades rather than arguing with it.
  */
-const roomOn = (trigger: HTMLElement, side: 'left' | 'right'): boolean => {
+const rootRem = (): number =>
+  Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+
+const roomOn = (trigger: HTMLElement, side: 'left' | 'right', rem: number): boolean => {
   const box = trigger.getBoundingClientRect()
-  const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-  const reach = HOVER_CARD_WIDTH_REM * rem + HOVER_CARD_SIDE_OFFSET
+  const reach = HOVER_CARD_WIDTH_REM * rem + HOVER_CARD_SIDE_OFFSET + HOVER_CARD_COLLISION_PADDING
   const view = window.visualViewport
   const viewLeft = view ? view.offsetLeft : 0
   const viewRight = Math.min(document.documentElement.clientWidth, view ? view.offsetLeft + view.width : Number.POSITIVE_INFINITY)
@@ -241,11 +294,11 @@ const roomOn = (trigger: HTMLElement, side: 'left' | 'right'): boolean => {
  * measured, does not fit under the trigger; the side it is given never changes
  * while the card is open, so no answer for an older side can land.
  */
-const sideFor = (trigger: HTMLElement, wanted: CardSide): CardSide => {
+const sideFor = (trigger: HTMLElement, wanted: CardSide, rem: number): CardSide => {
   if (!beside(wanted)) return wanted
   const other = wanted === 'right' ? 'left' : 'right'
-  if (roomOn(trigger, wanted)) return wanted
-  return roomOn(trigger, other) ? other : 'bottom'
+  if (roomOn(trigger, wanted, rem)) return wanted
+  return roomOn(trigger, other, rem) ? other : 'bottom'
 }
 
 /**
@@ -399,19 +452,26 @@ export const AgentHoverCard = ({
      portal draws the card a render after it opens, and the watch has to start
      again when it arrives. */
   const [card, setCard] = useState<HTMLDivElement | null>(null)
+  /* What a rem is, read as the card opens and used for every measurement of
+     that open — see `roomOn`. */
+  const rem = useRef(16)
   useWindowWatch()
 
   /* The one way a card opens: Radix's requests come here, and so does every
      re-ask. Its first line is what keeps a re-ask off an open card — every
      open passes through here and cancels whatever re-ask was pending, so
      none is left to land on the card it has just opened. */
-  const ask = (): void => {
+  const ask = (forced?: CardSide): void => {
     window.clearTimeout(again.current)
     if (pressed.current || quiet.current || dragging) return
     const trigger = triggerRef.current
     if (!trigger || !(resting.current || focused.current)) return
     setAbrupt(false)
-    setPlaced(sideFor(trigger, wanted.current))
+    rem.current = rootRem()
+    /* `forced` is the one open that does not measure: the retry after a trade,
+       which asks for under the trigger — see the watch below. Every other open
+       takes the side asked for now, through the ruler. */
+    setPlaced(forced ?? sideFor(trigger, wanted.current, rem.current))
     setOpen(true)
   }
 
@@ -462,19 +522,26 @@ export const AgentHoverCard = ({
      pressed in the meantime does not cancel it: the pointer is still
      resting.
 
-     A trade is not a lost room, and nothing here asks for it again. It would
-     mean the positioner and this code had measured the same geometry and
+     A trade is not a lost room, and it is never measured again. It would mean
+     the positioner and this code had measured the same geometry and
      disagreed — which `roomOn` is built to rule out (see there) — and
      measuring again would only disagree again: opened, traded, closed and
-     asked for, unseen, for as long as the pointer rests. So a traded card
-     closes and schedules nothing. The next open is the reader's: the pointer
-     arriving again, or moving off a `data-no-card` control inside the
-     trigger, which asks as any such move does; a card opened by a keyboard's
-     focus has no pointer to come back, and waits for the focus to leave and
-     return. A lost room needs no such bound: asking again measures afresh,
-     and lands on a side with room, or under the trigger, where nothing
-     watches it. `redrawn` runs this again for a trigger drawn again, so the
-     observer watches the element that is there.
+     asked for, unseen, for as long as the pointer rests. So a traded card is
+     asked for once more and *under* the trigger, the one side no measurement
+     of this kind decides. That retry cannot cycle: the side is taken without
+     measuring anything, and this watch does not attach to a card under its
+     trigger, so there is no second close to schedule a third open. It used to
+     schedule nothing at all, which made a trade a dead end — the card came
+     back only with the reader, and a keyboard's had no pointer to come back
+     with. No trade happens today; should the two rulers ever part (a
+     `collisionBoundary`, a change to `getViewportRect` in `@floating-ui/dom`)
+     the symptom was no card at all, silently, rather than one in a worse
+     place. A lost room needs no such bound: asking again measures afresh, and
+     lands on a side with room, or under the trigger, where nothing watches
+     it. Either way the re-ask is still the reader's to refuse — `ask` opens
+     nothing once the pointer has left and no focus is inside. `redrawn` runs
+     this again for a trigger drawn again, so the observer watches the element
+     that is there.
 
      The observers report changes from the moment they are attached, so what
      is there already is read as the watch starts: the positioner's first
@@ -490,11 +557,14 @@ export const AgentHoverCard = ({
       const now = triggerRef.current
       const drawn = card?.getAttribute('data-side')
       const traded = Boolean(drawn) && drawn !== at
-      if (now && roomOn(now, at) && !traded) return
+      if (now && roomOn(now, at, rem.current) && !traded) return
       setAbrupt(true)
       setOpen(false)
       window.clearTimeout(again.current)
-      if (!traded) again.current = window.setTimeout(ask, HOVER_CARD_OPEN_DELAY)
+      again.current = window.setTimeout(
+        () => (traded ? ask('bottom') : ask()),
+        HOVER_CARD_OPEN_DELAY,
+      )
     }
     const observer = new ResizeObserver(check)
     observer.observe(trigger)
@@ -564,7 +634,7 @@ export const AgentHoverCard = ({
             quiet.current = onControl
             window.clearTimeout(again.current)
             if (onControl) setOpen(false)
-            else again.current = window.setTimeout(ask, HOVER_CARD_OPEN_DELAY)
+            else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
           }}
           onPointerLeave={() => {
             resting.current = false
@@ -606,6 +676,21 @@ export const AgentHoverCard = ({
           goes at once instead of fading where it no longer fits. */}
       {(open || !abrupt) && (
         <HoverCardContent
+          /* A card of its own per side, so the watch's first read can never
+             meet an answer for the side before.
+
+             `data-side` is Radix's rendering of Floating UI's *state*, and
+             that state is seeded with the side asked for and replaced only
+             when the positioner resolves; Radix passes no `open` to
+             `useFloating`, so nothing resets it on close, and a card closed
+             other than abruptly stays mounted through its exit. Opened again
+             on a different side inside that window, it would be read as traded
+             and closed. Nothing reaches that today — every open comes a full
+             open delay after the event that armed it, and the exit is about
+             150ms — so it was held by a timing margin. This holds it by
+             construction, at the cost of a remount only when the side
+             actually changes. */
+          key={placed}
           ref={setCard}
           side={placed}
           {...(align ? { align } : {})}

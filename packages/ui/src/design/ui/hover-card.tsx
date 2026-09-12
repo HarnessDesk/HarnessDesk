@@ -43,6 +43,18 @@ const HOVER_CARD_CLOSE_DELAY = 160
 const HOVER_CARD_WIDTH_REM = 18
 const HOVER_CARD_SIDE_OFFSET = 8
 
+/* The gutter the positioner keeps between a card and the window's edge.
+ *
+ * Radix's own default, written down here because a caller measures the room
+ * beside a trigger with it too (`roomOn` in `AgentHoverCard`). Nothing crossed
+ * the two rulers before: a `collisionPadding` given to the content would have
+ * made the positioner the stricter of the two, which is the one direction that
+ * produces a *trade* — the card drawn on the side this app did not ask for —
+ * with the suite still green. So it is not a prop. The type below refuses one
+ * from callers, and both rulers read this number.
+ */
+const HOVER_CARD_COLLISION_PADDING = 0
+
 const HoverCard = ({
   openDelay = HOVER_CARD_OPEN_DELAY,
   closeDelay = HOVER_CARD_CLOSE_DELAY,
@@ -66,13 +78,14 @@ const HoverCardContent = ({
   side = 'right',
   sideOffset = HOVER_CARD_SIDE_OFFSET,
   ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Content>) => (
+}: Omit<React.ComponentProps<typeof HoverCardPrimitive.Content>, 'collisionPadding'>) => (
   <HoverCardPrimitive.Portal>
     <HoverCardPrimitive.Content
       data-slot="hover-card-content"
       align={align}
       side={side}
       sideOffset={sideOffset}
+      collisionPadding={HOVER_CARD_COLLISION_PADDING}
       className={cn(
         'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-(--hd-z-popover) w-72 origin-(--radix-hover-card-content-transform-origin) overflow-hidden rounded-lg border shadow-md outline-hidden',
         className,
@@ -90,4 +103,5 @@ export {
   HOVER_CARD_CLOSE_DELAY,
   HOVER_CARD_WIDTH_REM,
   HOVER_CARD_SIDE_OFFSET,
+  HOVER_CARD_COLLISION_PADDING,
 }

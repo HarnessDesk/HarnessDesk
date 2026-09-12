@@ -6,6 +6,11 @@ import type { RuntimeInfo } from '@harnessdesk/protocol'
 import { sessionKey, type SessionSummary, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { AgentCard } from '../design/patterns/AgentCard'
+import {
+  HOVER_CARD_COLLISION_PADDING,
+  HOVER_CARD_SIDE_OFFSET,
+  HOVER_CARD_WIDTH_REM,
+} from '../design/ui'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentHoverCard, MemberHoverCard, SessionHoverCard, type MemberCardFacts } from './AgentCards'
@@ -592,6 +597,58 @@ it('a press anywhere makes the next focus a press’s, and a key anywhere makes 
   vi.useRealTimers()
 })
 
+/**
+ * A focus the window gives back.
+ *
+ * Measured in Chromium 152 rather than reasoned about: a window switch sends
+ * the focused element a real `blur` and, on the way back, a real `focus`, with
+ * `document.activeElement` never moving — so a card is asked for on the way
+ * back in. Which kind of focus it is, Chromium answers by keeping the state
+ * the element had before the switch rather than judging afresh, and a key
+ * pressed while an element is already focused turns `:focus-visible` on at
+ * once — a key that moves nothing, the modifier of a Cmd-Tab, included. This
+ * is the app's half of the same answer. jsdom has no window to blur, so what
+ * is replayed here is what Chromium was measured to send.
+ */
+it('a focus the window gives back opens a card only where a key had touched it', () => {
+  vi.useFakeTimers()
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+
+  /* Clicked, and then the pointer goes away — taking the press's hold with it,
+     which is what leaves the focus the only thing that could open a card. */
+  const clicked = (): void => {
+    rest(link)
+    press(link)
+    act(() => link.focus())
+    leave(link)
+  }
+  /* The window losing the focus and giving it back. */
+  const switched = (): void => {
+    act(() => link.blur())
+    act(() => link.focus())
+    wait(1000)
+  }
+
+  clicked()
+  switched()
+  // The control: a chip that was clicked comes back a press's focus, and opens
+  // nothing — as `:focus-visible` refuses it.
+  expect(openCard()).toBeNull()
+
+  // The Cmd of a Cmd-Tab reaches the page before the switch. A key that moves
+  // nothing still makes the focus a keyboard's, here and in Chromium alike.
+  focusElsewhere()
+  clicked()
+  act(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Meta' }))
+  })
+  switched()
+  expect(openCard()).not.toBeNull()
+  vi.useRealTimers()
+})
+
 it('a press on a chip holds its card shut, even against the focus the press leaves', () => {
   vi.useFakeTimers()
   act(() => root.render(chip()))
@@ -1132,15 +1189,16 @@ it('closes when the positioner trades its side, whatever moved', async () => {
 })
 
 /**
- * A trade is not asked for again.
+ * A trade is never measured again — it is asked for under the trigger.
  *
  * It would be the positioner and this code disagreeing about the same
- * geometry, and measuring again only disagrees again. So a traded card is
- * closed and waits for the pointer to come back, whatever passes meanwhile,
- * rather than being opened, traded and closed, unseen, for as long as the
- * pointer rests.
+ * geometry, and measuring again only disagrees again: opened, traded, closed
+ * and asked for, unseen, for as long as the pointer rests. So the retry takes
+ * the one side no such measurement decides. It used to schedule nothing at
+ * all, which made a trade a dead end — the card came back only with the
+ * reader, and a card a keyboard opened had no pointer to come back with.
  */
-it('closes a card the positioner trades, and does not ask for it again until the pointer comes back', async () => {
+it('asks once more for a card the positioner traded, under the trigger, and that retry is the end of it', async () => {
   const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
   const hand = observeByHand()
   vi.useFakeTimers()
@@ -1157,12 +1215,25 @@ it('closes a card the positioner trades, and does not ask for it again until the
   })
   expect(trigger().getAttribute('data-state')).toBe('closed')
 
-  // Nothing brings it back while the pointer rests: not the delay of a rest,
-  // and not the trigger measured again in the meantime.
-  wait(500)
+  // The control: nothing brings it back before the delay of a rest, and the
+  // trigger measured again in the meantime brings it back no sooner.
   hand.resized(trigger())
-  wait(1000)
+  wait(400)
   expect(trigger().getAttribute('data-state')).toBe('closed')
+
+  // Then it comes back under the trigger — not on the side this code measured
+  // and lost, and not on the side the positioner took it to.
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('bottom')
+
+  // And that is the end of it. Nothing watches a card under its trigger, so a
+  // second trade cannot close it and schedule a third open.
+  await act(async () => {
+    document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'top')
+  })
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
 
   // A new visit asks afresh, on the side this code measures.
   leave(trigger())
@@ -1211,6 +1282,158 @@ it('a card that settled below, then came back beside its trigger, is still asked
   wait(1000)
   expect(trigger().getAttribute('data-state')).toBe('open')
   expect(side()).toBe('bottom')
+})
+
+/**
+ * A drag whose source left the document still ends.
+ *
+ * `dragend` fires at the *source*, and an event dispatched at a node that has
+ * left the document is heard by that node and its detached ancestors — the
+ * window is not among them. A drop that lands nowhere sends no `drop` either.
+ * A finger has nothing else: Chromium sends `pointercancel` as a native drag
+ * begins, by the Pointer Events contract a cancelled pointer sends no
+ * `pointerup`, and a finger off the glass sends no move. So the flag stayed
+ * set until the next tap, and until then every card in the window was refused
+ * — including one a keyboard's focus asked for, which on a touch screen is the
+ * only way a card opens at all.
+ */
+it('ends a drag whose source was unmounted mid-gesture, so a keyboard still gets its card', () => {
+  vi.useFakeTimers()
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+
+  // A board card picked up somewhere else in the window, taken out of the
+  // document mid-gesture by the column re-rendering under it.
+  const source = document.createElement('div')
+  document.body.appendChild(source)
+  act(() => {
+    source.dispatchEvent(new Event('dragstart', { bubbles: true }))
+  })
+  source.remove()
+
+  // The control: while the drag is on there is no card for a pointer…
+  rest(link)
+  expect(openCard()).toBeNull()
+  leave(link)
+  // …and none for a keyboard's focus either.
+  tabTo(link)
+  wait(1000)
+  expect(openCard()).toBeNull()
+  focusElsewhere()
+
+  // The drop lands nowhere and the source is gone, so the window hears neither
+  // `dragend` nor `drop`, and a finger sends no `pointerup` and no move. The
+  // source itself is still dispatched to, and that is the way out.
+  act(() => {
+    source.dispatchEvent(new Event('dragend'))
+  })
+  tabTo(link)
+  wait(1000)
+  expect(openCard()).not.toBeNull()
+  vi.useRealTimers()
+})
+
+/**
+ * One reach, and both rulers read it.
+ *
+ * `roomOn` and the positioner have to agree about how far a card reaches, and
+ * nothing crossed the two. The width and the gap were exported; the padding
+ * the positioner keeps from the window's edge was not, so a `collisionPadding`
+ * given to the content would have made the positioner the stricter of the two
+ * — the one direction that produces a trade — with the suite still green. The
+ * content takes no such prop now (its type refuses one) and this pins the
+ * boundary in the same three numbers, so a change to any of them moves both.
+ */
+it('needs the card, its gap and the positioner’s padding beside a trigger, to the pixel', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  const reach = HOVER_CARD_WIDTH_REM * 16 + HOVER_CARD_SIDE_OFFSET + HOVER_CARD_COLLISION_PADDING
+
+  // Exactly the reach to the right edge, and nothing at all on the left.
+  spans(0, 1024 - reach)
+  rest(trigger())
+  expect(side()).toBe('right')
+  leave(trigger())
+
+  // A pixel less, and no side fits.
+  spans(0, 1024 - reach + 1)
+  rest(trigger())
+  expect(side()).toBe('bottom')
+  vi.useRealTimers()
+})
+
+/**
+ * A card a keyboard opened comes back when it loses its room.
+ *
+ * The re-ask is refused unless the reader is still there — resting on the
+ * trigger, *or* with focus inside it. For a card the pointer opened that is
+ * the pointer; for one a keyboard opened there is no pointer to come back, and
+ * the focus that opened it is what asks again.
+ */
+it('brings back a card a keyboard opened, on the side that fits now', () => {
+  vi.useFakeTimers()
+  act(() => root.render(chip()))
+  const link = container.querySelector('a')
+  if (!link) throw new Error('no link inside the chip')
+  viewport(1024)
+  spans(20, 60)
+
+  tabTo(link)
+  wait(1000)
+  // The control: a keyboard's focus opens it beside the chip in the first place.
+  expect(side()).toBe('right')
+
+  // The window narrows until neither side fits. Nothing is resting on the
+  // chip — the focus is what opened the card, and what asks for it again.
+  viewport(400)
+  spans(0, 400)
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('closed')
+  wait(1000)
+  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(side()).toBe('bottom')
+  vi.useRealTimers()
+})
+
+/**
+ * What a rem is, read once per open.
+ *
+ * The watch runs a check for every answer the positioner writes — Radix's own
+ * style writes included — and each one read the root's computed font size.
+ * One open card is measured by one reading of it, taken as it opens, which
+ * stays current for that open: the root's font size cannot change under an
+ * open card without the window resizing, and a resize is a new measurement.
+ */
+it('reads what a rem is once per open, and measures the whole of that open by it', () => {
+  vi.useFakeTimers()
+  act(() => root.render(withAControl()))
+  viewport(1024)
+  /* 300px to the right edge: room for a card of 18rem + 8px at a 16px root,
+     and not for the same card at a 20px one. */
+  document.documentElement.style.fontSize = '16px'
+  spans(20, 724)
+  rest(trigger())
+  // The control: at the root it opened under, the right has room.
+  expect(side()).toBe('right')
+
+  // The root's font size changes under the open card, and the positioner
+  // places it again. This open was measured once, and stays measured by it.
+  document.documentElement.style.fontSize = '20px'
+  act(() => {
+    window.dispatchEvent(new Event('resize'))
+  })
+  expect(trigger().getAttribute('data-state')).toBe('open')
+
+  // The next open reads it afresh, and there is no longer room on the right.
+  leave(trigger())
+  rest(trigger())
+  expect(side()).toBe('bottom')
+  document.documentElement.style.fontSize = ''
+  vi.useRealTimers()
 })
 
 it('measures the room on the right against the visual viewport where that is narrower than the root', () => {
@@ -1297,12 +1520,13 @@ it('reads the side the positioner drew a card on as its watch starts, not only t
   expect(trigger().getAttribute('data-state')).toBe('open')
 
   // The positioner's answer, where no observer reports it; the watch, started
-  // again, reads it — and a trade is not asked for again.
+  // again, reads it — and closes the card it was drawn on.
   document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
   act(() => root.render(chip('span')))
   expect(trigger().getAttribute('data-state')).toBe('closed')
+  // What comes back is under the trigger, never the same measurement again.
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(side()).toBe('bottom')
 })
 
 it('a re-ask opens on the side asked for now, not the side asked for when it was armed', () => {

@@ -117,6 +117,28 @@ it('never prints the same string twice in the crest', () => {
   expect(text()).toContain('not signed in')
 })
 
+/**
+ * The whole of a name the crest truncates.
+ *
+ * The card is 288px wide beside a 16px tile, and a row that opens a card on
+ * the same rest gives up its own tooltip to avoid stacking two boxes — so a
+ * long conversation title was cut in the row *and* cut again here, and whole
+ * only inside the conversation. The heading is a different rest, on a surface
+ * the reader has already chosen to open.
+ */
+it('carries the whole of a name, and of a second name, that the crest truncates', () => {
+  const name = 'Cap the backoff and add jitter to the gateway retry policy'
+  const also = 'A conversation somebody gave a long name to'
+  render({ ...BARE, name, also })
+  // The control: both are drawn, and each is printed once.
+  expect(text()).toContain(name)
+  expect(text()).toContain(also)
+
+  const spans = [...container.querySelectorAll('span')]
+  expect(spans.find((one) => one.textContent === name)?.getAttribute('title')).toBe(name)
+  expect(spans.find((one) => one.textContent === also)?.getAttribute('title')).toBe(also)
+})
+
 it('keeps the second name only when it is a name of its own', () => {
   render({ ...BARE, also: 'Canonicalise a room’s project' })
   expect(text()).toContain('Canonicalise a room’s project')

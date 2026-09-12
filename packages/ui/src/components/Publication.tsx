@@ -26,10 +26,14 @@ export const Publication = ({ item }: { item: PublicationItem }) => {
       </span>
       <span className={styles.publicationVerb}>{publicationVerb(reference)}</span>
       <AgentHoverCard body={() => <PublicationCard reference={reference} />} side="bottom" align="start">
+        {/* No tooltip of its own. The card opens on this same rest and prints
+            the forge's title in its crest, so a `title` here was a second box
+            over the first — repeating the card's heading where the forge gave
+            a title, and the chip's own text where it did not. The whole of a
+            long title is on the card's heading, which carries it. */}
         <a
           className={styles.publicationChip}
           href={reference.url}
-          title={reference.title ?? address}
           onClick={(event) => {
             event.preventDefault()
             openExternal(reference.url)
