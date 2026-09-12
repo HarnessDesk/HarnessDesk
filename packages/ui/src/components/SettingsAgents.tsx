@@ -1462,19 +1462,29 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
   }
 
   const fallbackLine = describeFallback(install)
+  /*
+   * What the rule is doing, under the line that says what runs. A pin stays
+   * recorded after the copy it names has gone or grown too old, and the rule
+   * picks again — but it can pick nothing at all, when no copy left on the
+   * machine is new enough: `judgeInstalls` then chooses none, and `chosen` is
+   * null with the pin still recorded. Told as one sentence, the recorded pin
+   * promised "the newest copy that is new enough answers" while the line above
+   * it said none qualified (#251), so that state gets its own sentence.
+   */
+  const rule = pinHolds(install)
+    ? 'A pinned copy answers even when a newer one is installed.'
+    : install.policy === 'pinned'
+      ? install.chosen
+        ? 'The pinned copy is gone or too old, so the newest copy that is new enough answers until you pin another.'
+        : 'The pinned copy is gone or too old, and nothing else installed is new enough, so no installed copy answers.'
+      : 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
   return (
     <>
       <SectionHead name="Install" />
       <Rows>
         <Row
           title={installSummary(install)}
-          desc={
-            pinHolds(install)
-              ? 'A pinned copy answers even when a newer one is installed.'
-              : install.policy === 'pinned'
-                ? 'The pinned copy is gone or too old, so the newest copy that is new enough answers until you pin another.'
-                : 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
-          }
+          desc={rule}
           control={
             install.policy === 'pinned' ? (
               <Btn small disabled={busy !== null} onClick={() => void choose(null)}>
