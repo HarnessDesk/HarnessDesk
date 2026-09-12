@@ -8,13 +8,18 @@
  * design catalogue and wrong for a README. So this drives the actual Electron
  * app over CDP and captures what it drew.
  *
- * What keeps it publishable is `seed.mjs`: the app is pointed at an invented
- * home, so there is no real name to leak rather than a real name to hide.
- * Every frame is still audited before it is written — the rendered text is
- * grepped for this machine's username and for any `/Users/<name>` path, and a
- * hit throws. The first hero image in this README was a photograph of a real
- * desk carrying real branch names, and it was published; a rig that relies on
- * being careful will do that again.
+ * What keeps it publishable is two things, and the second exists because the
+ * first was not enough. `seed.mjs` points the app at an invented home, so
+ * there is no real name to leak rather than a real name to hide — but an
+ * agent's credential store is not in that home, and a runtime signed in on
+ * this machine reported its real identity onto a seat among the twelve
+ * invented ones. So `accounts.mjs` answers every runtime's account from the
+ * rig, and `audit.mjs` refuses any frame it cannot vouch for: an address
+ * outside the sanctioned domains, a home path under any root, a title or an
+ * `alt` carrying either, or an account the rig did not author. The first hero
+ * image in this README was a photograph of a real desk carrying real branch
+ * names, and it was published; a rig that relies on being careful will do that
+ * again.
  *
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
@@ -26,6 +31,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE } from '../lib/desk.mjs'
+import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
+import { COLLECT, reasonsFor } from './audit.mjs'
 import { REPOS } from './cast.mjs'
 import { HOME, WORK } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
@@ -67,7 +74,14 @@ const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
 const REPO = join(WORK, REPOS[0].dir)
 const say = (line) => process.stdout.write(`  ${line}\n`)
 
-/** The username this machine runs as — the one string no frame may contain. */
+/**
+ * The username this machine runs as.
+ *
+ * One of the things no frame may contain, and no longer the only one — the
+ * audit that called it "the one string" passed a real name and a real address
+ * on a seat (#296). It is still worth its own check: it is the one name this
+ * machine is certain to know.
+ */
 const USER = homedir().split('/').filter(Boolean).pop() ?? ''
 
 const busy = await deskInUse(HOME)
@@ -113,7 +127,7 @@ try {
    * starts its own scan the first time anybody asks — including the app,
    * unprompted — and a scan that has already begun has already read the corpus.
    */
-  const stageUsage = async () => {
+  const stageAnswers = async () => {
     await cdp.eval(
       `(() => {
         const s = ${STORE}
@@ -124,29 +138,52 @@ try {
           'usage/ledger': ${q(LEDGER)},
           'usage/scan': ${q(SCAN)},
         }
-        s.transport.request = (method, params) =>
-          method in canned ? Promise.resolve(canned[method]) : real(method, params)
+        const accounts = ${q(ACCOUNTS)}
+        const anonymous = ${q(ANONYMOUS)}
+        s.transport.request = (method, params) => {
+          /* Every runtime, not the ones the rig seeded: an id nobody
+             anticipated gets an invented answer rather than its own store. */
+          if (method === 'runtime/account') {
+            return Promise.resolve(accounts[params?.runtime] ?? anonymous)
+          }
+          return method in canned ? Promise.resolve(canned[method]) : real(method, params)
+        }
         s.__shotsPatched = true
         return true
       })()`,
       60_000,
     )
     await cdp.eval(`${STORE}.loadUsage()`, 60_000).catch(() => {})
+    /* Asked again, because the window asked first. The store loads accounts
+       while it boots — before this patch could be installed — so the map it is
+       holding at this point was answered by the runtimes themselves. Both
+       verbs, because they write different slots: `loadAccounts` replaces the
+       per-runtime map every seat and card reads, and `refreshRuntime` replaces
+       the singular one the selected agent's surfaces read. The audit refuses
+       the frame if either is still real, which is what makes this recoverable
+       rather than silent. */
+    await cdp.eval(`${STORE}.loadAccounts()`, 60_000).catch(() => {})
+    await cdp.eval(`${STORE}.refreshRuntime({ history: false })`, 60_000).catch(() => {})
     await sleep(900)
   }
-  await stageUsage()
+  await stageAnswers()
 
+  /**
+   * Nothing is written until this passes. See `audit.mjs` for what it asks and
+   * which way it errs; collected here because only the driver has the window.
+   */
   const audit = async (name) => {
-    const found = await cdp.json(
+    const seen = await cdp.json(
       `(() => {
-        const text = document.body.innerText ?? ''
-        const bad = []
-        if (${q(USER)} && text.includes(${q(USER)})) bad.push('username ${USER}')
-        for (const m of text.matchAll(/\\/Users\\/[A-Za-z0-9._-]+/g)) bad.push(m[0])
-        return [...new Set(bad)].slice(0, 8)
+        const seen = ${COLLECT}
+        seen.accounts = ${STORE}.getSnapshot().accountsByRuntime ?? {}
+        return seen
       })()`,
     )
-    if (found?.length) throw new Error(`${name}: the frame carries ${found.join(', ')} — not publishable`)
+    const reasons = reasonsFor(seen ?? {}, { user: USER, vouched: VOUCHED })
+    if (reasons.length > 0) {
+      throw new Error(`${name}: this frame is not publishable —\n    ${reasons.join('\n    ')}`)
+    }
   }
 
   /**
@@ -160,8 +197,8 @@ try {
    *
    * So the substitution happens here, and it is deliberately the narrowest one
    * that helps: the exact home prefix becomes `~`, and nothing else changes.
-   * The audit below therefore still means something — any *other* `/Users/…`,
-   * and any bare occurrence of the username, still throws.
+   * The audit therefore still means something — any *other* home path, under
+   * any root, and any bare occurrence of the username, still throws.
    */
   const tildify = async () => {
     await cdp.eval(

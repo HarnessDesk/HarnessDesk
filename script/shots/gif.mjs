@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../lib/desk.mjs'
+import { ACCOUNTS, ANONYMOUS } from './accounts.mjs'
 import { REPOS } from './cast.mjs'
 import { HOME, WORK } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
@@ -82,20 +83,32 @@ try {
   await sleep(2500)
   await dismissNotices(cdp).catch(() => {})
 
-  // The same money stubs the stills use — a recording leaks exactly as much as
-  // a photograph does, and for longer.
+  /* The same stubs the stills use — a recording leaks exactly as much as a
+     photograph does, and for longer. The accounts matter more here than they
+     do there: a still is audited before it is written and a GIF cannot be,
+     so for a recording the answer *is* the protection. */
   await cdp.eval(
     `(() => {
       const s = ${STORE}
       if (s.__shotsPatched) return true
       const real = s.transport.request.bind(s.transport)
       const canned = { 'usage/reports': ${q(USAGE)}, 'usage/ledger': ${q(LEDGER)}, 'usage/scan': ${q(SCAN)} }
-      s.transport.request = (m, p) => (m in canned ? Promise.resolve(canned[m]) : real(m, p))
+      const accounts = ${q(ACCOUNTS)}
+      const anonymous = ${q(ANONYMOUS)}
+      s.transport.request = (m, p) =>
+        m === 'runtime/account'
+          ? Promise.resolve(accounts[p?.runtime] ?? anonymous)
+          : m in canned
+            ? Promise.resolve(canned[m])
+            : real(m, p)
       s.__shotsPatched = true
       return true
     })()`,
     60_000,
   )
+  // Asked again, because the window asked first: see `stageAnswers` in shoot.mjs.
+  await cdp.eval(`${STORE}.loadAccounts()`, 60_000).catch(() => {})
+  await cdp.eval(`${STORE}.refreshRuntime({ history: false })`, 60_000).catch(() => {})
   await cdp.eval(`${STORE}.setTheme(${q(THEME)}); true`)
   await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
   await sleep(1200)
