@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { GitFileStatus, GitMergeOutcome, GitRefsSummary, GitResetMode } from '@harnessdesk/protocol'
+import type {
+  GitConclusion,
+  GitFileStatus,
+  GitMergeOutcome,
+  GitRefsSummary,
+  GitResetMode,
+} from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
 import { Dialog } from '../design/primitives/Dialog'
@@ -38,33 +44,87 @@ import styles from './GitDialogs.module.css'
 
 const reason = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-const STATUS_LETTER: Record<GitFileStatus['status'], string> = {
+/**
+ * One row of the commit dialog: a path and what committing it records. Every
+ * `GitFileStatus` word, plus `nothing` — which is not a state a file can be
+ * in, but what a commit makes of one pair of them.
+ */
+type CommitRow = { readonly path: string; readonly status: GitFileStatus['status'] | 'nothing' }
+
+const STATUS_LETTER: Record<CommitRow['status'], string> = {
   modified: 'M',
   added: 'A',
   deleted: 'D',
   renamed: 'R',
   untracked: 'U',
   conflicted: '!',
+  nothing: '—',
 }
+
+/**
+ * What the dialog read the working tree as: one row a path, and what a commit
+ * here would conclude. The second is not decoration — it decides the shape the
+ * commit has to be asked in, so it is read once, beside the rows, from the same
+ * answer.
+ */
+type CommitPlan = { readonly rows: readonly CommitRow[]; readonly concluding: GitConclusion | null }
 
 // ------------------------------------------------------------------- commit
 
-/** The first entry for each path, in order. */
-const onePerPath = (files: readonly GitFileStatus[]): GitFileStatus[] => {
-  const byPath = new Map<string, GitFileStatus>()
-  for (const file of files) if (!byPath.has(file.path)) byPath.set(file.path, file)
-  return [...byPath.values()]
+/**
+ * One row for each path, labelled by what committing it records. The commit
+ * takes each path's working-tree contents (`git commit -- <paths>`), so a file
+ * staged and then deleted (`MD`) is committed as a deletion. Labelled by its
+ * index entry, the row said "modified" (#180). Otherwise the index's word
+ * stands, because it says what the commit records against the last one: `AM`
+ * is still an addition.
+ *
+ * `AD` — added to the index, then deleted from the working tree — is the one
+ * pair neither word fits. The path is in no commit and in no tree, so nothing
+ * is recorded for it either way. Measured on git 2.50.1: named on its own,
+ * `git commit -- <path>` exits 1 with "nothing to commit"; named beside
+ * another file, the commit succeeds and mentions only the other; and the
+ * all-files branch's `git add -A` drops the staged add outright. So the row
+ * says it records nothing and carries no box to check, rather than claiming a
+ * deletion the commit does not make (#248).
+ *
+ * It stays in the list rather than being dropped from it. The path is in the
+ * Changes panel either way, and this is the one surface that can say why it is
+ * not going in — a row that simply vanishes is a gap the reader has to close
+ * alone. Its presence is also a reason to name paths rather than commit
+ * everything, since the all-files branch's `git add -A` erases the staged add a
+ * pathspec commit leaves alone — but a reason weighed where the shape is
+ * chosen, below, rather than a side effect of how the rows happen to look.
+ */
+const onePerPath = (files: readonly GitFileStatus[]): CommitRow[] => {
+  const first = new Map<string, GitFileStatus>()
+  const goneFromTree = new Set<string>()
+  for (const file of files) {
+    if (!first.has(file.path)) first.set(file.path, file)
+    if (!file.staged && file.status === 'deleted') goneFromTree.add(file.path)
+  }
+  return [...first.values()].map((file) => ({
+    path: file.path,
+    status: !goneFromTree.has(file.path)
+      ? file.status
+      : file.staged && file.status === 'added'
+        ? 'nothing'
+        : 'deleted',
+  }))
 }
 
 /**
  * The toolbar's Commit: the dirty files with a check each, a message, one
- * button. Unchecking a file leaves it dirty for a later commit; with every
- * file checked the commit is asked without pathspecs, which is also the only
- * shape git takes while a merge is being concluded.
+ * button. Unchecking a file leaves it dirty for a later commit.
+ *
+ * Which of git's two shapes the commit is asked in — everything, or exactly
+ * these paths — is decided at `wholeTree` below, on the repository's own
+ * state. It used to be read off the rows, and that let a question of
+ * presentation decide what git was asked to do (#248).
  */
 export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: boolean) => void }) => {
   const store = useStore()
-  const [files, setFiles] = useState<readonly GitFileStatus[] | null>(null)
+  const [plan, setPlan] = useState<CommitPlan | null>(null)
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -76,28 +136,68 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
       .request('git/status', { root })
       .then((status) => {
         // One row a file: status lists a file staged and changed again twice, one entry a column (#31).
-        if (!cancelled) setFiles(onePerPath(status?.files ?? []))
+        if (!cancelled) {
+          setPlan({ rows: onePerPath(status?.files ?? []), concluding: status?.concluding ?? null })
+        }
       })
       .catch(() => {
-        if (!cancelled) setFiles([])
+        if (!cancelled) setPlan({ rows: [], concluding: null })
       })
     return () => {
       cancelled = true
     }
   }, [root, store])
 
-  const chosen = (files ?? []).filter((file) => !excluded.has(file.path))
+  const rows = plan?.rows ?? []
+  const concluding = plan?.concluding ?? null
+  /* A row that records nothing is not a file to commit: it is never chosen,
+     so the count on the button and the pathspecs sent both stay true to what
+     the commit will contain. */
+  const choices = rows.filter((file) => file.status !== 'nothing')
+  /* While a conclusion is underway there is nothing to narrow — every file
+     goes in — so the exclusions a person made before are not applied to a
+     commit that could not honour them. */
+  const chosen = concluding ? choices : choices.filter((file) => !excluded.has(file.path))
+
+  /**
+   * The one decision about shape, made on evidence rather than inferred.
+   *
+   * A conclusion is asked for without pathspecs because that is the only
+   * shape it takes: `git commit -- <paths>` during a merge is
+   * `fatal: cannot do a partial commit during a merge`. Otherwise paths are
+   * named for either of two reasons — somebody unticked a row, or a row
+   * records nothing, whose staged add `git add -A` would erase — and when
+   * neither holds, the plain commit of everything.
+   *
+   * Read off `chosen` alone, as it was, a row with no box to tick counted as
+   * one nobody had ticked, so the mere presence of an `AD` path forced the
+   * pathspec shape and blocked every merge conclusion behind it (#248).
+   */
+  const wholeTree = concluding !== null || (chosen.length === choices.length && choices.length === rows.length)
+
+  /**
+   * Whether there is a commit to make at all — a different question from how
+   * many files go into it, and answering it with the file count shut the only
+   * door out of a conclusion (#248).
+   *
+   * Measured on git 2.50.1: resolve a conflict to the content already
+   * committed, `git add` it, and `git status --porcelain` prints nothing while
+   * `MERGE_HEAD` is still there — `git commit` then succeeds and writes the
+   * merge commit with both parents. So a conclusion is a commit the repository
+   * is waiting for whatever the rows say, and the count decides nothing here.
+   * Without one, no rows really is nothing to commit, and still reads that way.
+   */
+  const commitable = concluding !== null || chosen.length > 0
 
   const commit = async (): Promise<void> => {
-    if (message.trim().length === 0 || chosen.length === 0) return
+    if (message.trim().length === 0 || !commitable) return
     setBusy(true)
     setError(null)
     try {
-      const everything = chosen.length === (files ?? []).length
       const { sha } = await store.transport.request('git/commitAll', {
         root,
         message: message.trim(),
-        ...(everything ? {} : { paths: chosen.map((file) => file.path) }),
+        ...(wholeTree ? {} : { paths: chosen.map((file) => file.path) }),
       })
       store.notice('info', `Committed ${shortSha(sha)}.`)
       onDone(true)
@@ -118,13 +218,18 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
           <Btn
             variant="primary"
             onClick={() => void commit()}
-            disabled={busy || message.trim().length === 0 || chosen.length === 0}
+            disabled={busy || message.trim().length === 0 || !commitable}
           >
             {busy
               ? 'Committing…'
-              : chosen.length === 1
-                ? 'Commit 1 file'
-                : `Commit ${chosen.length} files`}
+              : chosen.length === 0 && concluding !== null
+                ? /* Nothing is going in file by file: the commit is the
+                     conclusion itself, so the button says so rather than
+                     counting to zero. */
+                  `Commit the ${concluding}`
+                : chosen.length === 1
+                  ? 'Commit 1 file'
+                  : `Commit ${chosen.length} files`}
           </Btn>
           <Btn onClick={() => onDone(false)} disabled={busy}>
             Cancel
@@ -145,13 +250,57 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void commit()
           }}
         />
-        {files === null ? (
+        {concluding !== null && (
+          <span className={styles.note}>
+            A {concluding} is concluded by a single commit of the whole tree
+            {choices.length > 0 ? ' — every file below goes in.' : '.'}
+          </span>
+        )}
+        {plan === null ? (
           <div className={styles.quiet}>Reading the working tree…</div>
-        ) : files.length === 0 ? (
-          <div className={styles.quiet}>The working tree is clean — there is nothing to commit.</div>
+        ) : rows.length === 0 ? (
+          <div className={styles.quiet}>
+            {concluding === null
+              ? 'The working tree is clean — there is nothing to commit.'
+              : /* Clean and still owed a commit: git keeps the conclusion in a
+                   pseudo-ref, not in the status it prints, so a tree with
+                   nothing left to record is exactly when it needs one. */
+                `The working tree is clean — the ${concluding} still needs this commit.`}
+          </div>
         ) : (
           <div className={styles.files} role="group" aria-label="Files to commit">
-            {files.map((file) => {
+            {rows.map((file) => {
+              if (file.status === 'nothing') {
+                /* Declared and greyed rather than withdrawn: the path is in
+                   the Changes panel, so a row missing here reads as an
+                   oversight instead of an answer. */
+                return (
+                  <div key={file.path} className={styles.file} data-moot="">
+                    <span className={styles.blank} />
+                    <span className={styles.status} data-status="nothing">
+                      {STATUS_LETTER.nothing}
+                    </span>
+                    <span className={styles.path}>{file.path}</span>
+                    <span className={styles.records}>records nothing</span>
+                  </div>
+                )
+              }
+              if (concluding !== null) {
+                /* Ticked and moot: the file is going in, and leaving it out
+                   is not a choice this commit has to offer. Greyed rather
+                   than withdrawn, so the row still accounts for the path. */
+                return (
+                  <div key={file.path} className={styles.file} data-moot="">
+                    <span className={styles.check} data-on="">
+                      <CheckIcon size={11} />
+                    </span>
+                    <span className={styles.status} data-status={file.status}>
+                      {STATUS_LETTER[file.status]}
+                    </span>
+                    <span className={styles.path}>{file.path}</span>
+                  </div>
+                )
+              }
               const on = !excluded.has(file.path)
               return (
                 <button

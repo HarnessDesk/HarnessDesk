@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { concluding } from './git.js'
 import { isRevisionName, isSha } from './git-revision.js'
 import { parsePorcelain } from './porcelain.js'
 
@@ -174,10 +175,14 @@ const treeState = async (
  * Stages and commits. With `paths`, exactly those files — literal pathspecs,
  * untracked ones registered first so a new file can ride a partial commit,
  * a staged rename widened to carry its origin — and without, everything,
- * which is also the only shape git accepts while a merge or revert is being
- * concluded. An explicitly empty list refuses: the renderer disables that
- * button, but the host is the boundary, and "commit nothing" must never
- * quietly become "commit everything".
+ * which is the only shape that concludes a merge, a cherry-pick or a revert.
+ *
+ * Two refusals, because the host is the boundary and neither may quietly
+ * become "commit everything": an explicitly empty list, and paths named
+ * while a conclusion is underway. The second was documented here and held
+ * by nothing, which is how it broke — the dialog chose its shape from which
+ * rows happened to be ticked, so one unticked row during a merge became
+ * git's `fatal: cannot do a partial commit during a merge` (#248).
  */
 export const commitAll = async (
   root: string,
@@ -187,6 +192,20 @@ export const commitAll = async (
   if (message.trim().length === 0) throw new Error('A commit needs a message.')
   if (paths !== undefined && paths.length === 0) {
     throw new Error('No files were chosen — pick the files to commit, or commit everything.')
+  }
+  if (paths) {
+    /* Measured on git 2.50.1: `git commit -- <paths>` is fatal while a merge
+       or a cherry-pick is underway. A revert's git does take — it never reads
+       `REVERT_HEAD` — and that is worse than a refusal, because the commit it
+       writes clears the pseudo-ref and claims the whole revert while holding
+       part of it. Refused in words the dialog can show, rather than passing
+       git's fatal through or widening to everything behind the caller's back. */
+    const underway = await concluding(root)
+    if (underway) {
+      throw new Error(
+        `A ${underway} is concluded by a single commit of the whole tree — it cannot be narrowed to some files.`,
+      )
+    }
   }
   try {
     if (paths) {

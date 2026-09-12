@@ -28,6 +28,7 @@ import {
   stashDrop,
   stashSave,
 } from '../src/git-actions.js'
+import { status } from '../src/git.js'
 
 /**
  * The write verbs against real repositories, one small repository per
@@ -124,6 +125,126 @@ test('commitAll refuses an explicitly empty selection instead of widening to eve
   await assert.rejects(commitAll(dir, 'empty selection', []), /No files were chosen/)
   // Nothing moved: the edit is still waiting, uncommitted.
   assert.match(await git(dir, 'status', '--porcelain'), /a\.txt/)
+})
+
+/**
+ * A repository mid-merge with its conflict resolved and staged — the state a
+ * person is in when they press Commit — and an `AD` path beside it: added to
+ * the index, then deleted from the working tree.
+ */
+const repoConcludingAMerge = async (): Promise<string> => {
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'side')
+  await writeFile(join(dir, 'a.txt'), 'side\n')
+  await git(dir, 'commit', '-qam', 'side')
+  await git(dir, 'checkout', '-q', 'main')
+  await writeFile(join(dir, 'a.txt'), 'main\n')
+  await git(dir, 'commit', '-qam', 'main')
+  await git(dir, 'merge', 'side').catch(() => {})
+  await writeFile(join(dir, 'a.txt'), 'settled\n')
+  await git(dir, 'add', 'a.txt')
+  await writeFile(join(dir, 'ghost.txt'), 'x\n')
+  await git(dir, 'add', 'ghost.txt')
+  await rm(join(dir, 'ghost.txt'))
+  return dir
+}
+
+test('status names what a commit here would conclude, and nothing when it would not (#248)', async () => {
+  const plain = await seedRepo()
+  assert.equal((await status(plain))?.concluding, null)
+
+  assert.equal((await status(await repoConcludingAMerge()))?.concluding, 'merge')
+
+  // A cherry-pick that conflicts: `CHERRY_PICK_HEAD`, and git refuses a
+  // partial commit here too — "cannot do a partial commit during a cherry-pick".
+  const picking = await seedRepo()
+  await git(picking, 'checkout', '-qb', 'side')
+  await writeFile(join(picking, 'a.txt'), 'side\n')
+  await git(picking, 'commit', '-qam', 'side')
+  await git(picking, 'checkout', '-q', 'main')
+  await writeFile(join(picking, 'a.txt'), 'main\n')
+  await git(picking, 'commit', '-qam', 'main')
+  await git(picking, 'cherry-pick', 'side').catch(() => {})
+  assert.equal((await status(picking))?.concluding, 'cherry-pick')
+
+  /* A revert, which git would let a partial commit through — it never reads
+     `REVERT_HEAD` — and which is reported all the same, because that commit
+     clears the pseudo-ref and claims the whole revert while holding part. */
+  const reverting = await seedRepo()
+  await writeFile(join(reverting, 'a.txt'), 'second\n')
+  await git(reverting, 'commit', '-qam', 'second')
+  await git(reverting, 'revert', '--no-commit', 'HEAD')
+  assert.equal((await status(reverting))?.concluding, 'revert')
+})
+
+test('a conclusion inside a linked worktree is found where git keeps it (#248)', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'side')
+  await writeFile(join(dir, 'a.txt'), 'side\n')
+  await git(dir, 'commit', '-qam', 'side')
+  await git(dir, 'checkout', '-q', 'main')
+  await writeFile(join(dir, 'a.txt'), 'main\n')
+  await git(dir, 'commit', '-qam', 'main')
+
+  const linked = join(await tempDir(), 'linked')
+  await git(dir, 'worktree', 'add', '-q', '-b', 'work', linked, 'main')
+  await git(linked, 'merge', 'side').catch(() => {})
+
+  /* `.git` here is a *file*, and the merge's pseudo-ref lives under the main
+     repository's `worktrees/<name>/` — so a check that opened
+     `<root>/.git/MERGE_HEAD` would report an ordinary commit and send
+     pathspecs into a merge. */
+  assert.match(await readFile(join(linked, '.git'), 'utf8'), /^gitdir:/)
+  assert.equal((await status(linked))?.concluding, 'merge')
+})
+
+test('a commit cannot be narrowed while a merge is being concluded (#248)', async () => {
+  const dir = await repoConcludingAMerge()
+
+  // The control, and the measurement the refusal stands on: git's own answer
+  // to the shape the dialog used to send once an `AD` path was in the tree.
+  await assert.rejects(
+    run('git', ['-C', dir, 'commit', '-m', 'partial', '--', 'a.txt'], { env }),
+    /cannot do a partial commit during a merge/,
+  )
+  await assert.rejects(commitAll(dir, 'partial', ['a.txt']), /cannot be narrowed to some files/)
+  // Refused, not half-done: the merge is still there to conclude.
+  assert.equal((await status(dir))?.concluding, 'merge')
+
+  // The shape that concludes it, which is the one the dialog now sends.
+  await commitAll(dir, 'settle the merge')
+  assert.equal((await status(dir))?.concluding, null)
+  assert.equal((await git(dir, 'rev-parse', 'HEAD^@')).trim().split('\n').length, 2)
+})
+
+test('a merge settled to what was already committed is concluded by a plain commit (#248)', async () => {
+  /* The state no file list can show: a conflict resolved to the content HEAD
+     already holds. Measured rather than assumed, because a surface that counts
+     rows to decide whether a commit exists gets this one exactly wrong — the
+     rows are gone and the commit is still owed. */
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'side')
+  await writeFile(join(dir, 'a.txt'), 'side\n')
+  await git(dir, 'commit', '-qam', 'side')
+  await git(dir, 'checkout', '-q', 'main')
+  await writeFile(join(dir, 'a.txt'), 'main\n')
+  await git(dir, 'commit', '-qam', 'main')
+  await git(dir, 'merge', 'side').catch(() => {})
+  await writeFile(join(dir, 'a.txt'), 'main\n')
+  await git(dir, 'add', 'a.txt')
+
+  // git prints nothing, and is still holding the merge in its pseudo-ref.
+  assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
+  const settled = await status(dir)
+  assert.deepEqual(settled?.files, [])
+  assert.equal(settled?.concluding, 'merge')
+
+  // The commit the dialog now sends from that state, and git takes it.
+  await commitAll(dir, 'settle the merge')
+  assert.equal((await status(dir))?.concluding, null)
+  // Two parents: the merge itself, not an empty commit standing beside it.
+  assert.equal((await git(dir, 'rev-parse', 'HEAD^@')).trim().split('\n').length, 2)
+  assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
 })
 
 test('a partial commit of a rename carries both of its paths', async () => {

@@ -148,6 +148,33 @@
   color: var(--hd-tint-violet-ink);
 }
 
+.status[data-status='nothing'] {
+  color: var(--hdp-alias-label-tertiary);
+}
+
+/* A row whose commit records nothing: shown, so the path is accounted for,
+   but with no box to check and nothing that answers a click. */
+.file[data-moot] {
+  cursor: default;
+  color: var(--hdp-alias-label-tertiary);
+}
+
+.file[data-moot]:hover {
+  background: none;
+}
+
+/* The checkbox's slot, held open so the paths line up under those that have one. */
+.blank {
+  flex: none;
+  width: 14px;
+}
+
+.records {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  color: var(--hdp-alias-label-tertiary);
+}
+
 /* --- reset --------------------------------------------------------------- */
 
 .modes {
