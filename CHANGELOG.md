@@ -20,7 +20,10 @@ move is real work and is not news to a person weighing an upgrade.
   and in the agent's own words; the sidebar row wears a mark, so a folder that
   took several conversations only has to be discovered once; and the way
   forward — **Open a copy in another folder** — carries the conversation over
-  as a hand-off packet, the same verb a worktree brought home uses. No toast
+  as a hand-off packet, the same verb a worktree brought home uses, and starts
+  the copy in a folder that still exists. A hand-off carries its source's
+  folder by default, which here is the deleted one, so the button had been
+  promising *another* folder and handing back the same one. No toast
   for this case at all. Every other reopen failure still toasts as it did.
 - **The "Default" chip says the same thing wherever you find it** — the agent
   marked as the one new sessions run as read "needs sign-in" in the agent list

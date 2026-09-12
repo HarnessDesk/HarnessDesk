@@ -190,3 +190,81 @@ describe('every other reason a conversation will not reopen', () => {
     expect(store.getSnapshot().notices.at(-1)?.message).toContain('not running')
   })
 })
+
+/**
+ * The way out, and whether it actually leads anywhere.
+ *
+ * "Open a copy in another folder" promises the word *another*. It carried the
+ * source conversation's folder onto the draft — correct for an ordinary
+ * hand-off, where the packet names the folder as ground truth, and exactly
+ * wrong here, because that folder is the one the app has just proved is gone.
+ * Sending hit the same wall the banner exists to escape.
+ */
+describe('opening a copy of a conversation whose folder is gone', () => {
+  const HOME = '/w/main'
+
+  const openGone = async (workspace = HOME): Promise<void> => {
+    answers['session/read'] = session('s-1')
+    refusals['session/resume'] = folderGone()
+    answers['workspace/recent'] = [{ path: workspace, name: 'main', lastOpenedAt: 1 }]
+    answers['worktree/list'] = []
+    await store.loadWorkspaces()
+    await store.openSession(ID, { runtime: RUNTIME })
+  }
+
+  const created = (): unknown[] =>
+    vi
+      .mocked(store.transport.request)
+      .mock.calls.filter(([method]) => method === 'session/create')
+      .map(([, params]) => params)
+
+  it('carries the conversation without carrying the folder it died in', async () => {
+    await openGone()
+    await store.openCopyElsewhere()
+
+    const handoff = store.getSnapshot().draftHandoff
+    expect(handoff).toMatchObject({ runtime: RUNTIME, sessionId: ID, carry: 'summary' })
+    // Everything except the folder: the packet is the point, the folder is
+    // the thing that is gone.
+    expect(handoff?.cwd).toBeNull()
+  })
+
+  it('starts the copy in the open folder, which is what Work in already says', async () => {
+    await openGone()
+    await store.openCopyElsewhere()
+
+    answers['session/create'] = session('s-2', HOME)
+    await store.send([{ type: 'text', text: 'Pick this up here.' }])
+
+    expect(created()).toHaveLength(1)
+    expect(created()[0]).toMatchObject({ runtime: RUNTIME, options: { cwd: HOME } })
+  })
+
+  it('never sends the copy back into the folder that is gone', async () => {
+    await openGone()
+    await store.openCopyElsewhere()
+
+    answers['session/create'] = session('s-2', HOME)
+    await store.send([{ type: 'text', text: 'Pick this up here.' }])
+
+    /* The whole point of the button, stated as the thing that must not
+       happen — asserted on a session that was actually created, because a
+       run that creates nothing would satisfy the negative for the wrong
+       reason. */
+    expect(created()).toHaveLength(1)
+    expect(created()[0]).not.toMatchObject({ options: { cwd: GONE } })
+  })
+
+  it('refuses rather than starting in the open folder when that is the gone one', async () => {
+    // The folder deleted was the project the window has open, so "the open
+    // folder" is the same wall. Nothing is created; the person is asked for a
+    // folder instead, which is the one thing that can actually help.
+    await openGone(GONE)
+    await store.openCopyElsewhere()
+
+    await store.send([{ type: 'text', text: 'Pick this up here.' }])
+
+    expect(created()).toHaveLength(0)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('Choose a project folder')
+  })
+})

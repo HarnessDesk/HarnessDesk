@@ -464,7 +464,9 @@ in [extending.md](extending.md).
 - **A conversation whose folder has been deleted has no composer**, because
   there is nowhere for a message to go. In its place the pane states the fact
   in the agent's own words and offers *Open a copy in another folder*, which
-  carries the conversation across as a hand-off packet. The transcript above it
+  carries the conversation across as a hand-off packet and starts the copy in
+  the open folder — the one the composer's *Work in* control names, and which
+  you can point elsewhere before sending. The transcript above it
   is whole and stays readable — the host serves its own copy when the agent
   cannot — so this is a read-only conversation, not a broken one. The sidebar
   row wears a mark for the same state, on the right rail beside the worktree

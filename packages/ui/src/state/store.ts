@@ -1593,7 +1593,11 @@ export class AppStore {
   ): Promise<SessionKey | null> {
     const runtime = options.runtime ?? this.#snapshot.activeRuntime
     const workspace = options.cwd ?? this.#snapshot.workspace?.path
-    if (!runtime || !workspace) {
+    /* A folder this app has proof is gone is never where a session starts.
+       Without this, the open folder being the deleted one turned every way
+       out of it — the copy a folder-gone conversation offers included — back
+       into the same refused `session/create`. */
+    if (!runtime || !workspace || this.#snapshot.foldersGone.has(workspace)) {
       this.notice('warning', 'Choose a project folder before starting a session.')
       return null
     }
@@ -1688,8 +1692,13 @@ export class AppStore {
      * Where the draft starts, when that is not where the source ran — a
      * worktree brought back to the main checkout hands its conversation to
      * the folder the work now lives in, because the one it ran in is gone.
+     *
+     * `null` is a third answer, and a different one from leaving this out:
+     * carry everything except the folder. A conversation whose folder has
+     * been deleted has no folder worth naming, and the source's is the one
+     * place its copy must not start — see `openCopyElsewhere`.
      */
-    options: { readonly cwd?: string } = {},
+    options: { readonly cwd?: string | null } = {},
   ): Promise<void> {
     if (!key) {
       // Nothing open to carry — the usage banner offers this over an empty
@@ -1724,7 +1733,19 @@ export class AppStore {
     if (!drafted) this.newDraft()
     this.#parkedHandoff = null
     this.#patch({
-      draftHandoff: { runtime, sessionId: id as SessionId, carry, agentName, title, cwd: options.cwd ?? open?.cwd ?? null },
+      draftHandoff: {
+        runtime,
+        sessionId: id as SessionId,
+        carry,
+        agentName,
+        title,
+        /* Absent means the source's folder, which is right for an ordinary
+           hand-off: the packet names that folder as ground truth. Explicit
+           `null` means no folder at all, and is not the same instruction —
+           `??` folded the two together, so the one caller with a folder to
+           drop could not drop it. */
+        cwd: options.cwd !== undefined ? options.cwd : (open?.cwd ?? null),
+      },
     })
   }
 
@@ -1877,10 +1898,24 @@ export class AppStore {
    * control rather than guessed at here: the one folder this app can be sure
    * about is the open workspace, and a conversation that ran in a deleted
    * worktree of another project does not belong there by default.
+   *
+   * Saying that takes an explicit `null`, because a hand-off carries the
+   * source conversation's folder unless it is told otherwise — and here that
+   * folder is the deleted one. So the button promised *another* folder and
+   * handed back the same one: the draft started in it, and the first message
+   * hit the wall the banner exists to escape. `null` is "carry everything
+   * except the folder", which leaves the draft on the open folder — what the
+   * Work in control beside the composer already shows, so the control and the
+   * draft finally name one place, and the person can move it before sending.
+   *
+   * The conversation's own repository would be the better destination and is
+   * not available: the host reads a folder's repository by running git inside
+   * it, so a session whose folder is gone comes back with `repo: null`. The
+   * one field that would name it is empty exactly when it is needed.
    */
   async openCopyElsewhere(key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
-    await this.handOff(splitSessionKey(key).runtime, 'summary', key)
+    await this.handOff(splitSessionKey(key).runtime, 'summary', key, { cwd: null })
   }
 
   /** Sets or clears the session's standing objective. */
