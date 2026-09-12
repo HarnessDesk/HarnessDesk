@@ -436,7 +436,11 @@ export const gitPlugin: HarnessPlugin = {
           },
         },
         execute: async (args: { path?: string; staged?: boolean }) => {
-          const argv = ['diff', '--no-color']
+          /* The a/ and b/ every reader of a patch expects, whatever diff.noprefix
+             or diff.mnemonicPrefix says. The three the host makes were pinned
+             for its own parser; this one hands the patch to an agent, which
+             applies it with -p1 and reads paths out of it (#171). */
+          const argv = ['diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/']
           if (args?.staged) argv.push('--cached')
           if (args?.path) argv.push('--', args.path)
           return (await git(argv)) || 'no changes'

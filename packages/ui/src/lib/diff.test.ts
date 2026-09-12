@@ -722,3 +722,34 @@ describe('the hunk checks that were loose, CRLF text, and an octopus merge (#171
     expect(splitByFile(octopus).map((one) => one.path)).toEqual(['f.txt'])
   })
 })
+
+/**
+ * Round 2 of the review of #250. The first round stripped the artefact where
+ * `parseDiff` draws and stopped there, so the two other readers that hand a
+ * line out kept it: `asAdditions` draws added and deleted files, so one written
+ * on Windows still showed the character, and `splitHunks` text is what
+ * `reviseHunk` quotes to the agent, so it left the interface entirely.
+ */
+describe('the carriage returns the first round left behind (#250)', () => {
+  const crlf = 'one\r\ntwo\r\n'
+
+  test('whole-file content draws without the carriage return', () => {
+    expect(asAdditions(crlf).map((line) => line.text)).toEqual(['one', 'two'])
+    expect(asRemovals(crlf).map((line) => line.text)).toEqual(['one', 'two'])
+    // The control: the numbering was always right, and is untouched.
+    expect(asAdditions(crlf).map((line) => line.newNumber)).toEqual([1, 2])
+    expect(asRemovals(crlf).map((line) => line.oldNumber)).toEqual([1, 2])
+  })
+
+  test('a CRLF hunk carries none into its head, nor into what is quoted to the agent', () => {
+    const [hunk] = splitHunks('@@ -1 +1 @@\r\n-a\r\n+b\r\n')
+    expect(hunk?.header).toBe('@@ -1 +1 @@')
+    expect(hunk?.text).toBe('@@ -1 +1 @@\n-a\n+b')
+  })
+
+  test('a carriage return inside a line is content, and stays', () => {
+    // Only the line ending is the artefact; a bare CR in the middle is text.
+    expect(asAdditions('a\rb\r\n').map((line) => line.text)).toEqual(['a\rb'])
+    expect(splitHunks('@@ -1 +1 @@\r\n+a\rb\r\n')[0]?.text).toBe('@@ -1 +1 @@\n+a\rb')
+  })
+})
