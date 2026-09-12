@@ -7,6 +7,7 @@ import type {
   AccountStatus,
   AcpRegistryAgentInfo,
   AgentTemplateInfo,
+  InstallInfo,
   RuntimeInfo,
 } from '@harnessdesk/protocol'
 import { NO_CAPABILITIES } from '@harnessdesk/protocol'
@@ -556,6 +557,185 @@ it('an account row says its plan and which way its figure counts', async () => {
   // weekly lane spent is 27% left, not 70% from the 5-hour one.
   expect(container.textContent).toContain('27% left')
   expect(container.textContent).not.toMatch(/\b73%/)
+})
+
+it('a pin on a copy that has gone says so, and names the copy that runs (#219)', async () => {
+  const chosen = {
+    path: '/opt/homebrew/bin/opencode',
+    version: '1.18.29',
+    channel: 'homebrew' as const,
+    channelLabel: 'Homebrew',
+    standing: 'chosen' as const,
+    managed: false,
+    updateCommand: 'brew upgrade opencode',
+  }
+  // A pin is still recorded, on a copy that is no longer on the machine.
+  const install = { copies: [chosen], chosen, policy: 'pinned' as const, fallback: null, checkedAt: 0 }
+  const info = runtime({
+    id: 'opencode',
+    name: 'OpenCode',
+    presentation: { name: 'OpenCode' },
+    origin: 'registry',
+    capabilities: { ...NO_CAPABILITIES },
+    install,
+  })
+  await mountList({
+    runtimes: [info],
+    accountsByRuntime: { opencode: signedIn([], []) },
+    store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
+  })
+  const open = [...container.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as HTMLButtonElement
+  await act(async () => open.click())
+  expect(container.textContent).toContain('Running 1.18.29 · via Homebrew')
+  expect(container.textContent).not.toContain('Pinned to')
+  expect(container.textContent).toContain('The pinned copy is gone or too old')
+  // The pin is recorded, so it can still be cleared.
+  expect(container.textContent).toContain('Use newest')
+})
+
+/** One agent's own page, opened on one install — the Install section it draws. */
+const openInstall = async (install: InstallInfo): Promise<void> => {
+  await mountList({
+    runtimes: [
+      runtime({
+        id: 'opencode',
+        name: 'OpenCode',
+        presentation: { name: 'OpenCode' },
+        origin: 'registry',
+        capabilities: { ...NO_CAPABILITIES },
+        install,
+      }),
+    ],
+    accountsByRuntime: { opencode: signedIn([], []) },
+    store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
+  })
+  const head = [...container.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as
+    | HTMLButtonElement
+    | undefined
+  if (head) await act(async () => head.click())
+}
+
+it('a pin recorded with nothing new enough left says no installed copy answers (#251)', async () => {
+  // A pin is recorded on a copy that has gone, and the rule that picks again
+  // picks nothing: every copy left is too old or never answered for its
+  // version, so the host chose none at all (`judgeInstalls`).
+  const tooOld = {
+    path: '/opt/homebrew/bin/opencode',
+    version: '1.0.0',
+    channel: 'homebrew' as const,
+    channelLabel: 'Homebrew',
+    standing: 'too-old' as const,
+    managed: false,
+    updateCommand: 'brew upgrade opencode',
+  }
+  const unreadable = {
+    path: '/Users/x/.npm-global/bin/opencode',
+    version: null,
+    channel: 'npm-global' as const,
+    channelLabel: 'npm',
+    standing: 'unreadable' as const,
+    managed: false,
+    updateCommand: null,
+  }
+  await openInstall({ copies: [tooOld, unreadable], chosen: null, policy: 'pinned', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
+
+  // The title line says none of them qualifies, and says it either way.
+  expect(container.textContent).toContain('No installed copy qualifies, and there is no fallback')
+  // The line under it used to promise the copy the line above it had denied.
+  expect(container.textContent).toContain('so no installed copy answers')
+  expect(container.textContent).not.toContain('the newest copy that is new enough answers until you pin another')
+  // The pin is recorded, so it can still be cleared.
+  expect(container.textContent).toContain('Use newest')
+})
+
+it('a pin that holds still reads as one — the control for #251', async () => {
+  const pinned = {
+    path: '/opt/homebrew/bin/opencode',
+    version: '1.18.29',
+    channel: 'homebrew' as const,
+    channelLabel: 'Homebrew',
+    standing: 'pinned' as const,
+    managed: false,
+    updateCommand: 'brew upgrade opencode',
+  }
+  await openInstall({ copies: [pinned], chosen: pinned, policy: 'pinned', fallback: null, checkedAt: 0 })
+  expect(container.textContent).toContain('Pinned to 1.18.29 · via Homebrew')
+  expect(container.textContent).toContain('A pinned copy answers even when a newer one is installed.')
+})
+
+/*
+ * The same contradiction on the other half of the rule (#251, round 2).
+ *
+ * With no pin recorded the policy is `newest` whatever the scan found
+ * (`service.ts`), and `judgeInstalls` still chooses nothing when no copy on
+ * the machine is usable — so `chosen` is null under `policy: 'newest'` too.
+ * The description promised "the newest copy that is new enough answers" in
+ * every one of those states, directly under a title line saying none does.
+ */
+const TOO_OLD = {
+  path: '/opt/homebrew/bin/opencode',
+  version: '1.0.0',
+  channel: 'homebrew' as const,
+  channelLabel: 'Homebrew',
+  standing: 'too-old' as const,
+  managed: false,
+  updateCommand: 'brew upgrade opencode',
+}
+const UNREADABLE = {
+  path: '/Users/x/.npm-global/bin/opencode',
+  version: null,
+  channel: 'npm-global' as const,
+  channelLabel: 'npm',
+  standing: 'unreadable' as const,
+  managed: false,
+  updateCommand: null,
+}
+/** The promise that must not be made when no installed copy answers. */
+const NEWEST_ANSWERS = 'The newest copy that is new enough answers'
+
+it('no pin and nothing new enough says so, with no fallback to run (#251)', async () => {
+  await openInstall({ copies: [TOO_OLD, UNREADABLE], chosen: null, policy: 'newest', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
+  expect(container.textContent).toContain('No installed copy qualifies, and there is no fallback')
+  expect(container.textContent).toContain('No copy installed is new enough')
+  expect(container.textContent).not.toContain(NEWEST_ANSWERS)
+})
+
+it('no pin and nothing new enough says so while the fallback runs (#251)', async () => {
+  await openInstall({
+    copies: [TOO_OLD, UNREADABLE],
+    chosen: null,
+    policy: 'newest',
+    fallback: { command: 'npx -y opencode-ai@latest', version: null, managed: false },
+    minVersion: '1.18.0',
+    checkedAt: 0,
+  })
+  expect(container.textContent).toContain('no installed copy qualifies')
+  expect(container.textContent).toContain('No copy installed is new enough')
+  expect(container.textContent).not.toContain(NEWEST_ANSWERS)
+})
+
+it('a machine with no copy at all is told that, not that the newest answers (#251)', async () => {
+  await openInstall({ copies: [], chosen: null, policy: 'newest', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
+  expect(container.textContent).toContain('Not installed')
+  expect(container.textContent).toContain('No copy is installed')
+  expect(container.textContent).not.toContain(NEWEST_ANSWERS)
+})
+
+it('a copy that does qualify still reads as the newest answering — the control for #251', async () => {
+  const chosen = {
+    path: '/opt/homebrew/bin/opencode',
+    version: '1.19.0',
+    channel: 'homebrew' as const,
+    channelLabel: 'Homebrew',
+    standing: 'chosen' as const,
+    managed: false,
+    updateCommand: 'brew upgrade opencode',
+  }
+  await openInstall({ copies: [chosen, TOO_OLD], chosen, policy: 'newest', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
+  expect(container.textContent).toContain('Running 1.19.0 · via Homebrew')
+  expect(container.textContent).toContain(
+    'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.',
+  )
 })
 
 it("an agent's own page shows every copy on the machine, and offers the two verbs", async () => {

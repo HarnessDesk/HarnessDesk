@@ -37,7 +37,7 @@ import { codeSpans, splitHealth, type Unavailable } from '../lib/health'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { describeUpdate, describeVersion } from '../lib/versions'
-import { copyReason, describeCopy, describeFallback, installSummary, standingChip } from '../lib/installs'
+import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
@@ -1462,17 +1462,39 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
   }
 
   const fallbackLine = describeFallback(install)
+  /*
+   * What the rule is doing, under the line that says what runs. A pin stays
+   * recorded after the copy it names has gone or grown too old, and the rule
+   * picks again — but it can pick nothing at all, when no copy left on the
+   * machine is new enough: `judgeInstalls` then chooses none, and `chosen` is
+   * null with the pin still recorded. Told as one sentence, the recorded pin
+   * promised "the newest copy that is new enough answers" while the line above
+   * it said none qualified (#251), so that state gets its own sentence.
+   *
+   * The unpinned half had the same hole: with no pin recorded the rule still
+   * promised a copy answered in every state where `chosen` is null — nothing
+   * installed new enough, or nothing installed at all. Both halves are keyed
+   * on `chosen` now, and the empty machine gets the sentence that is true of
+   * it, the way `installSummary` tells those two apart for the line above.
+   */
+  const rule = pinHolds(install)
+    ? 'A pinned copy answers even when a newer one is installed.'
+    : install.policy === 'pinned'
+      ? install.chosen
+        ? 'The pinned copy is gone or too old, so the newest copy that is new enough answers until you pin another.'
+        : 'The pinned copy is gone or too old, and nothing else installed is new enough, so no installed copy answers.'
+      : install.chosen
+        ? 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
+        : install.copies.length > 0
+          ? 'No copy installed is new enough; install or update one and it is picked up on the next check.'
+          : 'No copy is installed; install one and it is picked up on the next check.'
   return (
     <>
       <SectionHead name="Install" />
       <Rows>
         <Row
           title={installSummary(install)}
-          desc={
-            install.policy === 'pinned'
-              ? 'A pinned copy answers even when a newer one is installed.'
-              : 'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.'
-          }
+          desc={rule}
           control={
             install.policy === 'pinned' ? (
               <Btn small disabled={busy !== null} onClick={() => void choose(null)}>

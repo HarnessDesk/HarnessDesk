@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { InstallCopy, InstallInfo } from '@harnessdesk/protocol'
 
-import { copyReason, describeCopy, describeFallback, installSummary, standingChip } from './installs'
+import { copyReason, describeCopy, describeFallback, installSummary, pinHolds, standingChip } from './installs'
 
 const copy = (over: Partial<InstallCopy>): InstallCopy => ({
   path: '/opt/homebrew/bin/x',
@@ -107,5 +107,18 @@ describe('an older copy under a pin', () => {
     const pinned = copy({ path: '/pin/x', version: '2.0.0', standing: 'pinned' })
     const older = copy({ path: '/old/x', version: '1.0.0', standing: 'older', updateCommand: null })
     expect(copyReason(older, info({ policy: 'pinned', chosen: pinned, copies: [pinned, older] }))).toBe('Outranked by a newer copy.')
+  })
+})
+
+describe('a pin whose copy has gone (#219)', () => {
+  it('says what runs, not "Pinned to"', () => {
+    // The rule picked again, newest first, with the pin still recorded.
+    const chosen = copy({ standing: 'chosen' })
+    const dead = info({ policy: 'pinned', chosen, copies: [chosen] })
+    expect(pinHolds(dead)).toBe(false)
+    expect(installSummary(dead)).toBe('Running 1.2.3 · via Homebrew')
+    // The control: a pin that holds is still said as one.
+    const pinned = copy({ standing: 'pinned' })
+    expect(installSummary(info({ policy: 'pinned', chosen: pinned, copies: [pinned] }))).toBe('Pinned to 1.2.3 · via Homebrew')
   })
 })

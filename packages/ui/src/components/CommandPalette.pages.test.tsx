@@ -31,13 +31,14 @@ afterEach(() => {
   container.remove()
 })
 
-const mount = async (): Promise<{ openSettings: ReturnType<typeof vi.fn> }> => {
+const mount = async (patch: Partial<AppSnapshot> = {}): Promise<{ openSettings: ReturnType<typeof vi.fn> }> => {
   const request = vi.fn(async () => ({ data: [], nextCursor: null }))
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [],
     history: [],
+    ...patch,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -97,4 +98,13 @@ it('a settings page is reached by the name on its nav row', async () => {
   type('appearance')
   await choose('Settings › Appearance')
   expect(openSettings).toHaveBeenCalledWith('appearance')
+})
+
+it('the Skills page is reached by the name its nav row shows (#219)', async () => {
+  // Every ACP agent calls it "Skills & commands", and so does the Settings nav.
+  const runtime = { id: 'gemini', name: 'gemini', presentation: { name: 'Gemini CLI', skillsLabel: 'Skills & commands' } }
+  const { openSettings } = await mount({ runtimes: [runtime], activeRuntime: 'gemini' } as unknown as Partial<AppSnapshot>)
+  type('skills & commands')
+  await choose('Settings › Skills & commands')
+  expect(openSettings).toHaveBeenCalledWith('skills')
 })

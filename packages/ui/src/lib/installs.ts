@@ -10,6 +10,15 @@ import type { Readiness } from './readiness'
  * wondering "which one am I on?" can read without opening the section.
  */
 
+/**
+ * Whether the pin is what answers. A pin is recorded on a path, and when that
+ * copy has gone or grown too old the rule picks again, newest first
+ * (`judgeInstalls` in the host), with the pin still recorded. Read from the
+ * recorded policy, that state said "Pinned to" over a copy nobody pinned
+ * (#219). The host marks the copy a pin chose `pinned`, and only that one.
+ */
+export const pinHolds = (info: InstallInfo): boolean => info.copies.some((copy) => copy.standing === 'pinned')
+
 /** The chip a copy wears: what it is doing, in a word. */
 export const standingChip = (standing: InstallStanding): { readonly state: Readiness; readonly label: string } => {
   switch (standing) {
@@ -58,7 +67,7 @@ export const copyReason = (copy: InstallCopy, info: InstallInfo): string | null 
          any other is outranked by a newer copy, pin or no pin (#106). The
          copies come newest first, in the order the host sorted them. */
       const newest = info.copies.find((one) => one.standing === 'older' || one.standing === 'chosen' || one.standing === 'pinned')
-      if (info.policy === 'pinned' && newest?.path === copy.path) return 'Would run under the newest-wins rule; a pin overrides it.'
+      if (pinHolds(info) && newest?.path === copy.path) return 'Would run under the newest-wins rule; a pin overrides it.'
       return copy.updateCommand
         ? `Outranked by a newer copy. Update it with \`${copy.updateCommand}\`, or remove it.`
         : 'Outranked by a newer copy.'
@@ -79,7 +88,7 @@ export const installSummary = (info: InstallInfo): string => {
   const others = info.copies.filter((copy) => copy.standing !== 'chosen' && copy.standing !== 'pinned').length
   const more = others > 0 ? ` (${others} other ${others === 1 ? 'copy' : 'copies'} found)` : ''
   if (info.chosen) {
-    const how = info.policy === 'pinned' ? 'Pinned to' : 'Running'
+    const how = pinHolds(info) ? 'Pinned to' : 'Running'
     return `${how} ${describeCopy(info.chosen)}${more}`
   }
   if (info.fallback) {
