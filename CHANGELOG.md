@@ -7,6 +7,17 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **From a worktree, the composer can start the next conversation in the main
+  checkout** — *Work in* listed the open folder, a new worktree, and HarnessDesk's
+  own worktrees of the project, and the main checkout is none of those: it is not
+  a checkout HarnessDesk cut, so the list the menu is drawn from never held it.
+  From a worktree that left the one move this control exists to offer — worktree
+  to main checkout — as the one it could not make, short of opening the main
+  checkout as the project first. It is a row of its own there now, under the same
+  laptop the header gives it, and a draft pointed at it says so instead of wearing
+  a worktree badge and a branch glyph. A place whose folder the app has proof is
+  gone is greyed in that menu with the agent's own words rather than quietly
+  dropped, and a send is refused there as it already was for the open folder.
 - **A conversation whose folder is gone is a state now, not a toast per open** —
   opening one (every conversation that ran in a worktree that has since been
   deleted) painted its transcript and then threw an error toast, which stayed

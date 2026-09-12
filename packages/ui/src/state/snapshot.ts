@@ -190,7 +190,9 @@ export interface DraftHandoff {
  *   the host has cut it, the draft points at it as `existing`: an agent that
  *   fails to start leaves it so, and a draft abandoned after that leaves the
  *   worktree behind, listed with the others.
- * - `existing` is a managed worktree already on disk.
+ * - `existing` is a checkout already on disk: one of HarnessDesk's own
+ *   worktrees, or — from a worktree — the main checkout, which is a place
+ *   to work and is never a `managed` one (#255).
  */
 export type DraftPlace =
   | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }

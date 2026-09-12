@@ -437,7 +437,11 @@ in [extending.md](extending.md).
   choice: **Local** (the folder as it is), a worktree the project already has,
   or **New worktree** — named and based in a dialog, and made when the first
   message goes, so an abandoned draft leaves no branch behind. A folder that
-  is itself a worktree wears its branch and a worktree badge, never Local.
+  is itself a worktree wears its branch and a worktree badge, never Local —
+  and from one the menu also offers **Main checkout**, the place the branch
+  came from, which is not a checkout HarnessDesk cut and so was missing from
+  the list of worktrees entirely. A place whose folder the app has proof is
+  gone is greyed there with the agent's own words, rather than dropped.
   Each place has its own glyph — a laptop, a branch, a branch with a plus —
   so a narrow composer that keeps only glyphs still says which. Once the
   conversation exists the control is gone; the header says where it runs.

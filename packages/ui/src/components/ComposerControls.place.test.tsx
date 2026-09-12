@@ -189,3 +189,85 @@ it('names a worktree by the end of its branch, where branches differ, and the wh
   expect(trigger()?.textContent).not.toContain('claude/')
   expect(trigger()?.title).toBe(`Starts in the worktree on ${branch}`)
 })
+
+/**
+ * The main checkout, from a worktree of it.
+ *
+ * The list this control draws worktrees from is filtered to HarnessDesk's
+ * own — `managed` — and the main checkout never is: it was there before the
+ * app was. So from a linked worktree the menu could name a new worktree and
+ * every sibling worktree, and not the place the branch came from (#255).
+ *
+ * Both directions are the test. The row has to appear from a worktree, and
+ * it has to stay away in the main checkout, where the open folder is already
+ * the first row and a second one for the same path is a choice between a
+ * place and itself.
+ */
+
+const TREE = '/state/worktrees/harness-desk-1a/parser'
+const SIBLING = '/state/worktrees/harness-desk-1a/promo'
+const IN_TREE = {
+  ...MAIN,
+  path: TREE,
+  name: 'parser',
+  git: { branch: 'harnessdesk/parser' },
+  repo: { root: MAIN.path, worktree: true },
+} as WorkspaceEntry
+const CHECKOUTS = [
+  { path: MAIN.path, branch: 'main', head: 'a', isMain: true, managed: false },
+  { path: TREE, branch: 'harnessdesk/parser', head: 'b', isMain: false, managed: true },
+  { path: SIBLING, branch: 'harnessdesk/promo', head: 'c', isMain: false, managed: true },
+] as Worktree[]
+const SAID = 'Agent cannot open this conversation: its folder no longer exists.'
+
+it('offers the main checkout from a worktree of it, which the managed-only list never could', () => {
+  const store = rig({ workspace: IN_TREE, worktrees: CHECKOUTS })
+
+  open()
+  const home = row('Main checkout')
+  expect(home).toBeDefined()
+  expect(home?.disabled).toBe(false)
+  click(home!)
+
+  expect(store.startDraftIn).toHaveBeenCalledWith({ kind: 'existing', path: MAIN.path, branch: 'main' })
+})
+
+it('gives the main checkout no row pointing at itself', () => {
+  // The control on the test above, and the one a fix that simply always
+  // added the row would fail.
+  rig({ worktrees: CHECKOUTS })
+
+  open()
+  expect(row('Main checkout')).toBeUndefined()
+  expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
+})
+
+it('draws a draft pointed at the main checkout as a place, not as a worktree', () => {
+  rig({
+    workspace: IN_TREE,
+    worktrees: CHECKOUTS,
+    draftPlace: { kind: 'existing', path: MAIN.path, branch: 'main' },
+  })
+
+  expect(trigger()?.title).toBe('Starts in the main checkout, on main')
+  expect(trigger()?.textContent).toContain('main')
+  expect(trigger()?.textContent).not.toContain('worktree')
+})
+
+it('greys a place whose folder the app has proof is gone, rather than dropping its row', () => {
+  rig({ workspace: IN_TREE, worktrees: CHECKOUTS, foldersGone: new Map([[MAIN.path, SAID]]) })
+
+  open()
+  expect(row('Main checkout')?.disabled).toBe(true)
+  expect(row('Main checkout')?.textContent).toContain(SAID)
+  // The control: one question, asked of each row's own folder and no other.
+  expect(row('harnessdesk/promo')?.disabled).toBe(false)
+})
+
+it('asks that of the worktrees under it too, not only of the main checkout', () => {
+  rig({ workspace: IN_TREE, worktrees: CHECKOUTS, foldersGone: new Map([[SIBLING, SAID]]) })
+
+  open()
+  expect(row('harnessdesk/promo')?.disabled).toBe(true)
+  expect(row('Main checkout')?.disabled).toBe(false)
+})
