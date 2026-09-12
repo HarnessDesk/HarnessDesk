@@ -11,12 +11,42 @@ import { splitContext } from './context-envelope'
  * store for anything machine-readable.
  */
 
-const fence = (body: string, language = ''): string => `\n\`\`\`${language}\n${body}\n\`\`\`\n`
+/**
+ * A fenced block, with a fence longer than any run of backticks inside it.
+ *
+ * A body carrying a ``` line of its own — a command that cats a README, an
+ * agent quoting code — would otherwise close the block early and spill the
+ * rest of the transcript into the document as prose. Three backticks for
+ * everything else, so an ordinary export is byte-for-byte what it was.
+ */
+const fence = (body: string, language = ''): string => {
+  const runs = [...body.matchAll(/`+/g)].map((run) => run[0].length)
+  const marker = '`'.repeat(Math.max(2, ...runs) + 1)
+  return `\n${marker}${language}\n${body}\n${marker}\n`
+}
+
+/**
+ * `text` as inline code, whatever is in it.
+ *
+ * A value interpolated between two backticks opens a code span that never
+ * closes when it carries a backtick of its own, and everything after it on the
+ * line stops being formatted. These values come off the wire — a tool's name, a
+ * command with a `$(…)` in it, a branch — so none of them is ours to trust.
+ * CommonMark's own answer: a longer run, padded with a space where the text
+ * begins or ends with a backtick.
+ */
+const code = (text: string): string => {
+  if (!text.includes('`')) return `\`${text}\``
+  const runs = [...text.matchAll(/`+/g)].map((run) => run[0].length)
+  const marker = '`'.repeat(Math.max(...runs) + 1)
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : ''
+  return `${marker}${pad}${text}${pad}${marker}`
+}
 
 const heading = (session: Session): string => {
   const lines = [`# ${session.title?.trim() || session.preview?.trim() || 'Session'}`, '']
-  lines.push(`- **Workspace:** \`${session.cwd}\``)
-  if (session.git?.branch) lines.push(`- **Branch:** \`${session.git.branch}\``)
+  lines.push(`- **Workspace:** ${code(session.cwd)}`)
+  if (session.git?.branch) lines.push(`- **Branch:** ${code(session.git.branch)}`)
   if (session.settings?.model) lines.push(`- **Model:** ${session.settings.model}`)
   lines.push(`- **Started:** ${new Date(session.createdAt).toLocaleString()}`)
   if (session.usage) {
@@ -50,7 +80,7 @@ export const sessionToMarkdown = (session: Session): string => {
           if (mentions.length > 0) {
             out.push(
               `_Attached: ${mentions
-                .map((part) => (part.type === 'mention' ? `\`${part.name}\`` : ''))
+                .map((part) => (part.type === 'mention' ? code(part.name) : ''))
                 .join(', ')}_\n`,
             )
           }
@@ -66,21 +96,29 @@ export const sessionToMarkdown = (session: Session): string => {
           }
           break
         case 'command':
-          out.push(`**Ran** \`${item.command}\`${item.exitCode ? ` → exit ${item.exitCode}` : ''}`)
+          out.push(`**Ran** ${code(item.command)}${item.exitCode ? ` → exit ${item.exitCode}` : ''}`)
           if (item.output?.trim()) out.push(fence(item.output.trim()))
           break
         case 'fileChange':
           for (const change of item.changes) {
-            out.push(`**${change.kind.type === 'add' ? 'Created' : change.kind.type === 'delete' ? 'Deleted' : 'Edited'}** \`${change.path}\``)
+            out.push(`**${change.kind.type === 'add' ? 'Created' : change.kind.type === 'delete' ? 'Deleted' : 'Edited'}** ${code(change.path)}`)
             if (change.diff.trim()) out.push(fence(change.diff.trim(), 'diff'))
           }
           break
-        case 'toolCall':
-          out.push(
-            `**Tool** \`${item.source.kind === 'mcp' ? `${item.source.server}/` : ''}${item.tool}\`` +
-              (item.error ? ` — failed: ${item.error}` : ''),
-          )
+        case 'toolCall': {
+          const name = `${item.source.kind === 'mcp' ? `${item.source.server}/` : ''}${item.tool}`
+          /* The reason a failed call gives is the agent's own text of any
+             shape: since #241 it is what the call actually said, and since
+             #245 that can be several parts joined with newlines. Inlined
+             after an em dash, its second line left the list item and became
+             Markdown of its own — a heading, a list, a rule — and a backtick
+             in it opened a code span that never closed. It goes where a
+             command's output goes: a fence (#273). */
+          const reason = item.error?.trim() ?? ''
+          out.push(`**Tool** ${code(name)}${reason ? ' — failed:' : ''}`)
+          if (reason) out.push(fence(reason))
           break
+        }
         case 'webSearch':
           out.push(`**Searched the web** for "${item.query}"\n`)
           break

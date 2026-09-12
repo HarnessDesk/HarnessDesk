@@ -188,3 +188,51 @@ describe('a user bubble', () => {
     expect(bubble()).toBe('what does ` do again')
   })
 })
+
+/**
+ * A failed dynamic tool call.
+ *
+ * The step draws a call's error *in place of* its result, so what reaches the
+ * screen is whatever the adapter put in `error`. #241 made that the reason the
+ * call came with rather than the constant "Tool reported failure"; the mapping
+ * is pinned in `packages/adapter-codex`, and this is the same claim at the
+ * layer a person actually reads it (#273). A failed step opens itself, so these
+ * render without a click.
+ */
+describe('a failed dynamic tool call', () => {
+  const failed = (fields: { error?: string; result?: readonly ToolResultContent[] }): ToolCallItem =>
+    ({
+      id: 't2',
+      type: 'toolCall',
+      source: { kind: 'dynamic', namespace: 'reports' },
+      status: 'failed',
+      args: { url: 'http://reports.test/q4' },
+      tool: 'browser_open',
+      ...fields,
+    }) as unknown as ToolCallItem
+
+  const reason = 'The browser could not open http://reports.test/q4: the host did not answer.'
+
+  it('shows the reason it came with, not the constant', () => {
+    render(failed({ error: reason, result: [{ type: 'text', text: reason }] }))
+    expect(outputs()).toEqual([reason])
+    expect(container.textContent).not.toContain('Tool reported failure')
+    // The controls, true whatever the box says: the step is the failed call it
+    // was, named by the tool a permission rule would match, with one body block.
+    expect(wire()).toBe('browser_open')
+    expect(outputs()).toHaveLength(1)
+  })
+
+  it('keeps a reason that arrived in several parts on the several lines it was joined into', () => {
+    // What `failureOf` produces from a failure whose reason came as two text parts (#245).
+    const joined = 'The hook refused this call.\nEdit the hook to allow it.'
+    render(failed({ error: joined }))
+    expect(outputs()).toEqual([joined])
+  })
+
+  it('draws the reason in place of the result, not beside it', () => {
+    render(failed({ error: reason, result: [{ type: 'text', text: 'half the page' }] }))
+    expect(outputs()).toEqual([reason])
+    expect(container.textContent).not.toContain('half the page')
+  })
+})
