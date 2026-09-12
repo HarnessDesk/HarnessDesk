@@ -324,6 +324,68 @@ describe('bringing a worktree back', () => {
 })
 
 /**
+ * Reopening the app on a layout with a conversation docked.
+ *
+ * A saved layout is a place for each conversation, and restoring one is not
+ * navigation: what was in front comes back in front, what was docked comes
+ * back docked, and both are resumed. Resuming used to be the thing that moved
+ * them — `openSession` reveals what it opens, main is a slot, and the docked
+ * one is resumed last — so the person reopened the app to find a conversation
+ * they had docked in the middle and the one they were reading gone from the
+ * screen (#257).
+ */
+describe('restoring a layout with a conversation docked', () => {
+  const inFront = sessionKey(AGENT, sessionId('s-1'))
+  const docked = sessionKey(AGENT, sessionId('s-2'))
+  const idOf = (params: unknown): string => {
+    const fields = params as Record<string, unknown>
+    return String(fields['sessionId'] ?? fields['id'] ?? '')
+  }
+
+  const restore = async (): Promise<void> => {
+    const read = (params: unknown) => conversation(idOf(params), REPO.path)
+    answers['session/read'] = read
+    answers['session/resume'] = read
+    answers['app/state/get'] = {
+      layouts: {
+        [REPO.path]: {
+          main: { root: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: inFront } }, focused: 'p1' },
+          right: { views: [{ id: 'v1', view: { kind: 'conversation', session: docked } }], active: 'v1', size: 400 },
+        },
+      },
+    }
+    await store.loadPreferences()
+    // Both are resumed, the docked one last; the restore has settled when
+    // nothing is still loading.
+    await vi.waitFor(() => expect(store.getSnapshot().sessions.get(docked)).toBeDefined())
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.size).toBe(0))
+  }
+
+  it('leaves the conversation that was in front in front', async () => {
+    await restore()
+
+    expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toEqual([inFront])
+    expect(store.getSnapshot().activeSessionKey).toBe(inFront)
+  })
+
+  it('resumes the docked one where it is, rather than not at all', async () => {
+    // The other half of the same fix: a restore that simply skipped docked
+    // conversations would leave the one in front alone and bring back a panel
+    // with nothing in it, which is the blank docked transcript that made
+    // `#resumeVisible` walk the panels in the first place.
+    await restore()
+
+    expect(
+      mountedViews(store.getSnapshot().workbench).some(
+        (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === docked,
+      ),
+    ).toBe(true)
+    expect(store.getSnapshot().sessions.get(docked)).toBeDefined()
+    expect(JSON.stringify(calls('session/resume'))).toContain('s-2')
+  })
+})
+
+/**
  * A conversation docked to a panel is a stored shape the store still restores
  * and resumes, so it goes with its worktree's folder like one in the main
  * area — on a bring-back, and on a refusal that took the folder with it.
@@ -351,11 +413,9 @@ describe('a conversation docked from a worktree', () => {
     await store.loadPreferences()
     await store.loadWorktrees()
     await vi.waitFor(() => expect(store.getSnapshot().sessions.get(docked)?.cwd).toBe(TREE))
-    // Restoring currently resumes the docked conversation into the main area
-    // as well, over the one saved there (filed as its own issue). Put that one
-    // back in front, so the docked one is docked and nowhere else: the shape
-    // under test, checked rather than assumed.
-    await store.openSession(sessionId('s-1'), { runtime: AGENT })
+    // The restore resumes each conversation where the layout has it (#257), so
+    // the docked one is docked and nowhere else without anything here putting
+    // it back: the shape under test, checked rather than assumed.
     expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toEqual([inFront])
   }
   const stillDocked = (): boolean =>

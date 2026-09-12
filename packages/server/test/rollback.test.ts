@@ -26,6 +26,15 @@ const spoken = (turns: Session['turns']): string[] =>
       .join(''),
   )
 
+/** The turns the last `session/started` this window was pushed carried, if any. */
+const lastRead = (client: Client): Session['turns'] | null => {
+  for (let index = client.events.length - 1; index >= 0; index -= 1) {
+    const event = client.events[index]
+    if (event?.type === 'session/started') return event.session.turns
+  }
+  return null
+}
+
 /** A conversation of three finished turns, one, two and three, all of them on disk. */
 const threeTurns = async () => {
   const harness = await start()
@@ -94,6 +103,46 @@ test('a rollback reaches the transcript store, and after a relaunch the dropped 
     // agent no longer lists is never brought back: only an agent that serves no past shows the difference.
     assert.deepEqual(spoken((await reopened(harness.stateDir, session, theirs)).turns), ['echo: one', 'echo: two'])
   } finally {
+    await close()
+    await rm(harness.stateDir, { recursive: true, force: true })
+  }
+})
+
+/**
+ * #259: a rollback is a conversation changing under every window that has it
+ * open, and each of them has to hear it. Untold, the pane that asked and any
+ * other window on the same conversation went on drawing the turns that are
+ * gone, until something happened to read the conversation again.
+ */
+test('a rollback reaches a second window, which drops the turns without asking (#259)', async () => {
+  const { harness, client, session, close } = await threeTurns()
+  const other = await Client.connect(harness.server)
+  try {
+    // A window opened on a conversation that already has its three turns: what
+    // it hears about them afterwards is the whole of what it knows.
+    await other.until(() => other.notifications.some((message) => 'method' in message && message.method === 'sync'))
+    const caughtUp = other.notifications.find((message) => 'method' in message && message.method === 'sync') as
+      | { params: { sessions: Session[] } }
+      | undefined
+    const synced = caughtUp?.params.sessions.find((entry) => entry.id === session.id)
+    assert.deepEqual(spoken(synced?.turns ?? []), ['echo: one', 'echo: two', 'echo: three'])
+
+    await client.call('session/rollback', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, turns: 1 })
+
+    // The control, asked first so it answers whether or not anything was
+    // pushed: the host trimmed its own copy either way, and a window reading
+    // the conversation again is exactly what being told is meant to replace.
+    const read = (await other.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })) as Session
+    assert.deepEqual(spoken(read.turns), ['echo: one', 'echo: two'])
+
+    // The conversation as it now stands, at the window that asked for none of it.
+    await other.until(() => lastRead(other) !== null, 5_000, 'the second window to be told')
+    assert.deepEqual(spoken(lastRead(other) ?? []), ['echo: one', 'echo: two'])
+    // And at the one that asked, which had nothing else to tell it either.
+    await client.until(() => lastRead(client) !== null, 5_000, 'the window that asked to be told')
+    assert.deepEqual(spoken(lastRead(client) ?? []), ['echo: one', 'echo: two'])
+  } finally {
+    other.close()
     await close()
     await rm(harness.stateDir, { recursive: true, force: true })
   }

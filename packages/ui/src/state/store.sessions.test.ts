@@ -6,11 +6,13 @@ import {
   sessionId,
   sessionKey,
   turnId,
+  type AgentEvent,
   type HostMethodName,
   type RuntimeId,
   type Session,
 } from '@harnessdesk/protocol'
 
+import type { TransportEvents } from '../lib/transport'
 import type { PaneId } from './layout'
 import { panes } from './layout'
 import { AppStore } from './store'
@@ -304,4 +306,53 @@ it('takes the middle rather than splitting beside a room', () => {
   const after = panesOf()
   expect(after).toHaveLength(1)
   expect(after[0]?.view).toEqual({ kind: 'conversation', session: null })
+})
+
+/**
+ * A conversation rolled back under the window.
+ *
+ * The host drops the turns from its own copy and pushes the conversation as it
+ * now stands (#259). Every view of it has to fold that in and draw one turn
+ * fewer — including a window that asked for none of it, which is the whole
+ * point of pushing anything.
+ */
+describe('turns dropped under the window', () => {
+  /** The socket's own callback, which is the only way an event enters the store. */
+  const feed = (event: AgentEvent): void => {
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onEvent(RUNTIME, event)
+  }
+
+  const said = (id: string, text: string) => ({
+    id: turnId(id),
+    status: 'completed' as const,
+    items: [{ id: itemId(`i-${id}`), type: 'assistantMessage' as const, text }],
+  })
+
+  const turnsHere = (): string[] => (store.getSnapshot().sessions.get(KEY)?.turns ?? []).map((turn) => String(turn.id))
+
+  it('drops the turns the conversation no longer holds', async () => {
+    answers['session/read'] = session({ turns: [said('t-1', 'one'), said('t-2', 'two')] })
+    answers['session/resume'] = session({ turns: [said('t-1', 'one'), said('t-2', 'two')] })
+    await store.openSession(ID, { runtime: RUNTIME })
+    expect(turnsHere()).toEqual(['t-1', 't-2'])
+
+    feed({ type: 'session/started', session: session({ turns: [said('t-1', 'one')] }) })
+
+    expect(turnsHere()).toEqual(['t-1'])
+  })
+
+  it('keeps a turn still in flight, which no read can be right about yet', async () => {
+    // The rule the fold has always had, and the reason a rollback can be sent
+    // as a whole-session event at all: what a window watched stream is better
+    // known here than in anything the host can send about it.
+    answers['session/read'] = working
+    answers['session/resume'] = working
+    await store.openSession(ID, { runtime: RUNTIME })
+    expect(turnsHere()).toEqual(['t-1'])
+
+    feed({ type: 'session/started', session: session({ turns: [] }) })
+
+    expect(turnsHere()).toEqual(['t-1'])
+  })
 })
