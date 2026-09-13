@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import { runtimeId, sessionId, type Page, type SessionSummary } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore, serve } from '../src/index.js'
+import { SessionNames } from '../src/names.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client } from './fixtures/harness.js'
 
@@ -147,3 +148,66 @@ test('an agent that keeps its own name is the one asked, and nothing is written 
     await rig.close()
   }
 })
+
+test('concurrent load calls both await reading and observe populated names', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-names-load-'))
+  try {
+    const file = join(dir, 'names.json')
+    const initial = {
+      version: 1,
+      entries: [
+        { runtime: 'fake', sessionId: 's1', name: 'Name One' },
+        { runtime: 'fake', sessionId: 's2', name: 'Name Two' },
+      ],
+    }
+    await writeFile(file, JSON.stringify(initial))
+
+    const names = new SessionNames(file)
+    let secondSawName: string | null = null
+    const p1 = names.load()
+    const p2 = (async () => {
+      await names.load()
+      secondSawName = names.nameOf(runtimeId('fake'), sessionId('s1'))
+    })()
+
+    await Promise.all([p1, p2])
+    assert.equal(secondSawName, 'Name One', 'the concurrent load caller saw the populated name')
+    assert.equal(names.nameOf(runtimeId('fake'), sessionId('s2')), 'Name Two')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('concurrent set calls serialize without temp file collision or lost updates', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-names-write-'))
+  try {
+    const file = join(dir, 'names.json')
+    const names = new SessionNames(file)
+    await names.load()
+
+    // Control: single set works before and after
+    await names.set(runtimeId('fake'), sessionId('s0'), 'Zero')
+    assert.equal(names.nameOf(runtimeId('fake'), sessionId('s0')), 'Zero')
+
+    // Concurrently set multiple session names
+    await Promise.all([
+      names.set(runtimeId('fake'), sessionId('s1'), 'Session One'),
+      names.set(runtimeId('fake'), sessionId('s2'), 'Session Two'),
+      names.set(runtimeId('fake'), sessionId('s3'), 'Session Three'),
+    ])
+
+    assert.equal(names.nameOf(runtimeId('fake'), sessionId('s1')), 'Session One')
+    assert.equal(names.nameOf(runtimeId('fake'), sessionId('s2')), 'Session Two')
+    assert.equal(names.nameOf(runtimeId('fake'), sessionId('s3')), 'Session Three')
+
+    // Control: reloading from disk verifies durable write of all entries
+    const reloaded = new SessionNames(file)
+    await reloaded.load()
+    assert.equal(reloaded.nameOf(runtimeId('fake'), sessionId('s1')), 'Session One')
+    assert.equal(reloaded.nameOf(runtimeId('fake'), sessionId('s2')), 'Session Two')
+    assert.equal(reloaded.nameOf(runtimeId('fake'), sessionId('s3')), 'Session Three')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
