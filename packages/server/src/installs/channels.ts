@@ -37,6 +37,15 @@ export interface ChannelReading {
    * name their packages on disk.
    */
   readonly packageName: string | null
+  /**
+   * True for a Homebrew *cask* — a Caskroom path rather than a Cellar one.
+   * Formulae and casks are two namespaces, and the same token can name
+   * different programs in each: `copilot-cli` is the cask for GitHub's CLI,
+   * while the `copilot` formula is AWS's deprecated ECS tool. `brew upgrade`
+   * is told which was meant with `--cask`, so this is read off the path
+   * rather than guessed from the name.
+   */
+  readonly cask?: boolean
 }
 
 export interface ChannelOptions {
@@ -125,9 +134,17 @@ export const readChannel = (path: string, options: ChannelOptions = {}): Channel
     return { channel: 'harnessdesk', realPath, packageName: inside.split(sep)[0] || null }
   }
 
-  // Homebrew keeps the real file in a Cellar; the bin entry is a link into it.
-  const cellar = /[\\/](?:Cellar|Caskroom)[\\/]([^\\/]+)[\\/]/.exec(realPath)
-  if (cellar) return { channel: 'homebrew', realPath, packageName: cellar[1] ?? null }
+  // Homebrew keeps the real file in a Cellar, or in a Caskroom when what was
+  // installed is a cask; the bin entry is a link into whichever.
+  const brewed = /[\\/](Cellar|Caskroom)[\\/]([^\\/]+)[\\/]/.exec(realPath)
+  if (brewed) {
+    return {
+      channel: 'homebrew',
+      realPath,
+      packageName: brewed[2] ?? null,
+      ...(brewed[1] === 'Caskroom' ? { cask: true } : {}),
+    }
+  }
 
   if (either(join(home, '.bun', 'install', 'global')) || either(join(home, '.bun', 'bin'))) {
     return { channel: 'bun', realPath, packageName: npmPackageIn(realPath) }
@@ -197,13 +214,17 @@ export interface UpdateKnowledge {
  * self-update has no road back to whoever put it there.
  */
 export const updateCommandFor = (
-  reading: Pick<ChannelReading, 'channel' | 'packageName'>,
+  reading: Pick<ChannelReading, 'channel' | 'packageName' | 'cask'>,
   known: UpdateKnowledge = {},
 ): string | null => {
   switch (reading.channel) {
     case 'homebrew': {
       const formula = known.brewFormula ?? reading.packageName
-      return formula ? `brew upgrade ${formula}` : null
+      if (!formula) return null
+      // `--cask` where the path said Caskroom, because the bare token is not
+      // enough: a formula of the same name wins the argument, and for GitHub
+      // Copilot that formula is a different vendor's program. See `cask`.
+      return reading.cask ? `brew upgrade --cask ${formula}` : `brew upgrade ${formula}`
     }
     case 'npm-global': {
       const pkg = known.npmPackage ?? reading.packageName

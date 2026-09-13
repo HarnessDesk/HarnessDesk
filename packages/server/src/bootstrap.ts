@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { existsSync } from 'node:fs'
@@ -17,6 +17,7 @@ import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } f
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
 import { knowledgeOverlay } from './installs/overlay.js'
+import type { KnownAgent } from './installs/known-agents.js'
 import { InstallService } from './installs/service.js'
 import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } from './agent-registry.js'
 import { CredentialBroker } from './credentials.js'
@@ -394,7 +395,7 @@ export const createDefaultHost = (
   const agents = new AgentDirectory({
     store: agentRegistry,
     build: buildAcpRuntime,
-    usageFor: (agent) => localUsageFor(agent),
+    usageFor: (agent) => localUsageFor(agent, installs.knowledgeFor(agent)),
     registry: acpRegistry,
     installs,
   })
@@ -460,7 +461,7 @@ export const createDefaultHost = (
 
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
-    const local = localUsageFor(agent)
+    const local = localUsageFor(agent, installs.knowledgeFor(agent))
     if (local) host.bindUsage(runtimeId(agent.id), local)
     host.register(buildAcpRuntime(agent))
   }
@@ -477,12 +478,24 @@ export const createDefaultHost = (
  * the id is the user's to choose — someone who calls their entry `anthropic`
  * still gets a meter, and someone who names an unrelated agent `claude-code`
  * does not get the wrong one.
+ *
+ * Three fields can say which CLI that is, and only the first two were read
+ * here until now: a bridge row names it (`executable`), a row with a sign-in
+ * names it (`account.status`), and a row for a CLI that speaks ACP itself
+ * names *neither* — its `command` is the CLI, and which agent that is, is
+ * the knowledge table's question. So a Gemini registered from a template and
+ * a Copilot registered from the registry both came up with a meter case
+ * written for them that nothing ever reached, and reported as unmetered with
+ * nothing to say why. The knowledge is the same lookup the launch decision
+ * makes, so a row cannot be metered as one agent and started as another;
+ * `basename` because the row may spell any of the three absolutely.
  */
-const localUsageFor = (
+export const localUsageFor = (
   agent: AcpAgentConfig,
+  known?: Pick<KnownAgent, 'cli'> | undefined,
 ): { meter?: UsageMeter; corpus?: 'codex' | 'claude' } | null => {
-  const cli = agent.executable?.command ?? agent.account?.status?.command ?? null
-  switch (cli) {
+  const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0]
+  switch (named ? basename(named) : null) {
     case 'claude':
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
     case 'cursor-agent':
