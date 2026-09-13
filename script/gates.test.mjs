@@ -14,9 +14,13 @@ import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
 import { leadComment } from './design-doc.mjs'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * The gates' own parsers, tested — because both of them were silently wrong
@@ -1169,4 +1173,17 @@ test('distSegments refuses a wildcard where it reads a fixed segment (#269)', ()
      the top directory — the error message promising more than it delivered. */
   assert.throws(() => distSegments('*/*/*/test/**/*.test.js'), /not that shape/)
   assert.throws(() => distSegments('packages/*/*/test/**/*.test.js'), /not that shape/)
+})
+
+test('tracked text files contain no raw NUL bytes (#360)', () => {
+  const extensions = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|css|html|yml|yaml|sh|py|toml)$/
+  const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
+    .split('\n')
+    .filter((file) => extensions.test(file))
+  const withNul = []
+  for (const file of files) {
+    const buf = fs.readFileSync(path.resolve(repoRoot, file))
+    if (buf.includes(0)) withNul.push(file)
+  }
+  assert.deepEqual(withNul, [])
 })
