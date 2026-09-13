@@ -1205,21 +1205,20 @@ export class CursorAcpBridge {
 
   /** Applies (possibly adjusted) dimensions; returns the family for announcing. */
   async #applyDimensions(session: Session, familyId: string): Promise<ModelFamily | undefined> {
+    if (familyId === 'auto') {
+      session.familyId = 'auto'
+      session.modelId = 'auto'
+      return undefined
+    }
     const families = await this.#families()
     const family = families.find((entry) => entry.id === familyId)
     if (!family) throw new Error(`model ${JSON.stringify(familyId)} is not offered by this Cursor account`)
     session.familyId = familyId
-    if (familyId === 'auto') {
-      // Cursor picks the model per turn, so none of the dimensions apply;
-      // the standing preference survives for whichever family comes next.
-      session.modelId = 'auto'
-    } else {
-      const resolved = this.#resolve(session, family)
-      session.modelId = resolved.modelId
-      session.effort = resolved.effort
-      session.thinking = resolved.thinking
-      session.fast = resolved.fast
-    }
+    const resolved = this.#resolve(session, family)
+    session.modelId = resolved.modelId
+    session.effort = resolved.effort
+    session.thinking = resolved.thinking
+    session.fast = resolved.fast
     return family
   }
 

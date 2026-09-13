@@ -35,8 +35,11 @@ const extraModels = () => {
 
 if (argv[0] === 'models') {
   // brain-9 exercises the dimension grammar: efforts, thinking, fast, max.
+  const baseModels = process.env.FAKE_CURSOR_NO_AUTO_MODEL
+    ? 'Available models\n\nfast-1 - Fast Model\nsmart-1 - Smart Model\n'
+    : 'Available models\n\nauto - Auto (default)\nfast-1 - Fast Model\nsmart-1 - Smart Model\n'
   process.stdout.write(
-    'Available models\n\nauto - Auto (default)\nfast-1 - Fast Model\nsmart-1 - Smart Model\n' +
+    baseModels +
       'brain-9-low - Brain 9 Low\nbrain-9-high - Brain 9\nbrain-9-high-fast - Brain 9 Fast\n' +
       'brain-9-thinking-low - Brain 9 Low Thinking\nbrain-9-thinking-high - Brain 9 Thinking\n' +
       'brain-9-max - Brain 9 Max\n' +
