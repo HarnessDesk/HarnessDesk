@@ -1007,6 +1007,62 @@ test('a policy rule answers an approval before any human sees it, and the audit 
   assert.equal(elsewhere.length, 0)
 })
 
+test('policy auto-decision failure falls back to surfacing approval to client without unhandled rejection (#421)', async (t) => {
+  let unhandled: unknown = null
+  const onUnhandled = (err: unknown) => {
+    unhandled = err
+  }
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  await client.call('app/state/set', {
+    patch: {
+      permissionPolicy: [
+        {
+          id: 'r1',
+          name: 'No rm -rf',
+          match: { type: 'command', pattern: 'rm -rf' },
+          action: 'deny',
+        },
+      ],
+    },
+  })
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+
+  // Simulate runtime/transport failure on policy response (both sync throw and async rejection)
+  live.respondToApproval = () => {
+    throw new Error('simulated policy response failure')
+  }
+
+  live.askApproval(approvalId('ap-failed-policy'))
+
+  // The approval must be surfaced to the client as an approval/requested event
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          (event as { approval?: { id: string } }).approval?.id === 'ap-failed-policy',
+      ),
+    2000,
+  )
+
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)
+  assert.ok(record?.approvals.has('ap-failed-policy'))
+  assert.equal(unhandled, null, 'no unhandled rejection should occur')
+})
+
 // --------------------------------------------------------------------- files
 
 test('file reads go through the runtime\'s own view when it declares one', async (t) => {

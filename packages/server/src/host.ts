@@ -2435,7 +2435,34 @@ export class Host {
       // refused could turn straight round and ask a more permissive
       // teammate to do it. Safety rule 2 does not care who said no.
       if (wanted === 'deny') this.#team.noteDenial(runtime, String(approval.sessionId))
-      void live.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+      // Both async rejections and synchronous throws from the runtime responder
+      // are caught and safely degrade to surfacing human approval.
+      void Promise.resolve()
+        .then(() => live.respondToApproval(approval.id, { type: 'option', optionId: option.id }))
+        .catch((error: unknown) => {
+          this.#logger.warn('failed to auto-decide approval by policy, falling back to human approval', {
+            runtime,
+            approvalId: approval.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          const approvalEvent: AgentEvent = { type: 'approval/requested', approval }
+          this.registry.apply(runtime, approvalEvent)
+          this.#audit.record(runtime, approvalEvent, (sessionId) =>
+            this.registry.get(runtime, makeSessionId(sessionId))?.session.cwd,
+          )
+          this.#push({
+            method: 'event',
+            params: {
+              runtime,
+              event: approvalEvent,
+            },
+          })
+        })
+      // The policy auto-decision is recorded synchronously so that client queries
+      // immediately observe the decision rule matching the action. In the degraded
+      // edge case where the agent session/transport rejects or throws, the catch
+      // block logs a warning, falls back to surfacing approval/requested to the
+      // client, and places the approval back in the registry.
       this.#audit.append({
         at: Date.now(),
         runtime,
