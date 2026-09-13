@@ -297,7 +297,11 @@ export class Flows implements TeamFlows {
 
   /** The run still going in this room, if any. A room runs one flow at a time. */
   #liveIn(room: string): StoredRun | null {
-    return [...this.#runs.values()].find((run) => run.room === room && run.state === 'running') ?? null
+    return (
+      [...this.#runs.values()].find(
+        (run) => run.room === room && (run.state === 'running' || run.state === 'stalled'),
+      ) ?? null
+    )
   }
 
   /**
@@ -479,12 +483,13 @@ export class Flows implements TeamFlows {
     const run = this.#runs.get(id)
     if (!run) throw new Error(`There is no flow run ${id}.`)
     if (run.state !== 'running' && run.state !== 'stalled') return run
+    const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
       state: 'stopped',
       endedAt: now(),
       ended: why,
-      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+      record: [...record, { at: now(), kind: 'stopped', text: why }],
     })
     const watch = this.#watching.get(id)
     if (watch) clearTimeout(watch)
@@ -540,6 +545,8 @@ export class Flows implements TeamFlows {
         intent: intent.id,
       })
       this.#save(run.id)
+      const round = run.rounds[run.rounds.length - 1]
+      if (round) void this.#armFor(run.id, round.role)
     }
     const queued = (this.#turning.get(run.id) ?? Promise.resolve()).then(() =>
       this.#advance(run.id, intent).catch((error: unknown) => {
@@ -777,12 +784,13 @@ export class Flows implements TeamFlows {
         ? `Their turns did not run: ${[...new Set(failures.map((one) => one.why))].join(' · ')}`
         : "Nothing has been heard from them since, so either that agent takes HarnessDesk's tools without using them, or its turn never started."
     const why = `${absent.length === 1 ? 'a seat has' : `${absent.length} seats have`} not touched the board since being seated — ${named}. ${because}`
+    const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
       state: 'stopped',
       endedAt: now(),
       ended: why,
-      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+      record: [...record, { at: now(), kind: 'stopped', text: why }],
     })
     this.#port.log('a flow stopped because its seats never took the tools', {
       run: id,
@@ -851,6 +859,11 @@ export class Flows implements TeamFlows {
     )
     if (!run) return null
     if (run.state === 'running') return null
+    if (run.state === 'stalled') {
+      const round = run.rounds[run.rounds.length - 1]
+      const seat = run.seats.find((s) => s.key === key)
+      if (round && seat && seat.role !== round.role) return null
+    }
     return run.ended ?? `the flow "${run.flow.name}" has finished`
   }
 

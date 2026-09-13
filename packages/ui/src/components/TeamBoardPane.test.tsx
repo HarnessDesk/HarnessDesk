@@ -942,3 +942,38 @@ it('the card’s menu goes when something takes the screen (#214)', async () => 
   })
   expect(document.querySelector('[role="menu"]')).toBeNull()
 })
+
+it('displays the card role when the flow run is stalled (#557)', async () => {
+  const cardWithRole = intent({ id: 1, state: 'open', role: 'person' })
+  const { store } = rig([cardWithRole])
+  const stalledRun = {
+    id: 'flow-run-1',
+    room: ROOM,
+    state: 'stalled' as const,
+    startedAt: 1,
+    vars: {},
+    flow: {
+      name: 'Review flow',
+      roles: [{ id: 'person', name: 'Person', kind: 'person', count: 1, outcomes: ['approve'] }],
+      rules: [],
+      inputs: [],
+    },
+    seats: [],
+    rounds: [],
+    record: [],
+  }
+  const runs = new Map([[ROOM, [stalledRun]]])
+  const cachedSnapshot = {
+    ...store.getSnapshot(),
+    flowRuns: runs,
+  }
+  const storeWithRun = {
+    ...store,
+    getSnapshot: () => cachedSnapshot,
+  }
+  await render(storeWithRun as unknown as AppStore)
+  const items = await menuItems(1)
+  const labels = items.map((one) => one.textContent?.trim())
+  expect(labels).toContain('Answer approve')
+})
+

@@ -674,9 +674,6 @@ test('a run stalls when all seats of a role with open work stop answering', asyn
   // Stand-down names why
   const standDown = one.flows.standDown(one.room, fixer.runtime, fixer.sessionId)
   assert.match(standDown ?? '', /no seat answering for fixer/)
-  // And the room is free to start another flow rather than blocked by a zombie
-  const again = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it again' } })
-  assert.equal(again.state, 'running')
 })
 
 test('a run stays running while at least one seat of the active role is answering', async (t) => {
@@ -1381,7 +1378,7 @@ test('a stalled flow run omits endedAt, can be stopped, and recovers when a seat
   const run2 = one.flows.runsFor(room2)[0]!
   assert.equal(run2.state, 'stalled')
 
-  // Completing the card returns run to running
+  // Completing the card returns run to running and wakes seats of the role
   const heldCard = one.team.stateFor(room2).intents.find((i) => i.claim?.sessionId === fixer2.sessionId)!
   await one.team.complete(heldCard.id, { outcome: 'published' }, fixer2)
   await one.flows.flush()
@@ -1389,7 +1386,34 @@ test('a stalled flow run omits endedAt, can be stopped, and recovers when a seat
   assert.equal(recovered.state, 'running')
   assert.equal(recovered.ended, null)
   assert.ok(recovered.record.some((e) => e.kind === 'started' && /recovered from stalled/.test(e.text ?? '')))
+
+  // 4. Stalled run prevents starting another flow in the same room (#liveIn)
+  const room3 = (await one.team.createRoom('/repo', 'Room 3')).id
+  await one.flows.start({ room: room3, source: REVIEW, vars: { work: 'Fix 3' } })
+  const fixer3Seat = one.flows.runsFor(room3)[0]!.seats.find((s) => s.role === 'fixer')!
+  const fixer3 = { runtime: fixer3Seat.runtime, sessionId: fixer3Seat.sessionId }
+  one.kill(fixer3)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer3.runtime, fixer3.sessionId)
+  assert.equal(one.flows.runsFor(room3)[0]!.state, 'stalled')
+
+  await assert.rejects(
+    () => one.flows.start({ room: room3, source: REVIEW, vars: { work: 'Cannot start while stalled' } }),
+    /already running a flow/,
+  )
 })
+
+test('Flows.stop does not crash when a run has non-array record data (#505)', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const run = one.flows.runsFor(one.room)[0]!
+  ;(run as any).record = null
+  const stopped = one.flows.stop(run.id, 'stop malformed record run')
+  assert.equal(stopped.state, 'stopped')
+  assert.ok(Array.isArray(stopped.record))
+  assert.equal(stopped.record.length, 1)
+  assert.equal(stopped.record[0]?.text, 'stop malformed record run')
+})
+
 
 
 
