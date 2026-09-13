@@ -511,6 +511,17 @@ test('a gate command that is only part of a CI command is not in CI (#247)', () 
   assert.deepEqual(missingFromCI([{ command: 'pnpm', args: ['run'] }], workflow), ['pnpm run'])
 })
 
+test('NOT_IN_CI exemption matches exact command line and cannot be injected by extra args (#403)', () => {
+  const workflow = ciCommands(['    steps:', '      - run: pnpm run build'].join('\n'))
+  // An extra argument mentioning an exempted script must not exempt an unrelated command.
+  const gate = [
+    { command: 'node', args: ['script/check-layering.mjs', 'script/generate-codex-protocol.mjs'] },
+  ]
+  assert.deepEqual(missingFromCI(gate, workflow), [
+    'node script/check-layering.mjs script/generate-codex-protocol.mjs',
+  ])
+})
+
 /**
  * `check-reachable` decides which host methods a surface can call, and both of
  * its halves fail silently in the same direction: a parser that finds fewer

@@ -40,7 +40,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  */
 const NOT_IN_CI = new Map([
   [
-    'script/generate-codex-protocol.mjs',
+    'node script/generate-codex-protocol.mjs --check',
     'needs a real `codex` binary, which the runner does not have',
   ],
 ])
@@ -166,8 +166,8 @@ const isMain = process.argv[1] != null && resolve(process.argv[1]) === fileURLTo
 export const missingFromCI = (gate, workflow) => {
   const missing = []
   for (const { command, args } of gate) {
-    if (args.some((arg) => NOT_IN_CI.has(arg))) continue
     const line = [command, ...args].join(' ')
+    if (NOT_IN_CI.has(line)) continue
     if (!workflow.includes(line)) missing.push(line)
   }
   return missing
