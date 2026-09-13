@@ -202,6 +202,16 @@ The built-in ones are `flow`, `run`, `room`, `repo`, `role`, `round`, `n` and
 `count`; everything else must be declared under `inputs`. A slot nothing fills
 is an error the dry run reports rather than a gap an agent reads as a typo.
 
+A rule's `then` template gets two more, for **the round that just finished**:
+`{{from}}` (its role) and `{{answered}}` (how many cards it had). They are
+there because `count` is the round being *opened*, and an author writing the
+card that reads the finished round means the other number — "Judge
+{{count}} attempts" on a one-seat judge rendered as "Judge 1 attempts" in a
+live run, and "All {{count}} reviewers approved" on a one-person referee
+rendered as "All 1 reviewers approved". Both were hand-written and both looked
+right in the file. Using either on the `seed` is an error: nothing finishes
+before it.
+
 ---
 
 ## Dry run

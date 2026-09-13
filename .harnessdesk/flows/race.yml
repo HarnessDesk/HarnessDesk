@@ -61,7 +61,7 @@ rules:
     when: { every: done }
     then:
       role: judge
-      title: "Judge {{count}} attempts"
+      title: "Judge {{answered}} attempts"
       detail: |
         Both attempts are attached.
 

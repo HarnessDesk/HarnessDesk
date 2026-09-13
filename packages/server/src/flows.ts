@@ -597,6 +597,11 @@ export class Flows implements TeamFlows {
     if (!role) return
     const n = run.rounds.length + 1
     const board = this.#team.stateFor(run.room)
+    /* The round that earned this one. `count` is how many cards *this* round
+       opens; an author writing the card that reads the finished round means
+       the other number, and saying `{{count}}` there produced "Judge 1
+       attempts" and "All 1 reviewers approved" in live runs. */
+    const before = run.rounds[run.rounds.length - 1]
     const intents: number[] = []
     for (let index = 1; index <= role.count; index += 1) {
       const vars: Record<string, string> = {
@@ -609,6 +614,7 @@ export class Flows implements TeamFlows {
         round: String(n),
         n: String(index),
         count: String(role.count),
+        ...(before ? { from: before.role, answered: String(before.intents.length) } : {}),
       }
       const detail = [
         then.detail ? renderFlowTemplate(then.detail, vars) : null,

@@ -138,6 +138,21 @@ export const slotsIn = (template: string): string[] => [
  */
 export const BUILT_IN_SLOTS = ['flow', 'run', 'room', 'repo', 'role', 'round', 'n', 'count'] as const
 
+/**
+ * Two more that only a rule's template may use: the round that just finished.
+ *
+ * `count` is how many cards *this* round opens, which is what "Review round 2
+ * — {{n}} of {{count}}" wants. But an author writing the card that reads the
+ * finished round means the other number — "Judge {{count}} attempts" on a
+ * one-seat judge rendered as "Judge 1 attempts", and "All {{count}} reviewers
+ * approved" on a one-person referee rendered as "All 1 reviewers approved".
+ * Both were written by hand, both read wrong in a live run, and both looked
+ * right in the file. So the finished round gets slots of its own, and using
+ * them on the seed — which has no round before it — is an error rather than
+ * an empty gap.
+ */
+export const ROUND_SLOTS = ['from', 'answered'] as const
+
 // -------------------------------------------------------------------- reading
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -552,21 +567,33 @@ export const validateFlow = (flow: Flow): FlowProblem[] => {
   // Templates, including the seed's — a slot that resolves to nothing reaches
   // an agent as literal `{{issue}}` and reads to it as a broken instruction.
   const known = new Set<string>([...BUILT_IN_SLOTS, ...flow.inputs.map((input) => input.id)])
-  const checkTemplate = (text: string | null | undefined, at: string): void => {
+  const checkTemplate = (text: string | null | undefined, at: string, afterARound: boolean): void => {
     for (const slot of slotsIn(text ?? '')) {
-      if (!known.has(slot)) {
+      if (known.has(slot)) continue
+      if ((ROUND_SLOTS as readonly string[]).includes(slot)) {
+        if (afterARound) continue
         problems.push(
-          problem('error', at, `nothing fills {{${slot}}} — declare it under inputs, or use one of ${[...known].join(', ')}`),
+          problem(
+            'error',
+            at,
+            `{{${slot}}} is the round that finished, and nothing finishes before the seed — it only means something in a rule`,
+          ),
         )
+        continue
       }
+      problems.push(
+        problem('error', at, `nothing fills {{${slot}}} — declare it under inputs, or use one of ${[...known].join(', ')}`),
+      )
     }
   }
-  checkTemplate(flow.seed.title, 'seed.title')
-  checkTemplate(flow.seed.detail, 'seed.detail')
-  for (const role of flow.roles) checkTemplate(role.order, `roles.${role.id}.order`)
+  checkTemplate(flow.seed.title, 'seed.title', false)
+  checkTemplate(flow.seed.detail, 'seed.detail', false)
+  /* A role's order is handed out at seating, before any round has run, so it
+     is the seed's case whichever role it belongs to. */
+  for (const role of flow.roles) checkTemplate(role.order, `roles.${role.id}.order`, false)
   flow.rules.forEach((rule, index) => {
-    checkTemplate(rule.then.title, `rules[${index}].then.title`)
-    checkTemplate(rule.then.detail, `rules[${index}].then.detail`)
+    checkTemplate(rule.then.title, `rules[${index}].then.title`, true)
+    checkTemplate(rule.then.detail, `rules[${index}].then.detail`, true)
   })
 
   // Roles a rule names, and the seed's own.

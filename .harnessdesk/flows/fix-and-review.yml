@@ -106,7 +106,7 @@ rules:
       role: referee
       title: "Merge it — every reviewer approved"
       detail: |
-        All {{count}} reviewers approved. Their reviews are attached. Merging
+        All {{answered}} reviewers approved. Their reviews are attached. Merging
         is yours: no agent in this flow may do it.
 
 # Where a canvas keeps node positions. The engine never reads this.

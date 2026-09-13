@@ -495,3 +495,54 @@ test('a seat of a settled run is not re-armed — standing down is not dying', a
   await one.flows.reArm(fixer.runtime, fixer.sessionId)
   assert.equal(one.orders.length, 4, 'a seat told to stand down is not handed its order again')
 })
+
+test('a rule template can name the round that finished, not only the one it opens', async (t) => {
+  const one = await rig(t)
+  /* Found in a live race: "Judge {{count}} attempts" on a one-seat judge
+     rendered "Judge 1 attempts", because `count` is the round being *opened*.
+     The author meant the round that had just answered. */
+  const RACE = `
+name: Race
+roles:
+  competitor:
+    kind: agent
+    seat: [cursor=gpt-5.3-codex/xhigh, cursor=gemini-3.8-flash/high]
+    count: 2
+    isolate: true
+    outcomes: [done, cannot]
+  judge:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    outcomes: [first, second, neither]
+seed: { role: competitor, title: "Attempt {{n}} of {{count}}" }
+rules:
+  - id: judge-them
+    on: competitor
+    when: { every: done }
+    then: { role: judge, title: "Judge {{answered}} attempts from {{from}}" }
+`
+  await one.flows.start({ room: one.room, source: RACE })
+  const seats = seatsOf(one, 'competitor')
+  for (const [index, seat] of seats.entries()) {
+    await one.team.claim(index + 1, seat)
+    await one.team.complete(index + 1, { outcome: 'done', handoff: `attempt ${index + 1}` }, seat)
+  }
+  await one.flows.flush()
+  const judge = board(one).intents.find((intent) => intent.role === 'judge')
+  assert.equal(judge?.title, 'Judge 2 attempts from competitor')
+  // And the round it opens still reports its own size, which is the other question.
+  assert.equal(board(one).intents[0]?.title, 'Attempt 1 of 2')
+})
+
+test('the round-that-finished slots mean nothing on the seed, and are refused there', async (t) => {
+  const one = await rig(t)
+  await assert.rejects(
+    () =>
+      one.flows.start({
+        room: one.room,
+        source: REVIEW.replace('title: "{{work}}"', 'title: "{{work}} after {{answered}}"'),
+      }),
+    /nothing finishes before the seed/,
+  )
+  assert.equal(one.seated.length, 0)
+})
