@@ -1073,11 +1073,17 @@ export class Flows implements TeamFlows {
       if (!name.endsWith('.json')) continue
       try {
         const raw = JSON.parse(await readFile(join(this.#dir, name), 'utf8')) as StoredRun
-        if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || typeof raw.room !== 'string') {
-          throw new Error('a stored flow run must be an object with an id and room')
-        }
-        if (!Array.isArray(raw.seats)) {
-          throw new Error('a stored flow run must have an array of seats')
+        if (
+          !raw ||
+          typeof raw !== 'object' ||
+          typeof raw.id !== 'string' ||
+          !raw.id ||
+          typeof raw.room !== 'string' ||
+          !Array.isArray(raw.rounds) ||
+          !Array.isArray(raw.seats) ||
+          !Array.isArray(raw.record)
+        ) {
+          throw new Error('run data is missing required fields or has non-array rounds, seats, or record')
         }
         this.#runs.set(raw.id, raw)
       } catch (error) {

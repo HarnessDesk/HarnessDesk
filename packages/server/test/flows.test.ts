@@ -1274,6 +1274,14 @@ test('standDown and reArm do not crash when a persisted run has non-array seats 
   assert.equal(second.standDown(one.room, 'runtime-a', 'session-1'), null)
   await second.reArm('runtime-a', 'session-1')
   assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+
+  // Direct in-memory test for runtime guards in standDown and reArm:
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const activeRun = one.flows.runsFor(one.room)[0] as unknown as { seats: unknown }
+  assert.ok(activeRun)
+  activeRun.seats = {}
+  assert.equal(one.flows.standDown(one.room, 'runtime-a', 'session-1'), null)
+  await one.flows.reArm('runtime-a', 'session-1')
 })
 
 
