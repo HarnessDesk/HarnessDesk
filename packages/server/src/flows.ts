@@ -431,6 +431,14 @@ export class Flows implements TeamFlows {
     const seat = run.seats.find((one) => one.key === key) as FlowSeatRecord
     const role = run.flow.roles.find((one) => one.id === seat.role)
     if (!role) return
+    /* Only when there is something for it to do. A seat whose role has
+       nothing open will wake, find nothing and end its turn again — and doing
+       that on a budget spends the budget on nothing. Measured in a live run:
+       three reviewers all closed their turns after finishing a round, and
+       every one of them was woken to an empty board and burned its whole
+       allowance inside the minute. A seat with no work is left down and woken
+       by the round that needs it — see `#armFor`. */
+    if (!this.#team.hasWorkFor(run.room, seat.runtime, seat.sessionId)) return
     /* A turn that ended in the same second the run settled is not a seat that
        stopped early: it is a seat that was told to stand down and did as it
        was asked. The run's own state is checked above; this covers the race
@@ -573,6 +581,9 @@ export class Flows implements TeamFlows {
     }
     this.#open(current, fired.then.role, fired.then, fired.id, round.intents)
     this.#save(id)
+    /* The round that just opened is the moment a seat of that role is worth
+       waking: it has work now, which it did not a second ago. */
+    await this.#armFor(id, fired.then.role)
     await this.#runChecks(id)
   }
 
@@ -691,6 +702,32 @@ export class Flows implements TeamFlows {
          a completion that did not go through the board's referee would be a
          second way for a card to finish. */
       this.#team.intentAction(run.room, intent, 'done', note, outcome)
+    }
+  }
+
+  /**
+   * Wakes the seats of a role whose round has just opened, when their turn
+   * has ended.
+   *
+   * The other half of the rule above: a seat is not re-armed the moment its
+   * turn dies — which is usually a model deciding it is finished after its
+   * last card — but when there is a card it can take. A seat still inside its
+   * turn is left alone: it is already waiting, and handing it a second order
+   * is the second billed request this whole design exists to avoid.
+   */
+  async #armFor(id: string, roleId: string): Promise<void> {
+    const run = this.#runs.get(id)
+    if (!run || run.state !== 'running') return
+    const seats = run.seats.filter((one) => one.role === roleId)
+    if (seats.length === 0) return
+    const peers = await this.#team.peersFor(run.room).catch(() => [])
+    for (const seat of seats) {
+      const peer = peers.find(
+        (one) => String(sessionKey(one.runtime, one.sessionId as never)) === seat.key,
+      )
+      // Busy is a seat inside its turn, which is where a standing seat lives.
+      if (peer?.busy) continue
+      await this.reArm(seat.runtime, seat.sessionId)
     }
   }
 

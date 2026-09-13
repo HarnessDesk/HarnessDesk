@@ -165,6 +165,31 @@ const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? val
 const asText = (value: unknown): string | null =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
 
+/**
+ * A seat written the long way: every field named, nothing to misread.
+ *
+ * The compact form splits the effort off after a `/`, which cannot express a
+ * model id that *contains* one — and a whole family of agents has them:
+ * Cline's catalogue is `deepseek/deepseek-v4-flash`, `zai/glm-5.3-flash`,
+ * `poolside/laguna-s-2.1`. Written compactly those read as the model
+ * "deepseek" at effort "deepseek-v4-flash", which is not a mistake any
+ * amount of care in the compact grammar can catch — the two forms are
+ * genuinely ambiguous without the runtime's model list. So the map is the
+ * answer, and the dry run points at it by name when it sees the mistake.
+ */
+export const seatFromMap = (record: Record<string, unknown>): FlowSeat | string => {
+  const runtime = asText(record['runtime'])
+  if (!runtime?.trim()) return 'a seat needs a runtime — which agent to open'
+  const model = asText(record['model'])
+  const effort = asText(record['effort'])
+  return {
+    runtime: runtime.trim(),
+    ...(model?.trim() ? { model: model.trim() } : {}),
+    ...(effort?.trim() ? { effort: effort.trim() } : {}),
+    ...(record['thinking'] === true ? { thinking: true } : {}),
+  }
+}
+
 /** `cursor=gpt-5.3-codex/xhigh+thinking` — the same grammar the desk's own casts use. */
 export const parseSeat = (spec: string): FlowSeat | string => {
   const [core, ...switches] = spec.trim().split('+').map((part) => part.trim())
@@ -369,15 +394,14 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
        models on one round — the round stays the unit, and a rule still fires
        on it finishing. */
     const seatField = record['seat']
-    const seatTexts = (asList(seatField) ?? (seatField === undefined || seatField === null ? [] : [seatField]))
-      .map((one) => asText(one))
-      .filter((one): one is string => Boolean(one))
+    const written = asList(seatField) ?? (seatField === undefined || seatField === null ? [] : [seatField])
     const seats: FlowSeat[] = []
-    for (const [index, text] of seatTexts.entries()) {
-      const parsed = parseSeat(text)
-      if (typeof parsed === 'string') {
-        problems.push(problem('error', seatTexts.length > 1 ? `${at}.seat[${index}]` : `${at}.seat`, parsed))
-      } else seats.push(parsed)
+    for (const [index, one] of written.entries()) {
+      const where = written.length > 1 ? `${at}.seat[${index}]` : `${at}.seat`
+      const asMap = asRecord(one)
+      const parsed = asMap ? seatFromMap(asMap) : parseSeat(asText(one) ?? '')
+      if (typeof parsed === 'string') problems.push(problem('error', where, parsed))
+      else seats.push(parsed)
     }
     const check = record['check'] !== undefined || kind === 'check' ? readCheck(record['check'] ?? record, at, problems) : null
     const outcomes =

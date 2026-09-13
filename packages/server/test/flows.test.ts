@@ -35,6 +35,8 @@ interface Rig {
   /** What a check's command is told to answer. */
   exits: Map<string, number>
   readonly ran: { command: string; cwd: string }[]
+  /** Ends a seat's turn, the way a lapsed window or a refused call does. */
+  kill(seat: { runtime: string; sessionId: string }): void
 }
 
 const peerOf = (runtime: string, sessionId: string, cwd: string, model: string): TeamPeer => ({
@@ -43,7 +45,10 @@ const peerOf = (runtime: string, sessionId: string, cwd: string, model: string):
   title: null,
   cwd,
   agent: runtime === 'cursor' ? 'Cursor' : 'Codex',
-  busy: false,
+  /* A seated agent is *inside* its turn — that is the whole design — so the
+     fake desk says so. A test that wants a seat whose turn has died flips
+     this, which is the only thing that distinguishes the two. */
+  busy: true,
   canSteer: false,
   queuedByUser: 0,
   model,
@@ -106,7 +111,11 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     await team.flush()
     await rm(dir, { recursive: true, force: true })
   })
-  return { team, flows, room, dir, peers, seated, orders, isolated, exits, ran }
+  const kill = (seat: { runtime: string; sessionId: string }): void => {
+    const peer = peers.find((one) => one.runtime === seat.runtime && one.sessionId === seat.sessionId)
+    if (peer) Object.assign(peer, { busy: false })
+  }
+  return { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill }
 }
 
 const REVIEW = `
@@ -452,6 +461,8 @@ test('a seat whose turn dies is handed its order again, with the permission it w
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
   const fixer = seatsOf(one, 'fixer')[0]!
   assert.equal(one.orders.length, 4)
+  // Its turn dies; the seed card is open and addressed to it, so there is work.
+  one.kill(fixer)
 
   /* The bug this guards, which was hit in the hand-rolled version: a
      publishing seat came back from a re-arm carrying a reader's git rule and
@@ -469,10 +480,46 @@ test('a seat whose turn dies is handed its order again, with the permission it w
   assert.ok(record.some((entry) => entry.kind === 'seated' && /re-armed/.test(entry.text ?? '')))
 })
 
+test('a seat with nothing to do is left down rather than woken to an empty board', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const reviewer = seatsOf(one, 'reviewer')[0]!
+  /* Measured in a live run and it cost real turns: three reviewers all closed
+     their turns after finishing a round, every one was woken to a board with
+     nothing addressed to it, and each burned its whole allowance inside the
+     minute. Only the seed card is open here and it is the fixer's. */
+  one.kill(reviewer)
+  await one.flows.reArm(reviewer.runtime, reviewer.sessionId)
+  assert.equal(one.orders.length, 4, 'no order was handed out')
+  const record = one.flows.runsFor(one.room)[0]!.record
+  assert.ok(!record.some((entry) => /re-armed/.test(entry.text ?? '')), 'and no budget was spent')
+
+  // The control: the fixer, whose card *is* open, is re-armed.
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 5)
+})
+
+test('a round opening wakes the seats of its role whose turns have ended', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  // The reviewers' turns have ended, so the round that needs them is what
+  // wakes them — rather than the moment each turn died, when they had nothing.
+  for (const reviewer of seatsOf(one, 'reviewer')) one.kill(reviewer)
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+  assert.equal(one.orders.length, 4 + 3, 'one order each for the three reviewers the round needs')
+  for (const order of one.orders.slice(4)) assert.match(order.text, /exactly one of approve, request-changes/)
+})
+
 test('re-arming is budgeted, so a seat that cannot start does not drain an account', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
   const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
   for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
   // Three inside the hour, and then it stops and says why rather than going on.
   assert.equal(one.orders.length, 4 + 3)
@@ -492,6 +539,7 @@ test('a seat of a settled run is not re-armed — standing down is not dying', a
   await one.flows.flush()
   assert.equal(one.flows.runsFor(one.room)[0]?.state, 'settled')
 
+  one.kill(fixer)
   await one.flows.reArm(fixer.runtime, fixer.sessionId)
   assert.equal(one.orders.length, 4, 'a seat told to stand down is not handed its order again')
 })
@@ -545,4 +593,47 @@ test('the round-that-finished slots mean nothing on the seed, and are refused th
     /nothing finishes before the seed/,
   )
   assert.equal(one.seated.length, 0)
+})
+
+test("the person's own step can leave a context package, the way an agent's does", async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  const reviewers = seatsOf(one, 'reviewer')
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published', handoff: 'branch fix/x' }, fixer)
+  await one.flows.flush()
+
+  /* Found in a live run: a reviewer card the person settled reached the next
+     round as an outcome and nothing else, while its two siblings contributed
+     their findings. `who: person` is a step, not an absence, so the step has
+     to be able to say something the work downstream actually receives. */
+  await one.team.claim(2, reviewers[0]!)
+  await one.team.complete(2, { outcome: 'approve', handoff: 'reviewer one: fine' }, reviewers[0]!)
+  await one.team.claim(3, reviewers[1]!)
+  // The person outranks the claim, which is the board's own referee rule.
+  one.team.intentAction(one.room, 3, 'done', undefined, 'request-changes', 'the bound is still unchecked')
+  await one.team.claim(4, reviewers[2]!)
+  await one.team.complete(4, { outcome: 'approve', handoff: 'reviewer three: fine' }, reviewers[2]!)
+  await one.flows.flush()
+
+  const again = board(one).intents.find((intent) => intent.id === 5)
+  assert.equal(again?.role, 'fixer')
+  one.kill(fixer)
+  const handed = await one.team.claim(5, fixer)
+  assert.match(handed, /reviewer one: fine/)
+  assert.match(handed, /the bound is still unchecked/, "the person's own words reached the next round")
+  assert.match(handed, /reviewer three: fine/)
+})
+
+test('marking an agent card done by hand does not erase the package it left', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published', handoff: 'branch fix/x' }, fixer)
+  await one.flows.flush()
+  // The person tidies the card afterwards and says nothing of their own.
+  one.team.intentAction(one.room, 1, 'done', undefined, 'published')
+  assert.equal(board(one).intents[0]?.handoff, 'branch fix/x')
 })

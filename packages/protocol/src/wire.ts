@@ -1374,6 +1374,18 @@ export interface HostMethods {
        * nothing about the merits.
        */
       readonly outcome?: string
+      /**
+       * What the person wants the next round to read — their own context
+       * package, the same field an agent fills with `complete_claim`.
+       *
+       * `who: person` is a step and not an absence, so the step has to be
+       * able to say something the work downstream will actually receive.
+       * Without it a person's answer reached the next round as an outcome and
+       * nothing else: a reviewer card the person settled contributed no
+       * findings to the fix round that depended on it, while its two siblings
+       * contributed theirs. Read on `done`.
+       */
+      readonly context?: string
     }
     result: null
   }

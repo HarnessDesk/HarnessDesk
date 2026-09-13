@@ -9,6 +9,7 @@ import {
   GIT_RULES,
   orderVars,
   parseFlow,
+  parseSeat,
   renderFlowTemplate,
   renderOrder,
   ruleFor,
@@ -361,4 +362,46 @@ test('a seat is told a block its own agent will hold open', () => {
   )
   assert.match(order, /block_ms: 50000/)
   assert.doesNotMatch(order, /\{\{blockMs\}\}/)
+})
+
+test('a model id with a slash in it is written as a map, not compactly', () => {
+  // A whole family of agents has them: Cline's catalogue is
+  // `deepseek/deepseek-v4-flash`, `zai/glm-5.3-flash`. The compact form
+  // splits the effort off after a `/`, so it cannot express one — and the two
+  // readings are genuinely ambiguous without the runtime's model list.
+  const compact = parseSeat('cline=deepseek/deepseek-v4-flash')
+  assert.notEqual(typeof compact, 'string')
+  assert.equal((compact as { model?: string }).model, 'deepseek', 'the compact form reads it as a model and an effort')
+
+  const flow = read(`
+name: Cheap seats
+roles:
+  worker:
+    kind: agent
+    seat:
+      runtime: cline
+      model: deepseek/deepseek-v4-flash
+    outcomes: [done]
+seed: { role: worker, title: Do it }
+`)
+  assert.deepEqual(seatAt(flow.roles[0]!, 0), { runtime: 'cline', model: 'deepseek/deepseek-v4-flash' })
+  assert.deepEqual(validateFlow(flow), [])
+})
+
+test('a list of seats may mix the two forms', () => {
+  const flow = read(`
+name: Mixed
+roles:
+  competitor:
+    kind: agent
+    count: 2
+    seat:
+      - cursor=gpt-5.3-codex/xhigh
+      - { runtime: cline, model: zai/glm-5.3-flash }
+    outcomes: [done]
+seed: { role: competitor, title: "Attempt {{n}}" }
+`)
+  assert.equal(seatAt(flow.roles[0]!, 0).effort, 'xhigh')
+  assert.equal(seatAt(flow.roles[0]!, 1).model, 'zai/glm-5.3-flash')
+  assert.equal(seatAt(flow.roles[0]!, 1).effort, undefined)
 })

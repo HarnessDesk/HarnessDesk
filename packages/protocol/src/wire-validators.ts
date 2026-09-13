@@ -412,6 +412,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
        on the wire type and not in this list is refused by the host, and
        nothing but a running app catches it. */
     outcome: optional(isString),
+    context: optional(isString),
     /* Read on `block` and ignored by the rest. Adding the verb to the wire
        type and not to this list makes the host refuse it — and the refusal
        arrives as a rejected promise the surface reports as "the board is as it

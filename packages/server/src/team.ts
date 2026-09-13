@@ -1030,6 +1030,8 @@ export class Team {
      * other verbs, which say nothing about the merits.
      */
     outcome?: string,
+    /** The person's own context package, for the round that depends on this. */
+    context?: string,
   ): void {
     const board = this.#boardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
@@ -1070,11 +1072,19 @@ export class Team {
         blockedReason: null,
         blockedBy: null,
         outcome: said,
+        /* Left alone when the person did not write one, so marking an agent's
+           finished card done by hand does not erase the package it left. */
+        ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
       this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       this.#commit(board)
-      this.#flows?.completed(board.id, { ...intent, state: 'done', outcome: said })
+      this.#flows?.completed(board.id, {
+        ...intent,
+        state: 'done',
+        outcome: said,
+        ...(context?.trim() ? { handoff: context.trim() } : {}),
+      })
       return
     } else {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
@@ -1568,6 +1578,34 @@ export class Team {
           : `work: #${found!.id} ${found!.title}. Claim it with claim_next. Call await_work again with the next cycle number.`,
       )
     }
+  }
+
+  /**
+   * Is there a card on this board that this member could take right now?
+   *
+   * The same rule `claim_next` and `await_work` apply, asked by the flow
+   * engine before it spends a turn waking a seat: a seat whose role has
+   * nothing open will wake, find nothing, and end its turn again, and doing
+   * that on a budget is a budget spent on nothing.
+   */
+  hasWorkFor(room: string, runtime: string, sessionId: string): boolean {
+    const board = this.#board(room)
+    if (!board) return false
+    const peer = this.#membersOf(board, this.#port.peers()).find(
+      (one) => one.runtime === runtime && one.sessionId === sessionId,
+    )
+    if (!peer) return false
+    return board.intents.some(
+      (intent) =>
+        intent.state === 'open' &&
+        !intent.claim &&
+        this.#misaddressed(board, intent, peer) === null &&
+        intent.dependsOn.every((dep) => {
+          const found = board.intents.find((entry) => entry.id === dep)
+          return found === undefined || found.state === 'done'
+        }) &&
+        this.#conflictsWith(board, intent.files, peer).length === 0,
+    )
   }
 
   /**

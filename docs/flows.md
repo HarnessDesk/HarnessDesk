@@ -98,7 +98,7 @@ roles:
 
   referee:
     kind: person                      # a step the human takes
-    outcomes: [merged, dropped]
+    outcomes: [merged, dropped]       # answered from the card's own menu
 
 seed:
   role: fixer
@@ -257,7 +257,9 @@ What then happens, in order:
 
 While it runs, the board is the board: cards carry the role they are addressed
 to, a finished card carries the word it answered, and a card addressed to a
-`person` role offers that role's own words instead of "Mark done".
+`person` role offers that role's own words instead of "Mark done". The person's
+answer may carry a context package of its own, exactly as an agent's does —
+their step is a step, so what they say reaches the round that depends on it.
 
 **A run holds the flow it started with, frozen.** Editing the file under a
 running flow changes the next run and never this one — a run whose rules
@@ -293,7 +295,15 @@ request as any other. The effort choices are the runtime's, not this format's
 — Cursor's Codex offers `default, low, high, xhigh` and no `medium` — and a
 seat naming one it does not offer is refused before anything is opened.
 
-**What is the lever: how often a seat is made to think.** After each answer a
+**What is the lever: how often a seat is made to think.** A seat whose turn
+ends while its run is going is handed its order again — but only when there is
+a card it can take. Re-arming a seat to an empty board costs a turn and buys
+nothing, and it is what a model that closes its turn after finishing a round
+invites: three reviewers did exactly that in one live run and each burned its
+whole allowance inside a minute. A seat with nothing to do is left down, and
+the round that needs it is what wakes it.
+
+ After each answer a
 waiting seat calls `await_work` again, so a short block is a seat paying to be
 told nothing. The block is therefore clamped to what the agent will actually
 hold a tool call open for and **named in the standing order**: left to guess

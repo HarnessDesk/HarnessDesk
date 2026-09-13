@@ -91,13 +91,25 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProbl
       if (!seat.model) continue
       const models = await runtime.listModels().catch(() => [])
       if (models.length === 0) continue
-      if (!models.some((one) => one.id === seat.model)) {
+      if (models.some((one) => one.id === seat.model)) continue
+      /* The compact form splits the effort off after a `/`, so a model id
+         that contains one is read as a model and an effort. Say so, rather
+         than "no such model": the author wrote a real id and the grammar
+         took it apart. */
+      const rejoined = seat.effort ? `${seat.model}/${seat.effort}` : null
+      if (rejoined && models.some((one) => one.id === rejoined)) {
         problems.push({
           level: 'error',
           at,
-          text: `${runtime.info.presentation.name} does not offer a model called "${seat.model}"`,
+          text: `"${rejoined}" is one model id, not a model and an effort — write the seat as a map: { runtime: ${seat.runtime}, model: ${rejoined} }`,
         })
+        continue
       }
+      problems.push({
+        level: 'error',
+        at,
+        text: `${runtime.info.presentation.name} does not offer a model called "${seat.model}"`,
+      })
     }
   }
   return problems

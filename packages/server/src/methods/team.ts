@@ -25,7 +25,14 @@ export const teamMethods = {
   'team/wrap': (ctx, params) => ctx.team.wrapPlan(params.room, params.plan),
 
   'team/intent': (ctx, params) => {
-    ctx.team.intentAction(params.room, params.id, params.action, params.reason, params.outcome)
+    ctx.team.intentAction(
+      params.room,
+      params.id,
+      params.action,
+      params.reason,
+      params.outcome,
+      params.context,
+    )
     return null
   },
 

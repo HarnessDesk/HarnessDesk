@@ -3315,6 +3315,8 @@ export class AppStore {
      * `done`; it is the word the next rule branches on.
      */
     outcome?: string,
+    /** The person's own context package, for whatever depends on this card. */
+    context?: string,
   ): Promise<void> {
     await this.transport.request('team/intent', {
       room,
@@ -3322,6 +3324,7 @@ export class AppStore {
       action,
       ...(reason ? { reason } : {}),
       ...(outcome ? { outcome } : {}),
+      ...(context ? { context } : {}),
     })
   }
 
