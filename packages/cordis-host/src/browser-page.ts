@@ -121,6 +121,10 @@ export const PAGE_HELPERS = `(() => {
   const valueOf = (el) => {
     if (el.value != null) return String(el.value);
     if (editable(el)) return String(el.textContent == null ? '' : el.textContent);
+    const elRole = role(el);
+    if (elRole === 'textbox' || elRole === 'searchbox' || elRole === 'combobox') {
+      return String(el.textContent == null ? '' : el.textContent);
+    }
     return '';
   };
 
@@ -423,22 +427,28 @@ export const PAGE_HELPERS = `(() => {
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     if (typeof el.focus === 'function') el.focus();
     const tag = el.tagName;
+    const elRole = role(el);
     if (tag === 'SELECT') {
       const wanted = String(value);
       const option = Array.from(el.options).find((o) => o.value === wanted || clean(o.textContent) === wanted);
       if (!option) throw new Error('No option matches ' + JSON.stringify(wanted) + ' in that select.');
       el.value = option.value;
-    } else if (el.type === 'checkbox' || el.type === 'radio') {
+    } else if (el.type === 'checkbox' || el.type === 'radio' || elRole === 'checkbox' || elRole === 'radio' || elRole === 'switch' || elRole === 'menuitemcheckbox' || elRole === 'menuitemradio') {
       const wanted = value === true || value === 'true' || value === 1 || value === '1';
-      if (el.checked !== wanted) el.click();
-      return wrote(el, el.checked);
+      const current = el.checked != null ? el.checked : el.getAttribute('aria-checked') === 'true';
+      if (current !== wanted) el.click();
+      const updated = el.checked != null ? el.checked : el.getAttribute('aria-checked') === 'true';
+      return wrote(el, updated);
     } else if (editable(el)) {
       el.textContent = String(value);
-    } else {
+    } else if (tag === 'TEXTAREA' || tag === 'INPUT') {
       const proto = tag === 'TEXTAREA' ? W.HTMLTextAreaElement.prototype : W.HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value');
       if (setter && setter.set) setter.set.call(el, String(value));
       else el.value = String(value);
+    } else {
+      if (typeof el.value !== 'undefined') el.value = String(value);
+      else el.textContent = String(value);
     }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
