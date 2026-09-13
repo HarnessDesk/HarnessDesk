@@ -479,12 +479,13 @@ export class Flows implements TeamFlows {
     const run = this.#runs.get(id)
     if (!run) throw new Error(`There is no flow run ${id}.`)
     if (run.state !== 'running') return run
+    const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
       state: 'stopped',
       endedAt: now(),
       ended: why,
-      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+      record: [...record, { at: now(), kind: 'stopped', text: why }],
     })
     const watch = this.#watching.get(id)
     if (watch) clearTimeout(watch)
@@ -745,12 +746,13 @@ export class Flows implements TeamFlows {
         ? `Their turns did not run: ${[...new Set(failures.map((one) => one.why))].join(' · ')}`
         : "Nothing has been heard from them since, so either that agent takes HarnessDesk's tools without using them, or its turn never started."
     const why = `${absent.length === 1 ? 'a seat has' : `${absent.length} seats have`} not touched the board since being seated — ${named}. ${because}`
+    const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
       state: 'stopped',
       endedAt: now(),
       ended: why,
-      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+      record: [...record, { at: now(), kind: 'stopped', text: why }],
     })
     this.#port.log('a flow stopped because its seats never took the tools', {
       run: id,

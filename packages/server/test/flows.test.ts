@@ -1350,4 +1350,53 @@ test('Flows.load refuses a running run that omits rounds instead of crashing (#5
   assert.equal(second.runsFor(one.room).length, 0)
 })
 
+test('Flows.stop does not crash when a run has non-array record data (#505)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-record.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'bad-record-run',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: null,
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+  await second.load()
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+  assert.throws(() => second.stop('bad-record-run'), /There is no flow run bad-record-run/)
+
+  // Direct in-memory test for runtime guard in stop():
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const activeRun = one.flows.runsFor(one.room)[0] as unknown as { id: string; record: unknown; state: string }
+  assert.ok(activeRun)
+  activeRun.record = null
+  const stopped = one.flows.stop(activeRun.id, 'manual stop')
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(stopped.record.length, 1)
+  assert.equal(stopped.record[0]?.kind, 'stopped')
+  assert.equal(stopped.record[0]?.text, 'manual stop')
+})
+
+
 
