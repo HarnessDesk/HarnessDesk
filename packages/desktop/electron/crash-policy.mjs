@@ -42,6 +42,36 @@
  */
 const PIPE_CODES = new Set(['EPIPE', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END'])
 
+/**
+ * The storm guard.
+ *
+ * `respondToCrash` runs *inside* Node's `uncaughtException` handler, so
+ * anything it does that throws is delivered straight back to the same
+ * handler. More than `STORM_LIMIT` crashes inside `STORM_MS` is not a program
+ * having a bad minute; it is this handler answering itself, and the only safe
+ * answer is to stop.
+ */
+export const STORM_LIMIT = 25
+export const STORM_MS = 10_000
+
+/** When the crashes in the current window happened. */
+const recent = []
+
+/** Forget them — for a test that wants a calm window. */
+export const forgetCrashes = () => {
+  recent.length = 0
+}
+
+/**
+ * Records a crash at `now` and says whether the window is now a storm. The
+ * window slides, so a program that crashes once a minute never trips it.
+ */
+export const crashStorm = (now, at = recent) => {
+  while (at.length > 0 && now - at[0] > STORM_MS) at.shift()
+  at.push(now)
+  return at.length > STORM_LIMIT
+}
+
 /** How recently a relaunch counts as "we just did that". */
 export const RELAUNCH_LOOP_MS = 60_000
 
@@ -72,24 +102,43 @@ export const crashDecision = (error, { lastRelaunchAt = 0, now = Date.now() } = 
  */
 export const respondToCrash = (kind, error, hooks) => {
   const { record, log, readMarker, writeMarker, relaunch, exit, now = Date.now() } = hooks
-  record?.(kind, error)
-  let lastRelaunchAt = 0
-  try {
-    lastRelaunchAt = Number(readMarker?.()) || 0
-  } catch {
-    lastRelaunchAt = 0
+  /* Every hook is called through this, because the whole function runs inside
+     Node's `uncaughtException` handler: whatever throws here is delivered
+     straight back to the same handler, which calls the same hook, which
+     throws again. Measured 2026-09-13 on a desk started detached — its parent
+     exited, stdout's pipe broke, and `log` wrote through the logger that had
+     just raised EPIPE: 267,665 crash files and 1.0 GB of disk in six minutes,
+     then the process died. A crash handler is the one place in a program that
+     must not be able to fail. */
+  const safely = (run) => {
+    try {
+      return run()
+    } catch {
+      /* Nothing to report it to: reporting is what is broken. */
+      return undefined
+    }
   }
+  safely(() => record?.(kind, error))
+  /* And a second line behind the wrapping, for a fault it cannot catch — one
+     that re-enters by some other road, or a genuine flood of pipe errors that
+     `continue` would answer forever. */
+  if (crashStorm(now)) {
+    /* And it says nothing on the way out. Logging is the step that was proven
+       able to re-enter this handler, so the one path taken *because* the
+       handler is looping does not take it; `record` above already wrote the
+       crash to disk, which is where a post-mortem looks anyway. */
+    safely(() => exit?.(1))
+    return 'exit'
+  }
+  const lastRelaunchAt = safely(() => Number(readMarker?.()) || 0) ?? 0
   const decision = crashDecision(error, { lastRelaunchAt, now })
-  log?.(kind, error, decision)
+  safely(() => log?.(kind, error, decision))
   if (decision === 'continue') return decision
   if (decision === 'relaunch') {
-    try {
-      writeMarker?.(now)
-    } catch {
-      /* the marker is a courtesy; the relaunch is the point */
-    }
-    relaunch?.()
+    /* the marker is a courtesy; the relaunch is the point */
+    safely(() => writeMarker?.(now))
+    safely(() => relaunch?.())
   }
-  exit?.(1)
+  safely(() => exit?.(1))
   return decision
 }
