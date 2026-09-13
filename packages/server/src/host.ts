@@ -485,61 +485,16 @@ export class Host {
         const session = this.#attach(runtime, live.id, live)
         await live.setTitle(where.title).catch(() => {})
         await this.#names.set(runtime.info.id, live.id, where.title)
-        for (const [id, value] of Object.entries({
-          ...(seat.model ? { model: seat.model } : {}),
-          ...(seat.effort ? { effort: seat.effort } : {}),
-          ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
-        })) {
-          const option = live.options().find((one) => one.id === id)
-          if (!option || String(option.currentValue) === String(value)) continue
-          await live.setOption(id, value as never).catch((error: unknown) => {
-            this.#logger.warn('a flow seat could not take a pick', {
-              runtime: seat.runtime,
-              option: id,
-              value: String(value),
-              error: describeError(error),
-            })
-          })
-        }
-        /* And a switch nobody asked for is turned *off*, not inherited. Picks
-           persist per agent on a desk, so the last seat's thinking switch is
-           the next one's default — twice the price of every round trip, under
-           a line nobody wrote. The same for a fast lane and for max mode: a
-           flow's seat says what it wants, and what it does not say it does not
-           get. */
-        for (const id of ['thinking', 'fast', 'max-mode']) {
-          if (id === 'thinking' && seat.thinking !== undefined) continue
-          const option = live.options().find((one) => one.id === id)
-          if (!option || option.disabled || option.currentValue !== true) continue
-          await live.setOption(id, false).catch((error: unknown) => {
-            this.#logger.warn('a flow seat inherited a switch it could not turn off', {
-              runtime: seat.runtime,
-              option: id,
-              error: describeError(error),
-            })
-          })
-        }
-        const ran = live.options()
-        const label = [
-          runtime.info.presentation.name,
-          ...['model', 'effort'].map((id) => {
-            const option = ran.find((one) => one.id === id)
-            if (!option) return null
-            const choice =
-              option.type === 'select'
-                ? option.choices.find((one) => String(one.value) === String(option.currentValue))
-                : undefined
-            return choice?.label ?? (option.currentValue == null ? null : String(option.currentValue))
-          }),
-          ran.find((one) => one.id === 'thinking')?.currentValue === true ? 'thinking' : null,
-        ]
-          .filter((one): one is string => Boolean(one))
-          .join(' · ')
+        const label = await this.#applySeatPicks(live, seat)
         return { runtime: String(runtime.info.id), sessionId: String(session.id), label }
       },
       order: async (runtime, sessionId, text) => {
         const live = await this.#teamLive(runtime as RuntimeId, sessionId)
         await live.send([{ type: 'text', text }])
+      },
+      reseat: async (runtime, sessionId, seat) => {
+        const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+        return this.#applySeatPicks(live, seat)
       },
       join: async (room, runtime, sessionId) => {
         const id = makeSessionId(sessionId)
@@ -780,6 +735,11 @@ export class Host {
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
+    /* And only now wake what stopped while the desk was down. Reconciling a
+       run's rounds is board work and belongs above; *sending* to a seat needs
+       the agent that holds it to be running, and asking a moment too early
+       answers "Cursor is not running" for every seat of every flow. */
+    void this.#flows.resume()
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
   }
 
@@ -2013,6 +1973,74 @@ export class Host {
     } finally {
       this.#draining.delete(key)
     }
+  }
+
+  /**
+   * Puts one conversation on the model, effort and switches a flow's seat
+   * asked for, and answers with what it is *actually* running.
+   *
+   * Read back rather than assumed, because a runtime drops a pick it declines
+   * rather than failing — a seat that believes it is running at an effort it
+   * is not is a seat with an unchecked claim on it, and a review signed with
+   * that claim is a review that lies about who wrote it.
+   *
+   * Applied at seating **and before every re-arm**. A bridge that restarts
+   * holds no session state, so a conversation it reopens comes back on the
+   * agent's own default: measured after a desk restart, a re-armed Gemini
+   * seat billed as `default` — Cursor's Auto.
+   *
+   * A switch nobody asked for is turned *off*, not inherited. Picks persist
+   * per agent on a desk, so the last seat's thinking switch is the next one's
+   * default: twice the price of every round trip, under a line nobody wrote.
+   */
+  async #applySeatPicks(
+    live: Awaited<ReturnType<AgentRuntime['createSession']>>,
+    seat: { runtime: string; model?: string | null; effort?: string | null; thinking?: boolean },
+  ): Promise<string> {
+    for (const [id, value] of Object.entries({
+      ...(seat.model ? { model: seat.model } : {}),
+      ...(seat.effort ? { effort: seat.effort } : {}),
+      ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+    })) {
+      const option = live.options().find((one) => one.id === id)
+      if (!option || String(option.currentValue) === String(value)) continue
+      await live.setOption(id, value as never).catch((error: unknown) => {
+        this.#logger.warn('a flow seat could not take a pick', {
+          runtime: seat.runtime,
+          option: id,
+          value: String(value),
+          error: describeError(error),
+        })
+      })
+    }
+    for (const id of ['thinking', 'fast', 'max-mode']) {
+      if (id === 'thinking' && seat.thinking !== undefined) continue
+      const option = live.options().find((one) => one.id === id)
+      if (!option || option.disabled || option.currentValue !== true) continue
+      await live.setOption(id, false).catch((error: unknown) => {
+        this.#logger.warn('a flow seat inherited a switch it could not turn off', {
+          runtime: seat.runtime,
+          option: id,
+          error: describeError(error),
+        })
+      })
+    }
+    const ran = live.options()
+    return [
+      this.#runtimes.get(seat.runtime)?.info.presentation.name ?? seat.runtime,
+      ...['model', 'effort'].map((id) => {
+        const option = ran.find((one) => one.id === id)
+        if (!option) return null
+        const choice =
+          option.type === 'select'
+            ? option.choices.find((one) => String(one.value) === String(option.currentValue))
+            : undefined
+        return choice?.label ?? (option.currentValue == null ? null : String(option.currentValue))
+      }),
+      ran.find((one) => one.id === 'thinking')?.currentValue === true ? 'thinking' : null,
+    ]
+      .filter((one): one is string => Boolean(one))
+      .join(' · ')
   }
 
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {

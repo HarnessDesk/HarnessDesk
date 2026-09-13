@@ -67,6 +67,16 @@ export interface FlowPort {
   ): Promise<{ readonly runtime: string; readonly sessionId: string; readonly label: string }>
   /** Hands a seat its standing order. One turn, and the whole job is inside it. */
   order(runtime: string, sessionId: string, text: string): Promise<void>
+  /**
+   * Puts a seat back on the model and effort it was seated with, and reports
+   * what it is actually running.
+   *
+   * Called before every re-arm rather than only at seating, because a bridge
+   * that restarts holds no session state: the conversation comes back on the
+   * agent's own default, and a reviewer signing as one model while running
+   * another is a review that lies about who wrote it.
+   */
+  reseat(runtime: string, sessionId: string, seat: FlowSeat): Promise<string>
   /** Puts a conversation in a room. */
   join(room: string, runtime: string, sessionId: string): Promise<void>
   /** A worktree of its own, on a branch of its own, for a role that isolates. */
@@ -291,6 +301,7 @@ export class Flows implements TeamFlows {
           runtime: opened.runtime,
           sessionId: opened.sessionId,
           seat: opened.label,
+          spec,
           permission: role.permission,
           cwd,
         })
@@ -477,9 +488,23 @@ export class Flows implements TeamFlows {
       this.#save(run.id)
       return
     }
-    this.#rearms.set(key, [...spent, now()])
     const name = this.#team.stateFor(run.room).nicknames?.[key] ?? seat.seat
     try {
+      /* Its model and effort first. Measured after a desk restart: the seat
+         came back billing as `default` — Cursor's Auto — because the bridge
+         that reopened it held no session state. A flow whose reviewers
+         quietly become Auto is a flow that cannot say who did the work. */
+      if (seat.spec) {
+        const running = await this.#port.reseat(seat.runtime, seat.sessionId, seat.spec)
+        if (running !== seat.seat) {
+          this.#port.log('a flow seat came back on something else', {
+            run: run.id,
+            role: seat.role,
+            seated: seat.seat,
+            running,
+          })
+        }
+      }
       await this.#port.order(
         seat.runtime,
         seat.sessionId,
@@ -494,6 +519,11 @@ export class Flows implements TeamFlows {
         ),
       )
     } catch (error) {
+      /* And it does not count against the budget. The budget is there to stop
+         a seat that *starts and stops* from draining an account; a send that
+         never reached the agent bought nothing and spent nothing, and
+         charging for it would use the allowance up on a runtime that was
+         merely not running yet. */
       this.#port.log('a flow seat could not be re-armed', {
         run: run.id,
         role: seat.role,
@@ -501,6 +531,7 @@ export class Flows implements TeamFlows {
       })
       return
     }
+    this.#rearms.set(key, [...spent, now()])
     this.#runs.set(this.#runs.get(run.id)!.id, {
       ...(this.#runs.get(run.id) as StoredRun),
       record: [
@@ -725,10 +756,10 @@ export class Flows implements TeamFlows {
    * turn is left alone: it is already waiting, and handing it a second order
    * is the second billed request this whole design exists to avoid.
    */
-  async #armFor(id: string, roleId: string): Promise<void> {
+  async #armFor(id: string, roleId?: string): Promise<void> {
     const run = this.#runs.get(id)
     if (!run || run.state !== 'running') return
-    const seats = run.seats.filter((one) => one.role === roleId)
+    const seats = roleId === undefined ? run.seats : run.seats.filter((one) => one.role === roleId)
     if (seats.length === 0) return
     const peers = await this.#team.peersFor(run.room).catch(() => [])
     for (const seat of seats) {
@@ -801,6 +832,30 @@ export class Flows implements TeamFlows {
         continue
       }
       await this.#advance(run.id)
+    }
+  }
+
+  /**
+   * Wakes whatever stopped while the desk was down.
+   *
+   * Separate from `load` and called once the runtimes are up, because these
+   * are two different jobs: reconciling a run's rounds is board work and can
+   * happen the moment the files are read, but *sending* to a seat needs the
+   * agent holding it to be running. Asked a moment too early it answers
+   * "Cursor is not running" for every seat of every flow — which is exactly
+   * what it did.
+   *
+   * A turn that ended while the desk was down leaves no turn-end event to
+   * react to, so without this a run came back reconciled and *asleep*: its
+   * rounds correct, its cards where they should be, and every seat that had
+   * stopped still stopped. `#armFor` only wakes a seat that is out of its
+   * turn and has work — one holding a card, or one whose round is open — so a
+   * healthy run wakes nobody.
+   */
+  async resume(): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running') continue
+      await this.#armFor(run.id)
     }
   }
 

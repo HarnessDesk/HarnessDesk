@@ -37,6 +37,14 @@ interface Rig {
   readonly ran: { command: string; cwd: string }[]
   /** Ends a seat's turn, the way a lapsed window or a refused call does. */
   kill(seat: { runtime: string; sessionId: string }): void
+  /** Orders that throw before landing, counted down — an agent that is not up. */
+  failOrders: number
+  /** What a reseated conversation reports running, when it is not what was asked. */
+  comesBackAs?: string
+  /** Every time a seat's picks were re-applied. */
+  readonly reseated: { sessionId: string; spec: string }[]
+  /** What the engine said out loud. */
+  readonly logged: string[]
 }
 
 const peerOf = (runtime: string, sessionId: string, cwd: string, model: string): TeamPeer => ({
@@ -56,12 +64,17 @@ const peerOf = (runtime: string, sessionId: string, cwd: string, model: string):
 })
 
 const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> => {
+  /* Built up as we go, because the fake desk's own verbs read its state — an
+     order that fails has to be able to see the counter that says so. */
+  const rig = { failOrders: 0 } as Rig
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-flows-'))
   const peers: TeamPeer[] = []
   const seated: Rig['seated'] = []
   const orders: Rig['orders'] = []
   const isolated: string[] = []
   const ran: Rig['ran'] = []
+  const reseated: Rig['reseated'] = []
+  const logged: Rig['logged'] = []
   const exits = new Map<string, number>()
   const changed: TeamState[] = []
   const teamPort: TeamPort = {
@@ -86,7 +99,17 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
       seated.push({ runtime: seat.runtime, sessionId, cwd: where.cwd, spec, title: where.title })
       return { runtime: seat.runtime, sessionId, label: spec }
     },
+    reseat: async (runtime, sessionId, seat) => {
+      const spec = `${seat.runtime}${seat.model ? `=${seat.model}` : ''}${seat.effort ? `/${seat.effort}` : ''}`
+      reseated.push({ sessionId, spec })
+      // What it *actually* came back on, which a test may make disagree.
+      return rig.comesBackAs ?? spec
+    },
     order: async (runtime, sessionId, text) => {
+      if (rig.failOrders > 0) {
+        rig.failOrders -= 1
+        throw new Error('Cursor is not running.')
+      }
       orders.push({ key: String(sessionKey(runtime as never, sessionId as never)), text })
     },
     join: async (id, runtime, sessionId) => {
@@ -102,7 +125,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
       return { status: exits.get(command) ?? 0 }
     },
     changed: () => {},
-    log: () => {},
+    log: (message, details) => void logged.push(`${message} ${JSON.stringify(details ?? {})}`),
   }
   const flows = new Flows(join(dir, 'flows'), team, port)
   team.attachFlows(flows)
@@ -115,7 +138,8 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     const peer = peers.find((one) => one.runtime === seat.runtime && one.sessionId === seat.sessionId)
     if (peer) Object.assign(peer, { busy: false })
   }
-  return { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill }
+  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill, reseated, logged })
+  return rig as Rig
 }
 
 const REVIEW = `
@@ -397,6 +421,7 @@ test('a run picks up where it left off when the desk restarts mid-round', async 
   const second = new Flows(join(one.dir, 'flows'), one.team, {
     seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
     order: async () => {},
+    reseat: async () => 'cursor',
     join: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
@@ -669,4 +694,100 @@ test('a seat whose turn dies while holding a card is woken — the work is in it
   await one.flows.reArm(fixer.runtime, fixer.sessionId)
   assert.equal(one.orders.length, 5, 'it is handed its order again')
   assert.match(one.orders[4]!.text, /You publish\./)
+})
+
+test('a restart wakes a seat that stopped while the desk was down', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  one.kill(fixer)
+  await one.flows.flush()
+  const before = one.orders.length
+
+  /* A turn that ended while the desk was down produces no turn-end event, so
+     a run used to come back reconciled and *asleep*: rounds correct, cards
+     where they should be, and every seat that had stopped still stopped. */
+  const second = new Flows(join(one.dir, 'flows'), one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async (runtime, sessionId, text) => {
+      one.orders.push({ key: String(sessionKey(runtime as never, sessionId as never)), text })
+    },
+    reseat: async () => 'cursor',
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: () => {},
+  })
+  one.team.attachFlows(second)
+  await second.load()
+  await second.flush()
+  assert.equal(one.orders.length, before, 'reading the runs sends nothing — the agents may not be up yet')
+
+  // The host calls this once the runtimes are running.
+  await second.resume()
+  await second.flush()
+  assert.equal(one.orders.length, before + 1, 'the seat holding a card was woken')
+  assert.match(one.orders[before]!.text, /You publish\./)
+
+  // And a healthy run wakes nobody: every other seat is still inside its turn.
+  assert.equal(one.orders.length, before + 1)
+})
+
+test('a re-arm that never reached the agent costs nothing from the budget', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  one.kill(fixer)
+
+  /* The budget stops a seat that *starts and stops* from draining an account.
+     A send that never reached the agent bought nothing — the runtime was not
+     up yet, which is exactly what a restart looks like — so charging for it
+     would use the allowance up on nothing. */
+  one.failOrders = 5
+  for (let n = 0; n < 5; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4, 'nothing landed')
+  one.failOrders = 0
+  for (let n = 0; n < 3; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 7, 'the full allowance is still there')
+})
+
+test('a re-armed seat is put back on the model it was seated with', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  one.kill(fixer)
+  // The fake desk applies picks inside its own `seat`, as the host does, so
+  // nothing has been *re*-seated yet.
+  assert.equal(one.reseated.length, 0)
+
+  /* Measured after a desk restart: the re-armed seat billed as `default` —
+     Cursor's Auto — because the bridge that reopened the conversation held no
+     session state. A flow whose reviewers quietly become Auto cannot say who
+     did the work. */
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.deepEqual(one.reseated, [{ sessionId: fixer.sessionId, spec: 'cursor=gpt-5.3-codex/xhigh' }])
+})
+
+test('a seat that comes back on something else is said so, not passed over', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  one.kill(fixer)
+  // The desk asks for Codex and the agent answers with Auto, which is what a
+  // restarted bridge does.
+  one.comesBackAs = 'cursor=auto'
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+
+  // Still armed — a wrong model is better than a flow stalled forever — but
+  // the disagreement is on the record rather than silent.
+  assert.equal(one.orders.length, 5)
+  assert.ok(
+    one.logged.some((line) => /came back on something else/.test(line)),
+    one.logged.join('\n'),
+  )
 })

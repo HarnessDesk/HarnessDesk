@@ -222,6 +222,16 @@ export interface FlowSeatRecord {
   readonly sessionId: string
   /** How the desk describes what it is running. */
   readonly seat: string
+  /**
+   * What it was *asked* for, kept so a re-arm can ask again.
+   *
+   * A bridge that restarts holds no session state, so a conversation it
+   * reopens comes back on the agent's default — and a reviewer that signs as
+   * Gemini while running Cursor's Auto is a review that lies about who wrote
+   * it. The label above says what it was running when it was seated; this
+   * says what to restore.
+   */
+  readonly spec: FlowSeat
   readonly permission: FlowPermission
   /** The checkout it was pointed at — a worktree of its own when the role isolates. */
   readonly cwd: string

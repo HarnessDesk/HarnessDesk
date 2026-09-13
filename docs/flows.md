@@ -295,9 +295,17 @@ request as any other. The effort choices are the runtime's, not this format's
 — Cursor's Codex offers `default, low, high, xhigh` and no `medium` — and a
 seat naming one it does not offer is refused before anything is opened.
 
+**A re-armed seat is put back on its model first.** A bridge that restarts
+holds no session state, so a conversation it reopens comes back on the agent's
+own default — measured after a desk restart, a re-armed Gemini seat billed as
+`default`, Cursor's Auto. A flow whose reviewers quietly become Auto cannot say
+who did the work, so the seat's picks are re-applied and read back before its
+order goes out, and a seat that comes back on something else is said so.
+
 **What is the lever: how often a seat is made to think.** A seat whose turn
 ends while its run is going is handed its order again — but only when there is
-a card it can take. Re-arming a seat to an empty board costs a turn and buys
+a card it can take, which includes one it is *holding*: a seat that stopped
+mid-card has the most urgent work there is. Re-arming a seat to an empty board costs a turn and buys
 nothing, and it is what a model that closes its turn after finishing a round
 invites: three reviewers did exactly that in one live run and each burned its
 whole allowance inside a minute. A seat with nothing to do is left down, and
