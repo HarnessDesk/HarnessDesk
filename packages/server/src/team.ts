@@ -329,6 +329,15 @@ export interface TeamCallScope {
 interface Waiter {
   readonly key: string
   readonly board: string
+  /**
+   * Which cycle this call was, so the wake can name the next one.
+   *
+   * Every other answer ends "call await_work again with cycle: N", and the
+   * wake path said "with the next cycle number" — sending the seat back to a
+   * counter it would have to keep itself, which is the exact fragility the
+   * number exists to remove.
+   */
+  readonly cycle: number
   readonly resolve: (answer: string | null) => void
   timer: ReturnType<typeof setTimeout> | null
 }
@@ -1520,7 +1529,7 @@ export class Team {
       Math.max(1000, Math.trunc(options.blockMs ?? DEFAULT_WAIT_MS)),
     )
     const answer = await new Promise<string | null>((resolve) => {
-      const waiter: Waiter = { key, board: board.id, resolve, timer: null }
+      const waiter: Waiter = { key, board: board.id, cycle, resolve, timer: null }
       waiter.timer = setTimeout(() => {
         this.#waiters.delete(waiter)
         resolve(null)
@@ -1575,7 +1584,7 @@ export class Team {
       waiter.resolve(
         standDown
           ? `stand down — ${standDown}`
-          : `work: #${found!.id} ${found!.title}. Claim it with claim_next. Call await_work again with the next cycle number.`,
+          : `work: #${found!.id} ${found!.title}. Claim it with claim_next. Call await_work again with cycle: ${waiter.cycle + 1}.`,
       )
     }
   }

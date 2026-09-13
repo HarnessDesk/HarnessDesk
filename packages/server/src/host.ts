@@ -496,6 +496,11 @@ export class Host {
         const live = await this.#teamLive(runtime as RuntimeId, sessionId)
         return this.#applySeatPicks(live, seat)
       },
+      retire: async (runtime, sessionId) => {
+        const id = makeSessionId(sessionId)
+        await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
+        this.registry.get(runtime as RuntimeId, id)?.approvals.clear()
+      },
       join: async (room, runtime, sessionId) => {
         const id = makeSessionId(sessionId)
         const known = this.registry.get(runtime as RuntimeId, id)?.session

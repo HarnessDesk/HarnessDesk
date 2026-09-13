@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +7,7 @@ import { test } from 'node:test'
 
 import { sessionKey, type RuntimeId, type TeamState } from '@harnessdesk/protocol'
 
-import { Flows, type FlowPort } from '../src/flows.js'
+import { Flows, runCheck, type FlowPort } from '../src/flows.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 
 /**
@@ -45,6 +46,10 @@ interface Rig {
   readonly reseated: { sessionId: string; spec: string }[]
   /** What the engine said out loud. */
   readonly logged: string[]
+  /** Conversations the engine closed after a seating that failed part-way. */
+  readonly retired: string[]
+  /** Seats that throw instead of opening, by title fragment. */
+  refuseSeat?: string
 }
 
 const peerOf = (runtime: string, sessionId: string, cwd: string, model: string): TeamPeer => ({
@@ -75,6 +80,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
   const ran: Rig['ran'] = []
   const reseated: Rig['reseated'] = []
   const logged: Rig['logged'] = []
+  const retired: string[] = []
   const exits = new Map<string, number>()
   const changed: TeamState[] = []
   const teamPort: TeamPort = {
@@ -92,6 +98,9 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
   let n = 0
   const port: FlowPort = {
     seat: async (seat, where) => {
+      if (rig.refuseSeat && where.title.includes(rig.refuseSeat)) {
+        throw new Error(`${seat.runtime} would not open a conversation`)
+      }
       n += 1
       const sessionId = `s${n}`
       peers.push(peerOf(seat.runtime, sessionId, where.cwd, seat.model ?? seat.runtime))
@@ -99,6 +108,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
       seated.push({ runtime: seat.runtime, sessionId, cwd: where.cwd, spec, title: where.title })
       return { runtime: seat.runtime, sessionId, label: spec }
     },
+    retire: async (runtime, sessionId) => void retired.push(`${runtime} ${sessionId}`),
     reseat: async (runtime, sessionId, seat) => {
       const spec = `${seat.runtime}${seat.model ? `=${seat.model}` : ''}${seat.effort ? `/${seat.effort}` : ''}`
       reseated.push({ sessionId, spec })
@@ -138,7 +148,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     const peer = peers.find((one) => one.runtime === seat.runtime && one.sessionId === seat.sessionId)
     if (peer) Object.assign(peer, { busy: false })
   }
-  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill, reseated, logged })
+  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill, reseated, logged, retired })
   return rig as Rig
 }
 
@@ -422,6 +432,7 @@ test('a run picks up where it left off when the desk restarts mid-round', async 
     seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
     order: async () => {},
     reseat: async () => 'cursor',
+    retire: async () => {},
     join: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
@@ -714,6 +725,7 @@ test('a restart wakes a seat that stopped while the desk was down', async (t) =>
       one.orders.push({ key: String(sessionKey(runtime as never, sessionId as never)), text })
     },
     reseat: async () => 'cursor',
+    retire: async () => {},
     join: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
@@ -790,4 +802,125 @@ test('a seat that comes back on something else is said so, not passed over', asy
     one.logged.some((line) => /came back on something else/.test(line)),
     one.logged.join('\n'),
   )
+})
+
+// ------------------------------------------------- what the review round found
+
+test('a flow whose seed is a check runs that check, rather than waiting on it forever', async (t) => {
+  const one = await rig(t)
+  /* Reported in review: `start()` opened the seed card and only the
+     *transition* path ran checks, so a flow whose first step is a preflight
+     gate deadlocked — card open, run running, command never issued. */
+  const GATE = `
+name: Gate first
+roles:
+  tests:
+    kind: check
+    run: pnpm verify
+    exits: { 0: pass }
+    otherwise: fail
+  fixer: { kind: agent, seat: cursor, outcomes: [published, cannot], permission: publish }
+seed: { role: tests, title: Run the gate first }
+rules:
+  - { id: on-red, on: tests, when: { any: fail }, then: { role: fixer, title: Make the gate pass } }
+`
+  one.exits.set('pnpm verify', 1)
+  await one.flows.start({ room: one.room, source: GATE })
+  await one.flows.flush()
+
+  assert.deepEqual(one.ran, [{ command: 'pnpm verify', cwd: '/repo' }], 'the seed check actually ran')
+  assert.equal(board(one).intents[0]?.outcome, 'fail')
+  assert.equal(board(one).intents[1]?.title, 'Make the gate pass', 'and the run moved on')
+})
+
+test('a seating that fails part-way closes the seats it opened', async (t) => {
+  const one = await rig(t)
+  /* Reported in review: a later `seat()` rejecting left the earlier
+     conversations open, joined and roled, owned by no run — turns spent on
+     members nothing would ever stand down. */
+  one.refuseSeat = 'reviewer 2'
+  await assert.rejects(
+    () => one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } }),
+    /would not open a conversation/,
+  )
+  assert.equal(one.flows.runsFor(one.room).length, 0, 'no run was left behind')
+  assert.equal(one.retired.length, 2, 'the fixer and the first reviewer were closed')
+  assert.deepEqual(one.team.stateFor(one.room).roles, {}, 'and nobody was left holding a role')
+  assert.equal(one.team.stateFor(one.room).members.length, 0, 'nor left in the room')
+  assert.equal(board(one).intents.length, 0)
+})
+
+test('a run stops when its seats never touch the board, and says which', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  /* #333: an agent that takes the tool bridge and ignores it is handed its
+     order, spends a turn and sits there, while the card stays open and the run
+     stays running. Nothing in the roster separates it beforehand, so the run
+     has to notice afterwards. */
+  await one.flows.attendance()
+  const run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'stopped')
+  assert.match(run.ended ?? '', /not touched the board since being seated/)
+  assert.match(run.ended ?? '', /fixer \(/)
+  assert.ok(one.logged.some((line) => /never took the tools/.test(line)))
+})
+
+test('a run whose seats are working is left alone by the same check', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  // One board verb from each seat is all "it took the tools" means.
+  for (const seat of [seatsOf(one, 'fixer')[0]!, ...seatsOf(one, 'reviewer')]) {
+    await one.team.board(seat)
+  }
+  await one.flows.attendance()
+  assert.equal(one.flows.runsFor(one.room)[0]?.state, 'running', 'a working run is not stopped')
+})
+
+test('every answer names the cycle to pass next, the wake included', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  /* Reported in review: the *wake* path said "with the next cycle number"
+     while every other answer named it, which sends a seat back to a counter it
+     would have to keep itself — the exact fragility `cycle` removes.
+
+     It has to be the wake path and not the immediate one, so the fixer waits
+     while nothing is addressed to it — the round open is the reviewers' — and
+     is woken by the fix round a mixed verdict opens. */
+  const reviewers = seatsOf(one, 'reviewer')
+  const waiting = one.team.awaitWork(fixer, { blockMs: 30_000, cycle: 6 })
+  for (const [index, reviewer] of reviewers.entries()) {
+    await one.team.claim(index + 2, reviewer)
+    await one.team.complete(
+      index + 2,
+      { outcome: index === 1 ? 'request-changes' : 'approve' },
+      reviewer,
+    )
+  }
+  await one.flows.flush()
+  assert.match(await waiting, /^work: #5 .*Call await_work again with cycle: 7\.$/)
+})
+
+test('a check that runs over time is actually stopped, background and all', async (t) => {
+  void t
+  /* Reported in review: the timeout killed the shell and not its process
+     tree, so `sleep N & wait` reported the timeout's outcome while the
+     background process carried on running on the machine — "the check
+     stopped" was a claim the engine could not keep. */
+  const marker = join(tmpdir(), `harnessdesk-check-${process.pid}-${Date.now()}`)
+  const started = Date.now()
+  const { status } = await runCheck(`sleep 4 && touch ${marker} & wait`, {
+    cwd: tmpdir(),
+    timeoutSec: 1,
+  })
+  assert.equal(status, null, 'it reports the timeout')
+  assert.ok(Date.now() - started < 3000, 'and returns at the timeout, not at the command')
+
+  // Past when the background command would have finished, had it survived.
+  await new Promise((resolve) => setTimeout(resolve, 4500))
+  assert.equal(existsSync(marker), false, 'the background process was stopped too')
 })

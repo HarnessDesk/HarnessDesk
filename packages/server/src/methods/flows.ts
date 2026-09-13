@@ -80,6 +80,22 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProbl
     for (const [index, seat] of role.seats.entries()) {
       const at = `roles.${role.id}.seat${role.seats.length > 1 ? `[${index}]` : ''}`
       const runtime = ctx.runtimes.get(seat.runtime)
+      if (runtime && !ctx.runtimes.infoOf(runtime).capabilities.pluginTools) {
+        /* A seat that cannot be handed the desk's tools cannot claim, finish
+           or wait — it can only sit there while the run stalls. The agent
+           declares this once it has been offered the bridge and refused it
+           (`pluginTools` is "offered and not refused", per the ACP adapter),
+           so this catches the refusing case before a turn is spent. It does
+           *not* catch an agent that accepts the offer and ignores it — see
+           #333 and `#attendance` in flows.ts, which stops that after the
+           fact. */
+        problems.push({
+          level: 'error',
+          at,
+          text: `${runtime.info.presentation.name} does not take HarnessDesk's tools, so a seat on it could never claim a card`,
+        })
+        continue
+      }
       if (!runtime) {
         problems.push({
           level: 'error',

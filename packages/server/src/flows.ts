@@ -77,6 +77,14 @@ export interface FlowPort {
    * another is a review that lies about who wrote it.
    */
   reseat(runtime: string, sessionId: string, seat: FlowSeat): Promise<string>
+  /**
+   * Closes a conversation this flow opened and will not use.
+   *
+   * Only ever called to undo a seating that failed part-way: the turns those
+   * seats cost are already spent, and leaving them live in a room no run owns
+   * is how a failed start becomes somebody else's cleanup.
+   */
+  retire(runtime: string, sessionId: string): Promise<void>
   /** Puts a conversation in a room. */
   join(room: string, runtime: string, sessionId: string): Promise<void>
   /** A worktree of its own, on a branch of its own, for a role that isolates. */
@@ -119,6 +127,17 @@ export interface FlowStart {
 const REARM_BUDGET = 3
 const REARM_WINDOW_MS = 60 * 60 * 1000
 
+/**
+ * How long a seat has to be seen using the board before the run gives up on
+ * it.
+ *
+ * Long enough for the slowest honest start measured here — a seat woken, its
+ * order read, and one `await_work` issued, which live runs did inside twenty
+ * seconds on every agent that works — and short enough that a room which will
+ * never move says so while somebody is still watching it.
+ */
+const ATTENDANCE_GRACE_MS = 3 * 60 * 1000
+
 const now = (): number => Date.now()
 
 /**
@@ -139,7 +158,12 @@ export const runCheck = async (
   where: { readonly cwd: string; readonly timeoutSec: number },
 ): Promise<{ readonly status: number | null }> =>
   new Promise((resolve) => {
-    const child = spawn(command, { cwd: where.cwd, shell: true, stdio: 'ignore' })
+    /* Its own process group, so a timeout can end the whole of it. Killing
+       the shell alone leaves whatever it started: `sleep 9 & wait` reported
+       the timeout's outcome while the background `sleep` carried on running
+       on the machine, which makes "the check stopped" a claim the engine
+       could not keep. */
+    const child = spawn(command, { cwd: where.cwd, shell: true, stdio: 'ignore', detached: true })
     let settled = false
     const finish = (status: number | null): void => {
       if (settled) return
@@ -147,8 +171,16 @@ export const runCheck = async (
       clearTimeout(timer)
       resolve({ status })
     }
+    const stop = (): void => {
+      try {
+        // Negative pid is the group; the shell and everything it spawned.
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        // Already gone, or never started — `exit` answers either way.
+      }
+    }
     const timer = setTimeout(() => {
-      child.kill('SIGKILL')
+      stop()
       finish(null)
     }, where.timeoutSec * 1000)
     /* Unref'd so a check left running cannot hold a quit open; the kill above
@@ -175,6 +207,8 @@ export class Flows implements TeamFlows {
   #turning = new Map<string, Promise<void>>()
   /** When each seat was last handed its order again, for the budget below. */
   #rearms = new Map<string, number[]>()
+  /** Attendance checks in flight, so a stop or a quit can cancel them. */
+  #watching = new Map<string, ReturnType<typeof setTimeout>>()
   #writes: Promise<void> = Promise.resolve()
 
   constructor(dir: string, team: Team, port: FlowPort) {
@@ -185,6 +219,8 @@ export class Flows implements TeamFlows {
 
   /** Waits out the write chain — a disposer's courtesy, and the tests'. */
   async flush(): Promise<void> {
+    for (const timer of this.#watching.values()) clearTimeout(timer)
+    this.#watching.clear()
     await Promise.all([...this.#turning.values()])
     await this.#writes
   }
@@ -286,6 +322,30 @@ export class Flows implements TeamFlows {
        when its card appears is a card nobody can take, and `await_work` would
        hand it to whoever was seated first — which is exactly the routing
        failure roles exist to end. */
+    /* Everything opened so far, so a seat that fails takes the others with it
+       rather than leaving them in the room. Seating spends a turn each and
+       joins each conversation to the room; a later refusal used to leave those
+       live, roled, and owned by no run — turns spent on members nothing would
+       ever stand down. */
+    const opened: FlowSeatRecord[] = []
+    const undo = async (why: string): Promise<void> => {
+      for (const seat of opened) {
+        this.#team.setRole(request.room, seat.runtime, seat.sessionId, null)
+        try {
+          this.#team.leaveRoom(request.room, seat.runtime as never, seat.sessionId)
+        } catch {
+          // A room that is already gone needs no leaving.
+        }
+        await this.#port.retire(seat.runtime, seat.sessionId).catch(() => {})
+      }
+      this.#port.log('a flow could not seat every role, so the ones it opened were closed', {
+        room: request.room,
+        opened: opened.length,
+        why,
+      })
+    }
+
+    try {
     for (const role of flow.roles) {
       if (role.kind !== 'agent') continue
       for (let index = 0; index < role.count; index += 1) {
@@ -294,27 +354,33 @@ export class Flows implements TeamFlows {
           ? await this.#port.isolate(board.root, `${role.id}-${index + 1}-${id.slice(-4)}`)
           : board.root
         const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${flow.name}`
-        const opened = await this.#port.seat(spec, { cwd, title })
-        seats.push({
-          key: `${opened.runtime} ${opened.sessionId}`,
+        const live = await this.#port.seat(spec, { cwd, title })
+        const held: FlowSeatRecord = {
+          key: `${live.runtime} ${live.sessionId}`,
           role: role.id,
-          runtime: opened.runtime,
-          sessionId: opened.sessionId,
-          seat: opened.label,
+          runtime: live.runtime,
+          sessionId: live.sessionId,
+          seat: live.label,
           spec,
           permission: role.permission,
           cwd,
-        })
-        await this.#port.join(request.room, opened.runtime, opened.sessionId)
-        this.#team.setRole(request.room, opened.runtime, opened.sessionId, role.id)
+        }
+        seats.push(held)
+        opened.push(held)
+        await this.#port.join(request.room, live.runtime, live.sessionId)
+        this.#team.setRole(request.room, live.runtime, live.sessionId, role.id)
         record.push({
           at: now(),
           kind: 'seated',
           role: role.id,
-          seat: opened.label,
+          seat: live.label,
           text: cwd === board.root ? null : cwd,
         })
       }
+    }
+    } catch (error) {
+      await undo(error instanceof Error ? error.message : String(error))
+      throw error
     }
 
     const run: StoredRun = {
@@ -364,6 +430,15 @@ export class Flows implements TeamFlows {
     }
 
     this.#open(run, flow.seed.role, flow.seed, null, [])
+    /* And from here the run is watched: a seat that never touches the board
+       is a run that will never move. See `#attendance`. */
+    this.#watch(run.id)
+    /* A seed that is a `check` runs here, exactly as one a rule opens does.
+       Only the transition path called this, so a flow whose first step is a
+       preflight gate opened its card and then waited on a command nobody had
+       started — a deadlock a valid flow could reach by being written the
+       obvious way. */
+    await this.#runChecks(run.id)
     return this.#save(run.id)
   }
 
@@ -379,6 +454,9 @@ export class Flows implements TeamFlows {
       ended: why,
       record: [...run.record, { at: now(), kind: 'stopped', text: why }],
     })
+    const watch = this.#watching.get(id)
+    if (watch) clearTimeout(watch)
+    this.#watching.delete(id)
     this.#release(run, why)
     return this.#save(id)
   }
@@ -546,6 +624,77 @@ export class Flows implements TeamFlows {
       ],
     })
     this.#save(run.id)
+  }
+
+  /**
+   * Stops a run whose seats never took the tools they were given.
+   *
+   * The failure this catches is #333, and it is silent by construction: an
+   * agent that accepts the offered tool bridge and then ignores it is handed
+   * its order, spends a turn, and sits there — while the seed card stays open,
+   * the run stays `running`, and the only outward sign is a room that never
+   * moved. Measured on Cline 3.0.61, whose seats went looking for `claim_next`
+   * on the filesystem instead.
+   *
+   * `usedBoard` is the observation, not a claim: the room records a member the
+   * *host* has seen call a team verb. So after a grace period long enough for
+   * a seat to wake, read its order and call `await_work` once, any seat that
+   * has still not been seen stops the run and says which agent and which role.
+   * A stalled run somebody can see beats a silent one — and the whole point of
+   * the dry run is that this is decided before, so when it cannot be, the
+   * least this owes is to end quickly and say why.
+   */
+  #watch(id: string): void {
+    const run = this.#runs.get(id)
+    if (!run) return
+    const timer = setTimeout(() => {
+      void this.#attendance(id)
+    }, ATTENDANCE_GRACE_MS)
+    /* Unref'd: a desk quitting inside the grace period must not be held open
+       by a check on a run it is about to stop anyway. */
+    timer.unref?.()
+    this.#watching.set(id, timer)
+  }
+
+  /**
+   * Runs the attendance check on every live run now, rather than on its timer.
+   *
+   * The timer is the product's path; this is the same question asked directly,
+   * so a test does not have to wait out the grace period to hold the answer.
+   */
+  async attendance(): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state === 'running') await this.#attendance(run.id)
+    }
+  }
+
+  async #attendance(id: string): Promise<void> {
+    const run = this.#runs.get(id)
+    this.#watching.delete(id)
+    if (!run || run.state !== 'running') return
+    const peers = await this.#team.peersFor(run.room).catch(() => [])
+    const absent = run.seats.filter((seat) => {
+      const peer = peers.find(
+        (one) => String(sessionKey(one.runtime, one.sessionId as never)) === seat.key,
+      )
+      return peer !== undefined && peer.usedBoard !== true
+    })
+    if (absent.length === 0) return
+    const named = absent.map((seat) => `${seat.role} (${seat.seat})`).join(', ')
+    const why = `${absent.length === 1 ? 'a seat has' : `${absent.length} seats have`} not touched the board since being seated — ${named}. That agent takes HarnessDesk's tools without using them, so this flow cannot move.`
+    this.#runs.set(id, {
+      ...run,
+      state: 'stopped',
+      endedAt: now(),
+      ended: why,
+      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+    })
+    this.#port.log('a flow stopped because its seats never took the tools', {
+      run: id,
+      seats: named,
+    })
+    this.#release(run, why)
+    this.#save(id)
   }
 
   /** Why this seat should stop waiting — the one thing that may end its turn. */
