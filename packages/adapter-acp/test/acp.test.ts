@@ -595,6 +595,22 @@ test('ACP modes and config options land on the capability surface unchanged', as
   }
 })
 
+test('changing the model in ACP emits session/settings as well as session/options (#374)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.equal(session.settings().model, 'small')
+    await session.setOption('model', 'large')
+    const settingsEvent = await tape.until((event) => event.type === 'session/settings')
+    assert.equal((settingsEvent as Extract<AgentEvent, { type: 'session/settings' }>).settings.model, 'large')
+    assert.equal(session.settings().model, 'large')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('pluginTools is false for an agent that declares no tool server', async () => {
   const runtime = make()
   await runtime.start()
