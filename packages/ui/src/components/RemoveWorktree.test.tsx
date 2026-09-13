@@ -38,8 +38,12 @@ const TREE: Worktree = {
   managed: true,
 }
 
-const rig = async (changes: WorktreeChanges | Error) => {
-  const snapshot = { ...emptySnapshot(), status: 'open' } as unknown as AppSnapshot
+const rig = async (changes: WorktreeChanges | Error, options: { sessions?: AppSnapshot['sessions'] } = {}) => {
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    ...(options.sessions ? { sessions: options.sessions } : {}),
+  } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -129,3 +133,26 @@ it('says nothing about ignored files when git ignores nothing here', async () =>
 
   expect(document.body.textContent).not.toContain('git ignores here')
 })
+
+it('disables removal and explains when a conversation in the worktree is mid-turn', async () => {
+  const busySessions = new Map([
+    [
+      'sess-1',
+      {
+        key: 'sess-1',
+        cwd: TREE.path,
+        status: { type: 'active' },
+      },
+    ],
+  ])
+
+  await rig(
+    { modified: 0, untracked: 0, unpushedCommits: 0, files: [], ignored: [], ignoredCount: 0 },
+    { sessions: busySessions as never },
+  )
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('A conversation in this worktree is still working')
+  expect(button('Remove worktree')?.disabled).toBe(true)
+})
+

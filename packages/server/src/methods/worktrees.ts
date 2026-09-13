@@ -33,6 +33,14 @@ export const worktreeMethods = {
 
   'worktree/remove': async (ctx, params) => {
     await confineToOpenRepository(params.path, ctx.workspaces.openRoots())
+    // A conversation mid-turn in the worktree would lose whatever it writes after
+    // the folder goes, so the removal is held while any session in it is working.
+    const target = resolve(params.path)
+    const working = ctx.registry.snapshot().find((session) => {
+      const cwd = resolve(session.cwd)
+      return (cwd === target || cwd.startsWith(target + sep)) && isBusy(session)
+    })
+    if (working) throw new Error(`A conversation in ${params.path} is still working. Remove it once its turn ends.`)
     return ctx.worktrees.remove(params.path, { ...(params.force ? { force: true } : {}) })
   },
 

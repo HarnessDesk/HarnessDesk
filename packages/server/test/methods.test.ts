@@ -182,6 +182,40 @@ test('a repository inside an open folder counts as open for the worktree verbs',
   assert.equal(asked, 1)
 })
 
+test('worktree removal is refused while a conversation in the worktree is still working', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const repo = tempDir('hd-methods-repo-busy-')
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+  execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-busy-'), 'wt')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+
+  let removed = false
+  const ctx = contextWith({
+    workspaces: { openRoots: () => [repo] },
+    registry: {
+      snapshot: () => [
+        {
+          cwd: tree,
+          status: { type: 'active' },
+        },
+      ],
+    },
+    worktrees: {
+      remove: async () => {
+        removed = true
+        return { branch: 'wt' }
+      },
+    },
+  })
+
+  await assert.rejects(
+    dispatch(ctx, 'worktree/remove', { path: tree }),
+    /A conversation in .* is still working\. Remove it once its turn ends\./,
+  )
+  assert.equal(removed, false)
+})
+
 test('deleting a route forgets its credential only when no other route still refers to it', async () => {
   const routes = [
     { id: 'a', name: 'A', endpoint: 'https://a', wireProtocol: 'responses', credentialRef: 'cred-shared' },
