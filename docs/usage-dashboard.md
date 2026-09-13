@@ -114,6 +114,16 @@ per-message `usage` with cache-creation and cache-read split out, the model, the
 `cwd` and the git branch. Priced against a model table, that is spend by day,
 by model and by project.
 
+**One gap on tier 3, measured 2026-09-12.** The Copilot token this reads is
+the one the editor plugins write. The Copilot **CLI** signs in with `copilot
+login` and puts its token in the OS credential store instead, writing a file
+under `~/.copilot` only where there is no keychain and the person consents —
+so on a machine where only the CLI is signed in, `~/.config/github-copilot`
+does not exist and the meter has nothing to read. A Copilot agent is bound to
+this meter either way; it simply has no lanes to report until a road that
+writes that file has been used. Nothing here will prompt for keychain access
+to close the gap.
+
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
 its own copy of nothing but the ledger.
