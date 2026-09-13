@@ -2,7 +2,7 @@
 import { connect, type Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 
-import { toMcpContent, type GatewayResult } from './content.js'
+import { buildToolIndex, toMcpContent, type GatewayResult, type GatewayTool } from './content.js'
 
 /**
  * HarnessDesk's plugin tools as a stdio MCP server.
@@ -39,13 +39,6 @@ if (!SOCKET) {
  * it. Optional: an old adapter sets nothing, and the call is simply unscoped.
  */
 const CALLER = process.env['HD_TOOLS_CALLER']
-
-interface GatewayTool {
-  namespace: string
-  name: string
-  description: string
-  inputSchema: unknown
-}
 
 // ------------------------------------------------------------ gateway client
 
@@ -110,12 +103,7 @@ const call = <T>(method: string, params: Record<string, unknown> = {}): Promise<
 /** MCP tool names must be unique; namespaces disambiguate only on clashes. */
 const toolIndex = async (): Promise<Map<string, GatewayTool>> => {
   const { tools } = await call<{ tools: GatewayTool[] }>('tools/list')
-  const byName = new Map<string, GatewayTool>()
-  for (const tool of tools) {
-    const key = byName.has(tool.name) ? `${tool.namespace.replace(/#\d+$/, '')}_${tool.name}` : tool.name
-    if (!byName.has(key)) byName.set(key, tool)
-  }
-  return byName
+  return buildToolIndex(tools ?? [])
 }
 
 const respond = (id: unknown, result: object): void => {
