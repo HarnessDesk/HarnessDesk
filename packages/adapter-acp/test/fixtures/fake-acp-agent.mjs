@@ -612,9 +612,16 @@ const handlers = {
     }
     // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness and
     // cursor-agent: it will not be handed an MCP tool server on the session
-    // request, and says so in the words the caller learns from.
+    // request, and says so in the words the caller learns from. Set it to
+    // anything but `1` to refuse in *those* words instead — the wording is
+    // what the caller's detector reads, and the agents do not agree on it.
     if (process.env.FAKE_ACP_REFUSE_TOOLS && (params?.mcpServers?.length ?? 0) > 0) {
-      fail(id, 'Invalid params: mcpServers is not supported')
+      const said = process.env.FAKE_ACP_REFUSE_TOOLS
+      // `1` keeps DeepSeek Harness's shape, which says it in the message.
+      // Any other value is said the way OpenClaw says it: a terse JSON-RPC
+      // message with the sentence in `data.details`.
+      if (said === '1') fail(id, 'Invalid params: mcpServers is not supported')
+      else fail(id, 'Internal error', { details: said })
       return
     }
     // FAKE_ACP_DUMP_SERVERS names a file to write the received mcpServers to,
