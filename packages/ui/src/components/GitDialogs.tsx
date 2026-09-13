@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
   GitConclusion,
@@ -128,6 +128,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -190,7 +191,8 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
   const commitable = concluding !== null || chosen.length > 0
 
   const commit = async (): Promise<void> => {
-    if (message.trim().length === 0 || !commitable) return
+    if (busy || busyRef.current || message.trim().length === 0 || !commitable) return
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -202,6 +204,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
       store.notice('info', `Committed ${shortSha(sha)}.`)
       onDone(true)
     } catch (raised) {
+      busyRef.current = false
       setError(reason(raised))
       setBusy(false)
     }
@@ -247,7 +250,10 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
           aria-label="Commit message"
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void commit()
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !busy && !busyRef.current) {
+              event.preventDefault()
+              void commit()
+            }
           }}
         />
         {concluding !== null && (

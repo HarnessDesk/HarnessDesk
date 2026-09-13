@@ -283,3 +283,55 @@ it('has nothing to commit with a clean tree and nothing underway (#248)', async 
   })
   expect(request.mock.calls.some(([method]) => method === 'git/commitAll')).toBe(false)
 })
+
+it('ignores concurrent commit requests on rapid keyboard submission (#389)', async () => {
+  let finishCommit!: (value: { sha: string }) => void
+  const pendingCommit = new Promise<{ sha: string }>((resolve) => {
+    finishCommit = resolve
+  })
+
+  const request = vi.fn(async (method: string) => {
+    if (method === 'git/status') {
+      return { root: '/w', branch: 'main', ahead: 0, behind: 0, files: FILES, concluding: null }
+    }
+    return pendingCommit
+  })
+
+  const snapshot: AppSnapshot = emptySnapshot()
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request },
+    notice: vi.fn(),
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <CommitDialog root="/w" onDone={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+
+  write('feat: rapid keyboard commit')
+  const box = document.body.querySelector('textarea')
+  if (!box) throw new Error('no textarea')
+
+  act(() => {
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
+  })
+
+  const commitCalls = request.mock.calls.filter(([method]) => method === 'git/commitAll')
+  expect(commitCalls).toHaveLength(1)
+
+  await act(async () => {
+    finishCommit({ sha: '1234567890abcdef' })
+    await Promise.resolve()
+  })
+})
+
