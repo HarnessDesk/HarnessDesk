@@ -148,6 +148,9 @@ export const stdinInputOf = (composed: string): string => {
   while (true) {
     const flagMatch = tokenRegex.exec(composed)
     if (!flagMatch || !flagMatch[0].startsWith('--')) break
+    // If a flag token or value opens a quote (' or "), stop and pass through
+    // rather than guessing a boundary (#326).
+    if (flagMatch[0].includes("'") || flagMatch[0].includes('"')) return composed
     if (flagMatch[0].includes('=')) {
       // `--flag=value` carries its value.
       lastIndex = tokenRegex.lastIndex
@@ -155,6 +158,7 @@ export const stdinInputOf = (composed: string): string => {
       // `--flag value` takes the next word.
       const valMatch = tokenRegex.exec(composed)
       if (valMatch) {
+        if (valMatch[0].includes("'") || valMatch[0].includes('"')) return composed
         lastIndex = tokenRegex.lastIndex
       } else {
         lastIndex = flagMatch.index + flagMatch[0].length
