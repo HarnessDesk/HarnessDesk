@@ -147,17 +147,35 @@ export class ApprovalRouter {
       }
 
       case 'permission': {
-        if (decision.type !== 'option') return { permissions: null, scope: 'turn' }
+        if (decision.type !== 'option') return { permissions: {}, scope: 'turn' }
         const raw = entry.rawDecisions.get(decision.optionId) as
-          | { grant: boolean; scope?: string }
+          | {
+              grant: boolean
+              scope?: 'turn' | 'session'
+              permissions?: CodexProtocol.v2.RequestPermissionProfile
+            }
           | undefined
-        if (!raw?.grant) return { permissions: null, scope: 'turn' }
+        if (!raw?.grant) return { permissions: {}, scope: 'turn' }
         const requested = entry.approval.type === 'permission' ? entry.approval : null
+        const permissions: CodexProtocol.v2.GrantedPermissionProfile = {
+          ...(raw.permissions?.fileSystem
+            ? { fileSystem: raw.permissions.fileSystem }
+            : (requested?.filesystem?.length ?? 0) > 0
+              ? {
+                  fileSystem: {
+                    read: [...(requested?.filesystem ?? [])],
+                    write: [...(requested?.filesystem ?? [])],
+                  },
+                }
+              : {}),
+          ...(raw.permissions?.network
+            ? { network: raw.permissions.network }
+            : (requested?.network?.length ?? 0) > 0
+              ? { network: { enabled: true } }
+              : {}),
+        }
         return {
-          permissions: {
-            filesystem: requested?.filesystem ?? [],
-            network: requested?.network ?? [],
-          },
+          permissions,
           scope: raw.scope === 'session' ? 'session' : 'turn',
         }
       }

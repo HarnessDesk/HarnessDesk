@@ -266,20 +266,56 @@ export const mapPermissionApproval = (
   requestId: string,
   params: CodexProtocol.v2.PermissionsRequestApprovalParams,
 ): { approval: Approval; raw: Map<string, unknown> } => {
-  const requested = params.permissions as unknown as {
-    filesystem?: { paths?: { path?: string }[] }
-    network?: { domains?: { domain?: string }[] }
+  const fs = params.permissions?.fileSystem ?? (params.permissions as unknown as { filesystem?: unknown })?.filesystem
+  const filesystem: string[] = []
+  if (fs && typeof fs === 'object') {
+    const fsObj = fs as {
+      read?: unknown[] | null
+      write?: unknown[] | null
+      entries?: unknown[] | null
+      paths?: unknown[] | null
+    }
+    if (Array.isArray(fsObj.read)) {
+      for (const p of fsObj.read) {
+        if (typeof p === 'string' && p.length > 0 && !filesystem.includes(p)) filesystem.push(p)
+      }
+    }
+    if (Array.isArray(fsObj.write)) {
+      for (const p of fsObj.write) {
+        if (typeof p === 'string' && p.length > 0 && !filesystem.includes(p)) filesystem.push(p)
+      }
+    }
+    if (Array.isArray(fsObj.entries)) {
+      for (const entry of fsObj.entries) {
+        const p = typeof entry === 'string' ? entry : (entry as { path?: unknown })?.path
+        if (typeof p === 'string' && p.length > 0 && !filesystem.includes(p)) filesystem.push(p)
+      }
+    }
+    if (Array.isArray(fsObj.paths)) {
+      for (const entry of fsObj.paths) {
+        const p = typeof entry === 'string' ? entry : (entry as { path?: unknown })?.path
+        if (typeof p === 'string' && p.length > 0 && !filesystem.includes(p)) filesystem.push(p)
+      }
+    }
   }
-  const filesystem = (requested.filesystem?.paths ?? [])
-    .map((entry) => entry.path)
-    .filter((path): path is string => typeof path === 'string')
-  const network = (requested.network?.domains ?? [])
-    .map((entry) => entry.domain)
-    .filter((domain): domain is string => typeof domain === 'string')
+
+  const network: string[] = []
+  if (params.permissions?.network?.enabled) {
+    network.push('Network access')
+  }
+  const rawNetwork = params.permissions?.network as unknown as { domains?: unknown[] } | undefined
+  if (Array.isArray(rawNetwork?.domains)) {
+    for (const d of rawNetwork.domains) {
+      const domain = typeof d === 'string' ? d : (d as { domain?: unknown })?.domain
+      if (typeof domain === 'string' && domain.length > 0 && !network.includes(domain)) {
+        network.push(domain)
+      }
+    }
+  }
 
   const raw = new Map<string, unknown>([
-    ['opt-grant-turn', { grant: true, scope: 'turn' }],
-    ['opt-grant-session', { grant: true, scope: 'session' }],
+    ['opt-grant-turn', { grant: true, scope: 'turn', permissions: params.permissions }],
+    ['opt-grant-session', { grant: true, scope: 'session', permissions: params.permissions }],
     ['opt-deny', { grant: false }],
   ])
 
