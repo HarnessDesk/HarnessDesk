@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
@@ -52,6 +53,8 @@ export class SessionNames {
   readonly #path: string
   #entries = new Map<string, string>()
   #loaded = false
+  #loading: Promise<void> | null = null
+  #writes: Promise<void> = Promise.resolve()
 
   constructor(path: string) {
     this.#path = path
@@ -64,19 +67,25 @@ export class SessionNames {
    */
   async load(): Promise<void> {
     if (this.#loaded) return
-    this.#loaded = true
-    try {
-      const raw = JSON.parse(await readFile(this.#path, 'utf8')) as Partial<Stored>
-      if (raw.version !== FORMAT || !Array.isArray(raw.entries)) return
-      for (const entry of raw.entries) {
-        if (typeof entry?.runtime !== 'string' || typeof entry.sessionId !== 'string') continue
-        if (typeof entry.name !== 'string' || entry.name === '') continue
-        this.#entries.set(keyOf(entry.runtime, entry.sessionId), entry.name)
+    if (this.#loading) return this.#loading
+    this.#loading = (async () => {
+      try {
+        const raw = JSON.parse(await readFile(this.#path, 'utf8')) as Partial<Stored>
+        if (raw.version !== FORMAT || !Array.isArray(raw.entries)) return
+        for (const entry of raw.entries) {
+          if (typeof entry?.runtime !== 'string' || typeof entry.sessionId !== 'string') continue
+          if (typeof entry.name !== 'string' || entry.name === '') continue
+          this.#entries.set(keyOf(entry.runtime, entry.sessionId), entry.name)
+        }
+      } catch {
+        // No file yet, or one written by something else. Either way there are
+        // no names, and the agents' own titles stand.
+      } finally {
+        this.#loaded = true
+        this.#loading = null
       }
-    } catch {
-      // No file yet, or one written by something else. Either way there are
-      // no names, and the agents' own titles stand.
-    }
+    })()
+    return this.#loading
   }
 
   /** The name the user gave this conversation, or null when they gave none. */
@@ -109,11 +118,17 @@ export class SessionNames {
         return { runtime: key.slice(0, gap), sessionId: key.slice(gap + 1), name }
       }),
     }
-    await mkdir(dirname(this.#path), { recursive: true })
-    // Written beside and moved into place: a half-written names file read at
-    // the next start would lose every name at once.
-    const scratch = `${this.#path}.${process.pid}.tmp`
-    await writeFile(scratch, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
-    await rename(scratch, this.#path)
+    const previous = this.#writes
+    const current = (async () => {
+      await previous.catch(() => {})
+      await mkdir(dirname(this.#path), { recursive: true })
+      // Written beside and moved into place: a half-written names file read at
+      // the next start would lose every name at once.
+      const scratch = `${this.#path}.${process.pid}.${randomUUID()}.tmp`
+      await writeFile(scratch, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
+      await rename(scratch, this.#path)
+    })()
+    this.#writes = current.catch(() => {})
+    await current
   }
 }
