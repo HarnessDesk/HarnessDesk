@@ -193,9 +193,18 @@ export const useQueue = (): SessionQueue | null => {
  * hold a conversation: docked focus lives in `workbench.focus`, so a docked
  * transcript read as permanently unfocused and its composer quietly ignored
  * every `harnessdesk:compose` event. One helper answers for both.
+ *
+ * TeamRoomPane member columns mount with a synthetic paneId formatted as
+ * `${mount.id}:${key}` (or `team-room:${key}`). Stripping the session key
+ * suffix maps the column back to its enclosing mount so shortcuts, auto-focus
+ * and compose events work within room columns (#381). Standalone room mounts
+ * without an enclosing workbench mount evaluate as focused by default.
  */
 export const useIsFocusedPane = (): boolean => {
   const pane = useContext(PaneContext)
   const snapshot = useSnapshot()
-  return pane ? focusedMount(snapshot.workbench) === pane.paneId : true
+  if (!pane) return true
+  const focused = focusedMount(snapshot.workbench)
+  const rootId = pane.paneId.includes(':') ? pane.paneId.split(':')[0] : pane.paneId
+  return focused === rootId || focused === pane.paneId || rootId === 'team-room'
 }
