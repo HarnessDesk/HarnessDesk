@@ -28,16 +28,35 @@ export const redactorFor = ({
 }: {
   readonly home: string
   readonly roots: readonly string[]
-}): ((line: string) => string) => {
+}): ((text: string) => string) => {
   const cleaned = [...new Set(roots.filter((root) => root.length > 1))].sort(
     (a, b) => b.length - a.length,
   )
-  return (line) => {
-    let out = line
+  return (text) => {
+    let out = text
       .replace(/\b(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
       .replace(/\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}\b/g, '[redacted-jwt]')
       .replace(/("(?:password|token|secret|apiKey|api_key)"\s*:\s*")[^"]+(")/gi, '$1[redacted]$2')
     for (const root of cleaned) out = out.replaceAll(root, '[workspace]')
     return out.replaceAll(home, '~')
   }
+}
+
+/**
+ * Redacts a raw log text before or during line splitting so multiline secret
+ * fields (such as pretty-printed JSON) are scrubbed before individual lines are sliced.
+ */
+export const redactLog = (
+  rawLog: string,
+  redact: (text: string) => string,
+): string[] => {
+  const scrubbed = rawLog.replace(
+    /("(?:password|token|secret|apiKey|api_key)"\s*:\s*\r?\n\s*")[^"]+(")/gi,
+    '$1[redacted]$2',
+  )
+  return scrubbed
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .slice(-500)
+    .map(redact)
 }
