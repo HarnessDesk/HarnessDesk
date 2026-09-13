@@ -680,6 +680,44 @@ test('an agent that refuses the tool server says so, and says it out loud', asyn
   }
 })
 
+test('a tool-server refusal in error.data retries without the bridge (#358)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'refuser-data',
+    name: 'Refuser Data',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_REFUSE_TOOLS: 'openclaw', FAKE_ACP_SLOW_OPEN_MS: '50' },
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['--version'],
+      env: {},
+    },
+  })
+  let observed = false
+  const unsubscribe = runtime.subscribe((event) => {
+    if (event.type === 'account/changed') observed = true
+  })
+  await runtime.start()
+  try {
+    const deadline = Date.now() + 5_000
+    while ((runtime.info.capabilities.pluginTools || !observed) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(
+      runtime.info.capabilities.pluginTools,
+      false,
+      'the refusal stated in error.data was observed eagerly',
+    )
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.ok(session, 'a tool server refused in error.data does not cost the session')
+    assert.equal(runtime.info.capabilities.pluginTools, false, 'the refusal is remembered')
+    unsubscribe()
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('every open carries a caller token, and the map learns whose it is', async (t) => {
   // §25.3: `tools/invoke` used to carry no scope, so a tool called over MCP
   // could not say which session called it. The agent spawns the bridge from
@@ -1334,6 +1372,14 @@ test('an agent error keeps the detail it arrived with', async (t) => {
       assert.equal((error as { details?: string }).details, 'the store has no such id')
       return true
     })
+
+    // Prompt failure also folds data.details into the turn error message (#358)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const tape = record(runtime)
+    await session.send([{ type: 'text', text: 'fail with detail' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as { turn?: { error?: { message?: string } } }).turn
+    assert.match(turn?.error?.message ?? '', /the session is owned by another process/)
   } finally {
     await runtime.dispose()
   }
