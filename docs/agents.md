@@ -191,7 +191,7 @@ Navigate to **Settings › Agents › [Agent]** to view its **Install** section:
 ### Supported agents, as measured
 
 Measured across agent CLIs, installer packages, and help outputs on
-2026-09-05:
+2026-09-05, and GitHub Copilot on 2026-09-12:
 
 | Agent | Launch / Bridge | Floor | Roads & Update | Home & State | Authentication |
 | --- | --- | --- | --- | --- | --- |
@@ -204,6 +204,7 @@ Measured across agent CLIs, installer packages, and help outputs on
 | Kimi CLI | `kimi acp` | — | `uv tool` → `~/.local/bin`, Kimi Code → `~/.kimi-code` | `~/.kimi` | `/login` browser flow; accepts `KIMI_API_KEY` |
 | pi | `pi-acp` adapter over `pi --mode rpc` | pi 0.80.4 | npm `@earendil-works/pi-coding-agent` | `~/.pi/agent` (`PI_CODING_AGENT_DIR`) | `/login` in UI; `pi-acp --terminal-login` |
 | Grok Build | `grok agent stdio` | — | npm `@xai-official/grok` (trampoline to `~/.grok/bin`); `grok update` | `~/.grok` (`GROK_HOME`) | `grok login --device-auth`; accepts `XAI_API_KEY` |
+| GitHub Copilot | `copilot --acp` | — | brew cask `copilot-cli`, npm `@github/copilot`; `copilot update` | `~/.copilot` (`COPILOT_HOME`) | `copilot login` in terminal; accepts `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
 | Antigravity | `agy_acp_server` | — | Registry download from dl.google.com | `~/.gemini/antigravity-acp` (`GEMINI_HOME`) | Google browser authentication, its own — not the IDE's, not `agy`'s |
 | Claude Code | `claude-acp` bridge | — | npm `@anthropic-ai/claude-code`, `~/.local/bin/claude`; `claude update` | `~/.claude` (`CLAUDE_CONFIG_DIR`) | `claude auth login` in browser |
 | Cursor | `cursor-acp` bridge | — | `~/.local/bin/cursor-agent`; `cursor-agent update` | `~/.cursor` | `cursor-agent login` (with `NO_OPEN_BROWSER=1`) |
@@ -235,6 +236,19 @@ form rather than an automatic template. See
   (`OPENCLAW_HIDE_BANNER=1`, `OPENCLAW_SUPPRESS_NOTES=1`) to prevent
   protocol corruption over stdout. Per-session MCP servers are rejected by
   the OpenClaw bridge, so plugin tools do not reach OpenClaw sessions.
+- **Launchers, not agents:** GitHub Copilot's Homebrew cask and npm
+  package both install a launcher that fetches the release for the platform
+  on first run and updates it in place, under `~/Library/Caches/copilot` on
+  macOS and `$XDG_CACHE_HOME/copilot` elsewhere. `--version` therefore
+  reports the cached release and can run ahead of both the cask's version
+  folder and npm's `latest` — measured on 2026-09-12, a cask recorded as
+  1.0.83 running 1.0.84-5. `COPILOT_AUTO_UPDATE=false` stops it.
+- **A cask and a formula of almost the same name:** Copilot's Homebrew token
+  is the *cask* `copilot-cli`. The `copilot` **formula** is a different
+  vendor's program — AWS's ECS Copilot, deprecated with an archived upstream
+  — so the update command the desk shows for a Caskroom copy is
+  `brew upgrade --cask copilot-cli`, and the `--cask` is what keeps the
+  formula from answering instead.
 - **Unresponsive cask binaries:** Probing a Homebrew-cask `cursor-agent`
   revealed that older binaries could hang indefinitely on `--version`,
   ignoring SIGTERM for eleven minutes. Probes therefore execute in isolated
