@@ -251,3 +251,44 @@ test('a select can be secret too, and reports the same way a text field does', (
   assert.doesNotMatch(tree, /2028/)
   assert.deepEqual(helper('__hd.fill("ref_1", "2029")'), { role: 'combobox', name: 'Expiry year', secret: true, filled: true })
 })
+
+test('fill operates ARIA custom controls without throwing TypeError', () => {
+  const { helper, context } = page(`
+    <label>Native <input id="n1" value="initial"></label>
+    <div role="checkbox" aria-checked="false" id="c1" tabindex="0">Custom Checkbox</div>
+    <button role="switch" aria-checked="true" id="s1">Custom Switch</button>
+    <div role="textbox" aria-label="Custom Textbox" id="t1" tabindex="0">Initial text</div>
+  `)
+  runInContext(`
+    document.getElementById('c1').addEventListener('click', function() {
+      const cur = this.getAttribute('aria-checked') === 'true';
+      this.setAttribute('aria-checked', String(!cur));
+    });
+    document.getElementById('s1').addEventListener('click', function() {
+      const cur = this.getAttribute('aria-checked') === 'true';
+      this.setAttribute('aria-checked', String(!cur));
+    });
+  `, context)
+  helper('__hd.tree({})')
+
+  // Control check: native input works before and after
+  const r0 = helper('__hd.fill("ref_1", "changed")')
+  assert.deepEqual(r0, { role: 'textbox', name: 'Native', value: 'changed' })
+
+  // Testing ARIA checkbox
+  const r1 = helper('__hd.fill("ref_2", true)')
+  assert.deepEqual(r1, { role: 'checkbox', name: 'Custom Checkbox', value: true })
+
+  // Testing ARIA switch
+  const r2 = helper('__hd.fill("ref_3", false)')
+  assert.deepEqual(r2, { role: 'switch', name: 'Custom Switch', value: false })
+
+  // Testing ARIA textbox div
+  const r3 = helper('__hd.fill("ref_4", "Updated text")')
+  assert.deepEqual(r3, { role: 'textbox', name: 'Custom Textbox', value: 'Updated text' })
+
+  // Control check: native input still works afterwards
+  const r4 = helper('__hd.fill("ref_1", "second")')
+  assert.deepEqual(r4, { role: 'textbox', name: 'Native', value: 'second' })
+})
+
