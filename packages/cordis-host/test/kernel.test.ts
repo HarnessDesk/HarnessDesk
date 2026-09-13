@@ -386,3 +386,40 @@ test('a chip scoped to one conversation is not resolved for another', async (t) 
     'another conversation gets nothing, not s1 state',
   )
 })
+
+test('a tool scoped to one conversation is refused when invoked out of scope (#303)', async (t) => {
+  const scopedTool: HarnessPlugin = {
+    manifest: { id: 'scoped-tool', name: 'Scoped Tool' },
+    plugin: {
+      name: 'scoped-tool',
+      inject: ['tools'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: 'session_only',
+          description: 'A tool for s1 only',
+          inputSchema: {},
+          scope: { kind: 'session', sessionId: sessionId('s1') },
+          execute: () => 'executed in s1',
+        })
+      },
+    },
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(scopedTool)
+  await settle()
+
+  const tool = kernel.list('tool', { sessionId: sessionId('s1') })[0]
+  assert.ok(tool, 'tool is listed for s1')
+  assert.deepEqual(kernel.list('tool', { sessionId: sessionId('s2') }), [], 'tool is not listed for s2')
+
+  // Control: in-scope invocation succeeds
+  const inScope = await kernel.invokeTool(tool.id, {}, { sessionId: sessionId('s1') })
+  assert.equal(inScope.ok, true)
+  assert.deepEqual(inScope.ok && inScope.content, [{ type: 'text', text: 'executed in s1' }])
+
+  // Out-of-scope invocation is refused
+  const outOfScope = await kernel.invokeTool(tool.id, {}, { sessionId: sessionId('s2') })
+  assert.equal(outOfScope.ok, false)
+  assert.match(outOfScope.ok === false ? outOfScope.error : '', /not available in this scope/i)
+})
