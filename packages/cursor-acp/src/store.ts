@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -443,7 +443,7 @@ const freeName = (dir: string, name: string): string => {
 
 const taken = (path: string): boolean => {
   try {
-    statSync(path)
+    lstatSync(path)
     return true
   } catch {
     return false
