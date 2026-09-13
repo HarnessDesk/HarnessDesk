@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Account, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
-import { useRuntime, useSnapshot, useStore } from '../state/context'
+import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
 import { BranchIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
@@ -89,7 +89,8 @@ export const Sidebar = ({
   }, [snapshot.historyCursor, snapshot.historyLoading, store])
 
   const runtime = useRuntime()
-  const ready = snapshot.health?.state === 'ready'
+  const health = useRuntimeHealth()
+  const ready = health?.state === 'ready'
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
   const pluginCount = livePlugins(snapshot.plugins).length
@@ -265,7 +266,8 @@ export const Sidebar = ({
 const WorktreeMenu = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const ready = snapshot.health?.state === 'ready'
+  const health = useRuntimeHealth()
+  const ready = health?.state === 'ready'
   const isRepo = Boolean(snapshot.workspace?.git?.branch)
   const active = snapshot.activeSessionKey ? snapshot.sessions.get(snapshot.activeSessionKey) : undefined
   const mine = snapshot.worktrees.filter((entry) => entry.managed)
