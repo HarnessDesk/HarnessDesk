@@ -1150,6 +1150,30 @@ test('a reply shorter than the old length floor is not doubled', async () => {
   }
 })
 
+test('a tool call completed with a null or non-object result does not crash the bridge (#406)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.send([{ type: 'text', text: 'tool-null-result' }])
+    const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    const toolCall = turn.items.find(
+      (item): item is Extract<AgentItem, { type: 'toolCall' }> => item.type === 'toolCall',
+    )
+    assert.ok(toolCall, 'tool call was recorded in turn items')
+    assert.equal(toolCall.status, 'failed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 /*
  * Forty members handed a page each spawned forty CLIs inside two seconds,
  * and seventeen died on the spot: each boots by fetching the model

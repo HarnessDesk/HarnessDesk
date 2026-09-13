@@ -1851,7 +1851,9 @@ export class CursorAcpBridge {
             rawInput: args,
           })
         } else if (event['subtype'] === 'completed') {
-          const failed = result !== undefined && !('success' in result)
+          const failed =
+            result !== undefined &&
+            (typeof result !== 'object' || result === null || !('success' in result))
           this.#notifyUpdate(session.chatId, {
             sessionUpdate: 'tool_call_update',
             toolCallId: callId,
