@@ -108,7 +108,14 @@ export const sessionMethods = {
 
   'session/fork': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
-    const live = await runtime.forkSession(makeSessionId(params.sessionId), params.options ?? {})
+    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+      routeId?: string
+    }
+    let options = rest as NonNullable<typeof params.options>
+    if (typeof routeId === 'string') {
+      options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
+    }
+    const live = await runtime.forkSession(makeSessionId(params.sessionId), options)
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
