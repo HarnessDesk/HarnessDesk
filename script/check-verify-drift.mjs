@@ -85,6 +85,11 @@ export const gateCommands = (raw) => {
   const out = []
   const call = /\brun\s*\(\s*(['"])(.*?)\1\s*,\s*\[([\s\S]*?)\]\s*\)/g
   for (const [, , command, rawArgs] of source.matchAll(call)) {
+    const trimmed = rawArgs.trim()
+    if (trimmed !== '') {
+      const skeleton = rawArgs.replace(/(['"])(.*?)\1/g, '_')
+      if (!/^\s*_\s*(,\s*_\s*)*,?\s*$/.test(skeleton)) continue
+    }
     const args = [...rawArgs.matchAll(/(['"])(.*?)\1/g)].map(([, , value]) => value)
     out.push({ command, args })
   }

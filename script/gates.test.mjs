@@ -451,6 +451,11 @@ test('gateCommands refuses when zero run calls are parsed (#401)', () => {
   assert.throws(() => gateCommands(source), /parsed zero run\(\.\.\.\) calls/)
 })
 
+test('gateCommands refuses run calls with non-literal arguments instead of dropping them (#402)', () => {
+  const source = "const target = 'script/check-layering.mjs'\nrun('node', [target])"
+  assert.throws(() => gateCommands(source), /run\(\.\.\.\) calls and this check could read 0/)
+})
+
 test('a test glob survives the comment stripper that once ate it', () => {
   // The bug: `/**​/` inside the glob opened a block comment, and every command
   // after it vanished — silently, because a shorter list still parses.
