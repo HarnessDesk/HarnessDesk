@@ -413,11 +413,38 @@ export class PluginHostProcess {
         }
         switch (request.method) {
           case 'forge/identity': {
-            reply({ response: request.request, result: await plane.identity(scope) })
+            const cwd = params['cwd']
+            if (cwd !== undefined && typeof cwd !== 'string') {
+              refuse('Refused: a forge identity working directory must be a string.')
+              return
+            }
+            reply({ response: request.request, result: await plane.identity({ ...(cwd === undefined ? {} : { cwd }) }, scope) })
             return
           }
           case 'forge/seat': {
             reply({ response: request.request, result: await plane.seat(scope) })
+            return
+          }
+          case 'forge/run': {
+            const args = params['args']
+            if (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) {
+              refuse('Refused: a forge command needs an array of string arguments.')
+              return
+            }
+            const cwd = params['cwd']
+            if (cwd !== undefined && typeof cwd !== 'string') {
+              refuse('Refused: a forge command working directory must be a string.')
+              return
+            }
+            const timeoutMs = params['timeoutMs']
+            if (timeoutMs !== undefined && (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60_000)) {
+              refuse('Refused: a forge command timeout must be a finite number from 1 to 60000 milliseconds.')
+              return
+            }
+            reply({
+              response: request.request,
+              result: await plane.run(args, { ...(cwd === undefined ? {} : { cwd }), ...(timeoutMs === undefined ? {} : { timeoutMs }) }, scope),
+            })
             return
           }
           case 'forge/publish': {

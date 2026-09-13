@@ -23,10 +23,11 @@ const engine = (): ForgeEngine & { readonly seats: unknown[]; readonly published
       seats.push(scope)
       return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High' }
     },
-    identity: async (scope) => {
+    identity: async (_options, scope) => {
       seats.push({ identity: scope })
       return { via: 'gh', login: 'octocat', available: true, reason: null }
     },
+    run: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
     publish: async (reference, scope) => {
       published.push({ reference, scope })
     },

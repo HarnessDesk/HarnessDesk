@@ -451,12 +451,17 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
  */
 test('a forge call rides its own invocation or is refused; the identity needs no scope', async () => {
   const seats: unknown[] = []
+  const commands: unknown[] = []
   const engine: ForgeEngine = {
     seat: async (callScope) => {
       seats.push(callScope)
       return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High' }
     },
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
+    run: async (args, options, callScope) => {
+      commands.push({ args, options, callScope })
+      return { stdout: 'ok', stderr: '', exitCode: 0 }
+    },
     publish: async () => {},
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
@@ -488,6 +493,18 @@ test('a forge call rides its own invocation or is refused; the identity needs no
 
     const identity = await host.invokeTool(toolId('forge_identity'), {}, live)
     assert.match(JSON.stringify(identity), /octocat/)
+
+    const command = await host.invokeTool(toolId('forge_run_honest'), {}, live)
+    assert.equal(command.ok, true)
+    assert.equal(command.content[0]?.type, 'text')
+    assert.deepEqual(JSON.parse(command.content[0]?.text ?? ''), { stdout: 'ok', stderr: '', exitCode: 0 })
+    assert.deepEqual(commands, [
+      {
+        args: ['pr', 'view', '7'],
+        options: { cwd: '/work/widgets', timeoutMs: 60_000 },
+        callScope: { runtime: 'codex', sessionId: 's1', plugin: (seats[0] as { plugin: string }).plugin },
+      },
+    ])
 
     // A shape that is not a reference stops at the boundary, before the engine.
     const garbage = await host.invokeTool(toolId('forge_publish_garbage'), {}, live)
@@ -530,10 +547,11 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
       seats.push(callScope)
       return { agent: 'Codex', version: null, model: null, effort: null, thinking: false, label: 'Codex' }
     },
-    identity: async (callScope) => {
+    identity: async (_options, callScope) => {
       identities.push(callScope)
       return { via: 'gh', login: 'octocat', available: true, reason: null }
     },
+    run: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
     publish: async () => {},
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))

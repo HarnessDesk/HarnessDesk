@@ -240,10 +240,11 @@ model. Nobody's client works that way. Claude Code signs a pull request
 because *Claude Code opens it*.
 
 So the desk opens it. The Git plugin's `pr_create`, `pr_update` and
-`pr_review` tools reach GitHub with the person's own `gh`, exactly as the
-agent's shell would, and add the two things a shell cannot: the signature,
-rendered for the seat that made the call, and the record of the publication
-in the transcript, drawn as the object it is. The seat — agent, model,
+`pr_review` tools reach GitHub through the desk's repository-scoped forge
+runner. Today that runner is the person's own `gh`, exactly as the agent's
+shell would; it adds the two things a shell cannot: the signature, rendered
+for the seat that made the call, and the record of the publication in the
+transcript, drawn as the object it is. The seat — agent, model,
 effort, in the agent's own labels, with the agent's automatic choice counted
 as no model — is a fact about the conversation, and the host is the one party
 that knows it; a plugin reads it through `ctx.forge`, which stamps who asked
@@ -257,13 +258,35 @@ instructions, a bridge's system-prompt append, the MCP server's
 `instructions` — never through the conversation, and the sentence names the
 tools rather than the line.
 
+Desk-authored commits carry `Co-authored-by: harnessdesk[bot]
+<328532242+harnessdesk[bot]@users.noreply.github.com>` as well. That is the
+mechanism GitHub uses to show the product's account beside the person's on a
+commit: the person remains author and committer, so it works on every
+repository they can push to without an installation or a product credential.
+Pull requests, comments and reviews remain under that person's identity and
+keep the seat signature; one bot reviewing its own work would erase the
+dissent the signature is for.
+
 *Not done here:* an agent that reaches for `gh pr create` itself, ignoring
 the sentence, opens an unsigned pull request that the transcript does not
 record. Watching its commands for the verb would catch it, at the cost of
 tying the feature to one CLI; the honest fix is the same one the vendors
 made, which is to make the desk's way the easy way. A GitHub App the desk
 installs later is a second way to reach the forge (`ForgeIdentity.via`), and
-changes nothing above it.
+changes nothing above it. Its service implements the injected forge runner:
+it resolves the installation from the checkout path, mints a short-lived token
+there, and reports `via: 'app'`. The private key lives only in that service,
+never in the desktop or an extension. If no installation is available, the
+selected runner stays the person's `gh` and reports that route honestly. The
+runner accepts only the Git plugin's pull-request, issue and review operations;
+it is not a general GitHub API capability for plugins.
+
+When that service exists, the App asks for repository-scoped Pull requests,
+Issues and Contents read/write only: pull requests and issues cover the desk's
+publication and discussion tools, and Contents write is what lets an App
+publish a branch. It needs no organisation, account or enterprise permission,
+webhook or callback URL. The service's deployment secret store holds the App
+private key; a desktop never reads, persists or prompts for it.
 
 **The rule:** the party that publishes writes the signature; the desk
 publishes.

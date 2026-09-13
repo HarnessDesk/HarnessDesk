@@ -5,19 +5,21 @@ import type { ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
  * Git tools, available to every agent.
  *
  * Written against the same API a third-party plugin uses — no privileged path.
- * It declares `shell` because it genuinely spawns `git` and `gh`; routing that
+ * It declares `shell` because it genuinely spawns `git`; routing that
  * through `ctx.shell` rather than importing `child_process` is what keeps the
  * permission model honest for HarnessDesk's own code too.
  *
  * Two halves. The reads — status, diff, log, the chips — have always been
  * here. The `pr_*` and `issue_*` tools are how an agent publishes *through
- * the desk*: they reach GitHub with the person's own `gh`, exactly as the
- * agent's own shell would, and add the two things a shell cannot. The pull
+ * the desk*: the forge runner reaches GitHub for the current checkout. Today
+ * that runner is the person's own `gh`; a future hosted App runner can select
+ * a repository installation without putting its credential in the desktop.
+ * The pull
  * request is signed for the seat that wrote it — which agent, on which
  * model, at which effort — in the line the person configured below; and what
  * was published is recorded in the conversation, as the object it is, through
  * `ctx.forge`. Both need the `forge` grant, and both are the desk's part of
- * the job; the forge is `gh`'s.
+ * the job; the forge transport belongs to the host.
  */
 
 /** Context is for reading, not for flooding a turn: past this, the tail is the agent's to fetch. */
@@ -393,17 +395,32 @@ export const gitPlugin: HarnessPlugin = {
         return result.stdout.trim()
       }
 
-      // gh uses the person's own login; HarnessDesk holds no token. A
-      // minute, because a create waits on GitHub and the person's network.
-      const gh = async (args: readonly string[]): Promise<string> => {
+      // The default forge runner calls the person's own gh; a future hosted
+      // App runner receives this exact checkout to resolve its installation.
+      // A minute, because a create waits on GitHub and the person's network.
+      const ghResult = async (args: readonly string[], scope: ScopeQuery) => {
+        if (!ctx.workspace.root) throw new Error('No workspace is open.')
+        return ctx.forge.run(args, { cwd: ctx.workspace.root, timeoutMs: 60_000 }, scope)
+      }
+
+      const gh = async (args: readonly string[], scope: ScopeQuery): Promise<string> => {
+        const result = await ghResult(args, scope)
+        if (result.exitCode !== 0) throw new Error(ghFailure(args, `${result.stderr}\n${result.stdout}`))
+        return result.stdout.trim()
+      }
+
+      // Context is a read the person attached, not a desk publication. Keep
+      // the established shell route so this chip is useful in an extension
+      // kernel before a host has attached its forge plane.
+      const ghRead = async (args: readonly string[]): Promise<string> => {
         if (!ctx.workspace.root) throw new Error('No workspace is open.')
         const result = await ctx.shell.run('gh', args, { timeoutMs: 60_000 })
         if (result.exitCode !== 0) throw new Error(ghFailure(args, `${result.stderr}\n${result.stdout}`))
         return result.stdout.trim()
       }
 
-      const viewPullRequest = async (selector: string): Promise<GhPullRequest> =>
-        JSON.parse(await gh(['pr', 'view', selector, '--json', PR_FIELDS])) as GhPullRequest
+      const viewPullRequest = async (selector: string, scope: ScopeQuery): Promise<GhPullRequest> =>
+        JSON.parse(await gh(['pr', 'view', selector, '--json', PR_FIELDS], scope)) as GhPullRequest
 
       /** The pull request a call names, or the one for the current branch when it names none. */
       const selectorOf = (number: unknown): string =>
@@ -413,11 +430,11 @@ export const gitPlugin: HarnessPlugin = {
             ? number.trim().replace(/^#/, '')
             : ''
 
-      const pullRequestFor = async (number: unknown): Promise<GhPullRequest> => {
+      const pullRequestFor = async (number: unknown, scope: ScopeQuery): Promise<GhPullRequest> => {
         const selector = selectorOf(number)
-        if (selector !== '') return viewPullRequest(selector)
+        if (selector !== '') return viewPullRequest(selector, scope)
         try {
-          return await viewPullRequest('')
+          return await viewPullRequest('', scope)
         } catch (error) {
           throw new Error(
             `${error instanceof Error ? error.message : String(error)} — no pull request number was given, and the current branch has none open.`,
@@ -457,7 +474,7 @@ export const gitPlugin: HarnessPlugin = {
 
       const viaOf = async (scope: ScopeQuery): Promise<ForgeReference['via']> => {
         try {
-          return (await ctx.forge.identity(scope)).via
+          return (await ctx.forge.identity(scope, { cwd: ctx.workspace.root ?? undefined })).via
         } catch {
           return 'gh'
         }
@@ -615,7 +632,7 @@ export const gitPlugin: HarnessPlugin = {
             )
           }
           const existing = JSON.parse(
-            await gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url']),
+            await gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url'], scope),
           ) as readonly { number: number; url: string }[]
           if (existing.length > 0 && existing[0]) {
             throw new Error(
@@ -627,9 +644,9 @@ export const gitPlugin: HarnessPlugin = {
           const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line)]
           if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
           if (args.draft === true) argv.push('--draft')
-          const created = await gh(argv)
+          const created = await gh(argv, scope)
           const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
-          const pr = await viewPullRequest(url || branch)
+          const pr = await viewPullRequest(url || branch, scope)
           const note = await publish(
             referenceOf(pr, { kind: 'pullRequest', action: 'opened', via: await viaOf(scope), signature: signed.line }),
             scope,
@@ -654,7 +671,7 @@ export const gitPlugin: HarnessPlugin = {
           },
         },
         execute: async (args: { number?: number; title?: string; body?: string; base?: string }, scope) => {
-          const current = await pullRequestFor(args.number)
+          const current = await pullRequestFor(args.number, scope)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
           const argv = ['pr', 'edit', String(current.number)]
@@ -674,8 +691,8 @@ export const gitPlugin: HarnessPlugin = {
             changed += 1
           }
           if (changed === 0) throw new Error('Nothing to change: give a title, a body or a base.')
-          await gh(argv)
-          const pr = await viewPullRequest(String(current.number))
+          await gh(argv, scope)
+          const pr = await viewPullRequest(String(current.number), scope)
           const note = await publish(
             referenceOf(pr, {
               kind: 'pullRequest',
@@ -721,15 +738,15 @@ export const gitPlugin: HarnessPlugin = {
           if (flag === null) throw new Error('event must be approve, request_changes or comment.')
           const body = String(args.body ?? '').trim()
           if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
-          const pr = await pullRequestFor(args.number)
+          const pr = await pullRequestFor(args.number, scope)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
           const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
-          await gh(['pr', 'review', String(pr.number), flag, '--body', review])
+          await gh(['pr', 'review', String(pr.number), flag, '--body', review], scope)
           // `gh pr review` prints no address for what it posted; the API knows.
           let url = pr.url
           try {
-            const last = await gh(['api', `repos/${repoOf(pr.url)}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url'])
+            const last = await gh(['api', `repos/${repoOf(pr.url)}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url'], scope)
             if (/^https?:\/\//.test(last)) url = last
           } catch {
             // The pull request's own address is a fine second best.
@@ -760,8 +777,8 @@ export const gitPlugin: HarnessPlugin = {
         execute: async (args: { number?: number; body: string }, scope) => {
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
-          const pr = await pullRequestFor(args.number)
-          const posted = await gh(['pr', 'comment', String(pr.number), '--body', body])
+          const pr = await pullRequestFor(args.number, scope)
+          const posted = await gh(['pr', 'comment', String(pr.number), '--body', body], scope)
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
           const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url }), scope)
           return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
@@ -778,7 +795,7 @@ export const gitPlugin: HarnessPlugin = {
           type: 'object',
           properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' } },
         },
-        execute: async (args: { number?: number }) => cap(describePullRequest(await pullRequestFor(args?.number))),
+        execute: async (args: { number?: number }, scope) => cap(describePullRequest(await pullRequestFor(args?.number, scope))),
       })
 
       ctx.tools.register({
@@ -788,15 +805,11 @@ export const gitPlugin: HarnessPlugin = {
           type: 'object',
           properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' } },
         },
-        execute: async (args: { number?: number }) => {
-          const pr = await pullRequestFor(args?.number)
+        execute: async (args: { number?: number }, scope) => {
+          const pr = await pullRequestFor(args?.number, scope)
           // `gh pr checks` exits non-zero when a check failed; the list is
           // still the answer, so the exit code is read only when there is none.
-          const result = await ctx.shell.run(
-            'gh',
-            ['pr', 'checks', String(pr.number), '--json', 'name,state,bucket,link,workflow'],
-            { timeoutMs: 60_000 },
-          )
+          const result = await ghResult(['pr', 'checks', String(pr.number), '--json', 'name,state,bucket,link,workflow'], scope)
           const raw = result.stdout.trim()
           if (raw === '' && result.exitCode !== 0) {
             throw new Error(ghFailure(['pr', 'checks'], `${result.stderr}\n${result.stdout}`))
@@ -823,10 +836,10 @@ export const gitPlugin: HarnessPlugin = {
           properties: { number: { type: 'number', description: 'The issue number.' } },
           required: ['number'],
         },
-        execute: async (args: { number: number }) => {
+        execute: async (args: { number: number }, scope) => {
           const selector = selectorOf(args?.number)
           if (selector === '') throw new Error('Which issue? Give its number.')
-          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', ISSUE_FIELDS])) as GhIssue
+          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', ISSUE_FIELDS], scope)) as GhIssue
           const labels = (issue.labels ?? []).map((label) => label.name).filter((name): name is string => Boolean(name))
           const head = [
             `#${issue.number} ${issue.title}`,
@@ -857,8 +870,8 @@ export const gitPlugin: HarnessPlugin = {
           if (selector === '') throw new Error('Which issue? Give its number.')
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
-          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
-          const posted = await gh(['issue', 'comment', String(issue.number), '--body', body])
+          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'], scope)) as GhIssue
+          const posted = await gh(['issue', 'comment', String(issue.number), '--body', body], scope)
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url
           const note = await publish(
             {
@@ -931,10 +944,10 @@ export const gitPlugin: HarnessPlugin = {
               const number = target.replace(/^#/, '')
               // `view` gives the item — title, state, author, body; `--comments`
               // gives only the discussion. Both, in that order, capped as one.
-              const item = await gh([kind, 'view', number])
+              const item = await ghRead([kind, 'view', number])
               let comments = ''
               try {
-                comments = await gh([kind, 'view', number, '--comments'])
+                comments = await ghRead([kind, 'view', number, '--comments'])
               } catch {
                 // A discussion that will not load is not a reason to lose the item.
               }

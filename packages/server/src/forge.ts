@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 
-import type { ForgeEngine, ForgeIdentity, ForgeScope, ForgeSeat } from '@harnessdesk/cordis-host'
+import type { ForgeEngine, ForgeIdentity, ForgeRunOptions, ForgeRunResult, ForgeScope, ForgeSeat } from '@harnessdesk/cordis-host'
 import { isForgeReference, itemId, type ConfigOption, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
 
 import { seatOf } from './seat.js'
@@ -47,22 +47,44 @@ export interface ForgePort {
 
 export interface ForgePlaneOptions {
   /**
-   * Runs `gh`, for the identity. Overridable so a test can answer as a forge
-   * would, and so the packaged app can point at the copy it found.
+   * The person's `gh`, used by the default runner. Overridable so a test can
+   * answer as a forge would, and so the packaged app can point at the copy it
+   * found.
    */
   readonly gh?: GhRunner
+  /**
+   * A repository-scoped forge transport. The desktop supplies no App key or
+   * token: a future hosted service selects a short-lived installation token
+   * from `options.cwd` and returns an identity with `via: 'app'`.
+   */
+  readonly runner?: ForgeRunner
   /** How long an identity answer stands before `gh` is asked again. */
   readonly identityTtlMs?: number
 }
 
-export type GhRunner = (args: readonly string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+export type GhRunner = (args: readonly string[], options?: ForgeRunOptions) => Promise<ForgeRunResult>
+
+/**
+ * The only seam a future GitHub App needs. It receives the actual checkout
+ * path for every operation, so its service can select that repository's
+ * installation; credentials remain service-side and are never persisted in
+ * the desktop or exposed to a plugin.
+ */
+export interface ForgeRunner {
+  identity(options: ForgeRunOptions, scope: ForgeScope): Promise<ForgeIdentity>
+  run(args: readonly string[], options: ForgeRunOptions, scope: ForgeScope): Promise<ForgeRunResult>
+}
 
 const run = promisify(execFile)
 
 /** `gh` on PATH, the way the plugin reaches it: `execFile`, never a shell. */
-export const ghOnPath: GhRunner = async (args) => {
+export const ghOnPath: GhRunner = async (args, options) => {
   try {
-    const result = await run('gh', [...args], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 })
+    const result = await run('gh', [...args], {
+      cwd: options?.cwd,
+      timeout: options?.timeoutMs ?? 15_000,
+      maxBuffer: 4 * 1024 * 1024,
+    })
     return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: 0 }
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; code?: number | string; message?: string }
@@ -90,17 +112,51 @@ const DEFAULT_IDENTITY_TTL_MS = 5 * 60_000
 /** What `gh` says when nobody is signed in, in the words it has used across versions. */
 const NOT_SIGNED_IN = /not logged in|not logged into|authentication|gh auth login|HTTP 401/i
 
+const identityFromGh = async (gh: GhRunner): Promise<ForgeIdentity> => {
+  const result = await gh(['api', 'user', '--jq', '.login'])
+  const login = result.stdout.trim()
+  if (result.exitCode === 0 && login !== '') {
+    return { via: 'gh', login, available: true, reason: null }
+  }
+  const said = `${result.stderr} ${result.stdout}`.trim()
+  const reason =
+    /ENOENT|not found|spawn gh/i.test(said) || said === ''
+      ? 'gh is not installed, or not on the PATH HarnessDesk was started with.'
+      : NOT_SIGNED_IN.test(said)
+        ? 'gh is not signed in: run `gh auth login`.'
+        : said.split('\n')[0] ?? 'gh could not answer.'
+  return { via: 'gh', login: null, available: false, reason }
+}
+
+const personGhRunner = (gh: GhRunner): ForgeRunner => ({
+  identity: async () => identityFromGh(gh),
+  run: (args, options) => gh(args, options),
+})
+
+/**
+ * Plugins receive forge verbs, not an arbitrary command channel. The Git
+ * plugin owns this small vocabulary; keeping it here means an App runner is
+ * never an accidental way for a third-party plugin to turn its forge grant
+ * into unrestricted GitHub API access.
+ */
+const isGitPluginCommand = (args: readonly string[]): boolean => {
+  const [area, verb, target] = args
+  if (area === 'pr') return ['list', 'create', 'edit', 'review', 'comment', 'view', 'checks'].includes(verb ?? '')
+  if (area === 'issue') return ['view', 'comment'].includes(verb ?? '')
+  return area === 'api' && /^repos\/[^/]+\/[^/]+\/pulls\/\d+\/reviews$/.test(target ?? '')
+}
+
 export class ForgePlane implements ForgeEngine {
-  readonly #gh: GhRunner
+  readonly #runner: ForgeRunner
   readonly #identityTtlMs: number
-  #identity: { readonly at: number; readonly value: ForgeIdentity } | null = null
-  #asking: Promise<ForgeIdentity> | null = null
+  readonly #identities = new Map<string, { readonly at: number; readonly value: ForgeIdentity }>()
+  readonly #asking = new Map<string, Promise<ForgeIdentity>>()
 
   constructor(
     private readonly port: ForgePort,
     options: ForgePlaneOptions = {},
   ) {
-    this.#gh = options.gh ?? ghOnPath
+    this.#runner = options.runner ?? personGhRunner(options.gh ?? ghOnPath)
     this.#identityTtlMs = options.identityTtlMs ?? DEFAULT_IDENTITY_TTL_MS
   }
 
@@ -119,41 +175,40 @@ export class ForgePlane implements ForgeEngine {
   }
 
   /**
-   * How the desk reaches the forge right now: the person's `gh`, as whom.
-   * Cached for a while — every publication asks — and asked once at a time,
-   * so a burst of tool calls does not fan out into a burst of API calls.
+   * How the desk reaches this checkout's forge right now: the selected runner,
+   * as whom. Cached per checkout for a while — every publication asks — and
+   * asked once at a time, so a burst of tool calls does not fan out into a
+   * burst of API calls.
    */
-  async identity(_scope?: ForgeScope): Promise<ForgeIdentity> {
+  async identity(options: ForgeRunOptions = {}, scope: ForgeScope = {}): Promise<ForgeIdentity> {
+    const key = options.cwd ?? ''
     const now = Date.now()
-    if (this.#identity && now - this.#identity.at < this.#identityTtlMs) return this.#identity.value
-    if (this.#asking) return this.#asking
-    this.#asking = this.#askGh().then((value) => {
-      this.#identity = { at: Date.now(), value }
-      this.#asking = null
+    const previous = this.#identities.get(key)
+    if (previous && now - previous.at < this.#identityTtlMs) return previous.value
+    const asking = this.#asking.get(key)
+    if (asking) return asking
+    const next = this.#runner.identity(options, scope).then((value) => {
+      this.#identities.set(key, { at: Date.now(), value })
       return value
     })
-    return this.#asking
+    this.#asking.set(key, next)
+    void next.then(
+      () => this.#asking.delete(key),
+      () => this.#asking.delete(key),
+    )
+    return next
   }
 
-  async #askGh(): Promise<ForgeIdentity> {
-    const result = await this.#gh(['api', 'user', '--jq', '.login'])
-    const login = result.stdout.trim()
-    if (result.exitCode === 0 && login !== '') {
-      return { via: 'gh', login, available: true, reason: null }
+  async run(args: readonly string[], options: ForgeRunOptions, scope: ForgeScope): Promise<ForgeRunResult> {
+    if (!isGitPluginCommand(args)) {
+      throw new Error('The forge runner accepts only the Git plugin’s pull-request, issue and review operations.')
     }
-    const said = `${result.stderr} ${result.stdout}`.trim()
-    const reason =
-      /ENOENT|not found|spawn gh/i.test(said) || said === ''
-        ? 'gh is not installed, or not on the PATH HarnessDesk was started with.'
-        : NOT_SIGNED_IN.test(said)
-          ? 'gh is not signed in: run `gh auth login`.'
-          : said.split('\n')[0] ?? 'gh could not answer.'
-    return { via: 'gh', login: null, available: false, reason }
+    return this.#runner.run(args, options, scope)
   }
 
   /** Forgets the cached identity — after a sign-in the desk drove, say. */
   forgetIdentity(): void {
-    this.#identity = null
+    this.#identities.clear()
   }
 
   async publish(reference: ForgeReference, scope: ForgeScope): Promise<void> {
