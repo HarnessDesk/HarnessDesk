@@ -69,10 +69,19 @@ const gateway = (): Socket => {
       }
     }
   })
-  socket.on('error', () => {
-    for (const waiter of pending.values()) waiter.reject(new Error('The HarnessDesk tool gateway is not reachable.'))
+  const disconnect = (error: Error) => {
+    for (const waiter of pending.values()) waiter.reject(error)
     pending.clear()
     socket = null
+  }
+  socket.on('error', () => {
+    disconnect(new Error('The HarnessDesk tool gateway is not reachable.'))
+  })
+  socket.on('end', () => {
+    disconnect(new Error('The HarnessDesk tool gateway disconnected.'))
+  })
+  socket.on('close', () => {
+    disconnect(new Error('The HarnessDesk tool gateway disconnected.'))
   })
   return socket
 }
