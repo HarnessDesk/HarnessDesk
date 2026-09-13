@@ -73,6 +73,27 @@ describe('extractHit', () => {
     expect(hitEnd!.spans[0]?.start).toBeGreaterThanOrEqual(0)
     expect(hitEnd!.line.slice(hitEnd!.spans[0]!.start, hitEnd!.spans[0]!.end)).toBe(query)
   })
+
+  it('pins the highlight boundary at needle lengths 119, 120, and 121', () => {
+    for (const len of [119, 120, 121]) {
+      const query = 'q'.repeat(len)
+      const text = 'prefix ' + query + ' suffix'
+      const hit = extractHit(query, text)
+      expect(hit).not.toBeNull()
+      expect(hit!.spans[0]?.start).toBeGreaterThanOrEqual(0)
+      expect(hit!.line.slice(hit!.spans[0]!.start, hit!.spans[0]!.end)).toBe(query)
+
+      const hitStart = extractHit(query, query + ' suffix')
+      expect(hitStart).not.toBeNull()
+      expect(hitStart!.spans[0]?.start).toBe(0)
+      expect(hitStart!.line.slice(hitStart!.spans[0]!.start, hitStart!.spans[0]!.end)).toBe(query)
+
+      const hitEnd = extractHit(query, 'prefix ' + query)
+      expect(hitEnd).not.toBeNull()
+      expect(hitEnd!.spans[0]?.start).toBeGreaterThanOrEqual(0)
+      expect(hitEnd!.line.slice(hitEnd!.spans[0]!.start, hitEnd!.spans[0]!.end)).toBe(query)
+    }
+  })
 })
 
 describe('highlightAll', () => {
