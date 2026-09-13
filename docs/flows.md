@@ -244,6 +244,31 @@ A flow with an error offers no way to start it.
 Start a room (**New → A room**), name it, and choose a flow. The dry run is
 shown before the button that runs it.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/app/flow-dark.png" />
+    <img src="images/app/flow-light.png" width="900" alt="The New room dialog with a flow chosen: a Flow select reading “Fix and review”, an input labelled “What to fix”, and beneath them the dry run — “It opens 4 agents · 4 turns to seat”, one row per seat giving its role, its agent and model, and its permission as a chip (publish on the fixer, read on the three reviewers); then “How it would go”, a trace of fixer → reviewer → referee with each round’s card count and answers; and a note that the seating figure is not what running them costs." />
+  </picture>
+</p>
+
+Every seat it would open, what opening them costs, and a trace of the loop —
+before the button. A flow with an error offers no way to start at all.
+
+Once it runs, the room narrates what the engine did and the board shows the
+round it opened, each card wearing the role it is addressed to:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/app/flow-board-dark.png" />
+    <img src="images/app/flow-board-light.png" width="900" alt="A room running a flow. The sidebar lists the four seats by the role each holds — fixer, reviewer 1, reviewer 2, reviewer 3. The channel reads: the fix card added, then completed with the outcome “published”, then three review cards added in one round. The board beside it shows those three cards in Ready, each tagged with a violet “reviewer” chip and carrying the reviewer’s brief." />
+  </picture>
+</p>
+
+In that picture the fix card was answered by the person — the board's own
+referee verb, which the channel says in as many words — and everything after
+it is the engine: one round of three reviewers, opened because a rule said so,
+each card addressed to a role no other seat can claim.
+
 What then happens, in order:
 
 1. **Every seat is opened first**, before any card exists — a seat still

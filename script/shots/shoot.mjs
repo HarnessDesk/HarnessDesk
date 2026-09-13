@@ -219,6 +219,69 @@ try {
    * two rooms of the same name leave the board picking whichever was created
    * first.
    */
+  /**
+   * The flow the staged repository offers, written where the app reads them.
+   *
+   * Seated on agents the rig invented and models they declare, so the dry run
+   * in the picture is a real dry run of a real file rather than a mock-up —
+   * and so the audit has nothing of anybody's to refuse.
+   */
+  const FLOW = `name: Fix and review
+description: One fixer, three reviewers, and the merge stays yours.
+
+inputs:
+  work:
+    label: What to fix
+
+roles:
+  fixer:
+    kind: agent
+    seat: codex=gpt-5.6-sol
+    permission: publish
+    outcomes: [published, cannot]
+    order: |
+      Make the change, run the tests, and open a pull request for it.
+  reviewer:
+    kind: agent
+    seat: cursor=gemini-3.8-flash
+    count: 3
+    permission: read
+    outcomes: [approve, request-changes]
+    order: |
+      Review the pull request on your own. Approve only if you would merge it.
+  referee:
+    kind: person
+    outcomes: [merged, dropped]
+
+seed:
+  role: fixer
+  title: "{{work}}"
+
+rules:
+  - id: review-it
+    on: fixer
+    when: { every: published }
+    then:
+      role: reviewer
+      title: "Review round {{round}} — {{n}} of {{count}}"
+      detail: |
+        Review the pull request the fixer's context package names. You are one
+        of {{count}} reviewers and will not see the others' answers.
+  - id: fix-again
+    on: reviewer
+    when: { any: request-changes }
+    then: { role: fixer, title: "Answer round {{round}}'s reviews" }
+  - id: hand-to-the-person
+    on: reviewer
+    when: { every: approve }
+    then: { role: referee, title: "Merge it — every reviewer approved" }
+`
+
+  const stageFlow = () => {
+    mkdirSync(join(REPO, '.harnessdesk', 'flows'), { recursive: true })
+    writeFileSync(join(REPO, '.harnessdesk', 'flows', 'fix-and-review.yml'), FLOW)
+  }
+
   let roomId = null
   const stageRoom = async () => {
     if (roomId) return roomId
@@ -317,6 +380,100 @@ try {
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
       await sleep(2200)
+    } },
+
+    /**
+     * Choosing a flow when a room is started, and what the dry run says it
+     * would do before anything is opened.
+     *
+     * The report is the point of the picture: a flow opens several agents on
+     * somebody's repository and keeps them working, and this is the moment —
+     * before the button — when that is still a decision. So the frame wants
+     * the seats, the permissions and the trace on screen together.
+     */
+    flow: { expect: 'Run a flow in it', run: async () => {
+      stageFlow()
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      await sleep(1200)
+      if (!(await click('New'))) throw new Error('no New button in the title bar')
+      await sleep(700)
+      if (!(await click('A room'))) throw new Error('no "A room" door in the dialog')
+      await sleep(700)
+      await cdp.eval(`(() => {
+        const input = document.querySelector('input[aria-label="Room name"]')
+        if (!input) return false
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        setter.call(input, 'Checkout hardening')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        const select = document.querySelector('select[aria-label="Flow"]')
+        if (!select) return false
+        const option = [...select.options].find((one) => one.value.endsWith('fix-and-review.yml'))
+        if (!option) return false
+        const pick = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
+        pick.call(select, option.value)
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+        return true
+      })()`)
+      // The dry run is a round trip to the host, and it draws when it answers.
+      await sleep(2500)
+      /* The flow's own input, filled — an empty field photographs as a form
+         nobody has used, and the whole point is what the run is *for*. */
+      await cdp.eval(`(() => {
+        const labels = [...document.querySelectorAll('label')]
+        const label = labels.find((one) => one.textContent.trim() === 'What to fix')
+        const input = label && document.getElementById(label.getAttribute('for'))
+        if (!input) return false
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        setter.call(input, 'Retry the checkout call on a 502')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        return true
+      })()`)
+      await sleep(900)
+      /* And the report ends on a whole sentence. The dialog scrolls, so the
+         default view clips the cost note mid-word — which reads as a bug in
+         the layout rather than as a scroll position. */
+      await cdp.eval(`(() => {
+        const seats = [...document.querySelectorAll('h4')].find((one) => /It opens \\d+ agent/.test(one.textContent ?? ''))
+        const box = seats?.closest('[class*="naming"]')?.parentElement
+        const scroller = box && [...document.querySelectorAll('*')].find((one) => one.scrollHeight > one.clientHeight + 20 && one.contains(seats))
+        if (scroller) scroller.scrollTop = scroller.scrollHeight
+        return Boolean(scroller)
+      })()`)
+      await sleep(700)
+    } },
+
+    /**
+     * A flow running: the board with every card addressed to a role, the
+     * fixer's answer on its card, and a round of three reviewers open.
+     *
+     * Driven through the host's own verbs, so the rounds in the picture were
+     * opened by the engine rather than arranged for it.
+     */
+    'flow-board': { leaveOverlay: true, expect: 'reviewer', run: async () => {
+      stageFlow()
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      await sleep(1200)
+      const room = await cdp.eval(`${STORE}.createRoom(${q(REPO)}, 'Checkout hardening')`, 60_000)
+      const source = await cdp.eval(`${STORE}.readFlow(${q(REPO)}, '.harnessdesk/flows/fix-and-review.yml')`, 60_000)
+      await cdp.eval(
+        `${STORE}.startFlow(${q(room)}, ${q(source)}, { path: '.harnessdesk/flows/fix-and-review.yml', vars: { work: 'Retry the checkout call on a 502' } })`,
+        180_000,
+      )
+      await sleep(2500)
+      /* The fixer answers, and the engine opens the review round itself — the
+         person's verb over a card, which is the board's own referee rule. */
+      await cdp.eval(
+        `${STORE}.teamIntent(${q(room)}, 1, 'done', undefined, 'published', 'Opened #482 on fix/checkout-retry-502.')`,
+        60_000,
+      ).catch(() => {})
+      await sleep(2000)
+      /* The board beside the room, which is how a flow is actually watched:
+         the channel narrates what the engine did — the fix answered
+         `published`, then three reviewer cards added — and the board shows the
+         round those words produced, each card wearing the role it is
+         addressed to. */
+      await cdp.eval(`${STORE}.openTeamBoard(${q(room)}); true`)
+      await sleep(2400)
     } },
 
     /** The browser pane — a real `<webview>`, driven by the agent's tools. */

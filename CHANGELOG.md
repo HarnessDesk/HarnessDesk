@@ -7,6 +7,20 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Flows: a room can be handed the policy instead of you performing it** — a
+  room is a shared board with a human referee, and somebody has to decide who
+  does what, move work between agents, read the results and take the
+  irreversible steps. A flow declares that up front: named roles, the seeding
+  prompt each one is handed, and the rules that move work between them. Start a
+  room, pick a flow, and a loop runs — one agent fixes, three review, a mixed
+  round sends it back, a unanimous one hands you the merge — with the steps you
+  keep marked `kind: person` and nothing else able to take them. Flows are files
+  in the repository they serve (`.harnessdesk/flows/*.yml`), so they are
+  versioned with the code they govern and can be proposed in a pull request. Dry
+  run first: it spends nothing and prints every seat it would open, every
+  command a check would run, and a trace of the loop — and refuses a flow that
+  names a role which does not exist or loops with no way out. See
+  [docs/flows.md](docs/flows.md).
 - **A draft pointed at the main checkout no longer calls it a worktree when that
   checkout is on a detached HEAD** — the word beside the *Work in* glyph read
   which place was chosen, while the badge beside it read whether that place was

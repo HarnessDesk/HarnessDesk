@@ -87,6 +87,22 @@ others took.
   </a>
 </p>
 
+### Or hand the room a policy
+
+A flow declares who does what and what moves work between them — so a loop
+runs without you routing every card. Roles, the rules between them, and the
+steps you keep for yourself. Dry run first: it spends nothing and says exactly
+what it would open.
+
+<p align="center">
+  <a href="docs/images/app/flow-light.png">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-dark.png" />
+      <img src="docs/images/app/flow-light.png" width="900" alt="Starting a room with a flow: a Flow select reading “Fix and review”, and beneath it the dry run — four agents it would open, each with its role, model and permission, and a trace of how the loop would go from fixer to reviewer to the person." />
+    </picture>
+  </a>
+</p>
+
 ### What is left, and what it cost
 
 Every plan and every account on one screen — which window resets when,
@@ -191,6 +207,7 @@ extend it, or understand it.
 - [VISION.md](VISION.md) — positioning, and the promise about what needs an account.
 - [docs/interface.md](docs/interface.md) — every surface of the window.
 - [docs/multi-agent.md](docs/multi-agent.md) — hand-off, `/race`, boards, and channels.
+- [docs/flows.md](docs/flows.md) — declaring a room's policy: roles, rounds, rules, and dry run.
 - [docs/architecture.md](docs/architecture.md) — two planes, host, and packages.
 - [docs/extending.md](docs/extending.md) — writing plugins and adding ACP backends.
 - [docs/decisions.md](docs/decisions.md) — the choices everything else follows from.
