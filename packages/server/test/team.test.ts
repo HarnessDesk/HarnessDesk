@@ -3664,3 +3664,60 @@ test('await_work answers "nothing yet" when its block passes, and says which cyc
   const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 4 })
   assert.equal(answer, 'nothing yet. Call await_work again with cycle: 5.')
 })
+
+test('await_work answers a card the caller already holds, ahead of any open one', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.addIntentForFlow(room, { title: 'First card', role: 'fixer' })
+  await team.claim(1, codex)
+  team.addIntentForFlow(room, { title: 'Second card', role: 'fixer' })
+
+  const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 2 })
+  assert.match(answer, /^work: #1 First card\./)
+  assert.match(answer, /you are already holding this; finish it with complete_claim/i)
+  assert.match(answer, /cycle: 3/)
+})
+
+test('hasWorkFor and awaitWork never disagree about whether a seat has work', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.setRole(room, 'claude', 'k1', 'reviewer')
+
+  const assertLockstep = async (runtime: string, sessionId: string, scope: typeof codex) => {
+    const hasWork = team.hasWorkFor(room, runtime, sessionId)
+    const workAnswer = await team.awaitWork(scope, { blockMs: 1000, cycle: 0 })
+    const awaitSawWork = workAnswer.startsWith('work: #')
+    assert.equal(
+      awaitSawWork,
+      hasWork,
+      `hasWorkFor (${hasWork}) and awaitWork (${workAnswer}) must agree for ${runtime}/${sessionId}`,
+    )
+  }
+
+  // 1. Empty board: no work for anyone
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 2. Card for reviewer: reviewer has work, fixer does not
+  team.addIntentForFlow(room, { title: 'Review changes', role: 'reviewer' })
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 3. Card for fixer: both have work
+  team.addIntentForFlow(room, { title: 'Fix bug', role: 'fixer' })
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 4. Fixer claims its card: fixer still has work (work in hand), reviewer still has work
+  await team.claim(2, codex)
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 5. Fixer completes its card: fixer has no work, reviewer still has work
+  await team.complete(2, { outcome: 'published' }, codex)
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+})
+

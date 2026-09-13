@@ -1507,22 +1507,41 @@ export class Team {
     const key = keyOf(caller.runtime, caller.sessionId)
     const done = this.#flows?.standDown(board.id, caller.runtime, caller.sessionId) ?? null
     if (done) return `stand down — ${done}`
-    const ready = (): Intent | null =>
-      [...board.intents]
+    const ready = (): Intent | null => {
+      const held = board.intents
         .filter(
           (intent) =>
-            intent.state === 'open' &&
-            !intent.claim &&
-            this.#misaddressed(board, intent, caller) === null &&
-            intent.dependsOn.every((dep) => {
-              const found = board.intents.find((entry) => entry.id === dep)
-              return found === undefined || found.state === 'done'
-            }) &&
-            this.#conflictsWith(board, intent.files, caller).length === 0,
+            intent.state === 'claimed' &&
+            intent.claim?.runtime === caller.runtime &&
+            intent.claim.sessionId === caller.sessionId,
         )
-        .sort((a, b) => a.id - b.id)[0] ?? null
+        .sort((a, b) => a.id - b.id)[0]
+      if (held) return held
+      return (
+        [...board.intents]
+          .filter(
+            (intent) =>
+              intent.state === 'open' &&
+              !intent.claim &&
+              this.#misaddressed(board, intent, caller) === null &&
+              intent.dependsOn.every((dep) => {
+                const found = board.intents.find((entry) => entry.id === dep)
+                return found === undefined || found.state === 'done'
+              }) &&
+              this.#conflictsWith(board, intent.files, caller).length === 0,
+          )
+          .sort((a, b) => a.id - b.id)[0] ?? null
+      )
+    }
+    const describe = (intent: Intent): string => {
+      const action =
+        intent.state === 'claimed'
+          ? 'You are already holding this; finish it with complete_claim.'
+          : 'Claim it with claim_next.'
+      return `work: #${intent.id} ${intent.title}. ${action} ${next}`
+    }
     const now = ready()
-    if (now) return `work: #${now.id} ${now.title}. Claim it with claim_next. ${next}`
+    if (now) return describe(now)
 
     const blockMs = Math.min(
       WAIT_CEILING_MS,
@@ -1541,7 +1560,7 @@ export class Team {
        timer was settling, and a seat told "nothing yet" about a card that is
        sitting there would wait out another whole cycle for nothing. */
     const late = ready()
-    if (late) return `work: #${late.id} ${late.title}. Claim it with claim_next. ${next}`
+    if (late) return describe(late)
     const ended = this.#flows?.standDown(board.id, caller.runtime, caller.sessionId) ?? null
     if (ended) return `stand down — ${ended}`
     return `nothing yet. ${next}`
@@ -1563,9 +1582,18 @@ export class Team {
       )
       if (!peer) continue
       const standDown = this.#flows?.standDown(board.id, runtime, sessionId) ?? null
+      const held = board.intents
+        .filter(
+          (intent) =>
+            intent.state === 'claimed' &&
+            intent.claim?.runtime === peer.runtime &&
+            intent.claim.sessionId === peer.sessionId,
+        )
+        .sort((a, b) => a.id - b.id)[0]
       const found = standDown
         ? null
-        : [...board.intents]
+        : (held ??
+          [...board.intents]
             .filter(
               (intent) =>
                 intent.state === 'open' &&
@@ -1577,14 +1605,18 @@ export class Team {
                 }) &&
                 this.#conflictsWith(board, intent.files, peer).length === 0,
             )
-            .sort((a, b) => a.id - b.id)[0]
+            .sort((a, b) => a.id - b.id)[0])
       if (!standDown && !found) continue
       if (waiter.timer) clearTimeout(waiter.timer)
       this.#waiters.delete(waiter)
+      const action =
+        found?.state === 'claimed'
+          ? 'You are already holding this; finish it with complete_claim.'
+          : 'Claim it with claim_next.'
       waiter.resolve(
         standDown
           ? `stand down — ${standDown}`
-          : `work: #${found!.id} ${found!.title}. Claim it with claim_next. Call await_work again with cycle: ${waiter.cycle + 1}.`,
+          : `work: #${found!.id} ${found!.title}. ${action} Call await_work again with cycle: ${waiter.cycle + 1}.`,
       )
     }
   }
