@@ -869,6 +869,27 @@ test('a permission request becomes an approval; the decision reaches the agent',
   }
 })
 
+test('a permission request with null/non-object blocks in content does not throw and becomes an approval', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'use tool with malformed content' }])
+    const requested = await tape.until((event) => event.type === 'approval/requested')
+    const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+    assert.equal(approval.type, 'permission')
+    assert.equal(approval.summary, 'poke_with_null_block')
+    assert.equal(approval.reason, 'reason despite null block')
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.equal(turn.status, 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('interrupt cancels a slow turn as interrupted, not failed', async () => {
   const runtime = make()
   await runtime.start()

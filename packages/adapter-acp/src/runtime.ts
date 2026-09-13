@@ -406,9 +406,11 @@ export const toolNameOf = (
   return title ?? kept ?? update.kind ?? 'tool'
 }
 
-const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
-  const text = (toolCall.content ?? [])
+export const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
+  const blocks = Array.isArray(toolCall.content) ? toolCall.content : []
+  const text = blocks
     .map((block) => {
+      if (typeof block !== 'object' || block === null) return ''
       if (block['type'] === 'text' && typeof block['text'] === 'string') return block['text']
       const inner = block['content']
       if (

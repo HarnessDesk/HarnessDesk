@@ -253,6 +253,42 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('use tool with malformed content')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-null-block',
+      title: 'poke_with_null_block',
+      kind: 'other',
+      status: 'pending',
+      rawInput: { target: 'the thing' },
+    })
+    const { outcome } = await request('session/request_permission', {
+      sessionId: state.id,
+      toolCall: {
+        toolCallId: 'tc-null-block',
+        title: 'poke_with_null_block',
+        content: [null, { type: 'content', content: { type: 'text', text: 'reason despite null block' } }],
+      },
+      options: [
+        { optionId: 'yes', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    if (outcome.outcome === 'selected' && outcome.optionId !== 'no') {
+      update(state.id, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc-null-block',
+        status: 'completed',
+        rawOutput: { poked: true },
+      })
+      say('poked it.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
+    update(state.id, { sessionUpdate: 'tool_call_update', toolCallId: 'tc-null-block', status: 'failed' })
+    say('fine, not poking it.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   // The way Claude Code's bridge actually talks: one call announced twice —
   // the permission flow first, with a bare title, then the stream again with
   // the real input — and one call whose only notice is its completion.
