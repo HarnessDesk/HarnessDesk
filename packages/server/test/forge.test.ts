@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { itemId, sessionId, turnId, type AgentItem, type ForgeReference, type PublicationItem, type Session } from '@harnessdesk/protocol'
 
-import { FORGE_INSTRUCTION, ForgePlane, type GhRunner } from '../src/forge.js'
+import { FORGE_INSTRUCTION, ForgePlane, type ForgeRunner, type GhRunner } from '../src/forge.js'
 import { StateStore } from '../src/index.js'
 import { FAKE_RUNTIME_ID, type FakeSession } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
@@ -264,6 +264,34 @@ test('gh’s refusals are states with a reason, never errors', async () => {
   assert.match((await missing.identity()).reason ?? '', /not installed/)
   const other = new ForgePlane(port(true), { gh: answering(() => ({ exitCode: 1, stderr: 'HTTP 503: down\nmore' })).gh })
   assert.equal((await other.identity()).reason, 'HTTP 503: down')
+})
+
+test('a future App runner is selected per repository without becoming a plugin shell', async () => {
+  const calls: unknown[] = []
+  const runner: ForgeRunner = {
+    identity: async (options, scope) => {
+      calls.push({ identity: { options, scope } })
+      return { via: 'app', login: 'harnessdesk[bot]', available: true, reason: null }
+    },
+    run: async (args, options, scope) => {
+      calls.push({ args, options, scope })
+      return { stdout: 'ok', stderr: '', exitCode: 0 }
+    },
+  }
+  const plane = new ForgePlane(port(true), { runner })
+  const scope = { runtime: 'codex', sessionId: 's1', plugin: 'git#1' }
+
+  assert.deepEqual(await plane.identity({ cwd: '/work/widgets' }, scope), { via: 'app', login: 'harnessdesk[bot]', available: true, reason: null })
+  assert.deepEqual(await plane.run(['pr', 'view', '7'], { cwd: '/work/widgets', timeoutMs: 60_000 }, scope), {
+    stdout: 'ok',
+    stderr: '',
+    exitCode: 0,
+  })
+  assert.deepEqual(calls, [
+    { identity: { options: { cwd: '/work/widgets' }, scope } },
+    { args: ['pr', 'view', '7'], options: { cwd: '/work/widgets', timeoutMs: 60_000 }, scope },
+  ])
+  await assert.rejects(plane.run(['auth', 'token'], { cwd: '/work/widgets' }, scope), /only the Git plugin’s/)
 })
 
 test('the sentence is told only while the tools it names are offered', () => {

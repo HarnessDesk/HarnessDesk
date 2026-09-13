@@ -45,6 +45,21 @@ export interface ForgeIdentity {
   readonly reason: string | null
 }
 
+/** The repository-scoped process context for a forge command. */
+export interface ForgeRunOptions {
+  /** The checkout the command is acting on; an App service resolves its installation from this repository. */
+  readonly cwd?: string
+  /** The host-side deadline, in milliseconds. */
+  readonly timeoutMs?: number
+}
+
+/** The part of a forge command a plugin is allowed to observe. */
+export interface ForgeRunResult {
+  readonly stdout: string
+  readonly stderr: string
+  readonly exitCode: number
+}
+
 export interface ForgeScope {
   readonly runtime?: string
   readonly sessionId?: string
@@ -61,7 +76,13 @@ export interface ForgeEngine {
    * called from, so that a plugin in the shared child cannot reach any of
    * them by speaking the wire protocol between invocations.
    */
-  identity(scope: ForgeScope): Promise<ForgeIdentity>
+  identity(options: ForgeRunOptions, scope: ForgeScope): Promise<ForgeIdentity>
+  /**
+   * Runs a forge command for this invocation. Today this is the person's
+   * `gh`; a future hosted App service can select a short-lived installation
+   * token from `options.cwd`, without giving a private key to the desktop.
+   */
+  run(args: readonly string[], options: ForgeRunOptions, scope: ForgeScope): Promise<ForgeRunResult>
   /** Records what the calling conversation published, into its transcript. */
   publish(reference: ForgeReference, scope: ForgeScope): Promise<void>
 }
@@ -108,9 +129,14 @@ export class ForgeService extends Service {
     return engine().seat(asForgeScope(scope, plugin))
   }
 
-  async identity(scope?: ScopeQuery): Promise<ForgeIdentity> {
+  async identity(scope?: ScopeQuery, options: ForgeRunOptions = {}): Promise<ForgeIdentity> {
     const plugin = this.gate()
-    return engine().identity(asForgeScope(scope, plugin))
+    return engine().identity(options, asForgeScope(scope, plugin))
+  }
+
+  async run(args: readonly string[], options: ForgeRunOptions = {}, scope?: ScopeQuery): Promise<ForgeRunResult> {
+    const plugin = this.gate()
+    return engine().run(args, options, asForgeScope(scope, plugin))
   }
 
   async publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void> {

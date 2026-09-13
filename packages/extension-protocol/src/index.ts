@@ -46,7 +46,10 @@ import type {
 // 5 adds the forge plane's `forge/*` child requests — the calling
 // conversation's seat, the desk's forge identity, and the record of a
 // publication.
-export const EXTENSION_PROTOCOL_VERSION = 5
+// 6 lets the host run a repository-scoped forge command, so a future hosted
+// GitHub App can select an installation without sharing its credential with
+// the plugin host.
+export const EXTENSION_PROTOCOL_VERSION = 6
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -248,7 +251,16 @@ export interface ChildToHostMethods {
    * transport and programming errors throw.
    */
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
-  'forge/identity': { params: { readonly scope: TeamCallScope }; result: ForgeIdentityInfo }
+  'forge/identity': { params: { readonly scope: TeamCallScope; readonly cwd?: string }; result: ForgeIdentityInfo }
+  'forge/run': {
+    params: {
+      readonly scope: TeamCallScope
+      readonly args: readonly string[]
+      readonly cwd?: string
+      readonly timeoutMs?: number
+    }
+    result: ForgeRunResultInfo
+  }
   'forge/publish': {
     params: { readonly scope: TeamCallScope; readonly reference: ForgeReference }
     result: null
@@ -341,6 +353,13 @@ export interface ForgeIdentityInfo {
   readonly login: string | null
   readonly available: boolean
   readonly reason: string | null
+}
+
+/** The observable result of a repository-scoped forge command. */
+export interface ForgeRunResultInfo {
+  readonly stdout: string
+  readonly stderr: string
+  readonly exitCode: number
 }
 
 export type ChildToHostMethodName = keyof ChildToHostMethods

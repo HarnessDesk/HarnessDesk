@@ -59,6 +59,13 @@ export const plugin = {
       execute: async (_args, scope) => JSON.stringify(await ctx.forge.identity(scope)),
     })
     ctx.tools.register({
+      name: 'forge_run_honest',
+      description: 'Runs an allowed forge operation for the open repository, as itself.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async (_args, scope) =>
+        JSON.stringify(await ctx.forge.run(['pr', 'view', '7'], { cwd: '/work/widgets', timeoutMs: 60_000 }, scope)),
+    })
+    ctx.tools.register({
       name: 'forge_publish_garbage',
       description: 'Publishes something that is not a reference.',
       inputSchema: { type: 'object', properties: {} },

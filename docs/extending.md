@@ -568,10 +568,11 @@ Five things worth knowing:
 
 ### The forge plane
 
-`ctx.forge` is what the desk adds around a git forge a plugin reaches on its
-own. The Git plugin talks to GitHub with the person's `gh` under its `shell`
-grant — that is deliberate, and it is where the credential stays — and asks
-the desk for the two things a shell cannot know:
+`ctx.forge` is what the desk adds around a git forge. The Git plugin asks the
+host to reach GitHub for the open checkout: the default runner is the person's
+`gh`, while a future hosted GitHub App runner can resolve that repository's
+installation without placing its credential in the desktop. It also asks the
+desk for the two things a forge command cannot know:
 
 ```ts
 // Which agent, on which model, at which effort, made this tool call.
@@ -585,13 +586,17 @@ await ctx.forge.publish(
 )
 
 // How the desk reaches the forge right now: the person's gh, as whom.
-const { via, login, available, reason } = await ctx.forge.identity(scope)
+const { via, login, available, reason } = await ctx.forge.identity(scope, { cwd: workspaceRoot })
+
+// Git plugin operations only. The host supplies the checkout path; extensions
+// never receive an arbitrary GitHub API or shell channel through this method.
+const result = await ctx.forge.run(['pr', 'view', '7'], { cwd: workspaceRoot, timeoutMs: 60_000 }, scope)
 ```
 
 Three things worth knowing:
 
-- **Every verb rides the invocation it was called from**, so `seat`, `publish`
-  and `identity` take the `scope` your tool's `execute` was handed and refuse
+- **Every verb rides the invocation it was called from**, so `seat`, `publish`,
+  `identity` and `run` take the `scope` your tool's `execute` was handed and refuse
   a call that rides no live invocation of a plugin granted `forge` — the same
   gate as `ctx.team`, and the two grants are checked apart: a plugin granted
   one plane cannot reach the other while it runs. A plugin cannot sign as a
@@ -603,7 +608,8 @@ Three things worth knowing:
   built from a guess would be a false one. Say so in the result instead.
 - **Requires `forge: true`**, which is described to the person as “Sign pull
   requests and reviews for the conversation, and put what it published in the
-  transcript”. The reach itself is `shell`'s.
+  transcript”. `run` is deliberately limited to the Git plugin's pull-request,
+  issue and review vocabulary; it is not a replacement for `shell`.
 
 **No built-in gives an agent a write tool**, and that is a decision rather than
 an omission — [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)
@@ -687,7 +693,7 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `issue_view` and `issue_comment` through the repository-scoped forge runner, signed for the conversation's seat and recorded in it |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
 | search | `ctx.fs` | content and filename search |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |

@@ -29,7 +29,7 @@ import type {
  * plain object with `apply(ctx)`, and this is what `ctx` offers — which is also
  * the whole API surface a plugin is allowed to reach.
  */
-import type { ForgeIdentity, ForgeSeat } from './forge.js'
+import type { ForgeIdentity, ForgeRunOptions, ForgeRunResult, ForgeSeat } from './forge.js'
 import type { ShellResult } from './capabilities.js'
 
 export interface HarnessContext {
@@ -153,15 +153,16 @@ export interface HarnessContext {
    * are sentences, not throws.
    */
   /**
-   * What the desk adds around a git forge a plugin reaches with its own
-   * `gh`: the seat of the calling conversation, for a signature, and the
-   * record of what was published, drawn in the transcript. Requires the
-   * `forge` permission. Every verb takes the `ScopeQuery` its tool
-   * invocation carried, for the reason the team verbs do.
+   * What the desk adds around a git forge: the seat of the calling
+   * conversation, repository-scoped Git plugin operations, and the record of
+   * what was published, drawn in the transcript. Requires the `forge`
+   * permission. Every verb takes the `ScopeQuery` its tool invocation
+   * carried, for the reason the team verbs do.
    */
   readonly forge: {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
-    identity(scope?: ScopeQuery): Promise<ForgeIdentity>
+    identity(scope?: ScopeQuery, options?: ForgeRunOptions): Promise<ForgeIdentity>
+    run(args: readonly string[], options?: ForgeRunOptions, scope?: ScopeQuery): Promise<ForgeRunResult>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
   }
   readonly team: {

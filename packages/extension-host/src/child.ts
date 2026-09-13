@@ -155,7 +155,8 @@ setTeamEngine(remoteTeamEngine)
 /** `ctx.forge` for plugins in this process: the seat and the record live with the host, so every verb crosses. */
 const remoteForgeEngine: ForgeEngine = {
   seat: (scope) => askHost('forge/seat', { scope }),
-  identity: (scope) => askHost('forge/identity', { scope }),
+  identity: (options, scope) => askHost('forge/identity', { scope, ...options }),
+  run: (args, options, scope) => askHost('forge/run', { scope, args, ...options }),
   publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),
 }
 

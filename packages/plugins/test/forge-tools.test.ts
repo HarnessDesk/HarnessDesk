@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -67,6 +67,7 @@ interface Rig {
   readonly seat: { current: ForgeSeat | null }
   tool(name: string): ContributionId
   calls(): string[][]
+  runnerCalls(): readonly { readonly args: readonly string[]; readonly cwd: string | undefined }[]
   run(name: string, args: unknown): Promise<string>
 }
 
@@ -105,11 +106,17 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
   })
 
   const published: ForgeReference[] = []
+  const runnerCalls: { args: string[]; cwd: string | undefined }[] = []
   const seat = { current: SEAT as ForgeSeat | null }
   const engine: ForgeEngine = {
     seat: async () => seat.current,
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
-    publish: async (reference) => {
+    run: async (args, options) => {
+      runnerCalls.push({ args: [...args], cwd: options.cwd })
+      const result = spawnSync('gh', args, { cwd: options.cwd ?? repo, encoding: 'utf8' })
+      return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: result.status ?? -1 }
+    },
+    publish: async (reference: ForgeReference) => {
       published.push(reference)
     },
   }
@@ -143,6 +150,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
             .filter((line) => line !== '')
             .map((line) => JSON.parse(line) as string[])
         : [],
+    runnerCalls: () => runnerCalls,
     run: async (name, args) => text(await kernel.invokeTool(tool(name), args, { runtime: 'codex', sessionId: 's1' } as never)),
   }
 }
@@ -167,6 +175,10 @@ test('pr_create signs the description for the seat and records the pull request 
   )
   const create = forge.calls().find((args) => args[1] === 'create')!
   assert.ok(create.includes('--head') && create[create.indexOf('--head') + 1] === 'main', 'the head is the current branch')
+  assert.ok(
+    forge.runnerCalls().some((call) => call.args[0] === 'pr' && call.args[1] === 'create' && call.cwd === forge.repo),
+    'publication commands go through the forge runner with the repository that an App service would resolve',
+  )
 
   assert.equal(forge.published.length, 1)
   const reference = forge.published[0]!
