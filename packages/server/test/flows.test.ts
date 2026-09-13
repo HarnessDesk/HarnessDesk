@@ -990,3 +990,36 @@ test('a seat whose turn never ran is reported as that, not as an agent ignoring 
   assert.match(run.ended ?? '', /Their turns did not run: Slow Pool Error/)
   assert.doesNotMatch(run.ended ?? '', /takes HarnessDesk's tools without using them/)
 })
+
+test('a seated agent receives an order with run id and inputs resolved', async (t) => {
+  const one = await rig(t)
+  const source = `
+name: Probe flow
+inputs:
+  codename:
+    label: Agent codename
+    default: mantis
+roles:
+  worker:
+    kind: agent
+    seat: cursor=gpt-5.3-codex/xhigh
+    permission: read
+    outcomes: [done]
+    order: |
+      You are {{codename}} in run {{run}}.
+seed:
+  role: worker
+  title: "Do work"
+`
+  const run = await one.flows.start({
+    room: one.room,
+    source,
+    vars: { codename: 'bumblebee' },
+  })
+  assert.equal(run.state, 'running')
+  assert.equal(one.orders.length, 1)
+  assert.match(one.orders[0]!.text, /You are bumblebee in run flow-/)
+  assert.doesNotMatch(one.orders[0]!.text, /\{\{codename\}\}/)
+  assert.doesNotMatch(one.orders[0]!.text, /\{\{run\}\}/)
+})
+
