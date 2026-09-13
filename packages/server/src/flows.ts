@@ -846,6 +846,7 @@ export class Flows implements TeamFlows {
   async #advance(id: string, because?: Intent): Promise<void> {
     const run = this.#runs.get(id)
     if (!run || run.state !== 'running') return
+    if (!run.rounds || run.rounds.length === 0) return
     const round = run.rounds[run.rounds.length - 1]
     if (!round) return
     const board = this.#team.stateFor(run.room)
@@ -1082,6 +1083,7 @@ export class Flows implements TeamFlows {
           typeof raw.id !== 'string' ||
           !raw.id ||
           typeof raw.room !== 'string' ||
+          !raw.room ||
           !Array.isArray(raw.rounds) ||
           !Array.isArray(raw.seats) ||
           !Array.isArray(raw.record)
@@ -1108,7 +1110,14 @@ export class Flows implements TeamFlows {
         this.#save(run.id)
         continue
       }
-      await this.#advance(run.id)
+      try {
+        await this.#advance(run.id)
+      } catch (error) {
+        this.#port.log('a running flow could not advance during reconciliation', {
+          run: run.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
   }
 

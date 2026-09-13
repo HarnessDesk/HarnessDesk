@@ -1315,6 +1315,39 @@ seed:
   assert.match(one.orders[1]!.text, new RegExp(`Name: ${expectedNickname}, Member: ${expectedNickname}, Seat: cursor=gpt-5\\.3-codex/xhigh`))
 })
 
+test('Flows.load refuses a running run that omits rounds instead of crashing (#502)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-run.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'run-missing-rounds',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
 
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: () => {},
+  })
+
+  await second.load()
+  assert.equal(second.runsFor(one.room).length, 0)
+})
 
 
