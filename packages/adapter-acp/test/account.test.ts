@@ -234,6 +234,77 @@ test('a -32000 that is not about signing in is not read as a sign-in refusal', a
   }
 })
 
+test('a prompt-time auth refusal moves an observed agent to sign-in required', async () => {
+  const runtime = bare({
+    FAKE_ACP_AUTH_METHODS: JSON.stringify([
+      { id: 'devin-browser', name: 'Log in with browser', description: 'Sign in via your browser' },
+    ]),
+    FAKE_ACP_PROMPT_AUTH_REQUIRED: '1',
+  })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    const session = await runtime.createSession({ cwd: process.cwd() })
+    // Control: session/new succeeds, agent is observed as signed in
+    const initial = await runtime.getAccount()
+    assert.deepEqual(initial.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    assert.deepEqual(initial.signInMethods, [])
+
+    const turnFinished = new Promise<void>((resolve) => {
+      runtime.subscribe((event) => {
+        if (event.type === 'turn/completed') resolve()
+      })
+    })
+    await session.send([{ type: 'text', text: 'hello' }])
+    await turnFinished
+
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [], 'accounts must be empty when sign-in is required')
+    assert.equal(status.signInMethods.length, 1)
+    assert.equal(status.signInMethods[0]?.id, 'acp:devin-browser')
+    assert.equal(status.signInMethods[0]?.label, 'Log in with browser')
+    assert.equal(status.signInMethods[0]?.flow, 'external')
+    assert.match(status.signInMethods[0]?.description ?? '', /Please log in to use Devin/)
+    assert.ok(
+      events.some((event) => event.type === 'account/changed'),
+      'account/changed event was announced on prompt-time auth refusal',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a prompt-time non-auth error leaves an observed agent signed in (control)', async () => {
+  const runtime = bare({
+    FAKE_ACP_AUTH_METHODS: JSON.stringify([
+      { id: 'devin-browser', name: 'Log in with browser', description: 'Sign in via your browser' },
+    ]),
+    FAKE_ACP_PROMPT_ERROR: '1',
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: process.cwd() })
+    const initial = await runtime.getAccount()
+    assert.deepEqual(initial.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+
+    const turnFinished = new Promise<void>((resolve) => {
+      runtime.subscribe((event) => {
+        if (event.type === 'turn/completed') resolve()
+      })
+    })
+    await session.send([{ type: 'text', text: 'hello' }])
+    await turnFinished
+
+    // Non-auth error must NOT move #signIn to required
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    assert.deepEqual(status.signInMethods, [])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 /**
  * Who, not only whether. An agent with no status command may still write
  * down who it signed in as, and the host hands the adapter a reader for

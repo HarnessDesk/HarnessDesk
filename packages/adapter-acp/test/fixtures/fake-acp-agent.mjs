@@ -138,6 +138,30 @@ const runPrompt = async (id, params) => {
   const say = (chunk) =>
     update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } })
 
+  if (process.env.FAKE_ACP_PROMPT_AUTH_REQUIRED === '1') {
+    send({
+      jsonrpc: '2.0',
+      id,
+      error: {
+        code: -32000,
+        message: 'Please log in to use Devin. Use `/login` to authenticate again.',
+      },
+    })
+    return
+  }
+
+  if (process.env.FAKE_ACP_PROMPT_ERROR === '1') {
+    send({
+      jsonrpc: '2.0',
+      id,
+      error: {
+        code: -32603,
+        message: 'Internal server error: model backend timed out',
+      },
+    })
+    return
+  }
+
   if (handleTaskPrompt(state, text.trim())) {
     say('ok.')
     return reply(id, { stopReason: 'end_turn' })
@@ -556,9 +580,11 @@ const handlers = {
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
         ...(STORE ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
       },
-      authMethods: [
-        { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
-      ],
+      authMethods: process.env.FAKE_ACP_AUTH_METHODS
+        ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
+        : [
+            { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
+          ],
       ...(TASKS || DELETES
         ? {
             _meta: {
