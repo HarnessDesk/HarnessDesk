@@ -321,6 +321,16 @@ export class Flows implements TeamFlows {
     }
     this.#runs.set(id, run)
 
+    /* Name every member before a word is written about them. A room names its
+       members *lazily* — on the first look at the roster — so an order
+       rendered straight after seating called the seat by its label ("Cursor ·
+       Gemini 3.8 Flash · High") while the room addressed it as "Gemini 3".
+       The order tells a seat what it is called and that name is what
+       `agent_message` reaches it by, so the two disagreeing makes a seat
+       unaddressable by the name it was given. Measured across a re-arm: the
+       first order said one thing and every later one said the other. */
+    await this.#team.peersFor(request.room).catch(() => [])
+
     /* The order after the cards would be a seat that wakes to a board it has
        not been told how to read; the order before them is a seat that waits.
        So: orders, then the seed round. */

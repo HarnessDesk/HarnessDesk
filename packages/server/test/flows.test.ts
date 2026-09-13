@@ -637,3 +637,19 @@ test('marking an agent card done by hand does not erase the package it left', as
   one.team.intentAction(one.room, 1, 'done', undefined, 'published')
   assert.equal(board(one).intents[0]?.handoff, 'branch fix/x')
 })
+
+test('a seat is told the name the room addresses it by, from its very first order', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const named = one.team.stateFor(one.room).nicknames ?? {}
+  assert.ok(Object.keys(named).length >= 4, 'every member was named before anything was written about it')
+  /* A room names its members lazily, so an order rendered straight after
+     seating used to call a seat by its label — "Cursor · Gemini 3.8 Flash ·
+     High" — while the room addressed it as "Gemini 3". The order is what tells
+     a seat its name, and that name is what `agent_message` reaches it by, so
+     the two disagreeing makes a seat unaddressable by the name it was given. */
+  for (const order of one.orders) {
+    const said = /^You are (.+?) — "/.exec(order.text)?.[1]
+    assert.equal(said, named[order.key], `the order names the seat ${named[order.key]}`)
+  }
+})
