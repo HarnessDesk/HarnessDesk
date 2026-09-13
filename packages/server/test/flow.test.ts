@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import type { Flow, FlowRole } from '@harnessdesk/protocol'
+
 import {
   dryRun,
   GIT_RULES,
@@ -17,6 +19,9 @@ import {
   seatAt,
   slotsIn,
   validateFlow,
+  ORDER_SLOTS,
+  BUILT_IN_SLOTS,
+  cardVars,
 } from '../src/flow.js'
 
 /**
@@ -581,4 +586,115 @@ seed: { role: worker, title: Work }
 `
   assert.ok(errors(overCeiling).some((e) => /rearm.*exceed/.test(e)))
 })
+
+test('a role order with {{name}}, {{member}}, and {{seat}} validates clean (#528)', () => {
+  const yaml = `
+name: Review flow
+inputs: []
+roles:
+  reviewer:
+    kind: agent
+    seat: cursor
+    count: 1
+    permission: read
+    outcomes: [approve, request-changes]
+    order: |
+      You are {{name}} (member: {{member}}).
+      Sign your review with {{seat}}.
+seed:
+  role: reviewer
+  title: Review round
+rules: []
+wait: {}
+`
+  const { flow } = parseFlow(yaml)
+  const problems = validateFlow(flow!)
+  assert.deepEqual(problems, [])
+})
+
+test('orderVars provides seat, name, and member, and renderOrder substitutes them (#528)', () => {
+  const yaml = `
+name: Review flow
+inputs: []
+roles:
+  reviewer:
+    kind: agent
+    seat: cursor
+    count: 1
+    permission: read
+    outcomes: [approve]
+    order: "Seat: {{seat}}, Name: {{name}}, Member: {{member}}"
+seed:
+  role: reviewer
+  title: Review round
+rules: []
+wait: {}
+`
+  const { flow } = parseFlow(yaml)
+  const vars = orderVars(flow!.roles[0]!, flow!, {
+    name: 'Gemini',
+    member: 'Gemini in room',
+    seat: 'Cursor · Gemini 3.8 Flash · High',
+    room: 'Fix room',
+    repo: '/work',
+    runtime: 'cursor',
+  })
+  assert.equal(vars.seat, 'Cursor · Gemini 3.8 Flash · High')
+  const rendered = renderOrder(vars)
+  assert.match(rendered, /Seat: Cursor · Gemini 3\.8 Flash · High, Name: Gemini, Member: Gemini in room/)
+})
+
+test('ORDER_SLOTS contains all built-in keys produced by orderVars (#528)', () => {
+  const yaml = `
+name: Simple flow
+inputs: []
+roles:
+  worker:
+    kind: agent
+    seat: cursor
+    outcomes: [done]
+seed:
+  role: worker
+  title: Simple
+rules: []
+`
+  const { flow } = parseFlow(yaml)
+  const vars = orderVars(flow!.roles[0]!, flow!, {
+    name: 'Name',
+    member: 'Member',
+    seat: 'Seat',
+    room: 'Room',
+    repo: 'Repo',
+    runtime: 'Runtime',
+    run: 'Run',
+  })
+  const producedKeys = Object.keys(vars)
+  for (const slot of ORDER_SLOTS) {
+    assert.ok(producedKeys.includes(slot), `ORDER_SLOTS includes ${slot} which orderVars produces`)
+  }
+  for (const key of producedKeys) {
+    assert.ok(ORDER_SLOTS.includes(key as never), `orderVars produces ${key} which is in ORDER_SLOTS`)
+  }
+})
+
+test('BUILT_IN_SLOTS contains all base card keys produced by cardVars (#528)', () => {
+  const vars = cardVars({
+    flow: 'Flow',
+    run: 'Run',
+    room: 'Room',
+    repo: 'Repo',
+    role: 'Role',
+    round: 1,
+    n: 1,
+    count: 3,
+  })
+  const producedKeys = Object.keys(vars)
+  for (const slot of BUILT_IN_SLOTS) {
+    assert.ok(producedKeys.includes(slot), `BUILT_IN_SLOTS includes ${slot} which cardVars produces`)
+  }
+  for (const key of producedKeys) {
+    assert.ok(BUILT_IN_SLOTS.includes(key as never), `cardVars produces ${key} which is in BUILT_IN_SLOTS`)
+  }
+})
+
 
