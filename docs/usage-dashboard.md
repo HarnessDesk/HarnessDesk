@@ -532,7 +532,7 @@ day, and chrome that re-sorts itself is chrome you have to read every time. The
 roster order stands, and the anchor's slot is fixed whatever it contains;
 urgency is carried by colour and by the token's figure, never by re-arranging.
 
-**Two widths, and each one folds rather than trims.** The header is the
+**Three widths, and each one folds rather than trims.** The header is the
 container, so the strip gives way to the session's name in a narrow column even
 on a wide screen. No width knows less than the widest does:
 
@@ -541,6 +541,7 @@ on a wide screen. No width knows less than the widest does:
 | Wide | the anchor's bar and figure, up to two out-of-quota chips, the token |
 | < 760px | the anchor and the token — the chips fold in, and the token was already counting them |
 | < 520px | the same, with the anchor's figure only where it is under 20% |
+| < 400px | phone width: the anchor's bar and the token's mark/tone survive; both figures hide |
 
 Measured, not guessed: the strip is 279px with two chips and 154px without, and
 those widths are the header's *content* box, which is what a container query

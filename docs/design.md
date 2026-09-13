@@ -364,8 +364,10 @@ app writes.
 Both slots take the same string; only the timing differs. `hint` renders,
 `title` waits to be asked. Moving a line to hover throws nothing away, and the
 sentence usually keeps earning its keep in more than one place. For example,
-`DETAIL_VIEWS` in `packages/ui/src/components/Details.tsx` hands one sentence to
-consumers across surfaces: the panel's tab row, ⌘K keyword search scoring, and
+view definitions registered via `registerView` in
+`packages/ui/src/panels/builtins.tsx` (queried via `summonable()` in
+`packages/ui/src/panels/views.tsx`) hand one sentence (`hint`) to
+consumers across surfaces: the dock's tabs, ⌘K keyword search scoring, and
 view menus. One string, one edit, multiple surfaces.
 
 Two of this app's row vocabularies are involved:
