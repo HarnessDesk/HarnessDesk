@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { codeOf, sheetsOf, squaresOf } from './design-audit.mjs'
+import { codeOf, compareBaseline, sheetsOf, squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
@@ -327,6 +327,41 @@ test("a comment's divider becomes a heading rather than a rule and a stray line"
   const out = leadComment(comment)
   assert.match(out, /^### Why this is data$/m)
   assert.doesNotMatch(out, /^-{10,}$/m)
+})
+
+test('compareBaseline catches non-numeric baseline values and prevents vacuous pass (#400)', () => {
+  const mockCounts = {
+    wrongVariant: 0,
+    missingClass: 0,
+    forkedToken: 0,
+    handRolledOverlay: 4,
+    looseTarget: 11,
+    looseIcon: 3,
+    danglingToken: 0,
+    crossImport: 11,
+    rawRadius: 49,
+    offGrid: 185,
+    rawColour: 8,
+    arbitraryUtility: 6,
+  }
+
+  // A malformed baseline with string/non-numeric values
+  const malformedBaseline = { ...mockCounts, offGrid: 'nan' }
+  const result = compareBaseline(mockCounts, malformedBaseline)
+  assert.equal(result.worse, true)
+  assert.ok(result.problems.some((p) => p.message.includes('not a valid number')))
+
+  // Missing entry in baseline
+  const missingBaseline = { ...mockCounts }
+  delete missingBaseline.offGrid
+  const missingResult = compareBaseline(mockCounts, missingBaseline)
+  assert.equal(missingResult.worse, true)
+  assert.ok(missingResult.problems.some((p) => p.message.includes('Missing baseline entry')))
+
+  // Valid baseline with no drift passes
+  const validResult = compareBaseline(mockCounts, mockCounts)
+  assert.equal(validResult.worse, false)
+  assert.equal(validResult.problems.length, 0)
 })
 
 
