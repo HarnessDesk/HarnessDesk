@@ -556,7 +556,7 @@ export class Flows implements TeamFlows {
   async reArm(runtime: string, sessionId: string): Promise<void> {
     const key = String(sessionKey(runtime as never, sessionId as never))
     const run = [...this.#runs.values()].find(
-      (one) => one.state === 'running' && one.seats.some((seat) => seat.key === key),
+      (one) => one.state === 'running' && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
     )
     if (!run) return
     const seat = run.seats.find((one) => one.key === key) as FlowSeatRecord
@@ -816,7 +816,7 @@ export class Flows implements TeamFlows {
   standDown(room: string, runtime: string, sessionId: string): string | null {
     const key = `${runtime}\u0000${sessionId}`
     const run = [...this.#runs.values()].find(
-      (one) => one.room === room && one.seats.some((seat) => seat.key === key),
+      (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
     )
     if (!run) return null
     if (run.state === 'running') return null

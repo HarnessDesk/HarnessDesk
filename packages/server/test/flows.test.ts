@@ -1238,6 +1238,52 @@ seed:
   ])
 })
 
+test('standDown and reArm do not crash when a persisted run has non-array seats (#503)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-seats.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'bad-seats-run',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: {},
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+  await second.load()
+  assert.equal(second.standDown(one.room, 'runtime-a', 'session-1'), null)
+  await second.reArm('runtime-a', 'session-1')
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+
+  // Direct in-memory test for runtime guards in standDown and reArm:
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const activeRun = one.flows.runsFor(one.room)[0] as unknown as { seats: unknown }
+  assert.ok(activeRun)
+  activeRun.seats = {}
+  assert.equal(one.flows.standDown(one.room, 'runtime-a', 'session-1'), null)
+  await one.flows.reArm('runtime-a', 'session-1')
+})
+
 test('a seated agent and a re-armed agent receive an order distinguishing {{name}} and {{seat}} (#528)', async (t) => {
   const one = await rig(t)
   const source = `
