@@ -187,6 +187,7 @@ export const cursorMeta = (
   cwd: string,
   home = homedir(),
 ): { readonly title: string | null; readonly updatedAt: number | null } => {
+  if (!CHAT_ID.test(chatId)) return { title: null, updatedAt: null }
   const file = readChatFile(join(chatsDir(cwd, home), chatId))
   if (!file) return { title: null, updatedAt: null }
   return { title: text(file.title), updatedAt: number(file.updatedAtMs) }
@@ -205,8 +206,10 @@ export const findChatWorkspace = (
   chatId: string,
   cwds: readonly string[],
   home = homedir(),
-): string | null =>
-  cwds.find((cwd) => existsSync(join(chatsDir(cwd, home), chatId, 'meta.json'))) ?? null
+): string | null => {
+  if (!CHAT_ID.test(chatId)) return null
+  return cwds.find((cwd) => existsSync(join(chatsDir(cwd, home), chatId, 'meta.json'))) ?? null
+}
 
 /**
  * A prompt as the user wrote it, with any context block HarnessDesk put in
@@ -362,6 +365,7 @@ export const readChatMode = (
   known: readonly string[],
   home = homedir(),
 ): string | null => {
+  if (!CHAT_ID.test(chatId)) return null
   const dir = join(chatsDir(cwd, home), chatId)
   if (readChatFile(dir)?.schemaVersion !== SCHEMA_VERSION) return null
   let db: DatabaseSync | null = null

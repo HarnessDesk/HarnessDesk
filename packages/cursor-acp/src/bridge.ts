@@ -134,6 +134,7 @@ export const writeToolPlugin = (
   servers: readonly WireToolServer[],
   root = join(tmpdir(), 'harnessdesk-cursor-acp'),
 ): string => {
+  if (!CHAT_ID.test(chatId)) throw new Error(`Invalid session id: ${chatId}`)
   const dir = join(root, chatId, 'plugin')
   mkdirSync(join(dir, '.cursor-plugin'), { recursive: true })
   writeFileSync(
@@ -1328,6 +1329,8 @@ export class CursorAcpBridge {
   async #loadSession(params: Record<string, unknown>): Promise<unknown> {
     const servers = toolServersOf(params)
     const sessionId = String(params['sessionId'] ?? '')
+    if (sessionId === '') throw new Error('A session id is required.')
+    if (!CHAT_ID.test(sessionId)) throw new Error(`Invalid session id: ${sessionId}`)
     const asked = typeof params['cwd'] === 'string' && params['cwd'] !== '' ? params['cwd'] : null
     // A chat started in Cursor was never in this bridge's index, and it is
     // resumable all the same: the id is Cursor's and `--resume` takes it.

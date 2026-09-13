@@ -17,7 +17,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 import { SCRATCH_TMP, tempDir } from './scratch.js'
 
-import { cursorMeta, previewFor, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
+import { cursorMeta, previewFor, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey, writeToolPlugin } from '../src/index.js'
 
 /**
  * The bridge under the real HarnessDesk ACP adapter — the full path a user's
@@ -1514,6 +1514,54 @@ test('deleteSession rejects traversal session IDs and does not remove outside di
     rmSync(sentinelDir, { recursive: true, force: true })
   } finally {
     await runtime.dispose()
+  }
+})
+
+test('loadSession rejects traversal session IDs and does not write outside directories (#413)', async () => {
+  assert.throws(
+    () => writeToolPlugin('../outside-plugin-target', []),
+    /Invalid session id/i,
+    'writeToolPlugin must reject traversal session id',
+  )
+
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['-e', ''],
+      env: { HD_TOOLS_SOCKET: '/tmp/nowhere.sock' },
+    },
+  })
+  await runtime.start()
+  try {
+    const outsideTarget = join(SCRATCH_TMP, 'outside-load-target')
+    assert.equal(existsSync(outsideTarget), false)
+
+    await assert.rejects(
+      async () => {
+        await runtime.resumeSession('' as unknown as import('@harnessdesk/protocol').SessionId)
+      },
+      /A session id is required/i,
+      'resumeSession must reject empty session id',
+    )
+
+    await assert.rejects(
+      async () => {
+        await runtime.resumeSession('../outside-load-target' as unknown as import('@harnessdesk/protocol').SessionId)
+      },
+      /Invalid session id/i,
+      'resumeSession must reject invalid session id with directory traversal',
+    )
+
+    assert.equal(existsSync(outsideTarget), false, 'outside directory must not be created')
+  } finally {
+    await runtime.dispose()
+    rmSync(join(SCRATCH_TMP, 'outside-load-target'), { recursive: true, force: true })
   }
 })
 
