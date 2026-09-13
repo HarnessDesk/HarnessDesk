@@ -1168,3 +1168,50 @@ seed:
   assert.doesNotMatch(one.orders[0]!.text, /\{\{run\}\}/)
 })
 
+test('a flow started in a room created on a linked worktree opens non-isolating seats in that worktree (#366)', async (t) => {
+  const one = await rig(t)
+  const worktreeRoom = (await one.team.createRoom('/repo/.worktrees/feature', 'Worktree room')).id
+  const source = `
+name: Worktree flow
+roles:
+  worker:
+    kind: agent
+    seat: cursor
+    permission: read
+    outcomes: [done]
+seed:
+  role: worker
+  title: "Do work"
+`
+  await one.flows.start({ room: worktreeRoom, source })
+  const seatedWorker = one.seated.find((s) => s.title.includes('worker'))
+  assert.ok(seatedWorker)
+  assert.equal(seatedWorker.cwd, '/repo/.worktrees/feature')
+})
+
+test('a flow check in a room created on a linked worktree runs in that worktree (#366)', async (t) => {
+  const one = await rig(t)
+  const worktreeRoom = (await one.team.createRoom('/repo/.worktrees/feature', 'Worktree room')).id
+  const source = `
+name: Worktree check flow
+roles:
+  gate:
+    kind: check
+    check:
+      run: pnpm test
+      cwd: packages/sub
+      exits:
+        "0": pass
+      otherwise: fail
+    outcomes: [pass, fail]
+seed:
+  role: gate
+  title: "Run checks"
+`
+  await one.flows.start({ room: worktreeRoom, source })
+  const runCall = one.ran.find((r) => r.command === 'pnpm test')
+  assert.ok(runCall)
+  assert.equal(runCall.cwd, '/repo/.worktrees/feature/packages/sub')
+})
+
+

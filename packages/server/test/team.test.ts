@@ -42,6 +42,7 @@ interface Rig {
     gate: Promise<void> | null
     /** Sends that throw before landing, counted down — a flaky backend. */
     failSends: number
+    logged: string[]
   }
   readonly dir: string
 }
@@ -72,6 +73,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     audited: [],
     gate: null,
     failSends: 0,
+    logged: [],
   }
   const teamPort: TeamPort = {
     peers: () => port.peers,
@@ -93,6 +95,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     membershipChanged: (runtime, sessionId) => port.moved.push(`${runtime}/${sessionId}`),
     audit: (entry) =>
       port.audited.push({ kind: entry.kind, ...(entry.decision ? { decision: entry.decision } : {}) }),
+    log: (msg, details) => port.logged.push(`${msg} ${JSON.stringify(details ?? {})}`),
   }
   const team = new Team(dir, teamPort)
   /* A project holds as many rooms as the work wants, and a board belongs to
@@ -831,7 +834,7 @@ test('routing stays inside the board: another project is unreachable and unliste
  * resolved to a root the room did not have.
  */
 test('a room is keyed by the project, even when it is made from a worktree', async (t) => {
-  const { team, port } = await rig(t)
+  const { team, port, dir } = await rig(t)
   const room = await team.createRoom('/repo/.worktrees/feature', 'From a worktree')
   assert.equal(room.root, '/repo')
 
@@ -839,6 +842,24 @@ test('a room is keyed by the project, even when it is made from a worktree', asy
   port.peers = [peer({ sessionId: 'w1', title: 'In the worktree', cwd: '/repo/.worktrees/feature' })]
   await team.joinRoom(room.id, 'codex' as RuntimeId, 'w1')
   assert.deepEqual(team.stateFor(room.id).members, [`codex\u0000w1`])
+  assert.equal(team.stateFor(room.id).cwd, '/repo/.worktrees/feature')
+  assert.ok(port.logged.some((line) => line.includes('differing from its project root')))
+
+  // Room cwd survives restart when saved to disk.
+  await team.flush()
+  const teamPort: TeamPort = {
+    peers: () => port.peers,
+    rootOf: async (cwd) => (cwd === '/repo' || cwd.startsWith('/repo/') ? '/repo' : null),
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  }
+  const reloadedTeam = new Team(dir, teamPort)
+  await reloadedTeam.load()
+  assert.equal(reloadedTeam.stateFor(room.id).cwd, '/repo/.worktrees/feature')
 })
 
 /**

@@ -130,6 +130,8 @@ interface Board {
   messaging: boolean
   intents: Intent[]
   channel: TeamEntry[]
+  /** Where this room was created, for opening seats when different from project root. */
+  cwd?: string
   /** What each member is called here, keyed by `runtime\u0000sessionId`. */
   nicknames: Record<string, string>
   /**
@@ -197,6 +199,8 @@ interface StoredBoard {
   readonly messaging: boolean
   readonly intents: readonly Intent[]
   readonly channel: readonly TeamEntry[]
+  /** Where this room was created, for opening seats when different from project root. */
+  readonly cwd?: string
   /** Absent on a board written before rooms had names; rebuilt on sight. */
   readonly nicknames?: Readonly<Record<string, string>>
   /** Absent on a board written before roles existed; read as nobody holding one. */
@@ -272,6 +276,7 @@ export interface TeamPort {
     kind: 'team/message' | 'team/intent'
     decision?: string
   }): void
+  log?(message: string, details?: Readonly<Record<string, unknown>>): void
 }
 
 /**
@@ -720,6 +725,7 @@ export class Team {
           name: raw.name ?? folderOf(recorded),
           members: [...(raw.members ?? Object.keys(raw.nicknames ?? {}))] as SessionKey[],
           root: recorded,
+          ...(raw.cwd && raw.cwd !== recorded ? { cwd: raw.cwd } : {}),
           nextIntent: raw.nextIntent,
           nextPlan: raw.nextPlan ?? 1,
           plans: [...(raw.plans ?? [])],
@@ -2580,6 +2586,7 @@ export class Team {
       name: board.name,
       members: [...board.members],
       root: board.root,
+      ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
       intents: [...board.intents],
       channel: [...board.channel],
       messaging: board.messaging,
@@ -2627,11 +2634,19 @@ export class Team {
        about it, and refusing would make a room unmakeable rather than
        correctly keyed. */
     const project = (await this.#port.rootOf(root)) ?? root
+    if (root !== project) {
+      this.#port.log?.('a room was created with a path differing from its project root', {
+        root,
+        project,
+        name: called,
+      })
+    }
     const board: Board = {
       id: `room-${Date.now().toString(36)}-${(this.#nextRoom += 1).toString(36)}`,
       name: called,
       members: [],
       root: project,
+      ...(root !== project ? { cwd: root } : {}),
       nextIntent: 1,
       nextPlan: 1,
       plans: [],
@@ -3680,6 +3695,7 @@ export class Team {
       nicknames: board.nicknames,
       roles: board.roles,
       roster: board.roster,
+      ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
       messaging: board.messaging,
       intents: board.intents,
       channel: board.channel,

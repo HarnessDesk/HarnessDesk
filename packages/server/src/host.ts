@@ -466,6 +466,7 @@ export class Host {
         if (record) record.reopenRefusals = 0
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a

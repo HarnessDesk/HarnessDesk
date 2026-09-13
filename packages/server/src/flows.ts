@@ -366,9 +366,10 @@ export class Flows implements TeamFlows {
       if (role.kind !== 'agent') continue
       for (let index = 0; index < role.count; index += 1) {
         const spec = seatAt(role, index)
+        const targetCwd = board.cwd ?? board.root
         const cwd = role.isolate
-          ? await this.#port.isolate(board.root, `${role.id}-${index + 1}-${id.slice(-4)}`)
-          : board.root
+          ? await this.#port.isolate(targetCwd, `${role.id}-${index + 1}-${id.slice(-4)}`)
+          : targetCwd
         const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${flow.name}`
         const live = await this.#port.seat(spec, { cwd, title })
         const held: FlowSeatRecord = {
@@ -984,7 +985,8 @@ export class Flows implements TeamFlows {
     if (!role || role.kind !== 'check' || !role.check) return
     const check = role.check as FlowCheck
     const board = this.#team.stateFor(run.room)
-    const cwd = check.cwd ? (check.cwd.startsWith('/') ? check.cwd : join(board.root, check.cwd)) : board.root
+    const baseCwd = board.cwd ?? board.root
+    const cwd = check.cwd ? (check.cwd.startsWith('/') ? check.cwd : join(baseCwd, check.cwd)) : baseCwd
     for (const intent of round.intents) {
       const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)

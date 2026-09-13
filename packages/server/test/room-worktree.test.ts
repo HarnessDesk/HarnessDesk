@@ -192,6 +192,7 @@ test('a conversation in an opened worktree joins its project’s room', async ()
       name: 'Checkout rewrite',
     })) as TeamState
     assert.equal(room.root, main, 'the room is keyed by the project, not the worktree')
+    assert.equal(room.cwd, tree, 'the room remembers the chosen worktree folder for seats')
 
     // And a conversation working *in the worktree* can join it.
     const started = (await client.call('session/create', {
