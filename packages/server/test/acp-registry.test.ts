@@ -53,6 +53,20 @@ const DOCUMENT = {
         },
       },
     },
+    {
+      id: 'verified-agent',
+      name: 'Verified Agent',
+      version: '1.0.0',
+      distribution: {
+        binary: {
+          'darwin-aarch64': {
+            archive: 'https://example.test/verified.tar.gz',
+            cmd: './bin/verified',
+            sha256: 'deadbeef'.repeat(8),
+          },
+        },
+      },
+    },
     { id: 'broken-entry', name: 'No Version' },
   ],
 }
@@ -71,12 +85,13 @@ test('the document is read forgivingly and judged against this machine', async (
   // The malformed entry cost itself, not the list.
   assert.deepEqual(
     catalog.agents.map((agent) => agent.id),
-    ['npx-agent', 'uvx-agent', 'binary-agent'],
+    ['npx-agent', 'uvx-agent', 'binary-agent', 'verified-agent'],
   )
-  const [npx, uvx, binary] = catalog.agents
+  const [npx, uvx, binary, verified] = catalog.agents
   assert.equal(npx?.available, true)
   assert.equal(npx?.run, 'npx')
   assert.equal(npx?.website, 'https://npx-agent.dev')
+  assert.equal(npx?.integrity, undefined)
   // uvx is not on this fake machine, and the row says so.
   assert.equal(uvx?.available, false)
   assert.match(uvx?.reason ?? '', /uvx/)
@@ -84,6 +99,10 @@ test('the document is read forgivingly and judged against this machine', async (
   assert.equal(binary?.available, true)
   assert.equal(binary?.run, 'binary')
   assert.equal(binary?.registered, true)
+  assert.equal(binary?.integrity, 'none')
+  assert.equal(verified?.available, true)
+  assert.equal(verified?.run, 'binary')
+  assert.equal(verified?.integrity, 'sha256')
 })
 
 test('a platform with no build blocks a binary entry with the reason', async (t) => {
@@ -123,7 +142,7 @@ test('the cache serves while fresh, and again when the network says no', async (
   // A second client over the same state directory reads the cache, not the net.
   const again = await make().catalog(() => false)
   assert.equal(fetches, 1)
-  assert.equal(again.agents.length, 3)
+  assert.equal(again.agents.length, 4)
 
   // Stale cache, dead network: the list from last time, not an empty screen.
   fail = true
@@ -138,7 +157,7 @@ test('the cache serves while fresh, and again when the network says no', async (
     platform: 'darwin-aarch64',
   })
   const offline = await stale.catalog(() => false)
-  assert.equal(offline.agents.length, 3)
+  assert.equal(offline.agents.length, 4)
   assert.equal(offline.unavailable, undefined)
 })
 
