@@ -34,6 +34,15 @@ describe('describeVersion', () => {
       'Claude Code 0.16.2',
     )
   })
+
+  test('direct agent with probed CLI version displays cleanly without bridge label (#354)', () => {
+    const direct = info({
+      presentation: { name: 'Devin Agent' },
+      version: '3000.10.21',
+      drives: null,
+    })
+    expect(describeVersion(direct)).toBe('Devin Agent 3000.10.21')
+  })
 })
 
 describe('describeUpdate', () => {

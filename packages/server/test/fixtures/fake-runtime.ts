@@ -254,6 +254,8 @@ export class FakeRuntime implements AgentRuntime {
     identity: {
       id?: RuntimeId
       name?: string
+      version?: string | null
+      drives?: { command: string; version: string | null } | null
       /** Overrides, for suites that need a runtime that cannot do something. */
       capabilities?: Partial<RuntimeCapabilities>
       /** Shared with any other fake given the same string; see `AgentRuntime.sessionStore`. */
@@ -266,6 +268,8 @@ export class FakeRuntime implements AgentRuntime {
       ...this.info,
       id: identity.id ?? FAKE_RUNTIME_ID,
       name: identity.name ?? 'Fake Runtime',
+      ...(identity.version !== undefined ? { version: identity.version } : {}),
+      ...(identity.drives !== undefined ? { drives: identity.drives } : {}),
       ...(identity.capabilities
         ? { capabilities: { ...this.info.capabilities, ...identity.capabilities } }
         : {}),

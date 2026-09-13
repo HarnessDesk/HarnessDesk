@@ -1448,6 +1448,25 @@ test('a session opened with a model starts on it', async () => {
   }
 })
 
+test('direct ACP: falls back to launched CLI version when agentInfo version is placeholder (#354)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_AGENT_VERSION: '0.0.0-dev' },
+    resolveLaunch: async () => ({ command: process.execPath, args: [FAKE], version: '3000.10.21' }),
+  })
+  try {
+    await runtime.start()
+    assert.equal(runtime.launchedVersion, '3000.10.21')
+    assert.equal(runtime.info.version, '3000.10.21')
+    assert.equal(runtime.info.drives, null)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a question carried as a permission request is a question, and the answer reaches the agent', async () => {
   const runtime = make()
   await runtime.start()
