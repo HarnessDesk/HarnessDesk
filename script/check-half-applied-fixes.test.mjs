@@ -36,7 +36,26 @@ export const putBack = async (entry, target) => {
   assert.equal(issues.length, 0)
 })
 
-test('detects unvalidated deletion under tmpdir in file defining CHAT_ID / chatPath (historical PR #329 defect)', () => {
+test('detects unvalidated deletion under tmpdir in file defining CHAT_ID / chatPath (historical PR #329 defect with identifier flow)', () => {
+  const unpatchedBridgeCode = `
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { rmSync } from 'node:fs'
+import { CHAT_ID, chatPath } from './store.js'
+
+function deleteSession(chatId) {
+  const path = chatPath(chatId)
+  const scratchDir = join(tmpdir(), 'harnessdesk-cursor-acp', chatId)
+  rmSync(scratchDir, { recursive: true, force: true })
+}
+`
+  const issues = checkUnvalidatedDeletions(unpatchedBridgeCode, 'packages/cursor-acp/src/bridge.ts')
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].rule, 'unvalidated-deletion')
+  assert.match(issues[0].text, /scratchDir/)
+})
+
+test('detects unvalidated direct tmpdir expression deletion in file defining CHAT_ID / chatPath', () => {
   const unpatchedBridgeCode = `
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -52,6 +71,29 @@ function deleteSession(chatId) {
   assert.equal(issues.length, 1)
   assert.equal(issues[0].rule, 'unvalidated-deletion')
   assert.match(issues[0].text, /join\(tmpdir\(\)/)
+})
+
+test('is not bypassed by unrelated startsWith check elsewhere in the file (P2 defect)', () => {
+  const bypassSnippet = `
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { rmSync } from 'node:fs'
+import { CHAT_ID, chatPath } from './store.js'
+
+const root = '/tmp/foo'
+if (something.startsWith(root + '/')) {
+  // unrelated guard
+}
+
+function deleteSession(chatId) {
+  const scratchDir = join(tmpdir(), 'harnessdesk-cursor-acp', chatId)
+  rmSync(scratchDir, { recursive: true, force: true })
+}
+`
+  const issues = checkUnvalidatedDeletions(bypassSnippet, 'packages/cursor-acp/src/bridge.ts')
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].rule, 'unvalidated-deletion')
+  assert.match(issues[0].text, /scratchDir/)
 })
 
 test('passes when containment check is present before deletion', () => {
@@ -108,5 +150,53 @@ export const isDirectory = async (path: string): Promise<boolean> => {
 `
   const issues = checkDuplicateHelperPins(pinnedHostCode, 'packages/server/src/host.ts')
   assert.equal(issues.length, 0)
+})
+
+test('detects historical defect from PR #327 when putBack uses raw equality', () => {
+  const code = `
+import { samePath } from './worktree.js'
+
+export const putBack = async (entry, target) => {
+  const back = entry.path === target
+  return back
+}
+`
+  const issues = auditFile('packages/server/src/worktree.ts', code)
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].rule, 'path-comparison-bypass')
+})
+
+test('detects historical defect from PR #329 directly on historical bridge.ts parent commit', () => {
+  const code = `
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { rmSync } from 'node:fs'
+import { CHAT_ID, chatPath } from './store.js'
+
+function deleteSession(chatId) {
+  const path = chatPath(chatId)
+  const scratchDir = join(tmpdir(), 'harnessdesk-cursor-acp', chatId)
+  rmSync(scratchDir, { recursive: true, force: true })
+}
+`
+  const issues = auditFile('packages/cursor-acp/src/bridge.ts', code)
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].rule, 'unvalidated-deletion')
+  assert.equal(issues[0].text, 'scratchDir')
+})
+
+test('detects historical defect from PR #319 when isDirectory is missing counterpart pin comment', () => {
+  const code = `
+export const isDirectory = async (path: string): Promise<boolean> => {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    return false
+  }
+}
+`
+  const issues = auditFile('packages/server/src/host.ts', code)
+  assert.equal(issues.length, 1)
+  assert.equal(issues[0].rule, 'unpinned-duplicate-helper')
 })
 
