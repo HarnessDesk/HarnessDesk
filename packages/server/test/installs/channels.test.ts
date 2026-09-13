@@ -77,6 +77,10 @@ test('an app bundle, an installer folder and a bare path are each their own road
   const grok = read('/Users/x/.grok/bin/grok', '/Users/x/.grok/bin/grok-1.0.21')
   assert.equal(grok.channel, 'installer')
 
+  const devin = read('/Users/x/.devin/bin/devin')
+  assert.equal(devin.channel, 'installer')
+  assert.equal(updateCommandFor(devin, { selfUpdate: 'devin update' }), 'devin update')
+
   const bare = read('/usr/local/bin/handmade')
   assert.equal(bare.channel, 'path')
   assert.equal(updateCommandFor(bare), null)

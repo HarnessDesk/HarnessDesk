@@ -80,6 +80,7 @@ export const installerDirs = (home: string): readonly string[] => [
   join(home, '.kimi-code'),
   join(home, '.hermes'),
   join(home, '.grok', 'bin'),
+  join(home, '.devin', 'bin'),
   join(home, '.local', 'share'),
 ]
 

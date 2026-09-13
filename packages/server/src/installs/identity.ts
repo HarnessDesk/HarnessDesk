@@ -47,6 +47,8 @@ export const identityReaderFor = (
       return () => antigravityIdentity(context)
     case 'cline':
       return () => clineIdentity(context)
+    case 'devin':
+      return () => devinIdentity(context)
     default:
       return undefined
   }
@@ -166,6 +168,17 @@ const clineIdentity = (context: IdentityContext): Account | null => {
   const provider = flagValue(args, '--provider', '-P') ?? nonEmpty(at(settings, 'lastUsedProvider')) ?? 'cline'
   const auth = at(settings, 'providers', provider, 'settings', 'auth')
   const email = nonEmpty(at(auth, 'metadata', 'userInfo', 'email')) ?? nonEmpty(at(auth, 'email'))
+  return email ? signedInAs(email) : null
+}
+
+const devinIdentity = (context: IdentityContext): Account | null => {
+  const env = context.env ?? process.env
+  const home = nonEmpty(env['DEVIN_HOME']) ?? context.home ?? homedir()
+  const creds = readJson(join(home, '.devin', 'credentials.json'))
+  const email =
+    nonEmpty(at(creds, 'email')) ??
+    nonEmpty(at(creds, 'user', 'email')) ??
+    nonEmpty(at(creds, 'active', 'email'))
   return email ? signedInAs(email) : null
 }
 

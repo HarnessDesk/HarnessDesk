@@ -184,6 +184,17 @@ test('a relative --data-dir is relative to where Cline runs, not to the desk', (
   assert.equal(read('cline', { home: home(t, {}), cwd: moved, args: ['--acp', '--data-dir', 'state'] })?.email, 'dev@example.com')
 })
 
+test('devin reads identity from credentials.json (#355)', (t) => {
+  const dir = home(t, {
+    '.devin/credentials.json': { email: 'dev@example.com' },
+  })
+  assert.deepEqual(read('devin', { home: dir, env: {} }), {
+    kind: 'agent',
+    label: 'dev@example.com',
+    email: 'dev@example.com',
+  })
+})
+
 test('an agent the desk keeps no reader for gets none, and the observation stands', () => {
   assert.equal(identityReaderFor({ id: 'claude-code' }), undefined)
   assert.equal(identityReaderFor(undefined), undefined)

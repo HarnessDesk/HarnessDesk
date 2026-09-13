@@ -215,6 +215,7 @@ test('knowledge is found by row field, registry provenance, template key, or the
     { id: 'kimi', name: 'K', command: '/x/kimi', args: ['acp'], registry: { id: 'kimi', version: '1.50.0' } },
     { id: 'hermes', name: 'H', template: 'hermes' },
     { id: 'custom', name: 'C', command: '/usr/local/bin/codebuddy', args: ['--acp'] },
+    { id: 'devin-row', name: 'Devin', command: 'devin', args: ['acp'], agent: 'devin' },
     { id: 'dsh', name: 'D', command: 'node', args: ['x.js'] },
   ])
   const service = new InstallService({ stateDir: STATE, store, locate: machine({}) })
@@ -224,6 +225,7 @@ test('knowledge is found by row field, registry provenance, template key, or the
     ['kimi', 'kimi'],
     ['hermes', 'hermes'],
     ['custom', 'codebuddy-code'],
+    ['devin-row', 'devin'],
     ['dsh', null],
   ])
 })
@@ -235,6 +237,25 @@ test('a template row naming an absent CLI is blocked before any spawn', async (t
   assert.ok(blocked && 'blocked' in blocked)
   assert.equal(blocked.blocked.reason, 'notInstalled')
   assert.match(blocked.blocked.remediation ?? '', /npm install -g @google\/gemini-cli/)
+})
+
+test('devin has install knowledge and describes correctly (#355)', async (t) => {
+  const store = await tempStore(t, [{ id: 'devin', name: 'Devin', command: 'devin', args: ['acp'] }])
+  const service = new InstallService({
+    stateDir: STATE,
+    store,
+    locate: machine({
+      '/Users/x/.local/bin/devin': 'devin 0.1.0',
+    }),
+  })
+  const config = store.configs()[0]!
+  const launch = await service.launchFor(config)
+  assert.deepEqual(launch, { command: '/Users/x/.local/bin/devin', args: ['acp'], version: '0.1.0' })
+  const info = await service.describe(config)
+  assert.ok(info)
+  assert.equal(info.chosen?.path, '/Users/x/.local/bin/devin')
+  assert.equal(info.home?.path, '~/.devin')
+  assert.equal(info.signIn?.terminal, 'devin auth login')
 })
 
 test('one scan answers one decision, and the agent’s own checks run only on a start', async (t) => {
