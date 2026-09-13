@@ -229,7 +229,16 @@ export const parseYaml = (source: string): unknown => {
     const stripped = stripComment(raw).replace(/\s+$/, '')
     return { n: index + 1, indent: indentOf(raw), text: stripped.trim() === '' ? '' : stripped, raw }
   })
+  /* A document marker is only a marker at column zero. Indented it is
+     content, and the one place it is *routinely* content is a block scalar
+     holding the shape of a file — front matter, which is how every document
+     in this repository begins. This scan runs before anything is parsed, so
+     it compared the line trimmed; there was then nowhere in a block scalar to
+     put three hyphens, and quoting could not help because the scan sees the
+     raw line list. Reading the indentation off `raw` keeps the refusal for a
+     genuine second document and returns the block scalar's body to it. */
   for (const line of lines) {
+    if (indentOf(line.raw) !== 0) continue
     if (line.text.trim() === '---' || line.text.trim() === '...') {
       throw new YamlError('one document per file — the "---" separator is not read here', line.n)
     }
