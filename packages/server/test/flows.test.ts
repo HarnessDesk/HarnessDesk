@@ -563,10 +563,60 @@ test('re-arming is budgeted, so a seat that cannot start does not drain an accou
   // Three inside the hour, and then it stops and says why rather than going on.
   assert.equal(one.orders.length, 4 + 3)
   const record = one.flows.runsFor(one.room)[0]!.record
-  assert.ok(
-    record.some((entry) => entry.kind === 'stopped' && /not being re-armed again/.test(entry.text ?? '')),
-    'the run records that it stopped re-arming, so a stalled flow is visible',
+  const stoppedEntries = record.filter(
+    (entry) => entry.kind === 'stopped' && /not being re-armed again/.test(entry.text ?? ''),
   )
+  assert.equal(stoppedEntries.length, 1, 'the stopped record is written once, not appended on every tick')
+})
+
+test('re-arm budget reserves slot before awaits to prevent concurrent overspending', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  // Spend 2 of the 3 budget slots
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 2)
+
+  // Now trigger two concurrent reArms when only 1 slot remains
+  await Promise.all([
+    one.flows.reArm(fixer.runtime, fixer.sessionId),
+    one.flows.reArm(fixer.runtime, fixer.sessionId),
+  ])
+  // Exactly 1 should have succeeded, bringing orders to 4 + 3
+  assert.equal(one.orders.length, 4 + 3)
+
+  // Verify the records: no duplicate "(2 this hour)" or "(3 this hour)"
+  const run = one.flows.runsFor(one.room)[0]!
+  const rearmTexts = run.record
+    .filter((e) => e.kind === 'seated' && /re-armed/.test(e.text ?? ''))
+    .map((e) => e.text)
+  assert.deepEqual(rearmTexts, [
+    're-armed: its turn ended while the flow was still running (1 this hour)',
+    're-armed: its turn ended while the flow was still running (2 this hour)',
+    're-armed: its turn ended while the flow was still running (3 this hour)',
+  ])
+})
+
+test('a failed re-arm releases its reserved slot so future re-arms can succeed', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  // Spend 2 slots
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 2)
+
+  // Third attempt fails to send order
+  one.failOrders = 1
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 2, 'failed order was not added')
+
+  // Slot was released, so next attempt uses slot 3 successfully
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 3, 'slot 3 was still available')
 })
 
 test('a seat of a settled run is not re-armed — standing down is not dying', async (t) => {
