@@ -1,6 +1,6 @@
 # HarnessDesk architecture
 
-*The system as built, read off the code on 2026-09-07. When this and the code
+*The system as built, read off the code on 2026-09-12. When this and the code
 disagree, the code is right and this is a bug.*
 
 HarnessDesk is a macOS desktop app that drives coding agents it does not own.
@@ -154,7 +154,8 @@ name when none is available.
   enforcement, and attributed, quarantined inter-agent messages with loop guards
   and delivery tracking.
 - **Spend ledger and usage** — token counts, cache hit ratios, and vendor
-  rate-limit windows calculated across backends (`ledger.ts`, `usage-meter.ts`).
+  rate-limit windows calculated across backends (`packages/server/src/ledger/`,
+  `packages/server/src/usage/`).
 - **Background tasks** ([background-tasks.md](background-tasks.md)) — the
   agent's own long-running work, relayed from whichever runtime keeps a
   registry of it and held here so a reload does not lose sight of a job that
@@ -185,10 +186,10 @@ flow across several domains through the context the host really builds.
 
 State lives in `~/.harnessdesk/` (overridable by `HARNESSDESK_HOME`):
 `state.json` (workspaces and UI preferences), `agents.json` (the ACP registry
-and fallback commands), `credentials.json`, `transcripts/`, `plugins/`,
-`worktrees/`, `logs/` (`host.ndjson`), `audit.ndjson`, `run/` (`tools.sock`),
-`accounts.json`, `archive.json`, `names.json`, `team/`, `acp-registry.json`,
-and `downloads/`.
+and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
+`transcripts/`, `plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
+`audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
+`names.json`, `team/`, `acp-registry.json`, and `downloads/`.
 
 ## The extension plane
 
