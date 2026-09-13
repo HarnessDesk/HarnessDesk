@@ -17,6 +17,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import {
+  cardVars,
   orderVars,
   parseFlow,
   renderFlowTemplate,
@@ -417,6 +418,7 @@ export class Flows implements TeamFlows {
           orderVars(role, flow, {
             name,
             member: name,
+            seat: seat.seat,
             room: this.#team.stateFor(request.room).name,
             repo: seat.cwd,
             runtime: seat.runtime,
@@ -627,6 +629,7 @@ export class Flows implements TeamFlows {
           orderVars(role, run.flow, {
             name,
             member: name,
+            seat: seat.seat,
             room: this.#team.stateFor(run.room).name,
             repo: seat.cwd,
             runtime: seat.runtime,
@@ -917,18 +920,18 @@ export class Flows implements TeamFlows {
     const before = run.rounds[run.rounds.length - 1]
     const intents: number[] = []
     for (let index = 1; index <= role.count; index += 1) {
-      const vars: Record<string, string> = {
-        ...run.vars,
+      const vars = cardVars({
         flow: run.flow.name,
         run: run.id,
         room: board.name,
         repo: board.root,
         role: role.id,
-        round: String(n),
-        n: String(index),
-        count: String(role.count),
-        ...(before ? { from: before.role, answered: String(before.intents.length) } : {}),
-      }
+        round: n,
+        n: index,
+        count: role.count,
+        ...(before ? { from: before.role, answered: before.intents.length } : {}),
+        vars: run.vars,
+      })
       const detail = [
         then.detail ? renderFlowTemplate(then.detail, vars) : null,
         /* The vocabulary on the card as well as in the order. An order is read
