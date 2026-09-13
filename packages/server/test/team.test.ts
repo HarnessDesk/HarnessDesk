@@ -3737,3 +3737,20 @@ test('the roster records a real model and ignores the automatic choice ("auto", 
   assert.equal(namedMember.model, 'gemini-3.8-flash', 'a real model is kept')
 })
 
+
+test('claimNext does not crash when a stored intent has files set to null', async (t) => {
+  // #504: `Team.load()` copies `raw.intents` through without validating each
+  // one, so a board written by an older build can carry `files: null`, and
+  // claim routing used to throw on it.
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.addIntentForFlow(room, { title: 'The card to take', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'An older card with a bad shape', role: 'reviewer' })
+  // The malformed shape a stale board can hold.
+  const board = team.stateFor(room)
+  ;(board.intents[1] as { files?: unknown }).files = null as unknown as string[]
+
+  const taken = await team.claimNext(codex, ['packages/server/src/team.ts'])
+  assert.match(taken, /#1/)
+})

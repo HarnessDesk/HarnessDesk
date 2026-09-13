@@ -3213,7 +3213,11 @@ export class Team {
          found. A claim that can be taken over has already stopped owning
          things; the two rules have to agree. */
       if (this.#stranded(intent)) continue
-      const overlap = intent.files.some((owned) => paths.some((path) => overlaps(owned, path)))
+      /* A stored board can carry an intent whose `files` is not an array —
+         `load` copies `raw.intents` through without validating each one — and
+         `.some` on that is a crash in the middle of claim routing. */
+      const wanted = Array.isArray(paths) ? paths : []
+      const overlap = intent.files.some((owned) => wanted.some((path) => overlaps(owned, path)))
       if (overlap) {
         hits.push(`${intent.files.join(', ')} is held by #${intent.id} (${this.#holderName(board, intent)})`)
       }
