@@ -1197,6 +1197,15 @@ test('a bare credential file does not leak credential characters in the offender
   assert.doesNotMatch(offenders[0], /abcdefghijkl/)
 })
 
+test('a detected secret on a source line does not leak line content or secret values in the offender report (#395)', () => {
+  const line = "const secretKey = 'sk-abcdefghijklmnopqrstuvwxyz1234567890'" // hd-secrets-ok
+  const offenders = offendersIn('config.ts', line)
+  assert.equal(offenders.length, 1)
+  assert.equal(offenders[0], 'config.ts:1  [OpenAI API key]')
+  assert.doesNotMatch(offenders[0], /secretKey/)
+  assert.doesNotMatch(offenders[0], /sk-abcdef/)
+})
+
 test('installedLicence finds installed package licenses without find binary (#397)', () => {
   // Test with real installed package
   const cordisLicence = installedLicence('@deepseek-ai/cordis', repoRoot)
@@ -1226,5 +1235,3 @@ test('checkNotices refuses when zero licence claims can be verified (#397)', () 
   assert.equal(result.skipped, 2)
   assert.ok(result.problems.some((p) => p.includes('No licence claims could be verified')))
 })
-
-

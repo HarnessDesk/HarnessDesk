@@ -336,7 +336,7 @@ export const offendersIn = (file, content) => {
         return exempt === undefined || !exempt(match, line)
       })
       if (found === undefined) continue
-      offenders.push(`${file}:${index + 1}  [${label}]  ${line.trim().slice(0, 80)}`)
+      offenders.push(`${file}:${index + 1}  [${label}]`)
       return
     }
   })

@@ -78,7 +78,7 @@ import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
-import { redactorFor } from './diagnostics.js'
+import { redactorFor, redactLog } from './diagnostics.js'
 import { Flows, runCheck } from './flows.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
@@ -1318,7 +1318,7 @@ export class Host {
     if (file) {
       try {
         const raw = await readFile(file, 'utf8')
-        log = raw.split('\n').filter(Boolean).slice(-500).map(redact)
+        log = redactLog(raw, redact)
       } catch {
         // A missing log is a fact worth shipping as-is.
       }
