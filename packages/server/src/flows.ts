@@ -370,7 +370,9 @@ export class Flows implements TeamFlows {
         const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${flow.name}`
         const live = await this.#port.seat(spec, { cwd, title })
         const held: FlowSeatRecord = {
-          key: `${live.runtime} ${live.sessionId}`,
+          /* Escaped, not the raw byte: a NUL in the source makes the whole
+             file binary to grep, and the string is identical either way. */
+          key: `${live.runtime}\u0000${live.sessionId}`,
           role: role.id,
           runtime: live.runtime,
           sessionId: live.sessionId,
@@ -737,7 +739,7 @@ export class Flows implements TeamFlows {
 
   /** Why this seat should stop waiting — the one thing that may end its turn. */
   standDown(room: string, runtime: string, sessionId: string): string | null {
-    const key = `${runtime} ${sessionId}`
+    const key = `${runtime}\u0000${sessionId}`
     const run = [...this.#runs.values()].find(
       (one) => one.room === room && one.seats.some((seat) => seat.key === key),
     )
