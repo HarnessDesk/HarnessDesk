@@ -233,7 +233,13 @@ test('deleting a route forgets its credential only when no other route still ref
       },
     },
     gateways: { stop: (id: string) => stopped.push(id) },
-    credentials: { delete: async (ref: string) => deleted.push(ref) },
+    credentials: {
+      describe: async () => [
+        { ref: 'cred-alone', name: 'C', createdAt: 1, agent: null, writer: 'endpoint' },
+      ],
+      delete: async (ref: string) => deleted.push(ref),
+    },
+    accounts: { gatewayCredentials: () => [] },
   })
   await dispatch(ctx, 'routes/delete', { id: 'a' })
   assert.deepEqual(deleted, [], 'a credential another route uses is kept')
@@ -250,6 +256,7 @@ test('routes/delete does not delete agent or gateway credentials referenced by a
     { id: 'r2', name: 'R2', endpoint: 'https://r2', wireProtocol: 'responses', credentialRef: 'cred_gw' },
     { id: 'r3', name: 'R3', endpoint: 'https://r3', wireProtocol: 'responses', credentialRef: 'cred_endpoint' },
     { id: 'r4', name: 'R4', endpoint: 'https://r4', wireProtocol: 'responses', credentialRef: 'cred_legacy_endpoint' },
+    { id: 'r5', name: 'R5', endpoint: 'https://r5', wireProtocol: 'responses', credentialRef: 'cred_unknown' },
   ]
   const deleted: string[] = []
   const stopped: string[] = []
@@ -292,6 +299,13 @@ test('routes/delete does not delete agent or gateway credentials referenced by a
     deleted,
     ['cred_endpoint', 'cred_legacy_endpoint'],
     'an orphaned legacy endpoint credential is deleted with its route',
+  )
+
+  await dispatch(ctx, 'routes/delete', { id: 'r5' })
+  assert.deepEqual(
+    deleted,
+    ['cred_endpoint', 'cred_legacy_endpoint'],
+    'an unknown or missing credential is not deleted on route delete',
   )
 })
 

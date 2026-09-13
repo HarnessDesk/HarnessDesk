@@ -96,18 +96,15 @@ export const credentialMethods = {
     // But only an endpoint-owned key belongs to the route; an agent or
     // gateway account's key referenced by a route must not be deleted.
     if (dying && !remaining.some((route) => route.credentialRef === dying.credentialRef)) {
-      if (typeof ctx.credentials.describe === 'function') {
-        const gateways = new Map(
-          ctx.accounts?.gatewayCredentials?.().map((one) => [one.ref, one.name] as const) ?? [],
-        )
-        const entries = await ctx.credentials.describe()
-        const target = entries.find((one) => one.ref === dying.credentialRef)
-        const owner = target ? ownerOf(target, gateways, dying.credentialRef) : null
-        if (target && owner?.kind !== 'endpoint') {
-          return null
-        }
+      const gateways = new Map(
+        ctx.accounts.gatewayCredentials().map((one) => [one.ref, one.name] as const),
+      )
+      const entries = await ctx.credentials.describe()
+      const target = entries.find((one) => one.ref === dying.credentialRef)
+      const owner = target ? ownerOf(target, gateways, dying.credentialRef) : null
+      if (owner?.kind === 'endpoint') {
+        await ctx.credentials.delete(dying.credentialRef)
       }
-      await ctx.credentials.delete(dying.credentialRef)
     }
     return null
   },
