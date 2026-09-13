@@ -1284,6 +1284,37 @@ test('standDown and reArm do not crash when a persisted run has non-array seats 
   await one.flows.reArm('runtime-a', 'session-1')
 })
 
+test('a seated agent and a re-armed agent receive an order distinguishing {{name}} and {{seat}} (#528)', async (t) => {
+  const one = await rig(t)
+  const source = `
+name: Seat slot test flow
+roles:
+  worker:
+    kind: agent
+    seat: cursor=gpt-5.3-codex/xhigh
+    permission: read
+    outcomes: [done]
+    order: "Name: {{name}}, Member: {{member}}, Seat: {{seat}}"
+seed:
+  role: worker
+  title: "Do work"
+`
+  await one.flows.start({ room: one.room, source })
+  const named = one.team.stateFor(one.room).nicknames ?? {}
+  const worker = seatsOf(one, 'worker')[0]!
+  const workerKey = String(sessionKey(worker.runtime as never, worker.sessionId as never))
+  const expectedNickname = named[workerKey] ?? 'worker'
+  assert.equal(one.orders.length, 1)
+  assert.match(one.orders[0]!.text, new RegExp(`Name: ${expectedNickname}, Member: ${expectedNickname}, Seat: cursor=gpt-5\\.3-codex/xhigh`))
+  assert.notEqual(expectedNickname, 'cursor=gpt-5.3-codex/xhigh')
+
+  // Re-arm: seat must still be distinguished from nickname
+  one.kill(worker)
+  await one.flows.reArm(worker.runtime, worker.sessionId)
+  assert.equal(one.orders.length, 2)
+  assert.match(one.orders[1]!.text, new RegExp(`Name: ${expectedNickname}, Member: ${expectedNickname}, Seat: cursor=gpt-5\\.3-codex/xhigh`))
+})
+
 
 
 
