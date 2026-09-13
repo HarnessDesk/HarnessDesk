@@ -435,6 +435,22 @@ test('a gate step is read as the command line it becomes', () => {
   ])
 })
 
+test('a gate step with space between run and opening parenthesis is parsed (#401)', () => {
+  const source = [
+    "step('build', () => run ('pnpm', ['run', 'build']))",
+    'step("tests", () => run  ("node", ["--test", "packages/*/dist/test/**/*.test.js"]))',
+  ].join('\n')
+  assert.deepEqual(gateCommands(source), [
+    { command: 'pnpm', args: ['run', 'build'] },
+    { command: 'node', args: ['--test', 'packages/*/dist/test/**/*.test.js'] },
+  ])
+})
+
+test('gateCommands refuses when zero run calls are parsed (#401)', () => {
+  const source = "const x = 1\nconsole.log('no steps')"
+  assert.throws(() => gateCommands(source), /parsed zero run\(\.\.\.\) calls/)
+})
+
 test('a test glob survives the comment stripper that once ate it', () => {
   // The bug: `/**​/` inside the glob opened a block comment, and every command
   // after it vanished — silently, because a shorter list still parses.

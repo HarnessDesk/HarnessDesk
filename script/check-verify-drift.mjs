@@ -83,20 +83,22 @@ export const gateCommands = (raw) => {
     .map((line) => (/^\s*(\/\/|\/\*|\*)/.test(line) ? '' : line))
     .join('\n')
   const out = []
-  const call = /\brun\(\s*(['"])(.*?)\1\s*,\s*\[([\s\S]*?)\]\s*\)/g
+  const call = /\brun\s*\(\s*(['"])(.*?)\1\s*,\s*\[([\s\S]*?)\]\s*\)/g
   for (const [, , command, rawArgs] of source.matchAll(call)) {
     const args = [...rawArgs.matchAll(/(['"])(.*?)\1/g)].map(([, , value]) => value)
     out.push({ command, args })
   }
-  const attempted = [...source.matchAll(/\brun\(/g)].length
+  const attempted = [...source.matchAll(/\brun\s*\(/g)].length
   if (attempted !== out.length) {
-    process.stderr.write(
+    throw new Error(
       `script/verify.mjs has ${attempted} run(...) calls and this check could read ${out.length}.\n` +
         'A call it cannot read is a command that leaves the comparison silently.\n' +
         'Either write it as run(\'cmd\', [\'arg\', …]) with literal strings, or teach\n' +
-        'the parser in script/check-verify-drift.mjs the shape you need.\n',
+        'the parser in script/check-verify-drift.mjs the shape you need.',
     )
-    process.exit(1)
+  }
+  if (out.length === 0) {
+    throw new Error('script/verify.mjs parsed zero run(...) calls. The gate must not pass vacuously.')
   }
   return out
 }
@@ -167,8 +169,20 @@ export const missingFromCI = (gate, workflow) => {
 }
 
 if (isMain) {
+  let gate
+  try {
+    gate = gateCommands(readFileSync(resolve(root, 'script/verify.mjs'), 'utf8'))
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    process.exit(1)
+  }
+
   const workflow = ciCommands(readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'))
-  const gate = gateCommands(readFileSync(resolve(root, 'script/verify.mjs'), 'utf8'))
+
+  if (workflow.length === 0) {
+    process.stderr.write('.github/workflows/ci.yml parsed zero run: steps. The check cannot verify parity.\n')
+    process.exit(1)
+  }
 
   const missing = missingFromCI(gate, workflow)
 
