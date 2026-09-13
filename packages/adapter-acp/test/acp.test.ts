@@ -890,6 +890,23 @@ test('a permission request with null/non-object blocks in content does not throw
   }
 })
 
+test('a tool_call_update with null or malformed content blocks does not crash the host', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'tool update with null content' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.equal(turn.status, 'completed')
+    const tool = turn.items.find((item) => item.type === 'toolCall')
+    assert.ok(tool && tool.type === 'toolCall' && tool.status === 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('interrupt cancels a slow turn as interrupted, not failed', async () => {
   const runtime = make()
   await runtime.start()
