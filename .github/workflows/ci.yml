@@ -71,6 +71,9 @@ jobs:
       - name: Layering rule
         run: node script/check-layering.mjs
 
+      - name: Half-applied fixes
+        run: node script/check-half-applied-fixes.mjs
+
       - name: Tracked secrets
         run: node script/check-secrets.mjs
 

@@ -29,7 +29,7 @@ pnpm verify
 Run it bare — never piped into anything, because a pipe eats the exit code
 and a red run reads green. It is the whole pre-commit gate: the lockfile
 install, the build, every test suite (Node packages, gate scripts, UI and
-desktop), the UI typecheck, the layering rules, a tracked-secrets scan, the
+desktop), the UI typecheck, the layering rules, the half-applied-fixes check, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system
 gates, interface drift, the recorded-claims link, the doc-paths check, the
 check that holds this gate and CI to one list, Codex protocol drift, and the

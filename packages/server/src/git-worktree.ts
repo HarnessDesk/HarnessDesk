@@ -426,7 +426,7 @@ export const add = async (
 
   // Checked again against the resolved path, immediately before the write:
   // between the test above and here, a link could have been laid down.
-  if ((await canonicalDestination(target)) !== target) {
+  if (!samePath(await canonicalDestination(target), target)) {
     throw new Error(`${target} moved while it was being checked; nothing was created.`)
   }
   try {
@@ -593,7 +593,7 @@ export const move = async (
   if (!entry) throw new Error(`${from} is not a worktree of this repository.`)
   if (entry.isMain) throw new Error('The main checkout is not moved with git worktree move.')
   const target = await destination(worktrees, to)
-  if ((await canonicalDestination(target)) !== target) {
+  if (!samePath(await canonicalDestination(target), target)) {
     throw new Error(`${target} moved while it was being checked; nothing was moved.`)
   }
   try {
