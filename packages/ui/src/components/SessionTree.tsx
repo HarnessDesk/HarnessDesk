@@ -132,18 +132,8 @@ const SessionRow = ({
     const title = draft.trim()
     setRenaming(false)
     if (title.length === 0 || title === summary.title) return
-    // Renaming needs the session live, since the title is the runtime's. The
-    // comparison is on the key, not the id: ACP agents number their sessions,
-    // so "same id" is not "same conversation", and the open below has to name
-    // the runtime for the same reason.
-    if (snapshot.activeSessionKey !== key) {
-      void store
-        .openSession(summary.id, { runtime: summary.runtime })
-        .then(() => store.renameSession(title))
-      return
-    }
-    void store.renameSession(title)
-  }, [draft, key, snapshot.activeSessionKey, store, summary.id, summary.runtime, summary.title])
+    void store.renameSession(title, key)
+  }, [draft, key, store, summary.title])
 
   return (
     <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>

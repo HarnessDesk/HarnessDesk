@@ -985,3 +985,106 @@ it('shows the folder-gone mark before any click with the listing-sourced sentenc
   expect(marks[0]?.getAttribute('title')).toContain("This conversation's folder no longer exists (/repo/gone).")
 })
 
+it('renames an inactive session without opening it or changing active session (#388)', async () => {
+  const runtime = {
+    id: 'agent',
+    name: 'Agent',
+    capabilities: {},
+    presentation: { name: 'Agent' },
+  } as unknown as RuntimeInfo
+  const summaryA = {
+    id: 'session-a',
+    runtime: runtime.id,
+    title: 'Active Conversation',
+    preview: null,
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 2,
+    archived: false,
+  } as unknown as SessionSummary
+  const summaryB = {
+    id: 'session-b',
+    runtime: runtime.id,
+    title: 'Inactive Conversation',
+    preview: null,
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 2,
+    archived: false,
+  } as unknown as SessionSummary
+
+  const keyA = sessionKey(runtime.id, summaryA.id)
+  const keyB = sessionKey(runtime.id, summaryB.id)
+
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    activeSessionKey: keyA,
+    runtimes: [runtime],
+    history: [summaryA, summaryB],
+  } as AppSnapshot
+
+  const openSession = vi.fn()
+  const renameSession = vi.fn()
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    openSession,
+    renameSession,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  // Find the menu button for session B
+  const menuButtons = [...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]')]
+  expect(menuButtons.length).toBeGreaterThanOrEqual(2)
+  const menuB = menuButtons.find((btn) => btn.getAttribute('title')?.includes('Inactive Conversation'))
+  expect(menuB).toBeDefined()
+
+  act(() => {
+    menuB!.click()
+  })
+
+  // Click Rename in context menu
+  const renameOption = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('Rename'),
+  )
+  expect(renameOption).toBeDefined()
+
+  act(() => {
+    renameOption!.click()
+  })
+
+  // An input should appear for renaming
+  const input = container.querySelector<HTMLInputElement>('input')
+  expect(input).toBeDefined()
+  expect(input?.value).toBe('Inactive Conversation')
+
+  // Change input and press Enter
+  act(() => {
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value',
+    )!.set!
+    nativeInputValueSetter.call(input, 'Renamed Conversation')
+    input!.dispatchEvent(new Event('input', { bubbles: true }))
+    input!.dispatchEvent(new Event('change', { bubbles: true }))
+    input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  })
+
+  // Must not open session B
+  expect(openSession).not.toHaveBeenCalled()
+  // Must call renameSession with the title and keyB
+  expect(renameSession).toHaveBeenCalledWith('Renamed Conversation', keyB)
+})
+
+
