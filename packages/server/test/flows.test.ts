@@ -470,6 +470,16 @@ test('a flow that will not validate seats nobody', async (t) => {
   assert.equal(board(one).intents.length, 0)
 })
 
+test('flow/start for a non-existent room throws and seats nobody (#420)', async (t) => {
+  const one = await rig(t)
+  await assert.rejects(
+    () => one.flows.start({ room: 'missing-room', source: REVIEW, vars: { work: 'Fix it' } }),
+    /There is no room missing-room\./,
+  )
+  assert.equal(one.seated.length, 0)
+  assert.equal(one.orders.length, 0)
+})
+
 test('the record says who did what, on which seat, with which outcome', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
@@ -1404,16 +1414,49 @@ test('a stalled flow run omits endedAt, can be stopped, and recovers when a seat
 
 test('Flows.stop does not crash when a run has non-array record data (#505)', async (t) => {
   const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-record.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'bad-record-run',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: null,
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+  await second.load()
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+  assert.throws(() => second.stop('bad-record-run'), /There is no flow run bad-record-run/)
+
+  // Direct in-memory test for runtime guard in stop():
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
-  const run = one.flows.runsFor(one.room)[0]!
-  ;(run as any).record = null
-  const stopped = one.flows.stop(run.id, 'stop malformed record run')
+  const activeRun = one.flows.runsFor(one.room)[0] as unknown as { id: string; record: unknown; state: string }
+  assert.ok(activeRun)
+  activeRun.record = null
+  const stopped = one.flows.stop(activeRun.id, 'manual stop')
   assert.equal(stopped.state, 'stopped')
-  assert.ok(Array.isArray(stopped.record))
   assert.equal(stopped.record.length, 1)
-  assert.equal(stopped.record[0]?.text, 'stop malformed record run')
+  assert.equal(stopped.record[0]?.kind, 'stopped')
+  assert.equal(stopped.record[0]?.text, 'manual stop')
 })
-
-
-
 
