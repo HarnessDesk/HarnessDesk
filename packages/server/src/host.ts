@@ -53,6 +53,7 @@ import {
   type SecretReload,
   type PublicationItem,
   runtimeId,
+  sessionModel,
 } from '@harnessdesk/protocol'
 
 import type { AgentDirectory } from './agent-registry.js'
@@ -2289,7 +2290,7 @@ export class Host {
         /* The room names a new member after what it runs, so three
            conversations on one agent and one account are told apart by the one
            thing that actually differs between them. */
-        model: record.session.settings?.model ?? null,
+        model: sessionModel(record.session),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */

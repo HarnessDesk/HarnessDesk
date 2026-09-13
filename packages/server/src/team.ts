@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   AGENT_MESSAGE_NOTICE,
   agentMessageSource,
+  cleanModel,
   sessionKey,
   splitSessionKey,
   TEAM_MESSAGE_CHARS,
@@ -922,7 +923,7 @@ export class Team {
       agent: peer.agent,
       busy: peer.busy,
       nickname: this.#nameOn(board, peer),
-      model: peer.model ?? null,
+      model: cleanModel(peer.model),
       /* Evidence from *this* run, so a member nobody has opened yet has none
          either way — which is why the surface only draws the doubt for a
          member that is here. */
@@ -2708,7 +2709,7 @@ export class Team {
       delete other.roster[String(key)]
       this.#commit(other)
     }
-    if (card) board.roster[String(key)] = card
+    if (card) board.roster[String(key)] = { ...card, model: cleanModel(card.model) }
     else if (live) this.#remember(board, key, live)
     if (!board.members.includes(key)) {
       board.members = [...board.members, key]
@@ -2976,7 +2977,7 @@ export class Team {
       busy: false,
       canSteer: false,
       queuedByUser: 0,
-      ...(remembered.model !== undefined ? { model: remembered.model } : {}),
+      ...(remembered.model !== undefined ? { model: cleanModel(remembered.model) } : {}),
       here: false,
     }
   }
@@ -2984,13 +2985,13 @@ export class Team {
   /** Writes down what the board will need to draw this member after a quit. */
   #remember(board: Board, key: SessionKey, peer: TeamPeer): void {
     const held = board.roster[String(key)]
-    const model = peer.model ?? null
+    const model = cleanModel(peer.model)
     if (
       held &&
       held.title === peer.title &&
       held.agent === peer.agent &&
       held.cwd === peer.cwd &&
-      (held.model ?? null) === model
+      (cleanModel(held.model) ?? null) === model
     ) {
       return
     }

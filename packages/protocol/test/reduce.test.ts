@@ -12,6 +12,7 @@ import {
   reduceSession,
   runtimeId,
   sessionId,
+  sessionModel,
   turnId,
   type AgentEvent,
   type AgentItem,
@@ -314,4 +315,24 @@ test('a read of another conversation is not folded in', () => {
   const held = readOf([{ id: turnId('t1'), status: 'completed', items: [] }])
   const other: Session = { ...readOf([]), id: sessionId('s2') }
   assert.equal(mergeRead(held, other), other)
+})
+
+test('sessionModel resolves model from options and settings, ignoring automatic choices (#374)', () => {
+  assert.equal(sessionModel({ settings: { cwd: '/w', model: 'gpt-5.4' } }), 'gpt-5.4')
+  assert.equal(
+    sessionModel({
+      options: [{ type: 'select', id: 'model', label: 'Model', currentValue: 'gemini-3.8-flash', choices: [] }],
+      settings: { cwd: '/w', model: 'auto' },
+    }),
+    'gemini-3.8-flash',
+  )
+  assert.equal(sessionModel({ settings: { cwd: '/w', model: 'auto' } }), null)
+  assert.equal(sessionModel({ settings: { cwd: '/w', model: 'default' } }), null)
+  assert.equal(
+    sessionModel({
+      options: [{ type: 'select', id: 'model', label: 'Model', currentValue: 'auto', choices: [] }],
+      settings: { cwd: '/w', model: 'auto' },
+    }),
+    null,
+  )
 })

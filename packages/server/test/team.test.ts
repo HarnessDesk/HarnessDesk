@@ -3721,3 +3721,19 @@ test('hasWorkFor and awaitWork never disagree about whether a seat has work', as
   await assertLockstep('claude', 'k1', claude)
 })
 
+test('the roster records a real model and ignores the automatic choice ("auto", "default") (#374)', async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [
+    peer({ sessionId: 'auto-seat', model: 'auto' }),
+    peer({ sessionId: 'named-seat', model: 'gemini-3.8-flash' }),
+  ]
+  await joinAll(team, room, port)
+  const roster = await team.peersFor(room)
+  const autoMember = roster.find((entry) => entry.sessionId === 'auto-seat')
+  const namedMember = roster.find((entry) => entry.sessionId === 'named-seat')
+  assert.ok(autoMember, 'auto-seat is in the roster')
+  assert.ok(namedMember, 'named-seat is in the roster')
+  assert.equal(autoMember.model, null, 'an automatic model is not recorded as a model')
+  assert.equal(namedMember.model, 'gemini-3.8-flash', 'a real model is kept')
+})
+

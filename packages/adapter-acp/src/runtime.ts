@@ -2515,6 +2515,7 @@ class AcpSession implements AgentSession {
         modelId: value,
       })
       this.#models = { ...this.#models, currentModelId: value as string }
+      this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
       await this.#host.connection.request('session/set_config_option', {
         sessionId: this.id,
@@ -2898,6 +2899,7 @@ class AcpSession implements AgentSession {
       case 'current_model_update': {
         if (this.#models) {
           this.#models = { ...this.#models, currentModelId: update.currentModelId }
+          this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
           this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
         }
         return
