@@ -9,6 +9,7 @@ import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
 import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
+import { checkNotices, installedLicence } from './check-notices.mjs'
 import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
@@ -1205,3 +1206,32 @@ test('a detected secret on a source line does not leak line content or secret va
   assert.doesNotMatch(offenders[0], /sk-abcdef/)
 })
 
+test('installedLicence finds installed package licenses without find binary (#397)', () => {
+  // Test with real installed package
+  const cordisLicence = installedLicence('@deepseek-ai/cordis', repoRoot)
+  assert.equal(cordisLicence, 'MIT')
+
+  const acpLicence = installedLicence('@zed-industries/claude-code-acp', repoRoot)
+  assert.equal(acpLicence, 'Apache-2.0')
+
+  // Returns null for non-installed package
+  assert.equal(installedLicence('nonexistent-package-xyz', repoRoot), null)
+})
+
+test('checkNotices refuses when zero licence claims can be verified (#397)', () => {
+  const sampleNotices = [
+    '# Third-Party Notices',
+    '',
+    '## Packages used as dependencies',
+    '',
+    '| Package | Licence | Used for |',
+    '| --- | --- | --- |',
+    '| `nonexistent-pkg-a` | MIT | Testing |',
+    '| `nonexistent-pkg-b` | Apache-2.0 | Testing |',
+  ].join('\n')
+
+  const result = checkNotices(sampleNotices, repoRoot)
+  assert.equal(result.checked, 0)
+  assert.equal(result.skipped, 2)
+  assert.ok(result.problems.some((p) => p.includes('No licence claims could be verified')))
+})
