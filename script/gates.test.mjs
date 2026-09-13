@@ -557,6 +557,23 @@ test('NOT_IN_CI exemption matches exact command line and cannot be injected by e
   ])
 })
 
+test('check-verify-drift preserves argument boundaries and distinguishes args with spaces from separate args (#404)', () => {
+  // Gate has one argument containing a space: '--name=a b'
+  const gate = [{ command: 'node', args: ['script/tool.mjs', '--name=a b'] }]
+
+  // CI has two separate arguments: '--name=a' and 'b'
+  const separateArgs = ciCommands(['    steps:', '      - run: node script/tool.mjs --name=a b'].join('\n'))
+  assert.deepEqual(missingFromCI(gate, separateArgs), ['node script/tool.mjs --name=a b'])
+
+  // CI has one argument with quotes: '--name=a b'
+  const quotedArg = ciCommands(['    steps:', '      - run: node script/tool.mjs "--name=a b"'].join('\n'))
+  assert.deepEqual(missingFromCI(gate, quotedArg), [])
+
+  // CI has single quotes: '--name=a b'
+  const singleQuotedArg = ciCommands(['    steps:', "      - run: node script/tool.mjs '--name=a b'"].join('\n'))
+  assert.deepEqual(missingFromCI(gate, singleQuotedArg), [])
+})
+
 /**
  * `check-reachable` decides which host methods a surface can call, and both of
  * its halves fail silently in the same direction: a parser that finds fewer
