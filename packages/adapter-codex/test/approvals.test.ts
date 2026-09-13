@@ -95,3 +95,13 @@ test('arguments with irregular whitespace do not corrupt the extracted stdin (#3
   assert.equal(stdinInputOf('write_stdin   --session-id   42   two  spaces'), '  two  spaces')
 })
 
+test('quoted flag values are refused and passed through whole (#326)', () => {
+  // Quoted flag value with spaces passes through rather than corrupting boundary
+  assert.equal(stdinInputOf('write_stdin --session-id "42 foo" yes'), 'write_stdin --session-id "42 foo" yes')
+  assert.equal(stdinInputOf("write_stdin --session-id '42 foo' yes"), "write_stdin --session-id '42 foo' yes")
+  assert.equal(stdinInputOf('write_stdin --session-id="42 foo" yes'), 'write_stdin --session-id="42 foo" yes')
+  assert.equal(stdinInputOf("write_stdin --session-id='42 foo' yes"), "write_stdin --session-id='42 foo' yes")
+  // Control: unquoted flag value still parses correctly
+  assert.equal(stdinInputOf('write_stdin --session-id 42 yes'), 'yes')
+})
+
