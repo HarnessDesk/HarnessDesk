@@ -664,6 +664,47 @@ test('an agent that refuses the tool server says so, and says it out loud', asyn
   }
 })
 
+test('a refusal in the agent\'s own words still costs only the tools, not the session', async () => {
+  /* OpenClaw refuses the bridge on the wire the way most JSON-RPC agents do:
+     `-32603 Internal error`, with the sentence in `error.data` — "ACP bridge
+     mode does not support per-session MCP servers. Configure MCP on the
+     OpenClaw gateway or agent instead." The detector read `message` alone, so
+     it saw "Internal error"; and the pattern was written against DeepSeek
+     Harness's camel case, so even the sentence would have missed on the space
+     in "MCP servers". Between them, `session/new` failed outright and every
+     OpenClaw conversation was lost — the opposite of the graceful degradation
+     this path exists for. Measured against openclaw 2026.8.2 driving
+     HarnessDesk's own tool bridge. */
+  const runtime = new AcpRuntime({
+    id: 'openclaw-alike',
+    name: 'OpenClaw-alike',
+    command: process.execPath,
+    args: [FAKE],
+    env: {
+      FAKE_ACP_REFUSE_TOOLS:
+        'ACP bridge mode does not support per-session MCP servers. Configure MCP on the OpenClaw gateway or agent instead.',
+    },
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['--version'],
+      env: {},
+    },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.ok(session, 'the session opened on the retry without the tool server')
+    assert.equal(
+      runtime.info.capabilities.pluginTools,
+      false,
+      'the agent said it cannot host the bridge, and the badge says so',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('every open carries a caller token, and the map learns whose it is', async (t) => {
   // §25.3: `tools/invoke` used to carry no scope, so a tool called over MCP
   // could not say which session called it. The agent spawns the bridge from

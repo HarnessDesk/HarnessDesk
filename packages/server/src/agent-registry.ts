@@ -1,3 +1,4 @@
+import { extendedArgs } from './installs/args.js'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
@@ -214,7 +215,11 @@ const bridgeEntryOf = (template: AgentTemplate): string | null => {
 /** The full config a stored template entry stands for. Null when this build cannot serve it. */
 const expandTemplate = (
   template: AgentTemplate,
-  entry: { readonly id: string; readonly env?: Readonly<Record<string, string>> },
+  entry: {
+    readonly id: string
+    readonly args?: readonly string[]
+    readonly env?: Readonly<Record<string, string>>
+  },
 ): AcpAgentConfig | null => {
   const base = {
     id: entry.id,
@@ -246,7 +251,9 @@ const expandTemplate = (
   return {
     ...base,
     command: template.command ?? entry.id,
-    ...(template.args ? { args: template.args } : {}),
+    // The row's own arguments extend the template's, the way its `env` below
+    // merges over the template's — a flag the person added is theirs to keep.
+    ...(template.args || entry.args ? { args: extendedArgs(template.args ?? [], entry.args) } : {}),
     ...(template.env || entry.env ? { env: { ...(template.env ?? {}), ...(entry.env ?? {}) } } : {}),
   }
 }
@@ -353,6 +360,7 @@ export class AgentRegistryStore {
         }
         const expanded = expandTemplate(template, {
           id: entry['id'],
+          ...(isArgs(entry['args']) ? { args: entry['args'] } : {}),
           ...(isEnv(entry['env']) ? { env: entry['env'] } : {}),
         })
         if (!expanded) {
@@ -437,6 +445,9 @@ export class AgentRegistryStore {
     return true
   }
 }
+
+const isArgs = (value: unknown): value is readonly string[] =>
+  Array.isArray(value) && value.every((arg) => typeof arg === 'string')
 
 const isEnv = (value: unknown): value is Readonly<Record<string, string>> =>
   typeof value === 'object' &&

@@ -1,3 +1,4 @@
+import { extendedArgs } from './args.js'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, sep } from 'node:path'
@@ -334,7 +335,7 @@ export class InstallService {
     void this.describe(config, judged)
     return {
       command: cli,
-      args: [...known.acp.args],
+      args: extendedArgs(known.acp.args, config.args),
       ...(known.acp.env ? { env: known.acp.env } : {}),
       version: chosen?.version ?? null,
     }

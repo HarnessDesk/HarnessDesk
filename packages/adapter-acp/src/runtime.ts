@@ -324,8 +324,19 @@ const shutDown = (name: string): Error => new Error(`${name} has been shut down.
  * not supported"), and an agent that cannot host our tool bridge should
  * still open sessions — it simply does not get HarnessDesk's plugin tools.
  * The refusal is learned once, from the agent's own answer, and remembered.
+ *
+ * Two things about the refusal are the agent's to decide, and OpenClaw
+ * decides both differently from DeepSeek Harness — between them they cost
+ * every OpenClaw conversation its session, which is the opposite of what the
+ * paragraph above promises. Measured against openclaw 2026.8.2:
+ *
+ * - **Where it says it.** OpenClaw answers `-32603 Internal error` and puts
+ *   the sentence in `error.data`, which `AcpError` carries as `details`.
+ *   Reading `message` alone sees only "Internal error".
+ * - **How it spells the field.** "per-session MCP servers", with a space,
+ *   which a pattern written against camel case misses.
  */
-const REFUSES_TOOL_SERVER = /mcpServers?\b/i
+const REFUSES_TOOL_SERVER = /mcp[\s_-]?servers?\b/i
 
 const mcpServersOf = (config: AcpAgentConfig, caller: string): readonly object[] =>
   config.toolServer
@@ -1620,7 +1631,7 @@ export class AcpRuntime implements AgentRuntime {
         claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
       )
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = describeAcp(error)
       // The tool-server refusal is answered first, by a retry without the
       // server; only a failure that is not that refusal is read for what
       // it says about the sign-in, so neither classification can hide the
@@ -2161,8 +2172,17 @@ const contextBreakdownOf = (meta: AcpUpdateMeta | null | undefined): ContextBrea
   }
 }
 
-const describeAcp = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
+const describeAcp = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error)
+  /* `AcpError` carries the agent's own `error.data` as `details`, and that is
+     where JSON-RPC puts the half worth reading: `-32603 Internal error` names
+     nothing, while its data says a session key has no owner, or that the
+     bridge will not take an MCP server. Everything that shows an ACP failure
+     to a person reaches for this, so a failed turn used to read "Internal
+     error" over an agent that had said exactly what to do. */
+  const details = (error as { details?: unknown }).details
+  return typeof details === 'string' && details.length > 0 ? `${message}: ${details}` : message
+}
 
 /**
  * What the agent's own answers have said about its sign-in. ACP has no
