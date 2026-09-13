@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   approvalId,
@@ -455,6 +456,90 @@ export const imagesInToolContent = (
           },
         ]
       : []
+  })
+}
+
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+}
+
+const imageMimeOf = (path: string): string => {
+  const ext = extname(path).toLowerCase()
+  return IMAGE_MIME[ext] ?? 'image/png'
+}
+
+const readLocalImageBlock = (path: string): AcpContentBlock | null => {
+  try {
+    const data = readFileSync(path).toString('base64')
+    return { type: 'image', data, mimeType: imageMimeOf(path) }
+  } catch {
+    return null
+  }
+}
+
+const urlNameOf = (url: string): string => {
+  try {
+    const parsed = new URL(url)
+    const name = parsed.pathname.split('/').filter(Boolean).pop()
+    if (name) return name
+  } catch {
+    // not a valid URL
+  }
+  return basename(url) || url
+}
+
+export const promptBlocksOf = (input: readonly UserContent[]): AcpContentBlock[] => {
+  return input.flatMap((content): AcpContentBlock[] => {
+    if (content.type === 'text') return [{ type: 'text', text: content.text }]
+    if (content.type === 'mention' || content.type === 'skill') {
+      return [{ type: 'resource_link', uri: `file://${content.path}`, name: content.name }]
+    }
+    if (content.type === 'localImage') {
+      const imageBlock = readLocalImageBlock(content.path)
+      if (imageBlock) return [imageBlock]
+      const name = basename(content.path) || content.path
+      return [{ type: 'resource_link', uri: `file://${content.path}`, name }]
+    }
+    if (content.type === 'image') {
+      if (content.url.startsWith('data:')) {
+        const [meta, data] = content.url.split(',', 2)
+        return data
+          ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') || 'image/png' }]
+          : []
+      }
+      if (content.url.startsWith('file://')) {
+        let localPath: string | null = null
+        try {
+          localPath = fileURLToPath(content.url)
+        } catch {
+          localPath = content.url.slice(7)
+        }
+        if (localPath) {
+          const imageBlock = readLocalImageBlock(localPath)
+          if (imageBlock) return [imageBlock]
+        }
+        const name = content.name || (localPath ? basename(localPath) : urlNameOf(content.url))
+        return [{ type: 'resource_link', uri: content.url, name }]
+      }
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(content.url) && !/^[a-zA-Z]:[/\\]/.test(content.url)) {
+        const name = content.name || urlNameOf(content.url)
+        return [{ type: 'resource_link', uri: content.url, name }]
+      }
+      const imageBlock = readLocalImageBlock(content.url)
+      if (imageBlock) return [imageBlock]
+      const name = content.name || basename(content.url) || content.url
+      return [{ type: 'resource_link', uri: `file://${content.url}`, name }]
+    }
+    return []
   })
 }
 
@@ -2590,19 +2675,7 @@ class AcpSession implements AgentSession {
     })
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'active' } })
 
-    const prompt: AcpContentBlock[] = input.flatMap((content): AcpContentBlock[] => {
-      if (content.type === 'text') return [{ type: 'text', text: content.text }]
-      if (content.type === 'image') {
-        const [meta, data] = content.url.split(',', 2)
-        return data
-          ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
-          : []
-      }
-      if (content.type === 'mention' || content.type === 'skill') {
-        return [{ type: 'resource_link', uri: `file://${content.path}`, name: content.name }]
-      }
-      return []
-    })
+    const prompt = promptBlocksOf(input)
 
     // Where the agent's own usage record stands before the turn, for an agent
     // that counts there rather than on the wire: what it gains from here on
