@@ -1686,3 +1686,53 @@ test('a first message cut off inside a block names nothing (review of #231)', as
     await runtime.dispose()
   }
 })
+
+test('AcpSession send preserves localImage and http image inputs in prompt (#415)', async (t) => {
+  const { writeFileSync, unlinkSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const imgFile = join(tmpdir(), `test-img-${Date.now()}.png`)
+  writeFileSync(imgFile, Buffer.from('fake-png-bytes'))
+  t.after(() => {
+    try {
+      unlinkSync(imgFile)
+    } catch {}
+  })
+
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([
+      { type: 'text', text: 'echo blocks' },
+      { type: 'localImage', path: imgFile },
+      { type: 'image', url: 'https://example.com/diagram.png', name: 'diagram.png' },
+      { type: 'localImage', path: '/nonexistent/missing.jpg' },
+    ])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const items = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.items
+    const message = items.find((item) => item.type === 'assistantMessage')
+    assert.ok(message && message.type === 'assistantMessage')
+    const blocks = JSON.parse(message.text)
+    assert.equal(blocks.length, 4, 'all 4 prompt blocks were sent to ACP agent')
+    assert.deepEqual(blocks[0], { type: 'text', text: 'echo blocks' })
+    assert.deepEqual(blocks[1], {
+      type: 'image',
+      data: Buffer.from('fake-png-bytes').toString('base64'),
+      mimeType: 'image/png',
+    })
+    assert.deepEqual(blocks[2], {
+      type: 'resource_link',
+      uri: 'https://example.com/diagram.png',
+      name: 'diagram.png',
+    })
+    assert.deepEqual(blocks[3], {
+      type: 'resource_link',
+      uri: 'file:///nonexistent/missing.jpg',
+      name: 'missing.jpg',
+    })
+  } finally {
+    await runtime.dispose()
+  }
+})

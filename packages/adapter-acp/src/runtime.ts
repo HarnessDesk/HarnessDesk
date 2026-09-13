@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 
 import {
   approvalId,
@@ -2320,6 +2320,17 @@ const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMes
   }
 }
 
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+}
+
 const userContentOf = (block: AcpContentBlock): UserContent => {
   switch (block.type) {
     case 'image':
@@ -2593,10 +2604,44 @@ class AcpSession implements AgentSession {
     const prompt: AcpContentBlock[] = input.flatMap((content): AcpContentBlock[] => {
       if (content.type === 'text') return [{ type: 'text', text: content.text }]
       if (content.type === 'image') {
-        const [meta, data] = content.url.split(',', 2)
-        return data
-          ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
-          : []
+        if (content.url.startsWith('data:')) {
+          const [meta, data] = content.url.split(',', 2)
+          return data
+            ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
+            : []
+        }
+        if (content.url.startsWith('file://')) {
+          const filePath = content.url.replace(/^file:\/\//, '')
+          try {
+            const data = readFileSync(filePath).toString('base64')
+            const ext = extname(filePath).toLowerCase()
+            const mimeType = IMAGE_MIME[ext] ?? 'image/png'
+            return [{ type: 'image', data, mimeType }]
+          } catch {
+            return [{
+              type: 'resource_link',
+              uri: content.url,
+              name: content.name || filePath.split('/').pop() || 'image',
+            }]
+          }
+        }
+        return [{
+          type: 'resource_link',
+          uri: content.url,
+          name: content.name || content.url.split('/').pop()?.split('?')[0] || 'image',
+        }]
+      }
+      if (content.type === 'localImage') {
+        try {
+          const data = readFileSync(content.path).toString('base64')
+          const ext = extname(content.path).toLowerCase()
+          const mimeType = IMAGE_MIME[ext] ?? 'image/png'
+          return [{ type: 'image', data, mimeType }]
+        } catch {
+          const uri = content.path.startsWith('file://') ? content.path : `file://${content.path}`
+          const name = content.path.split('/').pop() || 'image'
+          return [{ type: 'resource_link', uri, name }]
+        }
       }
       if (content.type === 'mention' || content.type === 'skill') {
         return [{ type: 'resource_link', uri: `file://${content.path}`, name: content.name }]
