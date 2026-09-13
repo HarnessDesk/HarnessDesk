@@ -11,6 +11,11 @@ export interface DeviceRun {
   readonly stderr: string
 }
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+export const isPng = (buffer: Buffer): boolean =>
+  buffer.length >= PNG_MAGIC.length && buffer.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)
+
 export const runDevice = (
   binary: string,
   args: readonly string[],
@@ -43,10 +48,17 @@ export const runDeviceForPng = (
       binary,
       [...args],
       { timeout: options.timeoutMs ?? 20_000, maxBuffer: 64 * 1024 * 1024, encoding: 'buffer' },
-      (error, stdout) => {
-        if (error) reject(new Error(`${options.what} failed: ${error.message}`))
-        else if (stdout.length === 0) reject(new Error(`${options.what} produced no image.`))
-        else resolve(`data:image/png;base64,${stdout.toString('base64')}`)
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = (stderr ?? '').toString().trim().split('\n').slice(-2).join(' · ')
+          reject(new Error(`${options.what} failed: ${detail || error.message}`))
+        } else if (stdout.length === 0) {
+          reject(new Error(`${options.what} produced no image.`))
+        } else if (!isPng(stdout)) {
+          reject(new Error(`${options.what} produced non-PNG output.`))
+        } else {
+          resolve(`data:image/png;base64,${stdout.toString('base64')}`)
+        }
       },
     )
   })
