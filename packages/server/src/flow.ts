@@ -153,11 +153,25 @@ export const BUILT_IN_SLOTS = ['flow', 'run', 'room', 'repo', 'role', 'round', '
 export const CARD_SLOTS = ['round', 'n', 'count'] as const
 
 /**
- * The built-in slots a role's order may use.
+ * The built-in slots a role's order may use, matching what `orderVars` produces.
  *
  * Excludes `CARD_SLOTS` which only have meaning on a card.
  */
-export const ORDER_SLOTS = ['flow', 'run', 'room', 'repo', 'role'] as const
+export const ORDER_SLOTS = [
+  'name',
+  'member',
+  'seat',
+  'room',
+  'repo',
+  'runtime',
+  'run',
+  'flow',
+  'role',
+  'outcomes',
+  'blockMs',
+  'brief',
+  'gitRule',
+] as const
 
 /**
  * Two more that only a rule's template may use: the round that just finished.
@@ -892,6 +906,7 @@ export const GIT_RULES: Readonly<Record<FlowPermission, string>> = {
 export interface OrderVars {
   readonly name: string
   readonly member: string
+  readonly seat?: string
   readonly room: string
   readonly repo: string
   readonly flow: string
@@ -902,6 +917,7 @@ export interface OrderVars {
   readonly brief: string
   readonly gitRule: string
   readonly run?: string
+  readonly runtime?: string
   readonly [key: string]: string | undefined
 }
 
@@ -959,6 +975,7 @@ export const orderVars = (
     /** Which agent this seat is on, so its block fits what that agent will hold. */
     readonly runtime: string
     readonly run?: string
+    readonly seat?: string
     readonly vars?: Readonly<Record<string, string>>
   },
 ): OrderVars => {
@@ -976,6 +993,7 @@ export const orderVars = (
     ...(where.vars ?? {}),
     name: where.name,
     member: where.member,
+    seat: where.seat ?? where.name,
     room: where.room,
     repo: where.repo,
     runtime: where.runtime,
@@ -992,3 +1010,30 @@ export const orderVars = (
     gitRule: GIT_RULES[role.permission],
   }
 }
+
+/** The vars a card's templates (title, detail) are filled with. */
+export const cardVars = (where: {
+  readonly flow: string
+  readonly run: string
+  readonly room: string
+  readonly repo: string
+  readonly role: string
+  readonly round: string | number
+  readonly n: string | number
+  readonly count: string | number
+  readonly from?: string
+  readonly answered?: string | number
+  readonly vars?: Readonly<Record<string, string>>
+}): Record<string, string> => ({
+  ...(where.vars ?? {}),
+  flow: where.flow,
+  run: where.run,
+  room: where.room,
+  repo: where.repo,
+  role: where.role,
+  round: String(where.round),
+  n: String(where.n),
+  count: String(where.count),
+  ...(where.from !== undefined ? { from: where.from } : {}),
+  ...(where.answered !== undefined ? { answered: String(where.answered) } : {}),
+})
