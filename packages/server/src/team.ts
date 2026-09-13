@@ -1595,6 +1595,22 @@ export class Team {
       (one) => one.runtime === runtime && one.sessionId === sessionId,
     )
     if (!peer) return false
+    /* Work in hand counts. A seat whose turn dies *while holding a card* has
+       the most urgent work there is, and the card is `claimed` rather than
+       `open` — so looking only for open cards left exactly that seat asleep,
+       with the round stalled behind a claim nobody was working. Measured: a
+       reviewer ended its turn mid-review and the run sat there until the
+       lease ran out, three quarters of an hour later. */
+    if (
+      board.intents.some(
+        (intent) =>
+          intent.state === 'claimed' &&
+          intent.claim?.runtime === runtime &&
+          intent.claim.sessionId === sessionId,
+      )
+    ) {
+      return true
+    }
     return board.intents.some(
       (intent) =>
         intent.state === 'open' &&

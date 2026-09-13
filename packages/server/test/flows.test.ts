@@ -653,3 +653,20 @@ test('a seat is told the name the room addresses it by, from its very first orde
     assert.equal(said, named[order.key], `the order names the seat ${named[order.key]}`)
   }
 })
+
+test('a seat whose turn dies while holding a card is woken — the work is in its hands', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  assert.equal(board(one).intents[0]?.state, 'claimed')
+
+  /* The card it holds is `claimed`, not `open`, so a rule that only looks for
+     open work leaves exactly this seat asleep with the round stalled behind a
+     claim nobody is working. Measured in a live run: a reviewer ended its turn
+     mid-review and the flow sat there until the lease ran out. */
+  one.kill(fixer)
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 5, 'it is handed its order again')
+  assert.match(one.orders[4]!.text, /You publish\./)
+})
