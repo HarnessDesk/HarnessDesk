@@ -2433,7 +2433,27 @@ export class Host {
       // refused could turn straight round and ask a more permissive
       // teammate to do it. Safety rule 2 does not care who said no.
       if (wanted === 'deny') this.#team.noteDenial(runtime, String(approval.sessionId))
-      void live.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+      void live
+        .respondToApproval(approval.id, { type: 'option', optionId: option.id })
+        .catch((error: unknown) => {
+          this.#logger.warn('failed to auto-decide approval by policy, falling back to human approval', {
+            runtime,
+            approvalId: approval.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          const approvalEvent: AgentEvent = { type: 'approval/requested', approval }
+          this.registry.apply(runtime, approvalEvent)
+          this.#audit.record(runtime, approvalEvent, (sessionId) =>
+            this.registry.get(runtime, makeSessionId(sessionId))?.session.cwd,
+          )
+          this.#push({
+            method: 'event',
+            params: {
+              runtime,
+              event: approvalEvent,
+            },
+          })
+        })
       this.#audit.append({
         at: Date.now(),
         runtime,
