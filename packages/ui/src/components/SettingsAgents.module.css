@@ -229,6 +229,11 @@
   font-size: var(--hd-text-xs);
 }
 
+.unverifiedBadge {
+  margin-left: var(--hd-space-1-5);
+  vertical-align: middle;
+}
+
 /* The plan, in the account's own colour. The ring already says which account
    a row is; wearing the same colour, so does the thing you are paying for. */
 .plan {

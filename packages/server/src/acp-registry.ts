@@ -339,6 +339,11 @@ export class AcpRegistry {
       fetchedAt,
       agents: agents.map((agent): AcpRegistryAgentInfo => {
         const picked = channelFor(agent, machine)
+        const run = 'channel' in picked ? picked.channel.kind : declaredRun(agent)
+        const build =
+          'channel' in picked && picked.channel.kind === 'binary'
+            ? picked.channel.run
+            : agent.distribution.binary?.[machine.platform]
         return {
           id: agent.id,
           name: agent.name,
@@ -348,7 +353,8 @@ export class AcpRegistry {
             ? { website: (agent.website ?? agent.repository)! }
             : {}),
           ...(agent.license ? { license: agent.license } : {}),
-          run: 'channel' in picked ? picked.channel.kind : declaredRun(agent),
+          run,
+          ...(run === 'binary' ? { integrity: build?.sha256 ? 'sha256' : 'none' } : {}),
           available: 'channel' in picked,
           ...('reason' in picked ? { reason: picked.reason } : {}),
           registered: isRegistered(agent.id),

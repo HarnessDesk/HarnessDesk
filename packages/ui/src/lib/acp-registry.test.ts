@@ -81,6 +81,32 @@ describe('registryAddLabel', () => {
   })
 })
 
+describe('registryRunSentence', () => {
+  it('discloses when a binary build has no checksum in the registry', () => {
+    const unverified = agent({
+      id: 'devin',
+      name: 'Devin',
+      run: 'binary',
+      integrity: 'none',
+    })
+    expect(registryRunSentence(unverified)).toBe(
+      "Adding it downloads the agent's own build for this machine into HarnessDesk's data folder; the registry publishes no checksum for this build, so the download cannot be verified. Removing the agent deletes the download too.",
+    )
+  })
+
+  it('keeps the standard sentence when a binary build has a sha256 checksum', () => {
+    const verified = agent({
+      id: 'goose',
+      name: 'goose',
+      run: 'binary',
+      integrity: 'sha256',
+    })
+    expect(registryRunSentence(verified)).toBe(
+      "Adding it downloads the agent's own build for this machine into HarnessDesk's data folder; removing the agent deletes the download too.",
+    )
+  })
+})
+
 describe('an entry whose agent is already installed', () => {
   const have = agent({
     id: 'opencode',

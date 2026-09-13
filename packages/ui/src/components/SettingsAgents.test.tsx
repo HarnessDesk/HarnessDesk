@@ -244,6 +244,17 @@ const REGISTRY: AcpRegistryAgentInfo[] = [
     version: '1.48.0',
     description: 'A local, extensible agent.',
     run: 'binary',
+    integrity: 'sha256',
+    available: true,
+    registered: false,
+  },
+  {
+    id: 'z-agent',
+    name: 'Z Agent',
+    version: '0.0.0-dev',
+    description: 'Unverified binary agent.',
+    run: 'binary',
+    integrity: 'none',
     available: true,
     registered: false,
   },
@@ -277,6 +288,8 @@ it('renders the registry with the same honesty per row', async () => {
   expect(container.textContent).toContain('Needs uvx (uv), which is not on PATH.')
   // Registered: two Added chips now — the template's and Gemini's.
   expect(container.textContent).toContain('Gemini CLI')
+  // Unverified binary build: carries the unverified badge on its cell.
+  expect(container.textContent).toContain('Unverified')
 })
 
 it('adds a registry entry by its id and re-reads the registry', async () => {
