@@ -832,6 +832,13 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async deleteSession(id: SessionId): Promise<void> {
+    const live = this.#sessions.get(id)
+    if (live) {
+      await live.close().catch(() => {})
+      this.#sessions.delete(id)
+    }
+    this.tasks.forget(id)
+    this.#approvals.abandonSession(id, 'The conversation was deleted.')
     await this.#server.request('thread/delete', { threadId: id })
     this.#archived.delete(id)
   }

@@ -272,6 +272,8 @@ const startLogin = (type) => {
   }
   return response
 }
+const deletedThreads = new Set()
+
 /**
  * What Codex has stored: what `thread/list` returns, and what `thread/read`
  * answers for each of them.
@@ -294,7 +296,7 @@ const storedThreads = () => [
     preview:
       '<context source="Git">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes">\nStatus: ## main\n</context>',
   }),
-]
+].filter((t) => !deletedThreads.has(t.id))
 
 /** dynamicTools the client declared on thread/start, so the tool round trip is testable. */
 let declaredTools = []
@@ -703,6 +705,10 @@ rl.on('line', (line) => {
 
     case 'thread/resume':
     case 'thread/fork': {
+      if (deletedThreads.has(params?.threadId)) {
+        send({ id, error: { code: -32600, message: `thread ${params.threadId} not found` } })
+        return
+      }
       THREAD = method === 'thread/resume' ? params.threadId : nextThreadId()
       TURN = `turn-${THREAD}`
       const problem = applySettings(params ?? {}, { sandboxKey: 'sandbox' })
@@ -1134,6 +1140,10 @@ rl.on('line', (line) => {
     }
 
     case 'thread/read': {
+      if (deletedThreads.has(params?.threadId)) {
+        send({ id, error: { code: -32600, message: `thread ${params.threadId} not found` } })
+        return
+      }
       // The thread that was asked for, as the app-server answers: a read and a
       // listing describe the same conversation, down to its stored preview.
       // A thread the listing does not hold is one this process started.
@@ -1371,6 +1381,11 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32000, message: 'active turn does not match expectedTurnId' } })
         return
       }
+      send({ id, result: {} })
+      return
+
+    case 'thread/delete':
+      if (params?.threadId) deletedThreads.add(params.threadId)
       send({ id, result: {} })
       return
 

@@ -6,6 +6,7 @@ import {
   type Approval,
   type ApprovalDecision,
   type ApprovalId,
+  type SessionId,
 } from '@harnessdesk/protocol'
 
 import {
@@ -174,6 +175,28 @@ export class ApprovalRouter {
           return { action: 'accept', content: decision.value, _meta: null }
         }
         return { action: decision.type === 'cancel' ? 'cancel' : 'decline', content: null, _meta: null }
+      }
+    }
+  }
+
+  /**
+   * Fails outstanding approvals for one session when that session is deleted or closed.
+   */
+  abandonSession(sessionId: SessionId, reason: string): void {
+    const target = makeSessionId(String(sessionId))
+    for (const [key, entry] of this.#pending.entries()) {
+      if (entry.approval.sessionId === target) {
+        this.#pending.delete(key)
+        if (!entry.answered) {
+          entry.answered = true
+          entry.responder.fail(-32003, reason)
+        }
+        this.emit({
+          type: 'approval/resolved',
+          sessionId: entry.approval.sessionId,
+          approvalId: makeApprovalId(String(entry.approval.id)),
+          resolution: { outcome: 'abandoned', reason },
+        })
       }
     }
   }
