@@ -14,6 +14,7 @@ import {
   unifiedDiff,
   type WriteAgent,
 } from '../src/index.js'
+import { activeLockCountForTest } from '../src/writes.js'
 
 /**
  * The write path.
@@ -659,3 +660,66 @@ test('an op whose source escapes every known directory fails at apply', async ()
     assert.equal(existsSync(join(home, '.claude/skills/exfil')), false)
   })
 })
+
+test('concurrent MCP apply operations preserve all declarations (#449)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const target = join(home, '.codex/config.toml')
+    await mkdir(join(home, '.codex'), { recursive: true })
+    await writeFile(target, '')
+
+    const mk = (i: number): LibraryPlannedOp => ({
+      id: `op-${i}`,
+      kind: 'mcp',
+      name: `srv${i}`,
+      action: 'create',
+      targetPath: target,
+      guardDigest: null,
+      backup: false,
+      content: JSON.stringify({ name: `srv${i}`, transport: 'stdio', command: 'npx' }),
+    })
+
+    const count = 20
+    const ops = Array.from({ length: count }, (_, i) => mk(i + 1))
+    const results = await Promise.all(ops.map((op) => applyLibrary([op], { libraryDir, home })))
+    for (const res of results) {
+      assert.equal(res[0]?.outcome, 'done', `all operations must succeed: ${res[0]?.detail}`)
+    }
+
+    const text = await readFile(target, 'utf8')
+    const matches = (text.match(/\[mcp_servers\./g) ?? []).length
+    assert.equal(matches, count, `all ${count} MCP servers must be declared, got ${matches}`)
+    assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
+  })
+})
+
+test('concurrent MCP apply operations preserve all declarations in JSON configs (#449)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const target = join(home, '.claude.json')
+    await writeFile(target, JSON.stringify({ mcpServers: {} }, null, 2))
+
+    const mk = (i: number): LibraryPlannedOp => ({
+      id: `op-json-${i}`,
+      kind: 'mcp',
+      name: `srv${i}`,
+      action: 'create',
+      targetPath: target,
+      guardDigest: null,
+      backup: false,
+      content: JSON.stringify({ name: `srv${i}`, transport: 'stdio', command: 'npx' }),
+    })
+
+    const count = 20
+    const ops = Array.from({ length: count }, (_, i) => mk(i + 1))
+    const results = await Promise.all(ops.map((op) => applyLibrary([op], { libraryDir, home })))
+    for (const res of results) {
+      assert.equal(res[0]?.outcome, 'done', `all operations must succeed: ${res[0]?.detail}`)
+    }
+
+    const text = await readFile(target, 'utf8')
+    const parsed = JSON.parse(text) as { mcpServers: Record<string, unknown> }
+    assert.equal(Object.keys(parsed.mcpServers).length, count, `all ${count} MCP servers must be declared`)
+    assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
+  })
+})
+
+
