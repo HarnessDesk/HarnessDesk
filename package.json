@@ -59,6 +59,7 @@
     "design:doc": "node script/design-doc.mjs",
     "design": "pnpm --filter @harnessdesk/ui run dev",
     "layering": "node script/check-layering.mjs",
+    "check:fixes": "node script/check-half-applied-fixes.mjs",
     "icons": "node script/build-icons.mjs",
     "avatars": "node script/cut-avatars.mjs",
     "dsh:compare": "node script/dsh-compare.mjs"

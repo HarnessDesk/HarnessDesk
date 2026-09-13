@@ -93,6 +93,7 @@ step('ui tests', () => run('pnpm', ['--filter', '@harnessdesk/ui', 'run', 'test'
 step('desktop tests', () => run('pnpm', ['--filter', '@harnessdesk/desktop', 'run', 'test']))
 
 step('layering rule', () => run('node', ['script/check-layering.mjs']))
+step('half-applied fixes', () => run('node', ['script/check-half-applied-fixes.mjs']))
 step('tracked secrets', () => run('node', ['script/check-secrets.mjs']))
 // A host method with no surface that calls it. The compiler holds the other
 // direction; this one rots, and ten agents reading the repo found four of them.

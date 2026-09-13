@@ -178,7 +178,7 @@ pnpm verify
 
 It validates the lockfile with `pnpm install --frozen-lockfile`, runs the build,
 every test suite (Node packages, gate scripts, UI and desktop), the UI typecheck,
-the layering rule, the tracked-secrets scan, the reachable-methods check, the
+the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
 third-party notices check, the design-system gates, interface drift, the
 recorded-claims link, the doc-paths check, the gate-against-CI check below,
 the Codex protocol drift check, and a check that this paragraph and
