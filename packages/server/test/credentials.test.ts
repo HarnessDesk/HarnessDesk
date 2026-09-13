@@ -168,3 +168,82 @@ test('each key is listed as its writer said, and a writer this host does not kno
   assert.equal(owner('Plugin key'), null)
   assert.equal(owner('Gone gateway key'), null)
 })
+
+test('concurrent store calls under cold start do not lose entries or fail with ENOENT (#305)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-creds-concurrent-'))
+  try {
+    const path = join(dir, 'credentials.json')
+    const broker = new CredentialBroker(path)
+
+    // Control: sequential storage works
+    const controlRef = await broker.store('control-key', 'control-val', ENDPOINT)
+    assert.match(controlRef, /^cred_/)
+
+    // Cold-start concurrency test: new broker instance on fresh path
+    const coldPath = join(dir, 'cold-credentials.json')
+    const coldBroker = new CredentialBroker(coldPath)
+
+    const [ref1, ref2] = await Promise.all([
+      coldBroker.store('key1', 'val1', ENDPOINT),
+      coldBroker.store('key2', 'val2', ENDPOINT),
+    ])
+
+    const described = await coldBroker.describe()
+    assert.equal(described.length, 2, 'both credentials are retained in memory and on disk')
+    assert.equal(await coldBroker.resolve(ref1), 'val1')
+    assert.equal(await coldBroker.resolve(ref2), 'val2')
+
+    // Reload from disk to verify both made it to file
+    const fresh = new CredentialBroker(coldPath)
+    const freshDescribed = await fresh.describe()
+    assert.equal(freshDescribed.length, 2, 'both credentials are persisted on disk')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('concurrent store calls on cold start without single-flight load lose map entries in memory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-creds-load-race-'))
+  try {
+    const path = join(dir, 'credentials.json')
+    // Pre-populate with existing file so readFile takes an asynchronous tick
+    await writeFile(path, JSON.stringify({ cred_existing: { name: 'existing', createdAt: 1, blob: Buffer.from('val').toString('base64') } }))
+
+    const broker = new CredentialBroker(path)
+    const [ref1, ref2] = await Promise.all([
+      broker.store('key1', 'val1', ENDPOINT),
+      broker.store('key2', 'val2', ENDPOINT),
+    ])
+
+    const described = await broker.describe()
+    assert.equal(described.length, 3, 'both new entries plus existing are retained')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('concurrent put calls under cold start replace existing cleanly without loss (#305)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-creds-put-'))
+  try {
+    const path = join(dir, 'credentials.json')
+    const broker = new CredentialBroker(path)
+
+    await Promise.all([
+      broker.put('agent:codex:KEY1', 'val1', 'codex'),
+      broker.put('agent:codex:KEY2', 'val2', 'codex'),
+    ])
+
+    const described = await broker.describe()
+    assert.equal(described.length, 2)
+    assert.ok(described.some((d) => d.name === 'agent:codex:KEY1'))
+    assert.ok(described.some((d) => d.name === 'agent:codex:KEY2'))
+
+    const fresh = new CredentialBroker(path)
+    assert.equal((await fresh.describe()).length, 2)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+
+
