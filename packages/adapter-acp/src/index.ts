@@ -1,5 +1,6 @@
 export {
   AcpRuntime,
+  isDirectory,
   type AcpAgentConfig,
   type AcpLaunchDecision,
   type AcpSecretSpec,

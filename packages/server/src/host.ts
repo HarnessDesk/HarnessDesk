@@ -2824,7 +2824,7 @@ const failureOf = (turn: Turn): TeamTurnFailure | null => {
  * `packages/adapter-acp/src/runtime.ts` so the listing-sourced fact and the
  * refusal-sourced fact cannot drift.
  */
-const isDirectory = async (path: string): Promise<boolean> => {
+export const isDirectory = async (path: string): Promise<boolean> => {
   try {
     return (await stat(path)).isDirectory()
   } catch {
