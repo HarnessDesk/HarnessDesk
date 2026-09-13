@@ -85,6 +85,15 @@ export interface FlowPort {
    * is how a failed start becomes somebody else's cleanup.
    */
   retire(runtime: string, sessionId: string): Promise<void>
+  /**
+   * Why this conversation's last turn ended badly, in the runtime's own words,
+   * or null when it ended normally.
+   *
+   * Read only to explain a seat that never reached the board: "it has not
+   * touched the board" is an observation, and this is the difference between
+   * an agent that ignored its tools and one that never got a turn at all.
+   */
+  turnFailure?(runtime: string, sessionId: string): string | null
   /** Puts a conversation in a room. */
   join(room: string, runtime: string, sessionId: string): Promise<void>
   /** A worktree of its own, on a branch of its own, for a role that isolates. */
@@ -328,6 +337,11 @@ export class Flows implements TeamFlows {
        live, roled, and owned by no run — turns spent on members nothing would
        ever stand down. */
     const opened: FlowSeatRecord[] = []
+    /* Naming happens before a word is written about anybody. A room names its
+       members *lazily* — on the first look at the roster — so an order
+       rendered straight after seating called a seat by its label ("Cursor ·
+       Gemini 3.8 Flash · High") while the room addressed it as "Gemini 3", and
+       the order is the one place a seat is told what it is called. */
     const undo = async (why: string): Promise<void> => {
       for (const seat of opened) {
         this.#team.setRole(request.room, seat.runtime, seat.sessionId, null)
@@ -378,6 +392,33 @@ export class Flows implements TeamFlows {
         })
       }
     }
+
+    /* The orders are inside the same transaction as the seating, and the run
+       is published only once every one of them has landed.
+       `order` goes through the host's live handle and can throw — a runtime
+       that dropped in the second between being seated and being spoken to is
+       the realistic case — and a start that failed there used to leave the run
+       in the map as `running`, the room carrying members and roles, and the
+       next attempt refused with "already running a flow". Nothing a person
+       could clear without going to the files. */
+    await this.#team.peersFor(request.room).catch(() => [])
+    for (const seat of seats) {
+      const role = flow.roles.find((one) => one.id === seat.role) as FlowRole
+      const name = this.#team.stateFor(request.room).nicknames?.[seat.key] ?? seat.seat
+      await this.#port.order(
+        seat.runtime,
+        seat.sessionId,
+        renderOrder(
+          orderVars(role, flow, {
+            name,
+            member: name,
+            room: this.#team.stateFor(request.room).name,
+            repo: seat.cwd,
+            runtime: seat.runtime,
+          }),
+        ),
+      )
+    }
     } catch (error) {
       await undo(error instanceof Error ? error.message : String(error))
       throw error
@@ -398,47 +439,29 @@ export class Flows implements TeamFlows {
     }
     this.#runs.set(id, run)
 
-    /* Name every member before a word is written about them. A room names its
-       members *lazily* — on the first look at the roster — so an order
-       rendered straight after seating called the seat by its label ("Cursor ·
-       Gemini 3.8 Flash · High") while the room addressed it as "Gemini 3".
-       The order tells a seat what it is called and that name is what
-       `agent_message` reaches it by, so the two disagreeing makes a seat
-       unaddressable by the name it was given. Measured across a re-arm: the
-       first order said one thing and every later one said the other. */
-    await this.#team.peersFor(request.room).catch(() => [])
-
-    /* The order after the cards would be a seat that wakes to a board it has
-       not been told how to read; the order before them is a seat that waits.
-       So: orders, then the seed round. */
-    for (const seat of seats) {
-      const role = flow.roles.find((one) => one.id === seat.role) as FlowRole
-      const name = this.#team.stateFor(request.room).nicknames?.[seat.key] ?? seat.seat
-      await this.#port.order(
-        seat.runtime,
-        seat.sessionId,
-        renderOrder(
-          orderVars(role, flow, {
-            name,
-            member: name,
-            room: this.#team.stateFor(request.room).name,
-            repo: seat.cwd,
-            runtime: seat.runtime,
-          }),
-        ),
-      )
+    /* Past this line the run exists, so a failure is *stopped* rather than
+       unwound: its seats have their orders and are already waiting, and a run
+       that vanished from under them would leave four turns paid for and
+       nobody to stand them down. Stopping says what happened, releases them,
+       and leaves the room clear for the next attempt. */
+    try {
+      this.#open(run, flow.seed.role, flow.seed, null, [])
+      /* And from here the run is watched: a seat that never touches the board
+         is a run that will never move. See `#attendance`. */
+      this.#watch(run.id)
+      /* A seed that is a `check` runs here, exactly as one a rule opens does.
+         Only the transition path called this, so a flow whose first step is a
+         preflight gate opened its card and then waited on a command nobody had
+         started — a deadlock a valid flow could reach by being written the
+         obvious way. */
+      await this.#runChecks(run.id)
+    } catch (error) {
+      const why = `the first round could not be opened: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+      this.stop(id, why)
+      throw error
     }
-
-    this.#open(run, flow.seed.role, flow.seed, null, [])
-    /* And from here the run is watched: a seat that never touches the board
-       is a run that will never move. See `#attendance`. */
-    this.#watch(run.id)
-    /* A seed that is a `check` runs here, exactly as one a rule opens does.
-       Only the transition path called this, so a flow whose first step is a
-       preflight gate opened its card and then waited on a command nobody had
-       started — a deadlock a valid flow could reach by being written the
-       obvious way. */
-    await this.#runChecks(run.id)
     return this.#save(run.id)
   }
 
@@ -681,7 +704,22 @@ export class Flows implements TeamFlows {
     })
     if (absent.length === 0) return
     const named = absent.map((seat) => `${seat.role} (${seat.seat})`).join(', ')
-    const why = `${absent.length === 1 ? 'a seat has' : `${absent.length} seats have`} not touched the board since being seated — ${named}. That agent takes HarnessDesk's tools without using them, so this flow cannot move.`
+    /* What is *observed* is that the board was never touched. Why is a second
+       question, and the answer is not always the one this check was built for:
+       a seat whose turn never ran — an agent that errored, a plan that lapsed,
+       an account moved to a slow pool — has not ignored the tools, it never
+       got to them. Saying so wrongly is worse than saying less: the first time
+       this fired on a healthy build it blamed the agent for a Cursor quota,
+       and the message read as a defect in the feature. So the run says what it
+       saw, and names the turn's own error when there is one. */
+    const failures = absent
+      .map((seat) => ({ seat, why: this.#port.turnFailure?.(seat.runtime, seat.sessionId) ?? null }))
+      .filter((one): one is { seat: FlowSeatRecord; why: string } => Boolean(one.why))
+    const because =
+      failures.length > 0
+        ? `Their turns did not run: ${[...new Set(failures.map((one) => one.why))].join(' · ')}`
+        : "Nothing has been heard from them since, so either that agent takes HarnessDesk's tools without using them, or its turn never started."
+    const why = `${absent.length === 1 ? 'a seat has' : `${absent.length} seats have`} not touched the board since being seated — ${named}. ${because}`
     this.#runs.set(id, {
       ...run,
       state: 'stopped',

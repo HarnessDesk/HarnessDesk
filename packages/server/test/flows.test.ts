@@ -50,6 +50,8 @@ interface Rig {
   readonly retired: string[]
   /** Seats that throw instead of opening, by title fragment. */
   refuseSeat?: string
+  /** What the runtime says about every seat's last turn, when it went badly. */
+  turnFailed?: string
 }
 
 const peerOf = (runtime: string, sessionId: string, cwd: string, model: string): TeamPeer => ({
@@ -109,6 +111,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
       return { runtime: seat.runtime, sessionId, label: spec }
     },
     retire: async (runtime, sessionId) => void retired.push(`${runtime} ${sessionId}`),
+    turnFailure: () => rig.turnFailed ?? null,
     reseat: async (runtime, sessionId, seat) => {
       const spec = `${seat.runtime}${seat.model ? `=${seat.model}` : ''}${seat.effort ? `/${seat.effort}` : ''}`
       reseated.push({ sessionId, spec })
@@ -862,6 +865,9 @@ test('a run stops when its seats never touch the board, and says which', async (
   assert.equal(run.state, 'stopped')
   assert.match(run.ended ?? '', /not touched the board since being seated/)
   assert.match(run.ended ?? '', /fixer \(/)
+  /* With no turn failure to report, it says what it saw and offers both
+     readings rather than asserting the one it was built for. */
+  assert.match(run.ended ?? '', /either that agent takes HarnessDesk's tools without using them, or its turn never started/)
   assert.ok(one.logged.some((line) => /never took the tools/.test(line)))
 })
 
@@ -923,4 +929,64 @@ test('a check that runs over time is actually stopped, background and all', asyn
   // Past when the background command would have finished, had it survived.
   await new Promise((resolve) => setTimeout(resolve, 4500))
   assert.equal(existsSync(marker), false, 'the background process was stopped too')
+})
+
+test('an order that never lands unwinds the whole start, so the next one can run', async (t) => {
+  const one = await rig(t)
+  /* Reported in review round 2: the transaction covered the seating loop and
+     stopped there. `order` goes through the host's live handle and can throw —
+     a runtime that dropped in the second between being seated and being spoken
+     to — and the run was already published as `running`, so the room kept its
+     members and roles and the next attempt was refused with "already running a
+     flow". Nothing a person could clear without going to the files. */
+  one.failOrders = 1
+  await assert.rejects(
+    () => one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } }),
+    /Cursor is not running/,
+  )
+  assert.equal(one.flows.runsFor(one.room).length, 0, 'no run was published')
+  assert.equal(one.retired.length, 4, 'every seat it opened was closed')
+  assert.deepEqual(one.team.stateFor(one.room).roles, {})
+  assert.equal(one.team.stateFor(one.room).members.length, 0)
+  assert.equal(board(one).intents.length, 0, 'and no card was opened')
+
+  // The room is clear, so the next attempt is a first attempt.
+  one.failOrders = 0
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
+  assert.equal(board(one).intents.length, 1)
+})
+
+test('a first round that cannot open stops the run rather than leaving it live', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  /* The other half: past the point the run exists, a failure is stopped rather
+     than unwound — the seats have their orders and are already waiting, and a
+     run that vanished from under them would leave four turns paid for and
+     nobody to stand them down. */
+  const run = one.flows.runsFor(one.room)[0]!
+  one.flows.stop(run.id, 'the first round could not be opened: the board refused it')
+  const after = one.flows.runsFor(one.room)[0]!
+  assert.equal(after.state, 'stopped')
+  assert.match(after.ended ?? '', /the first round could not be opened/)
+  // And the room is free for another attempt.
+  const again = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(again.state, 'running')
+})
+
+test('a seat whose turn never ran is reported as that, not as an agent ignoring its tools', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  /* The first time the watchdog fired on a healthy build, it fired on a Cursor
+     account that had been moved to a slow pool — no turn reached the backend
+     at all — and it blamed the agent for ignoring its tools. The observation
+     was right and the diagnosis was invented; a confident wrong cause reads as
+     a defect in the feature. */
+  one.turnFailed = 'Slow Pool Error: GPT-5 Codex family models are not currently enabled in the slow pool.'
+  await one.flows.attendance()
+  const run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'stopped')
+  assert.match(run.ended ?? '', /not touched the board since being seated/)
+  assert.match(run.ended ?? '', /Their turns did not run: Slow Pool Error/)
+  assert.doesNotMatch(run.ended ?? '', /takes HarnessDesk's tools without using them/)
 })

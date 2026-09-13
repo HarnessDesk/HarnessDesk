@@ -496,6 +496,11 @@ export class Host {
         const live = await this.#teamLive(runtime as RuntimeId, sessionId)
         return this.#applySeatPicks(live, seat)
       },
+      turnFailure: (runtime, sessionId) => {
+        const record = this.registry.get(runtime as RuntimeId, makeSessionId(sessionId))
+        const last = record?.session.turns[record.session.turns.length - 1]
+        return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
+      },
       retire: async (runtime, sessionId) => {
         const id = makeSessionId(sessionId)
         await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
