@@ -985,7 +985,8 @@ export class Flows implements TeamFlows {
     if (!role || role.kind !== 'check' || !role.check) return
     const check = role.check as FlowCheck
     const board = this.#team.stateFor(run.room)
-    const cwd = check.cwd ? (check.cwd.startsWith('/') ? check.cwd : join(board.root, check.cwd)) : board.root
+    const baseCwd = board.cwd ?? board.root
+    const cwd = check.cwd ? (check.cwd.startsWith('/') ? check.cwd : join(baseCwd, check.cwd)) : baseCwd
     for (const intent of round.intents) {
       const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
