@@ -327,6 +327,8 @@ export interface TeamState {
   readonly root: string
   readonly intents: readonly Intent[]
   readonly channel: readonly TeamEntry[]
+  /** Where this room was created, for opening seats when different from project root. */
+  readonly cwd?: string
   /** False is board-only mode: agents may claim and signal, but not message. */
   readonly messaging: boolean
   /**

@@ -1168,3 +1168,25 @@ seed:
   assert.doesNotMatch(one.orders[0]!.text, /\{\{run\}\}/)
 })
 
+test('a flow started in a room created on a linked worktree opens non-isolating seats in that worktree (#366)', async (t) => {
+  const one = await rig(t)
+  const worktreeRoom = (await one.team.createRoom('/repo/.worktrees/feature', 'Worktree room')).id
+  const source = `
+name: Worktree flow
+roles:
+  worker:
+    kind: agent
+    seat: cursor
+    permission: read
+    outcomes: [done]
+seed:
+  role: worker
+  title: "Do work"
+`
+  await one.flows.start({ room: worktreeRoom, source })
+  const seatedWorker = one.seated.find((s) => s.title.includes('worker'))
+  assert.ok(seatedWorker)
+  assert.equal(seatedWorker.cwd, '/repo/.worktrees/feature')
+})
+
+
