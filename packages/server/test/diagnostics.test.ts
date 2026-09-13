@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { redactorFor } from '../src/diagnostics.js'
+import { redactorFor, redactLog } from '../src/diagnostics.js'
 
 /**
  * The diagnostics bundle's promise: useful without carrying credentials or
@@ -53,4 +53,20 @@ test('an ordinary line passes untouched, and hostile roots cannot eat it', () =>
   // '/' or '' as a root would replace everything; both are refused.
   const wild = redactorFor({ home: '/Users/sam', roots: ['/', ''] })
   assert.equal(wild('kept /etc/hosts as-is'), 'kept /etc/hosts as-is')
+})
+
+test('multiline JSON token fields in logs are redacted across line splits (#393)', () => {
+  const raw = '{\n  "token":\n    "very-secret-value",\n  "ok": true\n}'
+  const processed = redactLog(raw, redact)
+  assert.equal(
+    processed.join('\n'),
+    '{\n  "token":\n    "[redacted]",\n  "ok": true\n}',
+  )
+
+  const rawCrlf = '{\r\n  "apiKey":\r\n    "secret-12345",\r\n  "ok": true\r\n}'
+  const processedCrlf = redactLog(rawCrlf, redact)
+  assert.equal(
+    processedCrlf.join('\n'),
+    '{\n  "apiKey":\n    "[redacted]",\n  "ok": true\n}',
+  )
 })
