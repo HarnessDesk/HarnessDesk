@@ -227,6 +227,14 @@ export const Approvals = () => {
         void store.respondToApproval(key, approval.id, { type: 'answers', answers })
         return
       }
+      if (approval.type === 'elicitation') {
+        if (option.intent === 'cancel') {
+          void store.respondToApproval(key, approval.id, { type: 'cancel' })
+          return
+        }
+        void store.respondToApproval(key, approval.id, { type: 'content', value: {} })
+        return
+      }
       if (option.intent === 'cancel') {
         void store.respondToApproval(key, approval.id, { type: 'cancel' })
         return
