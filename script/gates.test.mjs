@@ -1196,3 +1196,12 @@ test('a bare credential file does not leak credential characters in the offender
   assert.doesNotMatch(offenders[0], /abcdefghijkl/)
 })
 
+test('a detected secret on a source line does not leak line content or secret values in the offender report (#395)', () => {
+  const line = "const secretKey = 'sk-abcdefghijklmnopqrstuvwxyz1234567890'" // hd-secrets-ok
+  const offenders = offendersIn('config.ts', line)
+  assert.equal(offenders.length, 1)
+  assert.equal(offenders[0], 'config.ts:1  [OpenAI API key]')
+  assert.doesNotMatch(offenders[0], /secretKey/)
+  assert.doesNotMatch(offenders[0], /sk-abcdef/)
+})
+
