@@ -290,9 +290,19 @@ export const Approvals = () => {
             <UserInputBody
               approval={approval}
               answers={answers}
-              onAnswer={(questionId, optionId) =>
-                setAnswers((current) => ({ ...current, [questionId]: [optionId] }))
-              }
+              onAnswer={(questionId, optionId) => {
+                const question = approval.questions.find((q) => q.id === questionId)
+                setAnswers((current) => {
+                  const existing = current[questionId] ?? []
+                  if (question?.multiSelect) {
+                    const next = existing.includes(optionId)
+                      ? existing.filter((id) => id !== optionId)
+                      : [...existing, optionId]
+                    return { ...current, [questionId]: next }
+                  }
+                  return { ...current, [questionId]: [optionId] }
+                })
+              }}
             />
           )}
           {approval.type === 'elicitation' && (
