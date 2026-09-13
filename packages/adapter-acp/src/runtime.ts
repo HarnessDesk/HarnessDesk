@@ -433,7 +433,7 @@ const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
  * Kept identical in semantics to `isDirectory` in `packages/server/src/host.ts`
  * so the refusal-sourced fact and the listing-sourced fact cannot drift.
  */
-const isDirectory = (path: string): boolean => {
+export const isDirectory = (path: string): boolean => {
   try {
     return statSync(path).isDirectory()
   } catch {
