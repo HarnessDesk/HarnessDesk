@@ -1174,6 +1174,34 @@ test('a tool call completed with a null or non-object result does not crash the 
   }
 })
 
+test('updating config option when model catalog omits auto does not fail (#407)', async () => {
+  const extraModelsFile = join(tempDir('cursor-models-'), 'extra-models.txt')
+  // When models command produces no 'auto', only named models
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: {
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: tempDir('cursor-acp-idx-'),
+      CURSOR_CONFIG_DIR: tempDir('cursor-acp-home-'),
+      FAKE_CURSOR_NO_AUTO_MODEL: 'true',
+    },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    // In a new session, session.familyId is 'auto'. Setting sandbox calls #applyDimensions.
+    await session.setOption('sandbox', 'enabled')
+    const sandbox = session.options().find((opt) => opt.id === 'sandbox')
+    assert.equal(sandbox?.currentValue, 'enabled')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+
 /*
  * Forty members handed a page each spawned forty CLIs inside two seconds,
  * and seventeen died on the spot: each boots by fetching the model
