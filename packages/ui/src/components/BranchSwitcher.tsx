@@ -57,6 +57,7 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
   }, [branches, query])
 
   const checkout = async (branch: string, create: boolean): Promise<void> => {
+    if (busy !== null) return
     setBusy(branch)
     setError(null)
     try {
@@ -96,7 +97,7 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
             label={branch.name}
             value={busy === branch.name ? '…' : relativeTime(branch.committedAt, now)}
             selected={branch.current}
-            disabled={busy !== null && busy !== branch.name}
+            disabled={busy !== null}
             keepOpen
             onSelect={() => (branch.current ? onDone() : void checkout(branch.name, false))}
           />
