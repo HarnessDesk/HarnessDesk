@@ -1221,6 +1221,52 @@ seed:
   assert.equal(runCall.cwd, '/repo/.worktrees/feature/packages/sub')
 })
 
+test('a flow check preserves Windows absolute cwd instead of joining with root (#462)', async (t) => {
+  const one = await rig(t)
+  const source = `
+name: Windows absolute cwd check flow
+roles:
+  gate:
+    kind: check
+    check:
+      run: pnpm test
+      cwd: "D:\\\\tests\\\\e2e"
+      exits:
+        "0": pass
+      otherwise: fail
+    outcomes: [pass, fail]
+seed:
+  role: gate
+  title: "Run checks"
+`
+  await one.flows.start({ room: one.room, source })
+  const runCall = one.ran.find((r) => r.command === 'pnpm test')
+  assert.ok(runCall)
+  assert.equal(runCall.cwd, 'D:\\tests\\e2e')
+
+  // Posix absolute path is also preserved
+  const sourcePosix = `
+name: Posix absolute cwd check flow
+roles:
+  gate:
+    kind: check
+    check:
+      run: pnpm test
+      cwd: "/opt/tests"
+      exits:
+        "0": pass
+      otherwise: fail
+    outcomes: [pass, fail]
+seed:
+  role: gate
+  title: "Run checks"
+`
+  const room2 = (await one.team.createRoom('/repo', 'Room 2')).id
+  await one.flows.start({ room: room2, source: sourcePosix })
+  const runCallPosix = one.ran.find((r) => r.cwd === '/opt/tests')
+  assert.ok(runCallPosix)
+})
+
 test("a flow's seat title names the role, room, and flow name (#369)", async (t) => {
   const one = await rig(t)
   const room = (await one.team.createRoom('/repo', 'Hunt · mantis')).id

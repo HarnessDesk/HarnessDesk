@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
@@ -1045,7 +1045,8 @@ export class Flows implements TeamFlows {
     const check = role.check as FlowCheck
     const board = this.#team.stateFor(run.room)
     const baseCwd = board.cwd ?? board.root
-    const cwd = check.cwd ? (check.cwd.startsWith('/') ? check.cwd : join(baseCwd, check.cwd)) : baseCwd
+    const isAbs = check.cwd ? isAbsolute(check.cwd) || check.cwd.startsWith('/') || /^[A-Za-z]:[\\/]/.test(check.cwd) : false
+    const cwd = check.cwd ? (isAbs ? check.cwd : join(baseCwd, check.cwd)) : baseCwd
     for (const intent of round.intents) {
       const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
