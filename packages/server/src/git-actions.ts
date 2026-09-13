@@ -146,6 +146,20 @@ export interface MergeOutcome {
 // ------------------------------------------------------------------- commit
 
 /**
+ * A commit is still authored by the person who made it; this trailer lets
+ * GitHub render HarnessDesk beside them without making the desktop app hold a
+ * GitHub App credential. It is the path that works on every repository the
+ * person may already push to.
+ */
+const HARNESSDESK_COAUTHOR = 'Co-authored-by: harnessdesk[bot] <328532242+harnessdesk[bot]@users.noreply.github.com>'
+
+const alreadyCreditsHarnessDesk = /^co-authored-by:\s*harnessdesk\[bot\]\s+<328532242\+harnessdesk\[bot\]@users\.noreply\.github\.com>\s*$/im
+
+/** Adds the product credit once, without disturbing the person's own trailers. */
+const withHarnessDeskCoauthor = (message: string): string =>
+  alreadyCreditsHarnessDesk.test(message) ? message : `${message.trimEnd()}\n\n${HARNESSDESK_COAUTHOR}`
+
+/**
  * What a partial commit needs to know about the working tree: where each
  * staged rename came from, keyed by where it went — status names a rename
  * by its destination alone, but committing just that destination would
@@ -207,6 +221,7 @@ export const commitAll = async (
       )
     }
   }
+  const signedMessage = withHarnessDeskCoauthor(message)
   try {
     if (paths) {
       const { renames, untracked } = await treeState(root)
@@ -221,10 +236,10 @@ export const commitAll = async (
       // longer exists, which is exactly what a rename's origin is.
       const fresh = named.filter((path) => untracked.has(path)).map(literal)
       if (fresh.length > 0) await git(root, ['add', '--intent-to-add', '--', ...fresh])
-      await git(root, ['commit', '-m', message, '--', ...named.map(literal)])
+      await git(root, ['commit', '-m', signedMessage, '--', ...named.map(literal)])
     } else {
       await git(root, ['add', '-A'])
-      await git(root, ['commit', '-m', message])
+      await git(root, ['commit', '-m', signedMessage])
     }
   } catch (error) {
     fail('Could not commit', error)
