@@ -308,6 +308,9 @@ export class Flows implements TeamFlows {
    * reach by pressing something.
    */
   async start(request: FlowStart): Promise<FlowRun> {
+    if (!this.#team.hasRoom(request.room)) {
+      throw new Error(`There is no room ${request.room}.`)
+    }
     const board = this.#team.stateFor(request.room)
     if (this.#liveIn(request.room)) {
       throw new Error(

@@ -889,6 +889,10 @@ export class Team {
     return [...this.#boards.values()].map((board) => this.#stateOf(board))
   }
 
+  hasRoom(id: string): boolean {
+    return this.#boards.has(id)
+  }
+
   stateFor(id: string): TeamState {
     const board = this.#boards.get(id)
     return board
