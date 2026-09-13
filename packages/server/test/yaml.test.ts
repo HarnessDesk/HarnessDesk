@@ -160,3 +160,47 @@ test('an empty document is nothing, not a crash', () => {
 test('a key with no value is null, and its siblings still read', () => {
   assert.deepEqual(parseYaml('a:\nb: 2\n'), { a: null, b: 2 })
 })
+
+test('a block scalar may contain a line of three hyphens — front matter is content, not a document break', () => {
+  /* Found twice on 2026-09-13: once writing a flow whose standing order shows
+     an agent the shape of a report file, and once by an agent hunting this
+     parser. The separator check ran over every *trimmed* line before anything
+     was parsed, so a `---` indented inside a `|` block — where YAML says it is
+     content — refused the whole file. There is nowhere else to put it: the
+     scan saw the raw line list, so quoting could not help. */
+  const flow = [
+    'order: |',
+    '  Start the file with front matter:',
+    '',
+    '      ---',
+    '      title: what is wrong',
+    '      ---',
+    '',
+    '  Then the body.',
+    'after: 2',
+  ].join('\n')
+  const read = parseYaml(flow) as { order: string; after: number }
+  assert.equal(read.after, 2)
+  assert.match(read.order, /^ {4}---$/m)
+  assert.equal((read.order.match(/^ {4}---$/gm) ?? []).length, 2)
+})
+
+test('a block scalar may contain "..." too — an ellipsis on its own line is English', () => {
+  const read = parseYaml('note: |\n  and then\n  ...\n  it stopped\n') as { note: string }
+  assert.match(read.note, /^\.\.\.$/m)
+})
+
+test('a real second document at column zero is still refused', () => {
+  // The control for the two above: the refusal must survive them.
+  for (const source of ['a: 1\n---\nb: 2\n', 'a: 1\n...\nb: 2\n']) {
+    assert.throws(
+      () => parseYaml(source),
+      (error: unknown) => {
+        assert.ok(error instanceof YamlError)
+        assert.match(error.message, /line 2: one document per file/)
+        return true
+      },
+      `expected a refusal for:\n${source}`,
+    )
+  }
+})
