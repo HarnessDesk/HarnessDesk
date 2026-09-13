@@ -2,9 +2,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import type { RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import type { RuntimeHealth, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { sessionKey } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { afterDismiss, withMuted, type NoticeIdentity } from '../lib/notice-policy'
 import { StatusBanner } from './Notices'
@@ -229,3 +230,104 @@ it('lets an agent with no account say so, and be put away too', () => {
   act(() => dismiss()?.click())
   expect(container.textContent).not.toContain('is not signed in')
 })
+
+it('reads the pane runtime health rather than singular default agent health (#385)', () => {
+  const agentA = runtime('a', 'Agent A')
+  const agentB = runtime('b', 'Agent B')
+
+  // Default agent A is unavailable; Agent B is ready
+  const store = makeStore({
+    activeRuntime: agentA.id,
+    runtimes: [agentA, agentB],
+    health: { state: 'unavailable', message: 'Agent A CLI exited.' } as RuntimeHealth,
+    healthByRuntime: {
+      [agentA.id]: { state: 'unavailable', message: 'Agent A CLI exited.' } as RuntimeHealth,
+      [agentB.id]: { state: 'ready' } as RuntimeHealth,
+    },
+  })
+
+  // Mounting StatusBanner inside a pane for Agent B
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PaneProvider
+          scope={{
+            paneId: 'p1' as never,
+            view: { kind: 'conversation', session: null },
+            sessionKey: sessionKey(agentB.id as never, 's1' as never),
+          }}
+        >
+          <StatusBanner onSignIn={() => {}} />
+        </PaneProvider>
+      </StoreProvider>,
+    )
+  })
+
+  // Should NOT display Agent A's error in Agent B's pane
+  expect(container.textContent).not.toContain('Agent A CLI exited.')
+
+  // Now when Agent B is unavailable, it SHOULD display Agent B's error in Agent B's pane
+  const store2 = makeStore({
+    activeRuntime: agentA.id,
+    runtimes: [agentA, agentB],
+    health: { state: 'ready' } as RuntimeHealth,
+    healthByRuntime: {
+      [agentA.id]: { state: 'ready' } as RuntimeHealth,
+      [agentB.id]: { state: 'unavailable', message: 'Agent B crashed.' } as RuntimeHealth,
+    },
+  })
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store2}>
+        <PaneProvider
+          scope={{
+            paneId: 'p1' as never,
+            view: { kind: 'conversation', session: null },
+            sessionKey: sessionKey(agentB.id as never, 's1' as never),
+          }}
+        >
+          <StatusBanner onSignIn={() => {}} />
+        </PaneProvider>
+      </StoreProvider>,
+    )
+  })
+
+  expect(container.textContent).toContain('Agent B crashed.')
+})
+
+it('reads the pane runtime account rather than singular default agent account', () => {
+  const agentA = runtime('a', 'Agent A')
+  const agentB = runtime('b', 'Agent B')
+
+  // Default agent A has an account; Agent B has no accounts
+  const store = makeStore({
+    activeRuntime: agentA.id,
+    runtimes: [agentA, agentB],
+    account: { accounts: [{ kind: 'api_key', label: 'API Key' }], signInMethods: [{ flow: 'apiKey' }] } as unknown as AppSnapshot['account'],
+    accountsByRuntime: {
+      [agentA.id]: { accounts: [{ kind: 'api_key', label: 'API Key' }], signInMethods: [{ flow: 'apiKey' }] },
+      [agentB.id]: { accounts: [], signInMethods: [{ flow: 'apiKey' }] },
+    } as unknown as AppSnapshot['accountsByRuntime'],
+  })
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PaneProvider
+          scope={{
+            paneId: 'p1' as never,
+            view: { kind: 'conversation', session: null },
+            sessionKey: sessionKey(agentB.id as never, 's1' as never),
+          }}
+        >
+          <StatusBanner onSignIn={() => {}} />
+        </PaneProvider>
+      </StoreProvider>,
+    )
+  })
+
+  expect(container.textContent).toContain('Agent B is not signed in')
+})
+
+

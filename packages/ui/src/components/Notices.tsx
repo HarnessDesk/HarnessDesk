@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { useRuntime, useSnapshot, useStore } from '../state/context'
+import { useRuntime, useRuntimeAccount, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Banner, BannerAction, bannerStyles as styles, type BannerTone } from '../design/primitives/Banner'
 import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
@@ -115,6 +115,8 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
+  const health = useRuntimeHealth()
+  const account = useRuntimeAccount()
   const nameFor = (id: RuntimeId): string =>
     snapshot.runtimes.find((entry) => entry.id === id)?.presentation.name ?? String(id)
 
@@ -134,20 +136,20 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
       }
     }
 
-    if (snapshot.health?.state === 'unavailable') {
+    if (health?.state === 'unavailable') {
       return {
-        key: `health:${runtime.id}:${snapshot.health.message}`,
+        key: `health:${runtime.id}:${health.message}`,
         kind: 'agent:health',
         lifetime: 'occurrence',
         tone: 'danger',
-        title: snapshot.health.message,
-        body: snapshot.health.remediation,
+        title: health.message,
+        body: health.remediation,
         role: 'alert',
       }
     }
 
-    if (runtime.capabilities.account && snapshot.account && snapshot.account.accounts.length === 0) {
-      const driveable = snapshot.account.signInMethods.some((method) => method.flow !== 'external')
+    if (runtime.capabilities.account && account && account.accounts.length === 0) {
+      const driveable = account.signInMethods.some((method) => method.flow !== 'external')
       const command = runtime.presentation.signIn?.command
       return {
         key: `signin:${runtime.id}`,
