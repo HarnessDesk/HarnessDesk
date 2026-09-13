@@ -386,7 +386,7 @@ export const readChatMode = (
 }
 
 /** A chat id shaped like the ones Cursor mints, and nothing else. */
-const CHAT_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+export const CHAT_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
 /**
  * Where Cursor keeps one chat, wherever its workspace was.

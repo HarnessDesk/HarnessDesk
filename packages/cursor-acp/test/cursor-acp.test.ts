@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -1435,3 +1435,33 @@ test('deleteSession removes temporary artifacts left by tool plugins and image s
     await runtime.dispose()
   }
 })
+
+test('deleteSession rejects traversal session IDs and does not remove outside directories', async () => {
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+  })
+  await runtime.start()
+  try {
+    const sentinelDir = join(SCRATCH_TMP, 'outside-sentinel')
+    mkdirSync(sentinelDir, { recursive: true })
+    writeFileSync(join(sentinelDir, 'keepme.txt'), 'do-not-delete')
+
+    await assert.rejects(
+      async () => {
+        await runtime.deleteSession('../outside-sentinel' as unknown as import('@harnessdesk/protocol').SessionId)
+      },
+      /Invalid session id/i,
+      'deleteSession must reject invalid session id with directory traversal',
+    )
+
+    assert.equal(existsSync(join(sentinelDir, 'keepme.txt')), true, 'sentinel file must remain untouched')
+    rmSync(sentinelDir, { recursive: true, force: true })
+  } finally {
+    await runtime.dispose()
+  }
+})
+

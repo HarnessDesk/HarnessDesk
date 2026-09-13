@@ -15,13 +15,14 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
 import { opensEnvelope } from '@harnessdesk/protocol'
 
 import {
+  CHAT_ID,
   chatPath,
   cursorMeta,
   contextLabel,
@@ -1325,6 +1326,7 @@ export class CursorAcpBridge {
   #deleteSession(params: Record<string, unknown>): { removed: string[]; disposition: 'trash' } {
     const chatId = String(params['sessionId'] ?? '')
     if (chatId === '') throw new Error('A session id is required.')
+    if (!CHAT_ID.test(chatId)) throw new Error(`Invalid session id: ${chatId}`)
     const live = this.#sessions.get(chatId)
     if (live) {
       live.cancelled = true
@@ -1339,8 +1341,11 @@ export class CursorAcpBridge {
       removed = path !== null && trashChat(path) ? [path] : []
     } finally {
       try {
-        const scratchDir = join(tmpdir(), 'harnessdesk-cursor-acp', chatId)
-        rmSync(scratchDir, { recursive: true, force: true })
+        const root = resolve(tmpdir(), 'harnessdesk-cursor-acp')
+        const scratchDir = resolve(root, chatId)
+        if (scratchDir.startsWith(root + '/') || scratchDir.startsWith(root + '\\')) {
+          rmSync(scratchDir, { recursive: true, force: true })
+        }
       } catch {
         // Failing to remove scratch artifacts must not abort session deletion.
       }
