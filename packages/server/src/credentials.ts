@@ -104,6 +104,8 @@ export class CredentialBroker {
   readonly #path: string
   readonly #cipher: CredentialCipher
   #entries: Map<string, StoredEntry> | null = null
+  #loading: Promise<Map<string, StoredEntry>> | null = null
+  #writes: Promise<void> = Promise.resolve()
 
   constructor(path: string, cipher: CredentialCipher = plainCipher) {
     this.#path = path
@@ -256,15 +258,34 @@ export class CredentialBroker {
 
   /** Stores an agent's secret under a fixed name, replacing whatever was there. */
   async put(name: string, value: string, agent: string): Promise<void> {
-    await this.forget(name)
-    await this.store(name, value, { kind: 'agent', of: agent })
+    const trimmed = name.trim()
+    if (trimmed.length === 0) throw new Error('A credential needs a name.')
+    if (value.length === 0) throw new Error('An empty credential protects nothing; not stored.')
+    const entries = await this.#load()
+    for (const [ref, entry] of entries) if (entry.name === trimmed) entries.delete(ref)
+    const ref = `cred_${randomBytes(9).toString('hex')}`
+    entries.set(ref, {
+      name: trimmed,
+      createdAt: Date.now(),
+      blob: this.#cipher.encrypt(value).toString('base64'),
+      protection: this.#cipher.protection,
+      writer: 'agent',
+      agent,
+    })
+    await this.#persist(entries)
   }
 
   /** Removes every entry with this name; absent is success. */
   async forget(name: string): Promise<void> {
     const entries = await this.#load()
-    for (const [ref, entry] of entries) if (entry.name === name) entries.delete(ref)
-    await this.#persist(entries)
+    let changed = false
+    for (const [ref, entry] of entries) {
+      if (entry.name === name) {
+        entries.delete(ref)
+        changed = true
+      }
+    }
+    if (changed) await this.#persist(entries)
   }
 
   async resolve(ref: string): Promise<string> {
@@ -281,20 +302,33 @@ export class CredentialBroker {
 
   async #load(): Promise<Map<string, StoredEntry>> {
     if (this.#entries) return this.#entries
-    try {
-      const raw = JSON.parse(await readFile(this.#path, 'utf8')) as Record<string, StoredEntry>
-      this.#entries = new Map(Object.entries(raw))
-    } catch {
-      this.#entries = new Map()
-    }
-    return this.#entries
+    if (this.#loading) return this.#loading
+    this.#loading = (async () => {
+      try {
+        const raw = JSON.parse(await readFile(this.#path, 'utf8')) as Record<string, StoredEntry>
+        this.#entries = new Map(Object.entries(raw))
+      } catch {
+        this.#entries = new Map()
+      } finally {
+        this.#loading = null
+      }
+      return this.#entries
+    })()
+    return this.#loading
   }
 
   async #persist(entries: Map<string, StoredEntry>): Promise<void> {
-    await mkdir(dirname(this.#path), { recursive: true })
-    const tmp = `${this.#path}.tmp`
-    await writeFile(tmp, JSON.stringify(Object.fromEntries(entries), null, 2), { mode: 0o600 })
-    await chmod(tmp, 0o600)
-    await rename(tmp, this.#path)
+    const snapshot = JSON.stringify(Object.fromEntries(entries), null, 2)
+    const previous = this.#writes
+    const current = (async () => {
+      await previous.catch(() => {})
+      await mkdir(dirname(this.#path), { recursive: true })
+      const temp = `${this.#path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+      await writeFile(temp, snapshot, { mode: 0o600 })
+      await chmod(temp, 0o600)
+      await rename(temp, this.#path)
+    })()
+    this.#writes = current.catch(() => {})
+    await current
   }
 }
