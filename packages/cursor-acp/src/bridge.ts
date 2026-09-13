@@ -862,6 +862,7 @@ interface Session {
   /** The client's standing instruction, sent ahead of the first prompt; see `INSTRUCTIONS_CAPABILITY`. */
   briefing: string | null
   briefed: boolean
+  busy: boolean
   child: ChildProcess | null
   cancelled: boolean
   /**
@@ -1254,6 +1255,7 @@ export class CursorAcpBridge {
       imageCount: 0,
       briefing,
       briefed: false,
+      busy: false,
       child: null,
       cancelled: false,
     }
@@ -1578,87 +1580,92 @@ export class CursorAcpBridge {
 
   async #prompt(params: Record<string, unknown>): Promise<TurnOutcome> {
     const session = this.#session(params)
-    if (session.child) throw new Error('a turn is already running in this session')
-    const text = this.#textOf(params['prompt'], session)
-    if (text.trim() === '') throw new Error('the prompt contains no text')
+    if (session.busy || session.child) throw new Error('a turn is already running in this session')
+    session.busy = true
+    try {
+      const text = this.#textOf(params['prompt'], session)
+      if (text.trim() === '') throw new Error('the prompt contains no text')
 
-    // Two ways to name a model, and only one of them can widen a window.
-    // `--model <slug>` names a fixed variant of the flat catalogue, context
-    // included, so it is what an ordinary turn uses — every slug in that
-    // catalogue is known to work. Max mode needs the parameterised selection
-    // instead, which lives in the config rather than on the command line, so
-    // the flag comes off and the config carries the choice.
-    const wide =
-      session.maxMode && session.familyId !== 'auto'
-        ? (() => {
-            const known = this.#parameterisedFor(session.familyId)
-            return known ? withContext(known, MAX_CONTEXT) : null
-          })()
-        : null
-    const configHome = prepareConfig(wide, session.chatId)
+      // Two ways to name a model, and only one of them can widen a window.
+      // `--model <slug>` names a fixed variant of the flat catalogue, context
+      // included, so it is what an ordinary turn uses — every slug in that
+      // catalogue is known to work. Max mode needs the parameterised selection
+      // instead, which lives in the config rather than on the command line, so
+      // the flag comes off and the config carries the choice.
+      const wide =
+        session.maxMode && session.familyId !== 'auto'
+          ? (() => {
+              const known = this.#parameterisedFor(session.familyId)
+              return known ? withContext(known, MAX_CONTEXT) : null
+            })()
+          : null
+      const configHome = prepareConfig(wide, session.chatId)
 
-    const args = [
-      '--print',
-      '--output-format',
-      'stream-json',
-      '--stream-partial-output',
-      '--trust',
-      '--resume',
-      session.chatId,
-      ...(!wide && session.modelId !== 'auto' ? ['--model', session.modelId] : []),
-      ...(session.modeId !== 'default' ? ['--mode', session.modeId] : []),
-      // Left off entirely at `default`, because the flag overrides Cursor's
-      // own configuration and "no opinion" is not one of its two values.
-      ...(session.sandbox !== 'default' ? ['--sandbox', session.sandbox] : []),
-      // The generated tool plugin, when the session was offered one.
-      // `--approve-mcps` rides with it: print mode has no way to show the
-      // CLI's per-server approval prompt, and the only server in this
-      // directory is the one HarnessDesk itself offered.
-      ...(session.pluginDir ? ['--plugin-dir', session.pluginDir, '--approve-mcps'] : []),
-      '--', // a prompt that begins with `-` must stay a prompt
-      // The client's briefing rides ahead of the first prompt only; the chat
-      // remembers it from there. Marked briefed only once a turn has run
-      // (below): a turn stopped at the start gate, or a spawn that died
-      // before its first word and was not retried, never showed it to the
-      // agent, and the next prompt carries it again.
-      session.briefing && !session.briefed ? `${session.briefing}\n\n${text}` : text,
-    ]
+      const args = [
+        '--print',
+        '--output-format',
+        'stream-json',
+        '--stream-partial-output',
+        '--trust',
+        '--resume',
+        session.chatId,
+        ...(!wide && session.modelId !== 'auto' ? ['--model', session.modelId] : []),
+        ...(session.modeId !== 'default' ? ['--mode', session.modeId] : []),
+        // Left off entirely at `default`, because the flag overrides Cursor's
+        // own configuration and "no opinion" is not one of its two values.
+        ...(session.sandbox !== 'default' ? ['--sandbox', session.sandbox] : []),
+        // The generated tool plugin, when the session was offered one.
+        // `--approve-mcps` rides with it: print mode has no way to show the
+        // CLI's per-server approval prompt, and the only server in this
+        // directory is the one HarnessDesk itself offered.
+        ...(session.pluginDir ? ['--plugin-dir', session.pluginDir, '--approve-mcps'] : []),
+        '--', // a prompt that begins with `-` must stay a prompt
+        // The client's briefing rides ahead of the first prompt only; the chat
+        // remembers it from there. Marked briefed only once a turn has run
+        // (below): a turn stopped at the start gate, or a spawn that died
+        // before its first word and was not retried, never showed it to the
+        // agent, and the next prompt carries it again.
+        session.briefing && !session.briefed ? `${session.briefing}\n\n${text}` : text,
+      ]
 
-    session.cancelled = false
-    const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
-    this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text))
+      session.cancelled = false
+      const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
+      this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text))
 
-    for (let attempt = 1; ; attempt += 1) {
-      const spoke = { yet: false }
-      const leave = await this.#seat(session)
-      // Stopped while waiting for the seat, or in the moment it came: the
-      // seat goes straight back and nothing is spawned for a turn the user
-      // has already ended.
-      if (leave === null || session.cancelled) {
-        leave?.()
-        return { stopReason: 'cancelled' }
-      }
-      try {
-        const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
-        // The agent has read the prompt — briefing included — whatever the
-        // turn's outcome; the chat remembers it under `--resume`.
-        session.briefed = true
-        return outcome
-      } catch (error) {
-        leave()
-        const said = error instanceof Error ? error.message : String(error)
-        if (session.cancelled || spoke.yet || attempt >= START_ATTEMPTS || !STARTUP_TRANSIENT.test(said)) {
-          throw error
+      for (let attempt = 1; ; attempt += 1) {
+        const spoke = { yet: false }
+        const leave = await this.#seat(session)
+        // Stopped while waiting for the seat, or in the moment it came: the
+        // seat goes straight back and nothing is spawned for a turn the user
+        // has already ended.
+        if (leave === null || session.cancelled) {
+          leave?.()
+          return { stopReason: 'cancelled' }
         }
-        // The process died before its first event for a reason that reads as
-        // the network's, so nothing of this turn has happened yet and it can
-        // simply be started again — after a pause that doubles each time,
-        // with jitter, so a burst that caused it does not repeat itself in
-        // step. A Stop during the pause ends the wait at once.
-        this.#log(`cursor-acp: cursor-agent died before it said anything (attempt ${attempt} of ${START_ATTEMPTS}): ${said}`)
-        await this.#pause(session, START_RETRY_MS * 2 ** (attempt - 1) + Math.random() * (START_RETRY_MS / 2))
-        if (session.cancelled) return { stopReason: 'cancelled' }
+        try {
+          const outcome = await this.#runTurn(session, args, configHome, spoke, leave)
+          // The agent has read the prompt — briefing included — whatever the
+          // turn's outcome; the chat remembers it under `--resume`.
+          session.briefed = true
+          return outcome
+        } catch (error) {
+          leave()
+          const said = error instanceof Error ? error.message : String(error)
+          if (session.cancelled || spoke.yet || attempt >= START_ATTEMPTS || !STARTUP_TRANSIENT.test(said)) {
+            throw error
+          }
+          // The process died before its first event for a reason that reads as
+          // the network's, so nothing of this turn has happened yet and it can
+          // simply be started again — after a pause that doubles each time,
+          // with jitter, so a burst that caused it does not repeat itself in
+          // step. A Stop during the pause ends the wait at once.
+          this.#log(`cursor-acp: cursor-agent died before it said anything (attempt ${attempt} of ${START_ATTEMPTS}): ${said}`)
+          await this.#pause(session, START_RETRY_MS * 2 ** (attempt - 1) + Math.random() * (START_RETRY_MS / 2))
+          if (session.cancelled) return { stopReason: 'cancelled' }
+        }
       }
+    } finally {
+      session.busy = false
     }
   }
 
