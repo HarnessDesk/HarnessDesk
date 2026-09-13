@@ -1187,3 +1187,12 @@ test('tracked text files contain no raw NUL bytes (#360)', () => {
   }
   assert.deepEqual(withNul, [])
 })
+
+test('a bare credential file does not leak credential characters in the offender report (#394)', () => {
+  const token = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' // hd-secrets-ok
+  const offenders = offendersIn('secret.txt', token)
+  assert.equal(offenders.length, 1)
+  assert.equal(offenders[0], 'secret.txt:1  [file is nothing but a credential]')
+  assert.doesNotMatch(offenders[0], /abcdefghijkl/)
+})
+

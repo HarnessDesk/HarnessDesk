@@ -318,7 +318,7 @@ const SKIP = /\.(png|jpg|jpeg|gif|ico|icns|woff2?|ttf|lock|lockb)$|pnpm-lock\.ya
  */
 export const offendersIn = (file, content) => {
   if (isBareCredentialFile(content)) {
-    return [`${file}:1  [file is nothing but a credential]  ${content.trim().slice(0, 12)}…`]
+    return [`${file}:1  [file is nothing but a credential]`]
   }
   const offenders = []
   content.split('\n').forEach((line, index) => {
