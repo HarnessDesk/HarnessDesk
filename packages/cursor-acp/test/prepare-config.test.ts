@@ -57,3 +57,43 @@ test('a session that asked for the wide window runs with maxMode on and its sele
   assert.equal(written['model'], undefined)
   assert.deepEqual(written['selectedModel'], selection)
 })
+
+test('concurrent prepareConfig calls for different sessions write to isolated directories and do not overwrite each other (#414)', () => {
+  const { state } = withHomes({ version: 1, maxMode: false })
+  const selectionA = { modelId: 'claude-3-5-sonnet', parameters: [{ id: 'context', value: '200k' }] }
+  const selectionB = { modelId: 'gpt-4o', parameters: [{ id: 'context', value: '128k' }] }
+
+  const dirA = prepareConfig(selectionA, 'chat-session-a')
+  const dirB = prepareConfig(selectionB, 'chat-session-b')
+
+  assert.notEqual(dirA, dirB, 'session directories must be distinct')
+  assert.equal(dirA, join(state, 'cli-config', 'chat-session-a'))
+  assert.equal(dirB, join(state, 'cli-config', 'chat-session-b'))
+
+  const writtenA = JSON.parse(readFileSync(join(dirA, 'cli-config.json'), 'utf8'))
+  const writtenB = JSON.parse(readFileSync(join(dirB, 'cli-config.json'), 'utf8'))
+
+  assert.deepEqual(writtenA['selectedModel'], selectionA)
+  assert.deepEqual(writtenB['selectedModel'], selectionB)
+  assert.equal(writtenA['maxMode'], true)
+  assert.equal(writtenB['maxMode'], true)
+})
+
+test('concurrent standard turn does not overwrite Max mode turn configuration (#414)', () => {
+  withHomes({ version: 1, maxMode: false })
+  const maxSelection = { modelId: 'claude-opus-4-6', parameters: [{ id: 'context', value: '1m' }] }
+
+  const dirMax = prepareConfig(maxSelection, 'session-max')
+  const dirStd = prepareConfig(null, 'session-standard')
+
+  assert.notEqual(dirMax, dirStd)
+  const writtenMax = JSON.parse(readFileSync(join(dirMax, 'cli-config.json'), 'utf8'))
+  const writtenStd = JSON.parse(readFileSync(join(dirStd, 'cli-config.json'), 'utf8'))
+
+  assert.equal(writtenMax['maxMode'], true)
+  assert.deepEqual(writtenMax['selectedModel'], maxSelection)
+
+  assert.equal(writtenStd['maxMode'], false)
+  assert.equal(writtenStd['selectedModel'], undefined)
+})
+
