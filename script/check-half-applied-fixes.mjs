@@ -113,36 +113,114 @@ export const checkRawPathComparisons = (source, fileName = 'source.ts') => {
 export const checkUnvalidatedDeletions = (source, fileName = 'source.ts') => {
   const issues = []
   if (!/\b(?:rmSync|rm)\s*\(/.test(source)) return issues
+  if (!/\b(?:CHAT_ID|chatPath|validate|sessionId)\b/.test(source)) return issues
 
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
 
+  const tmpdirVars = new Set()
+
+  const isTmpdirExpr = (node) => {
+    let hasTmp = false
+    const walk = (n) => {
+      if (hasTmp) return
+      if (ts.isCallExpression(n)) {
+        const text = n.expression.getText(sf)
+        if (text === 'tmpdir' || text.endsWith('.tmpdir')) {
+          hasTmp = true
+          return
+        }
+      }
+      if (ts.isIdentifier(n) && tmpdirVars.has(n.text)) {
+        hasTmp = true
+        return
+      }
+      ts.forEachChild(n, walk)
+    }
+    walk(node)
+    return hasTmp
+  }
+
+  let changed = true
+  while (changed) {
+    changed = false
+    const scanVars = (n) => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+        if (!tmpdirVars.has(n.name.text) && isTmpdirExpr(n.initializer)) {
+          tmpdirVars.add(n.name.text)
+          changed = true
+        }
+      }
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(n.left) &&
+        n.right
+      ) {
+        if (!tmpdirVars.has(n.left.text) && isTmpdirExpr(n.right)) {
+          tmpdirVars.add(n.left.text)
+          changed = true
+        }
+      }
+      ts.forEachChild(n, scanVars)
+    }
+    scanVars(sf)
+  }
+
+  const isRmCall = (node) => {
+    if (!ts.isCallExpression(node)) return false
+    const expText = node.expression.getText(sf)
+    return expText === 'rm' || expText === 'rmSync' || expText.endsWith('.rm') || expText.endsWith('.rmSync')
+  }
+
   const visit = (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      (node.expression.getText(sf) === 'rmSync' ||
-        node.expression.getText(sf) === 'rm' ||
-        node.expression.getText(sf).endsWith('.rmSync') ||
-        node.expression.getText(sf).endsWith('.rm'))
-    ) {
+    if (isRmCall(node)) {
       const firstArg = node.arguments[0]
       if (firstArg) {
-        const argText = firstArg.getText(sf)
-        // If it's a join with tmpdir() and an identifier, check if the file defines CHAT_ID / validation
-        // but deletes without containment check
-        if (
-          argText.includes('tmpdir()') &&
-          !source.includes('.startsWith(root +') &&
-          !source.includes('.startsWith(root + sep')
-        ) {
-          const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
-          issues.push({
-            rule: 'unvalidated-deletion',
-            file: fileName,
-            line: line + 1,
-            column: character + 1,
-            text: argText,
-            message: `rm/rmSync target under tmpdir does not verify containment before removal: "${argText}"`,
-          })
+        let targetVar = null
+        let isDirectTmpdir = false
+
+        if (ts.isIdentifier(firstArg) && tmpdirVars.has(firstArg.text)) {
+          targetVar = firstArg.text
+        } else if (isTmpdirExpr(firstArg)) {
+          isDirectTmpdir = true
+        }
+
+        if (targetVar || isDirectTmpdir) {
+          let isGuarded = false
+          let curr = node.parent
+          while (curr) {
+            if (ts.isIfStatement(curr)) {
+              if (curr.thenStatement.pos <= node.pos && node.end <= curr.thenStatement.end) {
+                const condText = curr.expression.getText(sf)
+                if (targetVar) {
+                  const regex = new RegExp(`\\b${targetVar}\\s*\\.\\s*startsWith\\s*\\(`)
+                  if (regex.test(condText)) {
+                    isGuarded = true
+                    break
+                  }
+                } else if (isDirectTmpdir) {
+                  const firstArgText = firstArg.getText(sf)
+                  if (condText.includes(firstArgText) && condText.includes('.startsWith(')) {
+                    isGuarded = true
+                    break
+                  }
+                }
+              }
+            }
+            curr = curr.parent
+          }
+
+          if (!isGuarded) {
+            const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+            issues.push({
+              rule: 'unvalidated-deletion',
+              file: fileName,
+              line: line + 1,
+              column: character + 1,
+              text: firstArg.getText(sf),
+              message: `rm/rmSync target under tmpdir does not verify containment before removal: "${firstArg.getText(sf)}"`,
+            })
+          }
         }
       }
     }
