@@ -38,6 +38,43 @@ const machine = (files: Record<string, string | null>, links: Record<string, str
   probe: async (path: string) => files[links[path] ?? path] ?? files[path] ?? null,
 })
 
+test('a row that extends the knowledge\'s arguments keeps its extension', async (t) => {
+  /* The chosen copy used to run on `known.acp.args` alone, so any flag the
+     person added to their own row was dropped on the floor. Some agents
+     cannot work without one: an OpenClaw with several agents configured
+     refuses every prompt whose session key names no owner, and `--session
+     agent:<id>:<label>` is the only way to name one (measured against
+     openclaw 2026.8.2 — the row carried the flag and the process never saw
+     it). A row that disagrees about the base is still corrected, which is
+     what keeps a stale `gemini --experimental-acp` from outliving its CLI. */
+  const store = await tempStore(t, [
+    { id: 'openclaw', name: 'OpenClaw', command: 'openclaw', args: ['acp', '--session', 'agent:main:harnessdesk'] },
+    { id: 'gemini', name: 'Gemini CLI', command: 'gemini', args: ['--experimental-acp'] },
+  ])
+  const service = new InstallService({
+    stateDir: STATE,
+    store,
+    locate: machine({
+      '/opt/homebrew/bin/openclaw': 'OpenClaw 2026.8.2 (0965053)',
+      '/opt/homebrew/bin/gemini': '0.59.0',
+    }),
+    // OpenClaw's own preflight and daemon probe are not what this test is
+    // about, and shelling out to them would read this machine.
+    check: async () => ({ ok: true, output: '' }),
+  })
+  const [openclaw, gemini] = store.configs()
+  const extended = await service.launchFor(openclaw!)
+  assert.ok(extended && 'args' in extended, 'OpenClaw was not blocked')
+  assert.deepEqual(
+    extended.args,
+    ['acp', '--session', 'agent:main:harnessdesk'],
+    'the flag only the person can know to pass survives',
+  )
+  const corrected = await service.launchFor(gemini!)
+  assert.ok(corrected && 'args' in corrected, 'Gemini was not blocked')
+  assert.deepEqual(corrected.args, ['--acp'], 'a row that disagrees about the base is still corrected')
+})
+
 test("the person's newest usable copy runs in place of the row's command", async (t) => {
   const store = await tempStore(t, [
     { id: 'opencode', name: 'OpenCode', command: `${STATE}/acp-agents/opencode/1.18.27/opencode`, args: ['acp'], registry: { id: 'opencode', version: '1.18.27' } },
