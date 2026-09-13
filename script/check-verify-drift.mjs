@@ -109,15 +109,81 @@ export const gateCommands = (raw) => {
 }
 
 /**
+ * Splits a command string into arguments according to shell quoting rules,
+ * preserving argument boundaries (#404).
+ */
+export const splitArgv = (command) => {
+  const args = []
+  let current = null
+  let inSingle = false
+  let inDouble = false
+  let escaped = false
+
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i]
+
+    if (escaped) {
+      if (current === null) current = ''
+      current += char
+      escaped = false
+      continue
+    }
+
+    if (char === '\\' && !inSingle) {
+      escaped = true
+      continue
+    }
+
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle
+      if (current === null) current = ''
+      continue
+    }
+
+    if (char === '"' && !inSingle) {
+      inDouble = !inDouble
+      if (current === null) current = ''
+      continue
+    }
+
+    if (/\s/.test(char) && !inSingle && !inDouble) {
+      if (current !== null) {
+        args.push(current)
+        current = null
+      }
+      continue
+    }
+
+    if (current === null) current = ''
+    current += char
+  }
+
+  if (current !== null) {
+    args.push(current)
+  }
+  return args
+}
+
+/**
+ * Parses a single command line into its binary and argument array.
+ */
+export const parseCommand = (raw) => {
+  const parts = splitArgv(raw)
+  if (parts.length === 0) return null
+  return { command: parts[0], args: parts.slice(1) }
+}
+
+/**
  * What CI actually *runs* — the `run:` values, and nothing else.
  *
  * Searching the whole file would let a comment satisfy the check: a line of
  * prose naming `script/check-layering.mjs` reads the same to `includes()` as
  * a step that executes it, and this file is full of comments naming its own
  * commands. So the workflow is reduced to its `run:` values first, including
- * the folded (`run: >`) ones, then flattened — quotes dropped and whitespace
- * collapsed — so a quoted glob written inline in YAML matches the same command
- * assembled from the gate's argument array.
+ * the folded (`run: >`) ones, then parsed into command and argument arrays
+ * preserving argument boundaries (#404) — quotes stripped and escapes handled —
+ * so a quoted glob or arg with spaces written inline in YAML matches the same
+ * command assembled from the gate's argument array.
  *
  * One entry per command, kept apart. Joined into a single string, the
  * comparison below became `String.prototype.includes`, and a gate command that
@@ -132,23 +198,43 @@ export const ciCommands = (yaml) => {
     const inline = /^\s*(?:-\s*)?run:\s*(.+)$/.exec(line)
     if (!inline) continue
     const value = (inline[1] ?? '').trim()
-    if (value !== '>' && value !== '|' && value !== '>-' && value !== '|-') {
-      out.push(value)
-      continue
+    let raw = value
+    if (value === '>' || value === '|' || value === '>-' || value === '|-') {
+      // A folded scalar: every following line indented past the `run:` itself.
+      const indent = (/^\s*/.exec(line) ?? [''])[0].length
+      const block = []
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const candidate = lines[next] ?? ''
+        if (candidate.trim() === '') continue
+        if ((/^\s*/.exec(candidate) ?? [''])[0].length <= indent) break
+        block.push(candidate.trim())
+        index = next
+      }
+      raw = block.join(' ')
     }
-    // A folded scalar: every following line indented past the `run:` itself.
-    const indent = (/^\s*/.exec(line) ?? [''])[0].length
-    const block = []
-    for (let next = index + 1; next < lines.length; next += 1) {
-      const candidate = lines[next] ?? ''
-      if (candidate.trim() === '') continue
-      if ((/^\s*/.exec(candidate) ?? [''])[0].length <= indent) break
-      block.push(candidate.trim())
-      index = next
-    }
-    out.push(block.join(' '))
+    const parsed = parseCommand(raw)
+    if (parsed) out.push(parsed)
   }
-  return out.map((one) => one.replace(/["']/g, '').replace(/\s+/g, ' ').trim())
+
+  Object.defineProperty(out, 'includes', {
+    value(needle) {
+      if (typeof needle === 'string') {
+        const parsed = parseCommand(needle)
+        if (!parsed) return false
+        return this.some(
+          (entry) =>
+            entry.command === parsed.command &&
+            entry.args.length === parsed.args.length &&
+            entry.args.every((a, i) => a === parsed.args[i]),
+        )
+      }
+      return Array.prototype.includes.call(this, needle)
+    },
+    configurable: true,
+    writable: true,
+  })
+
+  return out
 }
 
 /* The two parsers above are exported so the gate that keeps `verify.mjs` and
@@ -168,7 +254,16 @@ export const missingFromCI = (gate, workflow) => {
   for (const { command, args } of gate) {
     const line = [command, ...args].join(' ')
     if (NOT_IN_CI.has(line)) continue
-    if (!workflow.includes(line)) missing.push(line)
+    const matched = workflow.some((entry) => {
+      const parsed = typeof entry === 'string' ? parseCommand(entry) : entry
+      if (!parsed) return false
+      return (
+        parsed.command === command &&
+        parsed.args.length === args.length &&
+        parsed.args.every((arg, index) => arg === args[index])
+      )
+    })
+    if (!matched) missing.push(line)
   }
   return missing
 }
