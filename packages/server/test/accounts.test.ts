@@ -6,7 +6,7 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { test } from 'node:test'
 
-import type { AgentRuntime, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentRuntime, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
 import {
   AccountSlots,
@@ -1237,6 +1237,59 @@ test('the original account cannot be removed, and the refusal names the agent th
   })
   // Round 1 of #190: and the refusal is all that happened; the account is still there.
   assert.equal(host.syncPayload().params.runtimes.some((one) => one.id === FAKE_RUNTIME_ID), true)
+})
+
+test('a direct runtime with placeholder version falls back to install service chosen version in syncPayload (#354)', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-placeholder-version-'))
+  t.after(async () => {
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const fakeDirectRuntime = new FakeRuntime({
+    id: 'direct-agent' as unknown as RuntimeId,
+    name: 'Direct Agent',
+    version: '0.0.0-dev',
+    drives: null,
+  })
+
+  const installs = {
+    last: (id: string) => {
+      if (id === 'direct-agent') {
+        return {
+          copies: [],
+          chosen: {
+            path: '/path/to/cli',
+            version: '3000.10.21',
+            channel: 'homebrew',
+            channelLabel: 'Homebrew',
+            standing: 'chosen',
+            managed: false,
+            updateCommand: null,
+          },
+          policy: 'newest',
+          fallback: null,
+          checkedAt: Date.now(),
+        }
+      }
+      return null
+    },
+  }
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    version: '9.9.9',
+    installs: installs as never,
+  })
+  t.after(async () => {
+    await host.dispose()
+  })
+  host.register(fakeDirectRuntime)
+  await host.start()
+
+  const runtimes = host.syncPayload().params.runtimes
+  const directInfo = runtimes.find((r) => r.id === ('direct-agent' as unknown as RuntimeId))
+  assert.ok(directInfo)
+  assert.equal(directInfo.version, '3000.10.21')
 })
 
 test('an agent that holds one account says so by the name people see', async (t) => {

@@ -641,13 +641,20 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   get info(): RuntimeInfo {
+    const selfVersion = this.#initialized?.agentInfo?.version ?? null
+    const effectiveVersion =
+      !this.#config.executable && (selfVersion === null || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(selfVersion.trim()))
+        ? this.launchedVersion ?? selfVersion
+        : selfVersion
+
     return {
       id: runtimeId(this.#config.id),
       name: this.#config.name,
       // The bridge's own version, as it introduced itself; the CLI it drives
       // is reported separately, because that is the one that decides which
-      // models exist.
-      version: this.#initialized?.agentInfo?.version ?? null,
+      // models exist. When a direct CLI agent reports no version or a placeholder,
+      // fall back to the probed CLI version launched by the host (#354).
+      version: effectiveVersion,
       drives: this.#config.executable
         ? this.#executable
           ? { command: this.#config.executable.command, version: this.#executable.version }

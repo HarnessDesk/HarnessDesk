@@ -2849,15 +2849,24 @@ export class Host {
     const catalogCheckedAt = this.#catalogs.lastChecked(runtime.info.id)
     const accounts = this.options.accounts
     const slot = accounts?.slotOf(runtime.info) ?? null
+    const install = this.options.installs?.last(String(runtime.info.id))
+    const info = runtime.info
+
+    // For a direct agent (no drives) whose self-reported version is missing or placeholder,
+    // fall back to the install service's chosen version if available (#354).
+    const version =
+      !info.drives && (info.version === null || info.version === undefined || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(info.version.trim()))
+        ? install?.chosen?.version ?? info.version
+        : info.version
+
     return {
-      ...runtime.info,
+      ...info,
+      ...(version !== info.version ? { version } : {}),
       ...(update ? { update } : {}),
       ...(catalogCheckedAt !== null ? { catalogCheckedAt } : {}),
       // What the install service last found for this agent: every copy on
       // the machine and the one that answers. Only for agents it knows.
-      ...(this.options.installs?.last(String(runtime.info.id))
-        ? { install: this.options.installs.last(String(runtime.info.id)) }
-        : {}),
+      ...(install ? { install } : {}),
       // Registry-born runtimes are the interface's to remove; the flag is
       // attached here because the runtime has no idea where it came from.
       ...(this.options.agents?.owns(runtime.info.id) ? { origin: 'registry' as const } : {}),
