@@ -403,6 +403,13 @@ export class ExtensionKernel implements CapabilityRegistry {
     if (!entry?.executor) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
     }
+    /* `list` has always applied the contribution's scope; invoking one by id
+       did not, so a tool scoped to one conversation or workspace answered for
+       whoever held the id. Nothing offers it out of scope now, and this is the
+       half that does not depend on the caller having asked the right question. */
+    if (!scopeApplies(entry.contribution.scope, scope)) {
+      return { ok: false, error: 'That tool is not available in this scope.' }
+    }
     const owner = String(entry.contribution.owner)
     this.#invocations.set(owner, (this.#invocations.get(owner) ?? 0) + 1)
     try {
