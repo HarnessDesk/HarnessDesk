@@ -143,6 +143,10 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('fail with detail')) {
+    return fail(id, 'Internal error', { details: 'the session is owned by another process' })
+  }
+
   if (text.includes('slow')) {
     for (let waited = 0; waited < 10_000; waited += 50) {
       if (cancelled.has(state.id)) {
@@ -610,10 +614,16 @@ const handlers = {
       })
       return
     }
-    // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness and
-    // cursor-agent: it will not be handed an MCP tool server on the session
-    // request, and says so in the words the caller learns from.
+    // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness,
+    // OpenClaw, or cursor-agent: it will not be handed an MCP tool server on
+    // the session request, and says so in the words the caller learns from.
     if (process.env.FAKE_ACP_REFUSE_TOOLS && (params?.mcpServers?.length ?? 0) > 0) {
+      if (process.env.FAKE_ACP_REFUSE_TOOLS === 'openclaw') {
+        fail(id, 'Internal error', {
+          details: 'ACP bridge mode does not support per-session MCP servers. Configure MCP on the OpenClaw gateway or agent instead.',
+        })
+        return
+      }
       fail(id, 'Invalid params: mcpServers is not supported')
       return
     }

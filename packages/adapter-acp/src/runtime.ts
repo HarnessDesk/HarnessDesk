@@ -321,11 +321,12 @@ const shutDown = (name: string): Error => new Error(`${name} has been shut down.
 /**
  * Not every ACP agent accepts an MCP server. DeepSeek Harness's bridge
  * refuses a non-empty `mcpServers` outright ("Invalid params: mcpServers is
- * not supported"), and an agent that cannot host our tool bridge should
- * still open sessions — it simply does not get HarnessDesk's plugin tools.
+ * not supported"), OpenClaw refuses with "ACP bridge mode does not support
+ * per-session MCP servers", and an agent that cannot host our tool bridge
+ * should still open sessions — it simply does not get HarnessDesk's plugin tools.
  * The refusal is learned once, from the agent's own answer, and remembered.
  */
-const REFUSES_TOOL_SERVER = /mcpServers?\b/i
+const REFUSES_TOOL_SERVER = /mcp[\s_-]?servers?\b/i
 
 const mcpServersOf = (config: AcpAgentConfig, caller: string): readonly object[] =>
   config.toolServer
@@ -1620,7 +1621,7 @@ export class AcpRuntime implements AgentRuntime {
         claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
       )
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = describeAcp(error)
       // The tool-server refusal is answered first, by a retry without the
       // server; only a failure that is not that refusal is read for what
       // it says about the sign-in, so neither classification can hide the
@@ -2161,8 +2162,12 @@ const contextBreakdownOf = (meta: AcpUpdateMeta | null | undefined): ContextBrea
   }
 }
 
-const describeAcp = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
+const describeAcp = (error: unknown): string => {
+  if (error instanceof AcpError && error.details) {
+    return `${error.message}: ${error.details}`
+  }
+  return error instanceof Error ? error.message : String(error)
+}
 
 /**
  * What the agent's own answers have said about its sign-in. ACP has no
