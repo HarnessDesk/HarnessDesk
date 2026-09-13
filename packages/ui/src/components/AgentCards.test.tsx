@@ -303,6 +303,42 @@ it('starts exactly one clock when a card opens, and stops it when it closes', ()
   vi.useRealTimers()
 })
 
+it('does not caution that a member has taken nothing from the board when holding a task (#375)', () => {
+  vi.useFakeTimers()
+  const snapshot = {
+    ...emptySnapshot(),
+    runtimes: [
+      { id: 'claude-code', presentation: { name: 'Claude Code' }, capabilities: {} },
+    ] as unknown as RuntimeInfo[],
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+
+  const memberWithTask: MemberCardFacts = {
+    ...MEMBER,
+    canUseBoard: true,
+    idleOnBoard: true,
+    task: { id: 1, title: 'Fix bug' },
+  }
+
+  act(() =>
+    root.render(
+      <StoreProvider store={store}>
+        <MemberHoverCard member={memberWithTask}>
+          <span>mark</span>
+        </MemberHoverCard>
+      </StoreProvider>,
+    ),
+  )
+
+  rest(trigger())
+  const card = openCard()
+  expect(card).not.toBeNull()
+  expect(card?.textContent).toContain('#1')
+  expect(card?.textContent).toContain('Fix bug')
+  expect(card?.textContent).not.toContain('taken nothing from the board')
+  vi.useRealTimers()
+})
+
 /* ── What opens a card, and where ─────────────────────────────────────── */
 
 /**

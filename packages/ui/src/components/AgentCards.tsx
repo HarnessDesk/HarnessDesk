@@ -889,8 +889,10 @@ const MemberCardBody = ({
         : []),
       /* Both, not the higher-ranked one. The rail can show a single warning
          and drops the loser; having room for the pair is most of why this
-         card is more than a longer tooltip. */
-      ...(member.canUseBoard && member.idleOnBoard
+         card is more than a longer tooltip.
+         Never show "taken nothing from the board" when the member currently
+         holds a task (#375). */
+      ...(member.canUseBoard && member.idleOnBoard && !member.task
         ? ([
             {
               tone: 'quiet' as const,
