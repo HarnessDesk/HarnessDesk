@@ -600,7 +600,7 @@ export class FakeRuntime implements AgentRuntime {
     return { disposition: 'removed', removed: 1 }
   }
 
-  /** What the host handed the last createSession, for route-resolution tests. */
+  /** What the host handed the last createSession or forkSession, for route-resolution tests. */
   lastCreateOptions: SessionOptions | null = null
 
   async createSession(options: SessionOptions): Promise<AgentSession> {
@@ -641,8 +641,13 @@ export class FakeRuntime implements AgentRuntime {
     return session
   }
 
-  async forkSession(id: SessionId): Promise<AgentSession> {
-    return this.createSession({ cwd: this.sessions.get(id)?.settings().cwd ?? '/w' })
+  async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    return this.createSession({
+      cwd: options.cwd ?? this.sessions.get(id)?.settings().cwd ?? '/w',
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.route ? { route: options.route } : {}),
+      ...(options.options ? { options: options.options } : {}),
+    })
   }
 }
 
