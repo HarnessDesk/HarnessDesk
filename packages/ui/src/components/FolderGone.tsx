@@ -1,3 +1,5 @@
+import { sessionKey } from '@harnessdesk/protocol'
+
 import { useSnapshot, useStore } from '../state/context'
 import { Banner, BannerAction } from '../design/primitives/Banner'
 
@@ -23,8 +25,20 @@ export const FolderGone = ({ folder, said }: { readonly folder: string; readonly
      worktree is one piece of news however many conversations ran in it, and
      the count is what tells the reader whether the row they are looking at is
      the whole of it — a review room's three members are the case that made
-     this an issue. */
-  const also = [...snapshot.sessions.values()].filter((one) => one.cwd === folder).length - 1
+     this an issue.
+     We check both active sessions and history, deduplicated by session key. */
+  const inFolder = new Set<string>()
+  for (const session of snapshot.sessions.values()) {
+    if (session.cwd === folder) {
+      inFolder.add(String(sessionKey(session.runtime, session.id)))
+    }
+  }
+  for (const summary of snapshot.history) {
+    if (summary.cwd === folder) {
+      inFolder.add(String(sessionKey(summary.runtime, summary.id)))
+    }
+  }
+  const also = Math.max(0, inFolder.size - 1)
 
   return (
     <Banner
