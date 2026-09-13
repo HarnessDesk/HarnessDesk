@@ -143,6 +143,16 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('omit stop reason')) {
+    say('finished without explicit stop reason')
+    return reply(id, { usage: null })
+  }
+
+  if (text.includes('null stop reason')) {
+    say('finished with null stop reason')
+    return reply(id, { stopReason: null })
+  }
+
   if (text.includes('fail with detail')) {
     return fail(id, 'Internal error', { details: 'the session is owned by another process' })
   }
