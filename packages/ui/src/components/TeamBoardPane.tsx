@@ -879,7 +879,9 @@ const IntentCard = ({
      the card has always drawn. */
   const role = useMemo(() => {
     if (!intent.role) return null
-    const run = (snapshot.flowRuns.get(room) ?? []).find((one) => one.state === 'running')
+    const run = (snapshot.flowRuns.get(room) ?? []).find(
+      (one) => one.state === 'running' || one.state === 'stalled',
+    )
     return run?.flow.roles.find((one) => one.id === intent.role) ?? null
   }, [intent.role, room, snapshot.flowRuns])
 

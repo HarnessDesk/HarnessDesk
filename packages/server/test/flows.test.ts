@@ -1350,4 +1350,46 @@ test('Flows.load refuses a running run that omits rounds instead of crashing (#5
   assert.equal(second.runsFor(one.room).length, 0)
 })
 
+test('a stalled flow run omits endedAt, can be stopped, and recovers when a seat answers (#557)', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+
+  const stalled = one.flows.runsFor(one.room)[0]!
+  assert.equal(stalled.state, 'stalled')
+  // 1. endedAt must not be set on stalled
+  assert.equal(stalled.endedAt, undefined, 'endedAt must not be set on stalled state')
+
+  // 2. stop() must work on stalled run
+  const stopped = one.flows.stop(stalled.id, 'person stopped stalled run')
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(typeof stopped.endedAt, 'number')
+  assert.equal(stopped.ended, 'person stopped stalled run')
+
+  // 3. recovery on seat completing a card or re-arming
+  const room2 = (await one.team.createRoom('/repo', 'Room 2')).id
+  await one.flows.start({ room: room2, source: REVIEW, vars: { work: 'Fix 2' } })
+  const run2Init = one.flows.runsFor(room2)[0]!
+  const fixer2Seat = run2Init.seats.find((s) => s.role === 'fixer')!
+  const fixer2 = { runtime: fixer2Seat.runtime, sessionId: fixer2Seat.sessionId }
+  // Claim card first before killing
+  await one.team.claimNext(fixer2)
+  one.kill(fixer2)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer2.runtime, fixer2.sessionId)
+  const run2 = one.flows.runsFor(room2)[0]!
+  assert.equal(run2.state, 'stalled')
+
+  // Completing the card returns run to running
+  const heldCard = one.team.stateFor(room2).intents.find((i) => i.claim?.sessionId === fixer2.sessionId)!
+  await one.team.complete(heldCard.id, { outcome: 'published' }, fixer2)
+  await one.flows.flush()
+  const recovered = one.flows.runsFor(room2)[0]!
+  assert.equal(recovered.state, 'running')
+  assert.equal(recovered.ended, null)
+  assert.ok(recovered.record.some((e) => e.kind === 'started' && /recovered from stalled/.test(e.text ?? '')))
+})
+
+
 
