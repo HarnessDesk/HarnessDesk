@@ -77,7 +77,7 @@ const fakeAdb = (t: TestContext, attached: readonly string[], options: { readonl
       `if [ "$1" != -s ] && [ ${attached.length} -gt 1 ]; then echo 'adb: error: more than one device/emulator' >&2; exit 1; fi`,
       `if [ "$1" = -s ] && ! grep -q "^$2[[:space:]]" '${listing}'; then echo "adb: device '$2' not found" >&2; exit 1; fi`,
       `if [ "$1" = -s ]; then shift 2; fi`,
-      `if [ "$1" = exec-out ]; then printf PNG; fi`,
+      `if [ "$1" = exec-out ]; then printf '\\x89PNG\\r\\n\\x1a\\n'; fi`,
       'exit 0',
       '',
     ].join('\n'),
