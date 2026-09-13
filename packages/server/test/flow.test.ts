@@ -15,6 +15,7 @@ import {
   ruleFor,
   waitFor,
   seatAt,
+  slotsIn,
   validateFlow,
 } from '../src/flow.js'
 
@@ -405,3 +406,136 @@ seed: { role: competitor, title: "Attempt {{n}}" }
   assert.equal(seatAt(flow.roles[0]!, 1).model, 'zai/glm-5.3-flash')
   assert.equal(seatAt(flow.roles[0]!, 1).effort, undefined)
 })
+
+test('card slots are refused in a role order, naming why', () => {
+  const source = `
+name: probe
+inputs:
+  codename:
+    label: The hunter's name
+    default: mantis
+wait: 60
+roles:
+  hunter:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    count: 1
+    permission: read
+    outcomes: [done]
+    order: |
+      You are {{codename}}, on round {{round}}, card {{n}} of {{count}}, in run {{run}}.
+seed:
+  role: hunter
+  title: "go"
+`
+  const errs = errors(source)
+  assert.ok(
+    errs.some(
+      (e) =>
+        e.includes('roles.hunter.order') &&
+        e.includes(
+          '{{round}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card',
+        ),
+    ),
+    `expected {{round}} error in order, got: ${errs.join('; ')}`,
+  )
+  assert.ok(
+    errs.some(
+      (e) =>
+        e.includes('roles.hunter.order') &&
+        e.includes(
+          '{{n}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card',
+        ),
+    ),
+    `expected {{n}} error in order, got: ${errs.join('; ')}`,
+  )
+  assert.ok(
+    errs.some(
+      (e) =>
+        e.includes('roles.hunter.order') &&
+        e.includes(
+          '{{count}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card',
+        ),
+    ),
+    `expected {{count}} error in order, got: ${errs.join('; ')}`,
+  )
+  // Declared input {{codename}} and built-in {{run}} are allowed in order
+  assert.ok(!errs.some((e) => e.includes('{{codename}}')))
+  assert.ok(!errs.some((e) => e.includes('{{run}}')))
+})
+
+test('a declared input and run id resolve in a role order', () => {
+  const source = `
+name: probe
+inputs:
+  codename:
+    label: The hunter's name
+    default: mantis
+wait: 60
+roles:
+  hunter:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    count: 1
+    permission: read
+    outcomes: [done]
+    order: |
+      You are {{codename}} in run {{run}}.
+seed:
+  role: hunter
+  title: "go"
+`
+  const flow = read(source)
+  // With input default and run id passed in where
+  const defaultOrder = renderOrder(
+    orderVars(flow.roles[0]!, flow, {
+      name: 'Gemini 1',
+      member: 'Gemini 1',
+      room: 'a room',
+      repo: '/repo',
+      runtime: 'cursor',
+      run: 'flow-1234',
+    }),
+  )
+  assert.match(defaultOrder, /You are mantis in run flow-1234\./)
+
+  // With explicit vars overriding default
+  const customOrder = renderOrder(
+    orderVars(flow.roles[0]!, flow, {
+      name: 'Gemini 1',
+      member: 'Gemini 1',
+      room: 'a room',
+      repo: '/repo',
+      runtime: 'cursor',
+      run: 'flow-5678',
+      vars: { codename: 'grasshopper' },
+    }),
+  )
+  assert.match(customOrder, /You are grasshopper in run flow-5678\./)
+})
+
+test("every shipped flow's role order renders with no unresolved slots", () => {
+  for (const name of ['fix-and-review.yml', 'race.yml']) {
+    const flow = read(shipped(name))
+    for (const role of flow.roles) {
+      if (role.kind !== 'agent') continue
+      const order = renderOrder(
+        orderVars(role, flow, {
+          name: 'Agent',
+          member: 'Agent',
+          room: 'Room',
+          repo: '/repo',
+          runtime: 'cursor',
+          run: 'flow-test',
+        }),
+      )
+      const remainingSlots = slotsIn(order)
+      assert.deepEqual(
+        remainingSlots,
+        [],
+        `flow ${name} role ${role.id} order has unresolved slots: ${remainingSlots.join(', ')}`,
+      )
+    }
+  }
+})
+
