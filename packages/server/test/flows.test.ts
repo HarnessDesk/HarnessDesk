@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -1237,6 +1237,45 @@ seed:
     'hunter 2 · Hunt · mantis · Bug hunt',
   ])
 })
+
+test('standDown and reArm do not crash when a persisted run has non-array seats (#503)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-seats.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'bad-seats-run',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: {},
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+  await second.load()
+  assert.equal(second.standDown(one.room, 'runtime-a', 'session-1'), null)
+  await second.reArm('runtime-a', 'session-1')
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+})
+
 
 
 

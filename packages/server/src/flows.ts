@@ -554,7 +554,7 @@ export class Flows implements TeamFlows {
   async reArm(runtime: string, sessionId: string): Promise<void> {
     const key = String(sessionKey(runtime as never, sessionId as never))
     const run = [...this.#runs.values()].find(
-      (one) => one.state === 'running' && one.seats.some((seat) => seat.key === key),
+      (one) => one.state === 'running' && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
     )
     if (!run) return
     const seat = run.seats.find((one) => one.key === key) as FlowSeatRecord
@@ -813,7 +813,7 @@ export class Flows implements TeamFlows {
   standDown(room: string, runtime: string, sessionId: string): string | null {
     const key = `${runtime}\u0000${sessionId}`
     const run = [...this.#runs.values()].find(
-      (one) => one.room === room && one.seats.some((seat) => seat.key === key),
+      (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
     )
     if (!run) return null
     if (run.state === 'running') return null
@@ -1073,6 +1073,12 @@ export class Flows implements TeamFlows {
       if (!name.endsWith('.json')) continue
       try {
         const raw = JSON.parse(await readFile(join(this.#dir, name), 'utf8')) as StoredRun
+        if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || typeof raw.room !== 'string') {
+          throw new Error('a stored flow run must be an object with an id and room')
+        }
+        if (!Array.isArray(raw.seats)) {
+          throw new Error('a stored flow run must have an array of seats')
+        }
         this.#runs.set(raw.id, raw)
       } catch (error) {
         this.#port.log('a stored flow run could not be read', { file: name, error: String(error) })
