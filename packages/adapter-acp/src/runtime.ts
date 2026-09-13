@@ -431,6 +431,34 @@ export const permissionReason = (toolCall: AcpToolCallUpdate): string | null => 
 }
 
 /**
+ * Extract image parts from tool content blocks.
+ *
+ * A picture in the tool's content — a screenshot, a Read of a PNG — becomes
+ * an image part the transcript can draw. Any null, primitive or malformed blocks
+ * are safely skipped.
+ */
+export const imagesInToolContent = (
+  content: unknown,
+): readonly { readonly type: 'image'; readonly url: string; readonly mimeType: string }[] => {
+  if (!Array.isArray(content)) return []
+  return content.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return []
+    if (entry.type !== 'content') return []
+    const block = entry.content as { type?: string; data?: string; mimeType?: string } | null | undefined
+    if (typeof block !== 'object' || block === null) return []
+    return block.type === 'image' && typeof block.data === 'string' && block.data.length > 0
+      ? [
+          {
+            type: 'image' as const,
+            url: `data:${block.mimeType || 'image/png'};base64,${block.data}`,
+            mimeType: block.mimeType || 'image/png',
+          },
+        ]
+      : []
+  })
+}
+
+/**
  * Whether a path is still a directory an agent could be started in.
  *
  * Kept identical in semantics to `isDirectory` in `packages/server/src/host.ts`
@@ -2845,19 +2873,7 @@ class AcpSession implements AgentSession {
         // A picture in the tool's content — a screenshot, a Read of a PNG —
         // becomes an image part the transcript can draw. The raw copy keeps
         // everything else but not the same megabytes twice.
-        const images = (update.content ?? []).flatMap((entry) => {
-          if (entry.type !== 'content') return []
-          const block = entry.content as { type?: string; data?: string; mimeType?: string }
-          return block.type === 'image' && typeof block.data === 'string' && block.data.length > 0
-            ? [
-                {
-                  type: 'image' as const,
-                  url: `data:${block.mimeType || 'image/png'};base64,${block.data}`,
-                  mimeType: block.mimeType || 'image/png',
-                },
-              ]
-            : []
-        })
+        const images = imagesInToolContent(update.content)
         const next: AgentItem = {
           ...previous,
           status,
