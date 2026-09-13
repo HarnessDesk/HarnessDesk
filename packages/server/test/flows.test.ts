@@ -645,6 +645,75 @@ test('dedup stopped answering records works across multiple seats of the same ro
   assert.equal(stoppedRecords.length, 3)
 })
 
+test('a flow with custom rearm budget allows more re-arms before stopping', async (t) => {
+  const one = await rig(t)
+  const source = REVIEW.replace('name: Fix and review', 'name: Fix and review\nrearm: 5')
+  await one.flows.start({ room: one.room, source, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  for (let n = 0; n < 8; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  // Five inside the hour, bringing orders to 4 (initial) + 5
+  assert.equal(one.orders.length, 4 + 5)
+  const run = one.flows.runsFor(one.room)[0]!
+  const rearmTexts = run.record
+    .filter((e) => e.kind === 'seated' && /re-armed/.test(e.text ?? ''))
+  assert.equal(rearmTexts.length, 5)
+})
+
+test('a run stalls when all seats of a role with open work stop answering', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+
+  const run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'stalled')
+  assert.match(run.ended ?? '', /no seat answering for fixer/)
+  assert.ok(run.record.some((e) => e.kind === 'stalled'))
+  // Stand-down names why
+  const standDown = one.flows.standDown(one.room, fixer.runtime, fixer.sessionId)
+  assert.match(standDown ?? '', /no seat answering for fixer/)
+  // And the room is free to start another flow rather than blocked by a zombie
+  const again = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it again' } })
+  assert.equal(again.state, 'running')
+})
+
+test('a run stays running while at least one seat of the active role is answering', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  // Reviewers round is open (3 reviewers)
+  const reviewers = seatsOf(one, 'reviewer')
+  assert.equal(reviewers.length, 3)
+
+  // Kill reviewer 0 and exhaust its budget
+  one.kill(reviewers[0]!)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(reviewers[0]!.runtime, reviewers[0]!.sessionId)
+
+  let run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'running', 'run is still running because 2 other reviewers are answering')
+
+  // Kill reviewer 1 and exhaust its budget
+  one.kill(reviewers[1]!)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(reviewers[1]!.runtime, reviewers[1]!.sessionId)
+
+  run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'running', 'run is still running because 1 reviewer is answering')
+
+  // Kill reviewer 2 and exhaust its budget
+  one.kill(reviewers[2]!)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(reviewers[2]!.runtime, reviewers[2]!.sessionId)
+
+  run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'stalled', 'run is stalled now that all 3 reviewers have stopped answering')
+  assert.match(run.ended ?? '', /no seat answering for reviewer/)
+})
+
 test('a seat of a settled run is not re-armed — standing down is not dying', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })

@@ -539,3 +539,46 @@ test("every shipped flow's role order renders with no unresolved slots", () => {
   }
 })
 
+test('top-level rearm is parsed, defaulted, and validated against ceiling', () => {
+  const valid = `
+name: Rearm test
+rearm: 10
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  const parsed = parseFlow(valid)
+  assert.equal(parsed.flow?.rearm, 10)
+  assert.deepEqual(validateFlow(parsed.flow!), [])
+
+  // Refuses negative
+  const negative = `
+name: Rearm negative
+rearm: -1
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  assert.ok(errors(negative).some((e) => /rearm/.test(e)))
+
+  // Refuses non-integer
+  const nonInt = `
+name: Rearm float
+rearm: 2.5
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  assert.ok(errors(nonInt).some((e) => /rearm/.test(e)))
+
+  // Refuses exceeding ceiling
+  const overCeiling = `
+name: Rearm huge
+rearm: 500
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  assert.ok(errors(overCeiling).some((e) => /rearm.*exceed/.test(e)))
+})
+

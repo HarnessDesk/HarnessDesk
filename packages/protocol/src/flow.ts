@@ -172,6 +172,11 @@ export interface Flow {
    */
   readonly wait: number
   /**
+   * How many times one seat may be re-armed inside the hourly window.
+   * Defaults to 3 when omitted.
+   */
+  readonly rearm?: number | null
+  /**
    * Where a canvas keeps node positions. **The engine never reads this.** It
    * is reserved and preserved so a visual builder has somewhere to put layout
    * without inventing a second file or changing the format under everybody's
@@ -201,7 +206,7 @@ export interface FlowRound {
  */
 export interface FlowEvent {
   readonly at: number
-  readonly kind: 'started' | 'seated' | 'round' | 'outcome' | 'check' | 'settled' | 'stopped'
+  readonly kind: 'started' | 'seated' | 'round' | 'outcome' | 'check' | 'settled' | 'stopped' | 'stalled'
   readonly role?: string | null
   readonly intent?: number | null
   readonly outcome?: string | null
@@ -211,7 +216,7 @@ export interface FlowEvent {
   readonly text?: string | null
 }
 
-export type FlowRunState = 'running' | 'settled' | 'stopped'
+export type FlowRunState = 'running' | 'settled' | 'stopped' | 'stalled'
 
 /** One seat a run opened, and the role it holds. */
 export interface FlowSeatRecord {

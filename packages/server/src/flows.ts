@@ -571,8 +571,9 @@ export class Flows implements TeamFlows {
        stopped early: it is a seat that was told to stand down and did as it
        was asked. The run's own state is checked above; this covers the race
        between the stand-down and the turn's end reaching the host. */
+    const budget = run.flow.rearm ?? REARM_BUDGET
     const spent = (this.#rearms.get(key) ?? []).filter((at) => now() - at < REARM_WINDOW_MS)
-    if (spent.length >= REARM_BUDGET) {
+    if (spent.length >= budget) {
       if (!this.#stoppedSeats.has(key)) {
         this.#stoppedSeats.add(key)
         this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
@@ -596,6 +597,7 @@ export class Flows implements TeamFlows {
         })
         this.#save(run.id)
       }
+      this.#checkStalled(run.id)
       return
     }
     const slot = now()
@@ -752,6 +754,58 @@ export class Flows implements TeamFlows {
     })
     this.#release(run, why)
     this.#save(id)
+  }
+
+  /**
+   * Checks whether the run has stalled because no seat of a role with open
+   * work is answering.
+   *
+   * A seat whose budget is spent stops being re-armed; when every seat of
+   * the role holding the current round has stopped, the run has become a
+   * zombie that can never make progress. Marking it stalled surfaces what
+   * happened to the room and stands down any remaining waiting seats.
+   */
+  #checkStalled(id: string): void {
+    const run = this.#runs.get(id)
+    if (!run || run.state !== 'running') return
+    const round = run.rounds[run.rounds.length - 1]
+    if (!round) return
+    const board = this.#team.stateFor(run.room)
+    const cards = round.intents.map((one) => board.intents.find((card) => card.id === one))
+    const open = cards.filter((card) => !card || (card.state !== 'done' && card.state !== 'abandoned'))
+    if (open.length === 0) return
+
+    const roleSeats = run.seats.filter((s) => s.role === round.role)
+    const answering = roleSeats.filter((s) => !this.#stoppedSeats.has(s.key))
+    if (roleSeats.length > 0 && answering.length === 0) {
+      const named = roleSeats.map((s) => s.seat).join(', ')
+      const why = `no seat answering for ${round.role} (${named}): re-arm budget exhausted`
+      this.#runs.set(id, {
+        ...run,
+        state: 'stalled',
+        endedAt: now(),
+        ended: why,
+        record: [
+          ...run.record,
+          {
+            at: now(),
+            kind: 'stalled',
+            role: round.role,
+            text: why,
+          },
+        ],
+      })
+      this.#port.log('a flow run stalled because no seat of a role with open work is answering', {
+        run: id,
+        role: round.role,
+        seats: roleSeats.map((s) => s.seat),
+      })
+      const watch = this.#watching.get(id)
+      if (watch) clearTimeout(watch)
+      this.#watching.delete(id)
+      this.#release(run, why)
+      this.#save(id)
+    }
   }
 
   /** Why this seat should stop waiting — the one thing that may end its turn. */
