@@ -470,6 +470,16 @@ test('a flow that will not validate seats nobody', async (t) => {
   assert.equal(board(one).intents.length, 0)
 })
 
+test('flow/start for a non-existent room throws and seats nobody (#420)', async (t) => {
+  const one = await rig(t)
+  await assert.rejects(
+    () => one.flows.start({ room: 'missing-room', source: REVIEW, vars: { work: 'Fix it' } }),
+    /There is no room missing-room\./,
+  )
+  assert.equal(one.seated.length, 0)
+  assert.equal(one.orders.length, 0)
+})
+
 test('the record says who did what, on which seat, with which outcome', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
