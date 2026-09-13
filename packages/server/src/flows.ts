@@ -589,7 +589,7 @@ export class Flows implements TeamFlows {
         this.#runs.set(run.id, {
           ...run,
           record: [
-            ...run.record,
+            ...(Array.isArray(run.record) ? run.record : []),
             {
               at: now(),
               kind: 'stopped',
@@ -659,10 +659,11 @@ export class Flows implements TeamFlows {
       return
     }
     const currentRun = (this.#runs.get(run.id) ?? run) as StoredRun
+    const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
     this.#runs.set(currentRun.id, {
       ...currentRun,
       record: [
-        ...currentRun.record,
+        ...currentRecord,
         {
           at: now(),
           kind: 'seated',
@@ -786,13 +787,14 @@ export class Flows implements TeamFlows {
     if (roleSeats.length > 0 && answering.length === 0) {
       const named = roleSeats.map((s) => s.seat).join(', ')
       const why = `no seat answering for ${round.role} (${named}): re-arm budget exhausted`
+      const record = Array.isArray(run.record) ? run.record : []
       this.#runs.set(id, {
         ...run,
         state: 'stalled',
         endedAt: now(),
         ended: why,
         record: [
-          ...run.record,
+          ...record,
           {
             at: now(),
             kind: 'stalled',
@@ -856,10 +858,11 @@ export class Flows implements TeamFlows {
     if (cards.some((card) => !card || (card.state !== 'done' && card.state !== 'abandoned'))) return
 
     if (because?.outcome !== undefined) {
+      const record = Array.isArray(run.record) ? run.record : []
       this.#runs.set(id, {
         ...run,
         record: [
-          ...run.record,
+          ...record,
           {
             at: now(),
             kind: 'outcome',
@@ -876,12 +879,13 @@ export class Flows implements TeamFlows {
     if (!fired) {
       const said = outcomes.map((one) => one ?? 'nothing').join(', ')
       const why = `${round.role} answered ${said}, and no rule takes it further`
+      const record = Array.isArray(current.record) ? current.record : []
       this.#runs.set(id, {
         ...current,
         state: 'settled',
         endedAt: now(),
         ended: why,
-        record: [...current.record, { at: now(), kind: 'settled', role: round.role, text: why }],
+        record: [...record, { at: now(), kind: 'settled', role: round.role, text: why }],
       })
       this.#release(current, why)
       this.#save(id)
@@ -962,11 +966,14 @@ export class Flows implements TeamFlows {
       ...(rule ? { rule } : {}),
       openedAt: now(),
     }
+    const currentRun = this.#runs.get(run.id) as StoredRun
+    const currentRounds = Array.isArray(currentRun.rounds) ? currentRun.rounds : []
+    const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
     this.#runs.set(run.id, {
-      ...(this.#runs.get(run.id) as StoredRun),
-      rounds: [...(this.#runs.get(run.id) as StoredRun).rounds, round],
+      ...currentRun,
+      rounds: [...currentRounds, round],
       record: [
-        ...(this.#runs.get(run.id) as StoredRun).record,
+        ...currentRecord,
         { at: now(), kind: 'round', role: role.id, text: `round ${n}, ${role.count} card${role.count === 1 ? '' : 's'}` },
       ],
     })
@@ -1000,10 +1007,12 @@ export class Flows implements TeamFlows {
         status === null
           ? `${check.run} ran past ${check.timeout}s`
           : `${check.run} exited ${status}`
+      const currentRun = this.#runs.get(id) as StoredRun
+      const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
       this.#runs.set(id, {
-        ...(this.#runs.get(id) as StoredRun),
+        ...currentRun,
         record: [
-          ...(this.#runs.get(id) as StoredRun).record,
+          ...currentRecord,
           { at: now(), kind: 'check', role: role.id, intent, outcome, text: note },
         ],
       })
