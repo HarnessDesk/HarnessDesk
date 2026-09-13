@@ -258,14 +258,13 @@ instructions, a bridge's system-prompt append, the MCP server's
 `instructions` — never through the conversation, and the sentence names the
 tools rather than the line.
 
-Desk-authored commits carry `Co-authored-by: harnessdesk[bot]
-<328532242+harnessdesk[bot]@users.noreply.github.com>` as well. That is the
-mechanism GitHub uses to show the product's account beside the person's on a
-commit: the person remains author and committer, so it works on every
-repository they can push to without an installation or a product credential.
-Pull requests, comments and reviews remain under that person's identity and
-keep the seat signature; one bot reviewing its own work would erase the
-dissent the signature is for.
+Desk-authored commits carry `Co-authored-by: HarnessDesk Agent
+<agent@harnessdesk.app>` as well. That verified address is the public agent
+identity GitHub shows beside the person's commit; the person remains author
+and committer, so it works on every repository they can push to without an
+installation or a product credential. Pull requests, comments and reviews
+remain under that person's identity and keep the seat signature; one bot
+reviewing its own work would erase the dissent the signature is for.
 
 *Not done here:* an agent that reaches for `gh pr create` itself, ignoring
 the sentence, opens an unsigned pull request that the transcript does not

@@ -148,12 +148,13 @@ export interface MergeOutcome {
 /**
  * A commit is still authored by the person who made it; this trailer lets
  * GitHub render HarnessDesk beside them without making the desktop app hold a
- * GitHub App credential. It is the path that works on every repository the
- * person may already push to.
+ * GitHub App credential. Its verified address maps the credit to the public
+ * HarnessDesk Agent identity on every repository the person may already push
+ * to.
  */
-const HARNESSDESK_COAUTHOR = 'Co-authored-by: harnessdesk[bot] <328532242+harnessdesk[bot]@users.noreply.github.com>'
+const HARNESSDESK_COAUTHOR = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
-const alreadyCreditsHarnessDesk = /^co-authored-by:\s*harnessdesk\[bot\]\s+<328532242\+harnessdesk\[bot\]@users\.noreply\.github\.com>\s*$/im
+const alreadyCreditsHarnessDesk = /^co-authored-by:\s*HarnessDesk Agent\s+<agent@harnessdesk\.app>\s*$/im
 
 /** Adds the product credit once, without disturbing the person's own trailers. */
 const withHarnessDeskCoauthor = (message: string): string =>

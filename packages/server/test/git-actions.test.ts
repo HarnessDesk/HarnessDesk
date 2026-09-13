@@ -119,7 +119,7 @@ test('commitAll without paths takes everything, and an empty tree refuses in wor
   await assert.rejects(commitAll(dir, '   '), /needs a message/)
 })
 
-test('commitAll gives every desk-authored commit the HarnessDesk bot co-author once', async () => {
+test('commitAll gives every desk-authored commit the HarnessDesk Agent co-author once', async () => {
   const dir = await seedRepo()
   await writeFile(join(dir, 'b.txt'), 'b\n')
 
@@ -127,7 +127,7 @@ test('commitAll gives every desk-authored commit the HarnessDesk bot co-author o
 
   assert.equal(
     (await git(dir, 'log', '-1', '--format=%B')).trimEnd(),
-    'Share this change\n\nCo-authored-by: harnessdesk[bot] <328532242+harnessdesk[bot]@users.noreply.github.com>',
+    'Share this change\n\nCo-authored-by: HarnessDesk Agent <agent@harnessdesk.app>',
   )
 })
 
