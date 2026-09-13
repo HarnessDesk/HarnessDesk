@@ -297,7 +297,11 @@ export class Flows implements TeamFlows {
 
   /** The run still going in this room, if any. A room runs one flow at a time. */
   #liveIn(room: string): StoredRun | null {
-    return [...this.#runs.values()].find((run) => run.room === room && run.state === 'running') ?? null
+    return (
+      [...this.#runs.values()].find(
+        (run) => run.room === room && (run.state === 'running' || run.state === 'stalled'),
+      ) ?? null
+    )
   }
 
   /**
@@ -481,7 +485,7 @@ export class Flows implements TeamFlows {
   stop(id: string, why = 'the person stopped this flow'): FlowRun {
     const run = this.#runs.get(id)
     if (!run) throw new Error(`There is no flow run ${id}.`)
-    if (run.state !== 'running') return run
+    if (run.state !== 'running' && run.state !== 'stalled') return run
     const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
@@ -524,7 +528,30 @@ export class Flows implements TeamFlows {
   /** A card finished. Whether that finishes its round is the next question. */
   completed(room: string, intent: Intent): void {
     const run = this.#runFor(room, intent.id)
-    if (!run || run.state !== 'running') return
+    if (!run || (run.state !== 'running' && run.state !== 'stalled')) return
+    if (run.state === 'stalled') {
+      const record = Array.isArray(run.record) ? run.record : []
+      this.#runs.set(run.id, {
+        ...run,
+        state: 'running',
+        ended: null,
+        record: [
+          ...record,
+          {
+            at: now(),
+            kind: 'started',
+            text: `recovered from stalled: card #${intent.id} completed`,
+          },
+        ],
+      })
+      this.#port.log('a stalled flow run recovered and returned to running', {
+        run: run.id,
+        intent: intent.id,
+      })
+      this.#save(run.id)
+      const round = run.rounds[run.rounds.length - 1]
+      if (round) void this.#armFor(run.id, round.role)
+    }
     const queued = (this.#turning.get(run.id) ?? Promise.resolve()).then(() =>
       this.#advance(run.id, intent).catch((error: unknown) => {
         this.#port.log('a flow could not open its next round', {
@@ -560,7 +587,10 @@ export class Flows implements TeamFlows {
   async reArm(runtime: string, sessionId: string): Promise<void> {
     const key = String(sessionKey(runtime as never, sessionId as never))
     const run = [...this.#runs.values()].find(
-      (one) => one.state === 'running' && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
+      (one) =>
+        (one.state === 'running' || one.state === 'stalled') &&
+        Array.isArray(one.seats) &&
+        one.seats.some((seat) => seat.key === key),
     )
     if (!run) return
     const seat = run.seats.find((one) => one.key === key) as FlowSeatRecord
@@ -661,10 +691,13 @@ export class Flows implements TeamFlows {
       })
       return
     }
+    this.#stoppedSeats.delete(key)
     const currentRun = (this.#runs.get(run.id) ?? run) as StoredRun
+    const recovering = currentRun.state === 'stalled'
     const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
     this.#runs.set(currentRun.id, {
       ...currentRun,
+      ...(recovering ? { state: 'running', ended: null } : {}),
       record: [
         ...currentRecord,
         {
@@ -676,6 +709,12 @@ export class Flows implements TeamFlows {
         },
       ],
     })
+    if (recovering) {
+      this.#port.log('a stalled flow run recovered and returned to running', {
+        run: currentRun.id,
+        seat: seat.seat,
+      })
+    }
     this.#save(run.id)
   }
 
@@ -794,7 +833,6 @@ export class Flows implements TeamFlows {
       this.#runs.set(id, {
         ...run,
         state: 'stalled',
-        endedAt: now(),
         ended: why,
         record: [
           ...record,
@@ -827,6 +865,11 @@ export class Flows implements TeamFlows {
     )
     if (!run) return null
     if (run.state === 'running') return null
+    if (run.state === 'stalled') {
+      const round = run.rounds[run.rounds.length - 1]
+      const seat = run.seats.find((s) => s.key === key)
+      if (round && seat && seat.role !== round.role) return null
+    }
     return run.ended ?? `the flow "${run.flow.name}" has finished`
   }
 
