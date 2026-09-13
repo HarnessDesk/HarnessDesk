@@ -1214,4 +1214,29 @@ seed:
   assert.equal(runCall.cwd, '/repo/.worktrees/feature/packages/sub')
 })
 
+test("a flow's seat title names the role, room, and flow name (#369)", async (t) => {
+  const one = await rig(t)
+  const room = (await one.team.createRoom('/repo', 'Hunt · mantis')).id
+  const source = `
+name: Bug hunt
+roles:
+  hunter:
+    count: 2
+    kind: agent
+    seat: cursor
+    permission: read
+    outcomes: [done]
+seed:
+  role: hunter
+  title: "Sweep"
+`
+  await one.flows.start({ room, source })
+  const titles = one.seated.map((s) => s.title)
+  assert.deepEqual(titles, [
+    'hunter 1 · Hunt · mantis · Bug hunt',
+    'hunter 2 · Hunt · mantis · Bug hunt',
+  ])
+})
+
+
 

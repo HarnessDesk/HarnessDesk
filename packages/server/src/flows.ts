@@ -370,7 +370,7 @@ export class Flows implements TeamFlows {
         const cwd = role.isolate
           ? await this.#port.isolate(targetCwd, `${role.id}-${index + 1}-${id.slice(-4)}`)
           : targetCwd
-        const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${flow.name}`
+        const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
         const live = await this.#port.seat(spec, { cwd, title })
         const held: FlowSeatRecord = {
           /* Escaped, not the raw byte: a NUL in the source makes the whole
