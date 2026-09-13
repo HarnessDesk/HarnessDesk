@@ -218,6 +218,8 @@ export class Flows implements TeamFlows {
   #rearms = new Map<string, number[]>()
   /** Attendance checks in flight, so a stop or a quit can cancel them. */
   #watching = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Seats that have exhausted their re-arm budget, so 'stopped answering' is recorded once per seat. */
+  #stoppedSeats = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
 
   constructor(dir: string, team: Team, port: FlowPort) {
@@ -569,8 +571,8 @@ export class Flows implements TeamFlows {
        between the stand-down and the turn's end reaching the host. */
     const spent = (this.#rearms.get(key) ?? []).filter((at) => now() - at < REARM_WINDOW_MS)
     if (spent.length >= REARM_BUDGET) {
-      const lastForSeat = run.record.filter((entry) => entry.seat === seat.seat).at(-1)
-      if (lastForSeat?.kind !== 'stopped' || !lastForSeat.text?.startsWith('stopped answering:')) {
+      if (!this.#stoppedSeats.has(key)) {
+        this.#stoppedSeats.add(key)
         this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
           run: run.id,
           role: seat.role,

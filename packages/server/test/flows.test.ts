@@ -619,6 +619,32 @@ test('a failed re-arm releases its reserved slot so future re-arms can succeed',
   assert.equal(one.orders.length, 4 + 3, 'slot 3 was still available')
 })
 
+test('dedup stopped answering records works across multiple seats of the same role', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const reviewers = seatsOf(one, 'reviewer')
+  assert.equal(reviewers.length, 3)
+
+  // Complete round 1 so reviewers have work to do
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  // Kill each reviewer and exhaust each reviewer's budget
+  for (const r of reviewers) {
+    one.kill(r)
+    for (let n = 0; n < 6; n += 1) await one.flows.reArm(r.runtime, r.sessionId)
+  }
+
+  const run = one.flows.runsFor(one.room)[0]!
+  const stoppedRecords = run.record.filter(
+    (e) => e.kind === 'stopped' && /stopped answering/.test(e.text ?? ''),
+  )
+  // Each reviewer seat must have exactly 1 record, so 3 in total
+  assert.equal(stoppedRecords.length, 3)
+})
+
 test('a seat of a settled run is not re-armed — standing down is not dying', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
