@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -57,4 +57,28 @@ test('a deleted chat goes to the Trash, not away', () => {
 
   // A folder that is not there is false, not a throw.
   assert.equal(trashChat(join(home, 'nowhere'), home), false)
+})
+
+test('trashChat does not overwrite a broken symlink in the Trash (#316)', () => {
+  const home = tempDir('cursor-trash-broken-symlink-')
+  const trashDir = join(home, '.Trash')
+  mkdirSync(trashDir, { recursive: true })
+
+  // Control: normal file in Trash triggers numbered suffix
+  const controlChat = makeChat(home, '/repo/control', 'chat-control')
+  writeFileSync(join(trashDir, 'chat-control'), 'occupied')
+  assert.equal(trashChat(controlChat, home), true)
+  assert.deepEqual(readdirSync(trashDir).sort(), ['chat-control', 'chat-control 2'])
+
+  // Place a broken symlink named 'chat-broken' into the Trash pointing to a non-existent target
+  const brokenLinkPath = join(trashDir, 'chat-broken')
+  symlinkSync(join(home, 'nonexistent-target'), brokenLinkPath)
+  assert.equal(lstatSync(brokenLinkPath).isSymbolicLink(), true)
+
+  const chatDir = makeChat(home, '/repo/test', 'chat-broken')
+  assert.equal(trashChat(chatDir, home), true)
+
+  // The broken symlink must not be overwritten; the trashed chat should become 'chat-broken 2'
+  assert.equal(lstatSync(brokenLinkPath).isSymbolicLink(), true, 'control: original broken symlink still exists')
+  assert.deepEqual(readdirSync(trashDir).sort(), ['chat-broken', 'chat-broken 2', 'chat-control', 'chat-control 2'])
 })
