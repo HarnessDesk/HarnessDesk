@@ -67,6 +67,30 @@ test('a prompt streams chunks, a plan, and completes', async () => {
   }
 })
 
+test('a prompt response with omitted stopReason completes cleanly without dropping the turn (#408)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'omit stop reason' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    assert.equal((completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.status, 'completed')
+    const idle = await tape.until(
+      (event) => event.type === 'session/status' && (event as Extract<AgentEvent, { type: 'session/status' }>).status.type === 'idle',
+    )
+    assert.deepEqual((idle as Extract<AgentEvent, { type: 'session/status' }>).status, { type: 'idle' })
+
+    await session.send([{ type: 'text', text: 'null stop reason' }])
+    const completed2 = await tape.until(
+      (event) => event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === 2,
+    )
+    assert.equal((completed2 as Extract<AgentEvent, { type: 'turn/completed' }>).turn.status, 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('one call announced twice is one row, and an unannounced completion still lands', async () => {
   const runtime = make()
   await runtime.start()

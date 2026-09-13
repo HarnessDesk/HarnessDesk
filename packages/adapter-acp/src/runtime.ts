@@ -3229,22 +3229,23 @@ class AcpSession implements AgentSession {
     return item
   }
 
-  #finishTurn(turn: MutableTurn, stopReason: AcpStopReason): void {
+  #finishTurn(turn: MutableTurn, stopReason?: AcpStopReason | string | null): void {
     if (this.#currentTurn?.id !== turn.id) return
-    this.#currentTurn = null
+    const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     const status =
-      stopReason === 'cancelled' ? 'interrupted' : stopReason === 'end_turn' ? 'completed' : 'failed'
+      reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
     const finished: Turn = {
       id: turn.id,
       items: [...turn.items],
       status,
       ...(status === 'failed'
-        ? { error: { message: `The agent stopped: ${stopReason.replace(/_/g, ' ')}.` } }
+        ? { error: { message: `The agent stopped: ${reason.replace(/_/g, ' ')}.` } }
         : {}),
       startedAt: turn.startedAt,
       completedAt: Date.now(),
       durationMs: Date.now() - turn.startedAt,
     }
+    this.#currentTurn = null
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })
