@@ -843,6 +843,7 @@ export class Flows implements TeamFlows {
   async #advance(id: string, because?: Intent): Promise<void> {
     const run = this.#runs.get(id)
     if (!run || run.state !== 'running') return
+    if (!run.rounds || run.rounds.length === 0) return
     const round = run.rounds[run.rounds.length - 1]
     if (!round) return
     const board = this.#team.stateFor(run.room)
@@ -1073,6 +1074,18 @@ export class Flows implements TeamFlows {
       if (!name.endsWith('.json')) continue
       try {
         const raw = JSON.parse(await readFile(join(this.#dir, name), 'utf8')) as StoredRun
+        if (
+          !raw ||
+          typeof raw !== 'object' ||
+          typeof raw.id !== 'string' ||
+          !raw.id ||
+          typeof raw.room !== 'string' ||
+          !Array.isArray(raw.rounds) ||
+          !Array.isArray(raw.seats) ||
+          !Array.isArray(raw.record)
+        ) {
+          throw new Error('run data is missing required fields or has non-array rounds, seats, or record')
+        }
         this.#runs.set(raw.id, raw)
       } catch (error) {
         this.#port.log('a stored flow run could not be read', { file: name, error: String(error) })
@@ -1093,7 +1106,14 @@ export class Flows implements TeamFlows {
         this.#save(run.id)
         continue
       }
-      await this.#advance(run.id)
+      try {
+        await this.#advance(run.id)
+      } catch (error) {
+        this.#port.log('a running flow could not advance during reconciliation', {
+          run: run.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -1236,6 +1236,41 @@ seed:
     'hunter 1 · Hunt · mantis · Bug hunt',
     'hunter 2 · Hunt · mantis · Bug hunt',
   ])
+})
+
+test('Flows.load refuses a running run that omits rounds instead of crashing (#502)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-run.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'run-missing-rounds',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: () => {},
+  })
+
+  await second.load()
+  assert.equal(second.runsFor(one.room).length, 0)
 })
 
 
