@@ -47,6 +47,9 @@ import {
   type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
+  type FlowDryRun,
+  type FlowFile,
+  type FlowRun,
   type TerminalSize,
   type UiDecoration,
   type UserContent,
@@ -325,6 +328,14 @@ export class AppStore {
           const teams = new Map(this.#snapshot.teams)
           teams.set(state.id, state)
           this.#patch({ teams })
+        }
+        if (notification.method === 'flow/changed') {
+          // Whole, for the reason the board is: a round opening changes what
+          // every card beside it means.
+          const { room, runs } = notification.params
+          const flowRuns = new Map(this.#snapshot.flowRuns)
+          flowRuns.set(room, runs)
+          this.#patch({ flowRuns })
         }
         if (notification.method === 'team/removed') {
           const { room } = notification.params
@@ -3299,8 +3310,22 @@ export class AppStore {
     id: number,
     action: 'reopen' | 'abandon' | 'done' | 'release' | 'block',
     reason?: string,
+    /**
+     * What the person answered, on a card a flow addressed to them. Read on
+     * `done`; it is the word the next rule branches on.
+     */
+    outcome?: string,
+    /** The person's own context package, for whatever depends on this card. */
+    context?: string,
   ): Promise<void> {
-    await this.transport.request('team/intent', { room, id, action, ...(reason ? { reason } : {}) })
+    await this.transport.request('team/intent', {
+      room,
+      id,
+      action,
+      ...(reason ? { reason } : {}),
+      ...(outcome ? { outcome } : {}),
+      ...(context ? { context } : {}),
+    })
   }
 
   /** Posts into the channel — to one member, or to everyone in the room. */
@@ -3384,6 +3409,71 @@ export class AppStore {
 
   async renameRoom(room: string, name: string): Promise<void> {
     await this.transport.request('team/room/rename', { room, name })
+  }
+
+  // ------------------------------------------------------------------- flows
+
+  /** The flows this project offers, from the files it keeps them in. */
+  async listFlows(root: string): Promise<readonly FlowFile[]> {
+    return (await this.transport.request('flow/list', { root })) as readonly FlowFile[]
+  }
+
+  /** One flow's text, exactly as it is on disk. */
+  async readFlow(root: string, path: string): Promise<string> {
+    return (await this.transport.request('flow/read', { root, path })) as string
+  }
+
+  /**
+   * What this flow would do, spending nothing.
+   *
+   * Sends the *text* rather than a path, so what is checked is what is in the
+   * box — a dialog that dry-ran the last saved version would approve a flow
+   * nobody is about to run.
+   */
+  async dryRunFlow(
+    root: string,
+    source: string,
+    answers?: Readonly<Record<string, readonly string[]>>,
+  ): Promise<FlowDryRun> {
+    return (await this.transport.request('flow/dry', {
+      root,
+      source,
+      ...(answers ? { answers } : {}),
+    })) as FlowDryRun
+  }
+
+  /** Seats the flow and opens its seed round. The only call here that spends. */
+  async startFlow(
+    room: string,
+    source: string,
+    options: { readonly path?: string; readonly vars?: Readonly<Record<string, string>> } = {},
+  ): Promise<FlowRun> {
+    const run = (await this.transport.request('flow/start', {
+      room,
+      source,
+      ...(options.path ? { path: options.path } : {}),
+      ...(options.vars ? { vars: options.vars } : {}),
+    })) as FlowRun
+    await this.loadFlowRuns(room)
+    return run
+  }
+
+  /** Stops a run. The cards stay as the record; every seat is told to stand down. */
+  async stopFlow(room: string, run: string): Promise<void> {
+    await this.transport.request('flow/stop', { run })
+    await this.loadFlowRuns(room)
+  }
+
+  /** Every run a room has had, for the surface that draws which round is open. */
+  async loadFlowRuns(room: string): Promise<void> {
+    try {
+      const runs = (await this.transport.request('flow/runs', { room })) as readonly FlowRun[]
+      const flowRuns = new Map(this.#snapshot.flowRuns)
+      flowRuns.set(room, runs)
+      this.#patch({ flowRuns })
+    } catch {
+      // A room the host no longer has is a room with no runs to draw.
+    }
   }
 
   /**

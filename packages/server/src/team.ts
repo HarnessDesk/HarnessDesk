@@ -132,6 +132,14 @@ interface Board {
   /** What each member is called here, keyed by `runtime\u0000sessionId`. */
   nicknames: Record<string, string>
   /**
+   * What role each member holds here, keyed the same way.
+   *
+   * Empty on every room without a flow, which is every room that exists
+   * today: a member with no role can claim anything a card with no role
+   * offers, and that is the whole of the old behaviour.
+   */
+  roles: Record<string, string>
+  /**
    * What the room knows about each member, keyed the same way.
    *
    * Membership is persisted; the conversations themselves are not this
@@ -190,6 +198,8 @@ interface StoredBoard {
   readonly channel: readonly TeamEntry[]
   /** Absent on a board written before rooms had names; rebuilt on sight. */
   readonly nicknames?: Readonly<Record<string, string>>
+  /** Absent on a board written before roles existed; read as nobody holding one. */
+  readonly roles?: Readonly<Record<string, string>>
   /**
    * Absent on a board written before a member had to survive the quit. Such a
    * board's members are drawn as soon as each is seen once — which is what
@@ -264,6 +274,35 @@ export interface TeamPort {
 }
 
 /**
+ * What a running flow needs from the board, and all it may ask of it.
+ *
+ * The flow engine is a separate service on purpose: the board is one writer
+ * over one file per room, and a second thing mutating cards would be a second
+ * writer. So the board *asks* — may this card answer that? — and *tells* —
+ * this card finished — and every card a rule opens comes back through
+ * `addIntentForFlow`, down the same path a person's card takes.
+ *
+ * Absent on a desk with no flows, which is the ordinary case: the hook is
+ * null and nothing on this plane behaves differently from the day before.
+ */
+export interface TeamFlows {
+  /**
+   * Why this card may not answer that — or null, which is the answer for
+   * every card that belongs to no run. Synchronous, because it decides
+   * whether a completion is written at all.
+   */
+  refuseOutcome(room: string, intent: Intent, outcome: string | null): string | null
+  /** A card finished. The engine may open the next round. */
+  completed(room: string, intent: Intent): void
+  /**
+   * Why this seat should stop waiting and end its turn, in a sentence — or
+   * null while its run is still going. The one thing that may end a standing
+   * order's turn, so it is the flow engine's to say and nobody else's.
+   */
+  standDown(room: string, runtime: string, sessionId: string): string | null
+}
+
+/**
  * How a member's turn ended, when it ended without answering.
  *
  * The host classifies — it owns the turn vocabulary and the adapters' error
@@ -279,6 +318,47 @@ export interface TeamCallScope {
   readonly runtime?: string
   readonly sessionId?: string
 }
+
+/**
+ * A seat parked inside `await_work` until its board has something for it.
+ *
+ * Held in memory only: a wait is a tool call in flight, and a process that
+ * restarts has no tool call to answer. The seat's order tells it to call
+ * again, which is what a restart leaves it doing.
+ */
+interface Waiter {
+  readonly key: string
+  readonly board: string
+  /**
+   * Which cycle this call was, so the wake can name the next one.
+   *
+   * Every other answer ends "call await_work again with cycle: N", and the
+   * wake path said "with the next cycle number" — sending the seat back to a
+   * counter it would have to keep itself, which is the exact fragility the
+   * number exists to remove.
+   */
+  readonly cycle: number
+  readonly resolve: (answer: string | null) => void
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+/**
+ * How long one `await_work` blocks when the caller does not say.
+ *
+ * Short of every vendor tool timeout that has been measured — Cursor's MCP
+ * client gives up at sixty seconds — because this is the value a seat that
+ * *forgot* its instruction gets, and the failure to design for is a block
+ * nobody can hold rather than one that is shorter than asked. A seat cut off
+ * mid-wait sees an error where it expected an answer; a seat answered
+ * "nothing yet" simply calls again.
+ *
+ * A flow's own `wait` is clamped per runtime before it reaches the order
+ * (`waitFor` in flow.ts), so this is the floor under a mistake and not the
+ * number a seated agent normally uses.
+ */
+const DEFAULT_WAIT_MS = 50_000
+/** And a ceiling, so a flow cannot park a tool call for an afternoon. */
+const WAIT_CEILING_MS = 900_000
 
 /** A message waiting for its receiver's turn to end. */
 interface PendingDelivery {
@@ -499,6 +579,8 @@ export class Team {
   readonly #dir: string
   readonly #port: TeamPort
   #settings: TeamSettings = DEFAULT_TEAM_SETTINGS
+  /** The flow engine, when the host has one. Null on every desk running no flows. */
+  #flows: TeamFlows | null = null
   /**
    * Who is owed an answer: a receiver whose current turn was started by a
    * delivery, and the conversation that asked. Cleared when the turn ends,
@@ -524,6 +606,7 @@ export class Team {
    * docs/multi-agent.md safety rule 2, at the grain the host can enforce.
    */
   readonly #deniedInTurn = new Set<string>()
+  #waiters = new Set<Waiter>()
   #writes: Promise<void> = Promise.resolve()
   /** Latest content per file; a burst of mutations becomes one write. */
   readonly #queuedContent = new Map<string, string | null>()
@@ -554,6 +637,17 @@ export class Team {
    * put the engine in a state with no rate limit is a settings page that can
    * spend the user's tokens.
    */
+  /**
+   * Hands the board the flow engine, once, at start-up.
+   *
+   * Not a constructor argument because the two are mutually referential —
+   * the engine opens cards through this board — and the cycle is easier to
+   * read broken here than threaded through both constructors.
+   */
+  attachFlows(flows: TeamFlows): void {
+    this.#flows = flows
+  }
+
   configure(next: Partial<TeamSettings>): void {
     const inboundBefore = this.#settings.inboundDefault
     this.#settings = {
@@ -630,6 +724,7 @@ export class Team {
           plans: [...(raw.plans ?? [])],
           messaging: raw.messaging,
           nicknames: { ...(raw.nicknames ?? {}) },
+          roles: { ...(raw.roles ?? {}) },
           roster: { ...(raw.roster ?? {}) },
           intents: [...raw.intents],
           // A `queued` row waits on an in-memory delivery, and this is a
@@ -935,6 +1030,17 @@ export class Team {
     id: number,
     action: 'reopen' | 'abandon' | 'done' | 'release' | 'block',
     reason?: string,
+    /**
+     * What the person answered, on a card a flow addressed to them.
+     *
+     * `who: person` is a step, not an absence: the round opens, the card
+     * appears addressed to them, the loop waits, and their completion carries
+     * the outcome the next rule branches on. Read on `done`; ignored by the
+     * other verbs, which say nothing about the merits.
+     */
+    outcome?: string,
+    /** The person's own context package, for the round that depends on this. */
+    context?: string,
   ): void {
     const board = this.#boardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
@@ -966,9 +1072,29 @@ export class Team {
       this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
     } else if (action === 'done') {
-      this.#patchIntent(board, id, { state: 'done', claim: null, blockedReason: null, blockedBy: null })
-      this.#signal(board, by, 'completed', intent, 'marked done by you')
+      const said = outcome?.trim() || null
+      const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
+      if (refusal) throw new Error(refusal)
+      this.#patchIntent(board, id, {
+        state: 'done',
+        claim: null,
+        blockedReason: null,
+        blockedBy: null,
+        outcome: said,
+        /* Left alone when the person did not write one, so marking an agent's
+           finished card done by hand does not erase the package it left. */
+        ...(context?.trim() ? { handoff: context.trim() } : {}),
+      })
+      this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
+      this.#commit(board)
+      this.#flows?.completed(board.id, {
+        ...intent,
+        state: 'done',
+        outcome: said,
+        ...(context?.trim() ? { handoff: context.trim() } : {}),
+      })
+      return
     } else {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'reopened', intent, null)
@@ -1348,12 +1474,225 @@ export class Team {
    * all retrying on the second. Here the pick and the claim are one call,
    * and a card another member took a moment ago is simply skipped.
    */
+  /**
+   * Waits, for free, until there is a card this member can take.
+   *
+   * This is what lets a seat live inside **one turn** for as long as the desk
+   * is up. On a request-billed plan a turn costs the same whether it lasts a
+   * second or a day, and a *second* message is a second request — so a seat is
+   * handed one standing order and loops inside it: wait, claim, do, finish,
+   * wait. A hundred cards for the price of the seating.
+   *
+   * The wait costs nothing because it is not a poll. The board is in this
+   * process, so a waiter is woken by the write that made its card claimable,
+   * with no file read, no round trip and no tokens spent between calls. What
+   * it costs the *seat* is one tool call, which is why the answer is one line:
+   * a seat sees this line thousands of times and every character of it is
+   * context it will be carrying for the rest of its life.
+   *
+   * `cycle` is in the answer rather than the question because of a measured
+   * failure: a vendor harness stops accepting the *same* blocked call after
+   * enough repeats, and two seats ended their turns saying exactly that. The
+   * answer hands back the number to pass next time, so no two calls are
+   * alike and the model never has to remember one.
+   */
+  async awaitWork(
+    scope: TeamCallScope,
+    options: { blockMs?: number; cycle?: number } = {},
+  ): Promise<string> {
+    const caller = this.#caller(scope)
+    const board = await this.#boardOf(caller)
+    const cycle = Number.isFinite(options.cycle) ? Math.max(0, Math.trunc(options.cycle as number)) : 0
+    const next = `Call await_work again with cycle: ${cycle + 1}.`
+    const key = keyOf(caller.runtime, caller.sessionId)
+    const done = this.#flows?.standDown(board.id, caller.runtime, caller.sessionId) ?? null
+    if (done) return `stand down — ${done}`
+    const ready = (): Intent | null =>
+      [...board.intents]
+        .filter(
+          (intent) =>
+            intent.state === 'open' &&
+            !intent.claim &&
+            this.#misaddressed(board, intent, caller) === null &&
+            intent.dependsOn.every((dep) => {
+              const found = board.intents.find((entry) => entry.id === dep)
+              return found === undefined || found.state === 'done'
+            }) &&
+            this.#conflictsWith(board, intent.files, caller).length === 0,
+        )
+        .sort((a, b) => a.id - b.id)[0] ?? null
+    const now = ready()
+    if (now) return `work: #${now.id} ${now.title}. Claim it with claim_next. ${next}`
+
+    const blockMs = Math.min(
+      WAIT_CEILING_MS,
+      Math.max(1000, Math.trunc(options.blockMs ?? DEFAULT_WAIT_MS)),
+    )
+    const answer = await new Promise<string | null>((resolve) => {
+      const waiter: Waiter = { key, board: board.id, cycle, resolve, timer: null }
+      waiter.timer = setTimeout(() => {
+        this.#waiters.delete(waiter)
+        resolve(null)
+      }, blockMs)
+      this.#waiters.add(waiter)
+    })
+    if (answer !== null) return answer
+    /* Re-asked rather than remembered: the board may have changed while the
+       timer was settling, and a seat told "nothing yet" about a card that is
+       sitting there would wait out another whole cycle for nothing. */
+    const late = ready()
+    if (late) return `work: #${late.id} ${late.title}. Claim it with claim_next. ${next}`
+    const ended = this.#flows?.standDown(board.id, caller.runtime, caller.sessionId) ?? null
+    if (ended) return `stand down — ${ended}`
+    return `nothing yet. ${next}`
+  }
+
+  /**
+   * Wakes every waiter whose board just changed, with whatever it can now
+   * take. Called from `#commit`, which is the one place a card can become
+   * claimable.
+   */
+  #wake(board: Board): void {
+    if (this.#waiters.size === 0) return
+    for (const waiter of [...this.#waiters]) {
+      if (waiter.board !== board.id) continue
+      const { runtime, id } = splitSessionKey(waiter.key as SessionKey)
+      const sessionId = String(id)
+      const peer = this.#membersOf(board, this.#port.peers()).find(
+        (one) => one.runtime === runtime && one.sessionId === sessionId,
+      )
+      if (!peer) continue
+      const standDown = this.#flows?.standDown(board.id, runtime, sessionId) ?? null
+      const found = standDown
+        ? null
+        : [...board.intents]
+            .filter(
+              (intent) =>
+                intent.state === 'open' &&
+                !intent.claim &&
+                this.#misaddressed(board, intent, peer) === null &&
+                intent.dependsOn.every((dep) => {
+                  const dependency = board.intents.find((entry) => entry.id === dep)
+                  return dependency === undefined || dependency.state === 'done'
+                }) &&
+                this.#conflictsWith(board, intent.files, peer).length === 0,
+            )
+            .sort((a, b) => a.id - b.id)[0]
+      if (!standDown && !found) continue
+      if (waiter.timer) clearTimeout(waiter.timer)
+      this.#waiters.delete(waiter)
+      waiter.resolve(
+        standDown
+          ? `stand down — ${standDown}`
+          : `work: #${found!.id} ${found!.title}. Claim it with claim_next. Call await_work again with cycle: ${waiter.cycle + 1}.`,
+      )
+    }
+  }
+
+  /**
+   * Is there a card on this board that this member could take right now?
+   *
+   * The same rule `claim_next` and `await_work` apply, asked by the flow
+   * engine before it spends a turn waking a seat: a seat whose role has
+   * nothing open will wake, find nothing, and end its turn again, and doing
+   * that on a budget is a budget spent on nothing.
+   */
+  hasWorkFor(room: string, runtime: string, sessionId: string): boolean {
+    const board = this.#board(room)
+    if (!board) return false
+    const peer = this.#membersOf(board, this.#port.peers()).find(
+      (one) => one.runtime === runtime && one.sessionId === sessionId,
+    )
+    if (!peer) return false
+    /* Work in hand counts. A seat whose turn dies *while holding a card* has
+       the most urgent work there is, and the card is `claimed` rather than
+       `open` — so looking only for open cards left exactly that seat asleep,
+       with the round stalled behind a claim nobody was working. Measured: a
+       reviewer ended its turn mid-review and the run sat there until the
+       lease ran out, three quarters of an hour later. */
+    if (
+      board.intents.some(
+        (intent) =>
+          intent.state === 'claimed' &&
+          intent.claim?.runtime === runtime &&
+          intent.claim.sessionId === sessionId,
+      )
+    ) {
+      return true
+    }
+    return board.intents.some(
+      (intent) =>
+        intent.state === 'open' &&
+        !intent.claim &&
+        this.#misaddressed(board, intent, peer) === null &&
+        intent.dependsOn.every((dep) => {
+          const found = board.intents.find((entry) => entry.id === dep)
+          return found === undefined || found.state === 'done'
+        }) &&
+        this.#conflictsWith(board, intent.files, peer).length === 0,
+    )
+  }
+
+  /**
+   * Asks every waiter on this board again.
+   *
+   * A card becoming claimable always goes through `#commit`, so waking from
+   * the write covers it. This is for the one thing that changes what a waiter
+   * should hear *without* changing the board: a flow run ending. Without it a
+   * seat waits out its whole block on a flow that is over.
+   */
+  nudgeRoom(id: string): void {
+    const board = this.#board(id)
+    if (board) this.#wake(board)
+  }
+
+  /**
+   * Lets every waiting seat go, with a reason. The desk is closing, or the
+   * room is; either way a tool call held open across it is a turn that never
+   * ends.
+   */
+  stopWaiting(reason: string): void {
+    for (const waiter of [...this.#waiters]) {
+      if (waiter.timer) clearTimeout(waiter.timer)
+      this.#waiters.delete(waiter)
+      waiter.resolve(`stand down — ${reason}`)
+    }
+  }
+
+  /**
+   * A card a rule opened, addressed to the role the rule named.
+   *
+   * The person's authority, because it is the person who started the flow:
+   * they read the dry run, they pressed the thing, and every card it opens is
+   * theirs in exactly the way a card they typed is. It goes down the same path
+   * as one they typed, so there is one writer over a board and one set of
+   * rules about what may be on it.
+   */
+  addIntentForFlow(
+    room: string,
+    args: {
+      title: string
+      detail?: string
+      files?: readonly string[]
+      dependsOn?: readonly number[]
+      role: string
+    },
+  ): Intent {
+    const board = this.#boardById(room)
+    return this.#addIntent(board, args, { kind: 'user' })
+  }
+
   async claimNext(scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     const ready = (intent: Intent): boolean =>
       intent.state === 'open' &&
       !intent.claim &&
+      /* A card addressed to a role is not "the next card" for anybody else.
+         Skipped rather than refused: `claim_next` is a member asking what it
+         can do, and a reviewer being handed the fixer's card is the routing
+         failure roles exist to end. */
+      this.#misaddressed(board, intent, caller) === null &&
       intent.dependsOn.every((dep) => {
         const found = board.intents.find((entry) => entry.id === dep)
         return found === undefined || found.state === 'done'
@@ -1413,6 +1752,12 @@ export class Team {
           .filter((file): file is string => file !== null),
       ),
     ]
+
+    /* Addressed work, before anything else is decided about it. A card with
+       no role reaches this and passes, which is every card on every board
+       that has no flow. */
+    const misaddressed = this.#misaddressed(board, intent, caller)
+    if (misaddressed) return misaddressed
 
     if (intent.state === 'claimed' && intent.claim) {
       if (
@@ -1547,7 +1892,7 @@ export class Team {
 
   async complete(
     intentId: number,
-    args: { note?: string; handoff?: string },
+    args: { note?: string; handoff?: string; outcome?: string },
     scope: TeamCallScope,
   ): Promise<string> {
     const caller = this.#caller(scope)
@@ -1562,11 +1907,19 @@ export class Team {
     ) {
       return `Refused: you do not hold #${intentId}, so you cannot complete it. Claim it first, or leave it to ${this.#holderName(board, intent)}.`
     }
+    /* What the card answered, checked against what its role may say before
+       anything is written. An outcome a role never declared is a rule that
+       will silently never fire, so it is refused here with the vocabulary
+       spelled out rather than stored and puzzled over later. */
+    const outcome = args.outcome?.trim() || null
+    const refusal = this.#flows?.refuseOutcome(board.id, intent, outcome) ?? null
+    if (refusal) return refusal
     this.#patchIntent(board, intentId, {
       state: 'done',
       claim: null,
       note: args.note?.trim() || null,
       handoff: args.handoff?.trim() || null,
+      outcome,
     })
     this.#signal(board, this.#actorOf(board, caller), 'completed', intent, args.note?.trim() || null)
     const opened = this.#unblock(board, this.#actorOf(board, caller))
@@ -1578,6 +1931,11 @@ export class Team {
       kind: 'team/intent',
       decision: 'completed',
     })
+    /* After the board is written, never before: a rule that opens the next
+       round adds cards through this same engine, and a run advanced against a
+       board that had not yet recorded the completion would read its own round
+       as unfinished. */
+    this.#flows?.completed(board.id, { ...intent, state: 'done', outcome })
     const unblocked =
       opened.length > 0
         ? ` That unblocked ${opened.map((id) => `#${id}`).join(', ')}.`
@@ -2193,6 +2551,7 @@ export class Team {
       channel: [...board.channel],
       messaging: board.messaging,
       nicknames: { ...board.nicknames },
+      roles: { ...board.roles },
       // What `inboundFor` resolves, for each member of this room.
       inbound: Object.fromEntries(
         board.members.map((key) => [key, this.#inbound.get(key) ?? this.#settings.inboundDefault]),
@@ -2247,6 +2606,7 @@ export class Team {
       intents: [],
       channel: [],
       nicknames: {},
+      roles: {},
       roster: {},
     }
     this.#boards.set(board.id, board)
@@ -2364,6 +2724,7 @@ export class Team {
       const remembered = board.roster[String(key)]
       board.members = board.members.filter((one) => one !== key)
       delete board.roster[String(key)]
+      delete board.roles[String(key)]
       /* `nicknames` is deliberately left alone, the way it is when somebody
          leaves: the channel's own rows already name this member, and one that
          somehow comes back keeps the word people were using for it. */
@@ -2397,6 +2758,11 @@ export class Team {
        stays, as it always has, so a conversation that comes back keeps the
        word the channel already used for it. */
     delete board.roster[String(key)]
+    /* The role does *not* stay. A nickname is what a member is called and
+       survives it leaving; a role is a permission to claim, and a member that
+       is no longer here must not be able to claim work addressed to the seat
+       it used to hold. */
+    delete board.roles[String(key)]
     this.#commit(board)
     this.#dropCrossRoom(key)
     this.#port.membershipChanged(runtime, sessionId)
@@ -2695,6 +3061,94 @@ export class Team {
    * because a claim can now be widened after the fact, and two spellings of
    * this would drift.
    */
+  /**
+   * What role a member holds in a room, or nothing.
+   *
+   * Nothing is the ordinary answer: a room without a flow gives nobody a
+   * role, and a member with no role is refereed exactly as it was before
+   * roles existed.
+   */
+  roleOf(room: string, runtime: string, sessionId: string): string | null {
+    const board = this.#board(room)
+    return board?.roles[keyOf(runtime, sessionId)] ?? null
+  }
+
+  /**
+   * Gives a member its role in a room, or takes it away with `null`.
+   *
+   * The flow runner calls this as it seats; it is here because the board is
+   * where a member is named and where the claim is refereed, and a role kept
+   * anywhere else would be a second source of truth for the one question
+   * `claim_next` has to answer.
+   */
+  setRole(room: string, runtime: string, sessionId: string, role: string | null): void {
+    const board = this.#boardById(room)
+    const key = keyOf(runtime, sessionId)
+    if (role === null) {
+      if (!(key in board.roles)) return
+      delete board.roles[key]
+    } else {
+      if (board.roles[key] === role) return
+      board.roles[key] = role
+    }
+    this.#commit(board)
+  }
+
+  /**
+   * Why this caller may not take a card somebody addressed to a role — or
+   * null, which is the answer for every card that carries no role.
+   *
+   * The refusal names the role and who holds it, because the failure it
+   * replaces was silent: with no assignee, `claim_next` handed a reviewer the
+   * fix card and a fixer its own pull request, and the only workaround was to
+   * put them in separate rooms, which then made the loop impossible to close.
+   */
+  #misaddressed(board: Board, intent: Intent, caller: TeamPeer): string | null {
+    const wanted = intent.role
+    if (!wanted) return null
+    const key = keyOf(caller.runtime, caller.sessionId)
+    if (board.roles[key] === wanted) {
+      /* One addressed card at a time. A round is N sibling cards and N seats,
+         and nothing in the board's own rules stopped the first reviewer to
+         ask taking all three — it would have claimed one, been offered the
+         next, and the other two seats would have waited on a round one of
+         them had already swallowed. Scoped to addressed work on purpose: a
+         member holding several ordinary cards is how a board has always
+         worked, and every board without a flow is untouched. */
+      const held = board.intents.find(
+        (entry) =>
+          entry.state === 'claimed' &&
+          entry.role &&
+          entry.id !== intent.id &&
+          entry.claim?.runtime === caller.runtime &&
+          entry.claim.sessionId === caller.sessionId,
+      )
+      if (held) {
+        return `Refused: you are already holding #${held.id} — ${held.title}. Finish or release it before taking another; the rest of this round is for the other seats.`
+      }
+      return null
+    }
+    /* Named the way the room names them — through the same lazy naming the
+       rail and every signal use, so the refusal says "Codex holds that role"
+       rather than nothing at all for the first minutes of a conversation's
+       life, which is exactly when a seat is most likely to ask. */
+    const live = this.#membersOf(board, this.#port.peers())
+    const holders = board.members
+      .filter((member) => board.roles[member] === wanted)
+      .map((member) => {
+        const { runtime, id } = splitSessionKey(member)
+        const peer = live.find((one) => one.runtime === runtime && one.sessionId === String(id))
+        return peer ? this.#nameOn(board, peer) : board.nicknames[member]
+      })
+      .filter((name): name is string => Boolean(name))
+    const held = board.roles[key]
+    const who =
+      holders.length > 0
+        ? ` ${holders.join(', ')} ${holders.length === 1 ? 'holds' : 'hold'} that role`
+        : ' Nobody on this board holds that role, so it is waiting for whoever does'
+    return `Refused: #${intent.id} is addressed to ${wanted}, and you are ${held ? `the ${held}` : 'not holding a role here'}.${who}.`
+  }
+
   #ownership(files: readonly string[]): string {
     return files.length > 0
       ? ` You own ${files.join(', ')} until you complete or release it; nobody else can claim work that overlaps them.`
@@ -2742,6 +3196,8 @@ export class Team {
       files?: readonly string[]
       dependsOn?: readonly number[]
       plan?: number
+      /** Who the card is for. Only a flow sets this; everything else adds open work. */
+      role?: string
     },
     by: TeamActor,
   ): Intent {
@@ -2769,6 +3225,10 @@ export class Team {
       /* Only a goal that exists: a job pointing at a plan nobody made would
          group under a heading the board cannot draw, and disappear. */
       plan: board.plans.some((entry) => entry.id === args.plan) ? (args.plan as number) : null,
+      /* Null rather than absent, so a card added without one is explicitly
+         open to anybody rather than merely missing a field. */
+      role: args.role?.trim() || null,
+      outcome: null,
       claim: null,
       blockedReason: null,
       blockedBy: blocked ? 'graph' : null,
@@ -3171,6 +3631,10 @@ export class Team {
 
   #commit(board: Board): void {
     this.#port.changed(this.#stateOf(board))
+    /* Every card that becomes claimable becomes claimable here. Waking from
+       the commit is what makes a wait free: nobody polls, and a seat is in
+       its claim within a tick of the write that opened its card. */
+    this.#wake(board)
     const stored: StoredBoard = {
       version: 1,
       id: board.id,
@@ -3181,6 +3645,7 @@ export class Team {
       nextPlan: board.nextPlan,
       plans: board.plans,
       nicknames: board.nicknames,
+      roles: board.roles,
       roster: board.roster,
       messaging: board.messaging,
       intents: board.intents,

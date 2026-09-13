@@ -5,7 +5,7 @@ import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
  *
  * The state and every decision live in the host's team plane — claiming is a
  * transaction there, message routing applies one set of guards there — and
- * this plugin is the doorway: nine tools, delivered to Codex as dynamic
+ * this plugin is the doorway: eleven tools, delivered to Codex as dynamic
  * tools and to every ACP agent over the MCP bridge, exactly like any other
  * plugin tool. The projection layer is what makes coordination cross-vendor
  * without asking any vendor for anything.
@@ -166,6 +166,44 @@ export const teamPlugin: HarnessPlugin = {
           ctx.team.claimNext(scope, Array.isArray(args.files) ? args.files : undefined),
       })
 
+      /*
+       * The wait, and the reason a seat can live inside one turn.
+       *
+       * On a request-billed plan a turn costs the same whether it lasts a
+       * second or a day, and a *second* message is a second request — so the
+       * whole job has to fit inside the first one. This is what makes that
+       * possible without spending anything while nothing is happening: the
+       * board is in the same process, so the call is woken by the write that
+       * opened the card rather than by anybody polling.
+       */
+      ctx.tools.register({
+        name: 'await_work',
+        description:
+          'Wait until there is a card on this board you can take, then return. Costs nothing while you wait, so this is how to stay available without ending your turn or asking anybody anything. It answers one line: "work: #N …" means claim it with claim_next; "nothing yet" means call this again; "stand down" is the only answer that means your job is over. Pass `cycle` with the number the last answer told you to use — the calls have to differ from each other.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            cycle: {
+              type: 'number',
+              description: 'The number the previous answer asked you to pass. Start at 0.',
+            },
+            block_ms: {
+              type: 'number',
+              description:
+                'How long this call may block before answering "nothing yet". Leave it out unless your standing order gave you a number.',
+            },
+          },
+        },
+        execute: (args: { cycle?: number; block_ms?: number }, scope) =>
+          ctx.team.awaitWork(
+            {
+              ...(args.cycle !== undefined ? { cycle: Number(args.cycle) } : {}),
+              ...(args.block_ms !== undefined ? { blockMs: Number(args.block_ms) } : {}),
+            },
+            scope,
+          ),
+      })
+
       ctx.tools.register({
         name: 'check_conflicts',
         description:
@@ -188,7 +226,7 @@ export const teamPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'complete_claim',
         description:
-          'Finish an intent you hold. `note` is the one-liner the board shows. `context` is the context package — the actual contract you built: routes, shapes, signatures, gotchas. It is handed to whoever claims work that depended on yours, without them having to ask for it, so leave one whenever anything depends on your intent.',
+          'Finish an intent you hold. `note` is the one-liner the board shows. `context` is the context package — the actual contract you built: routes, shapes, signatures, gotchas. It is handed to whoever claims work that depended on yours, without them having to ask for it, so leave one whenever anything depends on your intent. `outcome` is the one word the next step branches on — your card says which words it accepts, and a card that names them will not finish without one.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -198,15 +236,21 @@ export const teamPlugin: HarnessPlugin = {
               type: 'string',
               description: 'The contract the dependent work needs: routes, shapes, signatures.',
             },
+            outcome: {
+              type: 'string',
+              description:
+                'Your verdict, in one of the words your card listed — approve, request-changes, published. Prose goes in note; this is what decides what happens next.',
+            },
           },
           required: ['intent'],
         },
-        execute: (args: { intent: number; note?: string; context?: string }, scope) =>
+        execute: (args: { intent: number; note?: string; context?: string; outcome?: string }, scope) =>
           ctx.team.complete(
             Number(args.intent),
             {
               ...(args.note !== undefined ? { note: String(args.note) } : {}),
               ...(args.context !== undefined ? { handoff: String(args.context) } : {}),
+              ...(args.outcome !== undefined ? { outcome: String(args.outcome) } : {}),
             },
             scope,
           ),

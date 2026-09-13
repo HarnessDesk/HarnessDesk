@@ -1,0 +1,70 @@
+# Two agents attempt the same thing without seeing each other's work, and a
+# third decides which attempt is better.
+#
+# The competitors are one role of two seats, not two roles: a round is the
+# unit a rule fires on, so one round of two cards is exactly "both of them,
+# then the judge". `isolate: true` gives each card a worktree of its own, on a
+# branch of its own, which is what stops either from reading the other's work.
+name: Race with a judge
+description: Two attempts in isolation, judged by a third agent.
+
+inputs:
+  work:
+    label: What both should attempt
+
+wait: 240
+
+roles:
+  competitor:
+    kind: agent
+    # One seat per card, so the two attempts are two different models. Give it
+    # a single seat instead and both cards run the same one.
+    seat:
+      - cursor=gpt-5.3-codex/xhigh
+      - cursor=claude-4.6-opus/max+thinking
+    count: 2
+    permission: read
+    isolate: true
+    outcomes: [done, cannot]
+    order: |
+      You are attempting this on your own, in a checkout nobody else can see.
+      Do not look for anybody else's attempt and do not read outside your own
+      checkout. Build the thing, make it work, and leave a context package a
+      judge can read without running anything: what you did, where it is, what
+      you tested, and what you knowingly left out. Answer `done`, or `cannot`
+      with the reason.
+
+  judge:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    count: 1
+    permission: read
+    outcomes: [first, second, neither]
+    order: |
+      Two attempts at the same task are attached to this card, in the order
+      they were made. Read both. Decide which you would keep, on correctness
+      first and then on how much of the problem it actually solved. Say which,
+      and say what the other one did better — a judgment with nothing good to
+      say about the loser is one nobody can check.
+
+      Answer `first`, `second`, or `neither` if both fail the task.
+
+seed:
+  role: competitor
+  title: "Attempt {{n}} of {{count}} — {{work}}"
+  detail: |
+    {{work}}
+
+rules:
+  - id: judge-them
+    on: competitor
+    when: { every: done }
+    then:
+      role: judge
+      title: "Judge {{answered}} attempts"
+      detail: |
+        Both attempts are attached.
+
+layout:
+  competitor: { x: 40, y: 40 }
+  judge: { x: 300, y: 40 }

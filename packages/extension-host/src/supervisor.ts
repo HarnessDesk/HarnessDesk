@@ -514,13 +514,28 @@ export class PluginHostProcess {
             })
             return
           }
+          case 'team/awaitWork': {
+            const { cycle, blockMs } = params as { cycle?: number; blockMs?: number }
+            reply({
+              response: request.request,
+              result: await plane.awaitWork(scope, {
+                ...(cycle !== undefined ? { cycle: Number(cycle) } : {}),
+                ...(blockMs !== undefined ? { blockMs: Number(blockMs) } : {}),
+              }),
+            })
+            return
+          }
           case 'team/conflicts': {
             const paths = (params['paths'] ?? []) as readonly string[]
             reply({ response: request.request, result: await plane.conflicts(paths, scope) })
             return
           }
           case 'team/complete': {
-            const { note, handoff } = params as { note?: string; handoff?: string }
+            const { note, handoff, outcome } = params as {
+              note?: string
+              handoff?: string
+              outcome?: string
+            }
             reply({
               response: request.request,
               result: await plane.complete(
@@ -528,6 +543,7 @@ export class PluginHostProcess {
                 {
                   ...(note !== undefined ? { note } : {}),
                   ...(handoff !== undefined ? { handoff } : {}),
+                  ...(outcome !== undefined ? { outcome } : {}),
                 },
                 scope,
               ),

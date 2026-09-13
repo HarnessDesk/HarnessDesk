@@ -78,6 +78,7 @@ import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
 import { redactorFor } from './diagnostics.js'
+import { Flows, runCheck } from './flows.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { LocalFiles, confine, describeWorkspace } from './workspace.js'
@@ -325,6 +326,11 @@ export class Host {
    * gets it through `forgePlane`.
    */
   readonly #forge: ForgePlane
+  /**
+   * The flow engine. Holds the runs, opens the round a finished round earns,
+   * and is the only thing on this plane that spends anything.
+   */
+  readonly #flows: Flows
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -460,6 +466,63 @@ export class Host {
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
     })
+    this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
+      /* Opened with the seat's picks, then *read back*: a runtime drops a
+         pick it declines rather than failing, so a seat that believes it is
+         running at an effort it is not is a seat with an unchecked claim on
+         it. Whatever it is really running is what the record and the room
+         say it is. */
+      seat: async (seat, where) => {
+        const runtime = this.#runtime({ runtime: seat.runtime })
+        const live = await runtime.createSession({
+          cwd: where.cwd,
+          ...(seat.model ? { model: seat.model } : {}),
+          options: {
+            ...(seat.effort ? { effort: seat.effort } : {}),
+            ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+          },
+        })
+        const session = this.#attach(runtime, live.id, live)
+        await live.setTitle(where.title).catch(() => {})
+        await this.#names.set(runtime.info.id, live.id, where.title)
+        const label = await this.#applySeatPicks(live, seat)
+        return { runtime: String(runtime.info.id), sessionId: String(session.id), label }
+      },
+      order: async (runtime, sessionId, text) => {
+        const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+        await live.send([{ type: 'text', text }])
+      },
+      reseat: async (runtime, sessionId, seat) => {
+        const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+        return this.#applySeatPicks(live, seat)
+      },
+      turnFailure: (runtime, sessionId) => {
+        const record = this.registry.get(runtime as RuntimeId, makeSessionId(sessionId))
+        const last = record?.session.turns[record.session.turns.length - 1]
+        return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
+      },
+      retire: async (runtime, sessionId) => {
+        const id = makeSessionId(sessionId)
+        await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
+        this.registry.get(runtime as RuntimeId, id)?.approvals.clear()
+      },
+      join: async (room, runtime, sessionId) => {
+        const id = makeSessionId(sessionId)
+        const known = this.registry.get(runtime as RuntimeId, id)?.session
+        await this.#team.joinRoom(room, runtime as RuntimeId, sessionId, {
+          title: this.#names.nameOf(runtime as RuntimeId, id) ?? known?.title ?? null,
+          agent: this.#runtime({ runtime }).info.presentation.name,
+          cwd: known?.cwd ?? '',
+          model: known?.settings?.model ?? null,
+          at: Date.now(),
+        })
+      },
+      isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
+      run: (command, where) => runCheck(command, where),
+      changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#team.attachFlows(this.#flows)
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
       log: (message, details) => this.#logger.warn(message, details),
@@ -672,11 +735,21 @@ export class Host {
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
     await this.#team.load()
+    /* After the rooms, because a run reconciles against the board it left
+       behind: a quit between the last card of a round finishing and the next
+       round opening is a run that has to be asked, on this launch, whether
+       its board moved on without it. */
+    await this.#flows.load()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
+    /* And only now wake what stopped while the desk was down. Reconciling a
+       run's rounds is board work and belongs above; *sending* to a seat needs
+       the agent that holds it to be running, and asking a moment too early
+       answers "Cursor is not running" for every seat of every flow. */
+    void this.#flows.resume()
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
   }
 
@@ -784,6 +857,10 @@ export class Host {
     this.#ledger?.close()
     await runtimesGone
     this.#runtimes.clear()
+    /* Every seat parked inside `await_work` is a tool call held open, and a
+       held tool call across a quit is a turn that never ends. */
+    this.#team.stopWaiting('the desk is closing')
+    await this.#flows.flush()
     await this.#team.flush()
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
@@ -918,6 +995,7 @@ export class Host {
       terminals: this.#terminals,
       worktrees: this.#worktrees,
       team: this.#team,
+      flows: this.#flows,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,
@@ -1907,6 +1985,74 @@ export class Host {
     }
   }
 
+  /**
+   * Puts one conversation on the model, effort and switches a flow's seat
+   * asked for, and answers with what it is *actually* running.
+   *
+   * Read back rather than assumed, because a runtime drops a pick it declines
+   * rather than failing — a seat that believes it is running at an effort it
+   * is not is a seat with an unchecked claim on it, and a review signed with
+   * that claim is a review that lies about who wrote it.
+   *
+   * Applied at seating **and before every re-arm**. A bridge that restarts
+   * holds no session state, so a conversation it reopens comes back on the
+   * agent's own default: measured after a desk restart, a re-armed Gemini
+   * seat billed as `default` — Cursor's Auto.
+   *
+   * A switch nobody asked for is turned *off*, not inherited. Picks persist
+   * per agent on a desk, so the last seat's thinking switch is the next one's
+   * default: twice the price of every round trip, under a line nobody wrote.
+   */
+  async #applySeatPicks(
+    live: Awaited<ReturnType<AgentRuntime['createSession']>>,
+    seat: { runtime: string; model?: string | null; effort?: string | null; thinking?: boolean },
+  ): Promise<string> {
+    for (const [id, value] of Object.entries({
+      ...(seat.model ? { model: seat.model } : {}),
+      ...(seat.effort ? { effort: seat.effort } : {}),
+      ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+    })) {
+      const option = live.options().find((one) => one.id === id)
+      if (!option || String(option.currentValue) === String(value)) continue
+      await live.setOption(id, value as never).catch((error: unknown) => {
+        this.#logger.warn('a flow seat could not take a pick', {
+          runtime: seat.runtime,
+          option: id,
+          value: String(value),
+          error: describeError(error),
+        })
+      })
+    }
+    for (const id of ['thinking', 'fast', 'max-mode']) {
+      if (id === 'thinking' && seat.thinking !== undefined) continue
+      const option = live.options().find((one) => one.id === id)
+      if (!option || option.disabled || option.currentValue !== true) continue
+      await live.setOption(id, false).catch((error: unknown) => {
+        this.#logger.warn('a flow seat inherited a switch it could not turn off', {
+          runtime: seat.runtime,
+          option: id,
+          error: describeError(error),
+        })
+      })
+    }
+    const ran = live.options()
+    return [
+      this.#runtimes.get(seat.runtime)?.info.presentation.name ?? seat.runtime,
+      ...['model', 'effort'].map((id) => {
+        const option = ran.find((one) => one.id === id)
+        if (!option) return null
+        const choice =
+          option.type === 'select'
+            ? option.choices.find((one) => String(one.value) === String(option.currentValue))
+            : undefined
+        return choice?.label ?? (option.currentValue == null ? null : String(option.currentValue))
+      }),
+      ran.find((one) => one.id === 'thinking')?.currentValue === true ? 'thinking' : null,
+    ]
+      .filter((one): one is string => Boolean(one))
+      .join(' · ')
+  }
+
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
     const existing = this.registry.get(runtime.info.id, id)
     if (existing) {
@@ -2099,6 +2245,14 @@ export class Host {
           ? { ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
           : undefined,
       )
+      /* A seat of a running flow has exactly one turn, and it is meant to
+         outlive the run. When one ends anyway — the model decided it was
+         finished, a usage window ran out, a harness refused the next call —
+         the flow stalls silently: cards stay open, nobody is waiting on them,
+         and the only sign is a room that stopped moving. So the seat is
+         handed its order again. Budgeted, because a seat that cannot start is
+         a seat that would otherwise be re-armed forever. */
+      void this.#flows.reArm(runtime, String(event.sessionId))
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

@@ -23,6 +23,13 @@ multi-agent work splits in practice:
    when work divides into independent or dependent tasks that multiple agents
    can claim, execute, and communicate about in parallel.
 
+**Flows configure the third one; they are not a fourth.** A room's referee is
+a person deciding who does what, moving work between agents and taking the
+irreversible steps. A flow is that policy *declared up front* — named roles,
+the rules that move work between them, and the seeding prompt each role is
+handed — so a loop can run with the person choosing which steps stay theirs.
+The board is still the board. See [docs/flows.md](flows.md).
+
 ---
 
 ## 2. Hand-offs: passing the baton
@@ -585,7 +592,7 @@ one `team/message` event from Cursor (delivered).
 
 ## 7. The Tool Reference
 
-The team surface provides ten tools and one composer context chip, delivered
+The team surface provides eleven tools and one composer context chip, delivered
 through the projection layer to Codex as dynamic tools and to ACP agents via
 the MCP bridge:
 
@@ -594,9 +601,10 @@ the MCP bridge:
 | `list_intents` | *(none)* | Returns all intents on the workspace board with their IDs, titles, details, states, file ownership, and dependencies. |
 | `add_intent` | `title` (required), `detail?`, `files?`, `depends_on?` | Puts a new intent on the board. `files` declares path globs owned while claimed. `depends_on` lists prerequisite intent IDs. |
 | `claim_work` | `intent` (required), `files?` | Atomically claims an open intent. Passing `files` merges path locks with the intent's paths, locking them against concurrent edits. |
-| `claim_next` | `files?` | Atomically claims the next lowest-numbered open, unblocked, non-conflicting intent. Returns the intent, detail, and dependencies' context packages. |
+| `claim_next` | `files?` | Atomically claims the next lowest-numbered open, unblocked, non-conflicting intent. Returns the intent, detail, and dependencies' context packages. A card addressed to a role is skipped unless the caller holds that role, and unless the caller is holding no other addressed card. |
+| `await_work` | `cycle?`, `block_ms?` | Blocks until this conversation's board has a card it can take, then returns one line: `work: #N …`, `nothing yet`, or `stand down`. Costs nothing while waiting — the board wakes it rather than it polling — which is what lets a seat live inside one turn. `cycle` is the number the previous answer asked for, so no two calls are identical. |
 | `check_conflicts` | `paths` (required) | Checks whether specified file paths or globs overlap any active claim on the board. |
-| `complete_claim` | `intent` (required), `note?`, `context?` | Marks a held intent as done. `note` updates the card; `context` stores the context package for dependent tasks. |
+| `complete_claim` | `intent` (required), `note?`, `context?`, `outcome?` | Marks a held intent as done. `note` updates the card; `context` stores the context package for dependent tasks; `outcome` is the one machine-readable word a flow's rules branch on. Free-form here; a card belonging to a flow is held to the outcomes its role declared. |
 | `release_claim` | `intent` (required), `reason?`, `blocked?` | Releases a held intent back to the board. If `blocked: true`, marks it `blockedBy: 'hand'`. |
 | `get_context` | `intent` (required) | Fetches the context package left by the completed intent. |
 | `get_team_status` | *(none)* | Returns the room roster: member names, models, runtime types, activity state (working/idle), and held claims. |

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { Btn, Dialog, Input } from '../design'
+import { FlowStart, type FlowChoice } from './FlowStart'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
 import { AgentIcon, TeamIcon } from './Icons'
@@ -45,6 +46,15 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  /**
+   * The flow this room should run, if any.
+   *
+   * Here rather than on a page of its own because this is where the person
+   * said it should be: "when a user starts a room, the user can choose an
+   * agent as well as set up a workflow". A room with no flow stays exactly the
+   * room it was — the choice defaults to none and costs a glance.
+   */
+  const [flow, setFlow] = useState<FlowChoice | null>(null)
 
   /* How many conversations already live here — the sidebar's own number, from
      the sidebar's own selector.
@@ -80,12 +90,32 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
     if (!root || called === '') return
     setBusy(true)
     setProblem(null)
+    let room: string
     try {
-      await store.createRoom(root, called)
-      onClose()
+      room = await store.createRoom(root, called)
     } catch (error) {
       setBusy(false)
       setProblem(error instanceof Error ? error.message : 'The host did not make that room.')
+      return
+    }
+    if (!flow) {
+      onClose()
+      return
+    }
+    /* The room first, the flow into it. Seating opens conversations and spends
+       a request each, so a flow that fails halfway leaves a room the person
+       can look at — and the seats it did open are in it — rather than nothing
+       and a sentence. */
+    try {
+      await store.startFlow(room, flow.source, { path: flow.path, vars: flow.vars })
+      onClose()
+    } catch (error) {
+      setBusy(false)
+      setProblem(
+        `${called} was made, but the flow did not start: ${
+          error instanceof Error ? error.message : 'the host refused it'
+        }`,
+      )
     }
   }
 
@@ -98,7 +128,13 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
         footer={
           <>
             <Btn variant="primary" disabled={busy || name.trim() === ''} onClick={() => void create()}>
-              {busy ? 'Creating…' : 'Create room'}
+              {busy
+                ? flow
+                  ? 'Seating…'
+                  : 'Creating…'
+                : flow
+                  ? 'Create room and start'
+                  : 'Create room'}
             </Btn>
             <Btn disabled={busy} onClick={() => setNaming(false)}>
               Back
@@ -124,6 +160,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
                   .join(', ')}. The name is how you tell them apart in the sidebar.`
               : 'A room has a board of its own and reaches only the agents you put in it. The name is what the sidebar shows.'}
           </p>
+          {root && <FlowStart root={root} disabled={busy} onChange={setFlow} />}
           {problem && (
             <p className={styles.problem} role="alert">
               {problem}

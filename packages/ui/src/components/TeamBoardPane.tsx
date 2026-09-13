@@ -299,6 +299,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
      exactly the event a stranded chip is waiting for. */
   const sessionCount = snapshot.sessions.size
   const members = (board?.members ?? []).join(' ')
+  /* The room's flow runs, once, when the pane opens. Every change after this
+     arrives as `flow/changed` — the same shape the board's own state does —
+     so this is only what a window that has just been opened is missing. */
+  useEffect(() => {
+    void store.loadFlowRuns(room)
+  }, [store, room])
   useEffect(() => {
     let live = true
     void store
@@ -379,12 +385,29 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   /* The reason is only ever passed when there is one: `block` is the only verb
      that reads it, and handing the other four an explicit `undefined` makes
      every call site look like it might have meant something by it. */
-  const act = (id: number, verb: Verb, reason?: string): void => {
-    void store
-      .teamIntent(room, id, verb, ...(reason === undefined ? [] : ([reason] as const)))
+  /**
+   * The person's verb over a card. `outcome` is what they answered, on a card
+   * a flow addressed to them.
+   *
+   * Called with exactly the arguments that mean something — a trailing
+   * `undefined` is dropped from the request either way, and sending one says
+   * "I considered this and have nothing" where omitting it says nothing at
+   * all, which is what the wire's optional fields are for.
+   */
+  const act = (id: number, verb: Verb, reason?: string, outcome?: string): void => {
+    void (outcome !== undefined
+      ? store.teamIntent(room, id, verb, reason, outcome)
+      : reason !== undefined
+        ? store.teamIntent(room, id, verb, reason)
+        : store.teamIntent(room, id, verb)
+    )
       .then(() => setTrouble(null))
-      .catch(() =>
-        setTrouble(`The host did not take “${verb}” on #${id}; the board is as it was.`),
+      .catch((error: unknown) =>
+        setTrouble(
+          error instanceof Error && error.message
+            ? error.message
+            : `The host did not take “${verb}” on #${id}; the board is as it was.`,
+        ),
       )
   }
 
@@ -685,8 +708,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       now={now}
                       attached={attached}
                       onOpenHolder={() => openHolder(intent)}
-                      onAct={(verb) =>
-                        verb === 'block' ? setStopping(intent) : act(intent.id, verb)
+                      onAct={(verb, outcome) =>
+                        verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)
                       }
                     />
                   ))}
@@ -833,7 +856,8 @@ const IntentCard = ({
   onDragStart: () => void
   onDragEnd: () => void
   onOpenHolder: () => void
-  onAct: (verb: Verb) => void
+  /** `outcome` is what the person answered, on a card a flow addressed to them. */
+  onAct: (verb: Verb, outcome?: string) => void
 }) => {
   const snapshot = useSnapshot()
 
@@ -848,6 +872,16 @@ const IntentCard = ({
    */
   const [menuOpen, setMenuOpen] = useState(false)
   useDismissOverlays(menuOpen, () => setMenuOpen(false))
+
+  /* The role this card was addressed to, as the running flow defines it.
+     A room with no flow has no entry here at all, which is every room that
+     existed before flows — and then every branch below falls through to what
+     the card has always drawn. */
+  const role = useMemo(() => {
+    if (!intent.role) return null
+    const run = (snapshot.flowRuns.get(room) ?? []).find((one) => one.state === 'running')
+    return run?.flow.roles.find((one) => one.id === intent.role) ?? null
+  }, [intent.role, room, snapshot.flowRuns])
 
   const runtime = intent.claim
     ? (snapshot.runtimes.find((one) => one.id === intent.claim?.runtime) ?? null)
@@ -893,10 +927,26 @@ const IntentCard = ({
      behind one glyph rather than spread across the foot: three ghost buttons
      cost the width the title needed, and named the same four actions on every
      card whether or not they applied. */
-  const verbs: readonly { verb: Verb; label: string; danger?: boolean }[] = [
-    ...(intent.state !== 'done' && intent.state !== 'abandoned'
-      ? [{ verb: 'done' as const, label: 'Mark done' }]
-      : []),
+  const verbs: readonly {
+    verb: Verb
+    label: string
+    danger?: boolean
+    outcome?: string
+  }[] = [
+    /* A card a flow addressed to *the person* is a step, not an absence: the
+       round opened, the loop is waiting, and what they answer is what the next
+       rule branches on. So the menu offers the words the role declared rather
+       than "Mark done", which would finish the card and leave the run with
+       nothing to read. */
+    ...(role?.kind === 'person' && intent.state !== 'done' && intent.state !== 'abandoned'
+      ? role.outcomes.map((word) => ({
+          verb: 'done' as const,
+          label: `Answer ${word}`,
+          outcome: word,
+        }))
+      : intent.state !== 'done' && intent.state !== 'abandoned'
+        ? [{ verb: 'done' as const, label: 'Mark done' }]
+        : []),
     ...(intent.state === 'claimed'
       ? [{ verb: 'release' as const, label: `Take it back off ${holderName}` }]
       : []),
@@ -1032,7 +1082,18 @@ const IntentCard = ({
       }
       /* The paths a claim owns. Shown because they are what makes parallel
          edits safe, and the reason a second claim gets refused. */
-      tag={intent.files.length > 0 ? { label: intent.files.join(', '), tint: 'teal' } : undefined}
+      /* A role *identifies* a card — which is what this slot is for — and on a
+         flow's board it is the fact a reader is scanning for: this one is the
+         fixer's, those three are the reviewers'. Files keep the slot on every
+         board that has no flow, which is every board that existed before this,
+         and move to the foot when a card has both. */
+      tag={
+        intent.role
+          ? { label: intent.role, tint: 'violet' }
+          : intent.files.length > 0
+            ? { label: intent.files.join(', '), tint: 'teal' }
+            : undefined
+      }
       /* A card never repeats its own state. `abandoned` is the one exception,
          because it shares the Done column with work that actually finished and
          the difference is the news. Stranded is the other thing a column
@@ -1043,7 +1104,14 @@ const IntentCard = ({
           ? { label: 'abandoned', tone: 'neutral' }
           : stranded !== null
             ? { label: `stranded ${describeAge(stranded)}`, tone: 'warning' }
-            : undefined
+            : /* What the card answered, which is the one judgement a finished
+                 flow card carries — and the thing the next round was decided
+                 on, so a reader asking "why did that open?" reads it here.
+                 Neutral, always: the words are the flow author's own and this
+                 surface has no way to know which of them is the good news. */
+              intent.outcome
+              ? { label: intent.outcome, tone: 'neutral' as const }
+              : undefined
       }
       meta={
         <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
@@ -1057,6 +1125,14 @@ const IntentCard = ({
             <ClockIcon />
             <span className="tabular-nums">{describeAge(now - intent.updatedAt)}</span>
           </span>
+          {intent.role && intent.files.length > 0 && (
+            <span
+              className="inline-flex min-w-0 items-center gap-1 [&_svg]:size-3.5"
+              title={`Owns ${intent.files.join(', ')} while claimed`}
+            >
+              <span className="truncate">{intent.files.join(', ')}</span>
+            </span>
+          )}
           {intent.dependsOn.length > 0 && (
             <span
               className="inline-flex items-center gap-1 [&_svg]:size-3.5"
@@ -1089,9 +1165,9 @@ const IntentCard = ({
             <DropdownMenuContent align="end">
               {verbs.map((one) => (
                 <DropdownMenuItem
-                  key={one.verb}
+                  key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
                   variant={one.danger ? 'destructive' : 'default'}
-                  onSelect={() => onAct(one.verb)}
+                  onSelect={() => onAct(one.verb, one.outcome)}
                 >
                   {one.label}
                 </DropdownMenuItem>

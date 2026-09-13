@@ -4,6 +4,7 @@ import { accountMethods } from './accounts.js'
 import { appMethods } from './app.js'
 import type { HostContext, HostMethodTable } from './context.js'
 import { credentialMethods } from './credentials.js'
+import { flowMethods } from './flows.js'
 import { gitMethods } from './git.js'
 import { libraryMethods } from './library.js'
 import { pluginMethods } from './plugins.js'
@@ -50,6 +51,7 @@ export const hostMethods: HostMethodTable = {
   ...terminalMethods,
   ...worktreeMethods,
   ...teamMethods,
+  ...flowMethods,
   ...gitMethods,
   ...pluginMethods,
 }
@@ -73,6 +75,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   terminalMethods,
   worktreeMethods,
   teamMethods,
+  flowMethods,
   gitMethods,
   pluginMethods,
 ]

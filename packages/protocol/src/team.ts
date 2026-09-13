@@ -94,6 +94,38 @@ export interface Intent {
   /** Path patterns this intent owns while claimed, e.g. `src/api/**`. */
   readonly files: readonly string[]
   readonly dependsOn: readonly number[]
+  /**
+   * Who this card is *for*, when somebody addressed it — a role's id, in the
+   * flow author's own words (`fixer`, `reviewer`, `referee`).
+   *
+   * A card has never had an assignee, only a holder once claimed, and
+   * `claim_next` takes the lowest-numbered claimable card whatever it is. In
+   * a room of four that means a reviewer does the fix and the fixer reviews
+   * its own pull request, so the only way to keep them apart was to put them
+   * in *separate rooms* — and an agent's `add_intent` reaches its own room's
+   * board and no other, so the loop could never close itself and a person had
+   * to carry every card across by hand.
+   *
+   * One field removes both. A card carrying a role is claimable only by a
+   * member holding that role; a card without one is claimable by anybody,
+   * exactly as every card is today. Absent on every board written before
+   * flows existed, and absent on every card a person or an agent adds
+   * without saying otherwise.
+   */
+  readonly role?: string | null
+  /**
+   * What the holder reported when it finished — one word from a vocabulary
+   * its role declared (`approve`, `request-changes`, `published`).
+   *
+   * `note` is the human line and `handoff` is the package the next worker
+   * reads; neither can be branched on. A loop that has to decide "did all
+   * three approve?" from prose is a loop that decides it by matching on
+   * signature text, which is what this replaces. Optional and free-form at
+   * the wire; a card belonging to a flow is held to the outcomes its role
+   * declared, because an unconstrained string is a rule that silently never
+   * fires.
+   */
+  readonly outcome?: string | null
   readonly claim?: IntentClaim | null
   /** Why it is blocked, when someone said so rather than a dependency. */
   readonly blockedReason?: string | null
@@ -307,6 +339,18 @@ export interface TeamState {
    * is the whole problem the nickname was introduced to solve.
    */
   readonly nicknames?: Readonly<Record<string, string>>
+  /**
+   * What role each member holds here, keyed `runtime\u0000sessionId`.
+   *
+   * Parallel to `nicknames`, and travelling with the board for the same
+   * stated reason: the board is where a member is *named*, and a card
+   * addressed to `reviewer` is drawn, refused and explained by surfaces that
+   * would otherwise have to fetch a roster to say who anybody is.
+   *
+   * Absent on every room that has no flow, which is every room that exists
+   * today.
+   */
+  readonly roles?: Readonly<Record<string, string>>
   /**
    * What each member does with a message sent to it, keyed like `members`:
    * its own mode, or the default when it was never given one. The same answer

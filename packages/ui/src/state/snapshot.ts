@@ -23,6 +23,7 @@ import type {
   SessionKey,
   SessionSummary,
   TeamState,
+  FlowRun,
   Worktree,
   WorkspaceEntry,
 } from '@harnessdesk/protocol'
@@ -349,6 +350,14 @@ export interface AppSnapshot {
    */
   readonly teams: ReadonlyMap<string, TeamState>
   /**
+   * The flow runs each room has had, keyed by room.
+   *
+   * Beside the board rather than folded into it: a board is what the cards
+   * *are* and a run is the policy that opened them, and a room with no flow —
+   * which is every room that exists today — simply has no entry here.
+   */
+  readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
+  /**
    * The repository a new worktree is being set up for, or null.
    *
    * Dialog state in the store, because three places raise this one dialog —
@@ -635,6 +644,7 @@ const EMPTY: AppSnapshot = {
   foldersGone: new Map(),
   worktrees: [],
   teams: new Map(),
+  flowRuns: new Map(),
   newWorktreeFor: null,
   settingsFor: null,
   workspaces: [],

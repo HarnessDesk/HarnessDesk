@@ -39,10 +39,14 @@ export interface TeamEngine {
   ): Promise<string>
   claim(intent: number, scope: TeamScope, files?: readonly string[]): Promise<string>
   claimNext(scope: TeamScope, files?: readonly string[]): Promise<string>
+  awaitWork(
+    scope: TeamScope,
+    options: { readonly blockMs?: number; readonly cycle?: number },
+  ): Promise<string>
   conflicts(paths: readonly string[], scope: TeamScope): Promise<string>
   complete(
     intent: number,
-    args: { readonly note?: string; readonly handoff?: string },
+    args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string },
     scope: TeamScope,
   ): Promise<string>
   release(
@@ -149,6 +153,14 @@ export class TeamService extends Service {
     return engine().claimNext(asTeamScope(scope, plugin), files)
   }
 
+  async awaitWork(
+    options: { readonly blockMs?: number; readonly cycle?: number },
+    scope?: ScopeQuery,
+  ): Promise<string> {
+    const plugin = this.gate()
+    return engine().awaitWork(asTeamScope(scope, plugin), options)
+  }
+
   async conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string> {
     const plugin = this.gate()
     return engine().conflicts(paths, asTeamScope(scope, plugin))
@@ -156,7 +168,7 @@ export class TeamService extends Service {
 
   async complete(
     intent: number,
-    args: { readonly note?: string; readonly handoff?: string },
+    args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string },
     scope?: ScopeQuery,
   ): Promise<string> {
     const plugin = this.gate()
