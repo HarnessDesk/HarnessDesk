@@ -910,19 +910,22 @@ const currentSkillDigest = (targetPath: string): string | null => {
 
 const targetLocks = new Map<string, Promise<void>>()
 
+export const activeLockCountForTest = (): number => targetLocks.size
+
 const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
   const previous = targetLocks.get(key) ?? Promise.resolve()
   let release: () => void
   const current = new Promise<void>((resolve) => {
     release = resolve
   })
-  targetLocks.set(key, previous.then(() => current, () => current))
+  const chained = previous.then(() => current, () => current)
+  targetLocks.set(key, chained)
   try {
     await previous
     return await fn()
   } finally {
     release!()
-    if (targetLocks.get(key) === current) {
+    if (targetLocks.get(key) === chained) {
       targetLocks.delete(key)
     }
   }
@@ -1101,8 +1104,12 @@ const applyOne = async (
     const next = applyMcpEdit(text, table.format, table.key, op.name, spec, table.dialect ?? 'claude')
     await mkdir(dirname(op.targetPath), { recursive: true })
     const tmp = `${op.targetPath}.harnessdesk-tmp-${randomUUID()}`
-    await writeFile(tmp, next)
-    await rename(tmp, op.targetPath)
+    try {
+      await writeFile(tmp, next)
+      await rename(tmp, op.targetPath)
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {})
+    }
 
     await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
       const saveManifest = await LibraryManifest.load(context.libraryDir)

@@ -14,6 +14,7 @@ import {
   unifiedDiff,
   type WriteAgent,
 } from '../src/index.js'
+import { activeLockCountForTest } from '../src/writes.js'
 
 /**
  * The write path.
@@ -687,6 +688,7 @@ test('concurrent MCP apply operations preserve all declarations (#449)', async (
     const text = await readFile(target, 'utf8')
     const matches = (text.match(/\[mcp_servers\./g) ?? []).length
     assert.equal(matches, count, `all ${count} MCP servers must be declared, got ${matches}`)
+    assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
   })
 })
 
@@ -716,6 +718,7 @@ test('concurrent MCP apply operations preserve all declarations in JSON configs 
     const text = await readFile(target, 'utf8')
     const parsed = JSON.parse(text) as { mcpServers: Record<string, unknown> }
     assert.equal(Object.keys(parsed.mcpServers).length, count, `all ${count} MCP servers must be declared`)
+    assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
   })
 })
 
