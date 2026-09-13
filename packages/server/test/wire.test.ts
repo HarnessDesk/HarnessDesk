@@ -1008,6 +1008,13 @@ test('a policy rule answers an approval before any human sees it, and the audit 
 })
 
 test('policy auto-decision failure falls back to surfacing approval to client without unhandled rejection (#421)', async (t) => {
+  let unhandled: unknown = null
+  const onUnhandled = (err: unknown) => {
+    unhandled = err
+  }
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+
   const harness = await start()
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
@@ -1033,8 +1040,8 @@ test('policy auto-decision failure falls back to surfacing approval to client wi
 
   const live = harness.runtime.sessions.get(session.id) as FakeSession
 
-  // Simulate runtime/transport failure on policy response
-  live.respondToApproval = async () => {
+  // Simulate runtime/transport failure on policy response (both sync throw and async rejection)
+  live.respondToApproval = () => {
     throw new Error('simulated policy response failure')
   }
 
@@ -1053,6 +1060,7 @@ test('policy auto-decision failure falls back to surfacing approval to client wi
 
   const record = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)
   assert.ok(record?.approvals.has('ap-failed-policy'))
+  assert.equal(unhandled, null, 'no unhandled rejection should occur')
 })
 
 // --------------------------------------------------------------------- files
