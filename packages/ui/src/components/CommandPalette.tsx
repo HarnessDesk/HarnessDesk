@@ -458,9 +458,8 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         ...entries.filter((entry) => entry.group === 'Sessions').slice(0, 6),
       ]
     }
-    // Flat results: score everything and show the best matches without
-    // per-group caps, sorted by score. Sessions with a content match from
-    // the search backend get a boost.
+    // Score everything and pick the best matches without per-group caps.
+    // Sessions with a content match from the search backend get a boost.
     const scored = entries
       .map((entry) => ({
         entry,
@@ -470,7 +469,22 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 40)
-    return scored.map((item) => item.entry)
+
+    // Group results by group so headers are contiguous and never repeated,
+    // ordering groups by their best-matching entry.
+    const groupOrder: Entry['group'][] = []
+    const byGroup = new Map<Entry['group'], Entry[]>()
+    for (const item of scored) {
+      const g = item.entry.group
+      const list = byGroup.get(g)
+      if (list) {
+        list.push(item.entry)
+      } else {
+        groupOrder.push(g)
+        byGroup.set(g, [item.entry])
+      }
+    }
+    return groupOrder.flatMap((g) => byGroup.get(g) ?? [])
   }, [entries, query])
 
   // A fresh query starts back at the top, and the highlight then locks to
