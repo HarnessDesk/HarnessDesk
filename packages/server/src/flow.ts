@@ -40,6 +40,12 @@ import { parseYaml, YamlError } from './yaml.js'
 /** How long one `await_work` blocks, when the flow does not say. */
 const DEFAULT_WAIT_SEC = 240
 
+/** How many times one seat may be re-armed inside the hourly window when not specified. */
+export const DEFAULT_REARM = 3
+
+/** The most re-arms an author may ask for inside one hour. */
+export const REARM_CEILING = 120
+
 /**
  * How long a runtime's own tool client will hold a call open, in seconds.
  *
@@ -479,6 +485,7 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
 
   const seed = readThen(root['seed'], 'seed', problems)
   const wait = Number(root['wait'] ?? DEFAULT_WAIT_SEC)
+  const rearmVal = root['rearm'] !== undefined && root['rearm'] !== null ? Number(root['rearm']) : undefined
   const flow: Flow = {
     name: asText(root['name']) ?? fallbackName,
     ...(asText(root['description']) ? { description: asText(root['description']) as string } : {}),
@@ -487,6 +494,7 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
     rules,
     seed: seed ?? { role: '', title: '' },
     wait: Number.isFinite(wait) && wait > 0 ? Math.trunc(wait) : DEFAULT_WAIT_SEC,
+    ...(rearmVal !== undefined ? { rearm: rearmVal } : {}),
     /* Reserved, carried, never read. A canvas has to put node positions
        somewhere, and a format with nowhere to put them forces it to invent a
        second file or to change this one under everybody's committed flows. */
@@ -549,6 +557,19 @@ const profilesOf = (role: FlowRole): string[][] => {
  */
 export const validateFlow = (flow: Flow): FlowProblem[] => {
   const problems: FlowProblem[] = []
+  if (flow.rearm !== undefined && flow.rearm !== null) {
+    if (!Number.isInteger(flow.rearm) || flow.rearm < 0) {
+      problems.push(problem('error', 'rearm', 'rearm must be a non-negative integer'))
+    } else if (flow.rearm > REARM_CEILING) {
+      problems.push(
+        problem(
+          'error',
+          'rearm',
+          `rearm cannot exceed ${REARM_CEILING} an hour — a loop that needs more is one an agent is thrashing in`,
+        ),
+      )
+    }
+  }
   const byId = new Map(flow.roles.map((role) => [role.id, role]))
   if (flow.roles.length === 0) problems.push(problem('error', 'roles', 'a flow with no roles has nobody to do anything'))
 
