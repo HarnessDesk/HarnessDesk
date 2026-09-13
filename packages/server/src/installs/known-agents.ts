@@ -539,6 +539,32 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       'The Homebrew cask `cursor-cli` leaves a `/opt/homebrew/bin/cursor-agent` that is months behind the self-updating `~/.local/bin` copy, and one such copy hung on `--version` — which is why a copy that does not answer is never chosen.',
     ],
   },
+  {
+    id: 'devin',
+    name: 'Devin',
+    brand: 'devin',
+    tagline: "Cognition's Devin CLI, speaking ACP directly.",
+    cli: { commands: ['devin'], paths: ['~/.local/bin/devin', '~/.devin/bin/devin'] },
+    acp: { args: ['acp'] },
+    publish: {
+      selfUpdate: 'devin update',
+      installCommand: 'curl -fsSL https://devin.ai/install.sh | bash',
+      url: 'https://devin.ai/docs/cli',
+    },
+    home: {
+      path: '~/.devin',
+      credentials: ['credentials.json'],
+      config: ['config.json'],
+    },
+    auth: {
+      kind: 'browser',
+      status: cli('devin', 'auth', 'status'),
+      terminal: 'devin auth login',
+      login: cli('devin', 'auth', 'login'),
+      logout: cli('devin', 'auth', 'logout'),
+      note: '`devin auth login` opens a browser sign-in and exits when complete.',
+    },
+  },
 ]
 
 export const knownAgent = (id: string): KnownAgent | undefined =>
