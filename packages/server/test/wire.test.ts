@@ -912,10 +912,10 @@ test('routes: credentials stay one-way, compatibility greys with a reason, and c
 
   // Creating with the compatible one hands the adapter a resolved gateway:
   // loopback, tokenised, and carrying neither the credential nor its ref.
-  await client.call('session/create', {
+  const session = (await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
     options: { cwd: '/w', routeId: rightId },
-  })
+  })) as Session
   const handed = harness.runtime.lastCreateOptions
   assert.ok(handed?.route, 'the adapter received a resolved route')
   assert.match(handed.route.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/t\/[0-9a-f]+$/)
@@ -926,6 +926,26 @@ test('routes: credentials stay one-way, compatibility greys with a reason, and c
   await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
     options: { cwd: '/w', route: { id: 'x', name: 'x', endpoint: 'http://evil', wireProtocol: 'fakewire', token: 't' } },
+  })
+  assert.equal(harness.runtime.lastCreateOptions?.route, undefined)
+
+  // Forking with the compatible routeId resolves the gateway route as well.
+  await client.call('session/fork', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    options: { routeId: rightId },
+  })
+  const forkedHanded = harness.runtime.lastCreateOptions
+  assert.ok(forkedHanded?.route, 'the adapter received a resolved route on fork')
+  assert.match(forkedHanded.route.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/t\/[0-9a-f]+$/)
+  assert.ok(!JSON.stringify(forkedHanded).includes('the-secret-value'))
+  assert.ok(!JSON.stringify(forkedHanded).includes(ref))
+
+  // Forking with a hand-rolled route is ignored.
+  await client.call('session/fork', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    options: { route: { id: 'x', name: 'x', endpoint: 'http://evil', wireProtocol: 'fakewire', token: 't' } },
   })
   assert.equal(harness.runtime.lastCreateOptions?.route, undefined)
 })
