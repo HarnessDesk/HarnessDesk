@@ -1087,6 +1087,17 @@ it('says when a member has not used the board, once there is something to take',
   expect(row('Codex').textContent).not.toContain('has not used the board')
 })
 
+it('shows the claimed task rather than “has not used the board” when a member holds a claim (#375)', async () => {
+  // A member that has not used the board this run (e.g. after restart), but holds a claimed intent on the board
+  const onClaim: TeamPeerInfo = { ...CODEX, usedBoard: false }
+  const { store } = rig([onClaim, CLAUDE])
+  await render(store)
+
+  expect(row('Codex').textContent).toContain('#1')
+  expect(row('Codex').textContent).toContain('Migrate auth callers')
+  expect(row('Codex').textContent).not.toContain('has not used the board')
+})
+
 it('says nothing about board use while the board is empty', async () => {
   // Nothing has been asked of anyone, so nobody has failed to answer.
   const { store } = rig([{ ...CODEX, usedBoard: false }], undefined, { intents: [], channel: [] })
