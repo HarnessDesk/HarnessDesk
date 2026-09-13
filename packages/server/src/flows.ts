@@ -218,6 +218,8 @@ export class Flows implements TeamFlows {
   #rearms = new Map<string, number[]>()
   /** Attendance checks in flight, so a stop or a quit can cancel them. */
   #watching = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Seats that have exhausted their re-arm budget, so 'stopped answering' is recorded once per seat. */
+  #stoppedSeats = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
 
   constructor(dir: string, team: Team, port: FlowPort) {
@@ -569,28 +571,33 @@ export class Flows implements TeamFlows {
        between the stand-down and the turn's end reaching the host. */
     const spent = (this.#rearms.get(key) ?? []).filter((at) => now() - at < REARM_WINDOW_MS)
     if (spent.length >= REARM_BUDGET) {
-      this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
-        run: run.id,
-        role: seat.role,
-        seat: seat.seat,
-        spent: spent.length,
-      })
-      this.#runs.set(run.id, {
-        ...run,
-        record: [
-          ...run.record,
-          {
-            at: now(),
-            kind: 'stopped',
-            role: seat.role,
-            seat: seat.seat,
-            text: `stopped answering: ${spent.length} turns ended inside the hour, so it is not being re-armed again`,
-          },
-        ],
-      })
-      this.#save(run.id)
+      if (!this.#stoppedSeats.has(key)) {
+        this.#stoppedSeats.add(key)
+        this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
+          run: run.id,
+          role: seat.role,
+          seat: seat.seat,
+          spent: spent.length,
+        })
+        this.#runs.set(run.id, {
+          ...run,
+          record: [
+            ...run.record,
+            {
+              at: now(),
+              kind: 'stopped',
+              role: seat.role,
+              seat: seat.seat,
+              text: `stopped answering: ${spent.length} turns ended inside the hour, so it is not being re-armed again`,
+            },
+          ],
+        })
+        this.#save(run.id)
+      }
       return
     }
+    const slot = now()
+    this.#rearms.set(key, [...spent, slot])
     const name = this.#team.stateFor(run.room).nicknames?.[key] ?? seat.seat
     try {
       /* Its model and effort first. Measured after a desk restart: the seat
@@ -627,6 +634,12 @@ export class Flows implements TeamFlows {
          never reached the agent bought nothing and spent nothing, and
          charging for it would use the allowance up on a runtime that was
          merely not running yet. */
+      const arr = [...(this.#rearms.get(key) ?? [])]
+      const idx = arr.indexOf(slot)
+      if (idx !== -1) {
+        arr.splice(idx, 1)
+        this.#rearms.set(key, arr)
+      }
       this.#port.log('a flow seat could not be re-armed', {
         run: run.id,
         role: seat.role,
@@ -634,11 +647,11 @@ export class Flows implements TeamFlows {
       })
       return
     }
-    this.#rearms.set(key, [...spent, now()])
-    this.#runs.set(this.#runs.get(run.id)!.id, {
-      ...(this.#runs.get(run.id) as StoredRun),
+    const currentRun = (this.#runs.get(run.id) ?? run) as StoredRun
+    this.#runs.set(currentRun.id, {
+      ...currentRun,
       record: [
-        ...(this.#runs.get(run.id) as StoredRun).record,
+        ...currentRun.record,
         {
           at: now(),
           kind: 'seated',
