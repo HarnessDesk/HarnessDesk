@@ -227,7 +227,43 @@ const cursorHome = (): string => process.env['CURSOR_CONFIG_DIR'] ?? join(homedi
  * would orphan every chat `--resume` needs — including the ones started in
  * Cursor itself. Measured both ways; `CURSOR_DATA_DIR` does not separate them.
  */
-const configDir = (): string => join(stateDir(), 'cli-config')
+export const configDir = (chatId?: string): string =>
+  chatId && CHAT_ID.test(chatId) ? join(stateDir(), 'cli-config', chatId) : join(stateDir(), 'cli-config')
+
+const mergeModelParameters = (baseDir: string, currentDir: string): Record<string, unknown> => {
+  const merged: Record<string, unknown> = {}
+  try {
+    const base = readJson(join(baseDir, 'cli-config.json'))?.['modelParameters']
+    if (typeof base === 'object' && base !== null) {
+      Object.assign(merged, base)
+    }
+  } catch {
+    // base config read is best-effort
+  }
+  try {
+    if (existsSync(baseDir)) {
+      for (const entry of readdirSync(baseDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name !== 'chats') {
+          const sub = readJson(join(baseDir, entry.name, 'cli-config.json'))?.['modelParameters']
+          if (typeof sub === 'object' && sub !== null) {
+            Object.assign(merged, sub)
+          }
+        }
+      }
+    }
+  } catch {
+    // scanning subdirectories is best-effort
+  }
+  try {
+    const cur = readJson(join(currentDir, 'cli-config.json'))?.['modelParameters']
+    if (typeof cur === 'object' && cur !== null) {
+      Object.assign(merged, cur)
+    }
+  } catch {
+    // current dir read is best-effort
+  }
+  return merged
+}
 
 /**
  * Prepares the private config directory and answers with its path.
@@ -237,12 +273,16 @@ const configDir = (): string => join(stateDir(), 'cli-config')
  * through this directory is the same as running through theirs, except for
  * the model fields the bridge owns. Their file is only ever read.
  *
+ * When `chatId` is passed, the directory is isolated per session under
+ * `cli-config/<chatId>` so concurrent turns do not race or overwrite each
+ * other's model selection and Max mode settings.
+ *
  * Nothing secret is copied: cursor-agent authenticates from the login it
  * keeps outside this file, which is why a config directory holding only a
  * model selection still runs signed in.
  */
-export const prepareConfig = (selection: Parameterised | null): string => {
-  const dir = configDir()
+export const prepareConfig = (selection: Parameterised | null, chatId?: string): string => {
+  const dir = configDir(chatId)
   mkdirSync(dir, { recursive: true })
   const chats = join(dir, 'chats')
   if (!existsSync(chats)) {
@@ -260,10 +300,10 @@ export const prepareConfig = (selection: Parameterised | null): string => {
   // settings over the top would throw all but the last away — which is the
   // difference between Max mode being offered for models you have used and
   // for the one you used most recently.
-  const learned = readJson(join(dir, 'cli-config.json'))?.['modelParameters']
+  const learned = mergeModelParameters(configDir(), dir)
   const known = {
     ...((config['modelParameters'] ?? {}) as Record<string, unknown>),
-    ...(typeof learned === 'object' && learned !== null ? (learned as Record<string, unknown>) : {}),
+    ...learned,
   }
   config['modelParameters'] = known
   // Max mode is the session's to ask for, never the IDE's to leave behind.
@@ -969,7 +1009,20 @@ export class CursorAcpBridge {
   /** Everything the CLI has written down about parameterised models, merged. */
   #knownParameters(): Record<string, Parameterised> {
     const known: Record<string, Parameterised> = {}
-    for (const home of [cursorHome(), configDir()]) {
+    const homes = [cursorHome(), configDir()]
+    try {
+      const base = configDir()
+      if (existsSync(base)) {
+        for (const entry of readdirSync(base, { withFileTypes: true })) {
+          if (entry.isDirectory() && entry.name !== 'chats') {
+            homes.push(join(base, entry.name))
+          }
+        }
+      }
+    } catch {
+      // scanning subdirectories is best-effort
+    }
+    for (const home of homes) {
       const config = readJson(join(home, 'cli-config.json'))
       const map = config?.['modelParameters']
       if (typeof map !== 'object' || map === null) continue
@@ -1001,9 +1054,9 @@ export class CursorAcpBridge {
    * parameterised selection its `--model` slug mapped to, which is the only
    * place that mapping is ever spelled out.
    */
-  #learn(familyId: string): void {
+  #learn(familyId: string, chatId?: string): void {
     if (familyId === 'auto') return
-    const selection = asParameterised(readJson(join(configDir(), 'cli-config.json'))?.['selectedModel'])
+    const selection = asParameterised(readJson(join(configDir(chatId), 'cli-config.json'))?.['selectedModel'])
     if (selection) {
       this.#parameterised.set(familyId, selection)
       this.#learnedFrom = familyId
@@ -1363,6 +1416,14 @@ export class CursorAcpBridge {
       } catch {
         // Failing to remove scratch artifacts must not abort session deletion.
       }
+      try {
+        const cfg = configDir(chatId)
+        if (existsSync(cfg)) {
+          rmSync(cfg, { recursive: true, force: true })
+        }
+      } catch {
+        // Failing to remove config directory must not abort session deletion.
+      }
     }
     return { removed, disposition: 'trash' }
   }
@@ -1535,7 +1596,7 @@ export class CursorAcpBridge {
             return known ? withContext(known, MAX_CONTEXT) : null
           })()
         : null
-    const configHome = prepareConfig(wide)
+    const configHome = prepareConfig(wide, session.chatId)
 
     const args = [
       '--print',
@@ -1723,7 +1784,7 @@ export class CursorAcpBridge {
       child.once('exit', (code) => {
         session.child = null
         leave()
-        this.#learn(session.familyId)
+        this.#learn(session.familyId, session.chatId)
         if (session.maxMode && session.context !== null && !/^1M$/i.test(session.context)) {
           // The CLI drops a parameter combination it dislikes and runs the
           // model's default instead, saying so only in its debug log. The
