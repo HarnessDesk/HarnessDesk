@@ -142,7 +142,7 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
     return null
   }
   if (!common || !dir || !here) return null
-  if (dir === common) return { root: await canonical(here), worktree: false }
+  if (samePath(dir, common)) return { root: await canonical(here), worktree: false }
   const main = await mainCheckoutOf(path)
   return main === null ? null : { root: main, worktree: true }
 }
@@ -199,6 +199,38 @@ export class Worktrees {
   }
 }
 
+/**
+ * Whether a worktree path reported by git is inside HarnessDesk's managed
+ * worktree directory.
+ *
+ * Git reports paths with forward slashes on every platform, while Node's path
+ * functions produce backslashes on Windows. Both are normalized to forward
+ * slashes before comparing, and on Windows drive letters are compared
+ * case-insensitively.
+ */
+export const isManagedWorktree = (worktreePath: string, home: string): boolean => {
+  const normPath = worktreePath.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normHome = home.replace(/\\/g, '/').replace(/\/+$/, '')
+  const prefix = `${normHome}/`
+  const isWin =
+    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normPath) && /^[a-zA-Z]:\//.test(normHome))
+  return isWin
+    ? normPath.toLowerCase().startsWith(prefix.toLowerCase())
+    : normPath.startsWith(prefix)
+}
+
+/**
+ * Whether two paths name the same location across platform separator and
+ * Windows drive-letter casing variations.
+ */
+export const samePath = (a: string, b: string): boolean => {
+  const normA = a.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normB = b.replace(/\\/g, '/').replace(/\/+$/, '')
+  const isWin =
+    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normA) && /^[a-zA-Z]:\//.test(normB))
+  return isWin ? normA.toLowerCase() === normB.toLowerCase() : normA === normB
+}
+
 export const list = async (repoRoot: string, stateDir: string): Promise<Worktree[]> => {
   const main = await repositoryRoot(repoRoot)
   if (!main) return []
@@ -217,7 +249,7 @@ export const list = async (repoRoot: string, stateDir: string): Promise<Worktree
       // names that submodule's git directory while `main` is the folder it is
       // checked out at, and the two would never meet.
       isMain: worktrees.length === 0,
-      managed: current.path.startsWith(home + '/'),
+      managed: isManagedWorktree(current.path, home),
     })
     current = {}
   }
@@ -342,8 +374,17 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
       .map((line) => canonical(line.slice('worktree '.length))),
   )
   const opened = await Promise.all(roots.map((root) => canonical(root)))
-  const within = (inner: string, outer: string): boolean =>
-    inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
+  const within = (inner: string, outer: string): boolean => {
+    const normInner = inner.replace(/\\/g, '/').replace(/\/+$/, '')
+    const normOuter = outer.replace(/\\/g, '/').replace(/\/+$/, '')
+    const prefix = `${normOuter}/`
+    const isWin =
+      process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normInner) && /^[a-zA-Z]:\//.test(normOuter))
+    if (isWin ? normInner.toLowerCase() === normOuter.toLowerCase() : normInner === normOuter) return true
+    return isWin
+      ? normInner.toLowerCase().startsWith(prefix.toLowerCase())
+      : normInner.startsWith(prefix)
+  }
   if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return
   throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
 }
@@ -361,7 +402,7 @@ export const remove = async (
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
   const target = await canonical(path)
-  const entry = (await list(main, options.stateDir)).find((candidate) => candidate.path === target)
+  const entry = (await list(main, options.stateDir)).find((candidate) => samePath(candidate.path, target))
   if (!entry) throw new Error(`${path} is not a worktree of ${main}.`)
   if (entry.isMain) throw new Error(`${path} is the main checkout and cannot be removed.`)
   if (!entry.managed) {
@@ -416,7 +457,7 @@ export const bringHome = async (
   const main = await repositoryRoot(path)
   if (!main) throw new Error(`${path} is not a git worktree.`)
   const target = await canonical(path)
-  const entry = (await list(main, options.stateDir)).find((candidate) => candidate.path === target)
+  const entry = (await list(main, options.stateDir)).find((candidate) => samePath(candidate.path, target))
   if (!entry) throw new Error(`${path} is not a worktree of ${main}.`)
   if (entry.isMain) throw new Error(`${path} is the main checkout; it is already home.`)
   // The header offers this only on HarnessDesk's own worktrees, but this is
@@ -476,19 +517,20 @@ export const bringHome = async (
  * not the exit status: `worktree add` reports a failing hook too, after it has
  * done its work.
  */
-const putBack = async (
+export const putBack = async (
   main: string,
   target: string,
   branch: string,
   refused: unknown,
   stateDir: string,
   ignored: readonly string[],
+  listFn: (main: string, stateDir: string) => Promise<Worktree[]> = list,
 ): Promise<never> => {
   const failed = await git(main, ['worktree', 'add', target, branch]).then(
     () => null,
     (error: unknown) => error,
   )
-  const back = failed === null || (await list(main, stateDir).catch(() => [])).some((entry) => entry.path === target)
+  const back = failed === null || (await listFn(main, stateDir).catch(() => [])).some((entry) => samePath(entry.path, target))
   if (back) {
     const without = ignored.length > 0 ? `, without what git ignores there: ${named(ignored)}` : ''
     throw new Error(

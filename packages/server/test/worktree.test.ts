@@ -6,7 +6,15 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { WorktreeDirtyError, Worktrees, repositoryOf, slugify } from '../src/worktree.js'
+import {
+  WorktreeDirtyError,
+  Worktrees,
+  isManagedWorktree,
+  putBack,
+  repositoryOf,
+  samePath,
+  slugify,
+} from '../src/worktree.js'
 
 /**
  * Worktrees against a real git repository in a temporary directory. The
@@ -227,6 +235,127 @@ test('names become branch-safe slugs', () => {
   assert.equal(slugify('a'.repeat(80)).length, 48)
 })
 
+test('managed worktrees are recognized on Windows across separator and casing differences (#317)', () => {
+  // Control: POSIX paths pass both before and after.
+  assert.equal(
+    isManagedWorktree(
+      '/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+      '/Users/alice/.harnessdesk/worktrees/repo-abc',
+    ),
+    true,
+  )
+
+  // Windows: git reports forward slashes while Node produces backslashes (#317 reproduction).
+  assert.equal(
+    isManagedWorktree(
+      'C:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    true,
+  )
+
+  // Windows: git reports backslashes.
+  assert.equal(
+    isManagedWorktree(
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc\\feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    true,
+  )
+
+  // Windows: drive letter casing differences.
+  assert.equal(
+    isManagedWorktree(
+      'c:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    true,
+  )
+
+  // Unmanaged checkouts remain unmanaged.
+  assert.equal(
+    isManagedWorktree(
+      'C:/Users/alice/projects/my-repo/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    false,
+  )
+
+  // Sibling folder with same prefix remains unmanaged.
+  assert.equal(
+    isManagedWorktree(
+      'C:/Users/alice/.harnessdesk/worktrees/repo-abc-extra/feature',
+      'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc',
+    ),
+    false,
+  )
+})
+
+test('samePath matches paths across Windows and POSIX separators and drive casing (#317, round 1 review)', () => {
+  // Control: identical paths match.
+  assert.equal(samePath('/repo/sample', '/repo/sample'), true)
+  assert.equal(samePath('/repo/sample', '/repo/other'), false)
+
+  // Windows: git forward slashes vs Node backslashes (putBack case).
+  const gitEntryPath = 'C:/harnessdesk/worktrees/repo-abc/feature'
+  const nodeTargetPath = 'C:\\harnessdesk\\worktrees\\repo-abc\\feature'
+  assert.equal(
+    samePath(gitEntryPath, nodeTargetPath),
+    true,
+    'putBack checks entry.path against target across git/node separator variations',
+  )
+  // Direct simulation of putBack finding the worktree entry in list
+  const entries = [{ path: gitEntryPath }]
+  assert.equal(entries.some((entry) => samePath(entry.path, nodeTargetPath)), true)
+
+  // Windows: drive letter casing variation.
+  assert.equal(
+    samePath(
+      'c:/harnessdesk/worktrees/repo-abc/feature',
+      'C:\\harnessdesk\\worktrees\\repo-abc\\feature',
+    ),
+    true,
+  )
+
+  // Different paths do not match.
+  assert.equal(
+    samePath(
+      'C:/harnessdesk/worktrees/repo-abc/feature',
+      'C:\\harnessdesk\\worktrees\\repo-abc\\other',
+    ),
+    false,
+  )
+})
+
+test('putBack recognizes the worktree on Windows across forward and backward slashes (#317)', async (t) => {
+  const { repo } = await fixture(t)
+  const fakeWorktree = {
+    path: 'C:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
+    branch: 'feature',
+    head: 'abc',
+    isMain: false,
+    managed: true,
+  }
+  const windowsTarget = 'C:\\Users\\alice\\.harnessdesk\\worktrees\\repo-abc\\feature'
+
+  await assert.rejects(
+    putBack(
+      repo,
+      windowsTarget,
+      'feature',
+      new Error('checkout failed'),
+      repo,
+      [],
+      async () => [fakeWorktree],
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.match(error.message, /so the worktree was put back from its branch/)
+      assert.doesNotMatch(error.message, /could not be put back/)
+      return true
+    },
+  )
+})
 test('a worktree starts from the branch it was told to, not from HEAD', async (t) => {
   const { repo, worktrees } = await fixture(t)
   // A second branch with a commit the main branch does not have, so "which
