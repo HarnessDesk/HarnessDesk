@@ -119,8 +119,19 @@ export class Transport {
       const pending = this.#pending.get(message.id)
       if (!pending) return
       this.#pending.delete(message.id)
-      if (message.ok) pending.resolve(message.result)
-      else pending.reject(rejectionFor(message.error))
+      if (message.ok) {
+        pending.resolve(message.result)
+      } else {
+        try {
+          pending.reject(rejectionFor(message.error))
+        } catch {
+          pending.reject(
+            Object.assign(new Error(String(message.error?.message ?? 'Request failed')), {
+              code: message.error?.code,
+            }),
+          )
+        }
+      }
     })
 
     socket.addEventListener('close', () => {
@@ -174,9 +185,15 @@ export const rejectionFor = (error: WireError): Error =>
  * the same banner ending in why it failed is.
  */
 export const sentenceOf = (error: WireError): string => {
-  const details = error.details?.trim()
-  if (!details || details === error.message) return error.message
-  return `${error.message} — ${details}`
+  const details =
+    typeof error?.details === 'string'
+      ? error.details.trim()
+      : typeof error?.details === 'number' || typeof error?.details === 'boolean'
+        ? String(error.details).trim()
+        : null
+  const message = typeof error?.message === 'string' ? error.message : 'Request failed'
+  if (!details || details === message) return message
+  return `${message} — ${details}`
 }
 
 /**
