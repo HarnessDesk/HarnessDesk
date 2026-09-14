@@ -85,7 +85,7 @@ export const searchPlugin: HarnessPlugin = {
         line.length > maxLine ? `${line.slice(0, maxLine)}…` : line
 
       const hasRipgrep = async (): Promise<boolean> => {
-        const probe = await ctx.shell.run('which', ['rg'])
+        const probe = await ctx.shell.run('rg', ['--version'])
         return probe.exitCode === 0 && probe.stdout.trim().length > 0
       }
 
