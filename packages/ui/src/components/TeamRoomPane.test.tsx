@@ -888,6 +888,29 @@ it('says nothing about the roster when the request for it fails', async () => {
   expect(text).toContain('claimed')
 })
 
+it('matches sessions running in the project using Windows-style paths (#664)', async () => {
+  const winRoot = 'C:\\repo\\project'
+  const winCwd = 'c:\\Repo\\Project\\sub'
+  const session = {
+    id: 'c1',
+    runtime: 'codex',
+    title: 'API migration',
+    cwd: winCwd,
+    status: { type: 'idle' },
+    turns: [],
+  } as unknown as Session
+  const { store } = rig([CODEX], undefined, { root: winRoot })
+  const snapshot = {
+    ...store.getSnapshot(),
+    sessions: new Map([[sessionKey('codex', 'c1'), session]]),
+  }
+  const customStore = { ...store, getSnapshot: () => snapshot } as unknown as AppStore
+  await render(customStore)
+
+  const text = container.textContent ?? ''
+  expect(text).toContain('1 here')
+})
+
 /**
  * A room is a room *for a project*, and almost everything it holds is about
  * that project.

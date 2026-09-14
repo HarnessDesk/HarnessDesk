@@ -31,3 +31,27 @@ export const isPathInside = (child: string, parent: string): boolean => {
     ? normChild.toLowerCase().startsWith(prefix.toLowerCase())
     : normChild.startsWith(prefix)
 }
+
+/**
+ * Returns `path` relative to `root` if it is strictly inside `root`, or `path` unchanged.
+ *
+ * Normalises separators and handles Windows drive letters and case insensitivity.
+ */
+export const relativeTo = (path: string, root: string): string => {
+  if (!path || !root) return path
+  const rawRoot = root.replace(/\\/g, '/')
+  const normRoot = rawRoot.replace(/\/+$/, '') || (rawRoot.startsWith('/') ? '/' : rawRoot)
+  const rawPath = path.replace(/\\/g, '/')
+  const normPath = rawPath.replace(/\/+$/, '') || (rawPath.startsWith('/') ? '/' : rawPath)
+
+  const isWin =
+    (typeof process !== 'undefined' && process.platform === 'win32') ||
+    (/^[a-zA-Z]:\//.test(normRoot) && /^[a-zA-Z]:\//.test(normPath))
+
+  const prefix = normRoot === '/' ? '/' : `${normRoot}/`
+  const matches = isWin
+    ? normPath.toLowerCase().startsWith(prefix.toLowerCase())
+    : normPath.startsWith(prefix)
+
+  return matches ? normPath.slice(prefix.length) : path
+}

@@ -120,6 +120,28 @@ describe('buildHandoff', () => {
     expect(packet).toContain('- [x] Write the canvas')
   })
 
+  it('relativises paths on Windows-style cwd with backslashes and case differences (#664)', () => {
+    const s = session({
+      cwd: 'C:\\repo\\project',
+      turns: [
+        {
+          id: 't1',
+          status: 'completed',
+          items: [
+            {
+              id: 'f1',
+              type: 'fileChange',
+              status: 'completed',
+              changes: [{ path: 'c:\\Repo\\Project\\src\\index.ts', kind: { type: 'add' }, diff: '+1' }],
+            },
+          ],
+        },
+      ],
+    } as unknown as Partial<Session>)
+    const packet = buildHandoff({ agentName: 'Cursor', session: s }, 'summary')!
+    expect(packet).toContain('- `src/index.ts` — add (+1 −0)')
+  })
+
   it('writes every exchange in transcript mode and no narration', () => {
     const packet = buildHandoff(source, 'transcript')!
     expect(packet).toContain('## Conversation')

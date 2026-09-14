@@ -88,6 +88,16 @@ describe('summariseTurn', () => {
     expect(summary.files).toEqual(['src/a.ts'])
   })
 
+  it('relativises paths on Windows-style paths with backslashes and case differences (#664)', () => {
+    const summary = summariseTurn(
+      turn([
+        { id: 'f', type: 'fileChange', status: 'completed', changes: [{ path: 'C:\\repo\\project\\src\\a.ts', kind: { type: 'update' }, diff: '' }] },
+      ]),
+      'c:\\Repo\\Project',
+    )!
+    expect(summary.files).toEqual(['src/a.ts'])
+  })
+
   it('says nothing for a turn that was only talk', () => {
     expect(summariseTurn(turn([{ id: 'a', type: 'assistantMessage', text: 'Hello.' }]), '/w')).toBeNull()
   })

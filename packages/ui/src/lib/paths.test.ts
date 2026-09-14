@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isPathInside, shortPath } from './paths'
+import { isPathInside, relativeTo, shortPath } from './paths'
 
 /**
  * The tilde rule, at its edges.
@@ -74,5 +74,29 @@ describe('isPathInside', () => {
   it('returns false when either path is empty or falsy', () => {
     expect(isPathInside('', '/code/repo')).toBe(false)
     expect(isPathInside('/code/repo', '')).toBe(false)
+  })
+})
+
+describe('relativeTo', () => {
+  it('relativises child paths on POSIX', () => {
+    expect(relativeTo('/code/repo/src/index.ts', '/code/repo')).toBe('src/index.ts')
+    expect(relativeTo('/code/repo/file.txt', '/code/repo')).toBe('file.txt')
+  })
+
+  it('leaves paths outside root untouched on POSIX', () => {
+    expect(relativeTo('/other/file.txt', '/code/repo')).toBe('/other/file.txt')
+    expect(relativeTo('/code/repo-2/file.txt', '/code/repo')).toBe('/code/repo-2/file.txt')
+    expect(relativeTo('/code/repo', '/code/repo')).toBe('/code/repo')
+  })
+
+  it('relativises child paths with Windows backslashes and case differences', () => {
+    expect(relativeTo('C:\\repo\\project\\src\\index.ts', 'C:\\repo\\project')).toBe('src/index.ts')
+    expect(relativeTo('c:\\Repo\\Project\\src\\index.ts', 'C:\\repo\\project')).toBe('src/index.ts')
+    expect(relativeTo('C:/repo/project/src/index.ts', 'C:\\repo\\project')).toBe('src/index.ts')
+  })
+
+  it('leaves Windows paths outside root untouched', () => {
+    expect(relativeTo('D:\\other\\file.ts', 'C:\\repo')).toBe('D:\\other\\file.ts')
+    expect(relativeTo('C:\\repo2\\file.ts', 'C:\\repo')).toBe('C:\\repo2\\file.ts')
   })
 })

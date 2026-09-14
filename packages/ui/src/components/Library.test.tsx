@@ -1523,3 +1523,58 @@ it('a definition an agent refused says so in the agent’s own words, and warns 
   // one agent has already refused into another.
   expect(sheet?.textContent).toContain('First Agent would not load this one.')
 })
+
+it('determines winning copy under Windows-style scan roots (#664)', async () => {
+  const winRoot = 'C:\\repo\\project'
+  const winCopy = 'c:\\Repo\\Project\\.claude\\skills\\alpha'
+  const userCopy = 'C:\\Users\\User\\.claude\\skills\\alpha'
+
+  await mount(
+    {
+      ...library([
+        entry('alpha', ['reaches', 'absent'], {
+          copies: [
+            {
+              path: winCopy,
+              scope: 'project',
+              readBy: [runtimeId('one')],
+              hollow: false,
+              digest: 'a',
+              readOnly: false,
+            },
+            {
+              path: userCopy,
+              scope: 'user',
+              readBy: [runtimeId('one')],
+              hollow: false,
+              digest: 'b',
+              readOnly: false,
+            },
+          ],
+        }),
+      ]),
+      locations: [
+        {
+          runtime: runtimeId('one'),
+          kind: 'skill',
+          path: winRoot,
+          scope: 'project',
+          scanned: true,
+          exists: true,
+          readOnly: false,
+        },
+        {
+          runtime: runtimeId('one'),
+          kind: 'skill',
+          path: 'C:\\Users\\User',
+          scope: 'user',
+          scanned: true,
+          exists: true,
+          readOnly: false,
+        },
+      ],
+    },
+  )
+  await showMatrix()
+  expect(container.textContent).toContain('alpha')
+})
