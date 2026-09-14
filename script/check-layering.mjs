@@ -159,7 +159,7 @@ const BRANDS = /\b(Codex|DeepSeek|Claude Code|Gemini)\b/
  * showcase, and no product screen reaches into either — `design:audit`'s
  * cross-import rule is what keeps that true.
  */
-const DOCUMENTATION = /packages\/ui\/src\/design\/(explorer|showcase)\//
+export const DOCUMENTATION = /packages[/\\]ui[/\\]src[/\\]design[/\\](explorer|showcase)[/\\]/
 
 /** Each file is parsed once, however many rules read it. */
 const stripped = new Map()
