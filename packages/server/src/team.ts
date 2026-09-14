@@ -1939,7 +1939,7 @@ export class Team {
        agent had to know to call it. Correctness that depends on remembering a
        tool name is correctness that will be got wrong, and the failure is
        silent — work built against a contract nobody read. */
-    const inherited = intent.dependsOn
+    const inherited = (Array.isArray(intent.dependsOn) ? intent.dependsOn : [])
       .map((id) => board.intents.find((entry) => entry.id === id))
       .filter((entry): entry is Intent => Boolean(entry?.handoff))
       .map((entry) => `#${entry.id} — ${entry.title}\n${entry.handoff as string}`)
