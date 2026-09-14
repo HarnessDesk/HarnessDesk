@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import { test } from 'node:test'
 
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
@@ -135,4 +136,31 @@ test('a relative import is normalised before it is compared, so a detour is not 
   assert.equal(ownsStylesheet('design/showcase/PanelPlayground.tsx', resolveStylesheet(`${src}/design/showcase`, 'parts/../panel-playground.module.css', src)), true)
   // Control: a real other folder still does not match.
   assert.equal(ownsStylesheet('design/showcase/PanelPlayground.tsx', resolveStylesheet(`${src}/design/showcase`, '../panel-playground.module.css', src)), false)
+})
+
+test('resolveStylesheet normalises Windows separators so crossImports and ownsStylesheet match (#495)', () => {
+  const winSrc = 'C:\\repo\\packages\\ui\\src'
+  const winDir = 'C:\\repo\\packages\\ui\\src\\components'
+
+  // Aliased import resolved on Windows produces posix forward slashes
+  const resolvedAliased = resolveStylesheet(winDir, '@/design/Kit.module.css', winSrc, path.win32)
+  assert.equal(resolvedAliased, '../design/Kit.module.css')
+
+  // Own component aliased import resolved on Windows
+  const resolvedOwn = resolveStylesheet(winDir, '@/components/Sidebar.module.css', winSrc, path.win32)
+  assert.equal(resolvedOwn, 'Sidebar.module.css')
+
+  // Relative import with detour normalised on Windows
+  const resolvedDetour = resolveStylesheet(winDir, 'parts/../panel-playground.module.css', winSrc, path.win32)
+  assert.equal(resolvedDetour, 'panel-playground.module.css')
+
+  // Non-aliased relative import retains posix slashes on Windows
+  const resolvedRelative = resolveStylesheet(winDir, '../../design/ui/kit.module.css', winSrc, path.win32)
+  assert.equal(resolvedRelative, '../../design/ui/kit.module.css')
+
+  // ownsStylesheet handles Windows backslash file paths and resolved stylesheets
+  assert.equal(ownsStylesheet('components\\Sidebar.tsx', resolvedOwn, path.win32), true)
+  assert.equal(ownsStylesheet('components\\Sidebar.tsx', 'Sidebar.module.css', path.win32), true)
+  assert.equal(ownsStylesheet('components/Sidebar.tsx', 'Sidebar.module.css'), true)
+  assert.equal(ownsStylesheet('components\\Sidebar.tsx', resolvedAliased, path.win32), false)
 })

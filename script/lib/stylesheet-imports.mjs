@@ -42,10 +42,12 @@ export const stylesheetImports = (source, fileName = 'source.tsx', options = {})
  * the import's path relative to `file`, so a stylesheet in another folder,
  * `../x/Name.module.css`, never matches, whatever it's called.
  */
-export const ownsStylesheet = (file, sheet) => {
+export const ownsStylesheet = (file, sheet, pathEngine = path) => {
+  const normalFile = file.replaceAll('\\', '/')
+  const normalSheet = sheet.replaceAll('\\', '/')
   const key = (name) => name.toLowerCase().replace(/[-_]/g, '')
-  const names = [path.basename(file, '.tsx'), path.basename(path.dirname(file))]
-  return names.some((name) => key(`${name}.module.css`) === key(sheet))
+  const names = [pathEngine.basename(normalFile, '.tsx'), pathEngine.basename(pathEngine.dirname(normalFile))]
+  return names.some((name) => key(`${name}.module.css`) === key(normalSheet))
 }
 
 /**
@@ -55,5 +57,9 @@ export const ownsStylesheet = (file, sheet) => {
  * `x.module.css` and "another folder never matches" in `ownsStylesheet` holds
  * however the path is spelled (review of #183, round 5).
  */
-export const resolveStylesheet = (dir, spec, uiSrc) =>
-  spec.startsWith('@/') ? path.relative(dir, path.join(uiSrc, spec.slice(2))) : path.normalize(spec)
+export const resolveStylesheet = (dir, spec, uiSrc, pathEngine = path) => {
+  const resolved = spec.startsWith('@/')
+    ? pathEngine.relative(dir, pathEngine.join(uiSrc, spec.slice(2)))
+    : pathEngine.normalize(spec)
+  return resolved.replaceAll('\\', '/')
+}
