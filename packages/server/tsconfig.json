@@ -8,14 +8,15 @@
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "references": [
     { "path": "../protocol" },
+    { "path": "../agent-inventory" },
     { "path": "../codex" },
     { "path": "../adapter-codex" },
-    { "path": "../transport-acp" },
     { "path": "../adapter-acp" },
     { "path": "../cordis-host" },
     { "path": "../extension-protocol" },
     { "path": "../extension-host" },
     { "path": "../responses-gateway" },
+    { "path": "../mcp-tools" },
     { "path": "../plugins" },
     { "path": "../adapter-testkit" }
   ]
