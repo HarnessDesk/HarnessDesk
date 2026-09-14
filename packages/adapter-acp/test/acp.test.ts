@@ -1767,3 +1767,55 @@ test('AcpSession send preserves localImage and http image inputs in prompt (#415
     await runtime.dispose()
   }
 })
+
+test('concurrent resumeSession deduplicates in-flight resume and returns same instance (#416)', async (t) => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-concurrent-resume-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'store.json')
+  const withStore = (): AcpRuntime =>
+    new AcpRuntime({
+      id: 'fake-acp',
+      name: 'Fake ACP Agent',
+      command: process.execPath,
+      args: [FAKE],
+      env: { FAKE_ACP_STORE: store },
+    })
+
+  const first = withStore()
+  await first.start()
+  const tapeA = record(first)
+  let savedId: string
+  try {
+    const session = await first.createSession({ cwd: dir })
+    savedId = String(session.id)
+    await session.send([{ type: 'text', text: 'remember me' }])
+    await tapeA.until((event) => event.type === 'turn/completed')
+  } finally {
+    await first.dispose()
+  }
+
+  const second = withStore()
+  await second.start()
+  try {
+    const [resumed1, resumed2] = await Promise.all([
+      second.resumeSession(sessionId(savedId)),
+      second.resumeSession(sessionId(savedId)),
+    ])
+    assert.strictEqual(resumed1, resumed2, 'concurrent resumeSession must return the exact same instance')
+    const read = await second.readSession(resumed1.id)
+    assert.equal(read.turns.length, 1, 'replayed session has the stored turn')
+
+    // Concurrent failing calls clean up #resuming and permit subsequent retries
+    await assert.rejects(() => Promise.all([
+      second.resumeSession(sessionId('ghost-fail')),
+      second.resumeSession(sessionId('ghost-fail')),
+    ]))
+    await assert.rejects(() => second.resumeSession(sessionId('ghost-fail')))
+  } finally {
+    await second.dispose()
+  }
+})
+
