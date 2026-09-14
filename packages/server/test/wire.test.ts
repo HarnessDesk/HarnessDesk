@@ -1543,6 +1543,52 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
   assert.equal((await gitIn(repo, 'rev-parse', 'marked')).trim(), at)
 })
 
+test('git/status does not crash when persisted workspaces contain malformed records missing path (#428)', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-malformed-workspace-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  const repo = await mkdtemp(join(tmpdir(), 'hd-git-repo-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await writeFile(join(repo, 'a.txt'), 'hello\n')
+  await gitIn(repo, 'add', '.')
+  await gitIn(repo, 'commit', '-qm', 'initial')
+
+  // Persist state containing workspace records missing path or having non-string path
+  const stateFile = join(stateDir, 'state.json')
+  await writeFile(
+    stateFile,
+    JSON.stringify({
+      workspaces: [
+        { id: 'ws-valid', path: repo },
+        { id: 'ws-missing-path' },
+        { id: 'ws-null-path', path: null },
+        { id: 'ws-number-path', path: 123 },
+      ],
+    }),
+  )
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(stateFile),
+  })
+  await host.start()
+  const server = await serve({ host, logger: silent, port: 0 })
+  t.after(async () => {
+    await server.close()
+    await host.dispose()
+  })
+
+  const client = await Client.connect(server)
+  t.after(() => client.close())
+
+  // Calling git/status must not throw ERR_INVALID_ARG_TYPE
+  const status = (await client.call('git/status', { root: repo })) as { root: string }
+  const { realpathSync } = await import('node:fs')
+  assert.equal(realpathSync(status.root), realpathSync(repo))
+})
+
+
 
 test('a profile written through app/state/set replaces the stored one whole, and {} clears it', async (t) => {
   // The UI writes the whole profile, and Reset writes {}, because this method
