@@ -24,6 +24,7 @@ export {
   listInstalled,
   loadInstalled,
   pluginsRoot,
+  redactCredentials,
   sanitise,
   uninstall,
   type InstalledPlugin,
