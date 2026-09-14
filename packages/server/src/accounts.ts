@@ -12,9 +12,17 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { runtimeId, type RuntimeId } from '@harnessdesk/protocol'
+
+/** Whether a directory path is strictly a descendant of `parentDir`. */
+const isUnder = (candidate: string, parentDir: string): boolean => {
+  const resolvedParent = resolve(parentDir)
+  const resolvedCandidate = resolve(candidate)
+  const rel = relative(resolvedParent, resolvedCandidate)
+  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+}
 
 /**
  * More than one account of the same agent, on a machine whose agent keeps one.
@@ -391,7 +399,12 @@ export class AccountSlots {
       // Only ever the farm: every shared entry inside it is a symlink, and
       // `rm` of a symlink removes the link, never what it points at.
       try {
-        rmSync(slot.home, { recursive: true, force: true })
+        const accountsDir = resolve(dirname(this.file), 'accounts')
+        if (isUnder(slot.home, accountsDir)) {
+          rmSync(slot.home, { recursive: true, force: true })
+        } else {
+          this.log?.('account slot home outside accounts directory, skipping removal', { home: slot.home })
+        }
       } catch (error) {
         this.log?.('account slot home could not be removed', { home: slot.home, error: String(error) })
       }
@@ -491,6 +504,7 @@ const readRoster = (file: string): AccountSlot[] => {
   try {
     const parsed = JSON.parse(raw) as { accounts?: unknown }
     const list = Array.isArray(parsed.accounts) ? parsed.accounts : []
+    const accountsDir = resolve(dirname(file), 'accounts')
     return list.filter(
       (entry): entry is AccountSlot =>
         typeof entry === 'object' &&
@@ -498,6 +512,7 @@ const readRoster = (file: string): AccountSlot[] => {
         typeof (entry as AccountSlot).id === 'string' &&
         typeof (entry as AccountSlot).agent === 'string' &&
         typeof (entry as AccountSlot).home === 'string' &&
+        isUnder((entry as AccountSlot).home, accountsDir) &&
         // A half-written gateway is worse than none: the slot would be kept
         // through `pruneEmpty` as a gateway account and then have no endpoint
         // to reach. Dropping it here makes it an ordinary abandoned slot.
