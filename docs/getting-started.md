@@ -111,7 +111,9 @@ chosen.
 DeepSeek's official `@deepseek-ai/dsh-acp` remains the automation-only bridge.
 HarnessDesk uses `@harnessdesk/dsh-acp` for renderer-facing sessions; the
 official bridge is used only by the adapter's opt-in automation compatibility
-probe.
+probe. The picker labels these routes **DeepSeek V4.1 Flash** and
+**DeepSeek V4 Pro**; the legacy `deepseek-v4-flash` identifier remains
+readable in historical session logs but is not a new-session choice.
 
 **On earlier versions** (up to `0.1.1`), mount it beside the example spine:
 
