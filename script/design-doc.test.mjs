@@ -26,12 +26,19 @@ test('leadComment preserves indentation and markdown bold formatting', () => {
     ' *',
     ' *   Indented line with two leading spaces',
     ' * **bold phrase** followed by normal text',
+    '***bold without space** after gutter asterisk',
     ' */',
   ].join('\n')
 
   const out = leadComment(comment)
   assert.equal(
     out,
-    ['The description.', '', '  Indented line with two leading spaces', '**bold phrase** followed by normal text'].join('\n'),
+    [
+      'The description.',
+      '',
+      '  Indented line with two leading spaces',
+      '**bold phrase** followed by normal text',
+      '**bold without space** after gutter asterisk',
+    ].join('\n'),
   )
 })
