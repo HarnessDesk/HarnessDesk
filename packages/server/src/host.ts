@@ -1886,6 +1886,9 @@ export class Host {
    * idle, and a second message typed in the same breath would go straight out
    * too and be refused by the agent. Held beside `#draining`, and for the same
    * reason: it is this host's doing, not a fact about the conversation.
+   *
+   * Released when the sent turn's `turn/started` arrives in `#onEvent`, or when
+   * `send` rejects, or when its deadline passes (#424).
    */
   readonly #sendingNow = new Map<string, symbol>()
 
@@ -1900,16 +1903,20 @@ export class Host {
     // had marked the same conversation, must not clear the later one's mark.
     const mark = Symbol('sending')
     this.#sendingNow.set(key, mark)
+    let released = false
     const release = () => {
+      if (released) return
+      released = true
+      clearTimeout(deadline)
       if (this.#sendingNow.get(key) === mark) this.#sendingNow.delete(key)
     }
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
     try {
       const live = await this.#live({ runtime: record.runtime, sessionId: record.session.id })
       await live.send(input)
-    } finally {
-      clearTimeout(deadline)
+    } catch (error) {
       release()
+      throw error
     }
   }
 
@@ -2169,6 +2176,9 @@ export class Host {
           )
         : []
     const record = this.registry.apply(runtime, event)
+    if (event.type === 'turn/started' && record) {
+      this.#sendingNow.delete(recordKey(record))
+    }
     let outgoing: AgentEvent = event
     if (record && event.type === 'turn/completed' && published.length > 0) {
       const kept = record.session.turns.find((turn) => turn.id === event.turn.id)
