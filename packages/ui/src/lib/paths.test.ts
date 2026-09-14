@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { shortPath } from './paths'
+import { isPathInside, shortPath } from './paths'
 
 /**
  * The tilde rule, at its edges.
@@ -34,5 +34,45 @@ describe('shortPath', () => {
     expect(shortPath('/home/u/.claude', '')).toBe('/home/u/.claude')
     expect(shortPath('/home/u/.claude', '/')).toBe('/home/u/.claude')
     expect(shortPath('/home/u/.claude', null)).toBe('/home/u/.claude')
+  })
+})
+
+describe('isPathInside', () => {
+  it('identifies exact matches and child paths on POSIX', () => {
+    expect(isPathInside('/code/repo', '/code/repo')).toBe(true)
+    expect(isPathInside('/code/repo/src/index.ts', '/code/repo')).toBe(true)
+    expect(isPathInside('/code/repo/sub/', '/code/repo')).toBe(true)
+    expect(isPathInside('/code/repo/sub', '/code/repo/')).toBe(true)
+  })
+
+  it('refuses sibling paths with common prefixes on POSIX', () => {
+    expect(isPathInside('/code/repo-2', '/code/repo')).toBe(false)
+    expect(isPathInside('/code/repo_feature', '/code/repo')).toBe(false)
+    expect(isPathInside('/code/other', '/code/repo')).toBe(false)
+  })
+
+  it('handles Windows child paths with backslashes and forward slashes', () => {
+    expect(isPathInside('C:\\repo\\feature', 'C:\\repo')).toBe(true)
+    expect(isPathInside('C:\\repo\\feature\\src', 'C:\\repo')).toBe(true)
+    expect(isPathInside('C:/repo/feature', 'C:/repo')).toBe(true)
+    expect(isPathInside('C:\\repo\\feature', 'C:/repo')).toBe(true)
+    expect(isPathInside('C:/repo/feature', 'C:\\repo')).toBe(true)
+  })
+
+  it('handles Windows case-insensitivity on drive letter and directories', () => {
+    expect(isPathInside('c:\\repo\\feature', 'C:\\repo')).toBe(true)
+    expect(isPathInside('C:\\REPO\\FEATURE', 'c:\\repo')).toBe(true)
+    expect(isPathInside('c:\\Repo\\Feature', 'C:\\repo\\feature')).toBe(true)
+  })
+
+  it('refuses sibling paths with common prefixes on Windows', () => {
+    expect(isPathInside('C:\\repo2\\feature', 'C:\\repo')).toBe(false)
+    expect(isPathInside('C:\\repo_other', 'C:\\repo')).toBe(false)
+    expect(isPathInside('D:\\repo\\feature', 'C:\\repo')).toBe(false)
+  })
+
+  it('returns false when either path is empty or falsy', () => {
+    expect(isPathInside('', '/code/repo')).toBe(false)
+    expect(isPathInside('/code/repo', '')).toBe(false)
   })
 })
