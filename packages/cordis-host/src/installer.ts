@@ -108,7 +108,7 @@ const stripQuery = (value: string): string => {
 const redactCredentials = (text: string): string =>
   text
     .replace(/:\/\/[^/@?#\s:]*(?::[^/@?#\s]*)?@/g, '://[redacted]@')
-    .replace(/^([^/@:\s]+)(?::[^/@\s]*)?@([^/:\s]+):/g, '[redacted]@$2:')
+    .replace(/(^|[\s'"`;(])([^/@:\s]+)(?::[^/@\s]*)?@([^/:\s]+):/g, '$1[redacted]@$3:')
     .replace(/([?&](?:password|passwd|pwd|pass|secret|token|access_token|id_token|refresh_token|auth|authorization|apikey|api_key|key|sig|signature)=)[^&#\s]+/gi, '$1[redacted]')
     .replace(/(^|[^a-zA-Z0-9])(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp|github_pat)[-_][A-Za-z0-9_-]{8,}\b/g, '$1[redacted]')
 

@@ -161,6 +161,17 @@ test('npm fetch failure error does not leak credentials in package specifiers', 
       return true
     },
   )
+
+  const scpSpecifier = 'myuser:secretpassword123@github.com:org/repo.git'
+  await assert.rejects(
+    async () => inspect(scpSpecifier),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.ok(!error.message.includes('secretpassword123'), `message leaked scp password: ${error.message}`)
+      assert.match(error.message, /Could not fetch \[redacted\]@github\.com:org\/repo\.git from npm/)
+      return true
+    },
+  )
 })
 
 test('sanitise strips credential fragments from staging directory names', () => {
