@@ -350,9 +350,18 @@ export class AgentRegistryStore {
    */
   configs(): readonly AcpAgentConfig[] {
     const out: AcpAgentConfig[] = []
+    const seen = new Set<string>()
     for (const [index, entry] of this.#raw().entries()) {
       const named =
         typeof entry['id'] === 'string' ? (entry['id'] as string) : `#${index + 1}`
+      if (typeof entry['id'] === 'string' && seen.has(entry['id'])) {
+        this.warn('an agent in agents.json was ignored', {
+          path: this.path,
+          agent: named,
+          reason: 'duplicate id',
+        })
+        continue
+      }
       if (typeof entry['template'] === 'string') {
         const template = templateByKey(entry['template'])
         if (!template || typeof entry['id'] !== 'string') {
@@ -375,6 +384,7 @@ export class AgentRegistryStore {
           })
           continue
         }
+        seen.add(expanded.id)
         out.push(expanded)
         continue
       }
@@ -385,6 +395,7 @@ export class AgentRegistryStore {
         this.warn('an agent in agents.json was ignored', { path: this.path, agent: named, missing })
         continue
       }
+      seen.add(entry['id'] as string)
       out.push(entry as unknown as AcpAgentConfig)
     }
     return out
