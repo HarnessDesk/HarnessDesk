@@ -1727,9 +1727,8 @@ export class Team {
    * room is; either way a tool call held open across it is a turn that never
    * ends.
    */
-  stopWaiting(reason: string, room?: string): void {
+  stopWaiting(reason: string): void {
     for (const waiter of [...this.#waiters]) {
-      if (room && waiter.board !== room) continue
       if (waiter.timer) clearTimeout(waiter.timer)
       this.#waiters.delete(waiter)
       waiter.resolve(`stand down — ${reason}`)
@@ -2505,6 +2504,7 @@ export class Team {
     // Whatever it proved, it proved about a process that is gone. The same id
     // reattached to a fresh agent has proved nothing yet — see `#used`.
     this.#used.delete(key)
+    this.#deletedMembers.delete(key)
   }
 
   /**
@@ -2532,6 +2532,9 @@ export class Team {
        the stale evidence this was built to avoid, one level up. */
     for (const key of [...this.#used]) {
       if (key.startsWith(prefix)) this.#used.delete(key)
+    }
+    for (const key of [...this.#deletedMembers.keys()]) {
+      if (key.startsWith(prefix)) this.#deletedMembers.delete(key)
     }
   }
 
@@ -2797,6 +2800,7 @@ export class Team {
    */
   forget(runtime: RuntimeId, sessionId: string, said: string): void {
     const key = keyOf(runtime, sessionId)
+    this.#deletedMembers.delete(key)
     /* Whatever was waiting on this member is not going to be read, and a row
        left saying `queued` is a promise the room can no longer keep — it
        would sit there until a restart rewrote it, which is the one thing
@@ -2838,6 +2842,7 @@ export class Team {
   leaveRoom(id: string, runtime: RuntimeId, sessionId: string): void {
     const board = this.#boardById(id)
     const key = keyOf(runtime, sessionId)
+    this.#deletedMembers.delete(key)
     if (!board.members.includes(key)) return
     board.members = board.members.filter((one) => one !== key)
     /* The photograph goes with the membership: it exists so the room can draw

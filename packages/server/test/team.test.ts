@@ -926,6 +926,32 @@ test('deleteRoom stands down active await_work waiters immediately (#436)', asyn
 
   const nextResult = await team.awaitWork(codex)
   assert.equal(nextResult, 'stand down — the room was deleted')
+
+  // When session is closed, deleted members memory is pruned
+  team.onSessionClosed(codex.runtime as RuntimeId, codex.sessionId)
+  await assert.rejects(() => team.awaitWork(codex), /This conversation is not in a room/)
+})
+
+test('deleted members memory is pruned when joining another room, leaving, forgetting, or runtime detaching (#436)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.deleteRoom(room)
+
+  assert.equal(await team.awaitWork(codex), 'stand down — the room was deleted')
+
+  const otherRoom = await team.createRoom('/repo', 'other')
+  await team.joinRoom(otherRoom.id, codex.runtime as RuntimeId, codex.sessionId)
+  // Joining other room pruned deleted member entry
+  team.leaveRoom(otherRoom.id, codex.runtime as RuntimeId, codex.sessionId)
+  await assert.rejects(() => team.awaitWork(codex), /This conversation is not in a room/)
+
+  // Test runtime detach
+  const room2 = await team.createRoom('/repo', 'room-detach')
+  await team.joinRoom(room2.id, claude.runtime as RuntimeId, claude.sessionId)
+  await team.deleteRoom(room2.id)
+  assert.equal(await team.awaitWork(claude), 'stand down — the room was deleted')
+  team.onRuntimeDetached(claude.runtime as RuntimeId)
+  await assert.rejects(() => team.awaitWork(claude), /This conversation is not in a room/)
 })
 
 test('a delete that cannot reach the disk is refused, not acknowledged', async (t) => {
