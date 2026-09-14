@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -507,4 +507,22 @@ test('an update replaces the download and collects the build it superseded', asy
     host.call('agents/update', { runtime: 'plain' as RuntimeId }),
     /package manager updates it/,
   )
+})
+
+test('store write does not follow preexisting pid temp symlink and overwrite outside files (#454)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'agents.json')
+  const outside = join(dir, 'outside.txt')
+  await writeFile(outside, 'outside-before')
+  await symlink(outside, join(dir, `.agents.json.${process.pid}.tmp`))
+
+  const store = new AgentRegistryStore(file)
+  store.add({ id: 'demo', name: 'Demo', command: 'demo' })
+
+  const outsideContent = await readFile(outside, 'utf8')
+  assert.equal(outsideContent, 'outside-before', 'outside file must not be overwritten through symlink')
+
+  const stat = await lstat(file)
+  assert.equal(stat.isSymbolicLink(), false, 'agents.json must not be a symlink')
 })
