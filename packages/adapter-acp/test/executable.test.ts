@@ -15,6 +15,10 @@ test('versionIn pulls the release triple out of whatever --version printed', () 
   assert.equal(versionIn('agent 1.0.0-rc-2+build-10.'), '1.0.0-rc-2+build-10')
   assert.equal(versionIn('agent 1.0.0+build-10.'), '1.0.0+build-10')
   assert.equal(versionIn('2026.08.11-e8db854'), '2026.08.11-e8db854')
+  // A version printed inside a sentence: the stop that ends it is not part of
+  // the pre-release. GitHub Copilot prints exactly this.
+  assert.equal(versionIn('GitHub Copilot CLI 1.0.84-5.'), '1.0.84-5')
+  assert.equal(versionIn('opencode 1.18.29.'), '1.18.29')
   assert.equal(versionIn('nightly'), 'nightly')
   assert.equal(versionIn(''), null)
   assert.equal(versionIn(null), null)

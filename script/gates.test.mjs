@@ -450,6 +450,20 @@ test('comments inside the list are not mistaken for brands', () => {
   assert.deepEqual(brandsIn(source), ['codex', 'openai'])
 })
 
+test('quoted strings and contractions in comments inside BRANDS are not mistaken for brands (#489)', () => {
+  const source = [
+    'export const BRANDS = [',
+    "  // Don't add unapproved marks here",
+    "  'codex',",
+    "  // 'codex' is the primary runtime",
+    "  /* 'claudecode' and don't omit others */",
+    "  'claudecode', // won't conflict with comment",
+    '] as const',
+    '',
+  ].join('\n')
+  assert.deepEqual(brandsIn(source), ['codex', 'claudecode'])
+})
+
 /*
  * `check-verify-drift`'s two parsers.
  *

@@ -97,7 +97,13 @@ const printedVersion = (path: string, args: readonly string[]): Promise<string |
     child.on('close', (code) => finish(answer(code ?? exitCode)))
   })
 
-/** `2.1.240 (Claude Code)` → `2.1.240`; anything without a triple is kept whole. */
+/**
+ * `2.1.240 (Claude Code)` → `2.1.240`; anything without a triple is kept whole.
+ *
+ * Strips trailing periods and hyphens so sentences ending in a version (like
+ * GitHub Copilot's "GitHub Copilot CLI 1.0.84-5.") don't include the trailing stop,
+ * while SemVer prerelease hyphens and build metadata are preserved (#642).
+ */
 export const versionIn = (printed: string | null): string | null => {
   if (!printed) return null
   const match = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/.exec(printed)
