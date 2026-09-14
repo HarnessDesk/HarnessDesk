@@ -342,6 +342,26 @@ describe('turns dropped under the window', () => {
     expect(turnsHere()).toEqual(['t-1'])
   })
 
+  it('handles sync notification with missing or malformed sessions array without crashing (#508)', () => {
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    expect(() => {
+      transport.handlers.onNotification({
+        method: 'sync',
+        params: {} as never,
+      })
+    }).not.toThrow()
+
+    expect(() => {
+      transport.handlers.onNotification({
+        method: 'sync',
+        params: {
+          sessions: null as never,
+          runtimes: [],
+        } as never,
+      })
+    }).not.toThrow()
+  })
+
   it('keeps a turn still in flight, which no read can be right about yet', async () => {
     // The rule the fold has always had, and the reason a rollback can be sent
     // as a whole-session event at all: what a window watched stream is better

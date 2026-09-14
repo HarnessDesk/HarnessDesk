@@ -210,8 +210,10 @@ export class AppStore {
       onNotification: (notification) => {
         if (notification.method === 'sync') {
           const sessions = new Map(this.#snapshot.sessions)
-          for (const session of notification.params.sessions) {
-            sessions.set(sessionKey(session.runtime, session.id), session)
+          for (const session of notification.params.sessions ?? []) {
+            if (session && typeof session === 'object' && session.runtime && session.id) {
+              sessions.set(sessionKey(session.runtime, session.id), session)
+            }
           }
           // Replaced, not merged: the host sends every queue that has anything
           // in it, so one that is missing is one that has drained.
@@ -231,16 +233,19 @@ export class AppStore {
           for (const entry of notification.params.health ?? []) {
             healthByRuntime[entry.runtime] = entry.health
           }
+          const runtimes = Array.isArray(notification.params.runtimes)
+            ? notification.params.runtimes
+            : []
           this.#patch({
             sessions,
             queues,
             tasks,
-            runtimes: notification.params.runtimes,
+            runtimes,
             healthByRuntime,
-            plugins: notification.params.plugins,
-            contributions: notification.params.contributions,
+            plugins: notification.params.plugins ?? [],
+            contributions: notification.params.contributions ?? [],
             activeRuntime:
-              this.#snapshot.activeRuntime ?? notification.params.runtimes[0]?.id ?? null,
+              this.#snapshot.activeRuntime ?? runtimes[0]?.id ?? null,
           })
           void this.refreshRuntime()
         }
