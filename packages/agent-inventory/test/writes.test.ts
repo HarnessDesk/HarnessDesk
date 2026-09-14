@@ -7,6 +7,7 @@ import { test } from 'node:test'
 
 import { runtimeId, type LibraryPlannedOp } from '@harnessdesk/protocol'
 
+import { digestOf } from '../src/digest.js'
 import {
   applyLibrary,
   decodeMcpEntry,
@@ -799,6 +800,40 @@ test('symlinked source skill bundle pointing outside managed roots is refused (#
     assert.equal(existsSync(join(home, '.claude/skills/leak/secret.txt')), false)
   })
 })
+
+test('manifest loader ignores entries with invalid kind or name (#451)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const target = join(home, '.claude/skills/demo')
+    await mkdir(target, { recursive: true })
+    const foreign = '---\nname: demo\n---\nforeign\n'
+    await writeFile(join(target, 'SKILL.md'), foreign)
+
+    const source = join(home, '.codex/skills/source')
+    await mkdir(source, { recursive: true })
+    await writeFile(join(source, 'SKILL.md'), '---\nname: demo\n---\nreplacement\n')
+
+    await mkdir(libraryDir, { recursive: true })
+    await writeFile(
+      join(libraryDir, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          { kind: 'broken-kind', name: 'demo', path: target, digest: digestOf(foreign), at: 0 },
+          { kind: 'skill', name: 123, path: target, digest: digestOf(foreign), at: 0 },
+        ],
+      }),
+    )
+
+    const plan = await planLibrary(
+      [agent('codex'), agent('claudecode')],
+      [{ kind: 'installSkill', name: 'demo', sourcePath: source, targetRuntime: runtimeId('claudecode') }],
+      { libraryDir, home },
+    )
+    assert.equal(plan.ops[0]?.action, 'refuse', 'foreign copy must not be treated as owned when kind is invalid')
+    assert.match(plan.ops[0]?.reason ?? '', /not written by HarnessDesk/i)
+  })
+})
+
 
 
 
