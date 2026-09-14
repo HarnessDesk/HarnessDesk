@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { shortPath } from '@harnessdesk/protocol'
 import type {
@@ -962,6 +962,24 @@ const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
  * One op, performed. Throws with the sentence the result should carry;
  * `applyLibrary` catches per op.
  */
+/**
+ * A skill bundle relative path must stay strictly inside the bundle:
+ * no traversal segments (..), no empty segments, no absolute paths (POSIX or Windows),
+ * no drive letters (C:), and no UNC prefixes (\\server\share).
+ */
+export const isSafeSkillRelativePath = (relative: string): boolean => {
+  if (
+    isAbsolute(relative) ||
+    /^[A-Za-z]:[\\/]/.test(relative) ||
+    relative.startsWith('\\\\') ||
+    relative.startsWith('//') ||
+    relative.split(/[/\\]/).some((part) => part === '..' || part === '')
+  ) {
+    return false
+  }
+  return true
+}
+
 const applyOne = async (
   op: LibraryPlannedOp,
   manifest: LibraryManifest,
@@ -1039,7 +1057,7 @@ const applyOne = async (
       await writeFile(join(op.targetPath, 'SKILL.md'), content)
       for (const relative of op.extraFiles ?? []) {
         if (op.sourcePath === undefined) break
-        if (relative.split('/').some((part) => part === '..' || part === '')) continue
+        if (!isSafeSkillRelativePath(relative)) continue
         const from = join(op.sourcePath, relative)
         const to = join(op.targetPath, relative)
         try {
