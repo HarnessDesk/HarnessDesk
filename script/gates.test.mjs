@@ -1350,3 +1350,19 @@ test('DOCUMENTATION regex exempts design explorer and showcase on both POSIX and
   const nonExempt = 'packages\\ui\\src\\components\\BringHome.tsx'
   assert.equal(DOCUMENTATION.test(nonExempt), false)
 })
+
+test('packages/server/tsconfig.json includes project references for internal dependencies and excludes unused transport-acp (#485)', () => {
+  const serverPkg = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'packages/server/package.json'), 'utf8'))
+  const serverTsconfig = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'packages/server/tsconfig.json'), 'utf8'))
+  const refs = new Set(serverTsconfig.references.map((r) => r.path))
+
+  const internalDeps = Object.keys({ ...serverPkg.dependencies, ...serverPkg.devDependencies })
+    .filter((name) => name.startsWith('@harnessdesk/'))
+    .map((name) => `../${name.replace('@harnessdesk/', '')}`)
+
+  for (const dep of internalDeps) {
+    assert.ok(refs.has(dep), `packages/server/tsconfig.json is missing reference for dependency ${dep}`)
+  }
+  assert.ok(!refs.has('../transport-acp'), 'packages/server/tsconfig.json must not reference ../transport-acp')
+})
+
