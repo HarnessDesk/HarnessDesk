@@ -1667,4 +1667,29 @@ test('HTTP token gate cannot be bypassed by non-root SPA routes (#429)', async (
   assert.equal(await resStatic.text(), 'console.log("bundle")')
 })
 
+test('preview-frame endpoint restricts navigation and form actions in CSP (#474)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const root = harness.stateDir
+  const { writeFile } = await import('node:fs/promises')
+  const htmlFile = join(root, 'preview.html')
+  await writeFile(htmlFile, '<html><body>preview</body></html>', 'utf8')
+
+  // Open workspace folder so confinement passes
+  await client.call('workspace/open', { path: root })
+
+  const { ticket } = (await client.call('preview/ticket', {
+    path: htmlFile,
+  })) as { ticket: string }
+
+  const res = await fetch(`${harness.server.url}/preview-frame?ticket=${encodeURIComponent(ticket)}`)
+  assert.equal(res.status, 200)
+  const csp = res.headers.get('content-security-policy') ?? ''
+  assert.match(csp, /form-action 'none'/, 'CSP must forbid form submission navigation')
+  assert.match(csp, /navigate-to 'none'/, 'CSP must forbid document navigation')
+})
+
 

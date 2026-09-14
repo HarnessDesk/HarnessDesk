@@ -239,7 +239,7 @@ const handleHttp = async (
       'content-type': redeemed.contentType,
       'cache-control': 'no-store',
       'content-security-policy':
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'",
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; navigate-to 'none'",
     })
     response.end(Buffer.from(redeemed.bytes))
     return
