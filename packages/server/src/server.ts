@@ -285,7 +285,12 @@ const handleHttp = async (
     })
     createReadStream(target).pipe(response)
   } catch {
-    // Unknown paths fall back to the app shell so client routing works.
+    // Unknown paths fall back to the app shell so client routing works, but
+    // the app shell is token-gated just like `/` and `/index.html`.
+    if (!tokenMatches(context.token, url.searchParams.get('token'))) {
+      response.writeHead(401).end('Unauthorized')
+      return
+    }
     try {
       const shell = join(context.uiRoot, 'index.html')
       await stat(shell)
