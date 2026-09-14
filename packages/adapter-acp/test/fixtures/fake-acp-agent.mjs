@@ -143,6 +143,11 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('echo blocks')) {
+    say(JSON.stringify(params.prompt ?? []))
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.includes('omit stop reason')) {
     say('finished without explicit stop reason')
     return reply(id, { usage: null })
