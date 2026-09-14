@@ -755,6 +755,7 @@ export class Team {
           intents: (raw.intents ?? []).map((intent: Intent) => ({
             ...intent,
             files: Array.isArray(intent.files) ? intent.files : [],
+            dependsOn: Array.isArray(intent.dependsOn) ? intent.dependsOn : [],
           })),
           // A `queued` row waits on an in-memory delivery, and this is a
           // fresh memory: left as it was it would read "queued" forever.
@@ -1571,7 +1572,7 @@ export class Team {
               intent.state === 'open' &&
               !intent.claim &&
               this.#misaddressed(board, intent, caller) === null &&
-              intent.dependsOn.every((dep) => {
+              (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
                 const found = board.intents.find((entry) => entry.id === dep)
                 return found === undefined || found.state === 'done'
               }) &&
@@ -1646,7 +1647,7 @@ export class Team {
                 intent.state === 'open' &&
                 !intent.claim &&
                 this.#misaddressed(board, intent, peer) === null &&
-                intent.dependsOn.every((dep) => {
+                (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
                   const dependency = board.intents.find((entry) => entry.id === dep)
                   return dependency === undefined || dependency.state === 'done'
                 }) &&
@@ -1704,7 +1705,7 @@ export class Team {
         intent.state === 'open' &&
         !intent.claim &&
         this.#misaddressed(board, intent, peer) === null &&
-        intent.dependsOn.every((dep) => {
+        (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
           const found = board.intents.find((entry) => entry.id === dep)
           return found === undefined || found.state === 'done'
         }) &&
@@ -1772,7 +1773,7 @@ export class Team {
          can do, and a reviewer being handed the fixer's card is the routing
          failure roles exist to end. */
       this.#misaddressed(board, intent, caller) === null &&
-      intent.dependsOn.every((dep) => {
+      (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
         const found = board.intents.find((entry) => entry.id === dep)
         return found === undefined || found.state === 'done'
       }) &&
@@ -1889,7 +1890,8 @@ export class Team {
     if (intent.state === 'blocked' && intent.blockedBy === 'hand') {
       return `Refused: #${intentId} was deliberately blocked${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}. Only the user, or whoever blocked it, reopens it.`
     }
-    const waiting = intent.dependsOn.filter((dep) => {
+    const deps = Array.isArray(intent.dependsOn) ? intent.dependsOn : []
+    const waiting = deps.filter((dep) => {
       // A dependency that is no longer on the board was settled and trimmed;
       // it must not read as forever-unfinished.
       const found = board.intents.find((entry) => entry.id === dep)
@@ -2021,7 +2023,8 @@ export class Team {
         : ''
     const handoff = args.handoff
       ? ' Your context package is on the board for whoever works what depended on this.'
-      : intent.dependsOn.length === 0 && board.intents.some((entry) => entry.dependsOn.includes(intentId))
+      : (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).length === 0 &&
+        board.intents.some((entry) => (Array.isArray(entry.dependsOn) ? entry.dependsOn : []).includes(intentId))
         ? ' Consider leaving a context package (`complete_claim` with `context`) next time — something depended on this.'
         : ''
     return `Completed #${intentId} — ${intent.title}.${unblocked}${handoff}`
@@ -3375,12 +3378,13 @@ export class Team {
     for (const intent of board.intents) {
       if (intent.state !== 'blocked') continue
       if (intent.blockedBy === 'hand') continue
-      const ready = intent.dependsOn.every((dep) => {
+      const deps = Array.isArray(intent.dependsOn) ? intent.dependsOn : []
+      const ready = deps.every((dep) => {
         const found = board.intents.find((entry) => entry.id === dep)
         // Trimmed dependencies were settled; absence is not "unfinished".
         return found === undefined || found.state === 'done'
       })
-      if (ready && intent.dependsOn.length > 0) {
+      if (ready && deps.length > 0) {
         this.#patchIntent(board, intent.id, { state: 'open', blockedReason: null, blockedBy: null })
         this.#signal(board, by, 'unblocked', intent, null)
         opened.push(intent.id)
@@ -3728,7 +3732,7 @@ export class Team {
         intent.state === 'claimed' && intent.claim
           ? `claimed by ${this.#holderName(board, intent)} (${ago(intent.claim.at)})`
           : intent.state === 'blocked'
-            ? `blocked${intent.dependsOn.length > 0 ? ` (waiting on ${intent.dependsOn.map((dep) => `#${dep}`).join(', ')})` : ''}${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}`
+            ? `blocked${(Array.isArray(intent.dependsOn) ? intent.dependsOn : []).length > 0 ? ` (waiting on ${(Array.isArray(intent.dependsOn) ? intent.dependsOn : []).map((dep) => `#${dep}`).join(', ')})` : ''}${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}`
             : intent.state
       const files = intent.files.length > 0 ? `\n    files: ${intent.files.join(', ')}` : ''
       const note = intent.state === 'done' && intent.note ? ` — ${intent.note}` : ''

@@ -3903,3 +3903,69 @@ test('claimNext and conflict checks do not crash when a stored intent has files 
   assert.match(await team.conflicts(['src/any.ts'], codex), /^No live claim overlaps/)
 })
 
+test('claimNext and readiness checks do not crash when a stored intent has dependsOn set to null (#506)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-team-intent-dependson-'))
+  let teamRef: Team | null = null
+  t.after(async () => {
+    if (teamRef) await teamRef.flush()
+    await rm(dir, { recursive: true, force: true })
+  })
+  const callerKey = sessionKey('codex', 'c1')
+  await writeFile(
+    join(dir, 'room.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'room',
+      name: 'Room',
+      root: '/repo',
+      members: [callerKey],
+      nextIntent: 2,
+      nextPlan: 1,
+      plans: [],
+      messaging: true,
+      intents: [
+        {
+          id: 1,
+          title: 'open work with null dependsOn',
+          detail: null,
+          state: 'open',
+          files: [],
+          dependsOn: null,
+          role: null,
+          outcome: null,
+          claim: null,
+          blockedReason: null,
+          blockedBy: null,
+          handoff: null,
+          note: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      channel: [],
+      nicknames: {},
+      roles: {},
+      roster: { [callerKey]: { title: null, agent: 'Codex', cwd: '/repo', model: null, at: 0 } },
+    }),
+  )
+
+  const team = new Team(dir, {
+    peers: () => [
+      peer({ sessionId: 'c1', title: null, cwd: '/repo', agent: 'Codex', busy: false, canSteer: false, queuedByUser: 0, model: null, here: true }),
+    ],
+    rootOf: async () => '/repo',
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  })
+  teamRef = team
+
+  await team.load()
+  assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 1)?.dependsOn, [])
+  const result = await team.claimNext(codex)
+  assert.match(result, /^Claimed #1 — open work with null dependsOn/)
+})
+
