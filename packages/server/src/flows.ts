@@ -1163,27 +1163,38 @@ export class Flows implements TeamFlows {
       }
     }
     for (const run of [...this.#runs.values()]) {
-      if (run.state !== 'running') continue
+      if (run.state !== 'running' && run.state !== 'stalled') continue
       /* A room that no longer exists takes its run with it. */
+      let exists = false
       try {
-        this.#team.stateFor(run.room)
+        exists = this.#team.hasRoom(run.room)
       } catch {
+        exists = false
+      }
+      if (!exists) {
+        const record = Array.isArray(run.record) ? run.record : []
         this.#runs.set(run.id, {
           ...run,
           state: 'stopped',
           endedAt: now(),
           ended: 'the room this flow ran in is gone',
+          record: [
+            ...record,
+            { at: now(), kind: 'stopped', text: 'the room this flow ran in is gone' },
+          ],
         })
         this.#save(run.id)
         continue
       }
-      try {
-        await this.#advance(run.id)
-      } catch (error) {
-        this.#port.log('a running flow could not advance during reconciliation', {
-          run: run.id,
-          error: error instanceof Error ? error.message : String(error),
-        })
+      if (run.state === 'running') {
+        try {
+          await this.#advance(run.id)
+        } catch (error) {
+          this.#port.log('a running flow could not advance during reconciliation', {
+            run: run.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
       }
     }
   }
