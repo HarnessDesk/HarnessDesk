@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -721,5 +721,36 @@ test('concurrent MCP apply operations preserve all declarations in JSON configs 
     assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
   })
 })
+
+test('manifest save does not follow preexisting temp symlink and overwrite outside files (#453)', async () => {
+  await withHome(async (home, libraryDir) => {
+    await mkdir(libraryDir, { recursive: true })
+    const manifestPath = join(libraryDir, 'manifest.json')
+    const outside = join(home, 'outside.txt')
+    await writeFile(outside, 'outside-before')
+    await symlink(outside, `${manifestPath}.tmp`)
+
+    const op: LibraryPlannedOp = {
+      id: 'op-1',
+      kind: 'skill',
+      name: 'demo',
+      action: 'create',
+      targetPath: join(home, '.claude/skills/demo'),
+      guardDigest: null,
+      backup: false,
+      content: '---\nname: demo\n---\ntext\n',
+    }
+
+    const results = await applyLibrary([op], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'done')
+
+    const outsideContent = await readFile(outside, 'utf8')
+    assert.equal(outsideContent, 'outside-before', 'manifest save must not overwrite symlink target')
+
+    const stat = await lstat(manifestPath)
+    assert.equal(stat.isSymbolicLink(), false, 'manifest.json must not be promoted from symlink')
+  })
+})
+
 
 

@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { LibraryKind } from '@harnessdesk/protocol'
@@ -93,8 +94,12 @@ export class LibraryManifest {
       entries: [...this.#entries.values()].sort((a, b) => a.path.localeCompare(b.path)),
     }
     await mkdir(dirname(this.#file), { recursive: true })
-    const tmp = `${this.#file}.tmp`
-    await writeFile(tmp, `${JSON.stringify(body, null, 2)}\n`)
-    await rename(tmp, this.#file)
+    const tmp = `${this.#file}.harnessdesk-tmp-${randomUUID()}`
+    try {
+      await writeFile(tmp, `${JSON.stringify(body, null, 2)}\n`, { flag: 'wx' })
+      await rename(tmp, this.#file)
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {})
+    }
   }
 }
