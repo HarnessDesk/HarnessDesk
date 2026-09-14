@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { shortPath } from '@harnessdesk/protocol'
 import type {
@@ -1012,7 +1012,13 @@ const applyOne = async (
       await writeFile(join(op.targetPath, 'SKILL.md'), content)
       for (const relative of op.extraFiles ?? []) {
         if (op.sourcePath === undefined) break
-        if (relative.split('/').some((part) => part === '..' || part === '')) continue
+        if (
+          isAbsolute(relative) ||
+          /^[A-Za-z]:[\\/]/.test(relative) ||
+          relative.split(/[/\\]/).some((part) => part === '..' || part === '')
+        ) {
+          continue
+        }
         const from = join(op.sourcePath, relative)
         const to = join(op.targetPath, relative)
         try {

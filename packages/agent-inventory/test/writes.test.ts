@@ -722,4 +722,35 @@ test('concurrent MCP apply operations preserve all declarations in JSON configs 
   })
 })
 
+test('skill extra files refuses Windows backslash path traversal (#458)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await writeFile(join(home, '.codex/skills/secret.txt'), 'PRIVATE_DATA')
+    await mkdir(join(sourcePath, 'scripts'), { recursive: true })
+    await writeFile(join(sourcePath, 'scripts/run.sh'), '#!/bin/sh\necho hi')
+
+    const targetPath = join(home, '.claude/skills/commit')
+    const forged: LibraryPlannedOp = {
+      id: 'op-traversal',
+      kind: 'skill',
+      name: 'commit',
+      action: 'create',
+      targetPath,
+      content: BODY,
+      sourcePath,
+      extraFiles: ['..\\secret.txt', 'C:\\secret.txt', 'sub\\..\\..\\secret.txt'],
+      guardDigest: null,
+      backup: false,
+    }
+    const results = await applyLibrary([forged], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'done')
+    // Traversal files must be skipped and never copied
+    assert.equal(existsSync(join(home, '.claude/skills/secret.txt')), false)
+    assert.equal(existsSync(join(home, '.claude/skills/commit/..\\secret.txt')), false)
+    assert.equal(existsSync(join(home, '.claude/skills/commit/C:\\secret.txt')), false)
+  })
+})
+
+
 
