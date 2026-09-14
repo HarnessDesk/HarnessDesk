@@ -3,6 +3,18 @@ import { randomBytes } from 'node:crypto'
 import type { ModelRouteRecord } from '../host.js'
 import type { MethodsUnder } from './context.js'
 
+const ownerOf = (
+  entry: { readonly agent: string | null; readonly writer: string | null },
+  gateways: ReadonlyMap<string, string>,
+  ref: string,
+) => {
+  const gateway = gateways.get(ref)
+  if (gateway) return { kind: 'gateway', of: gateway } as const
+  if (entry.agent) return { kind: 'agent', of: entry.agent } as const
+  if (entry.writer === 'endpoint' || entry.writer === null) return { kind: 'endpoint' } as const
+  return null
+}
+
 /**
  * Secrets and what refers to them. The broker returns references, never
  * values; a model route names a credential by reference and the host
@@ -25,19 +37,10 @@ export const credentialMethods = {
     const gateways = new Map(
       ctx.accounts.gatewayCredentials().map((one) => [one.ref, one.name] as const),
     )
-    return (await ctx.credentials.describe()).map(({ agent, writer, ...rest }) => {
-      const gateway = gateways.get(rest.ref)
-      return {
-        ...rest,
-        owner: gateway
-          ? ({ kind: 'gateway', of: gateway } as const)
-          : agent
-            ? ({ kind: 'agent', of: agent } as const)
-            : writer === 'endpoint' || writer === null
-              ? ({ kind: 'endpoint' } as const)
-              : null,
-      }
-    })
+    return (await ctx.credentials.describe()).map(({ agent, writer, ...rest }) => ({
+      ...rest,
+      owner: ownerOf({ agent, writer }, gateways, rest.ref),
+    }))
   },
 
   // The endpoint dialog's door: a key stored through it is an endpoint's.
@@ -90,8 +93,18 @@ export const credentialMethods = {
     ctx.gateways.stop(params.id)
     // A credential nothing references any more is deleted with its route:
     // an orphaned key sitting in the store is a liability with no owner.
+    // But only an endpoint-owned key belongs to the route; an agent or
+    // gateway account's key referenced by a route must not be deleted.
     if (dying && !remaining.some((route) => route.credentialRef === dying.credentialRef)) {
-      await ctx.credentials.delete(dying.credentialRef)
+      const gateways = new Map(
+        ctx.accounts.gatewayCredentials().map((one) => [one.ref, one.name] as const),
+      )
+      const entries = await ctx.credentials.describe()
+      const target = entries.find((one) => one.ref === dying.credentialRef)
+      const owner = target ? ownerOf(target, gateways, dying.credentialRef) : null
+      if (owner?.kind === 'endpoint') {
+        await ctx.credentials.delete(dying.credentialRef)
+      }
     }
     return null
   },

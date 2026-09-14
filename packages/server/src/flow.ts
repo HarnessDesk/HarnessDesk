@@ -40,6 +40,12 @@ import { parseYaml, YamlError } from './yaml.js'
 /** How long one `await_work` blocks, when the flow does not say. */
 const DEFAULT_WAIT_SEC = 240
 
+/** How many times one seat may be re-armed inside the hourly window when not specified. */
+export const DEFAULT_REARM = 3
+
+/** The most re-arms an author may ask for inside one hour. */
+export const REARM_CEILING = 120
+
 /**
  * How long a runtime's own tool client will hold a call open, in seconds.
  *
@@ -137,6 +143,35 @@ export const slotsIn = (template: string): string[] => [
  * renders as literal `{{n}}` is the failure this list prevents.
  */
 export const BUILT_IN_SLOTS = ['flow', 'run', 'room', 'repo', 'role', 'round', 'n', 'count'] as const
+
+/**
+ * Slots that belong to a card's round rather than a seat's order.
+ *
+ * An order is handed out at seating time, before any round exists, so these
+ * only have meaning on a card (seed or rule).
+ */
+export const CARD_SLOTS = ['round', 'n', 'count'] as const
+
+/**
+ * The built-in slots a role's order may use, matching what `orderVars` produces.
+ *
+ * Excludes `CARD_SLOTS` which only have meaning on a card.
+ */
+export const ORDER_SLOTS = [
+  'name',
+  'member',
+  'seat',
+  'room',
+  'repo',
+  'runtime',
+  'run',
+  'flow',
+  'role',
+  'outcomes',
+  'blockMs',
+  'brief',
+  'gitRule',
+] as const
 
 /**
  * Two more that only a rule's template may use: the round that just finished.
@@ -464,6 +499,7 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
 
   const seed = readThen(root['seed'], 'seed', problems)
   const wait = Number(root['wait'] ?? DEFAULT_WAIT_SEC)
+  const rearmVal = root['rearm'] !== undefined && root['rearm'] !== null ? Number(root['rearm']) : undefined
   const flow: Flow = {
     name: asText(root['name']) ?? fallbackName,
     ...(asText(root['description']) ? { description: asText(root['description']) as string } : {}),
@@ -472,6 +508,7 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
     rules,
     seed: seed ?? { role: '', title: '' },
     wait: Number.isFinite(wait) && wait > 0 ? Math.trunc(wait) : DEFAULT_WAIT_SEC,
+    ...(rearmVal !== undefined ? { rearm: rearmVal } : {}),
     /* Reserved, carried, never read. A canvas has to put node positions
        somewhere, and a format with nowhere to put them forces it to invent a
        second file or to change this one under everybody's committed flows. */
@@ -512,10 +549,11 @@ export const ruleFor = (
  * ever fire?" and "can this loop ever end?" exactly answerable rather than
  * sampled.
  */
-const profilesOf = (role: FlowRole): string[][] => {
+const profilesOf = (role: FlowRole): (string | null)[][] => {
+  if (role.outcomes.length === 0) return [[null]]
   const outcomes = [...new Set(role.outcomes)]
-  if (outcomes.length === 0 || outcomes.length > OUTCOME_CEILING) return outcomes.map((one) => [one])
-  const profiles: string[][] = []
+  if (outcomes.length > OUTCOME_CEILING) return outcomes.map((one) => [one])
+  const profiles: (string | null)[][] = []
   for (let mask = 1; mask < 1 << outcomes.length; mask += 1) {
     const subset = outcomes.filter((_one, bit) => (mask & (1 << bit)) !== 0)
     if (subset.length <= role.count) profiles.push(subset)
@@ -534,6 +572,19 @@ const profilesOf = (role: FlowRole): string[][] => {
  */
 export const validateFlow = (flow: Flow): FlowProblem[] => {
   const problems: FlowProblem[] = []
+  if (flow.rearm !== undefined && flow.rearm !== null) {
+    if (!Number.isInteger(flow.rearm) || flow.rearm < 0) {
+      problems.push(problem('error', 'rearm', 'rearm must be a non-negative integer'))
+    } else if (flow.rearm > REARM_CEILING) {
+      problems.push(
+        problem(
+          'error',
+          'rearm',
+          `rearm cannot exceed ${REARM_CEILING} an hour — a loop that needs more is one an agent is thrashing in`,
+        ),
+      )
+    }
+  }
   const byId = new Map(flow.roles.map((role) => [role.id, role]))
   if (flow.roles.length === 0) problems.push(problem('error', 'roles', 'a flow with no roles has nobody to do anything'))
 
@@ -590,10 +641,27 @@ export const validateFlow = (flow: Flow): FlowProblem[] => {
 
   // Templates, including the seed's — a slot that resolves to nothing reaches
   // an agent as literal `{{issue}}` and reads to it as a broken instruction.
-  const known = new Set<string>([...BUILT_IN_SLOTS, ...flow.inputs.map((input) => input.id)])
-  const checkTemplate = (text: string | null | undefined, at: string, afterARound: boolean): void => {
+  const cardKnown = new Set<string>([...BUILT_IN_SLOTS, ...flow.inputs.map((input) => input.id)])
+  const orderKnown = new Set<string>([...ORDER_SLOTS, ...flow.inputs.map((input) => input.id)])
+  const checkTemplate = (
+    text: string | null | undefined,
+    at: string,
+    where: 'seed' | 'rule' | 'order',
+  ): void => {
+    const isOrder = where === 'order'
+    const afterARound = where === 'rule'
+    const known = isOrder ? orderKnown : cardKnown
     for (const slot of slotsIn(text ?? '')) {
-      if (known.has(slot)) continue
+      if (isOrder && (CARD_SLOTS as readonly string[]).includes(slot)) {
+        problems.push(
+          problem(
+            'error',
+            at,
+            `{{${slot}}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card`,
+          ),
+        )
+        continue
+      }
       if ((ROUND_SLOTS as readonly string[]).includes(slot)) {
         if (afterARound) continue
         problems.push(
@@ -605,19 +673,20 @@ export const validateFlow = (flow: Flow): FlowProblem[] => {
         )
         continue
       }
+      if (known.has(slot)) continue
       problems.push(
         problem('error', at, `nothing fills {{${slot}}} — declare it under inputs, or use one of ${[...known].join(', ')}`),
       )
     }
   }
-  checkTemplate(flow.seed.title, 'seed.title', false)
-  checkTemplate(flow.seed.detail, 'seed.detail', false)
-  /* A role's order is handed out at seating, before any round has run, so it
-     is the seed's case whichever role it belongs to. */
-  for (const role of flow.roles) checkTemplate(role.order, `roles.${role.id}.order`, false)
+  checkTemplate(flow.seed.title, 'seed.title', 'seed')
+  checkTemplate(flow.seed.detail, 'seed.detail', 'seed')
+  /* A role's order is handed out at seating, before any round has run, so card-level
+     slots (round, n, count) and finished-round slots (from, answered) have no meaning. */
+  for (const role of flow.roles) checkTemplate(role.order, `roles.${role.id}.order`, 'order')
   flow.rules.forEach((rule, index) => {
-    checkTemplate(rule.then.title, `rules[${index}].then.title`, true)
-    checkTemplate(rule.then.detail, `rules[${index}].then.detail`, true)
+    checkTemplate(rule.then.title, `rules[${index}].then.title`, 'rule')
+    checkTemplate(rule.then.detail, `rules[${index}].then.detail`, 'rule')
   })
 
   // Roles a rule names, and the seed's own.
@@ -838,6 +907,7 @@ export const GIT_RULES: Readonly<Record<FlowPermission, string>> = {
 export interface OrderVars {
   readonly name: string
   readonly member: string
+  readonly seat?: string
   readonly room: string
   readonly repo: string
   readonly flow: string
@@ -847,6 +917,9 @@ export interface OrderVars {
   readonly blockMs: string
   readonly brief: string
   readonly gitRule: string
+  readonly run?: string
+  readonly runtime?: string
+  readonly [key: string]: string | undefined
 }
 
 /**
@@ -888,7 +961,8 @@ RULES, in force the whole time:
 - Say nothing between steps. Narration is context you will need later for the work.`
 
 /** One seat's order, rendered — slots inside slots expanded, unknown slots left standing. */
-export const renderOrder = (vars: OrderVars): string => renderFlowTemplate(STANDING_ORDER, { ...vars })
+export const renderOrder = (vars: OrderVars): string =>
+  renderFlowTemplate(STANDING_ORDER, { ...vars } as Record<string, string>)
 
 /** The vars a role's order is filled with, so seating and re-arming cannot disagree. */
 export const orderVars = (
@@ -901,17 +975,66 @@ export const orderVars = (
     readonly repo: string
     /** Which agent this seat is on, so its block fits what that agent will hold. */
     readonly runtime: string
+    readonly run?: string
+    readonly seat?: string
+    readonly vars?: Readonly<Record<string, string>>
   },
-): OrderVars => ({
-  ...where,
-  flow: flow.name,
-  role: role.id,
-  outcomes: role.outcomes.join(', ') || 'nothing — leave outcome out',
-  blockMs: String(waitFor(where.runtime, flow.wait) * 1000),
-  brief: role.order?.trim() || `You are the ${role.id}. The cards say the rest.`,
-  /* Read off the role's permission every time it is rendered, never stored
-     beside the text: a seat re-armed after its turn died must come back with
-     the permission it was seated for, and a publishing seat that comes back
-     quietly demoted then refuses the card it exists to do. */
-  gitRule: GIT_RULES[role.permission],
+): OrderVars => {
+  const inputs: Record<string, string> = {}
+  for (const input of flow.inputs) {
+    const val = where.vars?.[input.id]
+    if (val !== undefined && val !== null) {
+      inputs[input.id] = val
+    } else if (input.default !== undefined && input.default !== null) {
+      inputs[input.id] = input.default
+    }
+  }
+  return {
+    ...inputs,
+    ...(where.vars ?? {}),
+    name: where.name,
+    member: where.member,
+    seat: where.seat ?? where.name,
+    room: where.room,
+    repo: where.repo,
+    runtime: where.runtime,
+    ...(where.run !== undefined ? { run: where.run } : {}),
+    flow: flow.name,
+    role: role.id,
+    outcomes: role.outcomes.join(', ') || 'nothing — leave outcome out',
+    blockMs: String(waitFor(where.runtime, flow.wait) * 1000),
+    brief: role.order?.trim() || `You are the ${role.id}. The cards say the rest.`,
+    /* Read off the role's permission every time it is rendered, never stored
+       beside the text: a seat re-armed after its turn died must come back with
+       the permission it was seated for, and a publishing seat that comes back
+       quietly demoted then refuses the card it exists to do. */
+    gitRule: GIT_RULES[role.permission],
+  }
+}
+
+/** The vars a card's templates (title, detail) are filled with. */
+export const cardVars = (where: {
+  readonly flow: string
+  readonly run: string
+  readonly room: string
+  readonly repo: string
+  readonly role: string
+  readonly round: string | number
+  readonly n: string | number
+  readonly count: string | number
+  readonly from?: string
+  readonly answered?: string | number
+  readonly vars?: Readonly<Record<string, string>>
+}): Record<string, string> => ({
+  ...(where.vars ?? {}),
+  flow: where.flow,
+  run: where.run,
+  room: where.room,
+  repo: where.repo,
+  role: where.role,
+  round: String(where.round),
+  n: String(where.n),
+  count: String(where.count),
+  ...(where.from !== undefined ? { from: where.from } : {}),
+  ...(where.answered !== undefined ? { answered: String(where.answered) } : {}),
 })

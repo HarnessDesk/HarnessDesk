@@ -506,6 +506,21 @@ export const TeamRoomPane = ({
            updates itself; for one it has never opened, the host's answer is all
            there is. */
         const live = snapshot.sessions.get(key)
+        /* What this agent is on *right now*, from the board — not the last
+           thing it said. That is what makes the rail answer the question
+           without anything being opened.
+
+           Both halves of the identity: session ids are unique per runtime,
+           not globally, so matching the id alone put one claimed intent on
+           two agents' rows the moment two runtimes minted the same id — and
+           only one of them held it. */
+        const onTask =
+          intents.find(
+            (one: Intent) =>
+              one.state === 'claimed' &&
+              one.claim?.sessionId === peer.sessionId &&
+              one.claim?.runtime === peer.runtime,
+          ) ?? null
         return {
           peer,
           key,
@@ -536,27 +551,18 @@ export const TeamRoomPane = ({
              run has seen, so a member nobody has opened this run has proved
              nothing either way by definition. Without the gate, the first
              launch of the day accused every member of every room of ignoring
-             a board it had never been shown. */
+             a board it had never been shown.
+
+             And never about a member currently on a task: a claimed card is
+             proof it can take work, and the accusation must not replace the
+             task that disproves it (#375). */
           idleOnBoard:
             peer.here &&
             runtime?.capabilities?.pluginTools !== false &&
             peer.usedBoard === false &&
+            !onTask &&
             (intents.length > 0 || entries.length > 0),
-          /* What this agent is on *right now*, from the board — not the last
-             thing it said. That is what makes the rail answer the question
-             without anything being opened.
-
-             Both halves of the identity: session ids are unique per runtime,
-             not globally, so matching the id alone put one claimed intent on
-             two agents' rows the moment two runtimes minted the same id — and
-             only one of them held it. */
-          onTask:
-            intents.find(
-              (one: Intent) =>
-                one.state === 'claimed' &&
-                one.claim?.sessionId === peer.sessionId &&
-                one.claim?.runtime === peer.runtime,
-            ) ?? null,
+          onTask,
           /* The open conversation's own title comes first and the host's roster
              second: the roster is fetched when membership changes, and a rename
              does not change membership, so reading the roster alone left a
@@ -1320,6 +1326,11 @@ const MemberRow = ({
              exists to make visible. `accept` says nothing at all: it is the
              default on every member of every room. */
           <span className={styles.memberInbound}>{inboundState}</span>
+        ) : member.onTask ? (
+          <>
+            <span className={styles.memberTaskId}>#{member.onTask.id}</span>{' '}
+            {member.onTask.title}
+          </>
         ) : member.idleOnBoard ? (
           /* The lesser of the two cautions, and the reason both exist: the line
              above is what the harness says about itself, this is what the board
@@ -1327,11 +1338,6 @@ const MemberRow = ({
              nothing on screen said so. No glyph — it is a doubt, not a refusal,
              and it must not shout as loudly as one. */
           <span className={styles.memberIdle}>has not used the board</span>
-        ) : member.onTask ? (
-          <>
-            <span className={styles.memberTaskId}>#{member.onTask.id}</span>{' '}
-            {member.onTask.title}
-          </>
         ) : !member.here ? (
           /* Last of the four, because the three above are all *more* specific
              and a row shows one. It is here at all because a dimmed mark on

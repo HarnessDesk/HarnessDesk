@@ -624,6 +624,25 @@ test('an IPv6 address is reached by its bracketed name, through the gate', async
   assert.match(text(await call('fetch_other')), /is not in this plugin's allowed hosts/)
 })
 
+test('pathWithin handles Windows drive and folder casing variations (#465)', () => {
+  assert.equal(pathWithin('C:\\Projects\\my-app', 'c:\\projects\\my-app\\package.json'), true)
+  assert.equal(pathWithin('C:/Projects/my-app', 'c:/projects/my-app/src/index.ts'), true)
+  assert.equal(pathWithin('c:\\projects\\my-app', 'C:\\Projects\\my-app'), true)
+  assert.equal(pathWithin('C:\\Projects\\my-app', 'c:\\projects\\other-app\\file.txt'), false)
+
+  // Verify PermissionGate honors it
+  const gate = new PermissionGate(
+    { workspace: { read: true, write: true } } as unknown as ConstructorParameters<typeof PermissionGate>[0],
+    () => 'C:\\Projects\\my-app',
+  )
+  assert.doesNotThrow(() => gate.assertWorkspaceRead('c:\\projects\\my-app\\package.json'))
+  assert.doesNotThrow(() => gate.assertWorkspaceWrite('c:\\projects\\my-app\\dist\\bundle.js'))
+  assert.throws(
+    () => gate.assertWorkspaceRead('c:\\projects\\other-app\\package.json'),
+    /outside the open workspace/,
+  )
+})
+
 test('an IPv6 pattern is compared the way a URL writes the address, and a wildcard keeps to its port', () => {
   // Round 2 of #160: a URL compresses an IPv6 address, and a pattern written out in full never matched it.
   assert.equal(hostAllowed(['[0:0:0:0:0:0:0:1]'], '[::1]:80'), true)

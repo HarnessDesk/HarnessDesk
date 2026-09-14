@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { CodexProtocol } from '@harnessdesk/codex'
+import type { CodexProtocol, ServerRequestResponder } from '@harnessdesk/codex'
+import { sessionId, type AgentEvent } from '@harnessdesk/protocol'
 
-import { mapCommandApproval, stdinInputOf } from '../src/mapping/approvals.js'
+import { ApprovalRouter } from '../src/approvals.js'
+import { mapCommandApproval, mapPermissionApproval, stdinInputOf } from '../src/mapping/approvals.js'
 
 const params = (
   extra: Partial<CodexProtocol.v2.CommandExecutionRequestApprovalParams>,
@@ -104,4 +106,135 @@ test('quoted flag values are refused and passed through whole (#326)', () => {
   // Control: unquoted flag value still parses correctly
   assert.equal(stdinInputOf('write_stdin --session-id 42 yes'), 'yes')
 })
+
+test('ApprovalRouter.abandonSession fails outstanding approvals for only the target session (#412)', () => {
+  const events: AgentEvent[] = []
+  const router = new ApprovalRouter((event) => events.push(event))
+
+  const failed: { id: unknown; code: number; message: string }[] = []
+  const responder1: ServerRequestResponder = {
+    respond: () => {},
+    fail: (code, message) => failed.push({ id: 1, code, message }),
+  }
+  const responder2: ServerRequestResponder = {
+    respond: () => {},
+    fail: (code, message) => failed.push({ id: 2, code, message }),
+  }
+
+  router.handle(
+    {
+      id: 1,
+      method: 'item/commandExecution/requestApproval',
+      params: params({ threadId: 'thread-target' }),
+    } as unknown as CodexProtocol.ServerRequest,
+    responder1,
+    () => undefined,
+  )
+
+  router.handle(
+    {
+      id: 2,
+      method: 'item/commandExecution/requestApproval',
+      params: params({ threadId: 'thread-other' }),
+    } as unknown as CodexProtocol.ServerRequest,
+    responder2,
+    () => undefined,
+  )
+
+  assert.equal(router.size, 2)
+  router.abandonSession(sessionId('thread-target'), 'The conversation was deleted.')
+
+  assert.equal(router.size, 1)
+  assert.equal(failed.length, 1)
+  assert.equal(failed[0]?.id, 1)
+  assert.equal(failed[0]?.message, 'The conversation was deleted.')
+  const resolved = events.filter((e): e is Extract<AgentEvent, { type: 'approval/resolved' }> => e.type === 'approval/resolved')
+  assert.equal(resolved.length, 1)
+  assert.equal(resolved[0]?.resolution.outcome, 'abandoned')
+  assert.equal(resolved[0]?.sessionId, 'thread-target')
+})
+
+test('mapPermissionApproval and ApprovalRouter handle Codex v2 permission requests and responses (#410)', () => {
+  const permParams: CodexProtocol.v2.PermissionsRequestApprovalParams = {
+    threadId: 't1',
+    turnId: 'turn-1',
+    itemId: 'item-1',
+    environmentId: null,
+    startedAtMs: 1,
+    cwd: '/w',
+    reason: 'Need write access to /w and network access',
+    permissions: {
+      fileSystem: { read: ['/w/read'], write: ['/w/write'] },
+      network: { enabled: true },
+    },
+  }
+
+  const { approval } = mapPermissionApproval('req-perm-1', permParams)
+  assert.equal(approval.type, 'permission')
+  if (approval.type !== 'permission') return
+  assert.deepEqual(approval.filesystem, ['/w/read', '/w/write'])
+  assert.deepEqual(approval.network, ['Network access'])
+
+  const events: AgentEvent[] = []
+  const router = new ApprovalRouter((event) => events.push(event))
+
+  let respondedResult: unknown = null
+  const responder: ServerRequestResponder = {
+    respond: (result) => {
+      respondedResult = result
+    },
+    fail: () => {},
+  }
+
+  router.handle(
+    {
+      id: 1,
+      method: 'item/permissions/requestApproval',
+      params: permParams,
+    } as unknown as CodexProtocol.ServerRequest,
+    responder,
+    () => undefined,
+  )
+
+  const reqEvent = events.find((e): e is Extract<AgentEvent, { type: 'approval/requested' }> => e.type === 'approval/requested')
+  assert.ok(reqEvent)
+  const approvalId = reqEvent.approval.id
+
+  // Grant for this turn
+  router.respond(approvalId, { type: 'option', optionId: 'opt-grant-turn' })
+  assert.deepEqual(respondedResult, {
+    permissions: {
+      fileSystem: { read: ['/w/read'], write: ['/w/write'] },
+      network: { enabled: true },
+    },
+    scope: 'turn',
+  })
+
+  // Deny path returns empty permissions profile and turn scope
+  let denyResult: unknown = null
+  const denyResponder: ServerRequestResponder = {
+    respond: (result) => {
+      denyResult = result
+    },
+    fail: () => {},
+  }
+  router.handle(
+    {
+      id: 2,
+      method: 'item/permissions/requestApproval',
+      params: permParams,
+    } as unknown as CodexProtocol.ServerRequest,
+    denyResponder,
+    () => undefined,
+  )
+  const denyEvent = events.filter((e): e is Extract<AgentEvent, { type: 'approval/requested' }> => e.type === 'approval/requested')[1]
+  assert.ok(denyEvent)
+  router.respond(denyEvent.approval.id, { type: 'option', optionId: 'opt-deny' })
+  assert.deepEqual(denyResult, {
+    permissions: {},
+    scope: 'turn',
+  })
+})
+
+
 

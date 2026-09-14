@@ -13,6 +13,8 @@
  * an omission, and the mark simply never appears.
  */
 
+import { withoutComments } from './lib/without-comments.mjs'
+
 /** Where the list starts and ends in the TypeScript source. */
 const BLOCK = /export const BRANDS = \[[\s\S]*?\n\] as const/
 
@@ -26,13 +28,18 @@ const BLOCK = /export const BRANDS = \[[\s\S]*?\n\] as const/
  * stays satisfied while the mark it dropped is never rendered. A guard that
  * can only see the list shrink is half a guard.
  *
+ * Comments are stripped through `withoutComments` first so contractions
+ * (like "don't") and quoted names in comments are not mistaken for brand
+ * identifiers or duplicates.
+ *
  * @param {string} source  the contents of `packages/ui/src/lib/brands.ts`
  * @param {number} floor   the smallest believable list, to catch a block match
  *                         that stopped early and returned a plausible answer
  * @returns {string[]}
  */
 export const brandsIn = (source, floor = 0) => {
-  const block = BLOCK.exec(source)?.[0]
+  const stripped = withoutComments(source, 'brands.ts')
+  const block = BLOCK.exec(stripped)?.[0]
   if (!block) throw new Error('brands: cannot find the BRANDS list in lib/brands.ts')
   const named = (block.match(/'[^']*'/g) ?? []).map((entry) => entry.slice(1, -1))
   const brands = [...new Set(named)]

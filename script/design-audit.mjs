@@ -513,35 +513,76 @@ const verbose = process.argv.includes('--verbose')
    `design-doc.mjs` and `check-layering.mjs` already carry. */
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
+/**
+ * Compares current audit counts against baseline counts.
+ * Throws or returns validation problems if baseline values are non-numeric,
+ * and reports whether any section grew worse.
+ */
+export const compareBaseline = (counts, baseline) => {
+  const problems = []
+  let worse = false
+
+  for (const [key, title, , fix] of SECTIONS) {
+    const rawWas = baseline[key]
+    if (rawWas === undefined) {
+      problems.push({ key, title, message: `Missing baseline entry for '${key}'` })
+      worse = true
+      continue
+    }
+    const was = Number(rawWas)
+    if (typeof rawWas !== 'number' || Number.isNaN(was) || !Number.isFinite(was)) {
+      problems.push({
+        key,
+        title,
+        message: `Baseline value for '${key}' is not a valid number: ${JSON.stringify(rawWas)}`,
+      })
+      worse = true
+      continue
+    }
+    const current = counts[key] ?? 0
+    if (current > was) {
+      worse = true
+      problems.push({
+        key,
+        title,
+        was,
+        current,
+        fix,
+        message: `${title}: ${was} -> ${current}. New drift is not accepted.`,
+      })
+    }
+  }
+
+  return { worse, problems }
+}
+
 if (isMain) {
   console.log('Design system audit\n')
-for (const [key, title, why] of SECTIONS) {
-  const list = findings[key]
-  console.log(`${String(list.length).padStart(4)}  ${title}`)
-  console.log(`      ${why}`)
-  if (verbose) for (const line of list) console.log(`        ${line}`)
-  else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
-  if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
-  console.log('')
-}
-console.log(`${total} findings.`)
-
-if (!process.argv.includes('--strict')) process.exit(0)
-
-if (!fs.existsSync(BASELINE)) {
-  console.error('\nNo baseline. Run: node script/design-audit.mjs --baseline')
-  process.exit(1)
-}
-const baseline = JSON.parse(read(BASELINE))
-let worse = false
-for (const [key, title, , fix] of SECTIONS) {
-  const was = baseline[key] ?? 0
-  if (counts[key] > was) {
-    console.error(`\n${title}: ${was} -> ${counts[key]}. New drift is not accepted.`)
-    for (const line of findings[key].slice(0, 6)) console.error(`  ${line}`)
-    console.error(`  → ${fix}`)
-    worse = true
+  for (const [key, title, why] of SECTIONS) {
+    const list = findings[key]
+    console.log(`${String(list.length).padStart(4)}  ${title}`)
+    console.log(`      ${why}`)
+    if (verbose) for (const line of list) console.log(`        ${line}`)
+    else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
+    if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
+    console.log('')
   }
-}
-process.exit(worse ? 1 : 0)
+  console.log(`${total} findings.`)
+
+  if (!process.argv.includes('--strict')) process.exit(0)
+
+  if (!fs.existsSync(BASELINE)) {
+    console.error('\nNo baseline. Run: node script/design-audit.mjs --baseline')
+    process.exit(1)
+  }
+  const baseline = JSON.parse(read(BASELINE))
+  const { worse, problems } = compareBaseline(counts, baseline)
+  for (const p of problems) {
+    console.error(`\n${p.message}`)
+    if (findings[p.key]) {
+      for (const line of findings[p.key].slice(0, 6)) console.error(`  ${line}`)
+    }
+    if (p.fix) console.error(`  → ${p.fix}`)
+  }
+  process.exit(worse ? 1 : 0)
 }

@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import type { Flow, FlowRole } from '@harnessdesk/protocol'
+
 import {
   dryRun,
   GIT_RULES,
@@ -15,7 +17,11 @@ import {
   ruleFor,
   waitFor,
   seatAt,
+  slotsIn,
   validateFlow,
+  ORDER_SLOTS,
+  BUILT_IN_SLOTS,
+  cardVars,
 } from '../src/flow.js'
 
 /**
@@ -405,3 +411,391 @@ seed: { role: competitor, title: "Attempt {{n}}" }
   assert.equal(seatAt(flow.roles[0]!, 1).model, 'zai/glm-5.3-flash')
   assert.equal(seatAt(flow.roles[0]!, 1).effort, undefined)
 })
+
+test('card slots are refused in a role order, naming why', () => {
+  const source = `
+name: probe
+inputs:
+  codename:
+    label: The hunter's name
+    default: mantis
+wait: 60
+roles:
+  hunter:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    count: 1
+    permission: read
+    outcomes: [done]
+    order: |
+      You are {{codename}}, on round {{round}}, card {{n}} of {{count}}, in run {{run}}.
+seed:
+  role: hunter
+  title: "go"
+`
+  const errs = errors(source)
+  assert.ok(
+    errs.some(
+      (e) =>
+        e.includes('roles.hunter.order') &&
+        e.includes(
+          '{{round}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card',
+        ),
+    ),
+    `expected {{round}} error in order, got: ${errs.join('; ')}`,
+  )
+  assert.ok(
+    errs.some(
+      (e) =>
+        e.includes('roles.hunter.order') &&
+        e.includes(
+          '{{n}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card',
+        ),
+    ),
+    `expected {{n}} error in order, got: ${errs.join('; ')}`,
+  )
+  assert.ok(
+    errs.some(
+      (e) =>
+        e.includes('roles.hunter.order') &&
+        e.includes(
+          '{{count}} is the round a card belongs to, and an order is handed out before any round has run — it only means something on a card',
+        ),
+    ),
+    `expected {{count}} error in order, got: ${errs.join('; ')}`,
+  )
+  // Declared input {{codename}} and built-in {{run}} are allowed in order
+  assert.ok(!errs.some((e) => e.includes('{{codename}}')))
+  assert.ok(!errs.some((e) => e.includes('{{run}}')))
+})
+
+test('a declared input and run id resolve in a role order', () => {
+  const source = `
+name: probe
+inputs:
+  codename:
+    label: The hunter's name
+    default: mantis
+wait: 60
+roles:
+  hunter:
+    kind: agent
+    seat: cursor=gemini-3.8-flash/high
+    count: 1
+    permission: read
+    outcomes: [done]
+    order: |
+      You are {{codename}} in run {{run}}.
+seed:
+  role: hunter
+  title: "go"
+`
+  const flow = read(source)
+  // With input default and run id passed in where
+  const defaultOrder = renderOrder(
+    orderVars(flow.roles[0]!, flow, {
+      name: 'Gemini 1',
+      member: 'Gemini 1',
+      room: 'a room',
+      repo: '/repo',
+      runtime: 'cursor',
+      run: 'flow-1234',
+    }),
+  )
+  assert.match(defaultOrder, /You are mantis in run flow-1234\./)
+
+  // With explicit vars overriding default
+  const customOrder = renderOrder(
+    orderVars(flow.roles[0]!, flow, {
+      name: 'Gemini 1',
+      member: 'Gemini 1',
+      room: 'a room',
+      repo: '/repo',
+      runtime: 'cursor',
+      run: 'flow-5678',
+      vars: { codename: 'grasshopper' },
+    }),
+  )
+  assert.match(customOrder, /You are grasshopper in run flow-5678\./)
+})
+
+test("every shipped flow's role order renders with no unresolved slots", () => {
+  for (const name of ['fix-and-review.yml', 'race.yml']) {
+    const flow = read(shipped(name))
+    for (const role of flow.roles) {
+      if (role.kind !== 'agent') continue
+      const order = renderOrder(
+        orderVars(role, flow, {
+          name: 'Agent',
+          member: 'Agent',
+          room: 'Room',
+          repo: '/repo',
+          runtime: 'cursor',
+          run: 'flow-test',
+        }),
+      )
+      const remainingSlots = slotsIn(order)
+      assert.deepEqual(
+        remainingSlots,
+        [],
+        `flow ${name} role ${role.id} order has unresolved slots: ${remainingSlots.join(', ')}`,
+      )
+    }
+  }
+})
+
+test('top-level rearm is parsed, defaulted, and validated against ceiling', () => {
+  const valid = `
+name: Rearm test
+rearm: 10
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  const parsed = parseFlow(valid)
+  assert.equal(parsed.flow?.rearm, 10)
+  assert.deepEqual(validateFlow(parsed.flow!), [])
+
+  // Refuses negative
+  const negative = `
+name: Rearm negative
+rearm: -1
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  assert.ok(errors(negative).some((e) => /rearm/.test(e)))
+
+  // Refuses non-integer
+  const nonInt = `
+name: Rearm float
+rearm: 2.5
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  assert.ok(errors(nonInt).some((e) => /rearm/.test(e)))
+
+  // Refuses exceeding ceiling
+  const overCeiling = `
+name: Rearm huge
+rearm: 500
+roles:
+  worker: { kind: agent, seat: cursor, outcomes: [done] }
+seed: { role: worker, title: Work }
+`
+  assert.ok(errors(overCeiling).some((e) => /rearm.*exceed/.test(e)))
+})
+
+test('a role order with {{name}}, {{member}}, and {{seat}} validates clean (#528)', () => {
+  const yaml = `
+name: Review flow
+inputs: []
+roles:
+  reviewer:
+    kind: agent
+    seat: cursor
+    count: 1
+    permission: read
+    outcomes: [approve, request-changes]
+    order: |
+      You are {{name}} (member: {{member}}).
+      Sign your review with {{seat}}.
+seed:
+  role: reviewer
+  title: Review round
+rules: []
+wait: {}
+`
+  const { flow } = parseFlow(yaml)
+  const problems = validateFlow(flow!)
+  assert.deepEqual(problems, [])
+})
+
+test('orderVars provides seat, name, and member, and renderOrder substitutes them (#528)', () => {
+  const yaml = `
+name: Review flow
+inputs: []
+roles:
+  reviewer:
+    kind: agent
+    seat: cursor
+    count: 1
+    permission: read
+    outcomes: [approve]
+    order: "Seat: {{seat}}, Name: {{name}}, Member: {{member}}"
+seed:
+  role: reviewer
+  title: Review round
+rules: []
+wait: {}
+`
+  const { flow } = parseFlow(yaml)
+  const vars = orderVars(flow!.roles[0]!, flow!, {
+    name: 'Gemini',
+    member: 'Gemini in room',
+    seat: 'Cursor · Gemini 3.8 Flash · High',
+    room: 'Fix room',
+    repo: '/work',
+    runtime: 'cursor',
+  })
+  assert.equal(vars.seat, 'Cursor · Gemini 3.8 Flash · High')
+  const rendered = renderOrder(vars)
+  assert.match(rendered, /Seat: Cursor · Gemini 3\.8 Flash · High, Name: Gemini, Member: Gemini in room/)
+})
+
+test('ORDER_SLOTS contains all built-in keys produced by orderVars (#528)', () => {
+  const yaml = `
+name: Simple flow
+inputs: []
+roles:
+  worker:
+    kind: agent
+    seat: cursor
+    outcomes: [done]
+seed:
+  role: worker
+  title: Simple
+rules: []
+`
+  const { flow } = parseFlow(yaml)
+  const vars = orderVars(flow!.roles[0]!, flow!, {
+    name: 'Name',
+    member: 'Member',
+    seat: 'Seat',
+    room: 'Room',
+    repo: 'Repo',
+    runtime: 'Runtime',
+    run: 'Run',
+  })
+  const producedKeys = Object.keys(vars)
+  for (const slot of ORDER_SLOTS) {
+    assert.ok(producedKeys.includes(slot), `ORDER_SLOTS includes ${slot} which orderVars produces`)
+  }
+  for (const key of producedKeys) {
+    assert.ok(ORDER_SLOTS.includes(key as never), `orderVars produces ${key} which is in ORDER_SLOTS`)
+  }
+})
+
+test('BUILT_IN_SLOTS contains all base card keys produced by cardVars (#528)', () => {
+  const vars = cardVars({
+    flow: 'Flow',
+    run: 'Run',
+    room: 'Room',
+    repo: 'Repo',
+    role: 'Role',
+    round: 1,
+    n: 1,
+    count: 3,
+  })
+  const producedKeys = Object.keys(vars)
+  for (const slot of BUILT_IN_SLOTS) {
+    assert.ok(producedKeys.includes(slot), `BUILT_IN_SLOTS includes ${slot} which cardVars produces`)
+  }
+  for (const key of producedKeys) {
+    assert.ok(BUILT_IN_SLOTS.includes(key as never), `cardVars produces ${key} which is in BUILT_IN_SLOTS`)
+  }
+})
+
+test('parseFlow accepts flow orders containing "---" front matter and markdown dividers (#432)', () => {
+  const yaml = `
+name: Front matter flow
+roles:
+  fixer:
+    kind: agent
+    seat: cursor
+    outcomes: [done]
+    order: |
+      Start with YAML front matter:
+      ---
+      hunter: dragonfly
+      ---
+      Markdown separator:
+      ---
+      Ellipsis:
+      ...
+seed:
+  role: fixer
+  title: Start
+rules: []
+`
+  const { flow, problems } = parseFlow(yaml)
+  assert.equal(problems.length, 0)
+  assert.ok(flow !== null)
+  assert.equal(flow?.name, 'Front matter flow')
+  assert.match(flow?.roles[0]?.order ?? '', /---/)
+})
+
+test('validateFlow accepts unconditional rule on role without outcomes (#443)', () => {
+  const yaml = `
+name: Pipeline flow
+roles:
+  builder:
+    kind: agent
+    seat: cursor
+    outcomes: []
+  deployer:
+    kind: agent
+    seat: cursor
+    outcomes: []
+seed:
+  role: builder
+  title: Build project
+rules:
+  - id: deploy
+    on: builder
+    then:
+      role: deployer
+      title: Deploy project
+`
+  const { flow, problems } = parseFlow(yaml)
+  assert.equal(problems.length, 0)
+  assert.ok(flow !== null)
+  const validationProblems = validateFlow(flow!)
+  assert.deepEqual(
+    validationProblems,
+    [],
+    `expected valid pipeline flow without outcomes to pass validation, but got: ${validationProblems.map((p) => p.text).join('; ')}`,
+  )
+})
+
+test('validateFlow rejects shadowed rule on role without outcomes (#443)', () => {
+  const yaml = `
+name: Pipeline flow
+roles:
+  builder:
+    kind: agent
+    seat: cursor
+    outcomes: []
+  deployer:
+    kind: agent
+    seat: cursor
+    outcomes: []
+  archiver:
+    kind: agent
+    seat: cursor
+    outcomes: []
+seed:
+  role: builder
+  title: Build project
+rules:
+  - id: deploy
+    on: builder
+    then:
+      role: deployer
+      title: Deploy project
+  - id: archive
+    on: builder
+    then:
+      role: archiver
+      title: Archive project
+`
+  const { flow, problems } = parseFlow(yaml)
+  assert.equal(problems.length, 0)
+  assert.ok(flow !== null)
+  const validationProblems = validateFlow(flow!)
+  assert.equal(validationProblems.length, 1)
+  assert.equal(validationProblems[0]?.at, 'rules[1]')
+  assert.match(validationProblems[0]?.text ?? '', /nothing builder can answer reaches this rule/)
+})
+

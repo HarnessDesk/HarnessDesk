@@ -67,6 +67,30 @@ test('a prompt streams chunks, a plan, and completes', async () => {
   }
 })
 
+test('a prompt response with omitted stopReason completes cleanly without dropping the turn (#408)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'omit stop reason' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    assert.equal((completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.status, 'completed')
+    const idle = await tape.until(
+      (event) => event.type === 'session/status' && (event as Extract<AgentEvent, { type: 'session/status' }>).status.type === 'idle',
+    )
+    assert.deepEqual((idle as Extract<AgentEvent, { type: 'session/status' }>).status, { type: 'idle' })
+
+    await session.send([{ type: 'text', text: 'null stop reason' }])
+    const completed2 = await tape.until(
+      (event) => event.type === 'turn/completed' && tape.events.filter((e) => e.type === 'turn/completed').length === 2,
+    )
+    assert.equal((completed2 as Extract<AgentEvent, { type: 'turn/completed' }>).turn.status, 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('one call announced twice is one row, and an unannounced completion still lands', async () => {
   const runtime = make()
   await runtime.start()
@@ -595,6 +619,22 @@ test('ACP modes and config options land on the capability surface unchanged', as
   }
 })
 
+test('changing the model in ACP emits session/settings as well as session/options (#374)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.equal(session.settings().model, 'small')
+    await session.setOption('model', 'large')
+    const settingsEvent = await tape.until((event) => event.type === 'session/settings')
+    assert.equal((settingsEvent as Extract<AgentEvent, { type: 'session/settings' }>).settings.model, 'large')
+    assert.equal(session.settings().model, 'large')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('pluginTools is false for an agent that declares no tool server', async () => {
   const runtime = make()
   await runtime.start()
@@ -658,6 +698,44 @@ test('an agent that refuses the tool server says so, and says it out loud', asyn
     assert.equal(runtime.info.capabilities.pluginTools, false, 'the refusal is remembered')
     assert.equal(announced, settled, 'a remembered refusal is not announced twice')
     off?.()
+    unsubscribe()
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a tool-server refusal in error.data retries without the bridge (#358)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'refuser-data',
+    name: 'Refuser Data',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_REFUSE_TOOLS: 'openclaw', FAKE_ACP_SLOW_OPEN_MS: '50' },
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['--version'],
+      env: {},
+    },
+  })
+  let observed = false
+  const unsubscribe = runtime.subscribe((event) => {
+    if (event.type === 'account/changed') observed = true
+  })
+  await runtime.start()
+  try {
+    const deadline = Date.now() + 5_000
+    while ((runtime.info.capabilities.pluginTools || !observed) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(
+      runtime.info.capabilities.pluginTools,
+      false,
+      'the refusal stated in error.data was observed eagerly',
+    )
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.ok(session, 'a tool server refused in error.data does not cost the session')
+    assert.equal(runtime.info.capabilities.pluginTools, false, 'the refusal is remembered')
     unsubscribe()
   } finally {
     await runtime.dispose()
@@ -781,6 +859,44 @@ test('a permission request becomes an approval; the decision reaches the agent',
       ['approve', 'approveAlways', 'deny'],
     )
     await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.equal(turn.status, 'completed')
+    const tool = turn.items.find((item) => item.type === 'toolCall')
+    assert.ok(tool && tool.type === 'toolCall' && tool.status === 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a permission request with null/non-object blocks in content does not throw and becomes an approval', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'use tool with malformed content' }])
+    const requested = await tape.until((event) => event.type === 'approval/requested')
+    const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+    assert.equal(approval.type, 'permission')
+    assert.equal(approval.summary, 'poke_with_null_block')
+    assert.equal(approval.reason, 'reason despite null block')
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.equal(turn.status, 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a tool_call_update with null or malformed content blocks does not crash the host', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'tool update with null content' }])
     const completed = await tape.until((event) => event.type === 'turn/completed')
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     assert.equal(turn.status, 'completed')
@@ -1318,6 +1434,14 @@ test('an agent error keeps the detail it arrived with', async (t) => {
       assert.equal((error as { details?: string }).details, 'the store has no such id')
       return true
     })
+
+    // Prompt failure also folds data.details into the turn error message (#358)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const tape = record(runtime)
+    await session.send([{ type: 'text', text: 'fail with detail' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as { turn?: { error?: { message?: string } } }).turn
+    assert.match(turn?.error?.message ?? '', /the session is owned by another process/)
   } finally {
     await runtime.dispose()
   }
@@ -1357,6 +1481,25 @@ test('a session opened with a model starts on it', async () => {
       runtime.createSession({ cwd: '/tmp/w', model: 'imaginary' }),
       /not one of the values/,
     )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('direct ACP: falls back to launched CLI version when agentInfo version is placeholder (#354)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_AGENT_VERSION: '0.0.0-dev' },
+    resolveLaunch: async () => ({ command: process.execPath, args: [FAKE], version: '3000.10.21' }),
+  })
+  try {
+    await runtime.start()
+    assert.equal(runtime.launchedVersion, '3000.10.21')
+    assert.equal(runtime.info.version, '3000.10.21')
+    assert.equal(runtime.info.drives, null)
   } finally {
     await runtime.dispose()
   }
@@ -1543,3 +1686,136 @@ test('a first message cut off inside a block names nothing (review of #231)', as
     await runtime.dispose()
   }
 })
+
+test('AcpSession send preserves localImage and http image inputs in prompt (#415)', async (t) => {
+  const { writeFileSync, unlinkSync, openSync, closeSync, ftruncateSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { pathToFileURL } = await import('node:url')
+
+  const imgFile = join(tmpdir(), `test-img-${Date.now()}.png`)
+  writeFileSync(imgFile, Buffer.from('fake-png-bytes'))
+
+  const spaceFile = join(tmpdir(), `my space img-${Date.now()}.png`)
+  writeFileSync(spaceFile, Buffer.from('space-bytes'))
+
+  const svgFile = join(tmpdir(), `test-${Date.now()}.svg`)
+  writeFileSync(svgFile, '<svg></svg>')
+
+  const largeFile = join(tmpdir(), `large-${Date.now()}.png`)
+  const fd = openSync(largeFile, 'w')
+  ftruncateSync(fd, 11 * 1024 * 1024)
+  closeSync(fd)
+
+  t.after(() => {
+    for (const f of [imgFile, spaceFile, svgFile, largeFile]) {
+      try {
+        unlinkSync(f)
+      } catch {}
+    }
+  })
+
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([
+      { type: 'text', text: 'echo blocks' },
+      { type: 'localImage', path: imgFile },
+      { type: 'image', url: 'https://example.com/diagram.png', name: 'diagram.png' },
+      { type: 'localImage', path: '/nonexistent/missing.jpg' },
+      { type: 'image', url: pathToFileURL(spaceFile).href },
+      { type: 'localImage', path: svgFile },
+      { type: 'localImage', path: largeFile },
+    ])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const items = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.items
+    const message = items.find((item) => item.type === 'assistantMessage')
+    assert.ok(message && message.type === 'assistantMessage')
+    const blocks = JSON.parse(message.text)
+    assert.equal(blocks.length, 7, 'all 7 prompt blocks were sent to ACP agent')
+    assert.deepEqual(blocks[0], { type: 'text', text: 'echo blocks' })
+    assert.deepEqual(blocks[1], {
+      type: 'image',
+      data: Buffer.from('fake-png-bytes').toString('base64'),
+      mimeType: 'image/png',
+    })
+    assert.deepEqual(blocks[2], {
+      type: 'resource_link',
+      uri: 'https://example.com/diagram.png',
+      name: 'diagram.png',
+    })
+    assert.deepEqual(blocks[3], {
+      type: 'resource_link',
+      uri: 'file:///nonexistent/missing.jpg',
+      name: 'missing.jpg',
+    })
+    // Percent-encoded file:// URL correctly decoded and read
+    assert.deepEqual(blocks[4], {
+      type: 'image',
+      data: Buffer.from('space-bytes').toString('base64'),
+      mimeType: 'image/png',
+    })
+    // SVG is non-raster; degrades to resource_link
+    assert.equal(blocks[5].type, 'resource_link')
+    assert.ok(blocks[5].uri.endsWith('.svg'))
+    // Oversize file exceeds MAX_IMAGE_BYTES; degrades to resource_link without inlining bytes
+    assert.equal(blocks[6].type, 'resource_link')
+    assert.ok(blocks[6].uri.includes(largeFile))
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('concurrent resumeSession deduplicates in-flight resume and returns same instance (#416)', async (t) => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-concurrent-resume-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'store.json')
+  const withStore = (): AcpRuntime =>
+    new AcpRuntime({
+      id: 'fake-acp',
+      name: 'Fake ACP Agent',
+      command: process.execPath,
+      args: [FAKE],
+      env: { FAKE_ACP_STORE: store },
+    })
+
+  const first = withStore()
+  await first.start()
+  const tapeA = record(first)
+  let savedId: string
+  try {
+    const session = await first.createSession({ cwd: dir })
+    savedId = String(session.id)
+    await session.send([{ type: 'text', text: 'remember me' }])
+    await tapeA.until((event) => event.type === 'turn/completed')
+  } finally {
+    await first.dispose()
+  }
+
+  const second = withStore()
+  await second.start()
+  try {
+    const [resumed1, resumed2] = await Promise.all([
+      second.resumeSession(sessionId(savedId)),
+      second.resumeSession(sessionId(savedId)),
+    ])
+    assert.strictEqual(resumed1, resumed2, 'concurrent resumeSession must return the exact same instance')
+    const read = await second.readSession(resumed1.id)
+    assert.equal(read.turns.length, 1, 'replayed session has the stored turn')
+
+    // Concurrent failing calls clean up #resuming and permit subsequent retries
+    await assert.rejects(() => Promise.all([
+      second.resumeSession(sessionId('ghost-fail')),
+      second.resumeSession(sessionId('ghost-fail')),
+    ]))
+    await assert.rejects(() => second.resumeSession(sessionId('ghost-fail')))
+  } finally {
+    await second.dispose()
+  }
+})
+

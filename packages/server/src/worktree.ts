@@ -151,7 +151,7 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
 const mainCheckoutOf = async (path: string): Promise<string | null> => {
   try {
     const porcelain = await git(path, ['worktree', 'list', '--porcelain'])
-    const first = porcelain.split('\n').find((line) => line.startsWith('worktree '))
+    const first = porcelain.split('\n').map((l) => l.replace(/\r$/, '')).find((line) => line.startsWith('worktree '))
     if (first === undefined) return null
     const listed = first.slice('worktree '.length)
     return (await topLevelOf(listed)) ?? (await canonical(listed))
@@ -231,11 +231,7 @@ export const samePath = (a: string, b: string): boolean => {
   return isWin ? normA.toLowerCase() === normB.toLowerCase() : normA === normB
 }
 
-export const list = async (repoRoot: string, stateDir: string): Promise<Worktree[]> => {
-  const main = await repositoryRoot(repoRoot)
-  if (!main) return []
-  const porcelain = await git(main, ['worktree', 'list', '--porcelain'])
-  const home = await worktreeHome(main, stateDir)
+export const parseWorktreeList = (porcelain: string, home: string): Worktree[] => {
   const worktrees: Worktree[] = []
   let current: { path?: string; head?: string; branch?: string | null; detached?: boolean } = {}
   const flush = (): void => {
@@ -253,7 +249,8 @@ export const list = async (repoRoot: string, stateDir: string): Promise<Worktree
     })
     current = {}
   }
-  for (const line of porcelain.split('\n')) {
+  for (const rawLine of porcelain.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
     if (line.startsWith('worktree ')) {
       flush()
       current = { path: line.slice('worktree '.length) }
@@ -263,6 +260,14 @@ export const list = async (repoRoot: string, stateDir: string): Promise<Worktree
   }
   flush()
   return worktrees
+}
+
+export const list = async (repoRoot: string, stateDir: string): Promise<Worktree[]> => {
+  const main = await repositoryRoot(repoRoot)
+  if (!main) return []
+  const porcelain = await git(main, ['worktree', 'list', '--porcelain'])
+  const home = await worktreeHome(main, stateDir)
+  return parseWorktreeList(porcelain, home)
 }
 
 /**
@@ -288,7 +293,7 @@ export const create = async (
   ])
   const existing = new Set<string | null>([
     ...tied.map((entry) => entry.branch),
-    ...heads.split('\n').filter((line) => line.length > 0),
+    ...heads.split(/[\r\n]+/).filter((line) => line.length > 0),
   ])
   let slug = slugify(options.name)
   let attempt = 1
@@ -370,6 +375,7 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
   const checkouts = await Promise.all(
     porcelain
       .split('\n')
+      .map((l) => l.replace(/\r$/, ''))
       .filter((line) => line.startsWith('worktree '))
       .map((line) => canonical(line.slice('worktree '.length))),
   )

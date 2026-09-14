@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { shortPath } from '@harnessdesk/protocol'
 import type {
@@ -222,6 +223,33 @@ const ownership = (
   return entry.digest === currentDigest ? 'ours' : 'edited'
 }
 
+const realPathOrNull = (path: string): string | null => {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    try {
+      return realpathSync(path)
+    } catch {
+      return null
+    }
+  }
+}
+
+/**
+ * Whether `path` is inside `roots` both lexically and after resolving symlinks.
+ *
+ * Lexical containment stops `..` traversal before touching the disk.
+ * Realpath containment stops a symlink inside a managed root from pointing
+ * outside it and exfiltrating foreign files during skill install or resolution.
+ */
+const insideRootsReal = (path: string, roots: readonly string[]): boolean => {
+  if (!insideRoots(path, roots)) return false
+  const realPath = realPathOrNull(path)
+  if (realPath === null) return false
+  const realRoots = roots.map((r) => realPathOrNull(r) ?? r)
+  return insideRoots(realPath, realRoots)
+}
+
 const planInstallSkill = (
   state: PlanState,
   intent: { name: string; sourcePath: string; targetRuntime: RuntimeId },
@@ -252,7 +280,7 @@ const planInstallSkill = (
   let sourcePath = extras?.sourcePath
   if (text === undefined) {
     const skillRoots = knownRoots('skill', state.home, state.cwd)
-    if (!insideRoots(intent.sourcePath, skillRoots)) {
+    if (!insideRootsReal(intent.sourcePath, skillRoots)) {
       refuse(state, 'skill', name, '', 'The source is not in any directory this library reads.', targetRuntime)
       return
     }
@@ -370,7 +398,7 @@ const planSyncSkill = (
 ): void => {
   const { name } = intent
   const skillRoots = knownRoots('skill', state.home, state.cwd)
-  if (!insideRoots(intent.sourcePath, skillRoots)) {
+  if (!insideRootsReal(intent.sourcePath, skillRoots)) {
     refuse(state, 'skill', name, '', 'The winning copy is not in any directory this library reads.')
     return
   }
@@ -907,10 +935,51 @@ const currentSkillDigest = (targetPath: string): string | null => {
   return existing === null ? null : digestOf(existing.text)
 }
 
+const targetLocks = new Map<string, Promise<void>>()
+
+export const activeLockCountForTest = (): number => targetLocks.size
+
+const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+  const previous = targetLocks.get(key) ?? Promise.resolve()
+  let release: () => void
+  const current = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const chained = previous.then(() => current, () => current)
+  targetLocks.set(key, chained)
+  try {
+    await previous
+    return await fn()
+  } finally {
+    release!()
+    if (targetLocks.get(key) === chained) {
+      targetLocks.delete(key)
+    }
+  }
+}
+
 /**
  * One op, performed. Throws with the sentence the result should carry;
  * `applyLibrary` catches per op.
  */
+/**
+ * A skill bundle relative path must stay strictly inside the bundle:
+ * no traversal segments (..), no empty segments, no absolute paths (POSIX or Windows),
+ * no drive letters (C:), and no UNC prefixes (\\server\share).
+ */
+export const isSafeSkillRelativePath = (relative: string): boolean => {
+  if (
+    isAbsolute(relative) ||
+    /^[A-Za-z]:[\\/]/.test(relative) ||
+    relative.startsWith('\\\\') ||
+    relative.startsWith('//') ||
+    relative.split(/[/\\]/).some((part) => part === '..' || part === '')
+  ) {
+    return false
+  }
+  return true
+}
+
 const applyOne = async (
   op: LibraryPlannedOp,
   manifest: LibraryManifest,
@@ -924,7 +993,7 @@ const applyOne = async (
   // that crossed the socket could otherwise name any path on the machine.
   if (
     op.sourcePath !== undefined &&
-    !insideRoots(op.sourcePath, [
+    !insideRootsReal(op.sourcePath, [
       ...knownRoots('skill', context.home, context.cwd),
       join(context.libraryDir, 'backups'),
     ])
@@ -961,8 +1030,11 @@ const applyOne = async (
         await cp(op.targetPath, backupPath, { recursive: true })
       }
       await rm(op.targetPath, { recursive: true, force: true })
-      manifest.forget('skill', op.targetPath, op.name)
-      await manifest.save()
+      await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
+        const saveManifest = await LibraryManifest.load(context.libraryDir)
+        saveManifest.forget('skill', op.targetPath, op.name)
+        await saveManifest.save()
+      })
       return { id: op.id, outcome: 'done', ...(backupPath !== undefined ? { backupPath } : {}) }
     }
 
@@ -985,7 +1057,7 @@ const applyOne = async (
       await writeFile(join(op.targetPath, 'SKILL.md'), content)
       for (const relative of op.extraFiles ?? []) {
         if (op.sourcePath === undefined) break
-        if (relative.split('/').some((part) => part === '..' || part === '')) continue
+        if (!isSafeSkillRelativePath(relative)) continue
         const from = join(op.sourcePath, relative)
         const to = join(op.targetPath, relative)
         try {
@@ -997,15 +1069,18 @@ const applyOne = async (
         }
       }
     }
-    manifest.record({
-      kind: 'skill',
-      name: op.name,
-      path: op.targetPath,
-      digest: digestOf(content),
-      at: Date.now(),
-      ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
+    await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
+      const saveManifest = await LibraryManifest.load(context.libraryDir)
+      saveManifest.record({
+        kind: 'skill',
+        name: op.name,
+        path: op.targetPath,
+        digest: digestOf(content),
+        at: Date.now(),
+        ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
+      })
+      await saveManifest.save()
     })
-    await manifest.save()
     return { id: op.id, outcome: 'done', ...(backupPath !== undefined ? { backupPath } : {}) }
   }
 
@@ -1023,73 +1098,83 @@ const applyOne = async (
     throw new Error('The target is not a configuration file this library manages.')
   })()
 
-  let text: string | null = null
-  try {
-    text = await readFile(op.targetPath, 'utf8')
-  } catch {
-    text = null
-  }
-  const raw = readRawMcpEntry(text, table.format, table.key, op.name)
-  const currentDigest = raw === null ? null : digestOf(raw)
-  if (currentDigest !== op.guardDigest) {
-    throw new Error('The declaration changed since the preview — plan again to see what is there now.')
-  }
-  if (raw !== null) {
-    const who = ownership(manifest, 'mcp', op.targetPath, op.name, digestOf(raw))
-    if (who !== 'ours' && !op.backup) {
-      throw new Error('This declaration was not written by HarnessDesk and the operation carries no backup.')
-    }
-  }
-
-  let spec: McpServerSpec | null = null
-  if (op.action !== 'remove') {
-    if (op.content === undefined) throw new Error('The operation carries nothing to write.')
-    let parsed: unknown
+  return withLock(resolve(op.targetPath), async () => {
+    let text: string | null = null
     try {
-      parsed = JSON.parse(op.content)
+      text = await readFile(op.targetPath, 'utf8')
     } catch {
-      throw new Error('The operation carries an unreadable declaration.')
+      text = null
     }
-    if (!parsed || typeof parsed !== 'object') {
-      throw new Error('The operation carries an invalid declaration.')
+    const raw = readRawMcpEntry(text, table.format, table.key, op.name)
+    const currentDigest = raw === null ? null : digestOf(raw)
+    if (currentDigest !== op.guardDigest) {
+      throw new Error('The declaration changed since the preview — plan again to see what is there now.')
     }
-    // The name is the op's, never the wire content's: the TOML header, the
-    // guard digest, the manifest record and the audit line all key on
-    // `op.name`, so a `content` naming a different server would write a table
-    // none of them could find, remove, or own.
-    spec = { ...(parsed as McpServerSpec), name: op.name }
-    if (table.dialect === null) throw new Error('No dialect is known for this configuration file.')
-    const hostable = canHostMcp(table.dialect, spec)
-    if (!hostable.ok) throw new Error(hostable.reason)
-  }
+    const currentManifest = await LibraryManifest.load(context.libraryDir)
+    if (raw !== null) {
+      const who = ownership(currentManifest, 'mcp', op.targetPath, op.name, digestOf(raw))
+      if (who !== 'ours' && !op.backup) {
+        throw new Error('This declaration was not written by HarnessDesk and the operation carries no backup.')
+      }
+    }
 
-  if (op.backup && raw !== null) {
-    backupPath = `${backupHome(context.libraryDir, op.name)}.txt`
-    await mkdir(dirname(backupPath), { recursive: true })
-    await writeFile(backupPath, `${op.targetPath}\n\n${raw}\n`)
-  }
+    let spec: McpServerSpec | null = null
+    if (op.action !== 'remove') {
+      if (op.content === undefined) throw new Error('The operation carries nothing to write.')
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(op.content)
+      } catch {
+        throw new Error('The operation carries an unreadable declaration.')
+      }
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('The operation carries an invalid declaration.')
+      }
+      // The name is the op's, never the wire content's: the TOML header, the
+      // guard digest, the manifest record and the audit line all key on
+      // `op.name`, so a `content` naming a different server would write a table
+      // none of them could find, remove, or own.
+      spec = { ...(parsed as McpServerSpec), name: op.name }
+      if (table.dialect === null) throw new Error('No dialect is known for this configuration file.')
+      const hostable = canHostMcp(table.dialect, spec)
+      if (!hostable.ok) throw new Error(hostable.reason)
+    }
 
-  const next = applyMcpEdit(text, table.format, table.key, op.name, spec, table.dialect ?? 'claude')
-  await mkdir(dirname(op.targetPath), { recursive: true })
-  const tmp = `${op.targetPath}.harnessdesk-tmp`
-  await writeFile(tmp, next)
-  await rename(tmp, op.targetPath)
+    if (op.backup && raw !== null) {
+      backupPath = `${backupHome(context.libraryDir, op.name)}.txt`
+      await mkdir(dirname(backupPath), { recursive: true })
+      await writeFile(backupPath, `${op.targetPath}\n\n${raw}\n`)
+    }
 
-  if (op.action === 'remove') {
-    manifest.forget('mcp', op.targetPath, op.name)
-  } else {
-    const written = readRawMcpEntry(next, table.format, table.key, op.name)
-    manifest.record({
-      kind: 'mcp',
-      name: op.name,
-      path: op.targetPath,
-      digest: digestOf(written ?? ''),
-      at: Date.now(),
-      ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
+    const next = applyMcpEdit(text, table.format, table.key, op.name, spec, table.dialect ?? 'claude')
+    await mkdir(dirname(op.targetPath), { recursive: true })
+    const tmp = `${op.targetPath}.harnessdesk-tmp-${randomUUID()}`
+    try {
+      await writeFile(tmp, next)
+      await rename(tmp, op.targetPath)
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {})
+    }
+
+    await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
+      const saveManifest = await LibraryManifest.load(context.libraryDir)
+      if (op.action === 'remove') {
+        saveManifest.forget('mcp', op.targetPath, op.name)
+      } else {
+        const written = readRawMcpEntry(next, table.format, table.key, op.name)
+        saveManifest.record({
+          kind: 'mcp',
+          name: op.name,
+          path: op.targetPath,
+          digest: digestOf(written ?? ''),
+          at: Date.now(),
+          ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
+        })
+      }
+      await saveManifest.save()
     })
-  }
-  await manifest.save()
-  return { id: op.id, outcome: 'done', ...(backupPath !== undefined ? { backupPath } : {}) }
+    return { id: op.id, outcome: 'done', ...(backupPath !== undefined ? { backupPath } : {}) }
+  })
 }
 
 /**

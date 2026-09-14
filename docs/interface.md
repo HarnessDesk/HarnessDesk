@@ -593,7 +593,8 @@ beside the conversation and lays them over it instead:
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
   or not. The title is what all of it protects: at a 375px window it keeps
-  about 165px.
+  about 139px with a repository checkout (more with no repository or an
+  unsigned-in plan meter).
 - **The composer's controls fold to their glyphs** below a 560px toolbar,
   the model's name with the rest of the words, and below a 320px toolbar —
   any phone's — their chevrons go too.

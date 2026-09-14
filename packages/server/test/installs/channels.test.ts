@@ -23,6 +23,24 @@ test('a Homebrew link is read through to its Cellar and names the formula', () =
   assert.equal(updateCommandFor(reading), 'brew upgrade opencode')
 })
 
+test('a cask is told from a formula, and upgraded as one', () => {
+  const cask = read('/opt/homebrew/bin/copilot', '/opt/homebrew/Caskroom/copilot-cli/1.0.83/copilot')
+  assert.equal(cask.channel, 'homebrew')
+  assert.equal(cask.packageName, 'copilot-cli')
+  assert.equal(cask.cask, true)
+  /* Casks and formulae are separate namespaces, and `brew upgrade <token>`
+     resolves a formula first: `copilot-cli` here is GitHub's CLI, while the
+     `copilot` *formula* is AWS's deprecated ECS tool. Only `--cask` says
+     which was meant. */
+  assert.equal(updateCommandFor(cask), 'brew upgrade --cask copilot-cli')
+  assert.equal(updateCommandFor(cask, { brewFormula: 'copilot-cli' }), 'brew upgrade --cask copilot-cli')
+
+  // A Cellar copy is not a cask and keeps the bare verb.
+  const formula = read('/opt/homebrew/bin/codex', '/opt/homebrew/Cellar/codex/0.149.0/bin/codex')
+  assert.equal(formula.cask, undefined)
+  assert.equal(updateCommandFor(formula), 'brew upgrade codex')
+})
+
 test('an npm global bin link names the package, scoped or not', () => {
   const scoped = read(
     '/opt/homebrew/bin/gemini',
@@ -76,6 +94,10 @@ test('an app bundle, an installer folder and a bare path are each their own road
 
   const grok = read('/Users/x/.grok/bin/grok', '/Users/x/.grok/bin/grok-1.0.21')
   assert.equal(grok.channel, 'installer')
+
+  const devin = read('/Users/x/.devin/bin/devin')
+  assert.equal(devin.channel, 'installer')
+  assert.equal(updateCommandFor(devin, { selfUpdate: 'devin update' }), 'devin update')
 
   const bare = read('/usr/local/bin/handmade')
   assert.equal(bare.channel, 'path')

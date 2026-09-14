@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   approvalId,
@@ -9,6 +10,7 @@ import {
   runtimeId,
   sessionId as makeSessionId,
   turnId,
+  MAX_IMAGE_BYTES,
   type Account,
   type AccountStatus,
   type AuthMethod,
@@ -321,11 +323,12 @@ const shutDown = (name: string): Error => new Error(`${name} has been shut down.
 /**
  * Not every ACP agent accepts an MCP server. DeepSeek Harness's bridge
  * refuses a non-empty `mcpServers` outright ("Invalid params: mcpServers is
- * not supported"), and an agent that cannot host our tool bridge should
- * still open sessions — it simply does not get HarnessDesk's plugin tools.
+ * not supported"), OpenClaw refuses with "ACP bridge mode does not support
+ * per-session MCP servers", and an agent that cannot host our tool bridge
+ * should still open sessions — it simply does not get HarnessDesk's plugin tools.
  * The refusal is learned once, from the agent's own answer, and remembered.
  */
-const REFUSES_TOOL_SERVER = /mcpServers?\b/i
+const REFUSES_TOOL_SERVER = /mcp[\s_-]?servers?\b/i
 
 const mcpServersOf = (config: AcpAgentConfig, caller: string): readonly object[] =>
   config.toolServer
@@ -405,9 +408,11 @@ export const toolNameOf = (
   return title ?? kept ?? update.kind ?? 'tool'
 }
 
-const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
-  const text = (toolCall.content ?? [])
+export const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
+  const blocks = Array.isArray(toolCall.content) ? toolCall.content : []
+  const text = blocks
     .map((block) => {
+      if (typeof block !== 'object' || block === null) return ''
       if (block['type'] === 'text' && typeof block['text'] === 'string') return block['text']
       const inner = block['content']
       if (
@@ -425,6 +430,34 @@ const permissionReason = (toolCall: AcpToolCallUpdate): string | null => {
     .join('\n')
     .trim()
   return text === '' ? null : text
+}
+
+/**
+ * Extract image parts from tool content blocks.
+ *
+ * A picture in the tool's content — a screenshot, a Read of a PNG — becomes
+ * an image part the transcript can draw. Any null, primitive or malformed blocks
+ * are safely skipped.
+ */
+export const imagesInToolContent = (
+  content: unknown,
+): readonly { readonly type: 'image'; readonly url: string; readonly mimeType: string }[] => {
+  if (!Array.isArray(content)) return []
+  return content.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return []
+    if (entry.type !== 'content') return []
+    const block = entry.content as { type?: string; data?: string; mimeType?: string } | null | undefined
+    if (typeof block !== 'object' || block === null) return []
+    return block.type === 'image' && typeof block.data === 'string' && block.data.length > 0
+      ? [
+          {
+            type: 'image' as const,
+            url: `data:${block.mimeType || 'image/png'};base64,${block.data}`,
+            mimeType: block.mimeType || 'image/png',
+          },
+        ]
+      : []
+  })
 }
 
 /**
@@ -557,6 +590,7 @@ export class AcpRuntime implements AgentRuntime {
 
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
+  readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
@@ -640,13 +674,20 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   get info(): RuntimeInfo {
+    const selfVersion = this.#initialized?.agentInfo?.version ?? null
+    const effectiveVersion =
+      !this.#config.executable && (selfVersion === null || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(selfVersion.trim()))
+        ? this.launchedVersion ?? selfVersion
+        : selfVersion
+
     return {
       id: runtimeId(this.#config.id),
       name: this.#config.name,
       // The bridge's own version, as it introduced itself; the CLI it drives
       // is reported separately, because that is the one that decides which
-      // models exist.
-      version: this.#initialized?.agentInfo?.version ?? null,
+      // models exist. When a direct CLI agent reports no version or a placeholder,
+      // fall back to the probed CLI version launched by the host (#354).
+      version: effectiveVersion,
       drives: this.#config.executable
         ? this.#executable
           ? { command: this.#config.executable.command, version: this.#executable.version }
@@ -946,6 +987,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#disposed = true
     await this.#connection.stop()
     this.#sessions.clear()
+    this.#resuming.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -1620,7 +1662,7 @@ export class AcpRuntime implements AgentRuntime {
         claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
       )
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = describeAcp(error)
       // The tool-server refusal is answered first, by a retry without the
       // server; only a failure that is not that refusal is read for what
       // it says about the sign-in, so neither classification can hide the
@@ -1812,39 +1854,51 @@ export class AcpRuntime implements AgentRuntime {
   async resumeSession(id: SessionId): Promise<AgentSession> {
     const live = this.#sessions.get(id)
     if (live) return live
-    const capabilities = this.#initialized?.agentCapabilities
-    if (!capabilities?.loadSession && !capabilities?.sessionCapabilities?.resume) {
-      throw new SessionGoneError(
-        `${this.#config.name} cannot resume ${id}: the agent keeps no session store.`,
-      )
-    }
-    // The load replays the whole conversation as session/update notifications
-    // before its response returns, so the session must exist — in replay mode,
-    // folding updates into history turns without emitting live events — from
-    // the moment the request is sent.
-    const cwd = await this.#cwdOf(id)
-    // A stored session names the folder it ran in, and loading it starts the
-    // agent there. Once that folder is deleted the spawn fails deep inside the
-    // agent and comes back as a bare "Internal error" that names nothing —
-    // so it is checked here, while the folder's name is still in hand.
-    if (!isDirectory(cwd)) {
-      // Named on the wire as well as in the sentence: this is the one refusal
-      // with somewhere to go afterwards, and the interface offers that by the
-      // code rather than by recognising the words. See `SessionFolderGoneError`.
-      throw new SessionFolderGoneError(
-        `${this.#config.name} cannot open this conversation: its folder no longer exists (${cwd}).`,
-        cwd,
-      )
-    }
-    const session = AcpSession.forReplay(this, id, cwd)
-    this.#sessions.set(id, session)
+    const inFlight = this.#resuming.get(id)
+    if (inFlight) return inFlight
+
+    const run = (async () => {
+      const capabilities = this.#initialized?.agentCapabilities
+      if (!capabilities?.loadSession && !capabilities?.sessionCapabilities?.resume) {
+        throw new SessionGoneError(
+          `${this.#config.name} cannot resume ${id}: the agent keeps no session store.`,
+        )
+      }
+      // The load replays the whole conversation as session/update notifications
+      // before its response returns, so the session must exist — in replay mode,
+      // folding updates into history turns without emitting live events — from
+      // the moment the request is sent.
+      const cwd = await this.#cwdOf(id)
+      // A stored session names the folder it ran in, and loading it starts the
+      // agent there. Once that folder is deleted the spawn fails deep inside the
+      // agent and comes back as a bare "Internal error" that names nothing —
+      // so it is checked here, while the folder's name is still in hand.
+      if (!isDirectory(cwd)) {
+        // Named on the wire as well as in the sentence: this is the one refusal
+        // with somewhere to go afterwards, and the interface offers that by the
+        // code rather than by recognising the words. See `SessionFolderGoneError`.
+        throw new SessionFolderGoneError(
+          `${this.#config.name} cannot open this conversation: its folder no longer exists (${cwd}).`,
+          cwd,
+        )
+      }
+      const session = AcpSession.forReplay(this, id, cwd)
+      this.#sessions.set(id, session)
+      try {
+        const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', { sessionId: id, cwd })
+        session.finishReplay(loaded)
+        return session
+      } catch (error) {
+        this.#sessions.delete(id)
+        throw error
+      }
+    })()
+
+    this.#resuming.set(id, run)
     try {
-      const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', { sessionId: id, cwd })
-      session.finishReplay(loaded)
-      return session
-    } catch (error) {
-      this.#sessions.delete(id)
-      throw error
+      return await run
+    } finally {
+      this.#resuming.delete(id)
     }
   }
 
@@ -2161,8 +2215,12 @@ const contextBreakdownOf = (meta: AcpUpdateMeta | null | undefined): ContextBrea
   }
 }
 
-const describeAcp = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
+const describeAcp = (error: unknown): string => {
+  if (error instanceof AcpError && error.details) {
+    return `${error.message}: ${error.details}`
+  }
+  return error instanceof Error ? error.message : String(error)
+}
 
 /**
  * What the agent's own answers have said about its sign-in. ACP has no
@@ -2276,6 +2334,51 @@ const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMes
     content: [...item.content, ...content],
     ...(kept.length > 0 ? { context: kept } : {}),
   }
+}
+
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+}
+
+const readLocalImageBlock = (
+  targetPathOrUri: string,
+  preferredName?: string,
+): AcpContentBlock => {
+  let resolvedPath = targetPathOrUri
+  let uri = targetPathOrUri
+  if (targetPathOrUri.startsWith('file://')) {
+    try {
+      resolvedPath = fileURLToPath(targetPathOrUri)
+    } catch {
+      resolvedPath = targetPathOrUri.replace(/^file:\/\//, '')
+    }
+  } else {
+    uri = `file://${targetPathOrUri}`
+  }
+
+  const fileName = preferredName || resolvedPath.split('/').pop() || 'image'
+
+  try {
+    const ext = extname(resolvedPath).toLowerCase()
+    const mimeType = IMAGE_MIME[ext]
+    if (mimeType) {
+      const stat = statSync(resolvedPath)
+      if (stat.size <= MAX_IMAGE_BYTES) {
+        const data = readFileSync(resolvedPath).toString('base64')
+        return { type: 'image', data, mimeType }
+      }
+    }
+  } catch {
+    // missing, inaccessible, or non-file falls back to resource_link below
+  }
+
+  return { type: 'resource_link', uri, name: fileName }
 }
 
 const userContentOf = (block: AcpContentBlock): UserContent => {
@@ -2515,6 +2618,7 @@ class AcpSession implements AgentSession {
         modelId: value,
       })
       this.#models = { ...this.#models, currentModelId: value as string }
+      this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
       await this.#host.connection.request('session/set_config_option', {
         sessionId: this.id,
@@ -2550,10 +2654,23 @@ class AcpSession implements AgentSession {
     const prompt: AcpContentBlock[] = input.flatMap((content): AcpContentBlock[] => {
       if (content.type === 'text') return [{ type: 'text', text: content.text }]
       if (content.type === 'image') {
-        const [meta, data] = content.url.split(',', 2)
-        return data
-          ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
-          : []
+        if (content.url.startsWith('data:')) {
+          const [meta, data] = content.url.split(',', 2)
+          return data
+            ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
+            : []
+        }
+        if (content.url.startsWith('file://')) {
+          return [readLocalImageBlock(content.url, content.name)]
+        }
+        return [{
+          type: 'resource_link',
+          uri: content.url,
+          name: content.name || content.url.split('/').pop()?.split('?')[0] || 'image',
+        }]
+      }
+      if (content.type === 'localImage') {
+        return [readLocalImageBlock(content.path)]
       }
       if (content.type === 'mention' || content.type === 'skill') {
         return [{ type: 'resource_link', uri: `file://${content.path}`, name: content.name }]
@@ -2830,19 +2947,7 @@ class AcpSession implements AgentSession {
         // A picture in the tool's content — a screenshot, a Read of a PNG —
         // becomes an image part the transcript can draw. The raw copy keeps
         // everything else but not the same megabytes twice.
-        const images = (update.content ?? []).flatMap((entry) => {
-          if (entry.type !== 'content') return []
-          const block = entry.content as { type?: string; data?: string; mimeType?: string }
-          return block.type === 'image' && typeof block.data === 'string' && block.data.length > 0
-            ? [
-                {
-                  type: 'image' as const,
-                  url: `data:${block.mimeType || 'image/png'};base64,${block.data}`,
-                  mimeType: block.mimeType || 'image/png',
-                },
-              ]
-            : []
-        })
+        const images = imagesInToolContent(update.content)
         const next: AgentItem = {
           ...previous,
           status,
@@ -2898,6 +3003,7 @@ class AcpSession implements AgentSession {
       case 'current_model_update': {
         if (this.#models) {
           this.#models = { ...this.#models, currentModelId: update.currentModelId }
+          this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
           this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
         }
         return
@@ -3222,22 +3328,23 @@ class AcpSession implements AgentSession {
     return item
   }
 
-  #finishTurn(turn: MutableTurn, stopReason: AcpStopReason): void {
+  #finishTurn(turn: MutableTurn, stopReason?: AcpStopReason | string | null): void {
     if (this.#currentTurn?.id !== turn.id) return
-    this.#currentTurn = null
+    const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     const status =
-      stopReason === 'cancelled' ? 'interrupted' : stopReason === 'end_turn' ? 'completed' : 'failed'
+      reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
     const finished: Turn = {
       id: turn.id,
       items: [...turn.items],
       status,
       ...(status === 'failed'
-        ? { error: { message: `The agent stopped: ${stopReason.replace(/_/g, ' ')}.` } }
+        ? { error: { message: `The agent stopped: ${reason.replace(/_/g, ' ')}.` } }
         : {}),
       startedAt: turn.startedAt,
       completedAt: Date.now(),
       durationMs: Date.now() - turn.startedAt,
     }
+    this.#currentTurn = null
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })
     this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })

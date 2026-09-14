@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   AGENT_MESSAGE_NOTICE,
   agentMessageSource,
+  cleanModel,
   sessionKey,
   splitSessionKey,
   TEAM_MESSAGE_CHARS,
@@ -129,6 +130,8 @@ interface Board {
   messaging: boolean
   intents: Intent[]
   channel: TeamEntry[]
+  /** Where this room was created, for opening seats when different from project root. */
+  cwd?: string
   /** What each member is called here, keyed by `runtime\u0000sessionId`. */
   nicknames: Record<string, string>
   /**
@@ -196,6 +199,8 @@ interface StoredBoard {
   readonly messaging: boolean
   readonly intents: readonly Intent[]
   readonly channel: readonly TeamEntry[]
+  /** Where this room was created, for opening seats when different from project root. */
+  readonly cwd?: string
   /** Absent on a board written before rooms had names; rebuilt on sight. */
   readonly nicknames?: Readonly<Record<string, string>>
   /** Absent on a board written before roles existed; read as nobody holding one. */
@@ -271,6 +276,7 @@ export interface TeamPort {
     kind: 'team/message' | 'team/intent'
     decision?: string
   }): void
+  log?(message: string, details?: Readonly<Record<string, unknown>>): void
 }
 
 /**
@@ -300,6 +306,8 @@ export interface TeamFlows {
    * order's turn, so it is the flow engine's to say and nobody else's.
    */
   standDown(room: string, runtime: string, sessionId: string): string | null
+  /** The room was deleted: stop any flow runs in it and release their seats. */
+  deleteRoom?(room: string): void
 }
 
 /**
@@ -459,6 +467,12 @@ export const normalisePattern = (pattern: string): string | null => {
   return out.length === 0 ? null : out.join('/')
 }
 
+interface PatternLead {
+  raw: string
+  lead: string
+  isGlob: boolean
+}
+
 /**
  * The fixed lead of a path pattern — everything before the first glob
  * character. Two claims conflict when either lead contains the other, which
@@ -466,17 +480,27 @@ export const normalisePattern = (pattern: string): string | null => {
  * stop two agents editing one area, and a rule an agent can predict beats a
  * clever one it cannot.
  */
-const fixedLead = (pattern: string): string => {
-  const glob = pattern.search(/[*?[]/)
-  const lead = glob === -1 ? pattern : pattern.slice(0, glob)
-  return lead.replace(/^\.\//, '').replace(/\/+$/, '')
+const leadOf = (pattern: string): PatternLead => {
+  const norm = pattern.replace(/^\.\//, '')
+  const glob = norm.search(/[*?[]/)
+  if (glob === -1) {
+    const lead = norm.replace(/\/+$/, '')
+    return { raw: lead, lead, isGlob: false }
+  }
+  const raw = norm.slice(0, glob)
+  const lead = raw.replace(/\/+$/, '')
+  return { raw, lead, isGlob: true }
 }
 
 const overlaps = (a: string, b: string): boolean => {
-  const leadA = fixedLead(a)
-  const leadB = fixedLead(b)
-  if (leadA === '' || leadB === '') return true
-  return leadA === leadB || leadA.startsWith(`${leadB}/`) || leadB.startsWith(`${leadA}/`)
+  const first = leadOf(a)
+  const second = leadOf(b)
+  if (first.lead === '' || second.lead === '') return true
+  if (first.lead === second.lead) return true
+  if (first.lead.startsWith(`${second.lead}/`) || second.lead.startsWith(`${first.lead}/`)) return true
+  if (first.isGlob && second.lead.startsWith(first.raw)) return true
+  if (second.isGlob && first.lead.startsWith(second.raw)) return true
+  return false
 }
 
 /**
@@ -606,6 +630,7 @@ export class Team {
    * docs/multi-agent.md safety rule 2, at the grain the host can enforce.
    */
   readonly #deniedInTurn = new Set<string>()
+  readonly #deletedMembers = new Map<string, string>()
   #waiters = new Set<Waiter>()
   #writes: Promise<void> = Promise.resolve()
   /** Latest content per file; a burst of mutations becomes one write. */
@@ -719,6 +744,7 @@ export class Team {
           name: raw.name ?? folderOf(recorded),
           members: [...(raw.members ?? Object.keys(raw.nicknames ?? {}))] as SessionKey[],
           root: recorded,
+          ...(raw.cwd && raw.cwd !== recorded ? { cwd: raw.cwd } : {}),
           nextIntent: raw.nextIntent,
           nextPlan: raw.nextPlan ?? 1,
           plans: [...(raw.plans ?? [])],
@@ -726,7 +752,11 @@ export class Team {
           nicknames: { ...(raw.nicknames ?? {}) },
           roles: { ...(raw.roles ?? {}) },
           roster: { ...(raw.roster ?? {}) },
-          intents: [...raw.intents],
+          intents: (raw.intents ?? []).map((intent: Intent) => ({
+            ...intent,
+            files: Array.isArray(intent.files) ? intent.files : [],
+            dependsOn: Array.isArray(intent.dependsOn) ? intent.dependsOn : [],
+          })),
           // A `queued` row waits on an in-memory delivery, and this is a
           // fresh memory: left as it was it would read "queued" forever.
           // Refused-with-the-reason is the honest state — nothing is
@@ -882,6 +912,10 @@ export class Team {
     return [...this.#boards.values()].map((board) => this.#stateOf(board))
   }
 
+  hasRoom(id: string): boolean {
+    return this.#boards.has(id)
+  }
+
   stateFor(id: string): TeamState {
     const board = this.#boards.get(id)
     return board
@@ -922,7 +956,7 @@ export class Team {
       agent: peer.agent,
       busy: peer.busy,
       nickname: this.#nameOn(board, peer),
-      model: peer.model ?? null,
+      model: cleanModel(peer.model),
       /* Evidence from *this* run, so a member nobody has opened yet has none
          either way — which is why the surface only draws the doubt for a
          member that is here. */
@@ -1071,6 +1105,15 @@ export class Team {
          how it finished. */
       this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
+      this.#commit(board)
+      this.#flows?.completed(board.id, {
+        ...intent,
+        state: 'abandoned',
+        claim: null,
+        blockedReason: null,
+        blockedBy: null,
+      })
+      return
     } else if (action === 'done') {
       const said = outcome?.trim() || null
       const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
@@ -1501,28 +1544,52 @@ export class Team {
     options: { blockMs?: number; cycle?: number } = {},
   ): Promise<string> {
     const caller = this.#caller(scope)
-    const board = await this.#boardOf(caller)
+    const board = this.#roomOf(caller.runtime, caller.sessionId)
+    if (!board) {
+      const deletedReason = this.#deletedMembers.get(keyOf(caller.runtime, caller.sessionId))
+      if (deletedReason) return `stand down — ${deletedReason}`
+      throw new Error(NOT_IN_ROOM)
+    }
     const cycle = Number.isFinite(options.cycle) ? Math.max(0, Math.trunc(options.cycle as number)) : 0
     const next = `Call await_work again with cycle: ${cycle + 1}.`
     const key = keyOf(caller.runtime, caller.sessionId)
     const done = this.#flows?.standDown(board.id, caller.runtime, caller.sessionId) ?? null
     if (done) return `stand down — ${done}`
-    const ready = (): Intent | null =>
-      [...board.intents]
+    const ready = (): Intent | null => {
+      const held = board.intents
         .filter(
           (intent) =>
-            intent.state === 'open' &&
-            !intent.claim &&
-            this.#misaddressed(board, intent, caller) === null &&
-            intent.dependsOn.every((dep) => {
-              const found = board.intents.find((entry) => entry.id === dep)
-              return found === undefined || found.state === 'done'
-            }) &&
-            this.#conflictsWith(board, intent.files, caller).length === 0,
+            intent.state === 'claimed' &&
+            intent.claim?.runtime === caller.runtime &&
+            intent.claim.sessionId === caller.sessionId,
         )
-        .sort((a, b) => a.id - b.id)[0] ?? null
+        .sort((a, b) => a.id - b.id)[0]
+      if (held) return held
+      return (
+        [...board.intents]
+          .filter(
+            (intent) =>
+              intent.state === 'open' &&
+              !intent.claim &&
+              this.#misaddressed(board, intent, caller) === null &&
+              (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
+                const found = board.intents.find((entry) => entry.id === dep)
+                return found === undefined || found.state === 'done'
+              }) &&
+              this.#conflictsWith(board, intent.files, caller).length === 0,
+          )
+          .sort((a, b) => a.id - b.id)[0] ?? null
+      )
+    }
+    const describe = (intent: Intent): string => {
+      const action =
+        intent.state === 'claimed'
+          ? 'You are already holding this; finish it with complete_claim.'
+          : 'Claim it with claim_next.'
+      return `work: #${intent.id} ${intent.title}. ${action} ${next}`
+    }
     const now = ready()
-    if (now) return `work: #${now.id} ${now.title}. Claim it with claim_next. ${next}`
+    if (now) return describe(now)
 
     const blockMs = Math.min(
       WAIT_CEILING_MS,
@@ -1541,7 +1608,7 @@ export class Team {
        timer was settling, and a seat told "nothing yet" about a card that is
        sitting there would wait out another whole cycle for nothing. */
     const late = ready()
-    if (late) return `work: #${late.id} ${late.title}. Claim it with claim_next. ${next}`
+    if (late) return describe(late)
     const ended = this.#flows?.standDown(board.id, caller.runtime, caller.sessionId) ?? null
     if (ended) return `stand down — ${ended}`
     return `nothing yet. ${next}`
@@ -1563,28 +1630,41 @@ export class Team {
       )
       if (!peer) continue
       const standDown = this.#flows?.standDown(board.id, runtime, sessionId) ?? null
+      const held = board.intents
+        .filter(
+          (intent) =>
+            intent.state === 'claimed' &&
+            intent.claim?.runtime === peer.runtime &&
+            intent.claim.sessionId === peer.sessionId,
+        )
+        .sort((a, b) => a.id - b.id)[0]
       const found = standDown
         ? null
-        : [...board.intents]
+        : (held ??
+          [...board.intents]
             .filter(
               (intent) =>
                 intent.state === 'open' &&
                 !intent.claim &&
                 this.#misaddressed(board, intent, peer) === null &&
-                intent.dependsOn.every((dep) => {
+                (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
                   const dependency = board.intents.find((entry) => entry.id === dep)
                   return dependency === undefined || dependency.state === 'done'
                 }) &&
                 this.#conflictsWith(board, intent.files, peer).length === 0,
             )
-            .sort((a, b) => a.id - b.id)[0]
+            .sort((a, b) => a.id - b.id)[0])
       if (!standDown && !found) continue
       if (waiter.timer) clearTimeout(waiter.timer)
       this.#waiters.delete(waiter)
+      const action =
+        found?.state === 'claimed'
+          ? 'You are already holding this; finish it with complete_claim.'
+          : 'Claim it with claim_next.'
       waiter.resolve(
         standDown
           ? `stand down — ${standDown}`
-          : `work: #${found!.id} ${found!.title}. Claim it with claim_next. Call await_work again with cycle: ${waiter.cycle + 1}.`,
+          : `work: #${found!.id} ${found!.title}. ${action} Call await_work again with cycle: ${waiter.cycle + 1}.`,
       )
     }
   }
@@ -1625,7 +1705,7 @@ export class Team {
         intent.state === 'open' &&
         !intent.claim &&
         this.#misaddressed(board, intent, peer) === null &&
-        intent.dependsOn.every((dep) => {
+        (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
           const found = board.intents.find((entry) => entry.id === dep)
           return found === undefined || found.state === 'done'
         }) &&
@@ -1693,7 +1773,7 @@ export class Team {
          can do, and a reviewer being handed the fixer's card is the routing
          failure roles exist to end. */
       this.#misaddressed(board, intent, caller) === null &&
-      intent.dependsOn.every((dep) => {
+      (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).every((dep) => {
         const found = board.intents.find((entry) => entry.id === dep)
         return found === undefined || found.state === 'done'
       }) &&
@@ -1810,7 +1890,8 @@ export class Team {
     if (intent.state === 'blocked' && intent.blockedBy === 'hand') {
       return `Refused: #${intentId} was deliberately blocked${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}. Only the user, or whoever blocked it, reopens it.`
     }
-    const waiting = intent.dependsOn.filter((dep) => {
+    const deps = Array.isArray(intent.dependsOn) ? intent.dependsOn : []
+    const waiting = deps.filter((dep) => {
       // A dependency that is no longer on the board was settled and trimmed;
       // it must not read as forever-unfinished.
       const found = board.intents.find((entry) => entry.id === dep)
@@ -1858,7 +1939,7 @@ export class Team {
        agent had to know to call it. Correctness that depends on remembering a
        tool name is correctness that will be got wrong, and the failure is
        silent — work built against a contract nobody read. */
-    const inherited = intent.dependsOn
+    const inherited = (Array.isArray(intent.dependsOn) ? intent.dependsOn : [])
       .map((id) => board.intents.find((entry) => entry.id === id))
       .filter((entry): entry is Intent => Boolean(entry?.handoff))
       .map((entry) => `#${entry.id} — ${entry.title}\n${entry.handoff as string}`)
@@ -1942,7 +2023,8 @@ export class Team {
         : ''
     const handoff = args.handoff
       ? ' Your context package is on the board for whoever works what depended on this.'
-      : intent.dependsOn.length === 0 && board.intents.some((entry) => entry.dependsOn.includes(intentId))
+      : (Array.isArray(intent.dependsOn) ? intent.dependsOn : []).length === 0 &&
+        board.intents.some((entry) => (Array.isArray(entry.dependsOn) ? entry.dependsOn : []).includes(intentId))
         ? ' Consider leaving a context package (`complete_claim` with `context`) next time — something depended on this.'
         : ''
     return `Completed #${intentId} — ${intent.title}.${unblocked}${handoff}`
@@ -2428,6 +2510,7 @@ export class Team {
     // Whatever it proved, it proved about a process that is gone. The same id
     // reattached to a fresh agent has proved nothing yet — see `#used`.
     this.#used.delete(key)
+    this.#deletedMembers.delete(key)
   }
 
   /**
@@ -2455,6 +2538,9 @@ export class Team {
        the stale evidence this was built to avoid, one level up. */
     for (const key of [...this.#used]) {
       if (key.startsWith(prefix)) this.#used.delete(key)
+    }
+    for (const key of [...this.#deletedMembers.keys()]) {
+      if (key.startsWith(prefix)) this.#deletedMembers.delete(key)
     }
   }
 
@@ -2547,6 +2633,7 @@ export class Team {
       name: board.name,
       members: [...board.members],
       root: board.root,
+      ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
       intents: [...board.intents],
       channel: [...board.channel],
       messaging: board.messaging,
@@ -2594,11 +2681,19 @@ export class Team {
        about it, and refusing would make a room unmakeable rather than
        correctly keyed. */
     const project = (await this.#port.rootOf(root)) ?? root
+    if (root !== project) {
+      this.#port.log?.('a room was created with a path differing from its project root', {
+        root,
+        project,
+        name: called,
+      })
+    }
     const board: Board = {
       id: `room-${Date.now().toString(36)}-${(this.#nextRoom += 1).toString(36)}`,
       name: called,
       members: [],
       root: project,
+      ...(root !== project ? { cwd: root } : {}),
       nextIntent: 1,
       nextPlan: 1,
       plans: [],
@@ -2651,6 +2746,7 @@ export class Team {
   ): Promise<void> {
     const board = this.#boardById(id)
     const key = keyOf(runtime, sessionId)
+    this.#deletedMembers.delete(key)
     const live = this.#port
       .peers()
       .find((one) => one.runtime === runtime && one.sessionId === sessionId)
@@ -2676,7 +2772,7 @@ export class Team {
       delete other.roster[String(key)]
       this.#commit(other)
     }
-    if (card) board.roster[String(key)] = card
+    if (card) board.roster[String(key)] = { ...card, model: cleanModel(card.model) }
     else if (live) this.#remember(board, key, live)
     if (!board.members.includes(key)) {
       board.members = [...board.members, key]
@@ -2710,6 +2806,7 @@ export class Team {
    */
   forget(runtime: RuntimeId, sessionId: string, said: string): void {
     const key = keyOf(runtime, sessionId)
+    this.#deletedMembers.delete(key)
     /* Whatever was waiting on this member is not going to be read, and a row
        left saying `queued` is a promise the room can no longer keep — it
        would sit there until a restart rewrote it, which is the one thing
@@ -2751,6 +2848,7 @@ export class Team {
   leaveRoom(id: string, runtime: RuntimeId, sessionId: string): void {
     const board = this.#boardById(id)
     const key = keyOf(runtime, sessionId)
+    this.#deletedMembers.delete(key)
     if (!board.members.includes(key)) return
     board.members = board.members.filter((one) => one !== key)
     /* The photograph goes with the membership: it exists so the room can draw
@@ -2832,6 +2930,20 @@ export class Team {
       )
     }
     this.#port.removed(id)
+    this.#flows?.deleteRoom?.(id)
+    for (const member of board.members) {
+      const { runtime, id: sessId } = splitSessionKey(member as SessionKey)
+      const standDown = this.#flows?.standDown(id, runtime, String(sessId)) ?? 'the room was deleted'
+      this.#deletedMembers.set(member, standDown)
+    }
+    for (const waiter of [...this.#waiters]) {
+      if (waiter.board === id) {
+        if (waiter.timer) clearTimeout(waiter.timer)
+        this.#waiters.delete(waiter)
+        const reason = this.#deletedMembers.get(waiter.key) ?? 'the room was deleted'
+        waiter.resolve(`stand down — ${reason}`)
+      }
+    }
     return gone
   }
 
@@ -2944,7 +3056,7 @@ export class Team {
       busy: false,
       canSteer: false,
       queuedByUser: 0,
-      ...(remembered.model !== undefined ? { model: remembered.model } : {}),
+      ...(remembered.model !== undefined ? { model: cleanModel(remembered.model) } : {}),
       here: false,
     }
   }
@@ -2952,13 +3064,13 @@ export class Team {
   /** Writes down what the board will need to draw this member after a quit. */
   #remember(board: Board, key: SessionKey, peer: TeamPeer): void {
     const held = board.roster[String(key)]
-    const model = peer.model ?? null
+    const model = cleanModel(peer.model)
     if (
       held &&
       held.title === peer.title &&
       held.agent === peer.agent &&
       held.cwd === peer.cwd &&
-      (held.model ?? null) === model
+      (cleanModel(held.model) ?? null) === model
     ) {
       return
     }
@@ -3168,6 +3280,8 @@ export class Team {
   /** Live claims whose files overlap these paths, excluding the caller's own. */
   #conflictsWith(board: Board, paths: readonly string[], caller: TeamPeer): string[] {
     const hits: string[] = []
+    const cleanPaths = Array.isArray(paths) ? paths : []
+    if (cleanPaths.length === 0) return hits
     for (const intent of board.intents) {
       if (intent.state !== 'claimed' || !intent.claim) continue
       if (intent.claim.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId) {
@@ -3180,9 +3294,11 @@ export class Team {
          found. A claim that can be taken over has already stopped owning
          things; the two rules have to agree. */
       if (this.#stranded(intent)) continue
-      const overlap = intent.files.some((owned) => paths.some((path) => overlaps(owned, path)))
+      const ownedFiles = Array.isArray(intent.files) ? intent.files : []
+      if (ownedFiles.length === 0) continue
+      const overlap = ownedFiles.some((owned) => cleanPaths.some((path) => overlaps(owned, path)))
       if (overlap) {
-        hits.push(`${intent.files.join(', ')} is held by #${intent.id} (${this.#holderName(board, intent)})`)
+        hits.push(`${ownedFiles.join(', ')} is held by #${intent.id} (${this.#holderName(board, intent)})`)
       }
     }
     return hits
@@ -3262,12 +3378,13 @@ export class Team {
     for (const intent of board.intents) {
       if (intent.state !== 'blocked') continue
       if (intent.blockedBy === 'hand') continue
-      const ready = intent.dependsOn.every((dep) => {
+      const deps = Array.isArray(intent.dependsOn) ? intent.dependsOn : []
+      const ready = deps.every((dep) => {
         const found = board.intents.find((entry) => entry.id === dep)
         // Trimmed dependencies were settled; absence is not "unfinished".
         return found === undefined || found.state === 'done'
       })
-      if (ready && intent.dependsOn.length > 0) {
+      if (ready && deps.length > 0) {
         this.#patchIntent(board, intent.id, { state: 'open', blockedReason: null, blockedBy: null })
         this.#signal(board, by, 'unblocked', intent, null)
         opened.push(intent.id)
@@ -3615,7 +3732,7 @@ export class Team {
         intent.state === 'claimed' && intent.claim
           ? `claimed by ${this.#holderName(board, intent)} (${ago(intent.claim.at)})`
           : intent.state === 'blocked'
-            ? `blocked${intent.dependsOn.length > 0 ? ` (waiting on ${intent.dependsOn.map((dep) => `#${dep}`).join(', ')})` : ''}${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}`
+            ? `blocked${(Array.isArray(intent.dependsOn) ? intent.dependsOn : []).length > 0 ? ` (waiting on ${(Array.isArray(intent.dependsOn) ? intent.dependsOn : []).map((dep) => `#${dep}`).join(', ')})` : ''}${intent.blockedReason ? ` — ${intent.blockedReason}` : ''}`
             : intent.state
       const files = intent.files.length > 0 ? `\n    files: ${intent.files.join(', ')}` : ''
       const note = intent.state === 'done' && intent.note ? ` — ${intent.note}` : ''
@@ -3647,6 +3764,7 @@ export class Team {
       nicknames: board.nicknames,
       roles: board.roles,
       roster: board.roster,
+      ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
       messaging: board.messaging,
       intents: board.intents,
       channel: board.channel,

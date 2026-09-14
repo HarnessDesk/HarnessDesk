@@ -325,6 +325,33 @@ test('a thread working on its first turn is in the list, under its ask', async (
   )
 })
 
+test('deleteSession closes and removes live session from in-memory registry (#412)', async (t) => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  const session = await runtime.createSession({ cwd: '/w' })
+  const before = await runtime.listSessions({ pageSize: 10 })
+  assert.ok(
+    before.data.some((summary) => String(summary.id) === String(session.id)),
+    'session is listed before deletion',
+  )
+
+  await runtime.deleteSession(session.id)
+
+  const after = await runtime.listSessions({ pageSize: 10 })
+  assert.ok(
+    !after.data.some((summary) => String(summary.id) === String(session.id)),
+    'deleted session is no longer returned in listSessions',
+  )
+  assert.equal((await runtime.tasks.list(session.id)).length, 0, 'tasks for session are forgotten')
+  await assert.rejects(
+    () => runtime.resumeSession(session.id),
+    /not found/,
+    'resuming a deleted session fails rather than returning stale in-memory instance',
+  )
+})
+
 test('reading a session pages through every turn item', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())

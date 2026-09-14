@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { asAdditions, asRemovals, drawnWhole, parseDiff, type WholeFile } from '../lib/diff'
 import { ChevronIcon } from './Icons'
@@ -53,6 +53,10 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
     () => lines.flatMap((line, index) => (line.kind === 'hunk' ? [index] : [])),
     [lines],
   )
+
+  useEffect(() => {
+    setHunk((current) => (hunkRows.length === 0 ? 0 : Math.min(current, hunkRows.length - 1)))
+  }, [hunkRows.length])
 
   const visible = expanded ? lines : lines.slice(0, COLLAPSE_AFTER)
   const hidden = lines.length - visible.length

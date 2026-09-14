@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep, win32 } from 'node:path'
 
 import type { PluginPermissions } from '@harnessdesk/protocol'
 
@@ -174,21 +174,25 @@ const resolved = (path: string): string | null => {
  * host cannot traverse is one the plugin cannot traverse either.
  */
 const canonical = (path: string): string => {
-  /* `resolve` only to make a relative path absolute, and deliberately not on an
-     absolute one: it would collapse `..` before any link were followed, which is
-     the very reordering `resolved` exists to avoid. */
-  let walk = isAbsolute(path) ? path : resolve(path)
+  /* On Windows (or Windows paths like C:\...), use win32 path utilities if walk
+     has a drive letter or backslash, so lexical walk-up handles drive roots correctly
+     on non-Windows hosts running tests. */
+  const isWinPath = /^[a-zA-Z]:[/\\]/.test(path)
+  const isAbs = isWinPath ? win32.isAbsolute(path) : isAbsolute(path)
+  let walk = isAbs ? path : resolve(path)
   const missing: string[] = []
   for (;;) {
     const real = resolved(walk)
-    if (real !== null) return join(real, ...missing.reverse())
-    const up = dirname(walk)
+    if (real !== null) return isWinPath ? win32.join(real, ...missing.reverse()) : join(real, ...missing.reverse())
+    const up = isWinPath ? win32.dirname(walk) : dirname(walk)
     // The root resolves on any sane filesystem; this is the belt to that brace.
-    if (up === walk) return resolve(path)
+    if (up === walk) {
+      return isWinPath ? win32.join(walk, ...missing.reverse()) : resolve(path)
+    }
     /* `basename`, not arithmetic on the parent's length: `dirname('/work')` is
        `'/'`, which already ends in a separator, and the slice would take the
        first letter of the name with it. */
-    missing.push(basename(walk))
+    missing.push(isWinPath ? win32.basename(walk) : basename(walk))
     walk = up
   }
 }
@@ -210,8 +214,17 @@ export const pathWithin = (root: string, path: string): boolean => {
      only the filesystem knows, so both sides are asked of it. */
   const base = canonical(root)
   const target = canonical(path)
-  if (target === base) return true
-  return target.startsWith(base.endsWith(sep) ? base : `${base}${sep}`)
+  const normBase = base.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normTarget = target.replace(/\\/g, '/').replace(/\/+$/, '')
+  const isWin =
+    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normBase) && /^[a-zA-Z]:\//.test(normTarget))
+
+  if (isWin ? normTarget.toLowerCase() === normBase.toLowerCase() : normTarget === normBase) return true
+
+  const prefix = `${normBase}/`
+  return isWin
+    ? normTarget.toLowerCase().startsWith(prefix.toLowerCase())
+    : normTarget.startsWith(prefix)
 }
 
 export class PermissionGate {

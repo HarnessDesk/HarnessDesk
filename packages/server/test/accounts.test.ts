@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,7 +7,7 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { test } from 'node:test'
 
-import type { AgentRuntime, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentRuntime, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
 import {
   AccountSlots,
@@ -1239,6 +1240,59 @@ test('the original account cannot be removed, and the refusal names the agent th
   assert.equal(host.syncPayload().params.runtimes.some((one) => one.id === FAKE_RUNTIME_ID), true)
 })
 
+test('a direct runtime with placeholder version falls back to install service chosen version in syncPayload (#354)', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-placeholder-version-'))
+  t.after(async () => {
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const fakeDirectRuntime = new FakeRuntime({
+    id: 'direct-agent' as unknown as RuntimeId,
+    name: 'Direct Agent',
+    version: '0.0.0-dev',
+    drives: null,
+  })
+
+  const installs = {
+    last: (id: string) => {
+      if (id === 'direct-agent') {
+        return {
+          copies: [],
+          chosen: {
+            path: '/path/to/cli',
+            version: '3000.10.21',
+            channel: 'homebrew',
+            channelLabel: 'Homebrew',
+            standing: 'chosen',
+            managed: false,
+            updateCommand: null,
+          },
+          policy: 'newest',
+          fallback: null,
+          checkedAt: Date.now(),
+        }
+      }
+      return null
+    },
+  }
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    version: '9.9.9',
+    installs: installs as never,
+  })
+  t.after(async () => {
+    await host.dispose()
+  })
+  host.register(fakeDirectRuntime)
+  await host.start()
+
+  const runtimes = host.syncPayload().params.runtimes
+  const directInfo = runtimes.find((r) => r.id === ('direct-agent' as unknown as RuntimeId))
+  assert.ok(directInfo)
+  assert.equal(directInfo.version, '3000.10.21')
+})
+
 test('an agent that holds one account says so by the name people see', async (t) => {
   // Round 1 of #190: the refusal beside #99's used the runtime's internal name too.
   const { host, stateDir } = await hostWithAccounts({ ownName: 'fake-internal', single: true })
@@ -1251,4 +1305,84 @@ test('an agent that holds one account says so by the name people see', async (t)
     assert.doesNotMatch(error.message, /fake-internal/)
     return true
   })
+})
+
+test('readRoster refuses slots with home outside managed accounts directory (#430)', async (t) => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'accounts.json')
+  const victim = join(root, 'victim-dir')
+  await mkdir(victim, { recursive: true })
+  await writeFile(join(victim, 'important.txt'), 'do not delete')
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      accounts: [
+        { id: 'codex-victim', agent: FAKE_RUNTIME_ID, home: victim, createdAt: Date.now() },
+        { id: 'codex-escape', agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', '..', 'victim-dir'), createdAt: Date.now() },
+      ],
+    }),
+  )
+
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 0, 'slots with home outside accounts directory must be refused')
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(existsSync(victim), true, 'unrelated victim directory must not be deleted by pruneEmpty')
+  assert.equal(existsSync(join(victim, 'important.txt')), true)
+})
+
+test('readRoster and remove refuse symlinked home pointing outside accounts directory (#592)', async (t) => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'accounts.json')
+  const accountsDir = join(root, 'accounts')
+  await mkdir(accountsDir, { recursive: true })
+
+  const sentinel = join(root, 'sentinel-dir')
+  await mkdir(sentinel, { recursive: true })
+  await writeFile(join(sentinel, 'precious.txt'), 'must survive')
+
+  const symlinkHome = join(accountsDir, 'codex-symlink')
+  const { symlink } = await import('node:fs/promises')
+  await symlink(sentinel, symlinkHome)
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      accounts: [
+        { id: 'codex-evil', agent: FAKE_RUNTIME_ID, home: symlinkHome, createdAt: Date.now() },
+      ],
+    }),
+  )
+
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 0, 'slots whose realpath escapes accounts directory must be refused on load')
+
+  // Calling pruneEmpty must not delete the target sentinel directory
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(existsSync(sentinel), true, 'sentinel directory must survive pruneEmpty')
+  assert.equal(existsSync(join(sentinel, 'precious.txt')), true)
+
+  // Direct remove() with purge must also check isUnder and refuse to delete the sentinel
+  const directSlot = slots.add(FAKE_RUNTIME_ID, join(root, 'primary'), root)
+  // Replace the created home with a symlink to sentinel
+  await rm(directSlot.home, { recursive: true, force: true })
+  await symlink(sentinel, directSlot.home)
+  slots.remove(directSlot.id, true)
+  assert.equal(existsSync(sentinel), true, 'sentinel directory must survive remove with purge')
+  assert.equal(existsSync(join(sentinel, 'precious.txt')), true)
+
+  // And if a symlink inside accounts points to another directory INSIDE accounts,
+  // removing it deletes only the symlink itself, not the contents of the target directory
+  const validTarget = join(accountsDir, 'valid-target')
+  await mkdir(validTarget, { recursive: true })
+  await writeFile(join(validTarget, 'data.txt'), 'preserve me')
+  const internalSlot = slots.add(FAKE_RUNTIME_ID, join(root, 'primary2'), root)
+  await rm(internalSlot.home, { recursive: true, force: true })
+  await symlink(validTarget, internalSlot.home)
+  slots.remove(internalSlot.id, true)
+  assert.equal(existsSync(internalSlot.home), false, 'symlink itself was removed')
+  assert.equal(existsSync(validTarget), true, 'internal target directory survived')
+  assert.equal(existsSync(join(validTarget, 'data.txt')), true)
 })

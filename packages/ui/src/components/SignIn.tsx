@@ -289,6 +289,9 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                       </span>
                       <span className={own.rosterText}>
                         <span className={own.rosterName}>{agent.name}</span>
+                        {agent.run === 'binary' && agent.integrity === 'none' && !agent.installed && (
+                          <span className={own.rosterDetail}>Unverified</span>
+                        )}
                       </span>
                     </button>
                   ))}
@@ -689,7 +692,11 @@ const RegistryAgent = ({
     else onAdded(outcome.runtime)
   }
 
-  const meta = [`v${agent.version}`, agent.license].filter(Boolean).join(' · ')
+  const meta = [
+    `v${agent.version}`,
+    agent.license,
+    agent.run === 'binary' && agent.integrity === 'none' && !agent.installed ? 'Unverified' : null,
+  ].filter(Boolean).join(' · ')
 
   return (
     <>

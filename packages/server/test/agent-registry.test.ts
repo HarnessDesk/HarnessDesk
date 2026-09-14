@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -508,3 +508,68 @@ test('an update replaces the download and collects the build it superseded', asy
     /package manager updates it/,
   )
 })
+
+test('store write does not follow preexisting pid temp symlink and overwrite outside files (#454)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'agents.json')
+  const outside = join(dir, 'outside.txt')
+  await writeFile(outside, 'outside-before')
+  await symlink(outside, join(dir, `.agents.json.${process.pid}.tmp`))
+
+  const store = new AgentRegistryStore(file)
+  store.add({ id: 'demo', name: 'Demo', command: 'demo' })
+
+  const outsideContent = await readFile(outside, 'utf8')
+  assert.equal(outsideContent, 'outside-before', 'outside file must not be overwritten through symlink')
+
+  const stat = await lstat(file)
+  assert.equal(stat.isSymbolicLink(), false, 'agents.json must not be a symlink')
+})
+
+test('duplicate runtime IDs are deduplicated in store configs and replaced cleanly in host without ghost listeners (#446)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const agentsPath = join(dir, 'agents.json')
+  await writeFile(
+    agentsPath,
+    JSON.stringify({
+      agents: [
+        { id: 'dup', name: 'First', command: 'first' },
+        { id: 'dup', name: 'Second', command: 'second' },
+      ],
+    }, null, 2),
+  )
+  const store = new AgentRegistryStore(agentsPath)
+  const configs = store.configs()
+  assert.equal(configs.length, 1, 'store.configs() must deduplicate by id')
+  assert.equal(configs[0]?.command, 'first')
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(dir, 'state.json')),
+    catalogRefreshMs: 0,
+  })
+  t.after(() => host.dispose())
+
+  const one = new FakeRuntime({ id: 'dup' as RuntimeId, name: 'One' })
+  const two = new FakeRuntime({ id: 'dup' as RuntimeId, name: 'Two' })
+  const pushed: WireNotification[] = []
+  host.addBroadcaster((n) => pushed.push(n))
+
+  host.register(one)
+  host.register(two)
+
+  const hello = await host.call('host/hello', { clientVersion: 'test' })
+  assert.deepEqual(
+    hello.runtimes.filter((r) => r.id === ('dup' as RuntimeId)).map((r) => r.name),
+    ['Two'],
+  )
+
+  one.emit({ type: 'runtime/options', runtime: 'dup' as RuntimeId, options: [] })
+  two.emit({ type: 'runtime/options', runtime: 'dup' as RuntimeId, options: [] })
+
+  const eventNotifications = pushed.filter((n) => n.method === 'event')
+  assert.equal(eventNotifications.length, 1, 'only the active runtime should emit events')
+})
+

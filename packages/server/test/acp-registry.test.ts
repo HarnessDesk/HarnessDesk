@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { accessSync, constants } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -53,6 +53,20 @@ const DOCUMENT = {
         },
       },
     },
+    {
+      id: 'verified-agent',
+      name: 'Verified Agent',
+      version: '1.0.0',
+      distribution: {
+        binary: {
+          'darwin-aarch64': {
+            archive: 'https://example.test/verified.tar.gz',
+            cmd: './bin/verified',
+            sha256: 'deadbeef'.repeat(8),
+          },
+        },
+      },
+    },
     { id: 'broken-entry', name: 'No Version' },
   ],
 }
@@ -71,12 +85,13 @@ test('the document is read forgivingly and judged against this machine', async (
   // The malformed entry cost itself, not the list.
   assert.deepEqual(
     catalog.agents.map((agent) => agent.id),
-    ['npx-agent', 'uvx-agent', 'binary-agent'],
+    ['npx-agent', 'uvx-agent', 'binary-agent', 'verified-agent'],
   )
-  const [npx, uvx, binary] = catalog.agents
+  const [npx, uvx, binary, verified] = catalog.agents
   assert.equal(npx?.available, true)
   assert.equal(npx?.run, 'npx')
   assert.equal(npx?.website, 'https://npx-agent.dev')
+  assert.equal(npx?.integrity, undefined)
   // uvx is not on this fake machine, and the row says so.
   assert.equal(uvx?.available, false)
   assert.match(uvx?.reason ?? '', /uvx/)
@@ -84,6 +99,10 @@ test('the document is read forgivingly and judged against this machine', async (
   assert.equal(binary?.available, true)
   assert.equal(binary?.run, 'binary')
   assert.equal(binary?.registered, true)
+  assert.equal(binary?.integrity, 'none')
+  assert.equal(verified?.available, true)
+  assert.equal(verified?.run, 'binary')
+  assert.equal(verified?.integrity, 'sha256')
 })
 
 test('a platform with no build blocks a binary entry with the reason', async (t) => {
@@ -123,7 +142,7 @@ test('the cache serves while fresh, and again when the network says no', async (
   // A second client over the same state directory reads the cache, not the net.
   const again = await make().catalog(() => false)
   assert.equal(fetches, 1)
-  assert.equal(again.agents.length, 3)
+  assert.equal(again.agents.length, 4)
 
   // Stale cache, dead network: the list from last time, not an empty screen.
   fail = true
@@ -138,7 +157,7 @@ test('the cache serves while fresh, and again when the network says no', async (
     platform: 'darwin-aarch64',
   })
   const offline = await stale.catalog(() => false)
-  assert.equal(offline.agents.length, 3)
+  assert.equal(offline.agents.length, 4)
   assert.equal(offline.unavailable, undefined)
 })
 
@@ -425,3 +444,68 @@ test('uninstall deletes only the named agent’s downloads', async (t) => {
   assert.deepEqual(await readdir(join(dir, 'acp-agents')), ['other'])
   assert.ok((await readdir(dir)).includes('acp-agents'), 'the install root itself is untouched')
 })
+
+test('binary install refuses command symlinks that resolve outside the install directory (#447)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  // Create an outside file
+  const outside = join(dir, 'outside-agent')
+  await writeFile(outside, '#!/bin/sh\necho outside\n')
+
+  // Create archive with a symlink bin/agent -> outside
+  const stage = join(dir, 'stage')
+  await mkdir(join(stage, 'bin'), { recursive: true })
+  await symlink(outside, join(stage, 'bin', 'agent'))
+  const archive = join(dir, 'agent.tar.gz')
+  await run('tar', ['-czf', archive, '-C', stage, 'bin'])
+
+  const document = {
+    agents: [
+      {
+        id: 'bin',
+        name: 'Bin',
+        version: '1.0.0',
+        distribution: {
+          binary: {
+            'darwin-aarch64': { archive: 'https://example.test/a.tar.gz', cmd: './bin/agent' },
+          },
+        },
+      },
+    ],
+  }
+  const registry = new AcpRegistry({
+    stateDir: dir,
+    platform: 'darwin-aarch64',
+    which: async () => null,
+    fetchJson: async () => document,
+    download: async (_url, to) => copyFile(archive, to),
+  })
+
+  await assert.rejects(registry.resolve('bin'), /points outside its own folder — refused/)
+})
+
+test('cache write does not follow preexisting pid temp symlink and overwrite outside files (#455)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  const outside = join(dir, 'outside.txt')
+  await writeFile(outside, 'outside-before')
+  await symlink(outside, join(dir, `acp-registry.json.${process.pid}.tmp`))
+
+  const registry = new AcpRegistry({
+    stateDir: dir,
+    fetchJson: async () => ({ agents: [] }),
+    which: async () => null,
+  })
+  await registry.catalog(() => false)
+
+  const outsideContent = await readFile(outside, 'utf8')
+  assert.equal(outsideContent, 'outside-before', 'outside file must not be overwritten through symlink')
+
+  const cachePath = join(dir, 'acp-registry.json')
+  const stat = await lstat(cachePath)
+  assert.equal(stat.isSymbolicLink(), false, 'acp-registry.json must not be a symlink')
+})
+
+

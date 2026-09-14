@@ -437,6 +437,12 @@ export interface AcpRegistryAgentInfo {
    * build for this platform when it is added.
    */
   readonly run: 'npx' | 'uvx' | 'binary'
+  /**
+   * For binary builds, how the download's integrity is checked against the
+   * registry: `sha256` when the registry entry pins a digest, `none` when it
+   * publishes none and the archive is downloaded unverified.
+   */
+  readonly integrity?: 'sha256' | 'none'
   readonly available: boolean
   readonly reason?: string
   /** Already in the agent registry, or the id is taken by a live runtime. */

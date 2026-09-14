@@ -366,3 +366,39 @@ test('a turn with nothing but a blank deletion has no recoverable half, and says
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('patch headers normalize Windows backslashes so git apply succeeds (#461)', async () => {
+  const dir = await repo()
+  try {
+    const subDir = join(dir, 'sub')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(subDir, { recursive: true })
+    await writeFile(join(subDir, 'nested.txt'), 'first\nsecond\n')
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'add nested')
+
+    await writeFile(join(subDir, 'nested.txt'), 'first\n2nd\n')
+
+    // Simulate Windows relative path with backslashes
+    const backslashPath = 'sub\\nested.txt'
+    const turn = turnOf([
+      fileChange(dir, [
+        {
+          path: backslashPath,
+          kind: { type: 'update' },
+          diff: '@@ -1,2 +1,2 @@\n first\n-second\n+2nd\n',
+        },
+      ]),
+    ])
+
+    const reverted = await revertTurn(dir, turn)
+    assert.deepEqual(reverted, ['sub/nested.txt'])
+    assert.equal(await readFile(join(subDir, 'nested.txt'), 'utf8'), 'first\nsecond\n')
+
+    const redone = await reapplyTurn(dir, turn)
+    assert.deepEqual(redone, ['sub/nested.txt'])
+    assert.equal(await readFile(join(subDir, 'nested.txt'), 'utf8'), 'first\n2nd\n')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

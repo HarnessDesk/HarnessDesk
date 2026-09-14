@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,7 @@ import { test } from 'node:test'
 
 import { runtimeId, type LibraryPlannedOp } from '@harnessdesk/protocol'
 
+import { digestOf } from '../src/digest.js'
 import {
   applyLibrary,
   decodeMcpEntry,
@@ -14,6 +15,7 @@ import {
   unifiedDiff,
   type WriteAgent,
 } from '../src/index.js'
+import { activeLockCountForTest, isSafeSkillRelativePath } from '../src/writes.js'
 
 /**
  * The write path.
@@ -657,5 +659,248 @@ test('an op whose source escapes every known directory fails at apply', async ()
     assert.equal(results[0]?.outcome, 'failed')
     assert.match(results[0]?.detail ?? '', /source is not in any directory/i)
     assert.equal(existsSync(join(home, '.claude/skills/exfil')), false)
+  })
+})
+
+test('concurrent MCP apply operations preserve all declarations (#449)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const target = join(home, '.codex/config.toml')
+    await mkdir(join(home, '.codex'), { recursive: true })
+    await writeFile(target, '')
+
+    const mk = (i: number): LibraryPlannedOp => ({
+      id: `op-${i}`,
+      kind: 'mcp',
+      name: `srv${i}`,
+      action: 'create',
+      targetPath: target,
+      guardDigest: null,
+      backup: false,
+      content: JSON.stringify({ name: `srv${i}`, transport: 'stdio', command: 'npx' }),
+    })
+
+    const count = 20
+    const ops = Array.from({ length: count }, (_, i) => mk(i + 1))
+    const results = await Promise.all(ops.map((op) => applyLibrary([op], { libraryDir, home })))
+    for (const res of results) {
+      assert.equal(res[0]?.outcome, 'done', `all operations must succeed: ${res[0]?.detail}`)
+    }
+
+    const text = await readFile(target, 'utf8')
+    const matches = (text.match(/\[mcp_servers\./g) ?? []).length
+    assert.equal(matches, count, `all ${count} MCP servers must be declared, got ${matches}`)
+    assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
+  })
+})
+
+test('concurrent MCP apply operations preserve all declarations in JSON configs (#449)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const target = join(home, '.claude.json')
+    await writeFile(target, JSON.stringify({ mcpServers: {} }, null, 2))
+
+    const mk = (i: number): LibraryPlannedOp => ({
+      id: `op-json-${i}`,
+      kind: 'mcp',
+      name: `srv${i}`,
+      action: 'create',
+      targetPath: target,
+      guardDigest: null,
+      backup: false,
+      content: JSON.stringify({ name: `srv${i}`, transport: 'stdio', command: 'npx' }),
+    })
+
+    const count = 20
+    const ops = Array.from({ length: count }, (_, i) => mk(i + 1))
+    const results = await Promise.all(ops.map((op) => applyLibrary([op], { libraryDir, home })))
+    for (const res of results) {
+      assert.equal(res[0]?.outcome, 'done', `all operations must succeed: ${res[0]?.detail}`)
+    }
+
+    const text = await readFile(target, 'utf8')
+    const parsed = JSON.parse(text) as { mcpServers: Record<string, unknown> }
+    assert.equal(Object.keys(parsed.mcpServers).length, count, `all ${count} MCP servers must be declared`)
+    assert.equal(activeLockCountForTest(), 0, 'all idle targetLocks entries must be pruned')
+  })
+})
+
+test('manifest save does not follow preexisting temp symlink and overwrite outside files (#453)', async () => {
+  await withHome(async (home, libraryDir) => {
+    await mkdir(libraryDir, { recursive: true })
+    const manifestPath = join(libraryDir, 'manifest.json')
+    const outside = join(home, 'outside.txt')
+    await writeFile(outside, 'outside-before')
+    await symlink(outside, `${manifestPath}.tmp`)
+
+    const op: LibraryPlannedOp = {
+      id: 'op-1',
+      kind: 'skill',
+      name: 'demo',
+      action: 'create',
+      targetPath: join(home, '.claude/skills/demo'),
+      guardDigest: null,
+      backup: false,
+      content: '---\nname: demo\n---\ntext\n',
+    }
+
+    const results = await applyLibrary([op], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'done')
+
+    const outsideContent = await readFile(outside, 'utf8')
+    assert.equal(outsideContent, 'outside-before', 'manifest save must not overwrite symlink target')
+
+    const stat = await lstat(manifestPath)
+    assert.equal(stat.isSymbolicLink(), false, 'manifest.json must not be promoted from symlink')
+  })
+})
+
+test('symlinked source skill bundle pointing outside managed roots is refused (#448)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const outside = join(home, 'outside-source')
+    await mkdir(outside, { recursive: true })
+    await writeFile(join(outside, 'SKILL.md'), '---\nname: leak\n---\noutside\n')
+    await writeFile(join(outside, 'secret.txt'), 'outside-file')
+
+    const codexSkills = join(home, '.codex/skills')
+    await mkdir(codexSkills, { recursive: true })
+    const symlinkPath = join(codexSkills, 'leak')
+    await symlink(outside, symlinkPath)
+
+    const plan = await planLibrary(
+      [agent('codex'), agent('claudecode')],
+      [
+        {
+          kind: 'installSkill',
+          name: 'leak',
+          sourcePath: symlinkPath,
+          targetRuntime: runtimeId('claudecode'),
+        },
+      ],
+      { libraryDir, home },
+    )
+
+    assert.equal(plan.ops[0]?.action, 'refuse', 'intent should be refused')
+    assert.match(plan.ops[0]?.reason ?? '', /The source is not in any directory this library reads/i)
+
+    // And if an op carrying this sourcePath reached applyLibrary anyway, it must fail
+    const forged: LibraryPlannedOp = {
+      id: 'op-1',
+      kind: 'skill',
+      name: 'leak',
+      action: 'create',
+      targetPath: join(home, '.claude/skills/leak'),
+      guardDigest: null,
+      backup: false,
+      content: '---\nname: leak\n---\noutside\n',
+      extraFiles: ['secret.txt'],
+      sourcePath: symlinkPath,
+    }
+    const results = await applyLibrary([forged], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'failed')
+    assert.match(results[0]?.detail ?? '', /The source is not in any directory this library reads/i)
+    assert.equal(existsSync(join(home, '.claude/skills/leak/secret.txt')), false)
+  })
+})
+
+test('manifest loader ignores entries with invalid kind or name (#451)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const target = join(home, '.claude/skills/demo')
+    await mkdir(target, { recursive: true })
+    const foreign = '---\nname: demo\n---\nforeign\n'
+    await writeFile(join(target, 'SKILL.md'), foreign)
+
+    const source = join(home, '.codex/skills/source')
+    await mkdir(source, { recursive: true })
+    await writeFile(join(source, 'SKILL.md'), '---\nname: demo\n---\nreplacement\n')
+
+    await mkdir(libraryDir, { recursive: true })
+    await writeFile(
+      join(libraryDir, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          { kind: 'broken-kind', name: 'demo', path: target, digest: digestOf(foreign), at: 0 },
+          { kind: 'skill', name: 123, path: target, digest: digestOf(foreign), at: 0 },
+        ],
+      }),
+    )
+
+    const plan = await planLibrary(
+      [agent('codex'), agent('claudecode')],
+      [{ kind: 'installSkill', name: 'demo', sourcePath: source, targetRuntime: runtimeId('claudecode') }],
+      { libraryDir, home },
+    )
+    assert.equal(plan.ops[0]?.action, 'refuse', 'foreign copy must not be treated as owned when kind is invalid')
+    assert.match(plan.ops[0]?.reason ?? '', /not written by HarnessDesk/i)
+  })
+})
+
+test('isSafeSkillRelativePath refuses Windows backslash, absolute, drive, UNC, and traversal paths (#458)', () => {
+  // Safe relative paths
+  assert.equal(isSafeSkillRelativePath('file.txt'), true)
+  assert.equal(isSafeSkillRelativePath('scripts/run.sh'), true)
+  assert.equal(isSafeSkillRelativePath('scripts/nested/deep.txt'), true)
+  assert.equal(isSafeSkillRelativePath('scripts\\run.sh'), true)
+
+  // Traversal with forward and backward slashes
+  assert.equal(isSafeSkillRelativePath('..'), false)
+  assert.equal(isSafeSkillRelativePath('../secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('..\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub/../../secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub\\..\\..\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub/..\\secret.txt'), false)
+
+  // Empty segments and root prefixes
+  assert.equal(isSafeSkillRelativePath(''), false)
+  assert.equal(isSafeSkillRelativePath('/file.txt'), false)
+  assert.equal(isSafeSkillRelativePath('\\file.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub//file.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub\\\\file.txt'), false)
+
+  // Absolute / drive paths
+  assert.equal(isSafeSkillRelativePath('C:\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('c:/secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('D:\\sub\\file.txt'), false)
+
+  // UNC forms
+  assert.equal(isSafeSkillRelativePath('\\\\server\\share\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('//server/share/secret.txt'), false)
+})
+
+test('skill extra files refuses Windows backslash path traversal (#458)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await writeFile(join(home, '.codex/skills/secret.txt'), 'PRIVATE_DATA')
+    await mkdir(join(sourcePath, 'scripts'), { recursive: true })
+    await writeFile(join(sourcePath, 'scripts/run.sh'), '#!/bin/sh\necho hi')
+
+    const targetPath = join(home, '.claude/skills/commit')
+    const forged: LibraryPlannedOp = {
+      id: 'op-traversal',
+      kind: 'skill',
+      name: 'commit',
+      action: 'create',
+      targetPath,
+      content: BODY,
+      sourcePath,
+      extraFiles: [
+        '..\\secret.txt',
+        'C:\\secret.txt',
+        'sub\\..\\..\\secret.txt',
+        '\\\\server\\share\\secret.txt',
+        'scripts/run.sh',
+      ],
+      guardDigest: null,
+      backup: false,
+    }
+    const results = await applyLibrary([forged], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'done')
+    // Legitimate extra file is copied
+    assert.equal(existsSync(join(targetPath, 'scripts/run.sh')), true)
+    // Traversal files must be skipped and never copied
+    assert.equal(existsSync(join(home, '.claude/skills/secret.txt')), false)
+    assert.equal(existsSync(join(targetPath, '..\\secret.txt')), false)
+    assert.equal(existsSync(join(targetPath, 'C:\\secret.txt')), false)
+    assert.equal(existsSync(join(targetPath, '\\\\server\\share\\secret.txt')), false)
   })
 })

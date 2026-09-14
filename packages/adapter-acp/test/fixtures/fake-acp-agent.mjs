@@ -143,6 +143,25 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('echo blocks')) {
+    say(JSON.stringify(params.prompt ?? []))
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.includes('omit stop reason')) {
+    say('finished without explicit stop reason')
+    return reply(id, { usage: null })
+  }
+
+  if (text.includes('null stop reason')) {
+    say('finished with null stop reason')
+    return reply(id, { stopReason: null })
+  }
+
+  if (text.includes('fail with detail')) {
+    return fail(id, 'Internal error', { details: 'the session is owned by another process' })
+  }
+
   if (text.includes('slow')) {
     for (let waited = 0; waited < 10_000; waited += 50) {
       if (cancelled.has(state.id)) {
@@ -236,6 +255,61 @@ const runPrompt = async (id, params) => {
     }
     update(state.id, { sessionUpdate: 'tool_call_update', toolCallId: 'tc-1', status: 'failed' })
     say('fine, not poking it.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.includes('use tool with malformed content')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-null-block',
+      title: 'poke_with_null_block',
+      kind: 'other',
+      status: 'pending',
+      rawInput: { target: 'the thing' },
+    })
+    const { outcome } = await request('session/request_permission', {
+      sessionId: state.id,
+      toolCall: {
+        toolCallId: 'tc-null-block',
+        title: 'poke_with_null_block',
+        content: [null, { type: 'content', content: { type: 'text', text: 'reason despite null block' } }],
+      },
+      options: [
+        { optionId: 'yes', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    if (outcome.outcome === 'selected' && outcome.optionId !== 'no') {
+      update(state.id, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc-null-block',
+        status: 'completed',
+        rawOutput: { poked: true },
+      })
+      say('poked it.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
+    update(state.id, { sessionUpdate: 'tool_call_update', toolCallId: 'tc-null-block', status: 'failed' })
+    say('fine, not poking it.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.includes('tool update with null content')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-null-content',
+      title: 'test_tool',
+      kind: 'other',
+      status: 'pending',
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-null-content',
+      status: 'completed',
+      content: [null, { type: 'content', content: null }],
+      rawOutput: { ok: true },
+    })
+    say('handled null content update.')
     return reply(id, { stopReason: 'end_turn' })
   }
 
@@ -610,10 +684,16 @@ const handlers = {
       })
       return
     }
-    // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness and
-    // cursor-agent: it will not be handed an MCP tool server on the session
-    // request, and says so in the words the caller learns from.
+    // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness,
+    // OpenClaw, or cursor-agent: it will not be handed an MCP tool server on
+    // the session request, and says so in the words the caller learns from.
     if (process.env.FAKE_ACP_REFUSE_TOOLS && (params?.mcpServers?.length ?? 0) > 0) {
+      if (process.env.FAKE_ACP_REFUSE_TOOLS === 'openclaw') {
+        fail(id, 'Internal error', {
+          details: 'ACP bridge mode does not support per-session MCP servers. Configure MCP on the OpenClaw gateway or agent instead.',
+        })
+        return
+      }
       fail(id, 'Invalid params: mcpServers is not supported')
       return
     }

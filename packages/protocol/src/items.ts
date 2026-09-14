@@ -32,6 +32,9 @@ export interface TextSpan {
   readonly path?: string
 }
 
+/** Maximum image size in bytes that the UI and adapters accept before degrading to a resource link or refusing. */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
 export type UserContent =
   | { readonly type: 'text'; readonly text: string; readonly spans?: readonly TextSpan[] }
   /**

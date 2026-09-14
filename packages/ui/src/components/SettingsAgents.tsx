@@ -1089,7 +1089,17 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                   />
                 </span>
                 <span className={styles.registryCellText}>
-                  <span className={styles.registryCellName}>{agent.name}</span>
+                  <span className={styles.registryCellName}>
+                    {agent.name}
+                    {agent.run === 'binary' && agent.integrity === 'none' && !agent.installed && (
+                      <span
+                        className={`${styles.badge} ${styles.unverifiedBadge}`}
+                        title="The registry publishes no checksum for this build, so the download cannot be verified."
+                      >
+                        Unverified
+                      </span>
+                    )}
+                  </span>
                   {line && <span className={styles.registryCellLine}>{line}</span>}
                 </span>
                 {agent.registered ? (

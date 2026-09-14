@@ -8,6 +8,7 @@ import {
   expand,
   extraSkillRoots,
   insideRoots,
+  isInsideRoot,
   knownRoots,
   locate,
   LOCATIONS,
@@ -495,7 +496,7 @@ const readersOf = (
   scans
     .filter((scan) =>
       scan.locations.some(
-        (one) => one.kind === kind && one.scanned && (one.path === path || path.startsWith(`${one.path}/`)),
+        (one) => one.kind === kind && one.scanned && isInsideRoot(path, one.path),
       ),
     )
     .map((scan) => scan.runtime)
@@ -518,7 +519,7 @@ const rejectionFor = (path: string, scan: RuntimeScan): string | null => {
   const exact = scan.reportedProblems.get(path)
   if (exact !== undefined) return exact
   for (const [reported, message] of scan.reportedProblems) {
-    if (reported.startsWith(`${path}/`)) return message
+    if (isInsideRoot(reported, path)) return message
   }
   return null
 }

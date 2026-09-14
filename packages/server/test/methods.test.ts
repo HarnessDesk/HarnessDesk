@@ -182,6 +182,40 @@ test('a repository inside an open folder counts as open for the worktree verbs',
   assert.equal(asked, 1)
 })
 
+test('worktree removal is refused while a conversation in the worktree is still working', async () => {
+  const quiet = { env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x' } }
+  const repo = tempDir('hd-methods-repo-busy-')
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], quiet)
+  execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'], quiet)
+  const tree = join(tempDir('hd-methods-state-busy-'), 'wt')
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'wt', tree], quiet)
+
+  let removed = false
+  const ctx = contextWith({
+    workspaces: { openRoots: () => [repo] },
+    registry: {
+      snapshot: () => [
+        {
+          cwd: tree,
+          status: { type: 'active' },
+        },
+      ],
+    },
+    worktrees: {
+      remove: async () => {
+        removed = true
+        return { branch: 'wt' }
+      },
+    },
+  })
+
+  await assert.rejects(
+    dispatch(ctx, 'worktree/remove', { path: tree }),
+    /A conversation in .* is still working\. Remove it once its turn ends\./,
+  )
+  assert.equal(removed, false)
+})
+
 test('deleting a route forgets its credential only when no other route still refers to it', async () => {
   const routes = [
     { id: 'a', name: 'A', endpoint: 'https://a', wireProtocol: 'responses', credentialRef: 'cred-shared' },
@@ -199,7 +233,13 @@ test('deleting a route forgets its credential only when no other route still ref
       },
     },
     gateways: { stop: (id: string) => stopped.push(id) },
-    credentials: { delete: async (ref: string) => deleted.push(ref) },
+    credentials: {
+      describe: async () => [
+        { ref: 'cred-alone', name: 'C', createdAt: 1, agent: null, writer: 'endpoint' },
+      ],
+      delete: async (ref: string) => deleted.push(ref),
+    },
+    accounts: { gatewayCredentials: () => [] },
   })
   await dispatch(ctx, 'routes/delete', { id: 'a' })
   assert.deepEqual(deleted, [], 'a credential another route uses is kept')
@@ -208,6 +248,109 @@ test('deleting a route forgets its credential only when no other route still ref
 
   await dispatch(ctx, 'routes/delete', { id: 'c' })
   assert.deepEqual(deleted, ['cred-alone'], 'an orphaned credential goes with its route')
+})
+
+test('routes/delete does not delete agent or gateway credentials referenced by a route (#423)', async () => {
+  const routes = [
+    { id: 'r1', name: 'R1', endpoint: 'https://r1', wireProtocol: 'responses', credentialRef: 'cred_agent' },
+    { id: 'r2', name: 'R2', endpoint: 'https://r2', wireProtocol: 'responses', credentialRef: 'cred_gw' },
+    { id: 'r3', name: 'R3', endpoint: 'https://r3', wireProtocol: 'responses', credentialRef: 'cred_endpoint' },
+    { id: 'r4', name: 'R4', endpoint: 'https://r4', wireProtocol: 'responses', credentialRef: 'cred_legacy_endpoint' },
+    { id: 'r5', name: 'R5', endpoint: 'https://r5', wireProtocol: 'responses', credentialRef: 'cred_unknown' },
+  ]
+  const deleted: string[] = []
+  const stopped: string[] = []
+  let stored: unknown = null
+  const ctx = contextWith({
+    routes: { list: () => routes },
+    state: {
+      setPreferences: async (patch: { modelRoutes: unknown }) => {
+        stored = patch.modelRoutes
+      },
+    },
+    gateways: { stop: (id: string) => stopped.push(id) },
+    credentials: {
+      describe: async () => [
+        { ref: 'cred_agent', name: 'agent:codex:OPENAI_API_KEY', createdAt: 1, agent: 'codex', writer: 'agent' },
+        { ref: 'cred_gw', name: 'Gateway key', createdAt: 2, agent: null, writer: 'gateway' },
+        { ref: 'cred_endpoint', name: 'Proxy key', createdAt: 3, agent: null, writer: 'endpoint' },
+        { ref: 'cred_legacy_endpoint', name: 'Legacy proxy key', createdAt: 4, agent: null, writer: null },
+      ],
+      delete: async (ref: string) => {
+        deleted.push(ref)
+      },
+    },
+    accounts: {
+      gatewayCredentials: () => [{ ref: 'cred_gw', name: 'Acme gateway' }],
+    },
+  })
+
+  await dispatch(ctx, 'routes/delete', { id: 'r1' })
+  assert.deepEqual(deleted, [], 'deleting route pointing to an agent credential preserves the agent key')
+
+  await dispatch(ctx, 'routes/delete', { id: 'r2' })
+  assert.deepEqual(deleted, [], 'deleting route pointing to a gateway credential preserves the gateway key')
+
+  await dispatch(ctx, 'routes/delete', { id: 'r3' })
+  assert.deepEqual(deleted, ['cred_endpoint'], 'an orphaned endpoint credential is deleted with its route')
+
+  await dispatch(ctx, 'routes/delete', { id: 'r4' })
+  assert.deepEqual(
+    deleted,
+    ['cred_endpoint', 'cred_legacy_endpoint'],
+    'an orphaned legacy endpoint credential is deleted with its route',
+  )
+
+  await dispatch(ctx, 'routes/delete', { id: 'r5' })
+  assert.deepEqual(
+    deleted,
+    ['cred_endpoint', 'cred_legacy_endpoint'],
+    'an unknown or missing credential is not deleted on route delete',
+  )
+})
+
+test('routes/list and routes/save tolerate null or malformed modelRoutes entries (#426)', async () => {
+  let stored: unknown = null
+  const malformedRoutes = [
+    null,
+    undefined,
+    'not-a-route',
+    { id: 'r1', name: 'Valid 1', endpoint: 'https://r1', wireProtocol: 'responses', credentialRef: 'c1' },
+    null,
+  ]
+  const runtime = fakeRuntime('acp')
+  const ctx = contextWith({
+    routes: {
+      list: () => malformedRoutes.filter((r): r is any => typeof r === 'object' && r !== null && 'id' in r && 'wireProtocol' in r),
+      usable: () => ({ usable: true }),
+    },
+    runtimes: {
+      get: () => runtime,
+    },
+    state: {
+      setPreferences: async (patch: { modelRoutes: unknown }) => {
+        stored = patch.modelRoutes
+      },
+    },
+    gateways: { stop: () => {} },
+    accounts: { gatewayCredentials: () => [] },
+    credentials: { describe: async () => [], delete: async () => {} },
+  })
+
+  const listed = (await dispatch(ctx, 'routes/list', { runtime: runtimeId('acp') })) as any[]
+  assert.equal(listed.length, 1)
+  assert.equal(listed[0].id, 'r1')
+
+  const saved = (await dispatch(ctx, 'routes/save', {
+    name: 'New Route',
+    endpoint: 'https://new',
+    wireProtocol: 'responses',
+    credentialRef: 'c2',
+  })) as { id: string }
+  assert.ok(saved.id)
+
+  await dispatch(ctx, 'routes/delete', { id: 'r1' })
+  assert.deepEqual(stored, [])
 })
 
 test('a message on an idle conversation is sent; on a working one it is queued and announced', async () => {

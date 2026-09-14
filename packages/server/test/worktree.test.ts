@@ -10,6 +10,7 @@ import {
   WorktreeDirtyError,
   Worktrees,
   isManagedWorktree,
+  parseWorktreeList,
   putBack,
   repositoryOf,
   samePath,
@@ -691,3 +692,49 @@ test('what git ignores is named before the folder goes, and a file is told from 
   await worktrees.remove(wt.path)
   await assert.rejects(() => stat(join(wt.path, '.env')))
 })
+
+test('parseWorktreeList handles CRLF line endings from git worktree list on Windows (#469)', () => {
+  const porcelain = [
+    'worktree C:/repo',
+    'HEAD a1b2c3d4e5f6',
+    'branch refs/heads/main',
+    '',
+    'worktree C:/repo/wt-feature',
+    'HEAD 1234567890ab',
+    'branch refs/heads/feature',
+    '',
+    'worktree C:/repo/wt-detached',
+    'HEAD fedcba098765',
+    'detached',
+    '',
+    '',
+  ].join('\r\n')
+
+  const parsed = parseWorktreeList(porcelain, 'C:/Users/dev/.harnessdesk/worktrees')
+  assert.equal(parsed.length, 3)
+
+  assert.deepEqual(parsed[0], {
+    path: 'C:/repo',
+    branch: 'main',
+    head: 'a1b2c3d4e5f6',
+    isMain: true,
+    managed: false,
+  })
+
+  assert.deepEqual(parsed[1], {
+    path: 'C:/repo/wt-feature',
+    branch: 'feature',
+    head: '1234567890ab',
+    isMain: false,
+    managed: false,
+  })
+
+  assert.deepEqual(parsed[2], {
+    path: 'C:/repo/wt-detached',
+    branch: null,
+    head: 'fedcba098765',
+    isMain: false,
+    managed: false,
+  })
+})
+

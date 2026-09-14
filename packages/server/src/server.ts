@@ -239,7 +239,7 @@ const handleHttp = async (
       'content-type': redeemed.contentType,
       'cache-control': 'no-store',
       'content-security-policy':
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'",
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; navigate-to 'none'",
     })
     response.end(Buffer.from(redeemed.bytes))
     return
@@ -285,7 +285,12 @@ const handleHttp = async (
     })
     createReadStream(target).pipe(response)
   } catch {
-    // Unknown paths fall back to the app shell so client routing works.
+    // Unknown paths fall back to the app shell so client routing works, but
+    // the app shell is token-gated just like `/` and `/index.html`.
+    if (!tokenMatches(context.token, url.searchParams.get('token'))) {
+      response.writeHead(401).end('Unauthorized')
+      return
+    }
     try {
       const shell = join(context.uiRoot, 'index.html')
       await stat(shell)

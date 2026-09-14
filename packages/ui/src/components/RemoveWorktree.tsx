@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
+import { isBusy } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
-import { useStore } from '../state/context'
+import { isPathInside } from '../lib/paths'
+import { useSnapshot, useStore } from '../state/context'
 import { BranchIcon } from './Icons'
 import { IgnoredEntries, UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
 
@@ -41,6 +43,7 @@ export const RemoveWorktree = ({
   onClose: () => void
 }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [changes, setChanges] = useState<WorktreeChanges | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -61,6 +64,11 @@ export const RemoveWorktree = ({
   }, [store, worktree.path])
 
   const dirty = changes !== null && changes.modified + changes.untracked > 0
+  // A conversation mid-turn in the worktree would lose whatever it writes after
+  // the folder goes, so the removal waits for the turn to end.
+  const working = [...snapshot.sessions.values()].some(
+    (session) => isPathInside(session.cwd, worktree.path) && isBusy(session),
+  )
 
   const remove = async (force: boolean): Promise<void> => {
     setBusy(true)
@@ -79,7 +87,7 @@ export const RemoveWorktree = ({
       confirmLabel={dirty ? 'Discard changes and remove' : 'Remove worktree'}
       busyLabel={dirty ? 'Discarding…' : 'Removing…'}
       busy={busy}
-      pending={changes === null}
+      pending={changes === null || working}
       onConfirm={() => void remove(dirty)}
       onCancel={onClose}
     >
@@ -97,6 +105,13 @@ export const RemoveWorktree = ({
       {error && <WorktreeProblem className={RHYTHM}>{error}</WorktreeProblem>}
 
       {changes === null && !error && <p>Checking for unsaved work…</p>}
+
+      {working && (
+        <p>
+          A conversation in this worktree is still working. Remove it once its turn ends: the
+          folder goes, and anything the turn writes after that goes with it.
+        </p>
+      )}
 
       {changes !== null && !dirty && (
         <p>

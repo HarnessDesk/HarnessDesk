@@ -73,10 +73,13 @@ const asked = async (root: string, args: readonly string[]): Promise<string | nu
 
 /**
  * A search term used inside a pathspec, with wildmatch's operators escaped:
- * the person typed characters, not a glob. `*`, `?`, the brackets and the
- * escaping backslash itself all match literally once prefixed.
+ * the person typed characters, not a glob. `*`, `?`, and the brackets all match
+ * literally once prefixed. Windows backslashes are normalised to POSIX forward
+ * slashes first, because Git tree paths and pathspecs use forward slashes as
+ * directory separators (#466).
  */
-const literalPathspec = (query: string): string => query.replace(/[\\*?[\]]/g, '\\$&')
+const literalPathspec = (query: string): string =>
+  query.replaceAll('\\', '/').replace(/[\\*?[\]]/g, '\\$&')
 
 const seconds = (value: string | undefined): number => Number(value ?? 0) * 1000
 
@@ -490,6 +493,7 @@ const listed = (nameStatus: string | null): { letter: string; path: string; oldP
 /** One file's patch at one commit, against the same base the file list used. */
 export const commitDiff = async (root: string, sha: string, path: string): Promise<string> => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
+  const normalisedPath = path.replaceAll('\\', '/')
   const known = opened.get(`${root}\0${sha}`)
   const base = known?.base ?? (await diffBase(root, sha)) ?? (await emptyTree(root))
   /* A rename is two paths, and a pathspec naming only the new one hides the
@@ -499,11 +503,11 @@ export const commitDiff = async (root: string, sha: string, path: string): Promi
      said — a rename, and only what changed across it. */
   const entry = (
     known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]))
-  ).find((file) => file.path === path)
+  ).find((file) => file.path === normalisedPath)
   /* Renames only. A rename's two paths are one file; a copy's are two, and
      naming the source brought the source's own edits into the copy's patch
      (review, round 1). A copy opens as the file it made. */
-  const paths = entry?.letter === 'R' && entry.oldPath ? [entry.oldPath, path] : [path]
+  const paths = entry?.letter === 'R' && entry.oldPath ? [entry.oldPath, normalisedPath] : [normalisedPath]
   // a/ and b/ whatever the repository's diff settings say, as in git.ts (#171).
   return (await asked(root, ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base, sha, '--', ...paths])) ?? ''
 }

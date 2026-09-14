@@ -240,7 +240,13 @@ export class TranscriptStore {
     try {
       const raw = await readFile(this.#pathOf(runtime, id), 'utf8')
       const parsed = JSON.parse(raw) as Partial<Stored>
-      if (parsed.version !== FORMAT || !Array.isArray(parsed.turns)) return null
+      if (
+        parsed.version !== FORMAT ||
+        !Array.isArray(parsed.turns) ||
+        parsed.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
+      ) {
+        return null
+      }
       return parsed as Stored
     } catch {
       return null
@@ -388,7 +394,13 @@ export class TranscriptStore {
       let stored: Stored
       try {
         const parsed = JSON.parse(await readFile(file.path, 'utf8')) as Partial<Stored>
-        if (parsed.version !== FORMAT || !Array.isArray(parsed.turns)) continue
+        if (
+          parsed.version !== FORMAT ||
+          !Array.isArray(parsed.turns) ||
+          parsed.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
+        ) {
+          continue
+        }
         stored = parsed as Stored
       } catch {
         continue
@@ -422,7 +434,13 @@ export class TranscriptStore {
         if (!name.endsWith('.json')) continue
         try {
           const data = JSON.parse(await readFile(join(this.directory, dir, name), 'utf8')) as Partial<Stored>
-          if (data.version !== FORMAT || !Array.isArray(data.turns)) continue
+          if (
+            data.version !== FORMAT ||
+            !Array.isArray(data.turns) ||
+            data.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
+          ) {
+            continue
+          }
           out.push({ runtime: decodeURIComponent(dir), id: String(data.id), data })
         } catch {
           continue
@@ -450,6 +468,7 @@ export class TranscriptStore {
       incoming === null ||
       incoming.version !== FORMAT ||
       !Array.isArray(incoming.turns) ||
+      incoming.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items)) ||
       typeof incoming.savedAt !== 'number'
     ) {
       return 'refused'

@@ -13,6 +13,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { detectSkillActivations, readLibrary, type InventoryAgent } from '../src/index.js'
+import { insideReadOnlyRoot, insideRoots, isInsideRoot } from '../src/locations.js'
 
 /**
  * The library, read.
@@ -782,3 +783,45 @@ test('an agent that says nothing about toggling is assumed to allow it', async (
   )
   assert.equal(entry?.reach[0]?.toggleable, true)
 })
+
+test('insideRoots recognizes Windows child paths with backslashes (#445)', () => {
+  assert.equal(
+    insideRoots('C:\\root\\skills\\review', ['C:\\root\\skills']),
+    true,
+    'child path with Windows backslashes must be recognized inside root',
+  )
+  assert.equal(
+    insideRoots('C:\\root\\skills-other', ['C:\\root\\skills']),
+    false,
+    'sibling path sharing prefix must not be recognized inside root',
+  )
+  assert.equal(
+    insideRoots('C:\\skills\\review', ['C:\\']),
+    true,
+    'child path directly under drive root must be recognized',
+  )
+})
+
+test('insideReadOnlyRoot recognizes Windows child paths under read-only skill roots (#445)', () => {
+  assert.equal(
+    insideReadOnlyRoot(
+      'C:\\Users\\dev\\.cursor\\skills-cursor\\review',
+      'C:\\Users\\dev',
+      undefined,
+    ),
+    true,
+    'Windows path under Cursor bundled skills must be recognized as read-only',
+  )
+})
+
+test('isInsideRoot handles cross-platform separator and casing variations (#445)', () => {
+  assert.equal(isInsideRoot('C:\\root\\skills\\review', 'C:\\root\\skills'), true)
+  assert.equal(isInsideRoot('C:/root/skills/review', 'C:\\root\\skills'), true)
+  assert.equal(isInsideRoot('C:\\root\\skills\\review', 'C:/root/skills/'), true)
+  assert.equal(isInsideRoot('c:\\root\\skills\\review', 'C:\\root\\skills'), true)
+  assert.equal(isInsideRoot('C:\\root\\skills-other', 'C:\\root\\skills'), false)
+  assert.equal(isInsideRoot('/root/skills/review', '/root/skills'), true)
+  assert.equal(isInsideRoot('/root/skills-other', '/root/skills'), false)
+  assert.equal(isInsideRoot('/root/skills', '/root/skills'), true)
+})
+

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { isBusy, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
+import { isPathInside } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { HomeIcon } from './Icons'
 import { IgnoredEntries, UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
@@ -95,7 +96,7 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
   // A conversation mid-turn in the worktree would lose whatever it writes after
   // the folder goes, so the move waits for the turn to end.
   const working = [...snapshot.sessions.values()].some(
-    (session) => (session.cwd === worktree.path || session.cwd.startsWith(`${worktree.path}/`)) && isBusy(session),
+    (session) => isPathInside(session.cwd, worktree.path) && isBusy(session),
   )
 
   const confirm = async (): Promise<void> => {

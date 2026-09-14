@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
@@ -17,6 +17,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import {
+  cardVars,
   orderVars,
   parseFlow,
   renderFlowTemplate,
@@ -218,6 +219,8 @@ export class Flows implements TeamFlows {
   #rearms = new Map<string, number[]>()
   /** Attendance checks in flight, so a stop or a quit can cancel them. */
   #watching = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Seats that have exhausted their re-arm budget, so 'stopped answering' is recorded once per seat. */
+  #stoppedSeats = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
 
   constructor(dir: string, team: Team, port: FlowPort) {
@@ -294,7 +297,11 @@ export class Flows implements TeamFlows {
 
   /** The run still going in this room, if any. A room runs one flow at a time. */
   #liveIn(room: string): StoredRun | null {
-    return [...this.#runs.values()].find((run) => run.room === room && run.state === 'running') ?? null
+    return (
+      [...this.#runs.values()].find(
+        (run) => run.room === room && (run.state === 'running' || run.state === 'stalled'),
+      ) ?? null
+    )
   }
 
   /**
@@ -305,6 +312,9 @@ export class Flows implements TeamFlows {
    * reach by pressing something.
    */
   async start(request: FlowStart): Promise<FlowRun> {
+    if (!this.#team.hasRoom(request.room)) {
+      throw new Error(`There is no room ${request.room}.`)
+    }
     const board = this.#team.stateFor(request.room)
     if (this.#liveIn(request.room)) {
       throw new Error(
@@ -364,10 +374,11 @@ export class Flows implements TeamFlows {
       if (role.kind !== 'agent') continue
       for (let index = 0; index < role.count; index += 1) {
         const spec = seatAt(role, index)
+        const targetCwd = board.cwd ?? board.root
         const cwd = role.isolate
-          ? await this.#port.isolate(board.root, `${role.id}-${index + 1}-${id.slice(-4)}`)
-          : board.root
-        const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${flow.name}`
+          ? await this.#port.isolate(targetCwd, `${role.id}-${index + 1}-${id.slice(-4)}`)
+          : targetCwd
+        const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
         const live = await this.#port.seat(spec, { cwd, title })
         const held: FlowSeatRecord = {
           /* Escaped, not the raw byte: a NUL in the source makes the whole
@@ -414,9 +425,12 @@ export class Flows implements TeamFlows {
           orderVars(role, flow, {
             name,
             member: name,
+            seat: seat.seat,
             room: this.#team.stateFor(request.room).name,
             repo: seat.cwd,
             runtime: seat.runtime,
+            run: id,
+            vars,
           }),
         ),
       )
@@ -471,13 +485,14 @@ export class Flows implements TeamFlows {
   stop(id: string, why = 'the person stopped this flow'): FlowRun {
     const run = this.#runs.get(id)
     if (!run) throw new Error(`There is no flow run ${id}.`)
-    if (run.state !== 'running') return run
+    if (run.state !== 'running' && run.state !== 'stalled') return run
+    const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
       state: 'stopped',
       endedAt: now(),
       ended: why,
-      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+      record: [...record, { at: now(), kind: 'stopped', text: why }],
     })
     const watch = this.#watching.get(id)
     if (watch) clearTimeout(watch)
@@ -513,7 +528,30 @@ export class Flows implements TeamFlows {
   /** A card finished. Whether that finishes its round is the next question. */
   completed(room: string, intent: Intent): void {
     const run = this.#runFor(room, intent.id)
-    if (!run || run.state !== 'running') return
+    if (!run || (run.state !== 'running' && run.state !== 'stalled')) return
+    if (run.state === 'stalled') {
+      const record = Array.isArray(run.record) ? run.record : []
+      this.#runs.set(run.id, {
+        ...run,
+        state: 'running',
+        ended: null,
+        record: [
+          ...record,
+          {
+            at: now(),
+            kind: 'started',
+            text: `recovered from stalled: card #${intent.id} completed`,
+          },
+        ],
+      })
+      this.#port.log('a stalled flow run recovered and returned to running', {
+        run: run.id,
+        intent: intent.id,
+      })
+      this.#save(run.id)
+      const round = run.rounds[run.rounds.length - 1]
+      if (round) void this.#armFor(run.id, round.role)
+    }
     const queued = (this.#turning.get(run.id) ?? Promise.resolve()).then(() =>
       this.#advance(run.id, intent).catch((error: unknown) => {
         this.#port.log('a flow could not open its next round', {
@@ -549,7 +587,10 @@ export class Flows implements TeamFlows {
   async reArm(runtime: string, sessionId: string): Promise<void> {
     const key = String(sessionKey(runtime as never, sessionId as never))
     const run = [...this.#runs.values()].find(
-      (one) => one.state === 'running' && one.seats.some((seat) => seat.key === key),
+      (one) =>
+        (one.state === 'running' || one.state === 'stalled') &&
+        Array.isArray(one.seats) &&
+        one.seats.some((seat) => seat.key === key),
     )
     if (!run) return
     const seat = run.seats.find((one) => one.key === key) as FlowSeatRecord
@@ -567,30 +608,37 @@ export class Flows implements TeamFlows {
        stopped early: it is a seat that was told to stand down and did as it
        was asked. The run's own state is checked above; this covers the race
        between the stand-down and the turn's end reaching the host. */
+    const budget = run.flow.rearm ?? REARM_BUDGET
     const spent = (this.#rearms.get(key) ?? []).filter((at) => now() - at < REARM_WINDOW_MS)
-    if (spent.length >= REARM_BUDGET) {
-      this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
-        run: run.id,
-        role: seat.role,
-        seat: seat.seat,
-        spent: spent.length,
-      })
-      this.#runs.set(run.id, {
-        ...run,
-        record: [
-          ...run.record,
-          {
-            at: now(),
-            kind: 'stopped',
-            role: seat.role,
-            seat: seat.seat,
-            text: `stopped answering: ${spent.length} turns ended inside the hour, so it is not being re-armed again`,
-          },
-        ],
-      })
-      this.#save(run.id)
+    if (spent.length >= budget) {
+      if (!this.#stoppedSeats.has(key)) {
+        this.#stoppedSeats.add(key)
+        this.#port.log('a flow seat has ended its turn too often to keep re-arming it', {
+          run: run.id,
+          role: seat.role,
+          seat: seat.seat,
+          spent: spent.length,
+        })
+        this.#runs.set(run.id, {
+          ...run,
+          record: [
+            ...(Array.isArray(run.record) ? run.record : []),
+            {
+              at: now(),
+              kind: 'stopped',
+              role: seat.role,
+              seat: seat.seat,
+              text: `stopped answering: ${spent.length} turns ended inside the hour, so it is not being re-armed again`,
+            },
+          ],
+        })
+        this.#save(run.id)
+      }
+      this.#checkStalled(run.id)
       return
     }
+    const slot = now()
+    this.#rearms.set(key, [...spent, slot])
     const name = this.#team.stateFor(run.room).nicknames?.[key] ?? seat.seat
     try {
       /* Its model and effort first. Measured after a desk restart: the seat
@@ -615,9 +663,12 @@ export class Flows implements TeamFlows {
           orderVars(role, run.flow, {
             name,
             member: name,
+            seat: seat.seat,
             room: this.#team.stateFor(run.room).name,
             repo: seat.cwd,
             runtime: seat.runtime,
+            run: run.id,
+            vars: run.vars,
           }),
         ),
       )
@@ -627,6 +678,12 @@ export class Flows implements TeamFlows {
          never reached the agent bought nothing and spent nothing, and
          charging for it would use the allowance up on a runtime that was
          merely not running yet. */
+      const arr = [...(this.#rearms.get(key) ?? [])]
+      const idx = arr.indexOf(slot)
+      if (idx !== -1) {
+        arr.splice(idx, 1)
+        this.#rearms.set(key, arr)
+      }
       this.#port.log('a flow seat could not be re-armed', {
         run: run.id,
         role: seat.role,
@@ -634,11 +691,15 @@ export class Flows implements TeamFlows {
       })
       return
     }
-    this.#rearms.set(key, [...spent, now()])
-    this.#runs.set(this.#runs.get(run.id)!.id, {
-      ...(this.#runs.get(run.id) as StoredRun),
+    this.#stoppedSeats.delete(key)
+    const currentRun = (this.#runs.get(run.id) ?? run) as StoredRun
+    const recovering = currentRun.state === 'stalled'
+    const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
+    this.#runs.set(currentRun.id, {
+      ...currentRun,
+      ...(recovering ? { state: 'running', ended: null } : {}),
       record: [
-        ...(this.#runs.get(run.id) as StoredRun).record,
+        ...currentRecord,
         {
           at: now(),
           kind: 'seated',
@@ -648,6 +709,12 @@ export class Flows implements TeamFlows {
         },
       ],
     })
+    if (recovering) {
+      this.#port.log('a stalled flow run recovered and returned to running', {
+        run: currentRun.id,
+        seat: seat.seat,
+      })
+    }
     this.#save(run.id)
   }
 
@@ -722,12 +789,13 @@ export class Flows implements TeamFlows {
         ? `Their turns did not run: ${[...new Set(failures.map((one) => one.why))].join(' · ')}`
         : "Nothing has been heard from them since, so either that agent takes HarnessDesk's tools without using them, or its turn never started."
     const why = `${absent.length === 1 ? 'a seat has' : `${absent.length} seats have`} not touched the board since being seated — ${named}. ${because}`
+    const record = Array.isArray(run.record) ? run.record : []
     this.#runs.set(id, {
       ...run,
       state: 'stopped',
       endedAt: now(),
       ended: why,
-      record: [...run.record, { at: now(), kind: 'stopped', text: why }],
+      record: [...record, { at: now(), kind: 'stopped', text: why }],
     })
     this.#port.log('a flow stopped because its seats never took the tools', {
       run: id,
@@ -737,14 +805,83 @@ export class Flows implements TeamFlows {
     this.#save(id)
   }
 
+  /**
+   * Checks whether the run has stalled because no seat of a role with open
+   * work is answering.
+   *
+   * A seat whose budget is spent stops being re-armed; when every seat of
+   * the role holding the current round has stopped, the run has become a
+   * zombie that can never make progress. Marking it stalled surfaces what
+   * happened to the room and stands down any remaining waiting seats.
+   */
+  #checkStalled(id: string): void {
+    const run = this.#runs.get(id)
+    if (!run || run.state !== 'running') return
+    const round = run.rounds[run.rounds.length - 1]
+    if (!round) return
+    const board = this.#team.stateFor(run.room)
+    const cards = round.intents.map((one) => board.intents.find((card) => card.id === one))
+    const open = cards.filter((card) => !card || (card.state !== 'done' && card.state !== 'abandoned'))
+    if (open.length === 0) return
+
+    const roleSeats = run.seats.filter((s) => s.role === round.role)
+    const answering = roleSeats.filter((s) => !this.#stoppedSeats.has(s.key))
+    if (roleSeats.length > 0 && answering.length === 0) {
+      const named = roleSeats.map((s) => s.seat).join(', ')
+      const why = `no seat answering for ${round.role} (${named}): re-arm budget exhausted`
+      const record = Array.isArray(run.record) ? run.record : []
+      this.#runs.set(id, {
+        ...run,
+        state: 'stalled',
+        ended: why,
+        record: [
+          ...record,
+          {
+            at: now(),
+            kind: 'stalled',
+            role: round.role,
+            text: why,
+          },
+        ],
+      })
+      this.#port.log('a flow run stalled because no seat of a role with open work is answering', {
+        run: id,
+        role: round.role,
+        seats: roleSeats.map((s) => s.seat),
+      })
+      const watch = this.#watching.get(id)
+      if (watch) clearTimeout(watch)
+      this.#watching.delete(id)
+      this.#release(run, why)
+      this.#save(id)
+    }
+  }
+
+  /** Stops every active flow run in a room that was deleted. */
+  deleteRoom(room: string): void {
+    for (const run of this.#runs.values()) {
+      if (run.room === room && (run.state === 'running' || run.state === 'stalled')) {
+        this.stop(run.id, 'the room this flow ran in was deleted')
+      }
+    }
+  }
+
   /** Why this seat should stop waiting — the one thing that may end its turn. */
   standDown(room: string, runtime: string, sessionId: string): string | null {
     const key = `${runtime}\u0000${sessionId}`
-    const run = [...this.#runs.values()].find(
-      (one) => one.room === room && one.seats.some((seat) => seat.key === key),
-    )
-    if (!run) return null
-    if (run.state === 'running') return null
+    const runs = [...this.#runs.values()]
+      .filter(
+        (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
+      )
+      .sort((a, b) => a.startedAt - b.startedAt)
+    if (runs.length === 0) return null
+    if (runs.some((one) => one.state === 'running')) return null
+    const run = runs[runs.length - 1]!
+    if (run.state === 'stalled') {
+      const round = run.rounds[run.rounds.length - 1]
+      const seat = run.seats.find((s) => s.key === key)
+      if (round && seat && seat.role !== round.role) return null
+    }
     return run.ended ?? `the flow "${run.flow.name}" has finished`
   }
 
@@ -771,6 +908,7 @@ export class Flows implements TeamFlows {
   async #advance(id: string, because?: Intent): Promise<void> {
     const run = this.#runs.get(id)
     if (!run || run.state !== 'running') return
+    if (!run.rounds || run.rounds.length === 0) return
     const round = run.rounds[run.rounds.length - 1]
     if (!round) return
     const board = this.#team.stateFor(run.room)
@@ -778,10 +916,11 @@ export class Flows implements TeamFlows {
     if (cards.some((card) => !card || (card.state !== 'done' && card.state !== 'abandoned'))) return
 
     if (because?.outcome !== undefined) {
+      const record = Array.isArray(run.record) ? run.record : []
       this.#runs.set(id, {
         ...run,
         record: [
-          ...run.record,
+          ...record,
           {
             at: now(),
             kind: 'outcome',
@@ -798,18 +937,25 @@ export class Flows implements TeamFlows {
     if (!fired) {
       const said = outcomes.map((one) => one ?? 'nothing').join(', ')
       const why = `${round.role} answered ${said}, and no rule takes it further`
+      const record = Array.isArray(current.record) ? current.record : []
       this.#runs.set(id, {
         ...current,
         state: 'settled',
         endedAt: now(),
         ended: why,
-        record: [...current.record, { at: now(), kind: 'settled', role: round.role, text: why }],
+        record: [...record, { at: now(), kind: 'settled', role: round.role, text: why }],
       })
       this.#release(current, why)
       this.#save(id)
       return
     }
-    this.#open(current, fired.then.role, fired.then, fired.id, round.intents)
+    /* Only completed cards are dependencies for the next round: an abandoned
+       card has no context package to hand over, and passing it into dependsOn
+       leaves downstream cards blocked forever by the team graph (#440). */
+    const completedIntents = cards
+      .filter((card): card is NonNullable<typeof card> => card !== undefined && card.state === 'done')
+      .map((card) => card.id)
+    this.#open(current, fired.then.role, fired.then, fired.id, completedIntents)
     this.#save(id)
     /* The round that just opened is the moment a seat of that role is worth
        waking: it has work now, which it did not a second ago. */
@@ -845,18 +991,18 @@ export class Flows implements TeamFlows {
     const before = run.rounds[run.rounds.length - 1]
     const intents: number[] = []
     for (let index = 1; index <= role.count; index += 1) {
-      const vars: Record<string, string> = {
-        ...run.vars,
+      const vars = cardVars({
         flow: run.flow.name,
         run: run.id,
         room: board.name,
         repo: board.root,
         role: role.id,
-        round: String(n),
-        n: String(index),
-        count: String(role.count),
-        ...(before ? { from: before.role, answered: String(before.intents.length) } : {}),
-      }
+        round: n,
+        n: index,
+        count: role.count,
+        ...(before ? { from: before.role, answered: before.intents.length } : {}),
+        vars: run.vars,
+      })
       const detail = [
         then.detail ? renderFlowTemplate(then.detail, vars) : null,
         /* The vocabulary on the card as well as in the order. An order is read
@@ -884,11 +1030,14 @@ export class Flows implements TeamFlows {
       ...(rule ? { rule } : {}),
       openedAt: now(),
     }
+    const currentRun = this.#runs.get(run.id) as StoredRun
+    const currentRounds = Array.isArray(currentRun.rounds) ? currentRun.rounds : []
+    const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
     this.#runs.set(run.id, {
-      ...(this.#runs.get(run.id) as StoredRun),
-      rounds: [...(this.#runs.get(run.id) as StoredRun).rounds, round],
+      ...currentRun,
+      rounds: [...currentRounds, round],
       record: [
-        ...(this.#runs.get(run.id) as StoredRun).record,
+        ...currentRecord,
         { at: now(), kind: 'round', role: role.id, text: `round ${n}, ${role.count} card${role.count === 1 ? '' : 's'}` },
       ],
     })
@@ -913,18 +1062,26 @@ export class Flows implements TeamFlows {
     if (!role || role.kind !== 'check' || !role.check) return
     const check = role.check as FlowCheck
     const board = this.#team.stateFor(run.room)
-    const cwd = check.cwd ? (check.cwd.startsWith('/') ? check.cwd : join(board.root, check.cwd)) : board.root
+    const baseCwd = board.cwd ?? board.root
+    const isAbs = check.cwd ? isAbsolute(check.cwd) || check.cwd.startsWith('/') || /^[A-Za-z]:[\\/]/.test(check.cwd) : false
+    const cwd = check.cwd ? (isAbs ? check.cwd : join(baseCwd, check.cwd)) : baseCwd
     for (const intent of round.intents) {
+      const current = this.#runs.get(id)
+      if (!current || current.state !== 'running') return
+      const card = board.intents.find((c) => c.id === intent)
+      if (card && (card.state === 'done' || card.state === 'abandoned')) continue
       const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
       const note =
         status === null
           ? `${check.run} ran past ${check.timeout}s`
           : `${check.run} exited ${status}`
+      const currentRun = this.#runs.get(id) as StoredRun
+      const currentRecord = Array.isArray(currentRun.record) ? currentRun.record : []
       this.#runs.set(id, {
-        ...(this.#runs.get(id) as StoredRun),
+        ...currentRun,
         record: [
-          ...(this.#runs.get(id) as StoredRun).record,
+          ...currentRecord,
           { at: now(), kind: 'check', role: role.id, intent, outcome, text: note },
         ],
       })
@@ -1000,27 +1157,64 @@ export class Flows implements TeamFlows {
       if (!name.endsWith('.json')) continue
       try {
         const raw = JSON.parse(await readFile(join(this.#dir, name), 'utf8')) as StoredRun
+        if (
+          !raw ||
+          typeof raw !== 'object' ||
+          typeof raw.id !== 'string' ||
+          !raw.id ||
+          typeof raw.room !== 'string' ||
+          !raw.room ||
+          typeof raw.flow !== 'object' ||
+          raw.flow === null ||
+          typeof raw.flow.name !== 'string' ||
+          !Array.isArray(raw.flow.roles) ||
+          !Array.isArray(raw.flow.rules) ||
+          !Array.isArray(raw.flow.inputs) ||
+          !Array.isArray(raw.rounds) ||
+          !Array.isArray(raw.seats) ||
+          !Array.isArray(raw.record)
+        ) {
+          throw new Error('run data is missing required fields or has non-array rounds, seats, or record')
+        }
         this.#runs.set(raw.id, raw)
       } catch (error) {
         this.#port.log('a stored flow run could not be read', { file: name, error: String(error) })
       }
     }
     for (const run of [...this.#runs.values()]) {
-      if (run.state !== 'running') continue
+      if (run.state !== 'running' && run.state !== 'stalled') continue
       /* A room that no longer exists takes its run with it. */
+      let exists = false
       try {
-        this.#team.stateFor(run.room)
+        exists = this.#team.hasRoom(run.room)
       } catch {
+        exists = false
+      }
+      if (!exists) {
+        const record = Array.isArray(run.record) ? run.record : []
         this.#runs.set(run.id, {
           ...run,
           state: 'stopped',
           endedAt: now(),
           ended: 'the room this flow ran in is gone',
+          record: [
+            ...record,
+            { at: now(), kind: 'stopped', text: 'the room this flow ran in is gone' },
+          ],
         })
         this.#save(run.id)
         continue
       }
-      await this.#advance(run.id)
+      if (run.state === 'running') {
+        try {
+          await this.#advance(run.id)
+        } catch (error) {
+          this.#port.log('a running flow could not advance during reconciliation', {
+            run: run.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
     }
   }
 
@@ -1039,12 +1233,15 @@ export class Flows implements TeamFlows {
    * rounds correct, its cards where they should be, and every seat that had
    * stopped still stopped. `#armFor` only wakes a seat that is out of its
    * turn and has work — one holding a card, or one whose round is open — so a
-   * healthy run wakes nobody.
+   * healthy run wakes nobody. Open check rounds are also resumed here: a check
+   * has no seat to wake, so without `#runChecks` a run interrupted during a
+   * check round stayed deadlocked on its open card forever (#437).
    */
   async resume(): Promise<void> {
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running') continue
       await this.#armFor(run.id)
+      await this.#runChecks(run.id)
     }
   }
 

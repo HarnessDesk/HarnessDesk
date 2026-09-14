@@ -53,6 +53,7 @@ import {
   type SecretReload,
   type PublicationItem,
   runtimeId,
+  sessionModel,
 } from '@harnessdesk/protocol'
 
 import type { AgentDirectory } from './agent-registry.js'
@@ -77,7 +78,7 @@ import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
-import { redactorFor } from './diagnostics.js'
+import { redactorFor, redactLog } from './diagnostics.js'
 import { Flows, runCheck } from './flows.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
@@ -465,6 +466,7 @@ export class Host {
         if (record) record.reopenRefusals = 0
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
@@ -618,11 +620,20 @@ export class Host {
    * without Codex installed should still open the app and explain itself.
    */
   register(runtime: AgentRuntime): void {
-    this.#runtimes.set(runtime.info.id, runtime)
+    const id = runtime.info.id
+    if (this.#runtimes.has(id)) {
+      this.#logger.warn('a runtime with this id was already registered; replacing it', {
+        runtime: id,
+      })
+      for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
+      this.#runtimeSubscriptions.delete(id)
+      this.#catalogs.forget(id)
+    }
+    this.#runtimes.set(id, runtime)
     this.#catalogs.watch(runtime)
-    this.#runtimeSubscriptions.set(runtime.info.id, [
-      runtime.subscribe((event) => this.#onEvent(runtime.info.id, event)),
-      runtime.onHealthChange((health) => this.#onHealthChange(runtime.info.id, health)),
+    this.#runtimeSubscriptions.set(id, [
+      runtime.subscribe((event) => this.#onEvent(id, event)),
+      runtime.onHealthChange((health) => this.#onHealthChange(id, health)),
       // A capability the agent only reveals by refusing it. Optional, so a
       // runtime whose description is settled at construction says nothing.
       ...(runtime.onInfoChange
@@ -630,7 +641,7 @@ export class Host {
             runtime.onInfoChange(() => {
               this.#push({
                 method: 'runtime/infoChanged',
-                params: { runtime: runtime.info.id, info: this.#infoOf(runtime) },
+                params: { runtime: id, info: this.#infoOf(runtime) },
               })
             }),
           ]
@@ -1143,8 +1154,12 @@ export class Host {
    */
   #openRoots(): string[] {
     return [
-      ...this.#state.state.workspaces.map((entry) => entry.path),
-      ...this.registry.snapshot().map((session) => session.cwd),
+      ...this.#state.state.workspaces
+        .map((entry) => entry?.path)
+        .filter((path): path is string => typeof path === 'string' && path.length > 0),
+      ...this.registry.snapshot()
+        .map((session) => session.cwd)
+        .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
     ]
   }
 
@@ -1317,7 +1332,7 @@ export class Host {
     if (file) {
       try {
         const raw = await readFile(file, 'utf8')
-        log = raw.split('\n').filter(Boolean).slice(-500).map(redact)
+        log = redactLog(raw, redact)
       } catch {
         // A missing log is a fact worth shipping as-is.
       }
@@ -1362,7 +1377,17 @@ export class Host {
 
   #routes(): readonly ModelRouteRecord[] {
     const raw = this.#state.state.preferences['modelRoutes']
-    return Array.isArray(raw) ? (raw as ModelRouteRecord[]) : []
+    if (!Array.isArray(raw)) return []
+    return raw.filter(
+      (entry): entry is ModelRouteRecord =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        typeof (entry as ModelRouteRecord).id === 'string' &&
+        typeof (entry as ModelRouteRecord).name === 'string' &&
+        typeof (entry as ModelRouteRecord).endpoint === 'string' &&
+        typeof (entry as ModelRouteRecord).wireProtocol === 'string' &&
+        typeof (entry as ModelRouteRecord).credentialRef === 'string',
+    )
   }
 
   /**
@@ -1884,6 +1909,9 @@ export class Host {
    * idle, and a second message typed in the same breath would go straight out
    * too and be refused by the agent. Held beside `#draining`, and for the same
    * reason: it is this host's doing, not a fact about the conversation.
+   *
+   * Released when the sent turn's `turn/started` arrives in `#onEvent`, or when
+   * `send` rejects, or when its deadline passes (#424).
    */
   readonly #sendingNow = new Map<string, symbol>()
 
@@ -1898,16 +1926,20 @@ export class Host {
     // had marked the same conversation, must not clear the later one's mark.
     const mark = Symbol('sending')
     this.#sendingNow.set(key, mark)
+    let released = false
     const release = () => {
+      if (released) return
+      released = true
+      clearTimeout(deadline)
       if (this.#sendingNow.get(key) === mark) this.#sendingNow.delete(key)
     }
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
     try {
       const live = await this.#live({ runtime: record.runtime, sessionId: record.session.id })
       await live.send(input)
-    } finally {
-      clearTimeout(deadline)
+    } catch (error) {
       release()
+      throw error
     }
   }
 
@@ -2167,6 +2199,9 @@ export class Host {
           )
         : []
     const record = this.registry.apply(runtime, event)
+    if (event.type === 'turn/started' && record) {
+      this.#sendingNow.delete(recordKey(record))
+    }
     let outgoing: AgentEvent = event
     if (record && event.type === 'turn/completed' && published.length > 0) {
       const kept = record.session.turns.find((turn) => turn.id === event.turn.id)
@@ -2289,7 +2324,7 @@ export class Host {
         /* The room names a new member after what it runs, so three
            conversations on one agent and one account are told apart by the one
            thing that actually differs between them. */
-        model: record.session.settings?.model ?? null,
+        model: sessionModel(record.session),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */
@@ -2398,7 +2433,18 @@ export class Host {
     // that test run is now asking, so stdin approvals always reach a person.
     if (approval.type === 'command' && approval.kind === 'stdin') return false
     const raw = this.#state.state.preferences['permissionPolicy']
-    const rules = Array.isArray(raw) ? (raw as PolicyRule[]) : []
+    const rules = Array.isArray(raw)
+      ? raw.filter(
+          (entry): entry is PolicyRule =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            typeof (entry as PolicyRule).id === 'string' &&
+            typeof (entry as PolicyRule).name === 'string' &&
+            typeof (entry as PolicyRule).match === 'object' &&
+            (entry as PolicyRule).match !== null &&
+            ((entry as PolicyRule).action === 'approve' || (entry as PolicyRule).action === 'deny'),
+        )
+      : []
     const subject =
       approval.type === 'command'
         ? approval.command
@@ -2433,7 +2479,34 @@ export class Host {
       // refused could turn straight round and ask a more permissive
       // teammate to do it. Safety rule 2 does not care who said no.
       if (wanted === 'deny') this.#team.noteDenial(runtime, String(approval.sessionId))
-      void live.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+      // Both async rejections and synchronous throws from the runtime responder
+      // are caught and safely degrade to surfacing human approval.
+      void Promise.resolve()
+        .then(() => live.respondToApproval(approval.id, { type: 'option', optionId: option.id }))
+        .catch((error: unknown) => {
+          this.#logger.warn('failed to auto-decide approval by policy, falling back to human approval', {
+            runtime,
+            approvalId: approval.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          const approvalEvent: AgentEvent = { type: 'approval/requested', approval }
+          this.registry.apply(runtime, approvalEvent)
+          this.#audit.record(runtime, approvalEvent, (sessionId) =>
+            this.registry.get(runtime, makeSessionId(sessionId))?.session.cwd,
+          )
+          this.#push({
+            method: 'event',
+            params: {
+              runtime,
+              event: approvalEvent,
+            },
+          })
+        })
+      // The policy auto-decision is recorded synchronously so that client queries
+      // immediately observe the decision rule matching the action. In the degraded
+      // edge case where the agent session/transport rejects or throws, the catch
+      // block logs a warning, falls back to surfacing approval/requested to the
+      // client, and places the approval back in the registry.
       this.#audit.append({
         at: Date.now(),
         runtime,
@@ -2847,15 +2920,24 @@ export class Host {
     const catalogCheckedAt = this.#catalogs.lastChecked(runtime.info.id)
     const accounts = this.options.accounts
     const slot = accounts?.slotOf(runtime.info) ?? null
+    const install = this.options.installs?.last(String(runtime.info.id))
+    const info = runtime.info
+
+    // For a direct agent (no drives) whose self-reported version is missing or placeholder,
+    // fall back to the install service's chosen version if available (#354).
+    const version =
+      !info.drives && (info.version === null || info.version === undefined || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(info.version.trim()))
+        ? install?.chosen?.version ?? info.version
+        : info.version
+
     return {
-      ...runtime.info,
+      ...info,
+      ...(version !== info.version ? { version } : {}),
       ...(update ? { update } : {}),
       ...(catalogCheckedAt !== null ? { catalogCheckedAt } : {}),
       // What the install service last found for this agent: every copy on
       // the machine and the one that answers. Only for agents it knows.
-      ...(this.options.installs?.last(String(runtime.info.id))
-        ? { install: this.options.installs.last(String(runtime.info.id)) }
-        : {}),
+      ...(install ? { install } : {}),
       // Registry-born runtimes are the interface's to remove; the flag is
       // attached here because the runtime has no idea where it came from.
       ...(this.options.agents?.owns(runtime.info.id) ? { origin: 'registry' as const } : {}),

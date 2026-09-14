@@ -449,6 +449,59 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     notes: ["npm's `latest` tag for @xai-official/grok lags the newest release by several versions; the registry pins a version the tag does not name."],
   },
   {
+    id: 'github-copilot-cli',
+    name: 'GitHub Copilot',
+    brand: 'githubcopilot',
+    tagline: "GitHub's Copilot CLI, speaking ACP directly.",
+    cli: {
+      // No `versionArgs`: plain `--version` answers, though with a sentence
+      // rather than a number — "GitHub Copilot CLI 1.0.84-5.", then a second
+      // line inviting `copilot update`. The probe takes the first line with a
+      // release in it and `versionIn` reads the release out of that.
+      commands: ['copilot'],
+    },
+    acp: { args: ['--acp'] },
+    publish: {
+      npm: '@github/copilot',
+      // The *cask*, and the distinction is not cosmetic: `brew install
+      // copilot` is a different program — AWS's ECS Copilot, deprecated with
+      // an archived upstream — so the token that names this agent to Homebrew
+      // is `copilot-cli`, and the road it came by makes the upgrade
+      // `brew upgrade --cask copilot-cli`. See `readChannel`.
+      brew: 'copilot-cli',
+      selfUpdate: 'copilot update',
+      installCommand: 'npm install -g @github/copilot',
+      url: 'https://docs.github.com/copilot/how-tos/copilot-cli',
+    },
+    home: {
+      path: '~/.copilot',
+      env: 'COPILOT_HOME',
+      // Nothing here by default: `copilot login` puts the token in the OS
+      // credential store, and only writes one into this folder if the
+      // keychain is unavailable *and* the person answers yes to being asked
+      // (the `storeTokenPlaintext` setting).
+      credentials: [],
+      config: ['config.json', 'settings.json', 'mcp-config.json'],
+      note: "COPILOT_HOME moves the whole folder; `config.json` is the CLI's own file and `settings.json` the person's. The downloaded release does not live here — it is cached per platform under ~/Library/Caches/copilot on macOS, $XDG_CACHE_HOME/copilot elsewhere.",
+    },
+    auth: {
+      kind: 'terminal',
+      terminal: 'copilot login',
+      secrets: [
+        {
+          env: 'COPILOT_GITHUB_TOKEN',
+          label: 'GitHub token',
+          helpUrl: 'https://github.com/settings/personal-access-tokens',
+          description: 'Optional: a fine-grained token with the Copilot Requests permission, instead of the terminal sign-in. Classic ghp_ tokens are refused.',
+        },
+      ],
+      note: '`copilot login` opens a browser on a desktop and falls back to a device code where there is none; COPILOT_GITHUB_TOKEN, GH_TOKEN and GITHUB_TOKEN are read in that order and outrank a stored credential. The ACP server offers one method, `copilot-login`, whose own terminal-auth note names the same command.',
+    },
+    notes: [
+      'Both roads install a launcher, not the agent: the Homebrew cask and the npm package each fetch the release for this platform on first run and update it in place, so `--version` reports the cached release and runs ahead of the version the cask folder and npm `latest` are pinned at. Measured 2026-09-12: a cask recorded as 1.0.83 running 1.0.84-5. COPILOT_AUTO_UPDATE=false stops it.',
+    ],
+  },
+  {
     id: 'antigravity-acp',
     name: 'Antigravity',
     // The registry's name for it, which every download row carries.
@@ -539,6 +592,32 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       'The Homebrew cask `cursor-cli` leaves a `/opt/homebrew/bin/cursor-agent` that is months behind the self-updating `~/.local/bin` copy, and one such copy hung on `--version` — which is why a copy that does not answer is never chosen.',
     ],
   },
+  {
+    id: 'devin',
+    name: 'Devin',
+    brand: 'devin',
+    tagline: "Cognition's Devin CLI, speaking ACP directly.",
+    cli: { commands: ['devin'], paths: ['~/.local/bin/devin', '~/.devin/bin/devin'] },
+    acp: { args: ['acp'] },
+    publish: {
+      selfUpdate: 'devin update',
+      installCommand: 'curl -fsSL https://devin.ai/install.sh | bash',
+      url: 'https://devin.ai/docs/cli',
+    },
+    home: {
+      path: '~/.devin',
+      credentials: ['credentials.json'],
+      config: ['config.json'],
+    },
+    auth: {
+      kind: 'browser',
+      status: cli('devin', 'auth', 'status'),
+      terminal: 'devin auth login',
+      login: cli('devin', 'auth', 'login'),
+      logout: cli('devin', 'auth', 'logout'),
+      note: '`devin auth login` opens a browser sign-in and exits when complete.',
+    },
+  },
 ]
 
 export const knownAgent = (id: string): KnownAgent | undefined =>
@@ -553,5 +632,7 @@ export const currentNameOf = (known: Pick<KnownAgent, 'name' | 'formerNames'> | 
   known?.formerNames?.includes(name) ? known.name : name
 
 /** The known agent a CLI name belongs to, for rows that name only a command. */
-export const knownAgentByCommand = (command: string): KnownAgent | undefined =>
-  KNOWN_AGENTS.find((agent) => agent.cli.commands.includes(command))
+export const knownAgentByCommand = (command: string): KnownAgent | undefined => {
+  const name = command.replace(/\.(?:exe|cmd|bat|com)$/i, '').toLowerCase()
+  return KNOWN_AGENTS.find((agent) => agent.cli.commands.some((cmd) => cmd.toLowerCase() === name))
+}

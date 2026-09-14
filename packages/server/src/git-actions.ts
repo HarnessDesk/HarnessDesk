@@ -25,11 +25,22 @@ import { parsePorcelain } from './porcelain.js'
 
 const run = promisify(execFile)
 
+type GitRunner = (root: string, args: readonly string[], timeout?: number) => Promise<string>
+
 /** Network verbs wait longer: a fetch over a slow link is not a hang. */
-const git = async (root: string, args: readonly string[], timeout = 20_000): Promise<string> => {
+let gitRunner: GitRunner = async (root: string, args: readonly string[], timeout = 20_000): Promise<string> => {
   const { stdout } = await run('git', ['-C', root, ...args], { timeout, maxBuffer: 32 * 1024 * 1024 })
   return stdout
 }
+
+export const setGitRunnerForTest = (runner: GitRunner | null): void => {
+  gitRunner = runner ?? (async (root: string, args: readonly string[], timeout = 20_000) => {
+    const { stdout } = await run('git', ['-C', root, ...args], { timeout, maxBuffer: 32 * 1024 * 1024 })
+    return stdout
+  })
+}
+
+const git: GitRunner = (root, args, timeout) => gitRunner(root, args, timeout)
 
 const NETWORK = 120_000
 
@@ -93,7 +104,7 @@ const checkStashRef = (ref: string): void => {
 /** A search term used as a pathspec must match characters, not a glob. */
 const literal = (path: string): string => {
   if (path.startsWith('-')) throw new Error(`"${path}" is not a usable path.`)
-  return `:(literal)${path}`
+  return `:(literal)${path.replaceAll('\\', '/')}`
 }
 
 /** The paths a merge-like verb left conflicted, straight from status. */
@@ -155,7 +166,7 @@ export interface MergeOutcome {
 const treeState = async (
   root: string,
 ): Promise<{ renames: Map<string, string>; untracked: Set<string> }> => {
-  const out = await git(root, ['status', '--porcelain=v1', '-z'])
+  const out = await git(root, ['status', '--porcelain=v1', '-z', '-uall'])
   const renames = new Map<string, string>()
   const untracked = new Set<string>()
   for (const entry of parsePorcelain(out)) {
@@ -209,8 +220,9 @@ export const commitAll = async (
   }
   try {
     if (paths) {
+      const normalised = paths.map((path) => path.replaceAll('\\', '/'))
       const { renames, untracked } = await treeState(root)
-      const named = [...new Set(paths.flatMap((path) => {
+      const named = [...new Set(normalised.flatMap((path) => {
         const from = renames.get(path)
         return from ? [path, from] : [path]
       }))]
@@ -270,6 +282,12 @@ export const pull = async (root: string): Promise<MergeOutcome> => {
  * with `-u` to origin — or to the only remote there is — so the first push
  * is one gesture, the way every git client makes it.
  */
+/** Reads the names of configured remotes in a repository. */
+export const listRemotes = async (root: string): Promise<string[]> =>
+  (await git(root, ['remote']))
+    .split(/[\r\n]+/)
+    .filter((line) => line.length > 0)
+
 export const push = async (root: string): Promise<{ summary: string }> => {
   const branch = await currentBranch(root)
   if (!branch) throw new Error('HEAD is detached; there is no branch to push.')
@@ -288,9 +306,7 @@ export const push = async (root: string): Promise<{ summary: string }> => {
           : 'Everything up to date.',
     }
   }
-  const remotes = (await git(root, ['remote']))
-    .split('\n')
-    .filter((line) => line.length > 0)
+  const remotes = await listRemotes(root)
   if (remotes.length === 0) throw new Error('This repository has no remote to push to.')
   const remote = remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : null
   if (!remote) throw new Error(`Several remotes (${remotes.join(', ')}) and no upstream — set one first.`)
@@ -304,9 +320,7 @@ export const push = async (root: string): Promise<{ summary: string }> => {
 
 /** Fetches every remote, pruning remote-tracking refs their remote dropped. */
 export const fetch = async (root: string): Promise<{ summary: string }> => {
-  const remotes = (await git(root, ['remote']))
-    .split('\n')
-    .filter((line) => line.length > 0)
+  const remotes = await listRemotes(root)
   if (remotes.length === 0) throw new Error('This repository has no remote to fetch from.')
   try {
     await git(root, ['fetch', '--all', '--prune'], NETWORK)
@@ -645,9 +659,7 @@ const webUrl = (remote: string): URL | null => {
  */
 export const pullRequestUrl = async (root: string, branch: string): Promise<string | null> => {
   await checkBranchName(root, branch)
-  const remotes = (await git(root, ['remote']))
-    .split('\n')
-    .filter((line) => line.length > 0)
+  const remotes = await listRemotes(root)
   const remote = remotes.includes('origin') ? 'origin' : remotes[0]
   if (!remote) return null
   const url = webUrl(await git(root, ['remote', 'get-url', remote]).catch(() => ''))

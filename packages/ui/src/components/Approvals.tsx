@@ -227,6 +227,14 @@ export const Approvals = () => {
         void store.respondToApproval(key, approval.id, { type: 'answers', answers })
         return
       }
+      if (approval.type === 'elicitation') {
+        if (option.intent === 'cancel') {
+          void store.respondToApproval(key, approval.id, { type: 'cancel' })
+          return
+        }
+        void store.respondToApproval(key, approval.id, { type: 'content', value: {} })
+        return
+      }
       if (option.intent === 'cancel') {
         void store.respondToApproval(key, approval.id, { type: 'cancel' })
         return
@@ -290,9 +298,19 @@ export const Approvals = () => {
             <UserInputBody
               approval={approval}
               answers={answers}
-              onAnswer={(questionId, optionId) =>
-                setAnswers((current) => ({ ...current, [questionId]: [optionId] }))
-              }
+              onAnswer={(questionId, optionId) => {
+                const question = approval.questions.find((q) => q.id === questionId)
+                setAnswers((current) => {
+                  const existing = current[questionId] ?? []
+                  if (question?.multiSelect) {
+                    const next = existing.includes(optionId)
+                      ? existing.filter((id) => id !== optionId)
+                      : [...existing, optionId]
+                    return { ...current, [questionId]: next }
+                  }
+                  return { ...current, [questionId]: [optionId] }
+                })
+              }}
             />
           )}
           {approval.type === 'elicitation' && (

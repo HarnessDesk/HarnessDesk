@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
@@ -15,6 +15,7 @@ import {
   deleteTag,
   diffRange,
   fetch,
+  listRemotes,
   merge,
   patch,
   pull,
@@ -27,6 +28,7 @@ import {
   stashApply,
   stashDrop,
   stashSave,
+  setGitRunnerForTest,
 } from '../src/git-actions.js'
 import { status } from '../src/git.js'
 
@@ -107,6 +109,34 @@ test('commitAll with paths commits exactly those files, untracked included', asy
   // The file left out is still waiting, untracked.
   const status = await git(dir, 'status', '--porcelain')
   assert.ok(status.includes('left-out.txt'))
+})
+
+test('commitAll with paths handles Windows backslash paths (#460)', async () => {
+  const dir = await seedRepo()
+  const sub = join(dir, 'nested', 'deep')
+  await mkdir(sub, { recursive: true })
+  await writeFile(join(sub, 'file.txt'), 'content\n')
+  await writeFile(join(dir, 'other.txt'), 'other\n')
+
+  const backslashedPath = 'nested\\deep\\file.txt'
+  const { sha: committed } = await commitAll(dir, 'commit with backslash path', [backslashedPath])
+  assert.equal(committed, await sha(dir, 'HEAD'))
+
+  const shown = await git(dir, 'show', '--name-only', '--format=%s', 'HEAD')
+  assert.ok(shown.includes('commit with backslash path'))
+  assert.ok(shown.includes('nested/deep/file.txt'))
+  assert.ok(!shown.includes('other.txt'))
+
+  // Also test committing a modified tracked file using backslash path:
+  await writeFile(join(sub, 'file.txt'), 'modified content\n')
+  await writeFile(join(dir, 'other.txt'), 'modified other\n')
+  const { sha: secondCommit } = await commitAll(dir, 'commit modified backslash path', [backslashedPath])
+  assert.equal(secondCommit, await sha(dir, 'HEAD'))
+
+  const secondShown = await git(dir, 'show', '--name-only', '--format=%s', 'HEAD')
+  assert.ok(secondShown.includes('commit modified backslash path'))
+  assert.ok(secondShown.includes('nested/deep/file.txt'))
+  assert.ok(!secondShown.includes('other.txt'))
 })
 
 test('commitAll without paths takes everything, and an empty tree refuses in words', async () => {
@@ -718,5 +748,43 @@ test('diffRange names files a/ and b/, whatever the repository\'s diff settings 
     assert.ok((await diffRange(dir, 'HEAD~1', 'HEAD')).includes('diff --git a/f.txt b/f.txt'))
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('git remote parsing strips carriage returns from Windows git output (#468)', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'https://github.com/openma/harnessdesk.git')
+  await git(dir, 'remote', 'add', 'upstream', 'https://github.com/openma/harnessdesk-fork.git')
+
+  // Calling listRemotes strips CRLF cleanly
+  const remotes = await listRemotes(dir)
+  assert.ok(remotes.includes('origin'))
+  assert.ok(remotes.includes('upstream'))
+  for (const r of remotes) {
+    assert.ok(!r.includes('\r'), `remote ${JSON.stringify(r)} should not contain \\r`)
+  }
+
+  // Inject CRLF into git runner to simulate Windows git remote output and verify discrimination
+  const realGit = promisify(execFile)
+  setGitRunnerForTest(async (root, args, timeout) => {
+    if (args[0] === 'remote' && args.length === 1) {
+      return 'origin\r\nupstream\r\n'
+    }
+    const { stdout } = await realGit('git', ['-C', root, ...args], { timeout })
+    return stdout
+  })
+
+  try {
+    const crlfRemotes = await listRemotes(dir)
+    assert.ok(crlfRemotes.includes('origin'), 'includes origin without carriage return')
+    assert.ok(crlfRemotes.includes('upstream'), 'includes upstream without carriage return')
+    assert.equal(crlfRemotes[0], 'origin')
+    assert.equal(crlfRemotes[1], 'upstream')
+
+    // pullRequestUrl should resolve origin correctly instead of erroring with origin\r
+    const url = await pullRequestUrl(dir, 'feat/test')
+    assert.equal(url, 'https://github.com/openma/harnessdesk/compare/feat/test?expand=1')
+  } finally {
+    setGitRunnerForTest(null)
   }
 })

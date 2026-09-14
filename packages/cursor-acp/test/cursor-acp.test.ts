@@ -18,6 +18,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { SCRATCH_TMP, tempDir } from './scratch.js'
 
 import { cursorMeta, previewFor, readChatPreview, readCursorSkills, readWorkspaceChats, titleOf, workspaceKey } from '../src/index.js'
+import { writeToolPlugin } from '../src/bridge.js'
 
 /**
  * The bridge under the real HarnessDesk ACP adapter — the full path a user's
@@ -1150,6 +1151,58 @@ test('a reply shorter than the old length floor is not doubled', async () => {
   }
 })
 
+test('a tool call completed with a null or non-object result does not crash the bridge (#406)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.send([{ type: 'text', text: 'tool-null-result' }])
+    const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    const toolCall = turn.items.find(
+      (item): item is Extract<AgentItem, { type: 'toolCall' }> => item.type === 'toolCall',
+    )
+    assert.ok(toolCall, 'tool call was recorded in turn items')
+    assert.equal(toolCall.status, 'failed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('updating config option when model catalog omits auto does not fail (#407)', async () => {
+  const extraModelsFile = join(tempDir('cursor-models-'), 'extra-models.txt')
+  // When models command produces no 'auto', only named models
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: {
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: tempDir('cursor-acp-idx-'),
+      CURSOR_CONFIG_DIR: tempDir('cursor-acp-home-'),
+      FAKE_CURSOR_NO_AUTO_MODEL: 'true',
+    },
+  })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    // In a new session, session.familyId is 'auto'. Setting sandbox calls #applyDimensions.
+    await session.setOption('sandbox', 'enabled')
+    const sandbox = session.options().find((opt) => opt.id === 'sandbox')
+    assert.equal(sandbox?.currentValue, 'enabled')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+
 /*
  * Forty members handed a page each spawned forty CLIs inside two seconds,
  * and seventeen died on the spot: each boots by fetching the model
@@ -1464,4 +1517,54 @@ test('deleteSession rejects traversal session IDs and does not remove outside di
     await runtime.dispose()
   }
 })
+
+test('session/load validates sessionId and refuses path traversal (#413)', async () => {
+  const child = spawn(process.execPath, [BRIDGE], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+  })
+  const answers = new Map<number, (message: Record<string, unknown>) => void>()
+  createInterface({ input: child.stdout }).on('line', (line) => {
+    if (!line.trim()) return
+    const message = JSON.parse(line) as Record<string, unknown>
+    if (typeof message['id'] === 'number') answers.get(message['id'])?.(message)
+  })
+  const ask = (id: number, method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    new Promise((resolve) => {
+      answers.set(id, resolve)
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+    })
+  const sentinelDir = join(tmpdir(), 'outside-load-sentinel-413')
+  try {
+    await ask(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+    const traversal = await ask(2, 'session/load', {
+      sessionId: '../outside-load-sentinel-413',
+      cwd: WORKDIR,
+      mcpServers: [{ name: 'test', command: 'node', args: [], env: {} }],
+    })
+    const error = traversal['error'] as { code?: unknown; message?: unknown } | undefined
+    assert.ok(error, 'the load is refused')
+    assert.equal(error.code, -32602)
+    assert.match(String(error.message), /Invalid session id/i)
+    assert.equal(existsSync(sentinelDir), false, 'path traversal must not create outside directory')
+
+    const empty = await ask(3, 'session/load', { sessionId: '' })
+    const emptyError = empty['error'] as { code?: unknown; message?: unknown } | undefined
+    assert.ok(emptyError, 'empty sessionId is refused')
+    assert.equal(emptyError.code, -32602)
+    assert.match(String(emptyError.message), /session id is required/i)
+  } finally {
+    child.stdin.end()
+    child.kill('SIGTERM')
+    rmSync(sentinelDir, { recursive: true, force: true })
+  }
+})
+
+test('writeToolPlugin refuses invalid sessionId with directory traversal (#413)', () => {
+  assert.throws(
+    () => writeToolPlugin('../outside', []),
+    /Invalid session id: \.\.\/outside/,
+  )
+})
+
 

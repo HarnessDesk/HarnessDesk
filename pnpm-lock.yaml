@@ -121,6 +121,9 @@ importers:
       '@harnessdesk/cursor-acp':
         specifier: workspace:*
         version: link:../cursor-acp
+      '@harnessdesk/mcp-tools':
+        specifier: workspace:*
+        version: link:../mcp-tools
       '@harnessdesk/server':
         specifier: workspace:*
         version: link:../server

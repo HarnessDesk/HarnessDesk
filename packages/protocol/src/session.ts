@@ -99,6 +99,36 @@ export interface SessionQueue {
 /** An empty queue — what every session starts with, and returns to. */
 export const emptyQueue = (): SessionQueue => ({ messages: [], status: 'waiting', reason: null })
 
+const AUTOMATIC_MODEL = /^(?:auto|automatic|default)$/i
+
+export const isAutomaticModel = (model: string | null | undefined): boolean =>
+  model != null && AUTOMATIC_MODEL.test(model.trim())
+
+export const cleanModel = (model: string | null | undefined): string | null => {
+  if (!model) return null
+  const trimmed = model.trim()
+  return AUTOMATIC_MODEL.test(trimmed) ? null : trimmed
+}
+
+/**
+ * Resolves the model currently running in a session.
+ *
+ * Reads the `model` ConfigOption first (where options exist), falling back to
+ * `settings.model`. The automatic choice (`auto`, `default`) is not a model
+ * and returns `null`.
+ */
+export const sessionModel = (session: {
+  readonly options?: readonly ConfigOption[]
+  readonly settings?: SessionSettings
+}): string | null => {
+  const option = session.options?.find((entry) => entry.id === 'model')
+  if (option && option.type === 'select') {
+    const value = cleanModel(String(option.currentValue ?? ''))
+    if (value) return value
+  }
+  return cleanModel(session.settings?.model)
+}
+
 export type SessionStatus =
   /** Known to exist but not loaded into memory — the usual state for history rows. */
   | { readonly type: 'notLoaded' }

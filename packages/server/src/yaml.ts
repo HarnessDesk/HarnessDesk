@@ -230,7 +230,7 @@ export const parseYaml = (source: string): unknown => {
     return { n: index + 1, indent: indentOf(raw), text: stripped.trim() === '' ? '' : stripped, raw }
   })
   for (const line of lines) {
-    if (line.text.trim() === '---' || line.text.trim() === '...') {
+    if (line.indent === 0 && (line.text === '---' || line.text === '...')) {
       throw new YamlError('one document per file — the "---" separator is not read here', line.n)
     }
   }
@@ -260,7 +260,7 @@ export const parseYaml = (source: string): unknown => {
     while (at < lines.length) {
       const row = lines[at] as Line
       const blank = row.raw.trim() === ''
-      if (!blank && indentOf(row.raw) <= parent) break
+      if (!blank && (base === null ? indentOf(row.raw) <= parent : indentOf(row.raw) < base)) break
       if (!blank && base === null) base = indentOf(row.raw)
       body.push(blank ? '' : row.raw.slice(base ?? indentOf(row.raw)))
       at += 1

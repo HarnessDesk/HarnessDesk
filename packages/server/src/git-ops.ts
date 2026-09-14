@@ -67,7 +67,7 @@ const canonical = async (path: string): Promise<string> => {
 /** Paths in a patch are relative to the repository root, wherever the session ran. */
 const locate = async (root: string, top: string, path: string): Promise<{ absolute: string; inRepo: string }> => {
   const absolute = await canonical(isAbsolute(path) ? path : join(root, path))
-  return { absolute, inRepo: relative(top, absolute) }
+  return { absolute, inRepo: relative(top, absolute).replace(/\\/g, '/') }
 }
 
 /** Which way a turn's edits are being applied. */

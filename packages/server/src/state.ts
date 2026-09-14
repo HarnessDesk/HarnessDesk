@@ -80,8 +80,16 @@ export class StateStore {
         )
       }
       this.#installId = typeof parsed.installId === 'string' && parsed.installId !== '' ? parsed.installId : null
+      const rawWorkspaces = Array.isArray(parsed.workspaces) ? parsed.workspaces : []
+      const workspaces: WorkspaceRecord[] = rawWorkspaces.filter(
+        (entry): entry is WorkspaceRecord =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          typeof (entry as { path?: unknown }).path === 'string' &&
+          (entry as { path: string }).path !== '',
+      )
       this.#state = {
-        workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : [],
+        workspaces,
         preferences:
           typeof parsed.preferences === 'object' && parsed.preferences !== null
             ? (parsed.preferences as Record<string, unknown>)

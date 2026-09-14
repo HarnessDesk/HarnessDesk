@@ -49,9 +49,16 @@ export const whichOnPath = (command: string, options: WhichOptions = {}): string
 
   /* A command with a path in it is not a PATH question. `execFile` would run
      it as given, so this answers as given too rather than searching for a
-     name that has a separator in it and never matching. */
+     name that has a separator in it and never matching. On Windows, extension
+     resolution still applies: a path without an extension cannot execute
+     without one, and an extensionless file (like Node's POSIX npx script)
+     must not take precedence over npx.cmd. */
   if (win32.isAbsolute(command) || command.includes('/') || command.includes('\\')) {
-    return runnable(command) ? command : null
+    for (const suffix of suffixes(env, platform, command)) {
+      const candidate = `${command}${suffix}`
+      if (runnable(candidate)) return candidate
+    }
+    return null
   }
 
   /* `;` on Windows and `:` elsewhere, taken from the asked-for platform

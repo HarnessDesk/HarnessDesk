@@ -4,19 +4,25 @@ import { test } from 'node:test'
 import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { codeOf, sheetsOf, squaresOf } from './design-audit.mjs'
+import { codeOf, compareBaseline, sheetsOf, squaresOf } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
 import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
+import { checkNotices, installedLicence } from './check-notices.mjs'
 import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
+import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
 import { leadComment } from './design-doc.mjs'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * The gates' own parsers, tested — because both of them were silently wrong
@@ -324,6 +330,41 @@ test("a comment's divider becomes a heading rather than a rule and a stray line"
   assert.doesNotMatch(out, /^-{10,}$/m)
 })
 
+test('compareBaseline catches non-numeric baseline values and prevents vacuous pass (#400)', () => {
+  const mockCounts = {
+    wrongVariant: 0,
+    missingClass: 0,
+    forkedToken: 0,
+    handRolledOverlay: 4,
+    looseTarget: 11,
+    looseIcon: 3,
+    danglingToken: 0,
+    crossImport: 11,
+    rawRadius: 49,
+    offGrid: 185,
+    rawColour: 8,
+    arbitraryUtility: 6,
+  }
+
+  // A malformed baseline with string/non-numeric values
+  const malformedBaseline = { ...mockCounts, offGrid: 'nan' }
+  const result = compareBaseline(mockCounts, malformedBaseline)
+  assert.equal(result.worse, true)
+  assert.ok(result.problems.some((p) => p.message.includes('not a valid number')))
+
+  // Missing entry in baseline
+  const missingBaseline = { ...mockCounts }
+  delete missingBaseline.offGrid
+  const missingResult = compareBaseline(mockCounts, missingBaseline)
+  assert.equal(missingResult.worse, true)
+  assert.ok(missingResult.problems.some((p) => p.message.includes('Missing baseline entry')))
+
+  // Valid baseline with no drift passes
+  const validResult = compareBaseline(mockCounts, mockCounts)
+  assert.equal(validResult.worse, false)
+  assert.equal(validResult.problems.length, 0)
+})
+
 
 test('a slot this cannot see into is reported, not skipped', () => {
   // Hoisting the action out of the tag emptied the region of JSX, so every
@@ -409,6 +450,20 @@ test('comments inside the list are not mistaken for brands', () => {
   assert.deepEqual(brandsIn(source), ['codex', 'openai'])
 })
 
+test('quoted strings and contractions in comments inside BRANDS are not mistaken for brands (#489)', () => {
+  const source = [
+    'export const BRANDS = [',
+    "  // Don't add unapproved marks here",
+    "  'codex',",
+    "  // 'codex' is the primary runtime",
+    "  /* 'claudecode' and don't omit others */",
+    "  'claudecode', // won't conflict with comment",
+    '] as const',
+    '',
+  ].join('\n')
+  assert.deepEqual(brandsIn(source), ['codex', 'claudecode'])
+})
+
 /*
  * `check-verify-drift`'s two parsers.
  *
@@ -428,6 +483,27 @@ test('a gate step is read as the command line it becomes', () => {
     { command: 'pnpm', args: ['run', 'build'] },
     { command: 'node', args: ['--test', 'packages/*/dist/test/**/*.test.js'] },
   ])
+})
+
+test('a gate step with space between run and opening parenthesis is parsed (#401)', () => {
+  const source = [
+    "step('build', () => run ('pnpm', ['run', 'build']))",
+    'step("tests", () => run  ("node", ["--test", "packages/*/dist/test/**/*.test.js"]))',
+  ].join('\n')
+  assert.deepEqual(gateCommands(source), [
+    { command: 'pnpm', args: ['run', 'build'] },
+    { command: 'node', args: ['--test', 'packages/*/dist/test/**/*.test.js'] },
+  ])
+})
+
+test('gateCommands refuses when zero run calls are parsed (#401)', () => {
+  const source = "const x = 1\nconsole.log('no steps')"
+  assert.throws(() => gateCommands(source), /parsed zero run\(\.\.\.\) calls/)
+})
+
+test('gateCommands refuses run calls with non-literal arguments instead of dropping them (#402)', () => {
+  const source = "const target = 'script/check-layering.mjs'\nrun('node', [target])"
+  assert.throws(() => gateCommands(source), /run\(\.\.\.\) calls and this check could read 0/)
 })
 
 test('a test glob survives the comment stripper that once ate it', () => {
@@ -483,6 +559,34 @@ test('a gate command that is only part of a CI command is not in CI (#247)', () 
   assert.deepEqual(missingFromCI([{ command: 'pnpm', args: ['run', 'build'] }], workflow), [])
   // And a prefix of it is not a command CI runs, though it reads as one to a search through joined text.
   assert.deepEqual(missingFromCI([{ command: 'pnpm', args: ['run'] }], workflow), ['pnpm run'])
+})
+
+test('NOT_IN_CI exemption matches exact command line and cannot be injected by extra args (#403)', () => {
+  const workflow = ciCommands(['    steps:', '      - run: pnpm run build'].join('\n'))
+  // An extra argument mentioning an exempted script must not exempt an unrelated command.
+  const gate = [
+    { command: 'node', args: ['script/check-layering.mjs', 'script/generate-codex-protocol.mjs'] },
+  ]
+  assert.deepEqual(missingFromCI(gate, workflow), [
+    'node script/check-layering.mjs script/generate-codex-protocol.mjs',
+  ])
+})
+
+test('check-verify-drift preserves argument boundaries and distinguishes args with spaces from separate args (#404)', () => {
+  // Gate has one argument containing a space: '--name=a b'
+  const gate = [{ command: 'node', args: ['script/tool.mjs', '--name=a b'] }]
+
+  // CI has two separate arguments: '--name=a' and 'b'
+  const separateArgs = ciCommands(['    steps:', '      - run: node script/tool.mjs --name=a b'].join('\n'))
+  assert.deepEqual(missingFromCI(gate, separateArgs), ['node script/tool.mjs --name=a b'])
+
+  // CI has one argument with quotes: '--name=a b'
+  const quotedArg = ciCommands(['    steps:', '      - run: node script/tool.mjs "--name=a b"'].join('\n'))
+  assert.deepEqual(missingFromCI(gate, quotedArg), [])
+
+  // CI has single quotes: '--name=a b'
+  const singleQuotedArg = ciCommands(['    steps:', "      - run: node script/tool.mjs '--name=a b'"].join('\n'))
+  assert.deepEqual(missingFromCI(gate, singleQuotedArg), [])
 })
 
 /**
@@ -578,7 +682,7 @@ test('a method name held in a variable is not a caller either', () => {
 
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   for (const file of ['package.json', 'script/verify.mjs', '.github/workflows/ci.yml', '.github/workflows/release.yml']) {
     const text = fs.readFileSync(path.join(repo, file), 'utf8')
     assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
@@ -586,7 +690,7 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
 })
 
 test('the step that reads what the build writes says that it needs it (#208)', () => {
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   const verify = fs.readFileSync(path.join(repo, 'script/verify.mjs'), 'utf8')
   const at = verify.indexOf("step('node tests'")
   assert.notEqual(at, -1, 'verify.mjs still has a node tests step')
@@ -934,11 +1038,26 @@ test('an invented path in a fenced sample is a candidate, and ALLOWED is its esc
 })
 
 test('every allowlisted doc path still names something outside this tree (#223)', () => {
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   for (const [value, reason] of ALLOWED) {
     assert.equal(fs.existsSync(path.join(repo, value)), false, `${value} is in this tree now: drop the entry`)
     assert.ok(reason.length > 20, `${value} needs a reason, not a label`)
   }
+})
+
+test('gate test scripts use fileURLToPath instead of URL.pathname for file URL resolution (#484)', () => {
+  // On Windows, raw URL pathname includes a leading slash before the drive letter (/C:/...)
+  // which causes path.win32.resolve to lose the drive root, whereas fileURLToPath is the standard Node method.
+  const rawPathname = '/C:/Users/dev/HarnessDesk/script/gates.test.mjs'
+  assert.equal(path.win32.resolve(path.win32.dirname(rawPathname), '..'), '\\C:\\Users\\dev\\HarnessDesk')
+
+  const gatesTestSrc = withoutComments(fs.readFileSync(path.join(repoRoot, 'script/gates.test.mjs'), 'utf8'))
+  const badPattern = new RegExp(['new\\s+URL\\(', 'import\\.meta\\.url', '\\)\\.pathname'].join(''))
+  assert.doesNotMatch(
+    gatesTestSrc,
+    badPattern,
+    'script/gates.test.mjs must resolve repository paths without URL pathname',
+  )
 })
 
 test("a real account's address in a tracked file fails the secrets scan (#204)", () => {
@@ -1170,3 +1289,94 @@ test('distSegments refuses a wildcard where it reads a fixed segment (#269)', ()
   assert.throws(() => distSegments('*/*/*/test/**/*.test.js'), /not that shape/)
   assert.throws(() => distSegments('packages/*/*/test/**/*.test.js'), /not that shape/)
 })
+
+test('tracked text files contain no raw NUL bytes (#360)', () => {
+  const extensions = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|css|html|yml|yaml|sh|py|toml)$/
+  const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
+    .split('\n')
+    .filter((file) => extensions.test(file))
+  const withNul = []
+  for (const file of files) {
+    const buf = fs.readFileSync(path.resolve(repoRoot, file))
+    if (buf.includes(0)) withNul.push(file)
+  }
+  assert.deepEqual(withNul, [])
+})
+
+test('a bare credential file does not leak credential characters in the offender report (#394)', () => {
+  const token = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' // hd-secrets-ok
+  const offenders = offendersIn('secret.txt', token)
+  assert.equal(offenders.length, 1)
+  assert.equal(offenders[0], 'secret.txt:1  [file is nothing but a credential]')
+  assert.doesNotMatch(offenders[0], /abcdefghijkl/)
+})
+
+test('a detected secret on a source line does not leak line content or secret values in the offender report (#395)', () => {
+  const line = "const secretKey = 'sk-abcdefghijklmnopqrstuvwxyz1234567890'" // hd-secrets-ok
+  const offenders = offendersIn('config.ts', line)
+  assert.equal(offenders.length, 1)
+  assert.equal(offenders[0], 'config.ts:1  [OpenAI API key]')
+  assert.doesNotMatch(offenders[0], /secretKey/)
+  assert.doesNotMatch(offenders[0], /sk-abcdef/)
+})
+
+test('installedLicence finds installed package licenses without find binary (#397)', () => {
+  // Test with real installed package
+  const cordisLicence = installedLicence('@deepseek-ai/cordis', repoRoot)
+  assert.equal(cordisLicence, 'MIT')
+
+  const acpLicence = installedLicence('@zed-industries/claude-code-acp', repoRoot)
+  assert.equal(acpLicence, 'Apache-2.0')
+
+  // Returns null for non-installed package
+  assert.equal(installedLicence('nonexistent-package-xyz', repoRoot), null)
+})
+
+test('checkNotices refuses when zero licence claims can be verified (#397)', () => {
+  const sampleNotices = [
+    '# Third-Party Notices',
+    '',
+    '## Packages used as dependencies',
+    '',
+    '| Package | Licence | Used for |',
+    '| --- | --- | --- |',
+    '| `nonexistent-pkg-a` | MIT | Testing |',
+    '| `nonexistent-pkg-b` | Apache-2.0 | Testing |',
+  ].join('\n')
+
+  const result = checkNotices(sampleNotices, repoRoot)
+  assert.equal(result.checked, 0)
+  assert.equal(result.skipped, 2)
+  assert.ok(result.problems.some((p) => p.includes('No licence claims could be verified')))
+})
+
+test('DOCUMENTATION regex exempts design explorer and showcase on both POSIX and Windows paths (#486)', () => {
+  const posixExplorer = 'packages/ui/src/design/explorer/boards.tsx'
+  const posixShowcase = 'packages/ui/src/design/showcase/preview.tsx'
+  const winExplorer = 'packages\\ui\\src\\design\\explorer\\boards.tsx'
+  const winShowcase = 'packages\\ui\\src\\design\\showcase\\preview.tsx'
+
+  assert.equal(DOCUMENTATION.test(posixExplorer), true)
+  assert.equal(DOCUMENTATION.test(posixShowcase), true)
+  assert.equal(DOCUMENTATION.test(winExplorer), true)
+  assert.equal(DOCUMENTATION.test(winShowcase), true)
+
+  const nonExempt = 'packages\\ui\\src\\components\\BringHome.tsx'
+  assert.equal(DOCUMENTATION.test(nonExempt), false)
+})
+
+test('packages/server/tsconfig.json includes project references for internal dependencies and excludes unused transport-acp (#485)', () => {
+  const serverPkg = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'packages/server/package.json'), 'utf8'))
+  const serverTsconfig = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'packages/server/tsconfig.json'), 'utf8'))
+  const refs = new Set(serverTsconfig.references.map((r) => r.path))
+
+  const internalDeps = Object.keys({ ...serverPkg.dependencies, ...serverPkg.devDependencies })
+    .filter((name) => name.startsWith('@harnessdesk/'))
+    .map((name) => `../${name.replace('@harnessdesk/', '')}`)
+
+  for (const dep of internalDeps) {
+    assert.ok(refs.has(dep), `packages/server/tsconfig.json is missing reference for dependency ${dep}`)
+  }
+  assert.ok(!refs.has('../transport-acp'), 'packages/server/tsconfig.json must not reference ../transport-acp')
+})
+

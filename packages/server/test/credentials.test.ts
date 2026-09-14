@@ -245,5 +245,49 @@ test('concurrent put calls under cold start replace existing cleanly without los
   }
 })
 
+test('null or malformed entries in credential file do not crash broker methods (#499)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-creds-malformed-'))
+  try {
+    const path = join(dir, 'credentials.json')
+    await writeFile(
+      path,
+      JSON.stringify({
+        bad_null: null,
+        bad_primitive: 'string',
+        bad_number: 123,
+        bad_no_name: { createdAt: 0, blob: 'AAAA' },
+        good: {
+          name: 'my-secret',
+          createdAt: 1000,
+          blob: Buffer.from('super-secret').toString('base64'),
+        },
+      }),
+    )
+
+    const broker = new CredentialBroker(path)
+    await broker.warm()
+
+    // peek with matching name
+    assert.equal(broker.peek('my-secret'), 'super-secret')
+    // peek with non-existent name
+    assert.equal(broker.peek('non-existent'), undefined)
+
+    // describe filters out malformed entries
+    const described = await broker.describe()
+    assert.equal(described.length, 1)
+    assert.equal(described[0]!.name, 'my-secret')
+
+    // put works and does not fail on previous malformed entries
+    await broker.put('new-secret', 'new-val', 'codex')
+    assert.equal(broker.peek('new-secret'), 'new-val')
+
+    // resolve invalid ref does not crash
+    await assert.rejects(broker.resolve('bad_null'), /no longer exists/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+
 
 

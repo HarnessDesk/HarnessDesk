@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -52,6 +52,8 @@ interface Rig {
   refuseSeat?: string
   /** What the runtime says about every seat's last turn, when it went badly. */
   turnFailed?: string
+  /** An error for port.run to throw, simulating a crash during a check command. */
+  throwOnRun?: Error
 }
 
 const peerOf = (runtime: string, sessionId: string, cwd: string, model: string): TeamPeer => ({
@@ -134,6 +136,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
       return path
     },
     run: async (command, where) => {
+      if (rig.throwOnRun) throw rig.throwOnRun
       ran.push({ command, cwd: where.cwd })
       return { status: exits.get(command) ?? 0 }
     },
@@ -470,6 +473,16 @@ test('a flow that will not validate seats nobody', async (t) => {
   assert.equal(board(one).intents.length, 0)
 })
 
+test('flow/start for a non-existent room throws and seats nobody (#420)', async (t) => {
+  const one = await rig(t)
+  await assert.rejects(
+    () => one.flows.start({ room: 'missing-room', source: REVIEW, vars: { work: 'Fix it' } }),
+    /There is no room missing-room\./,
+  )
+  assert.equal(one.seated.length, 0)
+  assert.equal(one.orders.length, 0)
+})
+
 test('the record says who did what, on which seat, with which outcome', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
@@ -563,10 +576,152 @@ test('re-arming is budgeted, so a seat that cannot start does not drain an accou
   // Three inside the hour, and then it stops and says why rather than going on.
   assert.equal(one.orders.length, 4 + 3)
   const record = one.flows.runsFor(one.room)[0]!.record
-  assert.ok(
-    record.some((entry) => entry.kind === 'stopped' && /not being re-armed again/.test(entry.text ?? '')),
-    'the run records that it stopped re-arming, so a stalled flow is visible',
+  const stoppedEntries = record.filter(
+    (entry) => entry.kind === 'stopped' && /not being re-armed again/.test(entry.text ?? ''),
   )
+  assert.equal(stoppedEntries.length, 1, 'the stopped record is written once, not appended on every tick')
+})
+
+test('re-arm budget reserves slot before awaits to prevent concurrent overspending', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  // Spend 2 of the 3 budget slots
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 2)
+
+  // Now trigger two concurrent reArms when only 1 slot remains
+  await Promise.all([
+    one.flows.reArm(fixer.runtime, fixer.sessionId),
+    one.flows.reArm(fixer.runtime, fixer.sessionId),
+  ])
+  // Exactly 1 should have succeeded, bringing orders to 4 + 3
+  assert.equal(one.orders.length, 4 + 3)
+
+  // Verify the records: no duplicate "(2 this hour)" or "(3 this hour)"
+  const run = one.flows.runsFor(one.room)[0]!
+  const rearmTexts = run.record
+    .filter((e) => e.kind === 'seated' && /re-armed/.test(e.text ?? ''))
+    .map((e) => e.text)
+  assert.deepEqual(rearmTexts, [
+    're-armed: its turn ended while the flow was still running (1 this hour)',
+    're-armed: its turn ended while the flow was still running (2 this hour)',
+    're-armed: its turn ended while the flow was still running (3 this hour)',
+  ])
+})
+
+test('a failed re-arm releases its reserved slot so future re-arms can succeed', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  // Spend 2 slots
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 2)
+
+  // Third attempt fails to send order
+  one.failOrders = 1
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 2, 'failed order was not added')
+
+  // Slot was released, so next attempt uses slot 3 successfully
+  await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  assert.equal(one.orders.length, 4 + 3, 'slot 3 was still available')
+})
+
+test('dedup stopped answering records works across multiple seats of the same role', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const reviewers = seatsOf(one, 'reviewer')
+  assert.equal(reviewers.length, 3)
+
+  // Complete round 1 so reviewers have work to do
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  // Kill each reviewer and exhaust each reviewer's budget
+  for (const r of reviewers) {
+    one.kill(r)
+    for (let n = 0; n < 6; n += 1) await one.flows.reArm(r.runtime, r.sessionId)
+  }
+
+  const run = one.flows.runsFor(one.room)[0]!
+  const stoppedRecords = run.record.filter(
+    (e) => e.kind === 'stopped' && /stopped answering/.test(e.text ?? ''),
+  )
+  // Each reviewer seat must have exactly 1 record, so 3 in total
+  assert.equal(stoppedRecords.length, 3)
+})
+
+test('a flow with custom rearm budget allows more re-arms before stopping', async (t) => {
+  const one = await rig(t)
+  const source = REVIEW.replace('name: Fix and review', 'name: Fix and review\nrearm: 5')
+  await one.flows.start({ room: one.room, source, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  for (let n = 0; n < 8; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+  // Five inside the hour, bringing orders to 4 (initial) + 5
+  assert.equal(one.orders.length, 4 + 5)
+  const run = one.flows.runsFor(one.room)[0]!
+  const rearmTexts = run.record
+    .filter((e) => e.kind === 'seated' && /re-armed/.test(e.text ?? ''))
+  assert.equal(rearmTexts.length, 5)
+})
+
+test('a run stalls when all seats of a role with open work stop answering', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+
+  const run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'stalled')
+  assert.match(run.ended ?? '', /no seat answering for fixer/)
+  assert.ok(run.record.some((e) => e.kind === 'stalled'))
+  // Stand-down names why
+  const standDown = one.flows.standDown(one.room, fixer.runtime, fixer.sessionId)
+  assert.match(standDown ?? '', /no seat answering for fixer/)
+})
+
+test('a run stays running while at least one seat of the active role is answering', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  // Reviewers round is open (3 reviewers)
+  const reviewers = seatsOf(one, 'reviewer')
+  assert.equal(reviewers.length, 3)
+
+  // Kill reviewer 0 and exhaust its budget
+  one.kill(reviewers[0]!)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(reviewers[0]!.runtime, reviewers[0]!.sessionId)
+
+  let run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'running', 'run is still running because 2 other reviewers are answering')
+
+  // Kill reviewer 1 and exhaust its budget
+  one.kill(reviewers[1]!)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(reviewers[1]!.runtime, reviewers[1]!.sessionId)
+
+  run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'running', 'run is still running because 1 reviewer is answering')
+
+  // Kill reviewer 2 and exhaust its budget
+  one.kill(reviewers[2]!)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(reviewers[2]!.runtime, reviewers[2]!.sessionId)
+
+  run = one.flows.runsFor(one.room)[0]!
+  assert.equal(run.state, 'stalled', 'run is stalled now that all 3 reviewers have stopped answering')
+  assert.match(run.ended ?? '', /no seat answering for reviewer/)
 })
 
 test('a seat of a settled run is not re-armed — standing down is not dying', async (t) => {
@@ -989,4 +1144,710 @@ test('a seat whose turn never ran is reported as that, not as an agent ignoring 
   assert.match(run.ended ?? '', /not touched the board since being seated/)
   assert.match(run.ended ?? '', /Their turns did not run: Slow Pool Error/)
   assert.doesNotMatch(run.ended ?? '', /takes HarnessDesk's tools without using them/)
+})
+
+test('a seated agent receives an order with run id and inputs resolved', async (t) => {
+  const one = await rig(t)
+  const source = `
+name: Probe flow
+inputs:
+  codename:
+    label: Agent codename
+    default: mantis
+roles:
+  worker:
+    kind: agent
+    seat: cursor=gpt-5.3-codex/xhigh
+    permission: read
+    outcomes: [done]
+    order: |
+      You are {{codename}} in run {{run}}.
+seed:
+  role: worker
+  title: "Do work"
+`
+  const run = await one.flows.start({
+    room: one.room,
+    source,
+    vars: { codename: 'bumblebee' },
+  })
+  assert.equal(run.state, 'running')
+  assert.equal(one.orders.length, 1)
+  assert.match(one.orders[0]!.text, /You are bumblebee in run flow-/)
+  assert.doesNotMatch(one.orders[0]!.text, /\{\{codename\}\}/)
+  assert.doesNotMatch(one.orders[0]!.text, /\{\{run\}\}/)
+})
+
+test('a flow started in a room created on a linked worktree opens non-isolating seats in that worktree (#366)', async (t) => {
+  const one = await rig(t)
+  const worktreeRoom = (await one.team.createRoom('/repo/.worktrees/feature', 'Worktree room')).id
+  const source = `
+name: Worktree flow
+roles:
+  worker:
+    kind: agent
+    seat: cursor
+    permission: read
+    outcomes: [done]
+seed:
+  role: worker
+  title: "Do work"
+`
+  await one.flows.start({ room: worktreeRoom, source })
+  const seatedWorker = one.seated.find((s) => s.title.includes('worker'))
+  assert.ok(seatedWorker)
+  assert.equal(seatedWorker.cwd, '/repo/.worktrees/feature')
+})
+
+test('a flow check in a room created on a linked worktree runs in that worktree (#366)', async (t) => {
+  const one = await rig(t)
+  const worktreeRoom = (await one.team.createRoom('/repo/.worktrees/feature', 'Worktree room')).id
+  const source = `
+name: Worktree check flow
+roles:
+  gate:
+    kind: check
+    check:
+      run: pnpm test
+      cwd: packages/sub
+      exits:
+        "0": pass
+      otherwise: fail
+    outcomes: [pass, fail]
+seed:
+  role: gate
+  title: "Run checks"
+`
+  await one.flows.start({ room: worktreeRoom, source })
+  const runCall = one.ran.find((r) => r.command === 'pnpm test')
+  assert.ok(runCall)
+  assert.equal(runCall.cwd, '/repo/.worktrees/feature/packages/sub')
+})
+
+test('a flow check preserves Windows absolute cwd instead of joining with root (#462)', async (t) => {
+  const one = await rig(t)
+  const source = `
+name: Windows absolute cwd check flow
+roles:
+  gate:
+    kind: check
+    check:
+      run: pnpm test
+      cwd: "D:\\\\tests\\\\e2e"
+      exits:
+        "0": pass
+      otherwise: fail
+    outcomes: [pass, fail]
+seed:
+  role: gate
+  title: "Run checks"
+`
+  await one.flows.start({ room: one.room, source })
+  const runCall = one.ran.find((r) => r.command === 'pnpm test')
+  assert.ok(runCall)
+  assert.equal(runCall.cwd, 'D:\\tests\\e2e')
+
+  // Posix absolute path is also preserved
+  const sourcePosix = `
+name: Posix absolute cwd check flow
+roles:
+  gate:
+    kind: check
+    check:
+      run: pnpm test
+      cwd: "/opt/tests"
+      exits:
+        "0": pass
+      otherwise: fail
+    outcomes: [pass, fail]
+seed:
+  role: gate
+  title: "Run checks"
+`
+  const room2 = (await one.team.createRoom('/repo', 'Room 2')).id
+  await one.flows.start({ room: room2, source: sourcePosix })
+  const runCallPosix = one.ran.find((r) => r.cwd === '/opt/tests')
+  assert.ok(runCallPosix)
+})
+
+test("a flow's seat title names the role, room, and flow name (#369)", async (t) => {
+  const one = await rig(t)
+  const room = (await one.team.createRoom('/repo', 'Hunt · mantis')).id
+  const source = `
+name: Bug hunt
+roles:
+  hunter:
+    count: 2
+    kind: agent
+    seat: cursor
+    permission: read
+    outcomes: [done]
+seed:
+  role: hunter
+  title: "Sweep"
+`
+  await one.flows.start({ room, source })
+  const titles = one.seated.map((s) => s.title)
+  assert.deepEqual(titles, [
+    'hunter 1 · Hunt · mantis · Bug hunt',
+    'hunter 2 · Hunt · mantis · Bug hunt',
+  ])
+})
+
+test('standDown and reArm do not crash when a persisted run has non-array seats (#503)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-seats.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'bad-seats-run',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: {},
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+  await second.load()
+  assert.equal(second.standDown(one.room, 'runtime-a', 'session-1'), null)
+  await second.reArm('runtime-a', 'session-1')
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+
+  // Direct in-memory test for runtime guards in standDown and reArm:
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const activeRun = one.flows.runsFor(one.room)[0] as unknown as { seats: unknown }
+  assert.ok(activeRun)
+  activeRun.seats = {}
+  assert.equal(one.flows.standDown(one.room, 'runtime-a', 'session-1'), null)
+  await one.flows.reArm('runtime-a', 'session-1')
+})
+
+test('a seated agent and a re-armed agent receive an order distinguishing {{name}} and {{seat}} (#528)', async (t) => {
+  const one = await rig(t)
+  const source = `
+name: Seat slot test flow
+roles:
+  worker:
+    kind: agent
+    seat: cursor=gpt-5.3-codex/xhigh
+    permission: read
+    outcomes: [done]
+    order: "Name: {{name}}, Member: {{member}}, Seat: {{seat}}"
+seed:
+  role: worker
+  title: "Do work"
+`
+  await one.flows.start({ room: one.room, source })
+  const named = one.team.stateFor(one.room).nicknames ?? {}
+  const worker = seatsOf(one, 'worker')[0]!
+  const workerKey = String(sessionKey(worker.runtime as never, worker.sessionId as never))
+  const expectedNickname = named[workerKey] ?? 'worker'
+  assert.equal(one.orders.length, 1)
+  assert.match(one.orders[0]!.text, new RegExp(`Name: ${expectedNickname}, Member: ${expectedNickname}, Seat: cursor=gpt-5\\.3-codex/xhigh`))
+  assert.notEqual(expectedNickname, 'cursor=gpt-5.3-codex/xhigh')
+
+  // Re-arm: seat must still be distinguished from nickname
+  one.kill(worker)
+  await one.flows.reArm(worker.runtime, worker.sessionId)
+  assert.equal(one.orders.length, 2)
+  assert.match(one.orders[1]!.text, new RegExp(`Name: ${expectedNickname}, Member: ${expectedNickname}, Seat: cursor=gpt-5\\.3-codex/xhigh`))
+})
+
+test('Flows.load refuses a running run that omits rounds instead of crashing (#502)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-run.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'run-missing-rounds',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: () => {},
+  })
+
+  await second.load()
+  assert.equal(second.runsFor(one.room).length, 0)
+})
+
+test('Flows.load refuses a running run that has malformed flow object (#422)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-flow.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'run-bad-flow',
+      room: one.room,
+      flow: null,
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+
+  await second.load()
+  assert.equal(second.runsFor(one.room).length, 0)
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+})
+
+test('a stalled flow run omits endedAt, can be stopped, and recovers when a seat answers (#557)', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  one.kill(fixer)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer.runtime, fixer.sessionId)
+
+  const stalled = one.flows.runsFor(one.room)[0]!
+  assert.equal(stalled.state, 'stalled')
+  // 1. endedAt must not be set on stalled
+  assert.equal(stalled.endedAt, undefined, 'endedAt must not be set on stalled state')
+
+  // 2. stop() must work on stalled run
+  const stopped = one.flows.stop(stalled.id, 'person stopped stalled run')
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(typeof stopped.endedAt, 'number')
+  assert.equal(stopped.ended, 'person stopped stalled run')
+
+  // 3. recovery on seat completing a card or re-arming
+  const room2 = (await one.team.createRoom('/repo', 'Room 2')).id
+  await one.flows.start({ room: room2, source: REVIEW, vars: { work: 'Fix 2' } })
+  const run2Init = one.flows.runsFor(room2)[0]!
+  const fixer2Seat = run2Init.seats.find((s) => s.role === 'fixer')!
+  const fixer2 = { runtime: fixer2Seat.runtime, sessionId: fixer2Seat.sessionId }
+  // Claim card first before killing
+  await one.team.claimNext(fixer2)
+  one.kill(fixer2)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer2.runtime, fixer2.sessionId)
+  const run2 = one.flows.runsFor(room2)[0]!
+  assert.equal(run2.state, 'stalled')
+
+  // Completing the card returns run to running and wakes seats of the role
+  const heldCard = one.team.stateFor(room2).intents.find((i) => i.claim?.sessionId === fixer2.sessionId)!
+  await one.team.complete(heldCard.id, { outcome: 'published' }, fixer2)
+  await one.flows.flush()
+  const recovered = one.flows.runsFor(room2)[0]!
+  assert.equal(recovered.state, 'running')
+  assert.equal(recovered.ended, null)
+  assert.ok(recovered.record.some((e) => e.kind === 'started' && /recovered from stalled/.test(e.text ?? '')))
+
+  // 4. Stalled run prevents starting another flow in the same room (#liveIn)
+  const room3 = (await one.team.createRoom('/repo', 'Room 3')).id
+  await one.flows.start({ room: room3, source: REVIEW, vars: { work: 'Fix 3' } })
+  const fixer3Seat = one.flows.runsFor(room3)[0]!.seats.find((s) => s.role === 'fixer')!
+  const fixer3 = { runtime: fixer3Seat.runtime, sessionId: fixer3Seat.sessionId }
+  one.kill(fixer3)
+  for (let n = 0; n < 6; n += 1) await one.flows.reArm(fixer3.runtime, fixer3.sessionId)
+  assert.equal(one.flows.runsFor(room3)[0]!.state, 'stalled')
+
+  await assert.rejects(
+    () => one.flows.start({ room: room3, source: REVIEW, vars: { work: 'Cannot start while stalled' } }),
+    /already running a flow/,
+  )
+})
+
+test('Flows.stop does not crash when a run has non-array record data (#505)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-record.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'bad-record-run',
+      room: one.room,
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: null,
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+  await second.load()
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+  assert.throws(() => second.stop('bad-record-run'), /There is no flow run bad-record-run/)
+
+  // Direct in-memory test for runtime guard in stop():
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const activeRun = one.flows.runsFor(one.room)[0] as unknown as { id: string; record: unknown; state: string }
+  assert.ok(activeRun)
+  activeRun.record = null
+  const stopped = one.flows.stop(activeRun.id, 'manual stop')
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(stopped.record.length, 1)
+  assert.equal(stopped.record[0]?.kind, 'stopped')
+  assert.equal(stopped.record[0]?.text, 'manual stop')
+})
+
+test('standDown inspects the latest run in a room and does not prematurely stand down seats in subsequent runs (#438)', async (t) => {
+  const one = await rig(t)
+  // 1. Start Flow 1 and stop it:
+  const run1 = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Flow 1' } })
+  assert.equal(run1.state, 'running')
+  const seat1 = one.seated[0]!
+  one.flows.stop(run1.id, 'flow 1 finished')
+  assert.equal(one.flows.runsFor(one.room)[0]?.state, 'stopped')
+
+  // 2. Start Flow 2 in the same room reusing the seat:
+  const run2 = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Flow 2' } })
+  assert.equal(run2.state, 'running')
+  // Reuse seat1 in run2:
+  const storedRun2 = one.flows.runsFor(one.room)[1]!
+  ;(storedRun2.seats as unknown as { role: string; seat: string; runtime: string; sessionId: string; cwd: string; key: string }[]).push({
+    role: 'fixer',
+    seat: 'cursor',
+    runtime: seat1.runtime,
+    sessionId: seat1.sessionId,
+    cwd: seat1.cwd,
+    key: `${seat1.runtime}\u0000${seat1.sessionId}`,
+  })
+
+  // 3. standDown for seat1 must return null while run2 is running:
+  const standDownReason = one.flows.standDown(one.room, seat1.runtime, seat1.sessionId)
+  assert.equal(standDownReason, null)
+
+  // 4. awaitWork for seat1 must not receive stand down from the older finished flow:
+  const waitResult = await one.team.awaitWork({ runtime: seat1.runtime, sessionId: seat1.sessionId })
+  assert.doesNotMatch(waitResult, /^stand down — flow 1 finished/)
+})
+
+test('abandoning a flow card notifies flows engine to advance or settle the run (#434)', async (t) => {
+  const one = await rig(t)
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
+  const card1 = board(one).intents.find((i) => i.id === 1)
+  assert.ok(card1)
+  assert.equal(card1.state, 'open')
+
+  // Abandon the card via intentAction
+  await one.team.intentAction(one.room, 1, 'abandon')
+  await one.flows.flush()
+
+  const runs = one.flows.runsFor(one.room)
+  assert.equal(runs[0]?.state, 'settled')
+})
+
+test('Flows.load stops running flows whose room no longer exists (#441)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'orphaned-run.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'orphaned-run',
+      room: 'non-existent-room-id',
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: () => {},
+  })
+  await second.load()
+  await second.flush()
+  const run = second.runsFor('non-existent-room-id')[0]
+  assert.ok(run)
+  assert.equal(run.state, 'stopped')
+  assert.equal(run.ended, 'the room this flow ran in is gone')
+})
+
+test('deleting a room stops active flow runs and allows seats to stand down (#419)', async (t) => {
+  const one = await rig(t)
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
+  const seat = one.seated[0]!
+  assert.ok(seat)
+
+  // Before deleting room:
+  assert.equal(one.flows.runsFor(one.room)[0]?.state, 'running')
+  assert.equal(one.flows.standDown(one.room, seat.runtime, seat.sessionId), null)
+
+  // Delete the room:
+  await one.team.deleteRoom(one.room)
+
+  // After deleting room:
+  // 1. Flow run must be stopped:
+  const runsAfter = one.flows.runsFor(one.room)
+  assert.equal(runsAfter.length, 1)
+  assert.equal(runsAfter[0]?.state, 'stopped')
+  assert.match(runsAfter[0]?.ended ?? '', /the room this flow ran in was deleted/)
+
+  // 2. standDown must return the reason:
+  const reason = one.flows.standDown(one.room, seat.runtime, seat.sessionId)
+  assert.match(reason ?? '', /the room this flow ran in was deleted/)
+
+  // 3. awaitWork for the seated agent must return stand down, not throw NOT_IN_ROOM:
+  const waitResult = await one.team.awaitWork({ runtime: seat.runtime, sessionId: seat.sessionId })
+  assert.match(waitResult, /^stand down — the room this flow ran in was deleted/)
+
+  // 4. An active waiter blocked inside awaitWork stands down immediately when room is deleted:
+  const room2 = (await one.team.createRoom('/repo', 'Fix room 2')).id
+  await one.flows.start({ room: room2, source: REVIEW, vars: { work: 'Fix it again' } })
+  const seat2 = one.seated[one.seated.length - 1]!
+  const waitingPromise = one.team.awaitWork({ runtime: seat2.runtime, sessionId: seat2.sessionId }, { blockMs: 10000 })
+  await one.team.deleteRoom(room2)
+  const waiterResult = await waitingPromise
+  assert.match(waiterResult, /^stand down — the room this flow ran in was deleted/)
+})
+
+test('stopping a flow and leaving a room does not cause awaitWork to return stale stand down (#419 regression)', async (t) => {
+  const one = await rig(t)
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const seat = one.seated[0]!
+  assert.ok(seat)
+
+  // 1. Stop the run manually
+  await one.flows.stop(run.id, 'manual stop')
+
+  // 2. Member leaves room
+  await one.team.leaveRoom(one.room, seat.runtime as never, seat.sessionId)
+
+  // 3. awaitWork must throw NOT_IN_ROOM, not return stale stand down from historical run
+  await assert.rejects(
+    () => one.team.awaitWork({ runtime: seat.runtime, sessionId: seat.sessionId }),
+    /not in a room/i,
+  )
+})
+
+test('restart recovers and runs check round opened by a rule (#437)', async (t) => {
+  const one = await rig(t)
+  const GATED = `
+name: Gate it
+roles:
+  fixer: { kind: agent, seat: cursor, outcomes: [published, cannot], permission: publish }
+  tests:
+    kind: check
+    run: pnpm verify
+    exits: { 0: pass }
+    otherwise: fail
+seed: { role: fixer, title: Fix it }
+rules:
+  - { id: gate, on: fixer, when: { every: published }, then: { role: tests, title: Run the gate } }
+  - { id: back, on: tests, when: { any: pass }, then: { role: fixer, title: All done } }
+`
+  await one.flows.start({ room: one.room, source: GATED })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+
+  // Simulate a crash/failure during the check command when the rule fires:
+  one.throwOnRun = new Error('simulated process crash during check')
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  // The check round card was opened on the board and the run saved to disk:
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'open')
+
+  // Simulate desk restart:
+  const secondRan: { command: string; cwd: string }[] = []
+  const second = new Flows(join(one.dir, 'flows'), one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async (command, where) => {
+      secondRan.push({ command, cwd: where.cwd })
+      return { status: 0 }
+    },
+    changed: () => {},
+    log: () => {},
+  })
+  one.team.attachFlows(second)
+  await second.load()
+  await second.flush()
+
+  // On load, reconciliation does not run checks (agents may not be up):
+  assert.equal(secondRan.length, 0, 'load does not issue check commands')
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'open')
+
+  // On resume, the desk wakes seats and resumes open check commands:
+  await second.resume()
+  await second.flush()
+
+  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  assert.equal(secondRan[0]?.command, 'pnpm verify')
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'done')
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.outcome, 'pass')
+  assert.equal(board(one).intents.find((i) => i.id === 3)?.title, 'All done')
+})
+
+test('restart recovers and runs interrupted seed check round (#437)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  const card = one.team.addIntentForFlow(one.room, { title: 'Run the gate first', role: 'tests' })
+  await writeFile(
+    join(flowDir, 'seed-run.json'),
+    JSON.stringify({
+      id: 'seed-run',
+      room: one.room,
+      flow: {
+        name: 'Seed Gate',
+        roles: [
+          { kind: 'check', id: 'tests', check: { run: 'pnpm verify', cwd: null, timeout: 30, exits: { '0': 'pass' }, otherwise: 'fail' }, outcomes: [] },
+          { kind: 'agent', id: 'fixer', count: 1, seat: 'cursor', outcomes: ['published', 'cannot'], permission: 'publish' },
+        ],
+        rules: [
+          { id: 'on-pass', on: 'tests', when: { any: 'pass' }, then: { role: 'fixer', title: 'All done' } },
+        ],
+        inputs: [],
+        seed: { role: 'tests', title: 'Run the gate first' },
+      },
+      state: 'running',
+      vars: {},
+      seats: [{ key: 'cursor\u0000x', role: 'fixer', runtime: 'cursor', sessionId: 'x', seat: 'cursor', spec: 'cursor', permission: 'publish', cwd: '/repo' }],
+      rounds: [{ role: 'tests', intents: [card.id], round: 0 }],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const secondRan: { command: string; cwd: string }[] = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async (command, where) => {
+      secondRan.push({ command, cwd: where.cwd })
+      return { status: 0 }
+    },
+    changed: () => {},
+    log: () => {},
+  })
+  one.team.attachFlows(second)
+  await second.load()
+  await second.flush()
+
+  assert.equal(secondRan.length, 0, 'load does not issue check commands')
+
+  await second.resume()
+  await second.flush()
+
+  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  assert.equal(secondRan[0]?.command, 'pnpm verify')
+  assert.equal(board(one).intents.find((i) => i.id === card.id)?.state, 'done')
+  assert.equal(board(one).intents.find((i) => i.id === card.id)?.outcome, 'pass')
+})
+
+test('round opened after abandoned card is not permanently blocked (#440)', async (t) => {
+  const one = await rig(t)
+  const FLOW = `
+name: Advance after abandon
+roles:
+  worker: { kind: agent, count: 2, seat: cursor, outcomes: [published, cannot], permission: publish }
+  reviewer: { kind: agent, count: 1, seat: cursor, outcomes: [approved, reject], permission: read }
+seed: { role: worker, title: Work }
+rules:
+  - { id: to-review, on: worker, when: { any: published }, then: { role: reviewer, title: Review } }
+`
+  await one.flows.start({ room: one.room, source: FLOW })
+  const workers = seatsOf(one, 'worker')
+  assert.equal(workers.length, 2)
+  const worker1 = workers[0]!
+  const reviewer = seatsOf(one, 'reviewer')[0]!
+
+  // Worker 1 claims and publishes card 1
+  await one.team.claimNext(worker1)
+  await one.team.complete(1, { outcome: 'published' }, worker1)
+
+  // Card 2 is abandoned by user/referee
+  await one.team.intentAction(one.room, 2, 'abandon')
+  await one.flows.flush()
+
+  // Card 3 should be open for the reviewer, not blocked by abandoned card 2:
+  const card3 = board(one).intents.find((i) => i.id === 3)
+  assert.ok(card3, 'review card was created')
+  assert.equal(card3.state, 'open', 'card 3 should be open, but was blocked')
+  assert.deepEqual(card3.dependsOn, [1], 'card 3 should only depend on completed cards')
+
+  // Reviewer can claim card 3
+  const claimed = await one.team.claimNext(reviewer)
+  assert.match(claimed, /^Claimed #3/)
 })

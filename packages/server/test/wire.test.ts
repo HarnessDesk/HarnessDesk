@@ -948,6 +948,60 @@ test('routes: credentials stay one-way, compatibility greys with a reason, and c
     options: { route: { id: 'x', name: 'x', endpoint: 'http://evil', wireProtocol: 'fakewire', token: 't' } },
   })
   assert.equal(harness.runtime.lastCreateOptions?.route, undefined)
+
+  // Resuming with the compatible routeId resolves the gateway route as well (#425).
+  await client.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })
+  await client.call('session/resume', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    options: { routeId: rightId },
+  })
+  const resumedHanded = harness.runtime.lastResumeOptions
+  assert.ok(resumedHanded?.route, 'the adapter received a resolved route on resume')
+  assert.match(resumedHanded.route.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/t\/[0-9a-f]+$/)
+  assert.ok(!JSON.stringify(resumedHanded).includes('the-secret-value'))
+  assert.ok(!JSON.stringify(resumedHanded).includes(ref))
+
+  // Resuming with a hand-rolled route is ignored and stripped (#425).
+  await client.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })
+  await client.call('session/resume', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    options: { route: { id: 'x', name: 'x', endpoint: 'http://evil', wireProtocol: 'fakewire', token: 't' } },
+  })
+  assert.equal(harness.runtime.lastResumeOptions?.route, undefined)
+})
+
+test('app/state/set with null modelRoutes does not poison routes/list or routes/save (#426)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Poison modelRoutes with nulls and malformed entries via app/state/set
+  await client.call('app/state/set', {
+    patch: {
+      modelRoutes: [null, { bad: 'entry' }, null],
+    },
+  })
+
+  // routes/list with runtime should not crash on null entries
+  const routes = (await client.call('routes/list', { runtime: FAKE_RUNTIME_ID })) as unknown[]
+  assert.deepEqual(routes, [])
+
+  // routes/save should not crash on null entries
+  const saved = (await client.call('routes/save', {
+    name: 'Recovered Route',
+    endpoint: 'http://127.0.0.1:8080/v1',
+    wireProtocol: 'fakewire',
+    credentialRef: 'cred-1',
+  })) as { id: string }
+  assert.ok(saved.id)
+
+  // routes/delete should also not crash on null entries
+  await client.call('routes/delete', { id: saved.id })
+  const empty = (await client.call('routes/list', { runtime: FAKE_RUNTIME_ID })) as unknown[]
+  assert.deepEqual(empty, [])
 })
 
 test('a policy rule answers an approval before any human sees it, and the audit log remembers', async (t) => {
@@ -1005,6 +1059,110 @@ test('a policy rule answers an approval before any human sees it, and the audit 
   assert.ok(audit.some((entry) => entry.kind === 'approval/autoDecided' && entry.rule === 'No rm -rf'))
   const elsewhere = (await client.call('audit/query', { root: '/somewhere-else' })) as unknown[]
   assert.equal(elsewhere.length, 0)
+})
+
+test('policy auto-decision failure falls back to surfacing approval to client without unhandled rejection (#421)', async (t) => {
+  let unhandled: unknown = null
+  const onUnhandled = (err: unknown) => {
+    unhandled = err
+  }
+  process.on('unhandledRejection', onUnhandled)
+  t.after(() => process.off('unhandledRejection', onUnhandled))
+
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  await client.call('app/state/set', {
+    patch: {
+      permissionPolicy: [
+        {
+          id: 'r1',
+          name: 'No rm -rf',
+          match: { type: 'command', pattern: 'rm -rf' },
+          action: 'deny',
+        },
+      ],
+    },
+  })
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+
+  // Simulate runtime/transport failure on policy response (both sync throw and async rejection)
+  live.respondToApproval = () => {
+    throw new Error('simulated policy response failure')
+  }
+
+  live.askApproval(approvalId('ap-failed-policy'))
+
+  // The approval must be surfaced to the client as an approval/requested event
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          (event as { approval?: { id: string } }).approval?.id === 'ap-failed-policy',
+      ),
+    2000,
+  )
+
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)
+  assert.ok(record?.approvals.has('ap-failed-policy'))
+  assert.equal(unhandled, null, 'no unhandled rejection should occur')
+})
+
+test('permissionPolicy with null or malformed entries does not crash approval handling (#427)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Store malformed permissionPolicy array containing nulls and invalid entries
+  await client.call('app/state/set', {
+    patch: {
+      permissionPolicy: [
+        null,
+        undefined,
+        'not-a-rule',
+        { id: 'bad-1' },
+        { id: 'bad-2', match: null },
+        null,
+      ],
+    },
+  })
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+  await client.call('turn/send', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    input: [{ type: 'text', text: 'hi' }],
+  })
+
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+  // Trigger an approval request from the agent; #applyPolicy must not throw on null rules
+  live.askApproval(approvalId('ap-null-policy'))
+
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          (event as { approval?: { id: string } }).approval?.id === 'ap-null-policy',
+      ),
+    2000,
+  )
+
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)
+  assert.ok(record?.approvals.has('ap-null-policy'))
 })
 
 // --------------------------------------------------------------------- files
@@ -1385,6 +1543,52 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
   assert.equal((await gitIn(repo, 'rev-parse', 'marked')).trim(), at)
 })
 
+test('git/status does not crash when persisted workspaces contain malformed records missing path (#428)', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-malformed-workspace-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  const repo = await mkdtemp(join(tmpdir(), 'hd-git-repo-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await writeFile(join(repo, 'a.txt'), 'hello\n')
+  await gitIn(repo, 'add', '.')
+  await gitIn(repo, 'commit', '-qm', 'initial')
+
+  // Persist state containing workspace records missing path or having non-string path
+  const stateFile = join(stateDir, 'state.json')
+  await writeFile(
+    stateFile,
+    JSON.stringify({
+      workspaces: [
+        { id: 'ws-valid', path: repo },
+        { id: 'ws-missing-path' },
+        { id: 'ws-null-path', path: null },
+        { id: 'ws-number-path', path: 123 },
+      ],
+    }),
+  )
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(stateFile),
+  })
+  await host.start()
+  const server = await serve({ host, logger: silent, port: 0 })
+  t.after(async () => {
+    await server.close()
+    await host.dispose()
+  })
+
+  const client = await Client.connect(server)
+  t.after(() => client.close())
+
+  // Calling git/status must not throw ERR_INVALID_ARG_TYPE
+  const status = (await client.call('git/status', { root: repo })) as { root: string }
+  const { realpathSync } = await import('node:fs')
+  assert.equal(realpathSync(status.root), realpathSync(repo))
+})
+
+
 
 test('a profile written through app/state/set replaces the stored one whole, and {} clears it', async (t) => {
   // The UI writes the whole profile, and Reset writes {}, because this method
@@ -1416,4 +1620,76 @@ test('app/state/set wire call rejects when state cannot be persisted to disk', a
 
   await assert.rejects(client.call('app/state/set', { patch: { theme: 'dark' } }))
 })
+
+test('HTTP token gate cannot be bypassed by non-root SPA routes (#429)', async (t) => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const uiDir = await mkdtemp(join(tmpdir(), 'harnessdesk-ui-gate-'))
+  t.after(() => rm(uiDir, { recursive: true, force: true }))
+  await writeFile(join(uiDir, 'index.html'), '<html>app shell</html>')
+  await writeFile(join(uiDir, 'bundle.js'), 'console.log("bundle")')
+
+  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-gate-state-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+  })
+  await host.start()
+  const server = await serve({ host, logger: silent, port: 0, uiRoot: uiDir, token: 'secret-token' })
+  t.after(async () => {
+    await server.close()
+    await host.dispose()
+  })
+
+  // 1. Root without token -> 401
+  const resRootNoToken = await fetch(`${server.url}/`)
+  assert.equal(resRootNoToken.status, 401)
+
+  // 2. Non-root fallback route without token -> must be 401, not 200
+  const resSpaRouteNoToken = await fetch(`${server.url}/settings/appearance`)
+  assert.equal(resSpaRouteNoToken.status, 401, 'non-root SPA route without token must be refused with 401')
+
+  // 3. Root with token -> 200
+  const resRootWithToken = await fetch(`${server.url}/?token=secret-token`)
+  assert.equal(resRootWithToken.status, 200)
+  assert.equal(await resRootWithToken.text(), '<html>app shell</html>')
+
+  // 4. Non-root fallback route with token -> 200
+  const resSpaRouteWithToken = await fetch(`${server.url}/settings/appearance?token=secret-token`)
+  assert.equal(resSpaRouteWithToken.status, 200)
+  assert.equal(await resSpaRouteWithToken.text(), '<html>app shell</html>')
+
+  // 5. Existing static asset without token -> 200 (static assets are ungated per design)
+  const resStatic = await fetch(`${server.url}/bundle.js`)
+  assert.equal(resStatic.status, 200)
+  assert.equal(await resStatic.text(), 'console.log("bundle")')
+})
+
+test('preview-frame endpoint restricts navigation and form actions in CSP (#474)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const root = harness.stateDir
+  const { writeFile } = await import('node:fs/promises')
+  const htmlFile = join(root, 'preview.html')
+  await writeFile(htmlFile, '<html><body>preview</body></html>', 'utf8')
+
+  // Open workspace folder so confinement passes
+  await client.call('workspace/open', { path: root })
+
+  const { ticket } = (await client.call('preview/ticket', {
+    path: htmlFile,
+  })) as { ticket: string }
+
+  const res = await fetch(`${harness.server.url}/preview-frame?ticket=${encodeURIComponent(ticket)}`)
+  assert.equal(res.status, 200)
+  const csp = res.headers.get('content-security-policy') ?? ''
+  assert.match(csp, /form-action 'none'/, 'CSP must forbid form submission navigation')
+  assert.match(csp, /navigate-to 'none'/, 'CSP must forbid document navigation')
+})
+
 

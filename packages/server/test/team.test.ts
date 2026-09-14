@@ -42,6 +42,7 @@ interface Rig {
     gate: Promise<void> | null
     /** Sends that throw before landing, counted down — a flaky backend. */
     failSends: number
+    logged: string[]
   }
   readonly dir: string
 }
@@ -72,6 +73,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     audited: [],
     gate: null,
     failSends: 0,
+    logged: [],
   }
   const teamPort: TeamPort = {
     peers: () => port.peers,
@@ -93,6 +95,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     membershipChanged: (runtime, sessionId) => port.moved.push(`${runtime}/${sessionId}`),
     audit: (entry) =>
       port.audited.push({ kind: entry.kind, ...(entry.decision ? { decision: entry.decision } : {}) }),
+    log: (msg, details) => port.logged.push(`${msg} ${JSON.stringify(details ?? {})}`),
   }
   const team = new Team(dir, teamPort)
   /* A project holds as many rooms as the work wants, and a board belongs to
@@ -169,6 +172,25 @@ test('files are ownership: overlapping work is refused while the claim lives', a
   await team.complete(1, {}, codex)
   assert.match(await team.claim(2, claude), /^Claimed #2/)
 })
+
+test('wildcard filename patterns detect conflicts with specific files (#439)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.addIntent({ title: 'Refactor index', files: ['src/index.*'] }, codex)
+  await team.addIntent({ title: 'Fix index typescript', files: ['src/index.ts'] }, claude)
+  await team.claim(1, codex)
+
+  const refused = await team.claim(2, claude)
+  assert.match(refused, /^Refused: the files of #2 overlap a live claim/)
+  assert.match(refused, /held by #1/)
+
+  const conflicts = await team.conflicts(['src/index.ts'], claude)
+  assert.match(conflicts, /^Conflicts:/)
+
+  const nonConflict = await team.conflicts(['src/indexing.ts'], claude)
+  assert.match(nonConflict, /^No live claim overlaps/)
+})
+
 
 test('dependencies gate claiming, and completing the dependency unblocks', async (t) => {
   const { team, port, room } = await rig(t)
@@ -831,7 +853,7 @@ test('routing stays inside the board: another project is unreachable and unliste
  * resolved to a root the room did not have.
  */
 test('a room is keyed by the project, even when it is made from a worktree', async (t) => {
-  const { team, port } = await rig(t)
+  const { team, port, dir } = await rig(t)
   const room = await team.createRoom('/repo/.worktrees/feature', 'From a worktree')
   assert.equal(room.root, '/repo')
 
@@ -839,6 +861,24 @@ test('a room is keyed by the project, even when it is made from a worktree', asy
   port.peers = [peer({ sessionId: 'w1', title: 'In the worktree', cwd: '/repo/.worktrees/feature' })]
   await team.joinRoom(room.id, 'codex' as RuntimeId, 'w1')
   assert.deepEqual(team.stateFor(room.id).members, [`codex\u0000w1`])
+  assert.equal(team.stateFor(room.id).cwd, '/repo/.worktrees/feature')
+  assert.ok(port.logged.some((line) => line.includes('differing from its project root')))
+
+  // Room cwd survives restart when saved to disk.
+  await team.flush()
+  const teamPort: TeamPort = {
+    peers: () => port.peers,
+    rootOf: async (cwd) => (cwd === '/repo' || cwd.startsWith('/repo/') ? '/repo' : null),
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  }
+  const reloadedTeam = new Team(dir, teamPort)
+  await reloadedTeam.load()
+  assert.equal(reloadedTeam.stateFor(room.id).cwd, '/repo/.worktrees/feature')
 })
 
 /**
@@ -872,6 +912,46 @@ test('a deleted room says what went, and leaves the conversations alone', async 
     /not in a room/,
     'it has no board, and is told so in the words a conversation on its own gets',
   )
+})
+
+test('deleteRoom stands down active await_work waiters immediately (#436)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+
+  const waitingPromise = team.awaitWork(codex, { blockMs: 2000 })
+  await team.deleteRoom(room)
+
+  const result = await waitingPromise
+  assert.equal(result, 'stand down — the room was deleted')
+
+  const nextResult = await team.awaitWork(codex)
+  assert.equal(nextResult, 'stand down — the room was deleted')
+
+  // When session is closed, deleted members memory is pruned
+  team.onSessionClosed(codex.runtime as RuntimeId, codex.sessionId)
+  await assert.rejects(() => team.awaitWork(codex), /This conversation is not in a room/)
+})
+
+test('deleted members memory is pruned when joining another room, leaving, forgetting, or runtime detaching (#436)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.deleteRoom(room)
+
+  assert.equal(await team.awaitWork(codex), 'stand down — the room was deleted')
+
+  const otherRoom = await team.createRoom('/repo', 'other')
+  await team.joinRoom(otherRoom.id, codex.runtime as RuntimeId, codex.sessionId)
+  // Joining other room pruned deleted member entry
+  team.leaveRoom(otherRoom.id, codex.runtime as RuntimeId, codex.sessionId)
+  await assert.rejects(() => team.awaitWork(codex), /This conversation is not in a room/)
+
+  // Test runtime detach
+  const room2 = await team.createRoom('/repo', 'room-detach')
+  await team.joinRoom(room2.id, claude.runtime as RuntimeId, claude.sessionId)
+  await team.deleteRoom(room2.id)
+  assert.equal(await team.awaitWork(claude), 'stand down — the room was deleted')
+  team.onRuntimeDetached(claude.runtime as RuntimeId)
+  await assert.rejects(() => team.awaitWork(claude), /This conversation is not in a room/)
 })
 
 test('a delete that cannot reach the disk is refused, not acknowledged', async (t) => {
@@ -3664,3 +3744,228 @@ test('await_work answers "nothing yet" when its block passes, and says which cyc
   const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 4 })
   assert.equal(answer, 'nothing yet. Call await_work again with cycle: 5.')
 })
+
+test('await_work answers a card the caller already holds, ahead of any open one', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.addIntentForFlow(room, { title: 'First card', role: 'fixer' })
+  await team.claim(1, codex)
+  team.addIntentForFlow(room, { title: 'Second card', role: 'fixer' })
+
+  const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 2 })
+  assert.match(answer, /^work: #1 First card\./)
+  assert.match(answer, /you are already holding this; finish it with complete_claim/i)
+  assert.match(answer, /cycle: 3/)
+})
+
+test('hasWorkFor and awaitWork never disagree about whether a seat has work', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  team.setRole(room, 'codex', 'c1', 'fixer')
+  team.setRole(room, 'claude', 'k1', 'reviewer')
+
+  const assertLockstep = async (runtime: string, sessionId: string, scope: typeof codex) => {
+    const hasWork = team.hasWorkFor(room, runtime, sessionId)
+    const workAnswer = await team.awaitWork(scope, { blockMs: 1000, cycle: 0 })
+    const awaitSawWork = workAnswer.startsWith('work: #')
+    assert.equal(
+      awaitSawWork,
+      hasWork,
+      `hasWorkFor (${hasWork}) and awaitWork (${workAnswer}) must agree for ${runtime}/${sessionId}`,
+    )
+  }
+
+  // 1. Empty board: no work for anyone
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 2. Card for reviewer: reviewer has work, fixer does not
+  team.addIntentForFlow(room, { title: 'Review changes', role: 'reviewer' })
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 3. Card for fixer: both have work
+  team.addIntentForFlow(room, { title: 'Fix bug', role: 'fixer' })
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 4. Fixer claims its card: fixer still has work (work in hand), reviewer still has work
+  await team.claim(2, codex)
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+
+  // 5. Fixer completes its card: fixer has no work, reviewer still has work
+  await team.complete(2, { outcome: 'published' }, codex)
+  await assertLockstep('codex', 'c1', codex)
+  await assertLockstep('claude', 'k1', claude)
+})
+
+test('the roster records a real model and ignores the automatic choice ("auto", "default") (#374)', async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [
+    peer({ sessionId: 'auto-seat', model: 'auto' }),
+    peer({ sessionId: 'named-seat', model: 'gemini-3.8-flash' }),
+  ]
+  await joinAll(team, room, port)
+  const roster = await team.peersFor(room)
+  const autoMember = roster.find((entry) => entry.sessionId === 'auto-seat')
+  const namedMember = roster.find((entry) => entry.sessionId === 'named-seat')
+  assert.ok(autoMember, 'auto-seat is in the roster')
+  assert.ok(namedMember, 'named-seat is in the roster')
+  assert.equal(autoMember.model, null, 'an automatic model is not recorded as a model')
+  assert.equal(namedMember.model, 'gemini-3.8-flash', 'a real model is kept')
+})
+
+test('claimNext and conflict checks do not crash when a stored intent has files set to null (#504)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-team-intent-files-'))
+  let teamRef: Team | null = null
+  t.after(async () => {
+    if (teamRef) await teamRef.flush()
+    await rm(dir, { recursive: true, force: true })
+  })
+  const callerKey = sessionKey('codex', 'c1')
+  await writeFile(
+    join(dir, 'room.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'room',
+      name: 'Room',
+      root: '/repo',
+      members: [callerKey],
+      nextIntent: 3,
+      nextPlan: 1,
+      plans: [],
+      messaging: true,
+      intents: [
+        {
+          id: 1,
+          title: 'claimed work with null files',
+          detail: null,
+          state: 'claimed',
+          files: null,
+          dependsOn: [],
+          role: null,
+          outcome: null,
+          claim: { runtime: 'claude', sessionId: 'k1', at: 0, leaseUntil: Date.now() + 60000 },
+          blockedReason: null,
+          blockedBy: null,
+          handoff: null,
+          note: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+        {
+          id: 2,
+          title: 'open work with null files',
+          detail: null,
+          state: 'open',
+          files: null,
+          dependsOn: [],
+          role: null,
+          outcome: null,
+          claim: null,
+          blockedReason: null,
+          blockedBy: null,
+          handoff: null,
+          note: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      channel: [],
+      nicknames: {},
+      roles: {},
+      roster: { [callerKey]: { title: null, agent: 'Codex', cwd: '/repo', model: null, at: 0 } },
+    }),
+  )
+
+  const team = new Team(dir, {
+    peers: () => [
+      peer({ sessionId: 'c1', title: null, cwd: '/repo', agent: 'Codex', busy: false, canSteer: false, queuedByUser: 0, model: null, here: true }),
+      peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, title: null, cwd: '/repo', agent: 'Claude', busy: false, canSteer: false, queuedByUser: 0, model: null, here: true }),
+    ],
+    rootOf: async () => '/repo',
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  })
+  teamRef = team
+
+  await team.load()
+  assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 1)?.files, [])
+  assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 2)?.files, [])
+  const result = await team.claimNext(codex)
+  assert.match(result, /^Claimed #2 — open work with null files/)
+  assert.match(await team.conflicts(['src/any.ts'], codex), /^No live claim overlaps/)
+})
+
+test('claimNext and readiness checks do not crash when a stored intent has dependsOn set to null (#506)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-team-intent-dependson-'))
+  let teamRef: Team | null = null
+  t.after(async () => {
+    if (teamRef) await teamRef.flush()
+    await rm(dir, { recursive: true, force: true })
+  })
+  const callerKey = sessionKey('codex', 'c1')
+  await writeFile(
+    join(dir, 'room.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'room',
+      name: 'Room',
+      root: '/repo',
+      members: [callerKey],
+      nextIntent: 2,
+      nextPlan: 1,
+      plans: [],
+      messaging: true,
+      intents: [
+        {
+          id: 1,
+          title: 'open work with null dependsOn',
+          detail: null,
+          state: 'open',
+          files: [],
+          dependsOn: null,
+          role: null,
+          outcome: null,
+          claim: null,
+          blockedReason: null,
+          blockedBy: null,
+          handoff: null,
+          note: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      channel: [],
+      nicknames: {},
+      roles: {},
+      roster: { [callerKey]: { title: null, agent: 'Codex', cwd: '/repo', model: null, at: 0 } },
+    }),
+  )
+
+  const team = new Team(dir, {
+    peers: () => [
+      peer({ sessionId: 'c1', title: null, cwd: '/repo', agent: 'Codex', busy: false, canSteer: false, queuedByUser: 0, model: null, here: true }),
+    ],
+    rootOf: async () => '/repo',
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  })
+  teamRef = team
+
+  await team.load()
+  assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 1)?.dependsOn, [])
+  const result = await team.claimNext(codex)
+  assert.match(result, /^Claimed #1 — open work with null dependsOn/)
+})
+
