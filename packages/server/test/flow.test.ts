@@ -697,4 +697,34 @@ test('BUILT_IN_SLOTS contains all base card keys produced by cardVars (#528)', (
   }
 })
 
+test('parseFlow accepts flow orders containing "---" front matter and markdown dividers (#432)', () => {
+  const yaml = `
+name: Front matter flow
+roles:
+  fixer:
+    kind: agent
+    seat: cursor
+    outcomes: [done]
+    order: |
+      Start with YAML front matter:
+      ---
+      hunter: dragonfly
+      ---
+      Markdown separator:
+      ---
+      Ellipsis:
+      ...
+seed:
+  role: fixer
+  title: Start
+rules: []
+`
+  const { flow, problems } = parseFlow(yaml)
+  assert.equal(problems.length, 0)
+  assert.ok(flow !== null)
+  assert.equal(flow?.name, 'Front matter flow')
+  assert.match(flow?.roles[0]?.order ?? '', /---/)
+})
+
+
 
