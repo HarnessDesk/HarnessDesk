@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   approvalId,
@@ -9,6 +10,7 @@ import {
   runtimeId,
   sessionId as makeSessionId,
   turnId,
+  MAX_IMAGE_BYTES,
   type Account,
   type AccountStatus,
   type AuthMethod,
@@ -2320,6 +2322,51 @@ const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMes
   }
 }
 
+const IMAGE_MIME: Readonly<Record<string, string>> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+}
+
+const readLocalImageBlock = (
+  targetPathOrUri: string,
+  preferredName?: string,
+): AcpContentBlock => {
+  let resolvedPath = targetPathOrUri
+  let uri = targetPathOrUri
+  if (targetPathOrUri.startsWith('file://')) {
+    try {
+      resolvedPath = fileURLToPath(targetPathOrUri)
+    } catch {
+      resolvedPath = targetPathOrUri.replace(/^file:\/\//, '')
+    }
+  } else {
+    uri = `file://${targetPathOrUri}`
+  }
+
+  const fileName = preferredName || resolvedPath.split('/').pop() || 'image'
+
+  try {
+    const ext = extname(resolvedPath).toLowerCase()
+    const mimeType = IMAGE_MIME[ext]
+    if (mimeType) {
+      const stat = statSync(resolvedPath)
+      if (stat.size <= MAX_IMAGE_BYTES) {
+        const data = readFileSync(resolvedPath).toString('base64')
+        return { type: 'image', data, mimeType }
+      }
+    }
+  } catch {
+    // missing, inaccessible, or non-file falls back to resource_link below
+  }
+
+  return { type: 'resource_link', uri, name: fileName }
+}
+
 const userContentOf = (block: AcpContentBlock): UserContent => {
   switch (block.type) {
     case 'image':
@@ -2593,10 +2640,23 @@ class AcpSession implements AgentSession {
     const prompt: AcpContentBlock[] = input.flatMap((content): AcpContentBlock[] => {
       if (content.type === 'text') return [{ type: 'text', text: content.text }]
       if (content.type === 'image') {
-        const [meta, data] = content.url.split(',', 2)
-        return data
-          ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
-          : []
+        if (content.url.startsWith('data:')) {
+          const [meta, data] = content.url.split(',', 2)
+          return data
+            ? [{ type: 'image', data, mimeType: meta?.replace(/^data:|;base64$/g, '') ?? 'image/png' }]
+            : []
+        }
+        if (content.url.startsWith('file://')) {
+          return [readLocalImageBlock(content.url, content.name)]
+        }
+        return [{
+          type: 'resource_link',
+          uri: content.url,
+          name: content.name || content.url.split('/').pop()?.split('?')[0] || 'image',
+        }]
+      }
+      if (content.type === 'localImage') {
+        return [readLocalImageBlock(content.path)]
       }
       if (content.type === 'mention' || content.type === 'skill') {
         return [{ type: 'resource_link', uri: `file://${content.path}`, name: content.name }]

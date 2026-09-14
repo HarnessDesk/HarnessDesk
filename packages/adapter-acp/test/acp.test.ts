@@ -1686,3 +1686,84 @@ test('a first message cut off inside a block names nothing (review of #231)', as
     await runtime.dispose()
   }
 })
+
+test('AcpSession send preserves localImage and http image inputs in prompt (#415)', async (t) => {
+  const { writeFileSync, unlinkSync, openSync, closeSync, ftruncateSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { pathToFileURL } = await import('node:url')
+
+  const imgFile = join(tmpdir(), `test-img-${Date.now()}.png`)
+  writeFileSync(imgFile, Buffer.from('fake-png-bytes'))
+
+  const spaceFile = join(tmpdir(), `my space img-${Date.now()}.png`)
+  writeFileSync(spaceFile, Buffer.from('space-bytes'))
+
+  const svgFile = join(tmpdir(), `test-${Date.now()}.svg`)
+  writeFileSync(svgFile, '<svg></svg>')
+
+  const largeFile = join(tmpdir(), `large-${Date.now()}.png`)
+  const fd = openSync(largeFile, 'w')
+  ftruncateSync(fd, 11 * 1024 * 1024)
+  closeSync(fd)
+
+  t.after(() => {
+    for (const f of [imgFile, spaceFile, svgFile, largeFile]) {
+      try {
+        unlinkSync(f)
+      } catch {}
+    }
+  })
+
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([
+      { type: 'text', text: 'echo blocks' },
+      { type: 'localImage', path: imgFile },
+      { type: 'image', url: 'https://example.com/diagram.png', name: 'diagram.png' },
+      { type: 'localImage', path: '/nonexistent/missing.jpg' },
+      { type: 'image', url: pathToFileURL(spaceFile).href },
+      { type: 'localImage', path: svgFile },
+      { type: 'localImage', path: largeFile },
+    ])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const items = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.items
+    const message = items.find((item) => item.type === 'assistantMessage')
+    assert.ok(message && message.type === 'assistantMessage')
+    const blocks = JSON.parse(message.text)
+    assert.equal(blocks.length, 7, 'all 7 prompt blocks were sent to ACP agent')
+    assert.deepEqual(blocks[0], { type: 'text', text: 'echo blocks' })
+    assert.deepEqual(blocks[1], {
+      type: 'image',
+      data: Buffer.from('fake-png-bytes').toString('base64'),
+      mimeType: 'image/png',
+    })
+    assert.deepEqual(blocks[2], {
+      type: 'resource_link',
+      uri: 'https://example.com/diagram.png',
+      name: 'diagram.png',
+    })
+    assert.deepEqual(blocks[3], {
+      type: 'resource_link',
+      uri: 'file:///nonexistent/missing.jpg',
+      name: 'missing.jpg',
+    })
+    // Percent-encoded file:// URL correctly decoded and read
+    assert.deepEqual(blocks[4], {
+      type: 'image',
+      data: Buffer.from('space-bytes').toString('base64'),
+      mimeType: 'image/png',
+    })
+    // SVG is non-raster; degrades to resource_link
+    assert.equal(blocks[5].type, 'resource_link')
+    assert.ok(blocks[5].uri.endsWith('.svg'))
+    // Oversize file exceeds MAX_IMAGE_BYTES; degrades to resource_link without inlining bytes
+    assert.equal(blocks[6].type, 'resource_link')
+    assert.ok(blocks[6].uri.includes(largeFile))
+  } finally {
+    await runtime.dispose()
+  }
+})

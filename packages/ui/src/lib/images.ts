@@ -11,8 +11,10 @@
  * which URLs the transcript may render as an `<img>`.
  */
 
+import { MAX_IMAGE_BYTES } from '@harnessdesk/protocol'
+
 /** Per image. A data URL is ~4/3 the size of the bytes, and several can ride one message. */
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+export { MAX_IMAGE_BYTES }
 
 /** Formats the rest of the UI show for images; the rest a model cannot read. */
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
