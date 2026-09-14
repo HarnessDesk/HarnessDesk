@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -223,6 +223,33 @@ const ownership = (
   return entry.digest === currentDigest ? 'ours' : 'edited'
 }
 
+const realPathOrNull = (path: string): string | null => {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    try {
+      return realpathSync(path)
+    } catch {
+      return null
+    }
+  }
+}
+
+/**
+ * Whether `path` is inside `roots` both lexically and after resolving symlinks.
+ *
+ * Lexical containment stops `..` traversal before touching the disk.
+ * Realpath containment stops a symlink inside a managed root from pointing
+ * outside it and exfiltrating foreign files during skill install or resolution.
+ */
+const insideRootsReal = (path: string, roots: readonly string[]): boolean => {
+  if (!insideRoots(path, roots)) return false
+  const realPath = realPathOrNull(path)
+  if (realPath === null) return false
+  const realRoots = roots.map((r) => realPathOrNull(r) ?? r)
+  return insideRoots(realPath, realRoots)
+}
+
 const planInstallSkill = (
   state: PlanState,
   intent: { name: string; sourcePath: string; targetRuntime: RuntimeId },
@@ -253,7 +280,7 @@ const planInstallSkill = (
   let sourcePath = extras?.sourcePath
   if (text === undefined) {
     const skillRoots = knownRoots('skill', state.home, state.cwd)
-    if (!insideRoots(intent.sourcePath, skillRoots)) {
+    if (!insideRootsReal(intent.sourcePath, skillRoots)) {
       refuse(state, 'skill', name, '', 'The source is not in any directory this library reads.', targetRuntime)
       return
     }
@@ -371,7 +398,7 @@ const planSyncSkill = (
 ): void => {
   const { name } = intent
   const skillRoots = knownRoots('skill', state.home, state.cwd)
-  if (!insideRoots(intent.sourcePath, skillRoots)) {
+  if (!insideRootsReal(intent.sourcePath, skillRoots)) {
     refuse(state, 'skill', name, '', 'The winning copy is not in any directory this library reads.')
     return
   }
@@ -948,7 +975,7 @@ const applyOne = async (
   // that crossed the socket could otherwise name any path on the machine.
   if (
     op.sourcePath !== undefined &&
-    !insideRoots(op.sourcePath, [
+    !insideRootsReal(op.sourcePath, [
       ...knownRoots('skill', context.home, context.cwd),
       join(context.libraryDir, 'backups'),
     ])
