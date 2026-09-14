@@ -149,3 +149,26 @@ test('a write failure rejects the caller, and the queue continues working for su
   assert.equal(reloaded.state.preferences['theme'], 'light')
 })
 
+test('malformed or null workspace entries in state.json do not crash load (#498)', async (t) => {
+  const dir = await dirFor()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'state.json')
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      installId: 'test-install',
+      workspaces: [null, 123, 'str', { name: 'missing-path' }, { path: 456, name: 'num-path' }, { path: '', name: 'empty-path' }, { path: '/repo/valid', name: 'valid', lastOpenedAt: 1 }],
+      preferences: {},
+    }),
+  )
+
+  const store = new StateStore(file)
+  const state = await store.load()
+  assert.equal(state.workspaces.length, 1)
+  assert.equal(state.workspaces[0]?.name, 'valid')
+  assert.equal(state.workspaces[0]?.path, '/repo/valid')
+  assert.ok(state.workspaces[0]?.id)
+})
+
+

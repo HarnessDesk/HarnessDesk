@@ -180,6 +180,50 @@ it('holds the move while a conversation in the worktree is still working', async
   expect(button('Bring it back')?.disabled).toBe(true)
 })
 
+it('holds the move when a busy session is in a Windows child path of the worktree (#480)', async () => {
+  const winTree: Worktree = {
+    path: 'C:\\repo\\feature',
+    branch: 'harnessdesk/feature',
+    head: 'b',
+    isMain: false,
+    managed: true,
+  }
+  const working = {
+    id: 's-win',
+    runtime: 'codex',
+    cwd: 'C:\\repo\\feature\\src',
+    status: { type: 'active' },
+    turns: [],
+  }
+  const onClose = vi.fn()
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [{ id: 'codex', capabilities: {}, presentation: { name: 'Codex' } } as unknown as RuntimeInfo],
+    activeRuntime: 'codex',
+    worktrees: [MAIN, winTree],
+    sessions: new Map([['codex:s-win', working]]),
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: {
+      request: vi.fn(async () => CLEAN),
+    },
+    bringWorktreeHome: vi.fn(async () => null),
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <BringHome worktree={winTree} onClose={onClose} />
+      </StoreProvider>,
+    )
+  })
+
+  expect(document.body.textContent).toContain('A conversation in this worktree is still working.')
+  expect(button('Bring it back')?.disabled).toBe(true)
+})
+
 it('names what git ignores there, rather than alluding to the category (#209)', async () => {
   /* The sentence used to offer "such as an .env file or node_modules", which
      is a warning about a class of file. Only the list tells a person whether

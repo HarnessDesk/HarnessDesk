@@ -305,8 +305,21 @@ export class CredentialBroker {
     if (this.#loading) return this.#loading
     this.#loading = (async () => {
       try {
-        const raw = JSON.parse(await readFile(this.#path, 'utf8')) as Record<string, StoredEntry>
-        this.#entries = new Map(Object.entries(raw))
+        const raw = JSON.parse(await readFile(this.#path, 'utf8')) as unknown
+        const entries = new Map<string, StoredEntry>()
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          for (const [ref, entry] of Object.entries(raw)) {
+            if (
+              entry &&
+              typeof entry === 'object' &&
+              typeof (entry as StoredEntry).name === 'string' &&
+              typeof (entry as StoredEntry).blob === 'string'
+            ) {
+              entries.set(ref, entry as StoredEntry)
+            }
+          }
+        }
+        this.#entries = entries
       } catch {
         this.#entries = new Map()
       } finally {

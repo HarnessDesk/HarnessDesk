@@ -22,6 +22,11 @@ test('credential-shaped strings are struck whole', () => {
     'auth with [redacted] failed',
   )
   assert.equal(redact('push using ghp-tokentokentoken1'), 'push using [redacted]')
+  assert.equal(redact('push using ghp_tokentokentoken1'), 'push using [redacted]') // hd-secrets-ok
+  assert.equal(
+    redact('token github_pat_11ABCDEFG0abcdefghijklmn_NOPQRSTUVWXYZ0123456789abcdefghij'),
+    'token [redacted]',
+  ) // hd-secrets-ok
   assert.equal(redact('token ghp_abcdefghijklmnopqrstuvwxyz123456'), 'token [redacted]') // hd-secrets-ok
   assert.equal(redact('token gho_abcdefghijklmnopqrstuvwxyz123456'), 'token [redacted]') // hd-secrets-ok
   assert.equal(

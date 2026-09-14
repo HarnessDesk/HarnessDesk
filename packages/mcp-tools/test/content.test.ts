@@ -45,3 +45,19 @@ test('toolIndex disambiguates three or more tools sharing a name without droppin
   assert.equal(index.get('pkg_query_3')?.description, 'fourth')
 })
 
+test('buildToolIndex disambiguation is deterministic regardless of input tool ordering (#497)', () => {
+  const toolsForward: GatewayTool[] = [
+    { namespace: 'alpha', name: 'search', description: 'alpha search', inputSchema: {} },
+    { namespace: 'beta', name: 'search', description: 'beta search', inputSchema: {} },
+  ]
+  const toolsReverse: GatewayTool[] = [
+    { namespace: 'beta', name: 'search', description: 'beta search', inputSchema: {} },
+    { namespace: 'alpha', name: 'search', description: 'alpha search', inputSchema: {} },
+  ]
+  const indexForward = buildToolIndex(toolsForward)
+  const indexReverse = buildToolIndex(toolsReverse)
+
+  assert.equal(indexForward.get('search')?.namespace, indexReverse.get('search')?.namespace)
+  assert.equal(indexForward.get('search')?.description, indexReverse.get('search')?.description)
+})
+

@@ -4,6 +4,7 @@ import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 import { isBusy } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
+import { isPathInside } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { BranchIcon } from './Icons'
 import { IgnoredEntries, UncommittedFiles, WorktreeProblem, describeUncommitted } from './WorktreeAlerts'
@@ -66,7 +67,7 @@ export const RemoveWorktree = ({
   // A conversation mid-turn in the worktree would lose whatever it writes after
   // the folder goes, so the removal waits for the turn to end.
   const working = [...snapshot.sessions.values()].some(
-    (session) => (session.cwd === worktree.path || session.cwd.startsWith(`${worktree.path}/`)) && isBusy(session),
+    (session) => isPathInside(session.cwd, worktree.path) && isBusy(session),
   )
 
   const remove = async (force: boolean): Promise<void> => {

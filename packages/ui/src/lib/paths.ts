@@ -7,3 +7,27 @@
  * name the renderer imports it under.
  */
 export { shortPath } from '@harnessdesk/protocol'
+
+/**
+ * Whether `child` is identical to or within `parent`.
+ *
+ * Normalises separators and handles Windows drive letters and case insensitivity.
+ */
+export const isPathInside = (child: string, parent: string): boolean => {
+  if (!child || !parent) return false
+  const rawParent = parent.replace(/\\/g, '/')
+  const normParent = rawParent.replace(/\/+$/, '') || (rawParent.startsWith('/') ? '/' : rawParent)
+  const rawChild = child.replace(/\\/g, '/')
+  const normChild = rawChild.replace(/\/+$/, '') || (rawChild.startsWith('/') ? '/' : rawChild)
+
+  const isWin =
+    (typeof process !== 'undefined' && process.platform === 'win32') ||
+    (/^[a-zA-Z]:\//.test(normParent) && /^[a-zA-Z]:\//.test(normChild))
+
+  if (isWin ? normChild.toLowerCase() === normParent.toLowerCase() : normChild === normParent) return true
+
+  const prefix = normParent === '/' ? '/' : `${normParent}/`
+  return isWin
+    ? normChild.toLowerCase().startsWith(prefix.toLowerCase())
+    : normChild.startsWith(prefix)
+}

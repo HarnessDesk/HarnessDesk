@@ -12,6 +12,7 @@ import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-p
 import { checkNotices, installedLicence } from './check-notices.mjs'
 import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
+import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
 import { leadComment } from './design-doc.mjs'
@@ -681,7 +682,7 @@ test('a method name held in a variable is not a caller either', () => {
 
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   for (const file of ['package.json', 'script/verify.mjs', '.github/workflows/ci.yml', '.github/workflows/release.yml']) {
     const text = fs.readFileSync(path.join(repo, file), 'utf8')
     assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
@@ -689,7 +690,7 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
 })
 
 test('the step that reads what the build writes says that it needs it (#208)', () => {
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   const verify = fs.readFileSync(path.join(repo, 'script/verify.mjs'), 'utf8')
   const at = verify.indexOf("step('node tests'")
   assert.notEqual(at, -1, 'verify.mjs still has a node tests step')
@@ -1037,11 +1038,26 @@ test('an invented path in a fenced sample is a candidate, and ALLOWED is its esc
 })
 
 test('every allowlisted doc path still names something outside this tree (#223)', () => {
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   for (const [value, reason] of ALLOWED) {
     assert.equal(fs.existsSync(path.join(repo, value)), false, `${value} is in this tree now: drop the entry`)
     assert.ok(reason.length > 20, `${value} needs a reason, not a label`)
   }
+})
+
+test('gate test scripts use fileURLToPath instead of URL.pathname for file URL resolution (#484)', () => {
+  // On Windows, raw URL pathname includes a leading slash before the drive letter (/C:/...)
+  // which causes path.win32.resolve to lose the drive root, whereas fileURLToPath is the standard Node method.
+  const rawPathname = '/C:/Users/dev/HarnessDesk/script/gates.test.mjs'
+  assert.equal(path.win32.resolve(path.win32.dirname(rawPathname), '..'), '\\C:\\Users\\dev\\HarnessDesk')
+
+  const gatesTestSrc = withoutComments(fs.readFileSync(path.join(repoRoot, 'script/gates.test.mjs'), 'utf8'))
+  const badPattern = new RegExp(['new\\s+URL\\(', 'import\\.meta\\.url', '\\)\\.pathname'].join(''))
+  assert.doesNotMatch(
+    gatesTestSrc,
+    badPattern,
+    'script/gates.test.mjs must resolve repository paths without URL pathname',
+  )
 })
 
 test("a real account's address in a tracked file fails the secrets scan (#204)", () => {
@@ -1333,3 +1349,34 @@ test('checkNotices refuses when zero licence claims can be verified (#397)', () 
   assert.equal(result.skipped, 2)
   assert.ok(result.problems.some((p) => p.includes('No licence claims could be verified')))
 })
+
+test('DOCUMENTATION regex exempts design explorer and showcase on both POSIX and Windows paths (#486)', () => {
+  const posixExplorer = 'packages/ui/src/design/explorer/boards.tsx'
+  const posixShowcase = 'packages/ui/src/design/showcase/preview.tsx'
+  const winExplorer = 'packages\\ui\\src\\design\\explorer\\boards.tsx'
+  const winShowcase = 'packages\\ui\\src\\design\\showcase\\preview.tsx'
+
+  assert.equal(DOCUMENTATION.test(posixExplorer), true)
+  assert.equal(DOCUMENTATION.test(posixShowcase), true)
+  assert.equal(DOCUMENTATION.test(winExplorer), true)
+  assert.equal(DOCUMENTATION.test(winShowcase), true)
+
+  const nonExempt = 'packages\\ui\\src\\components\\BringHome.tsx'
+  assert.equal(DOCUMENTATION.test(nonExempt), false)
+})
+
+test('packages/server/tsconfig.json includes project references for internal dependencies and excludes unused transport-acp (#485)', () => {
+  const serverPkg = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'packages/server/package.json'), 'utf8'))
+  const serverTsconfig = JSON.parse(fs.readFileSync(path.resolve(repoRoot, 'packages/server/tsconfig.json'), 'utf8'))
+  const refs = new Set(serverTsconfig.references.map((r) => r.path))
+
+  const internalDeps = Object.keys({ ...serverPkg.dependencies, ...serverPkg.devDependencies })
+    .filter((name) => name.startsWith('@harnessdesk/'))
+    .map((name) => `../${name.replace('@harnessdesk/', '')}`)
+
+  for (const dep of internalDeps) {
+    assert.ok(refs.has(dep), `packages/server/tsconfig.json is missing reference for dependency ${dep}`)
+  }
+  assert.ok(!refs.has('../transport-acp'), 'packages/server/tsconfig.json must not reference ../transport-acp')
+})
+

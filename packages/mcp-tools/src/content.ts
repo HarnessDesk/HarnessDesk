@@ -21,10 +21,17 @@ export type GatewayResult =
  * Namespaces disambiguate only on clashes. When collisions recur (e.g. three or
  * more tools sharing a name, or distinct namespaces normalizing to the same prefix),
  * suffixes with incrementing counters to ensure no tool is silently dropped (#318).
+ * Sorts tools deterministically by namespace and name first so disambiguation
+ * does not depend on gateway list ordering (#497).
  */
 export const buildToolIndex = (tools: readonly GatewayTool[]): Map<string, GatewayTool> => {
+  const sorted = [...tools].sort((a, b) => {
+    const nsCmp = a.namespace.localeCompare(b.namespace)
+    if (nsCmp !== 0) return nsCmp
+    return a.name.localeCompare(b.name)
+  })
   const byName = new Map<string, GatewayTool>()
-  for (const tool of tools) {
+  for (const tool of sorted) {
     if (!byName.has(tool.name)) {
       byName.set(tool.name, tool)
       continue

@@ -82,7 +82,18 @@ export const inspect = async (specifier: string): Promise<PluginPackage> => {
 const isLocalPath = (specifier: string): boolean =>
   specifier.startsWith('.') || specifier.startsWith('/') || isAbsolute(specifier)
 
-const sanitise = (value: string): string => value.replace(/[^a-zA-Z0-9._-]/g, '_')
+const sanitise = (value: string): string => redactCredentials(value).replace(/[^a-zA-Z0-9._-]/g, '_')
+
+/**
+ * Redacts credentials from a package specifier or error text so secrets
+ * embedded in URLs (e.g. `git+https://token@host/repo.git` or `?token=...`)
+ * do not leak into error messages, logs, or transcripts.
+ */
+const redactCredentials = (text: string): string =>
+  text
+    .replace(/:\/\/[^/@?#\s:]*(?::[^/@?#\s]*)?@/g, '://[redacted]@')
+    .replace(/([?&](?:password|passwd|pwd|pass|secret|token|access_token|id_token|refresh_token|auth|authorization|apikey|api_key|key)=)[^&#\s]+/gi, '$1[redacted]')
+    .replace(/(^|[^a-zA-Z0-9])(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp|github_pat)[-_][A-Za-z0-9_-]{8,}\b/g, '$1[redacted]')
 
 /**
  * Fetches an npm package into a directory.
@@ -99,14 +110,14 @@ const fetchFromNpm = async (specifier: string, target: string): Promise<void> =>
       timeout: 120_000,
     })
     const tarball = stdout.trim().split('\n').pop()
-    if (!tarball) throw new InstallError(`npm pack produced nothing for ${specifier}`)
+    if (!tarball) throw new InstallError(redactCredentials(`npm pack produced nothing for ${specifier}`))
     await run('tar', ['-xzf', join(target, tarball), '-C', target, '--strip-components', '1'], {
       timeout: 120_000,
     })
     await rm(join(target, tarball), { force: true })
   } catch (error) {
     if (error instanceof InstallError) throw error
-    throw new InstallError(`Could not fetch ${specifier} from npm: ${String(error)}`)
+    throw new InstallError(redactCredentials(`Could not fetch ${specifier} from npm: ${String(error)}`))
   }
 }
 

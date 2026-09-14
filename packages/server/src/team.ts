@@ -752,7 +752,10 @@ export class Team {
           nicknames: { ...(raw.nicknames ?? {}) },
           roles: { ...(raw.roles ?? {}) },
           roster: { ...(raw.roster ?? {}) },
-          intents: [...raw.intents],
+          intents: (raw.intents ?? []).map((intent: Intent) => ({
+            ...intent,
+            files: Array.isArray(intent.files) ? intent.files : [],
+          })),
           // A `queued` row waits on an in-memory delivery, and this is a
           // fresh memory: left as it was it would read "queued" forever.
           // Refused-with-the-reason is the honest state — nothing is
@@ -3274,6 +3277,8 @@ export class Team {
   /** Live claims whose files overlap these paths, excluding the caller's own. */
   #conflictsWith(board: Board, paths: readonly string[], caller: TeamPeer): string[] {
     const hits: string[] = []
+    const cleanPaths = Array.isArray(paths) ? paths : []
+    if (cleanPaths.length === 0) return hits
     for (const intent of board.intents) {
       if (intent.state !== 'claimed' || !intent.claim) continue
       if (intent.claim.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId) {
@@ -3286,9 +3291,11 @@ export class Team {
          found. A claim that can be taken over has already stopped owning
          things; the two rules have to agree. */
       if (this.#stranded(intent)) continue
-      const overlap = intent.files.some((owned) => paths.some((path) => overlaps(owned, path)))
+      const ownedFiles = Array.isArray(intent.files) ? intent.files : []
+      if (ownedFiles.length === 0) continue
+      const overlap = ownedFiles.some((owned) => cleanPaths.some((path) => overlaps(owned, path)))
       if (overlap) {
-        hits.push(`${intent.files.join(', ')} is held by #${intent.id} (${this.#holderName(board, intent)})`)
+        hits.push(`${ownedFiles.join(', ')} is held by #${intent.id} (${this.#holderName(board, intent)})`)
       }
     }
     return hits

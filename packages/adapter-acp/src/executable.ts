@@ -100,18 +100,14 @@ const printedVersion = (path: string, args: readonly string[]): Promise<string |
 /**
  * `2.1.240 (Claude Code)` → `2.1.240`; anything without a triple is kept whole.
  *
- * The pre-release part is dot-*separated* identifiers, never a run of word
- * characters and dots: `[\w.]+` swallowed the full stop that ends a sentence,
- * and GitHub Copilot prints its version in one — "GitHub Copilot CLI
- * 1.0.84-5." — so the release it reported was `1.0.84-5.`, a version that
- * exists nowhere, shown wherever a copy names itself. Each identifier must
- * now have something in it, which is what makes the trailing stop punctuation
- * again while `0.149.0-alpha.4.1` stays whole.
+ * Strips trailing periods and hyphens so sentences ending in a version (like
+ * GitHub Copilot's "GitHub Copilot CLI 1.0.84-5.") don't include the trailing stop,
+ * while SemVer prerelease hyphens and build metadata are preserved (#642).
  */
 export const versionIn = (printed: string | null): string | null => {
   if (!printed) return null
-  const match = /\d+\.\d+\.\d+(?:[-+]\w+(?:\.\w+)*)?/.exec(printed)
-  return match ? match[0] : printed.trim() || null
+  const match = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/.exec(printed)
+  return match ? match[0].replace(/[.-]+$/, '') : printed.trim() || null
 }
 
 export const resolveExecutable = async (

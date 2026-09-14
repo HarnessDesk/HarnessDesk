@@ -64,6 +64,12 @@ export class Transport {
     if (this.#reconnectTimer !== null) window.clearTimeout(this.#reconnectTimer)
     this.#socket?.close()
     this.#socket = null
+    this.#queue = []
+    const pending = [...this.#pending.values()]
+    this.#pending.clear()
+    for (const entry of pending) {
+      entry.reject(new Error('The connection to HarnessDesk was lost.'))
+    }
     this.#setStatus('closed')
   }
 
@@ -113,8 +119,19 @@ export class Transport {
       const pending = this.#pending.get(message.id)
       if (!pending) return
       this.#pending.delete(message.id)
-      if (message.ok) pending.resolve(message.result)
-      else pending.reject(rejectionFor(message.error))
+      if (message.ok) {
+        pending.resolve(message.result)
+      } else {
+        try {
+          pending.reject(rejectionFor(message.error))
+        } catch {
+          pending.reject(
+            Object.assign(new Error(String(message.error?.message ?? 'Request failed')), {
+              code: message.error?.code,
+            }),
+          )
+        }
+      }
     })
 
     socket.addEventListener('close', () => {
@@ -124,6 +141,7 @@ export class Transport {
       // them is better than leaving spinners forever.
       const pending = [...this.#pending.values()]
       this.#pending.clear()
+      this.#queue = []
       for (const entry of pending) {
         entry.reject(new Error('The connection to HarnessDesk was lost.'))
       }
@@ -167,9 +185,15 @@ export const rejectionFor = (error: WireError): Error =>
  * the same banner ending in why it failed is.
  */
 export const sentenceOf = (error: WireError): string => {
-  const details = error.details?.trim()
-  if (!details || details === error.message) return error.message
-  return `${error.message} — ${details}`
+  const details =
+    typeof error?.details === 'string'
+      ? error.details.trim()
+      : typeof error?.details === 'number' || typeof error?.details === 'boolean'
+        ? String(error.details).trim()
+        : null
+  const message = typeof error?.message === 'string' ? error.message : 'Request failed'
+  if (!details || details === message) return message
+  return `${message} — ${details}`
 }
 
 /**

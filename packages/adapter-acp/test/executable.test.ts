@@ -11,6 +11,9 @@ import { resolveExecutable, versionIn } from '../src/executable.js'
 test('versionIn pulls the release triple out of whatever --version printed', () => {
   assert.equal(versionIn('2.1.240 (Claude Code)'), '2.1.240')
   assert.equal(versionIn('codex-cli 0.149.0-alpha.4.1'), '0.149.0-alpha.4.1')
+  assert.equal(versionIn('tool 1.0.0-alpha-1.'), '1.0.0-alpha-1')
+  assert.equal(versionIn('agent 1.0.0-rc-2+build-10.'), '1.0.0-rc-2+build-10')
+  assert.equal(versionIn('agent 1.0.0+build-10.'), '1.0.0+build-10')
   assert.equal(versionIn('2026.08.11-e8db854'), '2026.08.11-e8db854')
   // A version printed inside a sentence: the stop that ends it is not part of
   // the pre-release. GitHub Copilot prints exactly this.
