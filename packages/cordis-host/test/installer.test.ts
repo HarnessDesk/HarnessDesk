@@ -16,6 +16,7 @@ import {
   loadInstalled,
   parseManifest,
   readPermissions,
+  sanitise,
   uninstall,
 } from '../src/index.js'
 
@@ -160,6 +161,32 @@ test('npm fetch failure error does not leak credentials in package specifiers', 
       return true
     },
   )
+})
+
+test('sanitise strips credential fragments from staging directory names', () => {
+  // URLs with auth token
+  const tokenSpecifier = 'git+https://ghp_secretToken12345678@example.test/private/plugin.git' // hd-secrets-ok
+  const sanitisedToken = sanitise(tokenSpecifier)
+  assert.ok(!sanitisedToken.includes('ghp_secretToken12345678'), `staging directory leaked token: ${sanitisedToken}`) // hd-secrets-ok
+
+  // URLs with username and password
+  const userPassSpecifier = 'git+https://myuser:secretpassword123@example.test/repo.git'
+  const sanitisedUserPass = sanitise(userPassSpecifier)
+  assert.ok(!sanitisedUserPass.includes('secretpassword123'), `staging directory leaked password: ${sanitisedUserPass}`)
+
+  // SCP syntax with credentials
+  const scpSpecifier = 'myuser:secretpassword123@github.com:org/repo.git'
+  const sanitisedScp = sanitise(scpSpecifier)
+  assert.ok(!sanitisedScp.includes('secretpassword123'), `staging directory leaked scp credential: ${sanitisedScp}`)
+
+  // Query parameter with signature/token
+  const querySpecifier = 'https://example.test/pkg.tgz?sig=secret12345'
+  const sanitisedQuery = sanitise(querySpecifier)
+  assert.ok(!sanitisedQuery.includes('secret12345'), `staging directory leaked query credential: ${sanitisedQuery}`)
+
+  // Standard packages retain their package identity
+  assert.equal(sanitise('@acme/sample@1.2.0'), '_acme_sample_1.2.0')
+  assert.equal(sanitise('lodash@^4.17.21'), 'lodash__4.17.21')
 })
 
 test('installing copies the plugin into HarnessDesk’s own directory', async (t) => {

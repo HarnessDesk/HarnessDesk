@@ -82,7 +82,23 @@ export const inspect = async (specifier: string): Promise<PluginPackage> => {
 const isLocalPath = (specifier: string): boolean =>
   specifier.startsWith('.') || specifier.startsWith('/') || isAbsolute(specifier)
 
-const sanitise = (value: string): string => redactCredentials(value).replace(/[^a-zA-Z0-9._-]/g, '_')
+export const sanitise = (value: string): string =>
+  redactCredentials(stripQuery(value)).replace(/[^a-zA-Z0-9._-]/g, '_')
+
+const stripQuery = (value: string): string => {
+  try {
+    const parsed = new URL(value)
+    if (parsed.search) {
+      parsed.search = ''
+      return parsed.toString()
+    }
+  } catch {
+    if (value.includes('://')) {
+      return value.replace(/\?[^#]*/, '')
+    }
+  }
+  return value
+}
 
 /**
  * Redacts credentials from a package specifier or error text so secrets
@@ -92,7 +108,8 @@ const sanitise = (value: string): string => redactCredentials(value).replace(/[^
 const redactCredentials = (text: string): string =>
   text
     .replace(/:\/\/[^/@?#\s:]*(?::[^/@?#\s]*)?@/g, '://[redacted]@')
-    .replace(/([?&](?:password|passwd|pwd|pass|secret|token|access_token|id_token|refresh_token|auth|authorization|apikey|api_key|key)=)[^&#\s]+/gi, '$1[redacted]')
+    .replace(/^([^/@:\s]+)(?::[^/@\s]*)?@([^/:\s]+):/g, '[redacted]@$2:')
+    .replace(/([?&](?:password|passwd|pwd|pass|secret|token|access_token|id_token|refresh_token|auth|authorization|apikey|api_key|key|sig|signature)=)[^&#\s]+/gi, '$1[redacted]')
     .replace(/(^|[^a-zA-Z0-9])(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp|github_pat)[-_][A-Za-z0-9_-]{8,}\b/g, '$1[redacted]')
 
 /**
