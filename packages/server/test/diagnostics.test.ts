@@ -37,6 +37,14 @@ test('credential-shaped strings are struck whole', () => {
     redact('{"apiKey":"very-secret-value","kept":"yes"}'),
     '{"apiKey":"[redacted]","kept":"yes"}',
   )
+  assert.equal(
+    redact('Authorization: Bearer mF_9.B5f-4.1JqM'),
+    'Authorization: Bearer [redacted]',
+  )
+  assert.equal(
+    redact('authorization: bearer secret-token-value'),
+    'authorization: bearer [redacted]',
+  )
 })
 
 test('the home directory reads as ~, work folders as [workspace], wherever they are', () => {
