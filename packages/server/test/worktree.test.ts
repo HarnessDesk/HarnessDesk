@@ -13,6 +13,7 @@ import {
   putBack,
   repositoryOf,
   samePath,
+  setGitRunnerForTest,
   slugify,
 } from '../src/worktree.js'
 
@@ -690,4 +691,40 @@ test('what git ignores is named before the folder goes, and a file is told from 
   // now say out loud before anyone presses it.
   await worktrees.remove(wt.path)
   await assert.rejects(() => stat(join(wt.path, '.env')))
+})
+
+test('list handles CRLF line endings from git worktree list porcelain on Windows (#469)', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const wt = await worktrees.create(repo, { name: 'second-worktree' })
+
+  // Inject CRLF into git runner for git worktree list --porcelain
+  const realRun = promisify(execFile)
+  setGitRunnerForTest(async (cwd, args) => {
+    const { stdout } = await realRun('git', ['-C', cwd, ...args], {
+      timeout: 30_000,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    if (args[0] === 'worktree' && args[1] === 'list' && args[2] === '--porcelain') {
+      return stdout.replace(/\n/g, '\r\n')
+    }
+    return stdout
+  })
+
+  try {
+    const list = await worktrees.list(repo)
+    assert.equal(list.length, 2, 'both worktrees returned without dropping intermediate records')
+    assert.equal(list[0]?.isMain, true, 'first worktree is main')
+    assert.equal(list[1]?.isMain, false, 'second worktree is not main')
+    for (const item of list) {
+      assert.ok(!item.path.includes('\r'), `path should not have carriage return: ${item.path}`)
+      if (item.branch) {
+        assert.ok(!item.branch.includes('\r'), `branch should not have carriage return: ${item.branch}`)
+      }
+      if (item.head) {
+        assert.ok(!item.head.includes('\r'), `head should not have carriage return: ${item.head}`)
+      }
+    }
+  } finally {
+    setGitRunnerForTest(null)
+  }
 })

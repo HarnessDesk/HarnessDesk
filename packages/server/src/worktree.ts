@@ -57,13 +57,27 @@ const describeChanges = (changes: WorktreeChanges): string => {
   return parts.join(', ') || 'no changes'
 }
 
-const git = async (cwd: string, args: readonly string[]): Promise<string> => {
+type GitRunner = (cwd: string, args: readonly string[]) => Promise<string>
+
+let gitRunner: GitRunner = async (cwd: string, args: readonly string[]): Promise<string> => {
   const { stdout } = await run('git', ['-C', cwd, ...args], {
     timeout: 30_000,
     maxBuffer: 8 * 1024 * 1024,
   })
   return stdout
 }
+
+export const setGitRunnerForTest = (runner: GitRunner | null): void => {
+  gitRunner = runner ?? (async (cwd: string, args: readonly string[]) => {
+    const { stdout } = await run('git', ['-C', cwd, ...args], {
+      timeout: 30_000,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    return stdout
+  })
+}
+
+const git: GitRunner = (cwd, args) => gitRunner(cwd, args)
 
 /**
  * Paths compared here are canonical, because git reports real paths and the
@@ -253,7 +267,8 @@ export const list = async (repoRoot: string, stateDir: string): Promise<Worktree
     })
     current = {}
   }
-  for (const line of porcelain.split('\n')) {
+  for (const rawLine of porcelain.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
     if (line.startsWith('worktree ')) {
       flush()
       current = { path: line.slice('worktree '.length) }
