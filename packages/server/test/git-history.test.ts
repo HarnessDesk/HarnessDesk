@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, beforeEach, test, type TestContext } from 'node:test'
@@ -183,6 +183,25 @@ test('search: file treats glob characters as characters', async () => {
   // And a bare star would match every path in every commit.
   const star = await log(dir, { query: '*', search: 'file' })
   assert.equal(star.commits.length, 0)
+})
+
+test('search: file normalises Windows backslashes in search queries (#466)', async () => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  const sub = join(dir, 'src', 'utils')
+  await mkdir(sub, { recursive: true })
+  await writeFile(join(sub, 'date.ts'), 'export const a = 1\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'add date utility')
+
+  // Searching by Windows backslash path must find commits modifying that path
+  const byDir = await log(dir, { query: 'src\\utils', search: 'file' })
+  assert.equal(byDir.commits.length, 1)
+  assert.equal(byDir.commits[0]?.subject, 'add date utility')
+
+  const byFile = await log(dir, { query: 'src\\utils\\date.ts', search: 'file' })
+  assert.equal(byFile.commits.length, 1)
+  assert.equal(byFile.commits[0]?.subject, 'add date utility')
 })
 
 test('a broken read throws instead of rendering an empty history', async () => {
