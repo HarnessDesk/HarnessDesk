@@ -579,5 +579,7 @@ export const currentNameOf = (known: Pick<KnownAgent, 'name' | 'formerNames'> | 
   known?.formerNames?.includes(name) ? known.name : name
 
 /** The known agent a CLI name belongs to, for rows that name only a command. */
-export const knownAgentByCommand = (command: string): KnownAgent | undefined =>
-  KNOWN_AGENTS.find((agent) => agent.cli.commands.includes(command))
+export const knownAgentByCommand = (command: string): KnownAgent | undefined => {
+  const name = command.replace(/\.(?:exe|cmd|bat|com)$/i, '').toLowerCase()
+  return KNOWN_AGENTS.find((agent) => agent.cli.commands.some((cmd) => cmd.toLowerCase() === name))
+}
