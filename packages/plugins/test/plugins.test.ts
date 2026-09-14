@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, type TestContext } from 'node:test'
 
-import { ExtensionKernel, type HarnessContext } from '@harnessdesk/cordis-host'
+import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '@harnessdesk/cordis-host'
 import { runtimeId, type ContributionId, type SessionId, type ToolResult } from '@harnessdesk/protocol'
 
 import {
@@ -1193,7 +1193,17 @@ const fakeRipgrep = async (t: TestContext, script: string): Promise<void> => {
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-fake-rg-'))
-  await writeFile(join(dir, 'rg'), `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+  await writeFile(
+    join(dir, 'rg'),
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "ripgrep 14.1.0"
+  exit 0
+fi
+${script}
+`,
+    { mode: 0o755 },
+  )
   const was = process.env['PATH']
   process.env['PATH'] = `${dir}:${was ?? ''}`
   t.after(async () => {
@@ -1328,3 +1338,58 @@ test('a test run the shell cut short says it did not finish, not that it exited 
   assert.match(verdict, /^FAIL — .+ did not finish\./)
   assert.doesNotMatch(verdict, /exited -1/)
 })
+
+test('hasRipgrep probes `rg --version` rather than `which rg` (#459)', async (t) => {
+  // On platforms without `which` (such as Windows) or where `which` is not installed,
+  // searching for `rg` via `which` fails with ENOENT even when `rg` is installed and on PATH.
+  // Probing `rg --version` directly checks if ripgrep can be run.
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-search-probe-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  let ranWhich = false
+  let ranRgVersion = false
+
+  const mockKernel = new ExtensionKernel()
+  t.after(() => mockKernel.dispose())
+  mockKernel.setWorkspace({ root: dir, branch: null })
+
+  // We can load searchPlugin with a mock or spy on shell service
+  // Or test searchPlugin directly in an isolated mock shell context
+  const runs: Array<{ command: string; args: readonly string[] }> = []
+  const customPlugin: HarnessPlugin = {
+    manifest: { id: 'search-probe-test', name: 'Probe Test', permissions: { workspace: { read: true, write: false }, shell: true } },
+    plugin: {
+      name: 'probe-test',
+      inject: ['tools', 'shell', 'workspace'],
+      apply(ctx: any) {
+        const origRun = ctx.shell.run.bind(ctx.shell)
+        ctx.shell.run = async (cmd: string, args: readonly string[] = [], opts: any = {}) => {
+          runs.push({ command: cmd, args })
+          if (cmd === 'which') {
+            ranWhich = true
+            return { stdout: '', stderr: 'which could not be run (ENOENT)', exitCode: -1 }
+          }
+          if (cmd === 'rg' && args[0] === '--version') {
+            ranRgVersion = true
+            return { stdout: 'ripgrep 14.1.0\n', stderr: '', exitCode: 0 }
+          }
+          return origRun(cmd, args, opts)
+        }
+      },
+    },
+  }
+
+  await mockKernel.load(customPlugin)
+  await mockKernel.load(searchPlugin)
+  await settle()
+
+  const searchTool = toolNamed(mockKernel, 'search_text')
+  await mockKernel.invokeTool(searchTool, { pattern: 'test' }, {})
+
+  assert.equal(ranWhich, false, 'hasRipgrep must not run `which rg`')
+  assert.equal(ranRgVersion, true, 'hasRipgrep must run `rg --version`')
+})
+
