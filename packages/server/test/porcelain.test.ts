@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -209,6 +209,24 @@ test('the working tree\'s diff names files a/ and b/, whatever the repository\'s
     assert.ok(read.includes('--- a/f.txt') && read.includes('+++ b/f.txt'), setting)
     await git('config', '--unset', setting)
   }
+})
+
+test('diff with path normalises Windows backslashes (#467)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-diff-backslash-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const git = (...args: string[]): Promise<{ stdout: string }> =>
+    run('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd: dir })
+  await git('init', '-q', '-b', 'main')
+  const sub = join(dir, 'src', 'utils')
+  await mkdir(sub, { recursive: true })
+  await writeFile(join(sub, 'date.ts'), 'export const a = 1\n')
+  await git('add', '.')
+  await git('commit', '-qm', 'base')
+  await writeFile(join(sub, 'date.ts'), 'export const a = 2\n')
+
+  const patch = await diff(dir, { path: 'src\\utils\\date.ts' })
+  assert.ok(patch.includes('diff --git a/src/utils/date.ts b/src/utils/date.ts'), 'diff should match backslash path')
+  assert.ok(patch.includes('+export const a = 2'))
 })
 
 test('every unmerged pair a merge can leave is one conflicted path, in the working tree', async (t) => {
