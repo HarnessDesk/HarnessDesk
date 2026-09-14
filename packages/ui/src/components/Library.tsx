@@ -13,6 +13,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { runtimeLabel } from '../lib/accounts'
+import { isPathInside } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import {
@@ -1075,7 +1076,7 @@ const Entry = ({
     const candidates = entry.copies.filter((copy) => !copy.hollow && copy.readBy.includes(runtime))
     if (candidates.length < 2) return null
     for (const root of scanOrder.get(runtime) ?? []) {
-      const hit = candidates.find((copy) => copy.path === root || copy.path.startsWith(`${root}/`))
+      const hit = candidates.find((copy) => isPathInside(copy.path, root))
       if (hit) return hit.path
     }
     return null

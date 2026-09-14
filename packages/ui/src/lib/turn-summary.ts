@@ -2,6 +2,7 @@ import type { AgentItem, ForgeReference, Turn } from '@harnessdesk/protocol'
 
 import { SHELL_TOOLS, shellCommandOf } from './group-items'
 import { changedFiles } from './handoff'
+import { relativeTo } from './paths'
 
 /**
  * What a finished turn amounts to, for the developer who did not watch it.
@@ -94,7 +95,7 @@ export const delegatedIn = (turn: Turn): { readonly tokens: number; readonly exa
 export const summariseTurn = (turn: Turn, cwd: string): TurnSummary | null => {
   if (turn.status === 'inProgress') return null
   const items = turn.items
-  const relative = (path: string): string => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
+  const relative = (path: string): string => relativeTo(path, cwd)
   const files = changedFiles(items).map((change) => relative(change.path))
 
   const runs = runsOf(items)

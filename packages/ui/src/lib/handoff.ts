@@ -2,6 +2,7 @@ import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
 import { HANDOFF_PREFIX, isHandoffSource, splitContext, wrapContext } from './context-envelope'
 import { countFileChange } from './diff'
+import { relativeTo } from './paths'
 import { applyPlanEdits, type PlanEdit } from './plan-edits'
 import { sessionPlan } from './todos'
 
@@ -303,8 +304,7 @@ export const buildHandoff = (source: HandoffSource, carry: Carry): string | null
   }
 
   if (files.length > 0) {
-    const relative = (path: string): string =>
-      path.startsWith(`${session.cwd}/`) ? path.slice(session.cwd.length + 1) : path
+    const relative = (path: string): string => relativeTo(path, session.cwd)
     const listed = files.slice(0, FILES_LIMIT)
     const rest = files.length - listed.length
     sections.push(

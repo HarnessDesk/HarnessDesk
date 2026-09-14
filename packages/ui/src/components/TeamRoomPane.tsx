@@ -34,6 +34,7 @@ import {
 import { AddMember } from './AddMember'
 import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
+import { isPathInside } from '../lib/paths'
 import { Conversation } from './Conversation'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
@@ -402,7 +403,7 @@ export const TeamRoomPane = ({
       root === ''
         ? 0
         : [...snapshot.sessions.values()].filter(
-            (one) => one.cwd === root || one.cwd.startsWith(`${root}/`),
+            (one) => isPathInside(one.cwd, root),
           ).length,
     [snapshot.sessions, root],
   )
