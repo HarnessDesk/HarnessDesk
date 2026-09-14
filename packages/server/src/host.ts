@@ -1145,8 +1145,12 @@ export class Host {
    */
   #openRoots(): string[] {
     return [
-      ...this.#state.state.workspaces.map((entry) => entry.path),
-      ...this.registry.snapshot().map((session) => session.cwd),
+      ...this.#state.state.workspaces
+        .map((entry) => entry?.path)
+        .filter((path): path is string => typeof path === 'string' && path.length > 0),
+      ...this.registry.snapshot()
+        .map((session) => session.cwd)
+        .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
     ]
   }
 
