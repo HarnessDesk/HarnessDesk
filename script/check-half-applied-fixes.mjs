@@ -119,25 +119,28 @@ export const checkUnvalidatedDeletions = (source, fileName = 'source.ts') => {
 
   const tmpdirVars = new Set()
 
+  const isPathOp = (name) =>
+    name === 'join' || name === 'resolve' || name.endsWith('.join') || name.endsWith('.resolve')
+
   const isTmpdirExpr = (node) => {
-    let hasTmp = false
-    const walk = (n) => {
-      if (hasTmp) return
-      if (ts.isCallExpression(n)) {
-        const text = n.expression.getText(sf)
-        if (text === 'tmpdir' || text.endsWith('.tmpdir')) {
-          hasTmp = true
-          return
-        }
+    if (ts.isCallExpression(node)) {
+      const text = node.expression.getText(sf)
+      if (text === 'tmpdir' || text.endsWith('.tmpdir')) return true
+      if (isPathOp(text)) {
+        return node.arguments.some((arg) => isTmpdirExpr(arg))
       }
-      if (ts.isIdentifier(n) && tmpdirVars.has(n.text)) {
-        hasTmp = true
-        return
-      }
-      ts.forEachChild(n, walk)
+      return false
     }
-    walk(node)
-    return hasTmp
+    if (ts.isIdentifier(node)) {
+      return tmpdirVars.has(node.text)
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      return isTmpdirExpr(node.left) || isTmpdirExpr(node.right)
+    }
+    if (ts.isTemplateExpression(node)) {
+      return node.templateSpans.some((span) => isTmpdirExpr(span.expression))
+    }
+    return false
   }
 
   let changed = true
