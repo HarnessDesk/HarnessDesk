@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { delimiter } from 'node:path'
+import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -240,3 +242,29 @@ test('the cache is only trusted for the shell it was written from', async () => 
     assert.equal(asked, 1)
   })
 })
+
+test('diskCache write does not follow preexisting pid temp symlink and overwrite outside files (#456)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-pathcache-tmp-'))
+  try {
+    const outside = join(dir, 'outside.txt')
+    writeFileSync(outside, 'outside-before')
+    symlinkSync(outside, join(dir, `path-cache.json.${process.pid}.tmp`))
+
+    const { settled } = applyLoginShellPath({
+      stateDir: dir,
+      env: { ...process.env, SHELL: '/bin/zsh', PATH: '/usr/bin' },
+      run: async () => '__HARNESSDESK_PATH__/opt/custom/bin__HARNESSDESK_PATH__',
+      timeoutMs: 50,
+    })
+    await settled
+
+    const outsideContent = readFileSync(outside, 'utf8')
+    assert.equal(outsideContent, 'outside-before', 'outside file must not be overwritten through symlink')
+
+    const cachePath = join(dir, 'path-cache.json')
+    assert.equal(lstatSync(cachePath).isSymbolicLink(), false, 'path-cache.json must not be a symlink')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+

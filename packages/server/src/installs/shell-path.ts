@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 
@@ -349,13 +350,22 @@ const diskCache = (stateDir: string): NonNullable<ShellPathOptions['cache']> => 
       }
     },
     write: (entry) => {
+      let tmp: string | undefined
       try {
         mkdirSync(dirname(file), { recursive: true })
-        const tmp = `${file}.${process.pid}.tmp`
-        writeFileSync(tmp, `${JSON.stringify(entry)}\n`, 'utf8')
+        tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
+        writeFileSync(tmp, `${JSON.stringify(entry)}\n`, { encoding: 'utf8', flag: 'wx' })
         renameSync(tmp, file)
       } catch {
         // A cache that cannot be written costs a probe next time, nothing more.
+      } finally {
+        if (tmp) {
+          try {
+            rmSync(tmp, { force: true })
+          } catch {
+            // Already renamed or never created.
+          }
+        }
       }
     },
   }
