@@ -620,11 +620,20 @@ export class Host {
    * without Codex installed should still open the app and explain itself.
    */
   register(runtime: AgentRuntime): void {
-    this.#runtimes.set(runtime.info.id, runtime)
+    const id = runtime.info.id
+    if (this.#runtimes.has(id)) {
+      this.#logger.warn('a runtime with this id was already registered; replacing it', {
+        runtime: id,
+      })
+      for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
+      this.#runtimeSubscriptions.delete(id)
+      this.#catalogs.forget(id)
+    }
+    this.#runtimes.set(id, runtime)
     this.#catalogs.watch(runtime)
-    this.#runtimeSubscriptions.set(runtime.info.id, [
-      runtime.subscribe((event) => this.#onEvent(runtime.info.id, event)),
-      runtime.onHealthChange((health) => this.#onHealthChange(runtime.info.id, health)),
+    this.#runtimeSubscriptions.set(id, [
+      runtime.subscribe((event) => this.#onEvent(id, event)),
+      runtime.onHealthChange((health) => this.#onHealthChange(id, health)),
       // A capability the agent only reveals by refusing it. Optional, so a
       // runtime whose description is settled at construction says nothing.
       ...(runtime.onInfoChange
@@ -632,7 +641,7 @@ export class Host {
             runtime.onInfoChange(() => {
               this.#push({
                 method: 'runtime/infoChanged',
-                params: { runtime: runtime.info.id, info: this.#infoOf(runtime) },
+                params: { runtime: id, info: this.#infoOf(runtime) },
               })
             }),
           ]
