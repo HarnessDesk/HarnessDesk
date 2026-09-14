@@ -7,11 +7,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ReadableStream } from 'node:stream/web'
@@ -55,6 +56,18 @@ const FRESH_MS = 6 * 60 * 60 * 1000
  * the leading letter rules out `.`, `..` and hidden names.
  */
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,128}$/
+
+/** Whether a file path is strictly a descendant of `parentDir`, resolving symlinks. */
+const isConfined = (candidate: string, parentDir: string): boolean => {
+  try {
+    const realParent = realpathSync(parentDir)
+    const realCandidate = realpathSync(candidate)
+    const rel = relative(realParent, realCandidate)
+    return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+  } catch {
+    return false
+  }
+}
 
 /* --- the document, structurally ------------------------------------------ */
 
@@ -499,7 +512,7 @@ export class AcpRegistry {
         `The registry entry's command ${JSON.stringify(build.cmd)} points outside its own folder — refused.`,
       )
     }
-    if (existsSync(cmd)) return cmd
+    if (existsSync(cmd) && isConfined(cmd, dir)) return cmd
     const staging = join(this.#installDir, agent.id, `.staging-${agent.version}-${process.pid}`)
     rmSync(staging, { recursive: true, force: true })
     mkdirSync(staging, { recursive: true })
@@ -520,6 +533,11 @@ export class AcpRegistry {
       const staged = join(staging, relative)
       if (!existsSync(staged)) {
         throw new Error(`The ${agent.name} archive unpacked, but ${build.cmd} was not inside it.`)
+      }
+      if (!isConfined(staged, staging)) {
+        throw new Error(
+          `The registry entry's command ${JSON.stringify(build.cmd)} points outside its own folder — refused.`,
+        )
       }
       // The archive has served its purpose; some of these are hundreds of
       // megabytes, and leaving one beside its unpacked twin doubles the bill.

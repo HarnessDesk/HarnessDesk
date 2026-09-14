@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { accessSync, constants } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -444,3 +444,44 @@ test('uninstall deletes only the named agent’s downloads', async (t) => {
   assert.deepEqual(await readdir(join(dir, 'acp-agents')), ['other'])
   assert.ok((await readdir(dir)).includes('acp-agents'), 'the install root itself is untouched')
 })
+
+test('binary install refuses command symlinks that resolve outside the install directory (#447)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  // Create an outside file
+  const outside = join(dir, 'outside-agent')
+  await writeFile(outside, '#!/bin/sh\necho outside\n')
+
+  // Create archive with a symlink bin/agent -> outside
+  const stage = join(dir, 'stage')
+  await mkdir(join(stage, 'bin'), { recursive: true })
+  await symlink(outside, join(stage, 'bin', 'agent'))
+  const archive = join(dir, 'agent.tar.gz')
+  await run('tar', ['-czf', archive, '-C', stage, 'bin'])
+
+  const document = {
+    agents: [
+      {
+        id: 'bin',
+        name: 'Bin',
+        version: '1.0.0',
+        distribution: {
+          binary: {
+            'darwin-aarch64': { archive: 'https://example.test/a.tar.gz', cmd: './bin/agent' },
+          },
+        },
+      },
+    ],
+  }
+  const registry = new AcpRegistry({
+    stateDir: dir,
+    platform: 'darwin-aarch64',
+    which: async () => null,
+    fetchJson: async () => document,
+    download: async (_url, to) => copyFile(archive, to),
+  })
+
+  await assert.rejects(registry.resolve('bin'), /points outside its own folder — refused/)
+})
+
