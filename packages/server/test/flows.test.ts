@@ -1576,4 +1576,21 @@ test('standDown inspects the latest run in a room and does not prematurely stand
   assert.doesNotMatch(waitResult, /^stand down — flow 1 finished/)
 })
 
+test('abandoning a flow card notifies flows engine to advance or settle the run (#434)', async (t) => {
+  const one = await rig(t)
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
+  const card1 = board(one).intents.find((i) => i.id === 1)
+  assert.ok(card1)
+  assert.equal(card1.state, 'open')
+
+  // Abandon the card via intentAction
+  await one.team.intentAction(one.room, 1, 'abandon')
+  await one.flows.flush()
+
+  const runs = one.flows.runsFor(one.room)
+  assert.equal(runs[0]?.state, 'settled')
+})
+
+
 
