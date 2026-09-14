@@ -275,3 +275,47 @@ test('a quote is only stripped as a surrounding pair, and never off Windows', ()
     '"/opt/quoted"/tool',
   )
 })
+
+test('on Windows a command with a path resolves extensions from PATHEXT (#463)', () => {
+  // Case 1: Path without extension resolves to executable with PATHEXT extension
+  const foundExe = whichOnPath('C:\\tools\\tool', {
+    platform: 'win32',
+    env: { PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+    runnable: onlyCaseless('C:\\tools\\tool.exe'),
+  })
+  assert.equal(foundExe?.toLowerCase(), 'c:\\tools\\tool.exe')
+
+  // Case 2: Node on Windows ships both `npx` (POSIX shell script) and `npx.cmd` in the same directory.
+  // When called with a path like C:\Program Files\nodejs\npx, it must resolve to npx.cmd rather than the extensionless script.
+  const foundNpx = whichOnPath('C:\\Program Files\\nodejs\\npx', {
+    platform: 'win32',
+    env: { PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+    runnable: onlyCaseless('C:\\Program Files\\nodejs\\npx', 'C:\\Program Files\\nodejs\\npx.cmd'),
+  })
+  assert.equal(foundNpx?.toLowerCase(), 'c:\\program files\\nodejs\\npx.cmd')
+
+  // Case 3: Relative path with backslashes
+  const foundRel = whichOnPath('.\\bin\\tool', {
+    platform: 'win32',
+    env: { PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+    runnable: onlyCaseless('.\\bin\\tool.cmd'),
+  })
+  assert.equal(foundRel?.toLowerCase(), '.\\bin\\tool.cmd')
+
+  // Case 4: Non-executable ordinary file with path returns null
+  const foundNonExe = whichOnPath('C:\\project\\README.md', {
+    platform: 'win32',
+    env: { PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+    runnable: onlyCaseless('C:\\project\\README.md'),
+  })
+  assert.equal(foundNonExe, null)
+
+  // Case 5: Path with extension already matching PATHEXT is preserved as written
+  const foundAsWritten = whichOnPath('C:\\tools\\tool.exe', {
+    platform: 'win32',
+    env: { PATHEXT: '.COM;.EXE' },
+    runnable: onlyCaseless('C:\\tools\\tool.exe'),
+  })
+  assert.equal(foundAsWritten?.toLowerCase(), 'c:\\tools\\tool.exe')
+})
+
