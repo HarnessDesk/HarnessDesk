@@ -590,6 +590,7 @@ export class AcpRuntime implements AgentRuntime {
 
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
+  readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
@@ -986,6 +987,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#disposed = true
     await this.#connection.stop()
     this.#sessions.clear()
+    this.#resuming.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -1852,39 +1854,51 @@ export class AcpRuntime implements AgentRuntime {
   async resumeSession(id: SessionId): Promise<AgentSession> {
     const live = this.#sessions.get(id)
     if (live) return live
-    const capabilities = this.#initialized?.agentCapabilities
-    if (!capabilities?.loadSession && !capabilities?.sessionCapabilities?.resume) {
-      throw new SessionGoneError(
-        `${this.#config.name} cannot resume ${id}: the agent keeps no session store.`,
-      )
-    }
-    // The load replays the whole conversation as session/update notifications
-    // before its response returns, so the session must exist — in replay mode,
-    // folding updates into history turns without emitting live events — from
-    // the moment the request is sent.
-    const cwd = await this.#cwdOf(id)
-    // A stored session names the folder it ran in, and loading it starts the
-    // agent there. Once that folder is deleted the spawn fails deep inside the
-    // agent and comes back as a bare "Internal error" that names nothing —
-    // so it is checked here, while the folder's name is still in hand.
-    if (!isDirectory(cwd)) {
-      // Named on the wire as well as in the sentence: this is the one refusal
-      // with somewhere to go afterwards, and the interface offers that by the
-      // code rather than by recognising the words. See `SessionFolderGoneError`.
-      throw new SessionFolderGoneError(
-        `${this.#config.name} cannot open this conversation: its folder no longer exists (${cwd}).`,
-        cwd,
-      )
-    }
-    const session = AcpSession.forReplay(this, id, cwd)
-    this.#sessions.set(id, session)
+    const inFlight = this.#resuming.get(id)
+    if (inFlight) return inFlight
+
+    const run = (async () => {
+      const capabilities = this.#initialized?.agentCapabilities
+      if (!capabilities?.loadSession && !capabilities?.sessionCapabilities?.resume) {
+        throw new SessionGoneError(
+          `${this.#config.name} cannot resume ${id}: the agent keeps no session store.`,
+        )
+      }
+      // The load replays the whole conversation as session/update notifications
+      // before its response returns, so the session must exist — in replay mode,
+      // folding updates into history turns without emitting live events — from
+      // the moment the request is sent.
+      const cwd = await this.#cwdOf(id)
+      // A stored session names the folder it ran in, and loading it starts the
+      // agent there. Once that folder is deleted the spawn fails deep inside the
+      // agent and comes back as a bare "Internal error" that names nothing —
+      // so it is checked here, while the folder's name is still in hand.
+      if (!isDirectory(cwd)) {
+        // Named on the wire as well as in the sentence: this is the one refusal
+        // with somewhere to go afterwards, and the interface offers that by the
+        // code rather than by recognising the words. See `SessionFolderGoneError`.
+        throw new SessionFolderGoneError(
+          `${this.#config.name} cannot open this conversation: its folder no longer exists (${cwd}).`,
+          cwd,
+        )
+      }
+      const session = AcpSession.forReplay(this, id, cwd)
+      this.#sessions.set(id, session)
+      try {
+        const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', { sessionId: id, cwd })
+        session.finishReplay(loaded)
+        return session
+      } catch (error) {
+        this.#sessions.delete(id)
+        throw error
+      }
+    })()
+
+    this.#resuming.set(id, run)
     try {
-      const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', { sessionId: id, cwd })
-      session.finishReplay(loaded)
-      return session
-    } catch (error) {
-      this.#sessions.delete(id)
-      throw error
+      return await run
+    } finally {
+      this.#resuming.delete(id)
     }
   }
 
