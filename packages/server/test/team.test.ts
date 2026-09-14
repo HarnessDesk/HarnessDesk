@@ -914,6 +914,20 @@ test('a deleted room says what went, and leaves the conversations alone', async 
   )
 })
 
+test('deleteRoom stands down active await_work waiters immediately (#436)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+
+  const waitingPromise = team.awaitWork(codex, { blockMs: 2000 })
+  await team.deleteRoom(room)
+
+  const result = await waitingPromise
+  assert.equal(result, 'stand down — the room was deleted')
+
+  const nextResult = await team.awaitWork(codex)
+  assert.equal(nextResult, 'stand down — the room was deleted')
+})
+
 test('a delete that cannot reach the disk is refused, not acknowledged', async (t) => {
   /* `deleteRoom` dropped the board from memory and returned success while the
      unlink was still queued, and the writer swallowed its own failure — with

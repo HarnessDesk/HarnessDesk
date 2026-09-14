@@ -305,7 +305,7 @@ export interface TeamFlows {
    * null while its run is still going. The one thing that may end a standing
    * order's turn, so it is the flow engine's to say and nobody else's.
    */
-  standDown(room: string | undefined, runtime: string, sessionId: string): string | null
+  standDown(room: string, runtime: string, sessionId: string): string | null
   /** The room was deleted: stop any flow runs in it and release their seats. */
   deleteRoom?(room: string): void
 }
@@ -630,6 +630,7 @@ export class Team {
    * docs/multi-agent.md safety rule 2, at the grain the host can enforce.
    */
   readonly #deniedInTurn = new Set<string>()
+  readonly #deletedMembers = new Map<string, string>()
   #waiters = new Set<Waiter>()
   #writes: Promise<void> = Promise.resolve()
   /** Latest content per file; a burst of mutations becomes one write. */
@@ -1541,8 +1542,8 @@ export class Team {
     const caller = this.#caller(scope)
     const board = this.#roomOf(caller.runtime, caller.sessionId)
     if (!board) {
-      const done = this.#flows?.standDown(undefined, caller.runtime, caller.sessionId) ?? null
-      if (done) return `stand down — ${done}`
+      const deletedReason = this.#deletedMembers.get(keyOf(caller.runtime, caller.sessionId))
+      if (deletedReason) return `stand down — ${deletedReason}`
       throw new Error(NOT_IN_ROOM)
     }
     const cycle = Number.isFinite(options.cycle) ? Math.max(0, Math.trunc(options.cycle as number)) : 0
@@ -1726,8 +1727,9 @@ export class Team {
    * room is; either way a tool call held open across it is a turn that never
    * ends.
    */
-  stopWaiting(reason: string): void {
+  stopWaiting(reason: string, room?: string): void {
     for (const waiter of [...this.#waiters]) {
+      if (room && waiter.board !== room) continue
       if (waiter.timer) clearTimeout(waiter.timer)
       this.#waiters.delete(waiter)
       waiter.resolve(`stand down — ${reason}`)
@@ -2735,6 +2737,7 @@ export class Team {
   ): Promise<void> {
     const board = this.#boardById(id)
     const key = keyOf(runtime, sessionId)
+    this.#deletedMembers.delete(key)
     const live = this.#port
       .peers()
       .find((one) => one.runtime === runtime && one.sessionId === sessionId)
@@ -2917,13 +2920,17 @@ export class Team {
     }
     this.#port.removed(id)
     this.#flows?.deleteRoom?.(id)
+    for (const member of board.members) {
+      const { runtime, id: sessId } = splitSessionKey(member as SessionKey)
+      const standDown = this.#flows?.standDown(id, runtime, String(sessId)) ?? 'the room was deleted'
+      this.#deletedMembers.set(member, standDown)
+    }
     for (const waiter of [...this.#waiters]) {
       if (waiter.board === id) {
         if (waiter.timer) clearTimeout(waiter.timer)
         this.#waiters.delete(waiter)
-        const { runtime, id: sessId } = splitSessionKey(waiter.key as SessionKey)
-        const standDown = this.#flows?.standDown(id, runtime, String(sessId)) ?? 'the room was deleted'
-        waiter.resolve(`stand down — ${standDown}`)
+        const reason = this.#deletedMembers.get(waiter.key) ?? 'the room was deleted'
+        waiter.resolve(`stand down — ${reason}`)
       }
     }
     return gone

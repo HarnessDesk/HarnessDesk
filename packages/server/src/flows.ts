@@ -867,14 +867,11 @@ export class Flows implements TeamFlows {
   }
 
   /** Why this seat should stop waiting — the one thing that may end its turn. */
-  standDown(room: string | undefined, runtime: string, sessionId: string): string | null {
+  standDown(room: string, runtime: string, sessionId: string): string | null {
     const key = `${runtime}\u0000${sessionId}`
     const runs = [...this.#runs.values()]
       .filter(
-        (one) =>
-          (!room || one.room === room) &&
-          Array.isArray(one.seats) &&
-          one.seats.some((seat) => seat.key === key),
+        (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
       )
       .sort((a, b) => a.startedAt - b.startedAt)
     if (runs.length === 0) return null

@@ -1669,6 +1669,21 @@ test('deleting a room stops active flow runs and allows seats to stand down (#41
   assert.match(waiterResult, /^stand down — the room this flow ran in was deleted/)
 })
 
+test('stopping a flow and leaving a room does not cause awaitWork to return stale stand down (#419 regression)', async (t) => {
+  const one = await rig(t)
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  const seat = one.seated[0]!
+  assert.ok(seat)
 
+  // 1. Stop the run manually
+  await one.flows.stop(run.id, 'manual stop')
 
+  // 2. Member leaves room
+  await one.team.leaveRoom(one.room, seat.runtime as never, seat.sessionId)
 
+  // 3. awaitWork must throw NOT_IN_ROOM, not return stale stand down from historical run
+  await assert.rejects(
+    () => one.team.awaitWork({ runtime: seat.runtime, sessionId: seat.sessionId }),
+    /not in a room/i,
+  )
+})
