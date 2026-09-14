@@ -1060,6 +1060,10 @@ export class Flows implements TeamFlows {
     const isAbs = check.cwd ? isAbsolute(check.cwd) || check.cwd.startsWith('/') || /^[A-Za-z]:[\\/]/.test(check.cwd) : false
     const cwd = check.cwd ? (isAbs ? check.cwd : join(baseCwd, check.cwd)) : baseCwd
     for (const intent of round.intents) {
+      const current = this.#runs.get(id)
+      if (!current || current.state !== 'running') return
+      const card = board.intents.find((c) => c.id === intent)
+      if (card && (card.state === 'done' || card.state === 'abandoned')) continue
       const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
       const note =
@@ -1223,12 +1227,15 @@ export class Flows implements TeamFlows {
    * rounds correct, its cards where they should be, and every seat that had
    * stopped still stopped. `#armFor` only wakes a seat that is out of its
    * turn and has work — one holding a card, or one whose round is open — so a
-   * healthy run wakes nobody.
+   * healthy run wakes nobody. Open check rounds are also resumed here: a check
+   * has no seat to wake, so without `#runChecks` a run interrupted during a
+   * check round stayed deadlocked on its open card forever (#437).
    */
   async resume(): Promise<void> {
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running') continue
       await this.#armFor(run.id)
+      await this.#runChecks(run.id)
     }
   }
 

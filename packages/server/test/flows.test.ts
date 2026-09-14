@@ -52,6 +52,8 @@ interface Rig {
   refuseSeat?: string
   /** What the runtime says about every seat's last turn, when it went badly. */
   turnFailed?: string
+  /** An error for port.run to throw, simulating a crash during a check command. */
+  throwOnRun?: Error
 }
 
 const peerOf = (runtime: string, sessionId: string, cwd: string, model: string): TeamPeer => ({
@@ -134,6 +136,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
       return path
     },
     run: async (command, where) => {
+      if (rig.throwOnRun) throw rig.throwOnRun
       ran.push({ command, cwd: where.cwd })
       return { status: exits.get(command) ?? 0 }
     },
@@ -1624,6 +1627,7 @@ test('Flows.load stops running flows whose room no longer exists (#441)', async 
     log: () => {},
   })
   await second.load()
+  await second.flush()
   const run = second.runsFor('non-existent-room-id')[0]
   assert.ok(run)
   assert.equal(run.state, 'stopped')
@@ -1686,4 +1690,128 @@ test('stopping a flow and leaving a room does not cause awaitWork to return stal
     () => one.team.awaitWork({ runtime: seat.runtime, sessionId: seat.sessionId }),
     /not in a room/i,
   )
+})
+
+test('restart recovers and runs check round opened by a rule (#437)', async (t) => {
+  const one = await rig(t)
+  const GATED = `
+name: Gate it
+roles:
+  fixer: { kind: agent, seat: cursor, outcomes: [published, cannot], permission: publish }
+  tests:
+    kind: check
+    run: pnpm verify
+    exits: { 0: pass }
+    otherwise: fail
+seed: { role: fixer, title: Fix it }
+rules:
+  - { id: gate, on: fixer, when: { every: published }, then: { role: tests, title: Run the gate } }
+  - { id: back, on: tests, when: { any: pass }, then: { role: fixer, title: All done } }
+`
+  await one.flows.start({ room: one.room, source: GATED })
+  const fixer = seatsOf(one, 'fixer')[0]!
+  await one.team.claimNext(fixer)
+
+  // Simulate a crash/failure during the check command when the rule fires:
+  one.throwOnRun = new Error('simulated process crash during check')
+  await one.team.complete(1, { outcome: 'published' }, fixer)
+  await one.flows.flush()
+
+  // The check round card was opened on the board and the run saved to disk:
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'open')
+
+  // Simulate desk restart:
+  const secondRan: { command: string; cwd: string }[] = []
+  const second = new Flows(join(one.dir, 'flows'), one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async (command, where) => {
+      secondRan.push({ command, cwd: where.cwd })
+      return { status: 0 }
+    },
+    changed: () => {},
+    log: () => {},
+  })
+  one.team.attachFlows(second)
+  await second.load()
+  await second.flush()
+
+  // On load, reconciliation does not run checks (agents may not be up):
+  assert.equal(secondRan.length, 0, 'load does not issue check commands')
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'open')
+
+  // On resume, the desk wakes seats and resumes open check commands:
+  await second.resume()
+  await second.flush()
+
+  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  assert.equal(secondRan[0]?.command, 'pnpm verify')
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'done')
+  assert.equal(board(one).intents.find((i) => i.id === 2)?.outcome, 'pass')
+  assert.equal(board(one).intents.find((i) => i.id === 3)?.title, 'All done')
+})
+
+test('restart recovers and runs interrupted seed check round (#437)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  const card = one.team.addIntentForFlow(one.room, { title: 'Run the gate first', role: 'tests' })
+  await writeFile(
+    join(flowDir, 'seed-run.json'),
+    JSON.stringify({
+      id: 'seed-run',
+      room: one.room,
+      flow: {
+        name: 'Seed Gate',
+        roles: [
+          { kind: 'check', id: 'tests', check: { run: 'pnpm verify', cwd: null, timeout: 30, exits: { '0': 'pass' }, otherwise: 'fail' }, outcomes: [] },
+          { kind: 'agent', id: 'fixer', count: 1, seat: 'cursor', outcomes: ['published', 'cannot'], permission: 'publish' },
+        ],
+        rules: [
+          { id: 'on-pass', on: 'tests', when: { any: 'pass' }, then: { role: 'fixer', title: 'All done' } },
+        ],
+        inputs: [],
+        seed: { role: 'tests', title: 'Run the gate first' },
+      },
+      state: 'running',
+      vars: {},
+      seats: [{ key: 'cursor\u0000x', role: 'fixer', runtime: 'cursor', sessionId: 'x', seat: 'cursor', spec: 'cursor', permission: 'publish', cwd: '/repo' }],
+      rounds: [{ role: 'tests', intents: [card.id], round: 0 }],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const secondRan: { command: string; cwd: string }[] = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async (command, where) => {
+      secondRan.push({ command, cwd: where.cwd })
+      return { status: 0 }
+    },
+    changed: () => {},
+    log: () => {},
+  })
+  one.team.attachFlows(second)
+  await second.load()
+  await second.flush()
+
+  assert.equal(secondRan.length, 0, 'load does not issue check commands')
+
+  await second.resume()
+  await second.flush()
+
+  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  assert.equal(secondRan[0]?.command, 'pnpm verify')
+  assert.equal(board(one).intents.find((i) => i.id === card.id)?.state, 'done')
+  assert.equal(board(one).intents.find((i) => i.id === card.id)?.outcome, 'pass')
 })
