@@ -1331,3 +1331,58 @@ test('readRoster refuses slots with home outside managed accounts directory (#43
   assert.equal(existsSync(victim), true, 'unrelated victim directory must not be deleted by pruneEmpty')
   assert.equal(existsSync(join(victim, 'important.txt')), true)
 })
+
+test('readRoster and remove refuse symlinked home pointing outside accounts directory (#592)', async (t) => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'accounts.json')
+  const accountsDir = join(root, 'accounts')
+  await mkdir(accountsDir, { recursive: true })
+
+  const sentinel = join(root, 'sentinel-dir')
+  await mkdir(sentinel, { recursive: true })
+  await writeFile(join(sentinel, 'precious.txt'), 'must survive')
+
+  const symlinkHome = join(accountsDir, 'codex-symlink')
+  const { symlink } = await import('node:fs/promises')
+  await symlink(sentinel, symlinkHome)
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      accounts: [
+        { id: 'codex-evil', agent: FAKE_RUNTIME_ID, home: symlinkHome, createdAt: Date.now() },
+      ],
+    }),
+  )
+
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 0, 'slots whose realpath escapes accounts directory must be refused on load')
+
+  // Calling pruneEmpty must not delete the target sentinel directory
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(existsSync(sentinel), true, 'sentinel directory must survive pruneEmpty')
+  assert.equal(existsSync(join(sentinel, 'precious.txt')), true)
+
+  // Direct remove() with purge must also check isUnder and refuse to delete the sentinel
+  const directSlot = slots.add(FAKE_RUNTIME_ID, join(root, 'primary'), root)
+  // Replace the created home with a symlink to sentinel
+  await rm(directSlot.home, { recursive: true, force: true })
+  await symlink(sentinel, directSlot.home)
+  slots.remove(directSlot.id, true)
+  assert.equal(existsSync(sentinel), true, 'sentinel directory must survive remove with purge')
+  assert.equal(existsSync(join(sentinel, 'precious.txt')), true)
+
+  // And if a symlink inside accounts points to another directory INSIDE accounts,
+  // removing it deletes only the symlink itself, not the contents of the target directory
+  const validTarget = join(accountsDir, 'valid-target')
+  await mkdir(validTarget, { recursive: true })
+  await writeFile(join(validTarget, 'data.txt'), 'preserve me')
+  const internalSlot = slots.add(FAKE_RUNTIME_ID, join(root, 'primary2'), root)
+  await rm(internalSlot.home, { recursive: true, force: true })
+  await symlink(validTarget, internalSlot.home)
+  slots.remove(internalSlot.id, true)
+  assert.equal(existsSync(internalSlot.home), false, 'symlink itself was removed')
+  assert.equal(existsSync(validTarget), true, 'internal target directory survived')
+  assert.equal(existsSync(join(validTarget, 'data.txt')), true)
+})
