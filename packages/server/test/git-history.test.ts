@@ -613,3 +613,27 @@ test('commitDiff names files a/ and b/, whatever the repository\'s diff settings
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('commitDiff normalises Windows backslashes in path and renamed path (#467)', async () => {
+  const dir = await tempDir()
+  await git(dir, 'init', '-q', '-b', 'main')
+  const sub = join(dir, 'src', 'utils')
+  await mkdir(sub, { recursive: true })
+  await writeFile(join(sub, 'date.ts'), 'export const a = 1\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'base')
+  await writeFile(join(sub, 'date.ts'), 'export const a = 2\n')
+  await git(dir, 'commit', '-qam', 'update')
+  const updateSha = await sha(dir, 'HEAD')
+
+  const patch = await commitDiff(dir, updateSha, 'src\\utils\\date.ts')
+  assert.ok(patch.includes('diff --git a/src/utils/date.ts b/src/utils/date.ts'), 'commitDiff should match backslash path')
+  assert.match(patch, /^\+export const a = 2/m)
+
+  // Also verify renames where client passes backslash path
+  await git(dir, 'mv', 'src/utils/date.ts', 'src/utils/renamed.ts')
+  await git(dir, 'commit', '-qm', 'rename')
+  const renameSha = await sha(dir, 'HEAD')
+  const renamePatch = await commitDiff(dir, renameSha, 'src\\utils\\renamed.ts')
+  assert.ok(renamePatch.includes('similarity index'), 'rename should be detected with backslash path')
+})

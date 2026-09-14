@@ -145,7 +145,7 @@ export const diff = async (
   // The a/ and b/ every reader of a patch expects, whatever diff.noprefix or diff.mnemonicPrefix says (#171).
   const args = ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/']
   if (options.staged) args.push('--cached')
-  if (options.path) args.push('--', options.path)
+  if (options.path) args.push('--', options.path.replaceAll('\\', '/'))
   try {
     return await git(root, args)
   } catch {
