@@ -3817,3 +3817,89 @@ test('the roster records a real model and ignores the automatic choice ("auto", 
   assert.equal(namedMember.model, 'gemini-3.8-flash', 'a real model is kept')
 })
 
+test('claimNext and conflict checks do not crash when a stored intent has files set to null (#504)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-team-intent-files-'))
+  let teamRef: Team | null = null
+  t.after(async () => {
+    if (teamRef) await teamRef.flush()
+    await rm(dir, { recursive: true, force: true })
+  })
+  const callerKey = sessionKey('codex', 'c1')
+  await writeFile(
+    join(dir, 'room.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'room',
+      name: 'Room',
+      root: '/repo',
+      members: [callerKey],
+      nextIntent: 3,
+      nextPlan: 1,
+      plans: [],
+      messaging: true,
+      intents: [
+        {
+          id: 1,
+          title: 'claimed work with null files',
+          detail: null,
+          state: 'claimed',
+          files: null,
+          dependsOn: [],
+          role: null,
+          outcome: null,
+          claim: { runtime: 'claude', sessionId: 'k1', at: 0, leaseUntil: Date.now() + 60000 },
+          blockedReason: null,
+          blockedBy: null,
+          handoff: null,
+          note: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+        {
+          id: 2,
+          title: 'open work with null files',
+          detail: null,
+          state: 'open',
+          files: null,
+          dependsOn: [],
+          role: null,
+          outcome: null,
+          claim: null,
+          blockedReason: null,
+          blockedBy: null,
+          handoff: null,
+          note: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      channel: [],
+      nicknames: {},
+      roles: {},
+      roster: { [callerKey]: { title: null, agent: 'Codex', cwd: '/repo', model: null, at: 0 } },
+    }),
+  )
+
+  const team = new Team(dir, {
+    peers: () => [
+      peer({ sessionId: 'c1', title: null, cwd: '/repo', agent: 'Codex', busy: false, canSteer: false, queuedByUser: 0, model: null, here: true }),
+      peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, title: null, cwd: '/repo', agent: 'Claude', busy: false, canSteer: false, queuedByUser: 0, model: null, here: true }),
+    ],
+    rootOf: async () => '/repo',
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  })
+  teamRef = team
+
+  await team.load()
+  assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 1)?.files, [])
+  assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 2)?.files, [])
+  const result = await team.claimNext(codex)
+  assert.match(result, /^Claimed #2 — open work with null files/)
+  assert.match(await team.conflicts(['src/any.ts'], codex), /^No live claim overlaps/)
+})
+
