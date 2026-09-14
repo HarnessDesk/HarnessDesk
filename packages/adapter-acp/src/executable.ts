@@ -100,8 +100,8 @@ const printedVersion = (path: string, args: readonly string[]): Promise<string |
 /** `2.1.240 (Claude Code)` → `2.1.240`; anything without a triple is kept whole. */
 export const versionIn = (printed: string | null): string | null => {
   if (!printed) return null
-  const match = /\d+\.\d+\.\d+(?:[-+][\w.]+)?/.exec(printed)
-  return match ? match[0] : printed.trim() || null
+  const match = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/.exec(printed)
+  return match ? match[0].replace(/[.-]+$/, '') : printed.trim() || null
 }
 
 export const resolveExecutable = async (
