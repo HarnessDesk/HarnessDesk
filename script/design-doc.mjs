@@ -47,7 +47,7 @@ export const leadComment = (source) => {
   if (!match) return ''
   return match[1]
     .split('\n')
-    .map((line) => line.replace(/^\s*\*ic?\s?/, '').replace(/^\s*\*\s?/, ''))
+    .map((line) => line.replace(/^\s*\*(?!\*)\s?/, ''))
     .join('\n')
     .replace(/^-{10,}\n(\S.*)$/gm, '### $1')
     .trim()
