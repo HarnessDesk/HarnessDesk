@@ -24,6 +24,7 @@ export {
   listInstalled,
   loadInstalled,
   pluginsRoot,
+  sanitise,
   uninstall,
   type InstalledPlugin,
 } from './installer.js'
