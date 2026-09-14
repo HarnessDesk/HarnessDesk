@@ -949,7 +949,13 @@ export class Flows implements TeamFlows {
       this.#save(id)
       return
     }
-    this.#open(current, fired.then.role, fired.then, fired.id, round.intents)
+    /* Only completed cards are dependencies for the next round: an abandoned
+       card has no context package to hand over, and passing it into dependsOn
+       leaves downstream cards blocked forever by the team graph (#440). */
+    const completedIntents = cards
+      .filter((card): card is NonNullable<typeof card> => card !== undefined && card.state === 'done')
+      .map((card) => card.id)
+    this.#open(current, fired.then.role, fired.then, fired.id, completedIntents)
     this.#save(id)
     /* The round that just opened is the moment a seat of that role is worth
        waking: it has work now, which it did not a second ago. */

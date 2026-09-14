@@ -1815,3 +1815,39 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
   assert.equal(board(one).intents.find((i) => i.id === card.id)?.state, 'done')
   assert.equal(board(one).intents.find((i) => i.id === card.id)?.outcome, 'pass')
 })
+
+test('round opened after abandoned card is not permanently blocked (#440)', async (t) => {
+  const one = await rig(t)
+  const FLOW = `
+name: Advance after abandon
+roles:
+  worker: { kind: agent, count: 2, seat: cursor, outcomes: [published, cannot], permission: publish }
+  reviewer: { kind: agent, count: 1, seat: cursor, outcomes: [approved, reject], permission: read }
+seed: { role: worker, title: Work }
+rules:
+  - { id: to-review, on: worker, when: { any: published }, then: { role: reviewer, title: Review } }
+`
+  await one.flows.start({ room: one.room, source: FLOW })
+  const workers = seatsOf(one, 'worker')
+  assert.equal(workers.length, 2)
+  const worker1 = workers[0]!
+  const reviewer = seatsOf(one, 'reviewer')[0]!
+
+  // Worker 1 claims and publishes card 1
+  await one.team.claimNext(worker1)
+  await one.team.complete(1, { outcome: 'published' }, worker1)
+
+  // Card 2 is abandoned by user/referee
+  await one.team.intentAction(one.room, 2, 'abandon')
+  await one.flows.flush()
+
+  // Card 3 should be open for the reviewer, not blocked by abandoned card 2:
+  const card3 = board(one).intents.find((i) => i.id === 3)
+  assert.ok(card3, 'review card was created')
+  assert.equal(card3.state, 'open', 'card 3 should be open, but was blocked')
+  assert.deepEqual(card3.dependsOn, [1], 'card 3 should only depend on completed cards')
+
+  // Reviewer can claim card 3
+  const claimed = await one.team.claimNext(reviewer)
+  assert.match(claimed, /^Claimed #3/)
+})
