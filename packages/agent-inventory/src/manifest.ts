@@ -64,7 +64,12 @@ export class LibraryManifest {
     try {
       const parsed = JSON.parse(raw) as Partial<ManifestFile>
       for (const entry of parsed.entries ?? []) {
-        if (typeof entry?.path === 'string' && typeof entry?.digest === 'string') {
+        if (
+          (entry?.kind === 'skill' || entry?.kind === 'mcp') &&
+          typeof entry?.name === 'string' &&
+          typeof entry?.path === 'string' &&
+          typeof entry?.digest === 'string'
+        ) {
           manifest.#entries.set(keyOf(entry.kind, entry.path, entry.name), entry)
         }
       }
