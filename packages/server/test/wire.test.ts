@@ -950,6 +950,38 @@ test('routes: credentials stay one-way, compatibility greys with a reason, and c
   assert.equal(harness.runtime.lastCreateOptions?.route, undefined)
 })
 
+test('app/state/set with null modelRoutes does not poison routes/list or routes/save (#426)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Poison modelRoutes with nulls and malformed entries via app/state/set
+  await client.call('app/state/set', {
+    patch: {
+      modelRoutes: [null, { bad: 'entry' }, null],
+    },
+  })
+
+  // routes/list with runtime should not crash on null entries
+  const routes = (await client.call('routes/list', { runtime: FAKE_RUNTIME_ID })) as unknown[]
+  assert.deepEqual(routes, [])
+
+  // routes/save should not crash on null entries
+  const saved = (await client.call('routes/save', {
+    name: 'Recovered Route',
+    endpoint: 'http://127.0.0.1:8080/v1',
+    wireProtocol: 'fakewire',
+    credentialRef: 'cred-1',
+  })) as { id: string }
+  assert.ok(saved.id)
+
+  // routes/delete should also not crash on null entries
+  await client.call('routes/delete', { id: saved.id })
+  const empty = (await client.call('routes/list', { runtime: FAKE_RUNTIME_ID })) as unknown[]
+  assert.deepEqual(empty, [])
+})
+
 test('a policy rule answers an approval before any human sees it, and the audit log remembers', async (t) => {
   const harness = await start()
   t.after(() => stop(harness))

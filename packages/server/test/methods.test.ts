@@ -309,6 +309,50 @@ test('routes/delete does not delete agent or gateway credentials referenced by a
   )
 })
 
+test('routes/list and routes/save tolerate null or malformed modelRoutes entries (#426)', async () => {
+  let stored: unknown = null
+  const malformedRoutes = [
+    null,
+    undefined,
+    'not-a-route',
+    { id: 'r1', name: 'Valid 1', endpoint: 'https://r1', wireProtocol: 'responses', credentialRef: 'c1' },
+    null,
+  ]
+  const runtime = fakeRuntime('acp')
+  const ctx = contextWith({
+    routes: {
+      list: () => malformedRoutes.filter((r): r is any => typeof r === 'object' && r !== null && 'id' in r && 'wireProtocol' in r),
+      usable: () => ({ usable: true }),
+    },
+    runtimes: {
+      get: () => runtime,
+    },
+    state: {
+      setPreferences: async (patch: { modelRoutes: unknown }) => {
+        stored = patch.modelRoutes
+      },
+    },
+    gateways: { stop: () => {} },
+    accounts: { gatewayCredentials: () => [] },
+    credentials: { describe: async () => [], delete: async () => {} },
+  })
+
+  const listed = (await dispatch(ctx, 'routes/list', { runtime: runtimeId('acp') })) as any[]
+  assert.equal(listed.length, 1)
+  assert.equal(listed[0].id, 'r1')
+
+  const saved = (await dispatch(ctx, 'routes/save', {
+    name: 'New Route',
+    endpoint: 'https://new',
+    wireProtocol: 'responses',
+    credentialRef: 'c2',
+  })) as { id: string }
+  assert.ok(saved.id)
+
+  await dispatch(ctx, 'routes/delete', { id: 'r1' })
+  assert.deepEqual(stored, [])
+})
+
 test('a message on an idle conversation is sent; on a working one it is queued and announced', async () => {
   const sent: unknown[] = []
   const announced: unknown[] = []
