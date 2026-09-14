@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { accessSync, constants } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -484,4 +484,28 @@ test('binary install refuses command symlinks that resolve outside the install d
 
   await assert.rejects(registry.resolve('bin'), /points outside its own folder — refused/)
 })
+
+test('cache write does not follow preexisting pid temp symlink and overwrite outside files (#455)', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+
+  const outside = join(dir, 'outside.txt')
+  await writeFile(outside, 'outside-before')
+  await symlink(outside, join(dir, `acp-registry.json.${process.pid}.tmp`))
+
+  const registry = new AcpRegistry({
+    stateDir: dir,
+    fetchJson: async () => ({ agents: [] }),
+    which: async () => null,
+  })
+  await registry.catalog(() => false)
+
+  const outsideContent = await readFile(outside, 'utf8')
+  assert.equal(outsideContent, 'outside-before', 'outside file must not be overwritten through symlink')
+
+  const cachePath = join(dir, 'acp-registry.json')
+  const stat = await lstat(cachePath)
+  assert.equal(stat.isSymbolicLink(), false, 'acp-registry.json must not be a symlink')
+})
+
 

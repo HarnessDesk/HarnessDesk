@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   chmodSync,
   createReadStream,
@@ -297,13 +297,22 @@ export class AcpRegistry {
   }
 
   #writeCache(entry: CacheFile): void {
+    let tmp: string | undefined
     try {
       mkdirSync(dirname(this.#cachePath), { recursive: true })
-      const tmp = `${this.#cachePath}.${process.pid}.tmp`
-      writeFileSync(tmp, `${JSON.stringify(entry)}\n`, 'utf8')
+      tmp = `${this.#cachePath}.${process.pid}.${randomUUID()}.tmp`
+      writeFileSync(tmp, `${JSON.stringify(entry)}\n`, { encoding: 'utf8', flag: 'wx' })
       renameSync(tmp, this.#cachePath)
     } catch (error) {
       this.#warn('the ACP registry cache could not be written', { error: String(error) })
+    } finally {
+      if (tmp) {
+        try {
+          rmSync(tmp, { force: true })
+        } catch {
+          // Already renamed or never created.
+        }
+      }
     }
   }
 
