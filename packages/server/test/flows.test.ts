@@ -1544,3 +1544,36 @@ test('Flows.stop does not crash when a run has non-array record data (#505)', as
   assert.equal(stopped.record[0]?.text, 'manual stop')
 })
 
+test('standDown inspects the latest run in a room and does not prematurely stand down seats in subsequent runs (#438)', async (t) => {
+  const one = await rig(t)
+  // 1. Start Flow 1 and stop it:
+  const run1 = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Flow 1' } })
+  assert.equal(run1.state, 'running')
+  const seat1 = one.seated[0]!
+  one.flows.stop(run1.id, 'flow 1 finished')
+  assert.equal(one.flows.runsFor(one.room)[0]?.state, 'stopped')
+
+  // 2. Start Flow 2 in the same room reusing the seat:
+  const run2 = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Flow 2' } })
+  assert.equal(run2.state, 'running')
+  // Reuse seat1 in run2:
+  const storedRun2 = one.flows.runsFor(one.room)[1]!
+  ;(storedRun2.seats as unknown as { role: string; seat: string; runtime: string; sessionId: string; cwd: string; key: string }[]).push({
+    role: 'fixer',
+    seat: 'cursor',
+    runtime: seat1.runtime,
+    sessionId: seat1.sessionId,
+    cwd: seat1.cwd,
+    key: `${seat1.runtime}\u0000${seat1.sessionId}`,
+  })
+
+  // 3. standDown for seat1 must return null while run2 is running:
+  const standDownReason = one.flows.standDown(one.room, seat1.runtime, seat1.sessionId)
+  assert.equal(standDownReason, null)
+
+  // 4. awaitWork for seat1 must not receive stand down from the older finished flow:
+  const waitResult = await one.team.awaitWork({ runtime: seat1.runtime, sessionId: seat1.sessionId })
+  assert.doesNotMatch(waitResult, /^stand down — flow 1 finished/)
+})
+
+
