@@ -67,6 +67,7 @@ import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { isStale } from '../lib/versions'
+import { isPathInside } from '../lib/paths'
 import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
@@ -3204,7 +3205,7 @@ export class AppStore {
    */
   async bringWorktreeHome(path: string): Promise<string | null> {
     const key = this.#snapshot.activeSessionKey
-    const inside = (cwd: string): boolean => cwd === path || cwd.startsWith(`${path}/`)
+    const inside = (cwd: string): boolean => isPathInside(cwd, path)
     // Read before asking: a refusal can take the folder with it, and then the
     // list is the one place that still says where home was.
     const listed = this.#snapshot.worktrees.some((entry) => entry.path === path)
@@ -3558,7 +3559,7 @@ export class AppStore {
       for (const pane of panes(this.#snapshot.layout.root)) {
         const key = sessionOf(pane)
         const session = key ? this.#snapshot.sessions.get(key) : undefined
-        if (session && (session.cwd === path || session.cwd.startsWith(`${path}/`))) {
+        if (session && isPathInside(session.cwd, path)) {
           this.closePane(pane.id)
         }
       }

@@ -394,3 +394,72 @@ describe('opening a copy of a conversation whose folder is gone', () => {
     expect(store.getSnapshot().notices.at(-1)?.message).toContain('Choose a project folder')
   })
 })
+
+describe('worktree pane cleanup on Windows-style paths (#638)', () => {
+  it('closes panes whose session cwd is inside the removed worktree using Windows separators and casing', async () => {
+    const worktreePath = 'C:\\repo\\worktree-feature'
+    const childCwd = 'c:\\Repo\\worktree-feature\\src'
+
+    const sessionKeyStr = sessionKey(RUNTIME, ID)
+    const mockSession = {
+      id: ID,
+      runtime: RUNTIME,
+      cwd: childCwd,
+      status: { type: 'idle' },
+      createdAt: 0,
+      updatedAt: 0,
+      turns: [],
+      itemsLoaded: true,
+    } as Session
+
+    answers['session/read'] = mockSession
+    answers['worktree/list'] = []
+    answers['worktree/remove'] = { branch: 'feature' }
+
+    await store.openSession(ID, { runtime: RUNTIME })
+    expect(store.getSnapshot().layout.root.kind).toBe('pane')
+
+    const success = await store.removeWorktree(worktreePath, true)
+    expect(success).toBe(true)
+
+    // The pane whose session lived in childCwd should be closed
+    const activeKey = store.getSnapshot().activeSessionKey
+    expect(activeKey).toBeNull()
+  })
+
+  it('closes conversations and updates workspace on bringHome with Windows paths', async () => {
+    const mainPath = 'C:\\repo\\main'
+    const worktreePath = 'C:\\repo\\worktree-feature'
+    const childCwd = 'c:\\Repo\\worktree-feature\\src'
+
+    const mockSession = {
+      id: ID,
+      runtime: RUNTIME,
+      cwd: childCwd,
+      status: { type: 'idle' },
+      createdAt: 0,
+      updatedAt: 0,
+      turns: [],
+      itemsLoaded: true,
+    } as Session
+
+    answers['session/read'] = mockSession
+    answers['worktree/list'] = [
+      { path: mainPath, branch: 'main', isMain: true },
+      { path: worktreePath, branch: 'feature', isMain: false },
+    ]
+    answers['worktree/bringHome'] = { root: mainPath, branch: 'feature', from: 'main' }
+    answers['session/create'] = session('s-2', mainPath)
+
+    await store.loadWorkspaces()
+    await store.openSession(ID, { runtime: RUNTIME })
+    expect(store.getSnapshot().activeSessionKey).toBe(KEY)
+
+    const result = await store.bringWorktreeHome(worktreePath)
+    expect(result).toBeNull()
+
+    // The pane pointed at childCwd should be closed
+    const activeKey = store.getSnapshot().activeSessionKey
+    expect(activeKey).toBeNull()
+  })
+})
