@@ -34,7 +34,7 @@ export const redactorFor = ({
   )
   return (text) => {
     let out = text
-      .replace(/\b(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp)[-_][A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+      .replace(/\b(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp|github_pat)[-_][A-Za-z0-9_-]{8,}\b/g, '[redacted]')
       .replace(/\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{8,}\b/g, '[redacted-jwt]')
       .replace(/("(?:password|token|secret|apiKey|api_key)"\s*:\s*")[^"]+(")/gi, '$1[redacted]$2')
     for (const root of cleaned) out = out.replaceAll(root, '[workspace]')
