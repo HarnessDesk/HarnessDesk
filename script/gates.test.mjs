@@ -12,6 +12,7 @@ import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-p
 import { checkNotices, installedLicence } from './check-notices.mjs'
 import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
+import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
 import { leadComment } from './design-doc.mjs'
@@ -1318,4 +1319,19 @@ test('checkNotices refuses when zero licence claims can be verified (#397)', () 
   assert.equal(result.checked, 0)
   assert.equal(result.skipped, 2)
   assert.ok(result.problems.some((p) => p.includes('No licence claims could be verified')))
+})
+
+test('DOCUMENTATION regex exempts design explorer and showcase on both POSIX and Windows paths (#486)', () => {
+  const posixExplorer = 'packages/ui/src/design/explorer/boards.tsx'
+  const posixShowcase = 'packages/ui/src/design/showcase/preview.tsx'
+  const winExplorer = 'packages\\ui\\src\\design\\explorer\\boards.tsx'
+  const winShowcase = 'packages\\ui\\src\\design\\showcase\\preview.tsx'
+
+  assert.equal(DOCUMENTATION.test(posixExplorer), true)
+  assert.equal(DOCUMENTATION.test(posixShowcase), true)
+  assert.equal(DOCUMENTATION.test(winExplorer), true)
+  assert.equal(DOCUMENTATION.test(winShowcase), true)
+
+  const nonExempt = 'packages\\ui\\src\\components\\BringHome.tsx'
+  assert.equal(DOCUMENTATION.test(nonExempt), false)
 })
