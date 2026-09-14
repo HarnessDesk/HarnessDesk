@@ -15,7 +15,7 @@ import {
   unifiedDiff,
   type WriteAgent,
 } from '../src/index.js'
-import { activeLockCountForTest } from '../src/writes.js'
+import { activeLockCountForTest, isSafeSkillRelativePath } from '../src/writes.js'
 
 /**
  * The write path.
@@ -834,7 +834,73 @@ test('manifest loader ignores entries with invalid kind or name (#451)', async (
   })
 })
 
+test('isSafeSkillRelativePath refuses Windows backslash, absolute, drive, UNC, and traversal paths (#458)', () => {
+  // Safe relative paths
+  assert.equal(isSafeSkillRelativePath('file.txt'), true)
+  assert.equal(isSafeSkillRelativePath('scripts/run.sh'), true)
+  assert.equal(isSafeSkillRelativePath('scripts/nested/deep.txt'), true)
+  assert.equal(isSafeSkillRelativePath('scripts\\run.sh'), true)
 
+  // Traversal with forward and backward slashes
+  assert.equal(isSafeSkillRelativePath('..'), false)
+  assert.equal(isSafeSkillRelativePath('../secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('..\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub/../../secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub\\..\\..\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub/..\\secret.txt'), false)
 
+  // Empty segments and root prefixes
+  assert.equal(isSafeSkillRelativePath(''), false)
+  assert.equal(isSafeSkillRelativePath('/file.txt'), false)
+  assert.equal(isSafeSkillRelativePath('\\file.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub//file.txt'), false)
+  assert.equal(isSafeSkillRelativePath('sub\\\\file.txt'), false)
 
+  // Absolute / drive paths
+  assert.equal(isSafeSkillRelativePath('C:\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('c:/secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('D:\\sub\\file.txt'), false)
 
+  // UNC forms
+  assert.equal(isSafeSkillRelativePath('\\\\server\\share\\secret.txt'), false)
+  assert.equal(isSafeSkillRelativePath('//server/share/secret.txt'), false)
+})
+
+test('skill extra files refuses Windows backslash path traversal (#458)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await writeFile(join(home, '.codex/skills/secret.txt'), 'PRIVATE_DATA')
+    await mkdir(join(sourcePath, 'scripts'), { recursive: true })
+    await writeFile(join(sourcePath, 'scripts/run.sh'), '#!/bin/sh\necho hi')
+
+    const targetPath = join(home, '.claude/skills/commit')
+    const forged: LibraryPlannedOp = {
+      id: 'op-traversal',
+      kind: 'skill',
+      name: 'commit',
+      action: 'create',
+      targetPath,
+      content: BODY,
+      sourcePath,
+      extraFiles: [
+        '..\\secret.txt',
+        'C:\\secret.txt',
+        'sub\\..\\..\\secret.txt',
+        '\\\\server\\share\\secret.txt',
+        'scripts/run.sh',
+      ],
+      guardDigest: null,
+      backup: false,
+    }
+    const results = await applyLibrary([forged], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'done')
+    // Legitimate extra file is copied
+    assert.equal(existsSync(join(targetPath, 'scripts/run.sh')), true)
+    // Traversal files must be skipped and never copied
+    assert.equal(existsSync(join(home, '.claude/skills/secret.txt')), false)
+    assert.equal(existsSync(join(targetPath, '..\\secret.txt')), false)
+    assert.equal(existsSync(join(targetPath, 'C:\\secret.txt')), false)
+    assert.equal(existsSync(join(targetPath, '\\\\server\\share\\secret.txt')), false)
+  })
+})
