@@ -360,6 +360,31 @@ describe('turns dropped under the window', () => {
         } as never,
       })
     }).not.toThrow()
+
+    expect(() => {
+      transport.handlers.onNotification({
+        method: 'sync',
+        params: {
+          sessions: {} as never,
+          runtimes: [],
+        } as never,
+      })
+    }).not.toThrow()
+
+    expect(() => {
+      transport.handlers.onNotification({
+        method: 'sync',
+        params: {
+          sessions: 42 as never,
+          runtimes: null as never,
+          queues: {} as never,
+          tasks: 'bad' as never,
+          health: 123 as never,
+          plugins: null as never,
+          contributions: {} as never,
+        } as never,
+      })
+    }).not.toThrow()
   })
 
   it('keeps a turn still in flight, which no read can be right about yet', async () => {

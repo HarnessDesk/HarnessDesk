@@ -210,7 +210,10 @@ export class AppStore {
       onNotification: (notification) => {
         if (notification.method === 'sync') {
           const sessions = new Map(this.#snapshot.sessions)
-          for (const session of notification.params.sessions ?? []) {
+          const rawSessions = Array.isArray(notification.params.sessions)
+            ? notification.params.sessions
+            : []
+          for (const session of rawSessions) {
             if (session && typeof session === 'object' && session.runtime && session.id) {
               sessions.set(sessionKey(session.runtime, session.id), session)
             }
@@ -218,19 +221,19 @@ export class AppStore {
           // Replaced, not merged: the host sends every queue that has anything
           // in it, so one that is missing is one that has drained.
           const queues = new Map<SessionKey, SessionQueue>()
-          for (const entry of notification.params.queues ?? []) {
+          for (const entry of Array.isArray(notification.params.queues) ? notification.params.queues : []) {
             queues.set(sessionKey(entry.runtime, entry.sessionId), entry.queue)
           }
           // Same rule for background tasks: the host sends every conversation
           // that has any, so one that is missing has none left.
           const tasks = new Map<SessionKey, readonly BackgroundTask[]>()
-          for (const entry of notification.params.tasks ?? []) {
+          for (const entry of Array.isArray(notification.params.tasks) ? notification.params.tasks : []) {
             tasks.set(sessionKey(entry.runtime, entry.sessionId), entry.tasks)
           }
           // Every runtime's health arrives with the sync, so the broken ones
           // are drawn broken from the first frame, not once each is selected.
           const healthByRuntime: Record<string, RuntimeHealth> = {}
-          for (const entry of notification.params.health ?? []) {
+          for (const entry of Array.isArray(notification.params.health) ? notification.params.health : []) {
             healthByRuntime[entry.runtime] = entry.health
           }
           const runtimes = Array.isArray(notification.params.runtimes)
@@ -242,8 +245,8 @@ export class AppStore {
             tasks,
             runtimes,
             healthByRuntime,
-            plugins: notification.params.plugins ?? [],
-            contributions: notification.params.contributions ?? [],
+            plugins: Array.isArray(notification.params.plugins) ? notification.params.plugins : [],
+            contributions: Array.isArray(notification.params.contributions) ? notification.params.contributions : [],
             activeRuntime:
               this.#snapshot.activeRuntime ?? runtimes[0]?.id ?? null,
           })
