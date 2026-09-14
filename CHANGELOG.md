@@ -5,7 +5,14 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.2.0 — 2026-09-14
+
+Flows: a room can be handed its policy instead of you performing it card by
+card. Around them, the work a room needs — a worktree you can start a
+conversation in and bring back when it is done, pull requests published
+through the desk itself, a profile of your own on the seat, and a layout that
+holds at a phone's width. Then a long pass over what the desk reads, writes
+and hands out.
 
 - **Flows: a room can be handed the policy instead of you performing it** — a
   room is a shared board with a human referee, and somebody has to decide who
@@ -184,14 +191,11 @@ move is real work and is not news to a person weighing an upgrade.
   separator, or a `.` in the middle, the copy inside it was not recognised as
   the desk's own. It was listed as an ordinary binary found on PATH, with no
   package name and no update available, and nothing said why.
-
 - **The audit answers with what just happened** — Activity and the Library's
   change history read the audit log, and an entry recorded a moment earlier
   could be missing from the answer: a command a policy rule had just denied,
   or a library write just applied, was absent until something asked again.
   A read now waits for what was recorded before it was asked.
-
-
 - **Plugin settings are still there tomorrow** — a setting typed into a
   plugin's page in Settings is kept and put back at the next launch. Until
   now the host held them in memory only and wrote none of them down, so the
@@ -205,13 +209,10 @@ move is real work and is not news to a person weighing an upgrade.
   is refused or the connection drops, the window now tells you the next
   launch will not have it. It used to show the new value and keep the old one
   on disk, with nothing said until a relaunch quietly put it back.
-
-
 - **`read_file` stops at the byte limit its setting names** — it counted
   characters, so a file of three-byte characters ran to three times the limit.
   Chinese or Japanese text now comes back about a third as long as before; the
   Workspace files plugin's *Read limit, in bytes* setting raises it.
-
 - **Local or a new worktree, said where you type** — a new conversation's
   composer now leads with where it will run: **Local** (the folder as it is),
   a worktree the project already has, or **New worktree**, which is made when
@@ -263,6 +264,13 @@ move is real work and is not news to a person weighing an upgrade.
   and nowhere the desk may read.
 - **Google Antigravity is now Antigravity**, wherever the desk names it —
   rows already added under the registry's longer name included.
+- **Devin joins the agents the desk installs, runs and signs in** — Cognition's
+  Devin CLI speaks ACP directly, so it needs no bridge. It has a row in the
+  install table with its own install and update commands, the desk recognises a
+  copy it installed under `~/.devin/bin` as its own rather than as some binary
+  found on PATH, `devin auth login` opens the browser sign-in from the account
+  menu, and that menu reads who it is signed in as from Devin's own credentials
+  file.
 - **Pull requests are published through the desk** — the Git plugin gains
   `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`,
   `issue_view` and `issue_comment`, reaching GitHub with your own `gh`. A pull
@@ -287,6 +295,40 @@ move is real work and is not news to a person weighing an upgrade.
   lists no history (Gemini CLI has no `session/list`) had no row anywhere,
   and the active row is now scrolled into view when a long list would have
   hidden it.
+- **A registry agent whose download nothing can check says so before you install
+  it** — an entry in the ACP registry that ships a binary carries a checksum for
+  it, and some publish none. Those wear an **Unverified** badge in Settings →
+  Agents and in the sign-in list, saying in as many words that the registry
+  publishes no checksum for this build, rather than installing as quietly as the
+  ones that can be verified.
+- **A diagnostics bundle no longer carries the secrets it was collected to
+  explain** — Settings → Diagnostics gathers logs to send somebody, and a
+  credential in one of them went along: an `Authorization: Bearer` header, a
+  fine-grained or underscore-prefixed GitHub token, a secret spread over several
+  lines of a JSON field, the password inside an `scp`-style git remote or a
+  package specifier, and the staging folder a plugin's credentialed URL had been
+  named after. Each is redacted now, and the folder is named after the package
+  rather than the URL that fetched it.
+- **The desk's own writes stop where the path leads, not where it points** — the
+  ACP registry cache, the agent registry, the shell PATH cache and the library
+  manifest each wrote to a file by name, so a symbolic link left in its place
+  sent the write somewhere else entirely. Each resolves the real destination
+  first and refuses one that leaves the folder it was given. The same question is
+  now asked of a skill bundle's files, of an account's home under the managed
+  accounts folder, and of a session id on its way into a filename.
+- **A file on disk that has gone wrong no longer stops the desk opening** — the
+  workspace list, a room's cards, saved credentials, model routes, the permission
+  policy, a stored flow run, the library manifest and a conversation transcript
+  were each read back trusting their shape. A truncated write or a hand-edit —
+  `null` where a list belonged, a record that is not a record — threw where
+  nothing was watching. Every one of them is checked as it loads now: what is
+  well-formed is kept, what is not is dropped, and the desk starts.
+- **Pressing a thing twice does it once** — Commit in the commit dialog, a branch
+  in the branch switcher and a session being resumed each started a second copy
+  of the work while the first was still running, and a prompt sent to Cursor
+  before its previous turn had begun could interleave the two through one shared
+  config directory. Each is held until the first finishes, and every Cursor
+  session now has a config directory of its own.
 
 ## 0.1.0 — 2026-09-07
 
