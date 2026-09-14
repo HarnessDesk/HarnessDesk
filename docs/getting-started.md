@@ -86,8 +86,8 @@ and the session projections, so the overlay is short; `dsh-acp` ships it as
       name: '@harnessdesk/dsh-acp'
       config:
         provider: deepseek-official
-        model: deepseek-v4-flash
-        models: [deepseek-v4-flash, deepseek-v4-pro]
+        model: deepseek-flash
+        models: [deepseek-flash, deepseek-v4-pro]
 ```
 
 Link the package into the profile once (`ln -s <dsh-acp-checkout>
@@ -108,6 +108,11 @@ source on 2026-09-05: boot, session listing, model switch, close, replaying
 past conversations, and the reopened conversation continuing on the model it had
 chosen.
 
+DeepSeek's official `@deepseek-ai/dsh-acp` remains the automation-only bridge.
+HarnessDesk uses `@harnessdesk/dsh-acp` for renderer-facing sessions; the
+official bridge is used only by the adapter's opt-in automation compatibility
+probe.
+
 **On earlier versions** (up to `0.1.1`), mount it beside the example spine:
 
 ```yaml
@@ -120,7 +125,7 @@ chosen.
   config:
     provider: deepseek-official
     model: deepseek-v4-pro
-    models: [deepseek-v4-pro, deepseek-v4-flash]
+    models: [deepseek-flash, deepseek-v4-pro]
 
 # The session store. Without it a DeepSeek conversation lives only as long as
 # the process: the sidebar is empty on the next launch and nothing can be
@@ -153,7 +158,7 @@ chosen.
   name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
   config:
     provider: deepseek-official
-    model: deepseek-v4-flash
+    model: deepseek-flash
 
 # HarnessDesk's plugin tools. The bridge finds the tool gateway through the
 # HD_TOOLS_SOCKET the host sets in the agent's environment; outside
