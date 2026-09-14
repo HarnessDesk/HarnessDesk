@@ -147,6 +147,19 @@ test('npm fetch failure error does not leak credentials in package specifiers', 
       return true
     },
   )
+
+  const fineGrainedToken = 'github_pat_11ABCDEFG0abcdefghijklmn_NOPQRSTUVWXYZ0123456789abcdefghij' // hd-secrets-ok
+  const patSpecifier = `git+https://${fineGrainedToken}@example.invalid/repo.git` // hd-secrets-ok
+  await assert.rejects(
+    async () => inspect(patSpecifier),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.ok(!error.message.includes(fineGrainedToken), `message leaked pat: ${error.message}`)
+      assert.match(error.message, /\[redacted\]/)
+      assert.match(error.message, /Could not fetch git\+https:\/\/\[redacted\]@example\.invalid\/repo\.git from npm/)
+      return true
+    },
+  )
 })
 
 test('installing copies the plugin into HarnessDesk’s own directory', async (t) => {

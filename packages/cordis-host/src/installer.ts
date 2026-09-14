@@ -93,7 +93,7 @@ const redactCredentials = (text: string): string =>
   text
     .replace(/:\/\/[^/@?#\s:]*(?::[^/@?#\s]*)?@/g, '://[redacted]@')
     .replace(/([?&](?:password|passwd|pwd|pass|secret|token|access_token|id_token|refresh_token|auth|authorization|apikey|api_key|key)=)[^&#\s]+/gi, '$1[redacted]')
-    .replace(/(^|[^a-zA-Z0-9])(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp)[-_][A-Za-z0-9_-]{8,}\b/g, '$1[redacted]')
+    .replace(/(^|[^a-zA-Z0-9])(sk|ghp|gho|ghu|ghs|ghr|xoxb|xoxp|github_pat)[-_][A-Za-z0-9_-]{8,}\b/g, '$1[redacted]')
 
 /**
  * Fetches an npm package into a directory.
