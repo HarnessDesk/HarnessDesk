@@ -752,5 +752,54 @@ test('manifest save does not follow preexisting temp symlink and overwrite outsi
   })
 })
 
+test('symlinked source skill bundle pointing outside managed roots is refused (#448)', async () => {
+  await withHome(async (home, libraryDir) => {
+    const outside = join(home, 'outside-source')
+    await mkdir(outside, { recursive: true })
+    await writeFile(join(outside, 'SKILL.md'), '---\nname: leak\n---\noutside\n')
+    await writeFile(join(outside, 'secret.txt'), 'outside-file')
+
+    const codexSkills = join(home, '.codex/skills')
+    await mkdir(codexSkills, { recursive: true })
+    const symlinkPath = join(codexSkills, 'leak')
+    await symlink(outside, symlinkPath)
+
+    const plan = await planLibrary(
+      [agent('codex'), agent('claudecode')],
+      [
+        {
+          kind: 'installSkill',
+          name: 'leak',
+          sourcePath: symlinkPath,
+          targetRuntime: runtimeId('claudecode'),
+        },
+      ],
+      { libraryDir, home },
+    )
+
+    assert.equal(plan.ops[0]?.action, 'refuse', 'intent should be refused')
+    assert.match(plan.ops[0]?.reason ?? '', /The source is not in any directory this library reads/i)
+
+    // And if an op carrying this sourcePath reached applyLibrary anyway, it must fail
+    const forged: LibraryPlannedOp = {
+      id: 'op-1',
+      kind: 'skill',
+      name: 'leak',
+      action: 'create',
+      targetPath: join(home, '.claude/skills/leak'),
+      guardDigest: null,
+      backup: false,
+      content: '---\nname: leak\n---\noutside\n',
+      extraFiles: ['secret.txt'],
+      sourcePath: symlinkPath,
+    }
+    const results = await applyLibrary([forged], { libraryDir, home })
+    assert.equal(results[0]?.outcome, 'failed')
+    assert.match(results[0]?.detail ?? '', /The source is not in any directory this library reads/i)
+    assert.equal(existsSync(join(home, '.claude/skills/leak/secret.txt')), false)
+  })
+})
+
+
 
 
