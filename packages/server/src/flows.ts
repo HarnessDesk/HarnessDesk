@@ -860,11 +860,14 @@ export class Flows implements TeamFlows {
   /** Why this seat should stop waiting — the one thing that may end its turn. */
   standDown(room: string, runtime: string, sessionId: string): string | null {
     const key = `${runtime}\u0000${sessionId}`
-    const run = [...this.#runs.values()].find(
-      (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
-    )
-    if (!run) return null
-    if (run.state === 'running') return null
+    const runs = [...this.#runs.values()]
+      .filter(
+        (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
+      )
+      .sort((a, b) => a.startedAt - b.startedAt)
+    if (runs.length === 0) return null
+    if (runs.some((one) => one.state === 'running')) return null
+    const run = runs[runs.length - 1]!
     if (run.state === 'stalled') {
       const round = run.rounds[run.rounds.length - 1]
       const seat = run.seats.find((s) => s.key === key)
