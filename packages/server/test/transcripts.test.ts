@@ -522,3 +522,38 @@ test('the fallback takes the first message that says something, not the first me
     assert.equal((await again.search('Retry the checkout'))[0]?.summary.preview, 'Retry the checkout call on a 502')
   })
 })
+
+test('importOne refuses malformed transcript turns that lack items array (#500)', async () => {
+  await withStore(async (store, dir) => {
+    const outcomeNull = await store.importOne('codex', 's1', {
+      version: 1,
+      runtime: 'codex',
+      id: 's1',
+      savedAt: 1,
+      turns: [null],
+    })
+    assert.equal(outcomeNull, 'refused')
+
+    const outcomeNoItems = await store.importOne('codex', 's2', {
+      version: 1,
+      runtime: 'codex',
+      id: 's2',
+      savedAt: 1,
+      turns: [{ id: 't1' }],
+    })
+    assert.equal(outcomeNoItems, 'refused')
+
+    // Also verify search and export ignore malformed turns files on disk
+    const { mkdir, writeFile: write } = await import('node:fs/promises')
+    await mkdir(join(dir, 'codex'), { recursive: true })
+    await write(
+      join(dir, 'codex', 'corrupt-turns.json'),
+      JSON.stringify({ version: 1, runtime: 'codex', id: 'corrupt-turns', savedAt: 1, turns: [null] }),
+    )
+    const hits = await store.search('hello')
+    assert.deepEqual(hits, [])
+
+    const exported = await store.exportAll()
+    assert.ok(exported.every((entry) => entry.id !== 'corrupt-turns'))
+  })
+})
