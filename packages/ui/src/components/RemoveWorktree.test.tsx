@@ -38,7 +38,10 @@ const TREE: Worktree = {
   managed: true,
 }
 
-const rig = async (changes: WorktreeChanges | Error, options: { sessions?: AppSnapshot['sessions'] } = {}) => {
+const rig = async (
+  changes: WorktreeChanges | Error,
+  options: { sessions?: AppSnapshot['sessions']; tree?: Worktree } = {},
+) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -56,10 +59,11 @@ const rig = async (changes: WorktreeChanges | Error, options: { sessions?: AppSn
     removeWorktree: vi.fn(async () => true),
   } as unknown as AppStore
   const onClose = vi.fn()
+  const worktree = options.tree ?? TREE
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <RemoveWorktree worktree={TREE} onClose={onClose} />
+        <RemoveWorktree worktree={worktree} onClose={onClose} />
       </StoreProvider>,
     )
   })
@@ -155,4 +159,34 @@ it('disables removal and explains when a conversation in the worktree is mid-tur
   expect(text).toContain('A conversation in this worktree is still working')
   expect(button('Remove worktree')?.disabled).toBe(true)
 })
+
+it('disables removal when a busy conversation is in a Windows child path of the worktree', async () => {
+  const winTree: Worktree = {
+    path: 'C:\\repo\\feature',
+    branch: 'harnessdesk/feature',
+    head: 'b',
+    isMain: false,
+    managed: true,
+  }
+  const busySessions = new Map([
+    [
+      'sess-win',
+      {
+        key: 'sess-win',
+        cwd: 'C:\\repo\\feature\\src',
+        status: { type: 'active' },
+      },
+    ],
+  ])
+
+  await rig(
+    { modified: 0, untracked: 0, unpushedCommits: 0, files: [], ignored: [], ignoredCount: 0 },
+    { sessions: busySessions as never, tree: winTree },
+  )
+
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('A conversation in this worktree is still working')
+  expect(button('Remove worktree')?.disabled).toBe(true)
+})
+
 
