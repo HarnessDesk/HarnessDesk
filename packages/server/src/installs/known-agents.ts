@@ -531,6 +531,10 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     },
     auth: {
       kind: 'browser',
+      // The CLI starts its Google flow on the first prompt and exposes sign
+      // out as the `/logout` prompt command; there is no `agy auth` command.
+      login: { command: 'agy', args: ['--print', '/help'] },
+      logout: { command: 'agy', args: ['--print', '/logout'] },
       note: 'The server opens a Google sign-in in the browser on first use; the desk relays what it asks.',
     },
   },
