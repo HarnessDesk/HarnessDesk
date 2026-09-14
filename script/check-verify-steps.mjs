@@ -59,6 +59,7 @@ export const DESCRIBED_AS = new Map([
   ['ui tests', /UI and desktop/i],
   ['desktop tests', /UI and desktop/i],
   ['layering rule', /layering rules?/i],
+  ['half-applied fixes', /half-applied-fixes/i],
   ['tracked secrets', /tracked-secrets/i],
   ['reachable methods', /reachable-methods/i],
   ['third-party notices', /third-party notices/i],
