@@ -24,7 +24,7 @@ const EXEMPT = new Set([join('packages', 'server', 'src', 'bootstrap.ts')])
  * extension kernel must not leak above its host — and the protocol, which both
  * sit on, must not know about either.
  */
-const RULES = [
+export const RULES = [
   {
     // The spin-off seam (PLAN 35.2): the scanner must run without the desk.
     // The day this rule fires is the day the standalone tool stops being a
@@ -82,7 +82,7 @@ const RULES = [
     // about to reach for the filesystem or a child process from the window.
     label: 'node builtins in the renderer',
     packages: ['ui'],
-    forbidden: /from 'node:|require\('node:/,
+    forbidden: /(?:from|require|import)\s*(?:\(\s*)?['"`]node:/,
     remedy: 'The renderer talks to the host over the wire; the host touches the machine.',
   },
   {
