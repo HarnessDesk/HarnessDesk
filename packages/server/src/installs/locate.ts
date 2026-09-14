@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, isAbsolute, join, sep } from 'node:path'
+import { delimiter, isAbsolute, join, sep, win32 } from 'node:path'
 
 import { versionIn } from '@harnessdesk/adapter-acp'
 
@@ -123,7 +123,7 @@ export const candidatePaths = (spec: InstallSpec, options: LocateOptions = {}): 
     }
   }
   for (const path of spec.paths ?? []) add(expandHome(path, home))
-  for (const path of options.also ?? []) if (isAbsolute(path)) add(path)
+  for (const path of options.also ?? []) if (isAbsolute(path) || win32.isAbsolute(path)) add(path)
   return out
 }
 

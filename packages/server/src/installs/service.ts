@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, sep } from 'node:path'
+import { basename, isAbsolute, join, sep, win32 } from 'node:path'
 
 import type {
   AcpAgentConfig,
@@ -87,6 +87,18 @@ const gist = (output: string, lines = 6): string =>
     .slice(0, lines)
     .join('\n')
 
+const isPathAbsolute = (p: string): boolean => isAbsolute(p) || win32.isAbsolute(p)
+
+/** Command name without directory and without Windows executable extension. */
+export const commandName = (command: string): string =>
+  basename(command.replaceAll('\\', '/')).replace(/\.(?:exe|cmd|bat|com)$/i, '')
+
+export const matchesCommand = (command: string, commands: readonly string[] | undefined): boolean => {
+  if (!commands) return false
+  const name = commandName(command).toLowerCase()
+  return commands.some((cmd) => cmd.toLowerCase() === name)
+}
+
 export class InstallService {
   readonly #last = new Map<string, InstallInfo>()
   readonly #managedDir: string
@@ -104,7 +116,7 @@ export class InstallService {
       .find((known) => known !== undefined)
     if (byField) return byField
     const cli = config.executable?.command ?? config.command
-    return knownAgentByCommand(basename(cli))
+    return knownAgentByCommand(commandName(cli))
   }
 
   /**
@@ -118,8 +130,8 @@ export class InstallService {
    * name is what the knowledge table is written against.
    */
   #storedCopy(config: Pick<AcpAgentConfig, 'command'>, known: KnownAgent | undefined): readonly string[] {
-    if (!isAbsolute(config.command)) return []
-    const named = known?.cli.commands.includes(basename(config.command)) ?? false
+    if (!isPathAbsolute(config.command)) return []
+    const named = matchesCommand(config.command, known?.cli.commands)
     // A managed download is ours and is named by its folder, not by the
     // command inside it, so it counts however the vendor spelled the file.
     const managed = config.command.startsWith(this.#managedDir + sep)
@@ -222,18 +234,18 @@ export class InstallService {
    */
   #fallbackOf(config: AcpAgentConfig, copies: readonly JudgedInstall[]): InstallInfo['fallback'] {
     const command = config.command
-    const stored = isAbsolute(command) ? copies.find((copy) => copy.path === command) : undefined
+    const stored = isPathAbsolute(command) ? copies.find((copy) => copy.path === command) : undefined
     if (stored) {
       return { command, version: stored.version, managed: stored.managed }
     }
-    const runner = basename(command)
+    const runner = commandName(command)
     if (runner === 'npx' || runner === 'uvx') {
       const pkg = (config.args ?? []).find((arg) => !arg.startsWith('-')) ?? ''
       const at = pkg.lastIndexOf('@')
       const version = at > 0 ? pkg.slice(at + 1) : pkg.includes('==') ? pkg.split('==')[1] ?? null : null
       return { command: [command, ...(config.args ?? [])].join(' '), version, managed: true }
     }
-    if (isAbsolute(command) && !existsSync(command)) return null
+    if (isPathAbsolute(command) && !existsSync(command)) return null
     return { command: [command, ...(config.args ?? [])].join(' '), version: null, managed: false }
   }
 
@@ -262,7 +274,7 @@ export class InstallService {
       // mattered: with the row at `/usr/local/bin/gemini` and that copy below
       // the floor, `chosen` was null but the fallback looked runnable, so the
       // start went ahead on the very binary the floor exists to refuse.
-      const rowNamesTheCli = known.cli.commands.includes(basename(config.command))
+      const rowNamesTheCli = matchesCommand(config.command, known.cli.commands)
       const rowWasJudged = copies.some((copy) => copy.path === config.command)
       if (fallback && !rowNamesTheCli && !rowWasJudged) {
         void this.describe(config, judged)
@@ -297,7 +309,7 @@ export class InstallService {
       }
     }
     const withCli = (spec: CommandSpec): CommandSpec =>
-      known.cli.commands.includes(spec.command) ? { ...spec, command: cli } : spec
+      matchesCommand(spec.command, known.cli.commands) ? { ...spec, command: cli } : spec
     const check = this.options.check ?? runCheck
     // The agent's own checks answer "should this start?", and that question
     // is settled once it has. A re-check asks something narrower — is a
@@ -349,7 +361,7 @@ export class InstallService {
     const known = this.knowledgeFor(config)
     const found = await findInstalls(
       {
-        commands: known?.cli.commands.includes(basename(spec.command)) ? known.cli.commands : [spec.command],
+        commands: known && matchesCommand(spec.command, known.cli.commands) ? known.cli.commands : [spec.command],
         ...(known?.cli.paths ? { paths: known.cli.paths } : {}),
         ...(spec.versionArgs ? { versionArgs: spec.versionArgs } : known?.cli.versionArgs ? { versionArgs: known.cli.versionArgs } : {}),
         publish: known
@@ -361,7 +373,7 @@ export class InstallService {
             }
           : {},
       },
-      { ...this.#locateOptions(config, known), also: isAbsolute(spec.command) ? [spec.command] : [] },
+      { ...this.#locateOptions(config, known), also: isPathAbsolute(spec.command) ? [spec.command] : [] },
     )
     const judged = judgeInstalls(found, {
       ...(known?.cli.minVersion ? { minVersion: known.cli.minVersion } : {}),

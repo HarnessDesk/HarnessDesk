@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 
 import { AgentRegistryStore } from '../../src/agent-registry.js'
-import { InstallService } from '../../src/installs/service.js'
+import { InstallService, matchesCommand } from '../../src/installs/service.js'
 
 /**
  * Which copy answers, decided from the machine. What these hold to: the
@@ -361,3 +361,68 @@ test('a package runner still answers when the installed copy is too old', async 
   assert.equal(info?.copies[0]?.standing, 'too-old')
   assert.equal(info?.fallback?.version, '0.58.0')
 })
+
+test('matchesCommand recognizes commands with Windows extensions case-insensitively (#464)', () => {
+  assert.equal(matchesCommand('claude.cmd', ['claude']), true)
+  assert.equal(matchesCommand('claude.exe', ['claude']), true)
+  assert.equal(matchesCommand('CLAUDE.BAT', ['claude']), true)
+  assert.equal(matchesCommand('C:\\bin\\claude.cmd', ['claude']), true)
+  assert.equal(matchesCommand('claude', ['claude']), true)
+  assert.equal(matchesCommand('gemini.exe', ['gemini']), true)
+  assert.equal(matchesCommand('HarnessDesk.exe', ['claude']), false)
+  assert.equal(matchesCommand('other.cmd', ['claude']), false)
+})
+
+test('storedCopy recognizes Windows executable paths with extensions (#464)', async (t) => {
+  const store = await tempStore(t, [
+    {
+      id: 'claude',
+      name: 'Claude Code',
+      command: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd',
+      args: ['--acp'],
+    },
+  ])
+  const service = new InstallService({
+    stateDir: STATE,
+    store,
+    locate: {
+      ...machine({
+        'C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd': '2.1.258 (Claude Code)',
+      }),
+      platform: 'win32',
+    },
+  })
+  const info = await service.describe(store.configs()[0]!)
+  assert.deepEqual(
+    info?.copies.map((copy) => copy.path),
+    ['C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd'],
+  )
+})
+
+test('executableFor recognizes Windows executable paths with extensions (#464)', async (t) => {
+  const store = await tempStore(t, [
+    {
+      id: 'claude',
+      name: 'Claude Code',
+      command: 'claude',
+      args: ['--acp'],
+    },
+  ])
+  const service = new InstallService({
+    stateDir: STATE,
+    store,
+    locate: {
+      ...machine({
+        'C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd': '2.1.258 (Claude Code)',
+      }),
+      platform: 'win32',
+    },
+  })
+  const resolved = await service.executableFor(store.configs()[0]!, {
+    command: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd',
+    env: 'CLAUDE_PATH',
+  })
+  assert.equal(resolved?.path, 'C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd')
+  assert.equal(resolved?.version, '2.1.258')
+})
+
