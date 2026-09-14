@@ -1576,4 +1576,43 @@ test('standDown inspects the latest run in a room and does not prematurely stand
   assert.doesNotMatch(waitResult, /^stand down — flow 1 finished/)
 })
 
+test('Flows.load stops running flows whose room no longer exists (#441)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'orphaned-run.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'orphaned-run',
+      room: 'non-existent-room-id',
+      flow: { name: 'f', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: () => {},
+  })
+  await second.load()
+  const run = second.runsFor('non-existent-room-id')[0]
+  assert.ok(run)
+  assert.equal(run.state, 'stopped')
+  assert.equal(run.ended, 'the room this flow ran in is gone')
+})
+
+
 
