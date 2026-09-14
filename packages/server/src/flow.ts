@@ -549,10 +549,11 @@ export const ruleFor = (
  * ever fire?" and "can this loop ever end?" exactly answerable rather than
  * sampled.
  */
-const profilesOf = (role: FlowRole): string[][] => {
+const profilesOf = (role: FlowRole): (string | null)[][] => {
+  if (role.outcomes.length === 0) return [[null]]
   const outcomes = [...new Set(role.outcomes)]
-  if (outcomes.length === 0 || outcomes.length > OUTCOME_CEILING) return outcomes.map((one) => [one])
-  const profiles: string[][] = []
+  if (outcomes.length > OUTCOME_CEILING) return outcomes.map((one) => [one])
+  const profiles: (string | null)[][] = []
   for (let mask = 1; mask < 1 << outcomes.length; mask += 1) {
     const subset = outcomes.filter((_one, bit) => (mask & (1 << bit)) !== 0)
     if (subset.length <= role.count) profiles.push(subset)
