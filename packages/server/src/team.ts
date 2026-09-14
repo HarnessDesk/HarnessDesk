@@ -1082,6 +1082,15 @@ export class Team {
          how it finished. */
       this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
+      this.#commit(board)
+      this.#flows?.completed(board.id, {
+        ...intent,
+        state: 'abandoned',
+        claim: null,
+        blockedReason: null,
+        blockedBy: null,
+      })
+      return
     } else if (action === 'done') {
       const said = outcome?.trim() || null
       const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
