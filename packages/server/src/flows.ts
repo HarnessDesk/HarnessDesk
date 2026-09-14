@@ -857,12 +857,24 @@ export class Flows implements TeamFlows {
     }
   }
 
+  /** Stops every active flow run in a room that was deleted. */
+  deleteRoom(room: string): void {
+    for (const run of this.#runs.values()) {
+      if (run.room === room && (run.state === 'running' || run.state === 'stalled')) {
+        this.stop(run.id, 'the room this flow ran in was deleted')
+      }
+    }
+  }
+
   /** Why this seat should stop waiting — the one thing that may end its turn. */
-  standDown(room: string, runtime: string, sessionId: string): string | null {
+  standDown(room: string | undefined, runtime: string, sessionId: string): string | null {
     const key = `${runtime}\u0000${sessionId}`
     const runs = [...this.#runs.values()]
       .filter(
-        (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
+        (one) =>
+          (!room || one.room === room) &&
+          Array.isArray(one.seats) &&
+          one.seats.some((seat) => seat.key === key),
       )
       .sort((a, b) => a.startedAt - b.startedAt)
     if (runs.length === 0) return null

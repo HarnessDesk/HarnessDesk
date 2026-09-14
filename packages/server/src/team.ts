@@ -305,7 +305,9 @@ export interface TeamFlows {
    * null while its run is still going. The one thing that may end a standing
    * order's turn, so it is the flow engine's to say and nobody else's.
    */
-  standDown(room: string, runtime: string, sessionId: string): string | null
+  standDown(room: string | undefined, runtime: string, sessionId: string): string | null
+  /** The room was deleted: stop any flow runs in it and release their seats. */
+  deleteRoom?(room: string): void
 }
 
 /**
@@ -1537,7 +1539,12 @@ export class Team {
     options: { blockMs?: number; cycle?: number } = {},
   ): Promise<string> {
     const caller = this.#caller(scope)
-    const board = await this.#boardOf(caller)
+    const board = this.#roomOf(caller.runtime, caller.sessionId)
+    if (!board) {
+      const done = this.#flows?.standDown(undefined, caller.runtime, caller.sessionId) ?? null
+      if (done) return `stand down — ${done}`
+      throw new Error(NOT_IN_ROOM)
+    }
     const cycle = Number.isFinite(options.cycle) ? Math.max(0, Math.trunc(options.cycle as number)) : 0
     const next = `Call await_work again with cycle: ${cycle + 1}.`
     const key = keyOf(caller.runtime, caller.sessionId)
@@ -2909,6 +2916,16 @@ export class Team {
       )
     }
     this.#port.removed(id)
+    this.#flows?.deleteRoom?.(id)
+    for (const waiter of [...this.#waiters]) {
+      if (waiter.board === id) {
+        if (waiter.timer) clearTimeout(waiter.timer)
+        this.#waiters.delete(waiter)
+        const { runtime, id: sessId } = splitSessionKey(waiter.key as SessionKey)
+        const standDown = this.#flows?.standDown(id, runtime, String(sessId)) ?? 'the room was deleted'
+        waiter.resolve(`stand down — ${standDown}`)
+      }
+    }
     return gone
   }
 

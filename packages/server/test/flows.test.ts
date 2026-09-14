@@ -1630,5 +1630,45 @@ test('Flows.load stops running flows whose room no longer exists (#441)', async 
   assert.equal(run.ended, 'the room this flow ran in is gone')
 })
 
+test('deleting a room stops active flow runs and allows seats to stand down (#419)', async (t) => {
+  const one = await rig(t)
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
+  const seat = one.seated[0]!
+  assert.ok(seat)
+
+  // Before deleting room:
+  assert.equal(one.flows.runsFor(one.room)[0]?.state, 'running')
+  assert.equal(one.flows.standDown(one.room, seat.runtime, seat.sessionId), null)
+
+  // Delete the room:
+  await one.team.deleteRoom(one.room)
+
+  // After deleting room:
+  // 1. Flow run must be stopped:
+  const runsAfter = one.flows.runsFor(one.room)
+  assert.equal(runsAfter.length, 1)
+  assert.equal(runsAfter[0]?.state, 'stopped')
+  assert.match(runsAfter[0]?.ended ?? '', /the room this flow ran in was deleted/)
+
+  // 2. standDown must return the reason:
+  const reason = one.flows.standDown(one.room, seat.runtime, seat.sessionId)
+  assert.match(reason ?? '', /the room this flow ran in was deleted/)
+
+  // 3. awaitWork for the seated agent must return stand down, not throw NOT_IN_ROOM:
+  const waitResult = await one.team.awaitWork({ runtime: seat.runtime, sessionId: seat.sessionId })
+  assert.match(waitResult, /^stand down — the room this flow ran in was deleted/)
+
+  // 4. An active waiter blocked inside awaitWork stands down immediately when room is deleted:
+  const room2 = (await one.team.createRoom('/repo', 'Fix room 2')).id
+  await one.flows.start({ room: room2, source: REVIEW, vars: { work: 'Fix it again' } })
+  const seat2 = one.seated[one.seated.length - 1]!
+  const waitingPromise = one.team.awaitWork({ runtime: seat2.runtime, sessionId: seat2.sessionId }, { blockMs: 10000 })
+  await one.team.deleteRoom(room2)
+  const waiterResult = await waitingPromise
+  assert.match(waiterResult, /^stand down — the room this flow ran in was deleted/)
+})
+
+
 
 
