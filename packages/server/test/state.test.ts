@@ -149,3 +149,19 @@ test('a write failure rejects the caller, and the queue continues working for su
   assert.equal(reloaded.state.preferences['theme'], 'light')
 })
 
+test('StateStore.load filters out workspace records missing path or null (#428)', async (t) => {
+  const dir = await dirFor()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'state.json')
+  await writeFile(
+    file,
+    JSON.stringify({
+      workspaces: [{ path: '/valid', name: 'valid', lastOpenedAt: 1 }, { id: 'bad-1' }, null, { path: null }],
+    }),
+  )
+  const store = new StateStore(file)
+  const state = await store.load()
+  assert.equal(state.workspaces.length, 1)
+  assert.equal(state.workspaces[0]?.path, '/valid')
+})
+

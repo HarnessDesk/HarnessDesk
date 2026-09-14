@@ -71,7 +71,7 @@ import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, type SessionRecord } from './registry.js'
-import { StateStore } from './state.js'
+import { StateStore, type WorkspaceRecord } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
@@ -1144,10 +1144,14 @@ export class Host {
    * refused before any reader is asked.
    */
   #openRoots(): string[] {
-    return [
-      ...this.#state.state.workspaces.map((entry) => entry.path),
-      ...this.registry.snapshot().map((session) => session.cwd),
-    ]
+    const fromWorkspaces = (this.#state.state.workspaces ?? [])
+      .filter((entry): entry is WorkspaceRecord & { path: string } => typeof entry?.path === 'string')
+      .map((entry) => entry.path)
+    const fromSessions = this.registry
+      .snapshot()
+      .filter((session): session is typeof session & { cwd: string } => typeof session?.cwd === 'string')
+      .map((session) => session.cwd)
+    return [...fromWorkspaces, ...fromSessions]
   }
 
   /**
@@ -2395,7 +2399,11 @@ export class Host {
        first — putting its claims and its messages on an unrelated board.
        Trailing slashes are trimmed so `/repo` and `/repo/` are one root. */
     const roots = [
-      ...new Set(this.#state.state.workspaces.map((entry) => entry.path.replace(/\/+$/, ''))),
+      ...new Set(
+        (this.#state.state.workspaces ?? [])
+          .filter((entry): entry is WorkspaceRecord & { path: string } => typeof entry?.path === 'string')
+          .map((entry) => entry.path.replace(/\/+$/, '')),
+      ),
     ]
     const target = cwd.replace(/\/+$/, '')
     let found: string | null = null

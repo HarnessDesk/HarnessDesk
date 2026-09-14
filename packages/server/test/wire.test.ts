@@ -1483,6 +1483,42 @@ test('git RPCs refuse a root nobody opened', async (t) => {
   assert.equal(summary.branch, 'main')
 })
 
+test('git/status does not crash when open roots include workspace records missing path (#428)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const stateFile = join(harness.stateDir, 'state.json')
+  // Write a state.json with workspace records missing path or null entries
+  await writeFile(
+    stateFile,
+    JSON.stringify({
+      version: 1,
+      installId: 'test-install',
+      workspaces: [{ id: 'workspace-1' }, null, { id: 'workspace-2', path: null }],
+      preferences: {},
+    }),
+  )
+
+  // Restart host against the malformed state file
+  await stop(harness)
+  const restarted = await start({}, harness.stateDir)
+  t.after(() => stop(restarted))
+  const client2 = await Client.connect(restarted.server)
+  t.after(() => client2.close())
+
+  // Opening a valid workspace
+  const repo = await mkdtemp(join(tmpdir(), 'hd-git-workspace-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await client2.call('workspace/open', { path: repo })
+
+  // Calling git/status must not throw ERR_INVALID_ARG_TYPE
+  const status = (await client2.call('git/status', { root: repo })) as { root: string }
+  assert.ok(status.root)
+})
+
 test('the repository top level above an open subfolder is reachable', async (t) => {
   // The history pane keys itself by git/status's answer, and a workspace is
   // often a folder inside its repository — that one derived root is allowed,
