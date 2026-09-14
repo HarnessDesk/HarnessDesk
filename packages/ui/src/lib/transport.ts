@@ -64,6 +64,12 @@ export class Transport {
     if (this.#reconnectTimer !== null) window.clearTimeout(this.#reconnectTimer)
     this.#socket?.close()
     this.#socket = null
+    this.#queue = []
+    const pending = [...this.#pending.values()]
+    this.#pending.clear()
+    for (const entry of pending) {
+      entry.reject(new Error('The connection to HarnessDesk was lost.'))
+    }
     this.#setStatus('closed')
   }
 
@@ -124,6 +130,7 @@ export class Transport {
       // them is better than leaving spinners forever.
       const pending = [...this.#pending.values()]
       this.#pending.clear()
+      this.#queue = []
       for (const entry of pending) {
         entry.reject(new Error('The connection to HarnessDesk was lost.'))
       }
