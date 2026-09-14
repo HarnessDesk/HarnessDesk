@@ -71,9 +71,16 @@ export const sessionMethods = {
 
   'session/resume': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
+    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+      routeId?: string
+    }
+    let options = rest as NonNullable<typeof params.options>
+    if (typeof routeId === 'string') {
+      options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
+    }
     let live: AgentSession
     try {
-      live = await runtime.resumeSession(makeSessionId(params.sessionId), params.options ?? {})
+      live = await runtime.resumeSession(makeSessionId(params.sessionId), options)
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.

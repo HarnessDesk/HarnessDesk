@@ -948,6 +948,28 @@ test('routes: credentials stay one-way, compatibility greys with a reason, and c
     options: { route: { id: 'x', name: 'x', endpoint: 'http://evil', wireProtocol: 'fakewire', token: 't' } },
   })
   assert.equal(harness.runtime.lastCreateOptions?.route, undefined)
+
+  // Resuming with the compatible routeId resolves the gateway route as well (#425).
+  await client.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })
+  await client.call('session/resume', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    options: { routeId: rightId },
+  })
+  const resumedHanded = harness.runtime.lastResumeOptions
+  assert.ok(resumedHanded?.route, 'the adapter received a resolved route on resume')
+  assert.match(resumedHanded.route.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/t\/[0-9a-f]+$/)
+  assert.ok(!JSON.stringify(resumedHanded).includes('the-secret-value'))
+  assert.ok(!JSON.stringify(resumedHanded).includes(ref))
+
+  // Resuming with a hand-rolled route is ignored and stripped (#425).
+  await client.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })
+  await client.call('session/resume', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    options: { route: { id: 'x', name: 'x', endpoint: 'http://evil', wireProtocol: 'fakewire', token: 't' } },
+  })
+  assert.equal(harness.runtime.lastResumeOptions?.route, undefined)
 })
 
 test('app/state/set with null modelRoutes does not poison routes/list or routes/save (#426)', async (t) => {

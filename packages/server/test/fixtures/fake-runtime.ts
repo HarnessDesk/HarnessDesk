@@ -604,8 +604,9 @@ export class FakeRuntime implements AgentRuntime {
     return { disposition: 'removed', removed: 1 }
   }
 
-  /** What the host handed the last createSession or forkSession, for route-resolution tests. */
+  /** What the host handed the last createSession, forkSession, or resumeSession, for route-resolution tests. */
   lastCreateOptions: SessionOptions | null = null
+  lastResumeOptions: Partial<SessionOptions> | null = null
 
   async createSession(options: SessionOptions): Promise<AgentSession> {
     this.lastCreateOptions = options
@@ -633,8 +634,9 @@ export class FakeRuntime implements AgentRuntime {
   /** How many times a resume was actually asked for, for the callers that share one. */
   resumes = 0
 
-  async resumeSession(id: SessionId): Promise<AgentSession> {
+  async resumeSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession> {
     this.resumes += 1
+    this.lastResumeOptions = options ?? null
     if (this.resumeFailure) throw this.resumeFailure
     const existing = this.sessions.get(id)
     if (existing) return existing
