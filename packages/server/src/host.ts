@@ -1364,7 +1364,17 @@ export class Host {
 
   #routes(): readonly ModelRouteRecord[] {
     const raw = this.#state.state.preferences['modelRoutes']
-    return Array.isArray(raw) ? (raw as ModelRouteRecord[]) : []
+    if (!Array.isArray(raw)) return []
+    return raw.filter(
+      (entry): entry is ModelRouteRecord =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        typeof (entry as ModelRouteRecord).id === 'string' &&
+        typeof (entry as ModelRouteRecord).name === 'string' &&
+        typeof (entry as ModelRouteRecord).endpoint === 'string' &&
+        typeof (entry as ModelRouteRecord).wireProtocol === 'string' &&
+        typeof (entry as ModelRouteRecord).credentialRef === 'string',
+    )
   }
 
   /**
