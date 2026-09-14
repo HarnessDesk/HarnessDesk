@@ -214,3 +214,38 @@ test('column 0 document separators "---" and "..." are still refused (#432)', ()
   )
 })
 
+test('block scalar terminates when encountering line indented between parent and base (#433)', () => {
+  const yaml = `
+parent:
+  order: |
+      first line at 6 spaces
+    sibling: hello
+`
+  assert.throws(
+    () => parseYaml(yaml),
+    (err: unknown) => {
+      assert.ok(err instanceof YamlError)
+      assert.match(err.message, /this line is indented past the block it is in/)
+      return true
+    },
+  )
+})
+
+test('block scalar terminates when encountering under-indented line (#433)', () => {
+  const yaml = `
+order: |
+    first line
+  second line
+`
+  assert.throws(
+    () => parseYaml(yaml),
+    (err: unknown) => {
+      assert.ok(err instanceof YamlError)
+      assert.match(err.message, /this line is indented past the block it is in/)
+      return true
+    },
+  )
+})
+
+
+
