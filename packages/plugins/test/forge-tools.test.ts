@@ -252,6 +252,28 @@ test('pr_review opens with the review line; pr_comment is unsigned', async (t) =
   assert.equal(forge.published.at(-1)?.url, 'https://github.com/acme/widgets/pull/7#issuecomment-1')
 })
 
+test('pr and issue tools refuse option-like or non-numeric number strings (#475)', async (t) => {
+  const forge = await rig(t)
+  const prViewBad = await forge.run('pr_view', { number: '--help' })
+  assert.match(prViewBad, /"number" must be a positive integer/)
+
+  const issueViewBad = await forge.run('issue_view', { number: '--help' })
+  assert.match(issueViewBad, /"number" must be a positive integer/)
+
+  const issueCommentBad = await forge.run('issue_comment', { number: '--repo=foo', body: 'hi' })
+  assert.match(issueCommentBad, /"number" must be a positive integer/)
+
+  // Valid number string with or without leading hash succeeds
+  const prViewGood = await forge.run('pr_view', { number: '#7' })
+  assert.match(prViewGood, /#7 Add widgets/)
+
+  const issueViewGood = await forge.run('issue_view', { number: '42' })
+  assert.match(issueViewGood, /#42 Widgets wobble/)
+
+  const calls = forge.calls()
+  assert.ok(!calls.some((args) => args.includes('--help') || args.includes('--repo=foo')))
+})
+
 test('a blank template signs nothing, and so does a seat the desk cannot name', async (t) => {
   const quiet = await rig(t, { signature: '' })
   const said = await quiet.run('pr_create', { title: 'Add widgets', body: 'plain' })

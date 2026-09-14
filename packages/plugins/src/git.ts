@@ -405,17 +405,24 @@ export const gitPlugin: HarnessPlugin = {
       const viewPullRequest = async (selector: string): Promise<GhPullRequest> =>
         JSON.parse(await gh(['pr', 'view', selector, '--json', PR_FIELDS])) as GhPullRequest
 
-      /** The pull request a call names, or the one for the current branch when it names none. */
-      const selectorOf = (number: unknown): string =>
-        typeof number === 'number' && Number.isFinite(number) && number > 0
-          ? String(number)
-          : typeof number === 'string' && number.trim() !== ''
-            ? number.trim().replace(/^#/, '')
-            : ''
+      /** The pull request or issue number a call names, or null when none was given. */
+      const selectorOf = (number: unknown): string | null => {
+        if (number === undefined || number === null || number === '') return null
+        if (typeof number === 'number') {
+          if (Number.isSafeInteger(number) && number > 0) return String(number)
+          throw new Error(`"number" must be a positive integer, got ${number}.`)
+        }
+        if (typeof number === 'string') {
+          const trimmed = number.trim().replace(/^#/, '')
+          if (/^\d+$/.test(trimmed) && Number(trimmed) > 0) return trimmed
+          throw new Error(`"number" must be a positive integer, got ${JSON.stringify(number)}.`)
+        }
+        throw new Error(`"number" must be a positive integer, got ${typeof number}.`)
+      }
 
       const pullRequestFor = async (number: unknown): Promise<GhPullRequest> => {
         const selector = selectorOf(number)
-        if (selector !== '') return viewPullRequest(selector)
+        if (selector !== null) return viewPullRequest(selector)
         try {
           return await viewPullRequest('')
         } catch (error) {
@@ -825,7 +832,7 @@ export const gitPlugin: HarnessPlugin = {
         },
         execute: async (args: { number: number }) => {
           const selector = selectorOf(args?.number)
-          if (selector === '') throw new Error('Which issue? Give its number.')
+          if (selector === null) throw new Error('Which issue? Give its number.')
           const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', ISSUE_FIELDS])) as GhIssue
           const labels = (issue.labels ?? []).map((label) => label.name).filter((name): name is string => Boolean(name))
           const head = [
@@ -854,7 +861,7 @@ export const gitPlugin: HarnessPlugin = {
         },
         execute: async (args: { number: number; body: string }, scope) => {
           const selector = selectorOf(args?.number)
-          if (selector === '') throw new Error('Which issue? Give its number.')
+          if (selector === null) throw new Error('Which issue? Give its number.')
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
           const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
@@ -924,17 +931,23 @@ export const gitPlugin: HarnessPlugin = {
         resolve: async (_scope, ref) => {
           const target = (ref ?? '').trim()
           if (!target) throw new Error('Which issue or pull request? Give a URL or a number.')
+          const isUrl = /^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/(?:issues|pull)\/\d+$/i.test(target)
+          const number = target.replace(/^#/, '')
+          const isNumeric = /^\d+$/.test(number) && Number(number) > 0
+          if (!isUrl && !isNumeric) {
+            throw new Error(`Which issue or pull request? Give a GitHub URL or a positive number, got ${JSON.stringify(target)}.`)
+          }
           const kinds = target.includes('/pull/') ? ['pr'] : target.includes('/issues/') ? ['issue'] : ['issue', 'pr']
           let lastError: unknown = null
           for (const kind of kinds) {
             try {
-              const number = target.replace(/^#/, '')
+              const selector = isUrl ? target : number
               // `view` gives the item — title, state, author, body; `--comments`
               // gives only the discussion. Both, in that order, capped as one.
-              const item = await gh([kind, 'view', number])
+              const item = await gh([kind, 'view', selector])
               let comments = ''
               try {
-                comments = await gh([kind, 'view', number, '--comments'])
+                comments = await gh([kind, 'view', selector, '--comments'])
               } catch {
                 // A discussion that will not load is not a reason to lose the item.
               }
