@@ -1,4 +1,4 @@
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import type { LibraryKind } from '@harnessdesk/protocol'
 
@@ -221,6 +221,35 @@ export const knownRoots = (
 }
 
 /**
+ * Whether `target` is equal to `root` or a descendant inside `root`.
+ * Handles both the current platform separator and POSIX/Windows slashes,
+ * preventing Windows paths with backslashes from being rejected.
+ */
+export const isInsideRoot = (target: string, root: string): boolean => {
+  const resolvedTarget = resolve(target)
+  const resolvedRoot = resolve(root)
+  const normTarget = resolvedTarget.replace(/\\/g, '/')
+  const normRoot = resolvedRoot.replace(/\\/g, '/')
+  const isWin =
+    process.platform === 'win32' ||
+    (/^[a-zA-Z]:[/\\]/.test(target) && /^[a-zA-Z]:[/\\]/.test(root))
+  if (isWin ? normTarget.toLowerCase() === normRoot.toLowerCase() : normTarget === normRoot) {
+    return true
+  }
+  const isFsRoot = normRoot === '/' || /^[a-zA-Z]:\/$/.test(normRoot)
+  const trimmed = isFsRoot ? normRoot : normRoot.replace(/\/+$/, '')
+  if (isFsRoot) {
+    return isWin
+      ? normTarget.toLowerCase().startsWith(trimmed.toLowerCase())
+      : normTarget.startsWith(trimmed)
+  }
+  const prefix = `${trimmed}/`
+  return isWin
+    ? normTarget.toLowerCase().startsWith(prefix.toLowerCase())
+    : normTarget.startsWith(prefix)
+}
+
+/**
  * Whether `path` is one of `roots` or inside one of them.
  *
  * `path` is resolved first: a `..` segment must not let a value that reads as
@@ -229,13 +258,8 @@ export const knownRoots = (
  * lexical prefix test on the raw string would be a hole. The roots are already
  * absolute; resolving them too keeps the comparison honest on either side.
  */
-export const insideRoots = (path: string, roots: readonly string[]): boolean => {
-  const target = resolve(path)
-  return roots.some((raw) => {
-    const root = resolve(raw)
-    return target === root || target.startsWith(`${root}/`)
-  })
-}
+export const insideRoots = (path: string, roots: readonly string[]): boolean =>
+  roots.some((root) => isInsideRoot(path, root))
 
 /**
  * Whether writing at `path` would land in a root some agent ships and
@@ -243,12 +267,11 @@ export const insideRoots = (path: string, roots: readonly string[]): boolean => 
  * refusal is the host's.
  */
 export const insideReadOnlyRoot = (path: string, home: string, cwd: string | undefined): boolean => {
-  const target = resolve(path)
   for (const table of Object.values(LOCATIONS)) {
     for (const spec of table.skills) {
       if (spec.readOnly !== true) continue
       const root = locate(spec, home, cwd)
-      if (root !== null && (target === resolve(root) || target.startsWith(`${resolve(root)}/`))) {
+      if (root !== null && isInsideRoot(path, root)) {
         return true
       }
     }
