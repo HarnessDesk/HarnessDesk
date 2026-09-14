@@ -16,6 +16,7 @@ import {
   loadInstalled,
   parseManifest,
   readPermissions,
+  redactCredentials,
   sanitise,
   uninstall,
 } from '../src/index.js'
@@ -178,6 +179,7 @@ test('sanitise strips credential fragments from staging directory names', () => 
   const scpSpecifier = 'myuser:secretpassword123@github.com:org/repo.git'
   const sanitisedScp = sanitise(scpSpecifier)
   assert.ok(!sanitisedScp.includes('secretpassword123'), `staging directory leaked scp credential: ${sanitisedScp}`)
+  assert.equal(sanitisedScp, '_redacted__github.com_org_repo.git')
 
   // Query parameter with signature/token
   const querySpecifier = 'https://example.test/pkg.tgz?sig=secret12345'
@@ -187,6 +189,19 @@ test('sanitise strips credential fragments from staging directory names', () => 
   // Standard packages retain their package identity
   assert.equal(sanitise('@acme/sample@1.2.0'), '_acme_sample_1.2.0')
   assert.equal(sanitise('lodash@^4.17.21'), 'lodash__4.17.21')
+})
+
+test('redactCredentials scrubs SCP credentials embedded in error messages', () => {
+  const specifier = 'myuser:secretpassword123@github.com:org/repo.git'
+  const message = `npm pack ${specifier} failed: code 1`
+  const redacted = redactCredentials(message)
+  assert.ok(!redacted.includes('secretpassword123'), `error message leaked password: ${redacted}`)
+  assert.equal(redacted, 'npm pack [redacted]@github.com:org/repo.git failed: code 1')
+
+  const userOnlySpecifier = 'myuser@github.com:org/repo.git'
+  const userOnlyRedacted = redactCredentials(`npm pack ${userOnlySpecifier} failed: code 1`)
+  assert.ok(!userOnlyRedacted.includes('myuser'), `error message leaked user: ${userOnlyRedacted}`)
+  assert.equal(userOnlyRedacted, 'npm pack [redacted]@github.com:org/repo.git failed: code 1')
 })
 
 test('installing copies the plugin into HarnessDesk’s own directory', async (t) => {
