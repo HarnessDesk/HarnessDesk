@@ -260,7 +260,7 @@ export const parseYaml = (source: string): unknown => {
     while (at < lines.length) {
       const row = lines[at] as Line
       const blank = row.raw.trim() === ''
-      if (!blank && indentOf(row.raw) <= parent) break
+      if (!blank && (base === null ? indentOf(row.raw) <= parent : indentOf(row.raw) < base)) break
       if (!blank && base === null) base = indentOf(row.raw)
       body.push(blank ? '' : row.raw.slice(base ?? indentOf(row.raw)))
       at += 1
