@@ -726,5 +726,76 @@ rules: []
   assert.match(flow?.roles[0]?.order ?? '', /---/)
 })
 
+test('validateFlow accepts unconditional rule on role without outcomes (#443)', () => {
+  const yaml = `
+name: Pipeline flow
+roles:
+  builder:
+    kind: agent
+    seat: cursor
+    outcomes: []
+  deployer:
+    kind: agent
+    seat: cursor
+    outcomes: []
+seed:
+  role: builder
+  title: Build project
+rules:
+  - id: deploy
+    on: builder
+    then:
+      role: deployer
+      title: Deploy project
+`
+  const { flow, problems } = parseFlow(yaml)
+  assert.equal(problems.length, 0)
+  assert.ok(flow !== null)
+  const validationProblems = validateFlow(flow!)
+  assert.deepEqual(
+    validationProblems,
+    [],
+    `expected valid pipeline flow without outcomes to pass validation, but got: ${validationProblems.map((p) => p.text).join('; ')}`,
+  )
+})
 
+test('validateFlow rejects shadowed rule on role without outcomes (#443)', () => {
+  const yaml = `
+name: Pipeline flow
+roles:
+  builder:
+    kind: agent
+    seat: cursor
+    outcomes: []
+  deployer:
+    kind: agent
+    seat: cursor
+    outcomes: []
+  archiver:
+    kind: agent
+    seat: cursor
+    outcomes: []
+seed:
+  role: builder
+  title: Build project
+rules:
+  - id: deploy
+    on: builder
+    then:
+      role: deployer
+      title: Deploy project
+  - id: archive
+    on: builder
+    then:
+      role: archiver
+      title: Archive project
+`
+  const { flow, problems } = parseFlow(yaml)
+  assert.equal(problems.length, 0)
+  assert.ok(flow !== null)
+  const validationProblems = validateFlow(flow!)
+  assert.equal(validationProblems.length, 1)
+  assert.equal(validationProblems[0]?.at, 'rules[1]')
+  assert.match(validationProblems[0]?.text ?? '', /nothing builder can answer reaches this rule/)
+})
 
