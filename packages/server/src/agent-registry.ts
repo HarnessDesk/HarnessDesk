@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -310,9 +311,20 @@ export class AgentRegistryStore {
 
   #write(entries: readonly Record<string, unknown>[]): void {
     mkdirSync(dirname(this.path), { recursive: true })
-    const tmp = join(dirname(this.path), `.agents.json.${process.pid}.tmp`)
-    writeFileSync(tmp, `${JSON.stringify({ agents: entries }, null, 2)}\n`, 'utf8')
-    renameSync(tmp, this.path)
+    const tmp = join(dirname(this.path), `.agents.json.${process.pid}.${randomUUID()}.tmp`)
+    try {
+      writeFileSync(tmp, `${JSON.stringify({ agents: entries }, null, 2)}\n`, {
+        encoding: 'utf8',
+        flag: 'wx',
+      })
+      renameSync(tmp, this.path)
+    } finally {
+      try {
+        rmSync(tmp, { force: true })
+      } catch {
+        // Already renamed or never created.
+      }
+    }
   }
 
   ids(): readonly string[] {
