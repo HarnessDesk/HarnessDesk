@@ -395,3 +395,72 @@ test('the agent going down holds the queue instead of dropping it', async (t) =>
   assert.equal(record!.queue.messages.length, 1)
   assert.equal(record!.queue.status, 'paused')
 })
+
+test('turn/queue does not send two immediate turns when send resolves before turn/started arrives (#424)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+  // Delay turn/started event until after send() has resolved
+  const originalSend = live.send.bind(live)
+  live.send = async (input) => {
+    const turn = ++(live as unknown as { _turnCounter: number })._turnCounter || 1
+    ;(live as unknown as { _turnCounter: number })._turnCounter = turn
+    const id = ('fake-turn-' + turn) as any
+    const first = input[0]
+    setTimeout(() => {
+      harness.runtime.emit({
+        type: 'turn/started',
+        sessionId: live.id,
+        turn: { id, items: [], status: 'inProgress' },
+      })
+      harness.runtime.emit({
+        type: 'item/started',
+        sessionId: live.id,
+        turnId: id,
+        item: { id: ('u-' + turn) as any, type: 'userMessage', content: [...input] },
+      })
+      harness.runtime.emit({
+        type: 'item/started',
+        sessionId: live.id,
+        turnId: id,
+        item: { id: ('a-' + turn) as any, type: 'assistantMessage', text: '' },
+      })
+      harness.runtime.emit({
+        type: 'item/delta',
+        sessionId: live.id,
+        turnId: id,
+        itemId: ('a-' + turn) as any,
+        delta: {
+          kind: 'assistantText',
+          text: first?.type === 'text' ? `echo: ${first.text}` : 'echo',
+        },
+      })
+    }, 25)
+    return id
+  }
+
+  const firstCall = (await client.call('turn/queue', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    input: [{ type: 'text', text: 'first' }],
+  })) as { queuedId: string | null; sent: boolean }
+
+  const secondCall = (await client.call('turn/queue', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    input: [{ type: 'text', text: 'second' }],
+  })) as { queuedId: string | null; sent: boolean }
+
+  assert.deepEqual(firstCall, { queuedId: null, sent: true })
+  assert.equal(secondCall.sent, false, 'second call is queued, not sent immediately')
+  assert.ok(secondCall.queuedId, 'second call received a queuedId')
+})
+
