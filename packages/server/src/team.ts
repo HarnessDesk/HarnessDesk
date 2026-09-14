@@ -465,6 +465,12 @@ export const normalisePattern = (pattern: string): string | null => {
   return out.length === 0 ? null : out.join('/')
 }
 
+interface PatternLead {
+  raw: string
+  lead: string
+  isGlob: boolean
+}
+
 /**
  * The fixed lead of a path pattern — everything before the first glob
  * character. Two claims conflict when either lead contains the other, which
@@ -472,17 +478,27 @@ export const normalisePattern = (pattern: string): string | null => {
  * stop two agents editing one area, and a rule an agent can predict beats a
  * clever one it cannot.
  */
-const fixedLead = (pattern: string): string => {
-  const glob = pattern.search(/[*?[]/)
-  const lead = glob === -1 ? pattern : pattern.slice(0, glob)
-  return lead.replace(/^\.\//, '').replace(/\/+$/, '')
+const leadOf = (pattern: string): PatternLead => {
+  const norm = pattern.replace(/^\.\//, '')
+  const glob = norm.search(/[*?[]/)
+  if (glob === -1) {
+    const lead = norm.replace(/\/+$/, '')
+    return { raw: lead, lead, isGlob: false }
+  }
+  const raw = norm.slice(0, glob)
+  const lead = raw.replace(/\/+$/, '')
+  return { raw, lead, isGlob: true }
 }
 
 const overlaps = (a: string, b: string): boolean => {
-  const leadA = fixedLead(a)
-  const leadB = fixedLead(b)
-  if (leadA === '' || leadB === '') return true
-  return leadA === leadB || leadA.startsWith(`${leadB}/`) || leadB.startsWith(`${leadA}/`)
+  const first = leadOf(a)
+  const second = leadOf(b)
+  if (first.lead === '' || second.lead === '') return true
+  if (first.lead === second.lead) return true
+  if (first.lead.startsWith(`${second.lead}/`) || second.lead.startsWith(`${first.lead}/`)) return true
+  if (first.isGlob && second.lead.startsWith(first.raw)) return true
+  if (second.isGlob && first.lead.startsWith(second.raw)) return true
+  return false
 }
 
 /**
