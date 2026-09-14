@@ -1403,6 +1403,44 @@ test('Flows.load refuses a running run that omits rounds instead of crashing (#5
   assert.equal(second.runsFor(one.room).length, 0)
 })
 
+test('Flows.load refuses a running run that has malformed flow object (#422)', async (t) => {
+  const one = await rig(t)
+  const flowDir = join(one.dir, 'flows')
+  await mkdir(flowDir, { recursive: true })
+  await writeFile(
+    join(flowDir, 'bad-flow.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'run-bad-flow',
+      room: one.room,
+      flow: null,
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+
+  const logs: Array<{ message: string; details?: unknown }> = []
+  const second = new Flows(flowDir, one.team, {
+    seat: async () => ({ runtime: 'cursor', sessionId: 'x', label: 'cursor' }),
+    order: async () => {},
+    reseat: async () => 'cursor',
+    retire: async () => {},
+    join: async () => {},
+    isolate: async () => '/repo',
+    run: async () => ({ status: 0 }),
+    changed: () => {},
+    log: (message, details) => logs.push({ message, details }),
+  })
+
+  await second.load()
+  assert.equal(second.runsFor(one.room).length, 0)
+  assert.ok(logs.some((l) => l.message === 'a stored flow run could not be read'))
+})
+
 test('a stalled flow run omits endedAt, can be stopped, and recovers when a seat answers (#557)', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })

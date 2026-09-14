@@ -1142,6 +1142,12 @@ export class Flows implements TeamFlows {
           !raw.id ||
           typeof raw.room !== 'string' ||
           !raw.room ||
+          typeof raw.flow !== 'object' ||
+          raw.flow === null ||
+          typeof raw.flow.name !== 'string' ||
+          !Array.isArray(raw.flow.roles) ||
+          !Array.isArray(raw.flow.rules) ||
+          !Array.isArray(raw.flow.inputs) ||
           !Array.isArray(raw.rounds) ||
           !Array.isArray(raw.seats) ||
           !Array.isArray(raw.record)
