@@ -15,6 +15,7 @@ import {
   deleteTag,
   diffRange,
   fetch,
+  listRemotes,
   merge,
   patch,
   pull,
@@ -27,6 +28,7 @@ import {
   stashApply,
   stashDrop,
   stashSave,
+  setGitRunnerForTest,
 } from '../src/git-actions.js'
 import { status } from '../src/git.js'
 
@@ -750,15 +752,39 @@ test('diffRange names files a/ and b/, whatever the repository\'s diff settings 
 })
 
 test('git remote parsing strips carriage returns from Windows git output (#468)', async () => {
-  // Unit test verifying the regex parsing behavior on CRLF remote output
-  const crlfRemotes = 'origin\r\nupstream\r\n'
-  const parsed = crlfRemotes.split(/[\r\n]+/).filter((line) => line.length > 0)
-  assert.deepEqual(parsed, ['origin', 'upstream'])
-  assert.ok(parsed.includes('origin'))
-
   const dir = await seedRepo()
   await git(dir, 'remote', 'add', 'origin', 'https://github.com/openma/harnessdesk.git')
-  // Verify pullRequestUrl handles output cleanly
-  const url = await pullRequestUrl(dir, 'feat/test')
-  assert.equal(url, 'https://github.com/openma/harnessdesk/compare/feat/test?expand=1')
+  await git(dir, 'remote', 'add', 'upstream', 'https://github.com/openma/harnessdesk-fork.git')
+
+  // Calling listRemotes strips CRLF cleanly
+  const remotes = await listRemotes(dir)
+  assert.ok(remotes.includes('origin'))
+  assert.ok(remotes.includes('upstream'))
+  for (const r of remotes) {
+    assert.ok(!r.includes('\r'), `remote ${JSON.stringify(r)} should not contain \\r`)
+  }
+
+  // Inject CRLF into git runner to simulate Windows git remote output and verify discrimination
+  const realGit = promisify(execFile)
+  setGitRunnerForTest(async (root, args, timeout) => {
+    if (args[0] === 'remote' && args.length === 1) {
+      return 'origin\r\nupstream\r\n'
+    }
+    const { stdout } = await realGit('git', ['-C', root, ...args], { timeout })
+    return stdout
+  })
+
+  try {
+    const crlfRemotes = await listRemotes(dir)
+    assert.ok(crlfRemotes.includes('origin'), 'includes origin without carriage return')
+    assert.ok(crlfRemotes.includes('upstream'), 'includes upstream without carriage return')
+    assert.equal(crlfRemotes[0], 'origin')
+    assert.equal(crlfRemotes[1], 'upstream')
+
+    // pullRequestUrl should resolve origin correctly instead of erroring with origin\r
+    const url = await pullRequestUrl(dir, 'feat/test')
+    assert.equal(url, 'https://github.com/openma/harnessdesk/compare/feat/test?expand=1')
+  } finally {
+    setGitRunnerForTest(null)
+  }
 })
