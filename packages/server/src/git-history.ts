@@ -73,10 +73,13 @@ const asked = async (root: string, args: readonly string[]): Promise<string | nu
 
 /**
  * A search term used inside a pathspec, with wildmatch's operators escaped:
- * the person typed characters, not a glob. `*`, `?`, the brackets and the
- * escaping backslash itself all match literally once prefixed.
+ * the person typed characters, not a glob. `*`, `?`, and the brackets all match
+ * literally once prefixed. Windows backslashes are normalised to POSIX forward
+ * slashes first, because Git tree paths and pathspecs use forward slashes as
+ * directory separators (#466).
  */
-const literalPathspec = (query: string): string => query.replace(/[\\*?[\]]/g, '\\$&')
+const literalPathspec = (query: string): string =>
+  query.replaceAll('\\', '/').replace(/[\\*?[\]]/g, '\\$&')
 
 const seconds = (value: string | undefined): number => Number(value ?? 0) * 1000
 
