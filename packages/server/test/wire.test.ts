@@ -1095,6 +1095,54 @@ test('policy auto-decision failure falls back to surfacing approval to client wi
   assert.equal(unhandled, null, 'no unhandled rejection should occur')
 })
 
+test('permissionPolicy with null or malformed entries does not crash approval handling (#427)', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Store malformed permissionPolicy array containing nulls and invalid entries
+  await client.call('app/state/set', {
+    patch: {
+      permissionPolicy: [
+        null,
+        undefined,
+        'not-a-rule',
+        { id: 'bad-1' },
+        { id: 'bad-2', match: null },
+        null,
+      ],
+    },
+  })
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: '/w' },
+  })) as Session
+  await client.call('turn/send', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    input: [{ type: 'text', text: 'hi' }],
+  })
+
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+  // Trigger an approval request from the agent; #applyPolicy must not throw on null rules
+  live.askApproval(approvalId('ap-null-policy'))
+
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          (event as { approval?: { id: string } }).approval?.id === 'ap-null-policy',
+      ),
+    2000,
+  )
+
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)
+  assert.ok(record?.approvals.has('ap-null-policy'))
+})
+
 // --------------------------------------------------------------------- files
 
 test('file reads go through the runtime\'s own view when it declares one', async (t) => {

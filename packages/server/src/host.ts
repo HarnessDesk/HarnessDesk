@@ -2420,7 +2420,18 @@ export class Host {
     // that test run is now asking, so stdin approvals always reach a person.
     if (approval.type === 'command' && approval.kind === 'stdin') return false
     const raw = this.#state.state.preferences['permissionPolicy']
-    const rules = Array.isArray(raw) ? (raw as PolicyRule[]) : []
+    const rules = Array.isArray(raw)
+      ? raw.filter(
+          (entry): entry is PolicyRule =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            typeof (entry as PolicyRule).id === 'string' &&
+            typeof (entry as PolicyRule).name === 'string' &&
+            typeof (entry as PolicyRule).match === 'object' &&
+            (entry as PolicyRule).match !== null &&
+            ((entry as PolicyRule).action === 'approve' || (entry as PolicyRule).action === 'deny'),
+        )
+      : []
     const subject =
       approval.type === 'command'
         ? approval.command
