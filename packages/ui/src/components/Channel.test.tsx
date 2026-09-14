@@ -59,6 +59,7 @@ const ENVELOPE = wrapContext('Message from Codex — “API migration”', 'the 
 const state: TeamState = {
   id: 'room-1',
   name: 'Checkout rewrite',
+  updatedAt: 1,
   root: '/repo',
   members: [],
   messaging: true,

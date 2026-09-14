@@ -1021,7 +1021,6 @@ export const SessionTree = ({ now }: { now: number }) => {
       if (held) held.push(team)
       else out.set(team.root, [team])
     }
-    for (const list of out.values()) list.sort((a, b) => a.name.localeCompare(b.name))
     return out
   }, [snapshot.teams])
 
@@ -1130,7 +1129,7 @@ export const SessionTree = ({ now }: { now: number }) => {
     const open = !collapsed.has(group.root)
     const rooms = projectRoots(group)
       .flatMap((root) => roomsByProject.get(root) ?? [])
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
     /* A conversation is listed once: under its room if it is in one, under
        the project if it is not. Two rows for one session — the room's copy
        and a loose copy — would make the tree's own count disagree with
@@ -1141,6 +1140,18 @@ export const SessionTree = ({ now }: { now: number }) => {
       (summary) => !inRooms.has(String(sessionKey(summary.runtime, summary.id))),
     )
     const shown = expanded.has(group.root) ? loose : loose.slice(0, COLLAPSED_LIMIT)
+    const pinned = snapshot.listPrefs.pinnedSessions
+    const rows = [
+      ...rooms.map((room) => ({ kind: 'room' as const, room, updatedAt: room.updatedAt })),
+      ...shown.map((summary) => ({ kind: 'session' as const, summary, updatedAt: summary.updatedAt })),
+    ].sort((a, b) => {
+      if (a.kind === 'session' && b.kind === 'session') {
+        const aPinned = pinned.includes(sessionKey(a.summary.runtime, a.summary.id))
+        const bPinned = pinned.includes(sessionKey(b.summary.runtime, b.summary.id))
+        if (aPinned !== bPinned) return aPinned ? -1 : 1
+      }
+      return b.updatedAt - a.updatedAt
+    })
     return (
       <div key={group.root}>
         <GroupHead
@@ -1158,26 +1169,23 @@ export const SessionTree = ({ now }: { now: number }) => {
         )}
         {open && (rooms.length > 0 || loose.length > 0) && (
           <div className={styles.nested}>
-            {/* Rooms first, then the conversations working on their own.
-                A room is a container and the loose sessions are not, so
-                putting the containers at the top keeps the indented block
-                in one run rather than threaded through the flat rows. */}
-            {rooms.map((room) => (
-              <RoomRow
-                key={room.id}
-                room={room}
-                sessions={group.sessions}
-                now={now}
-                open={!collapsed.has(room.id)}
-                onToggle={() => toggle(room.id)}
-                onDelete={setDeleting}
-                onRename={(one) => setRenaming(one.id)}
-                onDeleteRoom={(one) => setClosing(one.id)}
-              />
-            ))}
-            {shown.map((summary) => (
-              <SessionRow key={summary.id} summary={summary} now={now} onDelete={setDeleting} />
-            ))}
+            {rows.map((row) =>
+              row.kind === 'room' ? (
+                <RoomRow
+                  key={row.room.id}
+                  room={row.room}
+                  sessions={group.sessions}
+                  now={now}
+                  open={!collapsed.has(row.room.id)}
+                  onToggle={() => toggle(row.room.id)}
+                  onDelete={setDeleting}
+                  onRename={(one) => setRenaming(one.id)}
+                  onDeleteRoom={(one) => setClosing(one.id)}
+                />
+              ) : (
+                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} />
+              ),
+            )}
             {!expanded.has(group.root) && loose.length > COLLAPSED_LIMIT && (
               <button
                 type="button"

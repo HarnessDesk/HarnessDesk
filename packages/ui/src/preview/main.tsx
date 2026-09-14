@@ -96,6 +96,7 @@ const EDGE_ROOM = 'room-edges'
 const TEAM: TeamState = {
   id: PREVIEW_ROOM,
   name: 'Checkout rewrite',
+  updatedAt: 1,
   root: PREVIEW_ROOT,
   members: [
     sessionKey(runtimeId('codex'), 'c1' as SessionId),

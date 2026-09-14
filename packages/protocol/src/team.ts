@@ -314,6 +314,8 @@ export interface TeamState {
   readonly id: string
   /** What a person calls it, chosen when the room was made. */
   readonly name: string
+  /** When the room last changed, used to order rooms beside conversations. */
+  readonly updatedAt: number
   /**
    * The conversations in it, keyed `runtime\u0000sessionId`.
    *
