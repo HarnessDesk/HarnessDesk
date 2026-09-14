@@ -173,6 +173,25 @@ test('files are ownership: overlapping work is refused while the claim lives', a
   assert.match(await team.claim(2, claude), /^Claimed #2/)
 })
 
+test('wildcard filename patterns detect conflicts with specific files (#439)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.addIntent({ title: 'Refactor index', files: ['src/index.*'] }, codex)
+  await team.addIntent({ title: 'Fix index typescript', files: ['src/index.ts'] }, claude)
+  await team.claim(1, codex)
+
+  const refused = await team.claim(2, claude)
+  assert.match(refused, /^Refused: the files of #2 overlap a live claim/)
+  assert.match(refused, /held by #1/)
+
+  const conflicts = await team.conflicts(['src/index.ts'], claude)
+  assert.match(conflicts, /^Conflicts:/)
+
+  const nonConflict = await team.conflicts(['src/indexing.ts'], claude)
+  assert.match(nonConflict, /^No live claim overlaps/)
+})
+
+
 test('dependencies gate claiming, and completing the dependency unblocks', async (t) => {
   const { team, port, room } = await rig(t)
   await twoAgents(port, team, room)
