@@ -1668,7 +1668,7 @@ export class AcpRuntime implements AgentRuntime {
       // it says about the sign-in, so neither classification can hide the
       // other.
       if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) {
-        this.#refusedForSignIn(error)
+        this.refusedForSignIn(error)
         throw error
       }
       // Two opens can race into the same refusal — the eager probe and the
@@ -1688,7 +1688,7 @@ export class AcpRuntime implements AgentRuntime {
       try {
         return this.#opened(await this.#connection.request<T>(method, { ...params, mcpServers: [] }))
       } catch (again) {
-        this.#refusedForSignIn(again)
+        this.refusedForSignIn(again)
         throw again
       }
     }
@@ -1700,8 +1700,8 @@ export class AcpRuntime implements AgentRuntime {
     return result
   }
 
-  /** An open the agent refused for want of a sign-in, noted; false for any other failure. */
-  #refusedForSignIn(error: unknown): boolean {
+  /** An open or prompt the agent refused for want of a sign-in, noted; false for any other failure. */
+  refusedForSignIn(error: unknown): boolean {
     if (!isAuthRefusal(error)) return false
     this.#noteSignIn({ state: 'required', message: describeAcp(error) })
     return true
@@ -2246,9 +2246,10 @@ type SignInObservation =
  * and a bare -32000 is a failure of some other kind.
  */
 const AUTH_REQUIRED_WORDS =
-  /authentication required|not authenticated|unauthenticated|auth[_ -]required|login required|sign[- ]?in required|not (?:signed|logged) in/i
+  /authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
 const isAuthRefusal = (error: unknown): boolean =>
-  error instanceof AcpError && AUTH_REQUIRED_WORDS.test(`${error.message}\n${error.details ?? ''}`)
+  (error instanceof AcpError || error instanceof Error) &&
+  AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
 const firstSentence = (text: string): string => {
@@ -2704,7 +2705,10 @@ class AcpSession implements AgentSession {
         else this.#forgetLastTurn()
         this.#finishTurn(turn, response.stopReason)
       })
-      .catch((error: unknown) => this.#failTurn(turn, describeAcp(error)))
+      .catch((error: unknown) => {
+        this.#host.refusedForSignIn(error)
+        this.#failTurn(turn, describeAcp(error))
+      })
     return id
   }
 
