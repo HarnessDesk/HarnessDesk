@@ -122,6 +122,33 @@ test('a plugin can be inspected before any of its code is imported', async (t) =
   ])
 })
 
+test('npm fetch failure error does not leak credentials in package specifiers', async (t) => {
+  await withPluginsRoot(t)
+  const token = 'ghp_secretToken12345678' // hd-secrets-ok
+  const specifier = `git+https://${token}@example.invalid/repo.git` // hd-secrets-ok
+  await assert.rejects(
+    async () => inspect(specifier),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.ok(!error.message.includes(token), `message leaked credential: ${error.message}`)
+      assert.match(error.message, /\[redacted\]/)
+      assert.match(error.message, /Could not fetch git\+https:\/\/\[redacted\]@example\.invalid\/repo\.git from npm/)
+      return true
+    },
+  )
+
+  const userPassSpecifier = 'git+https://myuser:secretpassword123@example.invalid/repo.git'
+  await assert.rejects(
+    async () => inspect(userPassSpecifier),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.ok(!error.message.includes('secretpassword123'), `message leaked password: ${error.message}`)
+      assert.match(error.message, /Could not fetch git\+https:\/\/\[redacted\]@example\.invalid\/repo\.git from npm/)
+      return true
+    },
+  )
+})
+
 test('installing copies the plugin into HarnessDesk’s own directory', async (t) => {
   const root = await withPluginsRoot(t)
   const installed = await install(FIXTURE)
