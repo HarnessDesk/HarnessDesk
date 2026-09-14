@@ -35,6 +35,16 @@ test('every template bridge is a dependency of the app', () => {
   }
 })
 
+test('mcp-tools is a dependency of the app', () => {
+  const dependencies = Object.keys(manifest.dependencies ?? {})
+  assert.ok(
+    dependencies.includes('@harnessdesk/mcp-tools'),
+    '@harnessdesk/mcp-tools must be a dependency of @harnessdesk/desktop: ' +
+      'electron-builder packs only the dependency graph, and toolBridgeEntry ' +
+      'resolves mcp-tools/dist/src/main.js to spawn as the agent tool bridge.',
+  )
+})
+
 test('node_modules is unpacked wholesale, so spawned children are real files', () => {
   assert.ok(
     manifest.build.asarUnpack.includes('**/node_modules/**'),
