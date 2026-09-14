@@ -160,3 +160,57 @@ test('an empty document is nothing, not a crash', () => {
 test('a key with no value is null, and its siblings still read', () => {
   assert.deepEqual(parseYaml('a:\nb: 2\n'), { a: null, b: 2 })
 })
+
+test('block scalars preserve indented "---" and "..." lines without multi-document refusal (#432)', () => {
+  const value = parseYaml(`
+roles:
+  fixer:
+    kind: agent
+    order: |
+      Start with YAML front matter:
+      ---
+      hunter: dragonfly
+      ---
+      Wait for it:
+      ...
+after: yes
+`) as Record<string, unknown>
+
+  assert.deepEqual(value, {
+    roles: {
+      fixer: {
+        kind: 'agent',
+        order: [
+          'Start with YAML front matter:',
+          '---',
+          'hunter: dragonfly',
+          '---',
+          'Wait for it:',
+          '...',
+          '',
+        ].join('\n'),
+      },
+    },
+    after: 'yes',
+  })
+})
+
+test('column 0 document separators "---" and "..." are still refused (#432)', () => {
+  assert.throws(
+    () => parseYaml('a: 1\n---\nb: 2\n'),
+    (err: unknown) => {
+      assert.ok(err instanceof YamlError)
+      assert.match(err.message, /line 2: one document per file/)
+      return true
+    },
+  )
+  assert.throws(
+    () => parseYaml('a: 1\n...\nb: 2\n'),
+    (err: unknown) => {
+      assert.ok(err instanceof YamlError)
+      assert.match(err.message, /line 2: one document per file/)
+      return true
+    },
+  )
+})
+
