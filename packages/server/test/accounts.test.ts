@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1304,4 +1305,29 @@ test('an agent that holds one account says so by the name people see', async (t)
     assert.doesNotMatch(error.message, /fake-internal/)
     return true
   })
+})
+
+test('readRoster refuses slots with home outside managed accounts directory (#430)', async (t) => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'accounts.json')
+  const victim = join(root, 'victim-dir')
+  await mkdir(victim, { recursive: true })
+  await writeFile(join(victim, 'important.txt'), 'do not delete')
+
+  await writeFile(
+    file,
+    JSON.stringify({
+      accounts: [
+        { id: 'codex-victim', agent: FAKE_RUNTIME_ID, home: victim, createdAt: Date.now() },
+        { id: 'codex-escape', agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', '..', 'victim-dir'), createdAt: Date.now() },
+      ],
+    }),
+  )
+
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 0, 'slots with home outside accounts directory must be refused')
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(existsSync(victim), true, 'unrelated victim directory must not be deleted by pruneEmpty')
+  assert.equal(existsSync(join(victim, 'important.txt')), true)
 })

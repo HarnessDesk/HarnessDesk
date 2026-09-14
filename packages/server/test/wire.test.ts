@@ -1553,3 +1553,50 @@ test('app/state/set wire call rejects when state cannot be persisted to disk', a
   await assert.rejects(client.call('app/state/set', { patch: { theme: 'dark' } }))
 })
 
+test('HTTP token gate cannot be bypassed by non-root SPA routes (#429)', async (t) => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const uiDir = await mkdtemp(join(tmpdir(), 'harnessdesk-ui-gate-'))
+  t.after(() => rm(uiDir, { recursive: true, force: true }))
+  await writeFile(join(uiDir, 'index.html'), '<html>app shell</html>')
+  await writeFile(join(uiDir, 'bundle.js'), 'console.log("bundle")')
+
+  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-gate-state-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+  })
+  await host.start()
+  const server = await serve({ host, logger: silent, port: 0, uiRoot: uiDir, token: 'secret-token' })
+  t.after(async () => {
+    await server.close()
+    await host.dispose()
+  })
+
+  // 1. Root without token -> 401
+  const resRootNoToken = await fetch(`${server.url}/`)
+  assert.equal(resRootNoToken.status, 401)
+
+  // 2. Non-root fallback route without token -> must be 401, not 200
+  const resSpaRouteNoToken = await fetch(`${server.url}/settings/appearance`)
+  assert.equal(resSpaRouteNoToken.status, 401, 'non-root SPA route without token must be refused with 401')
+
+  // 3. Root with token -> 200
+  const resRootWithToken = await fetch(`${server.url}/?token=secret-token`)
+  assert.equal(resRootWithToken.status, 200)
+  assert.equal(await resRootWithToken.text(), '<html>app shell</html>')
+
+  // 4. Non-root fallback route with token -> 200
+  const resSpaRouteWithToken = await fetch(`${server.url}/settings/appearance?token=secret-token`)
+  assert.equal(resSpaRouteWithToken.status, 200)
+  assert.equal(await resSpaRouteWithToken.text(), '<html>app shell</html>')
+
+  // 5. Existing static asset without token -> 200 (static assets are ungated per design)
+  const resStatic = await fetch(`${server.url}/bundle.js`)
+  assert.equal(resStatic.status, 200)
+  assert.equal(await resStatic.text(), 'console.log("bundle")')
+})
+
+
