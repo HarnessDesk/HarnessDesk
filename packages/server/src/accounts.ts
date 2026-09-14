@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -18,8 +19,14 @@ import { runtimeId, type RuntimeId } from '@harnessdesk/protocol'
 
 /** Whether a directory path is strictly a descendant of `parentDir`. */
 const isUnder = (candidate: string, parentDir: string): boolean => {
-  const resolvedParent = resolve(parentDir)
-  const resolvedCandidate = resolve(candidate)
+  let resolvedParent = resolve(parentDir)
+  let resolvedCandidate = resolve(candidate)
+  try {
+    resolvedParent = realpathSync.native(resolvedParent)
+  } catch {}
+  try {
+    resolvedCandidate = realpathSync.native(resolvedCandidate)
+  } catch {}
   const rel = relative(resolvedParent, resolvedCandidate)
   return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
 }
@@ -401,7 +408,12 @@ export class AccountSlots {
       try {
         const accountsDir = resolve(dirname(this.file), 'accounts')
         if (isUnder(slot.home, accountsDir)) {
-          rmSync(slot.home, { recursive: true, force: true })
+          // If slot.home itself is a symlink, delete the link without recursing into target
+          if (lstatSync(slot.home, { throwIfNoEntry: false })?.isSymbolicLink()) {
+            rmSync(slot.home, { force: true })
+          } else {
+            rmSync(slot.home, { recursive: true, force: true })
+          }
         } else {
           this.log?.('account slot home outside accounts directory, skipping removal', { home: slot.home })
         }
