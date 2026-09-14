@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
@@ -107,6 +107,34 @@ test('commitAll with paths commits exactly those files, untracked included', asy
   // The file left out is still waiting, untracked.
   const status = await git(dir, 'status', '--porcelain')
   assert.ok(status.includes('left-out.txt'))
+})
+
+test('commitAll with paths handles Windows backslash paths (#460)', async () => {
+  const dir = await seedRepo()
+  const sub = join(dir, 'nested', 'deep')
+  await mkdir(sub, { recursive: true })
+  await writeFile(join(sub, 'file.txt'), 'content\n')
+  await writeFile(join(dir, 'other.txt'), 'other\n')
+
+  const backslashedPath = 'nested\\deep\\file.txt'
+  const { sha: committed } = await commitAll(dir, 'commit with backslash path', [backslashedPath])
+  assert.equal(committed, await sha(dir, 'HEAD'))
+
+  const shown = await git(dir, 'show', '--name-only', '--format=%s', 'HEAD')
+  assert.ok(shown.includes('commit with backslash path'))
+  assert.ok(shown.includes('nested/deep/file.txt'))
+  assert.ok(!shown.includes('other.txt'))
+
+  // Also test committing a modified tracked file using backslash path:
+  await writeFile(join(sub, 'file.txt'), 'modified content\n')
+  await writeFile(join(dir, 'other.txt'), 'modified other\n')
+  const { sha: secondCommit } = await commitAll(dir, 'commit modified backslash path', [backslashedPath])
+  assert.equal(secondCommit, await sha(dir, 'HEAD'))
+
+  const secondShown = await git(dir, 'show', '--name-only', '--format=%s', 'HEAD')
+  assert.ok(secondShown.includes('commit modified backslash path'))
+  assert.ok(secondShown.includes('nested/deep/file.txt'))
+  assert.ok(!secondShown.includes('other.txt'))
 })
 
 test('commitAll without paths takes everything, and an empty tree refuses in words', async () => {
