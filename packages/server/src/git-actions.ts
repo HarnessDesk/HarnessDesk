@@ -290,7 +290,7 @@ export const push = async (root: string): Promise<{ summary: string }> => {
     }
   }
   const remotes = (await git(root, ['remote']))
-    .split('\n')
+    .split(/[\r\n]+/)
     .filter((line) => line.length > 0)
   if (remotes.length === 0) throw new Error('This repository has no remote to push to.')
   const remote = remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : null
@@ -306,7 +306,7 @@ export const push = async (root: string): Promise<{ summary: string }> => {
 /** Fetches every remote, pruning remote-tracking refs their remote dropped. */
 export const fetch = async (root: string): Promise<{ summary: string }> => {
   const remotes = (await git(root, ['remote']))
-    .split('\n')
+    .split(/[\r\n]+/)
     .filter((line) => line.length > 0)
   if (remotes.length === 0) throw new Error('This repository has no remote to fetch from.')
   try {
@@ -647,7 +647,7 @@ const webUrl = (remote: string): URL | null => {
 export const pullRequestUrl = async (root: string, branch: string): Promise<string | null> => {
   await checkBranchName(root, branch)
   const remotes = (await git(root, ['remote']))
-    .split('\n')
+    .split(/[\r\n]+/)
     .filter((line) => line.length > 0)
   const remote = remotes.includes('origin') ? 'origin' : remotes[0]
   if (!remote) return null

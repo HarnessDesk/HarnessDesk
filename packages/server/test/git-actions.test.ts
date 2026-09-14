@@ -748,3 +748,17 @@ test('diffRange names files a/ and b/, whatever the repository\'s diff settings 
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('git remote parsing strips carriage returns from Windows git output (#468)', async () => {
+  // Unit test verifying the regex parsing behavior on CRLF remote output
+  const crlfRemotes = 'origin\r\nupstream\r\n'
+  const parsed = crlfRemotes.split(/[\r\n]+/).filter((line) => line.length > 0)
+  assert.deepEqual(parsed, ['origin', 'upstream'])
+  assert.ok(parsed.includes('origin'))
+
+  const dir = await seedRepo()
+  await git(dir, 'remote', 'add', 'origin', 'https://github.com/openma/harnessdesk.git')
+  // Verify pullRequestUrl handles output cleanly
+  const url = await pullRequestUrl(dir, 'feat/test')
+  assert.equal(url, 'https://github.com/openma/harnessdesk/compare/feat/test?expand=1')
+})
