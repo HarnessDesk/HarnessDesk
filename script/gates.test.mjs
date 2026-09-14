@@ -667,7 +667,7 @@ test('a method name held in a variable is not a caller either', () => {
 
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   for (const file of ['package.json', 'script/verify.mjs', '.github/workflows/ci.yml', '.github/workflows/release.yml']) {
     const text = fs.readFileSync(path.join(repo, file), 'utf8')
     assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
@@ -675,7 +675,7 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
 })
 
 test('the step that reads what the build writes says that it needs it (#208)', () => {
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   const verify = fs.readFileSync(path.join(repo, 'script/verify.mjs'), 'utf8')
   const at = verify.indexOf("step('node tests'")
   assert.notEqual(at, -1, 'verify.mjs still has a node tests step')
@@ -1023,11 +1023,26 @@ test('an invented path in a fenced sample is a candidate, and ALLOWED is its esc
 })
 
 test('every allowlisted doc path still names something outside this tree (#223)', () => {
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+  const repo = repoRoot
   for (const [value, reason] of ALLOWED) {
     assert.equal(fs.existsSync(path.join(repo, value)), false, `${value} is in this tree now: drop the entry`)
     assert.ok(reason.length > 20, `${value} needs a reason, not a label`)
   }
+})
+
+test('gate test scripts use fileURLToPath instead of URL.pathname for file URL resolution (#484)', () => {
+  // On Windows, raw URL pathname includes a leading slash before the drive letter (/C:/...)
+  // which causes path.win32.resolve to lose the drive root, whereas fileURLToPath is the standard Node method.
+  const rawPathname = '/C:/Users/dev/HarnessDesk/script/gates.test.mjs'
+  assert.equal(path.win32.resolve(path.win32.dirname(rawPathname), '..'), '\\C:\\Users\\dev\\HarnessDesk')
+
+  const gatesTestSrc = withoutComments(fs.readFileSync(path.join(repoRoot, 'script/gates.test.mjs'), 'utf8'))
+  const badPattern = new RegExp(['new\\s+URL\\(', 'import\\.meta\\.url', '\\)\\.pathname'].join(''))
+  assert.doesNotMatch(
+    gatesTestSrc,
+    badPattern,
+    'script/gates.test.mjs must resolve repository paths without URL pathname',
+  )
 })
 
 test("a real account's address in a tracked file fails the secrets scan (#204)", () => {
