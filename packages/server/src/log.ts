@@ -83,7 +83,19 @@ export class Logger {
     if (this.#console) {
       const line = `${record.time} ${level.toUpperCase().padEnd(5)} [${this.scope}] ${message}`
       const stream = level === 'error' || level === 'warn' ? process.stderr : process.stdout
-      stream.write(details === undefined ? `${line}\n` : `${line} ${safeJson(details)}\n`)
+      /* A console that has gone away must not become the caller's problem.
+         The desk is routinely started detached, and when its parent exits the
+         pipe behind stdout breaks: `write` then raises EPIPE at whatever line
+         asked for a log. Measured 2026-09-13 — the one line that logs
+         unconditionally is the shell's `uncaughtException` handler, so the
+         throw was delivered back to that handler, which logged again: 267,665
+         crash files and 1.0 GB of disk in six minutes, then the process died.
+         The file sink below still has the line. */
+      try {
+        stream.write(details === undefined ? `${line}\n` : `${line} ${safeJson(details)}\n`)
+      } catch {
+        // Nowhere to say so: saying so is what is broken.
+      }
     }
 
     if (this.#file) {

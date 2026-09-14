@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { RELAUNCH_LOOP_MS, crashDecision, respondToCrash } from './crash-policy.mjs'
+import { RELAUNCH_LOOP_MS, STORM_LIMIT, STORM_MS, crashDecision, crashStorm, forgetCrashes, respondToCrash } from './crash-policy.mjs'
 
 test('a pipe that went away under a write is somebody else’s exit; the shell carries on', () => {
   for (const code of ['EPIPE', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END']) {
@@ -108,3 +108,94 @@ test('a marker nobody can read is not a reason to fail', () => {
   assert.equal(seen.relaunched, 1)
 })
 
+
+test('a hook that throws cannot re-enter the handler — the crash-write loop', () => {
+  // Measured 2026-09-13. The shell is started detached; its parent exits; the
+  // pipe behind stdout breaks. The next `logger.error` raises EPIPE — and the
+  // one place that logs unconditionally is this handler, so the throw was
+  // delivered straight back to `uncaughtException`, which logged again. The
+  // live run wrote 267,665 crash files and 1.0 GB of disk in six minutes and
+  // then the process died.
+  forgetCrashes()
+  let records = 0
+  const decision = respondToCrash('uncaughtException', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }), {
+    record: () => { records += 1 },
+    log: () => { throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }) },
+    readMarker: () => '0',
+    writeMarker: () => {},
+    relaunch: () => {},
+    exit: () => {},
+  })
+  // Nothing escapes, so Node has nothing to redeliver: one crash, one record.
+  assert.equal(records, 1)
+  assert.equal(decision, 'continue')
+})
+
+test('and if it re-enters by some other road, the storm guard ends it', () => {
+  // A hook that calls back into the handler rather than throwing is not what
+  // the live failure did, but it is the same loop and nothing above catches
+  // it. The window is the backstop: past the limit the handler stops
+  // answering and exits.
+  forgetCrashes()
+  let records = 0
+  let exits = 0
+  let depth = 0
+  const hooks = {
+    record: () => { records += 1 },
+    log: () => {
+      depth += 1
+      if (depth > 500) throw new Error('gave up: the handler re-entered 500 times')
+      respondToCrash('uncaughtException', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }), hooks)
+    },
+    readMarker: () => '0',
+    writeMarker: () => {},
+    relaunch: () => {},
+    exit: () => { exits += 1 },
+  }
+  respondToCrash('uncaughtException', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }), hooks)
+  assert.ok(records <= STORM_LIMIT + 1, `the handler wrote ${records} crash records for one broken pipe`)
+  assert.equal(exits, 1, 'the storm exits once, and does not log its way back in')
+})
+
+test('every hook is wrapped: one that throws does not take the others with it', () => {
+  forgetCrashes()
+  const done = []
+  const decision = respondToCrash('uncaughtException', new TypeError('boom'), {
+    record: () => { throw new Error('the crash reporter is broken too') },
+    log: () => { done.push('log'); throw new Error('and so is the logger') },
+    readMarker: () => '0',
+    writeMarker: () => done.push('marker'),
+    relaunch: () => done.push('relaunch'),
+    exit: (code) => done.push(`exit ${code}`),
+  })
+  assert.equal(decision, 'relaunch')
+  assert.deepEqual(done, ['log', 'marker', 'relaunch', 'exit 1'])
+})
+
+test('a marker that throws is not a reason to answer a different question', () => {
+  // `readMarker` used to be the only guarded hook. It stays guarded: an
+  // unreadable marker means "no relaunch on record", not "exit".
+  forgetCrashes()
+  let decided = null
+  respondToCrash('uncaughtException', new TypeError('boom'), {
+    record: () => {},
+    log: (_kind, _error, decision) => { decided = decision },
+    readMarker: () => { throw new Error('no such file') },
+    writeMarker: () => {},
+    relaunch: () => {},
+    exit: () => {},
+  })
+  assert.equal(decided, 'relaunch')
+})
+
+test('a storm of crashes inside the window stops being answered, and the window slides', () => {
+  forgetCrashes()
+  const now = 5_000_000
+  for (let i = 0; i < STORM_LIMIT; i += 1) {
+    assert.equal(crashStorm(now + i), false, `crash ${i + 1} of ${STORM_LIMIT} is not yet a storm`)
+  }
+  assert.equal(crashStorm(now + STORM_LIMIT), true)
+  // Quiet for longer than the window and it is calm again — a program that
+  // crashes once a minute must never trip this.
+  assert.equal(crashStorm(now + STORM_LIMIT + STORM_MS + 1), false)
+})
