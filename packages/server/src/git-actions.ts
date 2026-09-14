@@ -93,7 +93,7 @@ const checkStashRef = (ref: string): void => {
 /** A search term used as a pathspec must match characters, not a glob. */
 const literal = (path: string): string => {
   if (path.startsWith('-')) throw new Error(`"${path}" is not a usable path.`)
-  return `:(literal)${path}`
+  return `:(literal)${path.replaceAll('\\', '/')}`
 }
 
 /** The paths a merge-like verb left conflicted, straight from status. */
@@ -155,7 +155,7 @@ export interface MergeOutcome {
 const treeState = async (
   root: string,
 ): Promise<{ renames: Map<string, string>; untracked: Set<string> }> => {
-  const out = await git(root, ['status', '--porcelain=v1', '-z'])
+  const out = await git(root, ['status', '--porcelain=v1', '-z', '-uall'])
   const renames = new Map<string, string>()
   const untracked = new Set<string>()
   for (const entry of parsePorcelain(out)) {
@@ -209,8 +209,9 @@ export const commitAll = async (
   }
   try {
     if (paths) {
+      const normalised = paths.map((path) => path.replaceAll('\\', '/'))
       const { renames, untracked } = await treeState(root)
-      const named = [...new Set(paths.flatMap((path) => {
+      const named = [...new Set(normalised.flatMap((path) => {
         const from = renames.get(path)
         return from ? [path, from] : [path]
       }))]
