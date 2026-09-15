@@ -66,7 +66,7 @@ the packaged app.
 | Package | Licence | Used for |
 | --- | --- | --- |
 | `@deepseek-ai/cordis` | MIT | The extension kernel — plugin lifecycle, injection, isolation, hot reload. Wrapped by `packages/cordis-host`; nothing above it imports Cordis, which `pnpm layering` enforces |
-| `@zed-industries/claude-code-acp` | Apache-2.0 | Running Claude Code as an ACP agent |
+| `@agentclientprotocol/claude-agent-acp` | Apache-2.0 | Running Claude Code as an ACP agent |
 | `@agentclientprotocol/sdk` | Apache-2.0 | The ACP client surface |
 | `lucide-react` | ISC | The icon set |
 | `@lobehub/icons-static-svg` | MIT | Vendor and agent marks |

@@ -494,7 +494,7 @@ const acpConfirm = (confirm: {
 const levelOf = (level: { readonly id: string; readonly label?: string | null }): {
   readonly id: string
   readonly label: string
-} => ({ id: level.id, label: level.label?.trim() || level.id })
+} => ({ id: level.id, label: level.label?.trim() || (level.id === 'xhigh' ? 'Extra high' : level.id) })
 
 /** The reasoning levels a bridge named on the model itself, if it named any. */
 const levelsOfModel = (
@@ -502,6 +502,18 @@ const levelsOfModel = (
 ): readonly { readonly id: string; readonly label: string }[] | null => {
   const levels = model._meta?.harnessdesk?.effortLevels
   return levels ? levels.map(levelOf) : null
+}
+
+const levelsOfModelOption = (
+  option: AcpConfigOption,
+): readonly { readonly id: string; readonly label: string }[] | null => {
+  if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return null
+  const levels = option.options
+    .map((choice) => (choice._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels)
+    .find((value): value is readonly { id: string; label?: string | null }[] => Array.isArray(value))
+  return levels
+    ? levels.map(levelOf)
+    : null
 }
 
 /**
@@ -516,7 +528,7 @@ const levelsOfOptions = (
   const effort = options.find((option) => option.category === 'thought_level' && option.type === 'select')
   return (effort?.options ?? [])
     .filter((choice) => choice.value !== 'default')
-    .map((choice) => levelOf({ id: choice.value, label: choice.name }))
+    .map((choice) => levelOf({ id: choice.value, label: choice.value === 'xhigh' ? 'Extra high' : choice.name }))
 }
 
 /**
@@ -812,6 +824,16 @@ export class AcpRuntime implements AgentRuntime {
           // Declined, deliberately and forever. See the class comment.
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
+          // Claude Agent ACP 0.77 exposes native subagents and background
+          // work only when the client opts into their standard lifecycle
+          // updates. HarnessDesk translates those updates at the adapter
+          // boundary; keeping the capability here also lets other ACP agents
+          // use the same standard surface.
+          subagents: {},
+          _meta: {
+            'subagent-transcript': true,
+            jetbrains: { air: { version: 1, capabilities: ['asyncTasks'] } },
+          },
         },
       })
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
@@ -1281,17 +1303,25 @@ export class AcpRuntime implements AgentRuntime {
    * model changes as drafts are tried, and the agent's default does not.
    */
   #learnCatalog(result: AcpNewSessionResult): void {
-    const models = result.models?.availableModels ?? []
+    const modelOption = result.configOptions?.find((option) => option.id === 'model' && option.type === 'select')
+    const models: readonly AcpModel[] = result.models?.availableModels ??
+      (modelOption?.options ?? []).map((option) => ({
+        modelId: option.value,
+        name: option.name,
+        ...(option.description ? { description: option.description } : {}),
+        ...(option._meta ? { _meta: option._meta as AcpModel['_meta'] } : {}),
+      }))
     if (models.length === 0) return
     const shared = levelsOfOptions(result.configOptions ?? [])
+    const currentModelId = result.models?.currentModelId ?? (modelOption ? String(modelOption.currentValue) : null)
     const isDefault = (modelId: string): boolean =>
-      this.#catalogDefault === null ? modelId === result.models?.currentModelId : modelId === this.#catalogDefault
+      this.#catalogDefault === null ? modelId === currentModelId : modelId === this.#catalogDefault
     const catalog = models.map(
       (model): ModelInfo => ({
         id: model.modelId,
         displayName: model.name,
         ...(model.description ? { description: model.description } : {}),
-        reasoningLevels: levelsOfModel(model) ?? shared,
+        reasoningLevels: levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption)) ?? shared,
         supportsImages: this.info.capabilities.imageInput,
         ...(model._meta?.harnessdesk?.thinking
           ? { thinking: model._meta.harnessdesk.thinking }
@@ -1299,7 +1329,7 @@ export class AcpRuntime implements AgentRuntime {
         ...(isDefault(model.modelId) ? { isDefault: true } : {}),
       }),
     )
-    if (this.#catalogDefault === null) this.#catalogDefault = result.models?.currentModelId ?? null
+    if (this.#catalogDefault === null) this.#catalogDefault = currentModelId
     if (JSON.stringify(catalog) === JSON.stringify(this.#catalog)) return
     this.#catalog = catalog
     // Learning it before anyone asked is not news: `listModels` opens the
@@ -1508,6 +1538,7 @@ export class AcpRuntime implements AgentRuntime {
     const result = await this.#connection.request<AcpSessionDeleted>(ACP_SESSION_DELETE, {
       sessionId: String(id),
     })
+    this.#tasks?.forget(id)
     this.#titles.delete(id)
     this.#previews.delete(id)
     const disposition = result?.disposition ?? 'removed'
@@ -2063,27 +2094,34 @@ const NO_TOKENS: TokenUsage = {
 }
 
 /**
- * ACP's turn usage in the protocol's shape. ACP's `inputTokens` is the
- * whole input and `cachedReadTokens` the part of it served from cache, which
- * is also how Codex counts — so `cachedInputTokens` stays a share of
- * `inputTokens`, and the turn tail's "% cached" means the same thing for
- * every agent.
+ * ACP reports uncached input, cache reads, and cache writes as separate
+ * counters. HarnessDesk's turn model keeps the full input total in
+ * `inputTokens`, so reconstruct it here while preserving the cache split.
  */
-const tokenUsageOf = (usage: AcpUsage): TokenUsage => ({
+const tokenUsageOf = (usage: AcpUsage, inputTokensAreUncached = false): TokenUsage => {
+  const cachedRead = usage.cachedReadTokens ?? 0
+  const cachedWrite = usage.cachedWriteTokens ?? 0
+  const splitInput = inputTokensAreUncached || usage.inputTokens < cachedRead + cachedWrite
+  return {
   totalTokens: usage.totalTokens,
-  inputTokens: usage.inputTokens,
-  cachedInputTokens: Math.min(usage.inputTokens, usage.cachedReadTokens ?? 0),
+  // Most ACP peers report `inputTokens` as the full input already. Claude's
+  // official bridge reports uncached input separately from cache reads/writes;
+  // only that shape needs reconstruction. The strict inequality keeps older
+  // peers and local usage records from double-counting their cache share.
+  inputTokens: splitInput ? usage.inputTokens + cachedRead + cachedWrite : usage.inputTokens,
+  cachedInputTokens: splitInput ? cachedRead : Math.min(usage.inputTokens, cachedRead),
   // The miss half, kept rather than dropped. It arrived here from the first
   // day ACP had a usage shape and went nowhere, which left the turn tail
   // dividing hits by input and calling the quotient cache health — a figure
   // that reads a cold turn and a small turn as the same thing. Absent stays
   // absent: an agent that does not report writes must not be shown a zero.
   ...(typeof usage.cachedWriteTokens === 'number'
-    ? { cacheWriteTokens: Math.min(usage.inputTokens, usage.cachedWriteTokens) }
+    ? { cacheWriteTokens: splitInput ? cachedWrite : Math.min(usage.inputTokens, cachedWrite) }
     : {}),
   outputTokens: usage.outputTokens,
   reasoningOutputTokens: usage.thoughtTokens ?? 0,
-})
+  }
+}
 
 /**
  * A turn's tokens from the `_meta.quota` an agent answers a prompt with, in
@@ -2549,7 +2587,9 @@ class AcpSession implements AgentSession {
   }
 
   settings(): SessionSettings {
-    return { cwd: this.#cwd, model: this.#models?.currentModelId ?? this.#host.agentName }
+    const declaredModel = this.#configOptions.find((option) => option.id === 'model')
+    const configModel = declaredModel && typeof declaredModel.currentValue === 'string' ? declaredModel.currentValue : null
+    return { cwd: this.#cwd, model: this.#models?.currentModelId ?? configModel ?? this.#host.agentName }
   }
 
   /**
@@ -2559,7 +2599,8 @@ class AcpSession implements AgentSession {
    */
   options(): readonly ConfigOption[] {
     const options: ConfigOption[] = []
-    if (this.#models && this.#models.availableModels.length > 0) {
+    const declared = new Set(this.#configOptions.map((option) => option.id))
+    if (this.#models && this.#models.availableModels.length > 0 && !declared.has('model')) {
       options.push({
         type: 'select',
         id: 'model',
@@ -2573,7 +2614,7 @@ class AcpSession implements AgentSession {
         })),
       })
     }
-    if (this.#modes && this.#modes.availableModes.length > 0) {
+    if (this.#modes && this.#modes.availableModes.length > 0 && !declared.has('mode')) {
       options.push({
         type: 'select',
         id: 'mode',
@@ -2614,9 +2655,10 @@ class AcpSession implements AgentSession {
           currentValue: String(option.currentValue),
           choices: (option.options ?? []).map((choice) => ({
             value: choice.value,
-            label: choice.name,
+            label: choice.value === 'xhigh' ? 'Extra high' : choice.name,
             ...(choice.description ? { description: choice.description } : {}),
             ...(choice.disabled ? { disabled: choice.disabled } : {}),
+            ...(choice._meta ? { _meta: choice._meta } : {}),
           })),
         })
       }
@@ -2635,16 +2677,26 @@ class AcpSession implements AgentSession {
         modeId: value,
       })
       this.#modes = { ...this.#modes, currentModeId: value as string }
-    } else if (id === 'model' && this.#models) {
+    } else if (id === 'model') {
       // Picking the model a session already runs is a no-op worth skipping:
       // Claude Code records every model change as a `/model` command in its
       // own transcript, and that echo is read back on the next open.
-      if (this.#models.currentModelId === value) return
-      await this.#host.connection.request('session/set_model', {
-        sessionId: this.id,
-        modelId: value,
-      })
-      this.#models = { ...this.#models, currentModelId: value as string }
+      const modelOption = this.#configOptions.find((entry) => entry.id === 'model')
+      const currentModel = this.#models?.currentModelId ?? (modelOption && typeof modelOption.currentValue === 'string' ? modelOption.currentValue : null)
+      if (currentModel === value) return
+      const response = await this.#host.connection.request<{ configOptions?: readonly AcpConfigOption[]; models?: AcpModelState }>(modelOption ? 'session/set_config_option' : 'session/set_model',
+        modelOption
+          ? { sessionId: this.id, configId: 'model', value }
+          : { sessionId: this.id, modelId: value },
+      )
+      if (response?.configOptions) this.#configOptions = response.configOptions
+      else if (modelOption) {
+        this.#configOptions = this.#configOptions.map((entry) =>
+          entry.id === 'model' ? { ...entry, currentValue: value as string } : entry,
+        )
+      }
+      if (response?.models) this.#models = response.models
+      else if (this.#models) this.#models = { ...this.#models, currentModelId: value as string }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
       await this.#host.connection.request('session/set_config_option', {
@@ -2721,7 +2773,7 @@ class AcpSession implements AgentSession {
         // counts in the extension slot instead is read from there, and one
         // that says nothing at all, from its own record if it keeps one.
         const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
-        if (usage) this.#recordTurnUsage(usage)
+        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
         // A turn nobody could account for is not the one before it: its figures
         // are unknown, so the last turn shows none rather than the previous
         // turn's under this one's name. For every runtime, not only the ones
@@ -3196,8 +3248,8 @@ class AcpSession implements AgentSession {
   }
 
   /** A finished turn's tokens: they become `last`, and join the running total. */
-  #recordTurnUsage(usage: AcpUsage): void {
-    const turn = tokenUsageOf(usage)
+  #recordTurnUsage(usage: AcpUsage, inputTokensAreUncached = false): void {
+    const turn = tokenUsageOf(usage, inputTokensAreUncached)
     const previous = this.#usage?.total ?? NO_TOKENS
     // The running total carries a write count only while the chain of turns
     // behind it is unbroken. An empty total is the start of the chain, not a

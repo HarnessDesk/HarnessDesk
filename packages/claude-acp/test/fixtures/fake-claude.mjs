@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * A stand-in for the Claude Code CLI in the Agent SDK's stream-json mode —
- * just enough of the control protocol for `@zed-industries/claude-code-acp`
+ * just enough of the control protocol for the Claude Agent SDK
  * to open a session, list models, and run turns, with none of the model.
  *
  * What it plays back is what the tests need to see:
@@ -37,14 +37,17 @@ import readline from 'node:readline'
 const argv = process.argv.slice(2)
 const flag = (name) => {
   const index = argv.indexOf(name)
-  return index === -1 ? null : (argv[index + 1] ?? null)
+  if (index !== -1) return argv[index + 1] ?? null
+  const inline = argv.find((arg) => arg.startsWith(`${name}=`))
+  return inline ? inline.slice(name.length + 1) : null
 }
 
 let effort = flag('--effort') ?? 'default'
 let autocompact = flag('--autocompact') ?? 'default'
 const resumed = flag('--resume')
-const sessionId = flag('--session-id') ?? resumed ?? 'fake-session'
+let sessionId = flag('--session-id') ?? resumed ?? 'fake-session'
 let model = flag('--model') ?? 'default'
+let lastUserUuid = null
 // Output styles have no flag of their own; the real CLI reads them from the
 // `--settings` JSON, so the fake does too.
 const settings = (() => {
@@ -60,6 +63,12 @@ const log = (line) => {
   const file = process.env.FAKE_CLAUDE_LOG
   if (file) appendFileSync(file, `${line}\n`)
 }
+const fail = (label, error) => {
+  log(`${label} ${error?.stack ?? error}`)
+  process.exit(1)
+}
+process.on('uncaughtException', (error) => fail('uncaught', error))
+process.on('unhandledRejection', (error) => fail('unhandled', error))
 log(`spawn ${process.pid} effort=${effort} autocompact=${autocompact} style=${outputStyle} resume=${resumed ?? 'none'} session=${sessionId}`)
 process.on('exit', () => log(`exit ${process.pid}`))
 // A signal death skips 'exit'; the SDK ends a replaced process with SIGTERM.
@@ -122,19 +131,23 @@ const asStreamed = (usage) => ({ ...usage, output_tokens: 1 })
  * goes on, which is how the real CLI narrates between tool calls.
  */
 const narrate = (text) => {
+  log('narrate begin')
   const usage = usageOf()
   // The bridge asks for partial messages and takes assistant text from the
   // stream events, not from the assistant message itself.
-  const stream = (event) => send({ type: 'stream_event', event, session_id: sessionId, parent_tool_use_id: null })
-  stream({ type: 'message_start', message: { id: `msg_${Date.now()}`, role: 'assistant', content: [] } })
+  const messageId = `msg_${Date.now()}`
+  const messageUuid = `uuid-${messageId}`
+  const stream = (event) => send({ type: 'stream_event', event, session_id: sessionId, parent_tool_use_id: null, uuid: messageUuid })
+  stream({ type: 'message_start', message: { id: messageId, role: 'assistant', model: 'fake', content: [], usage: asStreamed(usage) } })
   stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
   stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })
   stream({ type: 'content_block_stop', index: 0 })
   stream({ type: 'message_stop' })
+  log('narrate stream done')
   send({
     type: 'assistant',
     message: {
-      id: `msg_${Date.now()}`,
+      id: messageId,
       type: 'message',
       role: 'assistant',
       model: 'fake',
@@ -145,12 +158,16 @@ const narrate = (text) => {
     },
     parent_tool_use_id: null,
     session_id: sessionId,
+    uuid: messageUuid,
+    ...(lastUserUuid ? { user_message_uuid: lastUserUuid } : {}),
   })
+  log('narrate assistant done')
   return usage
 }
 
 const reply = (text) => {
   const usage = narrate(text)
+  log('reply result begin')
   send({
     type: 'result',
     subtype: 'success',
@@ -165,7 +182,15 @@ const reply = (text) => {
     modelUsage: { fake: { contextWindow: 200000, ...totals } },
     permission_denials: [],
     stop_reason: 'end_turn',
+    uuid: `result-${Date.now()}`,
+    ...(lastUserUuid ? { user_message_uuid: lastUserUuid } : {}),
   })
+  log('reply result done')
+  // Claude Agent SDK 0.3.x uses the explicit idle transition to settle a
+  // prompt after its terminal result. Older fake sessions omitted it because
+  // the 0.2.x bridge settled directly from `result`.
+  send({ type: 'system', subtype: 'session_state_changed', state: 'idle', session_id: sessionId, uuid: `idle-${Date.now()}` })
+  log('reply idle done')
 }
 
 // --- background tasks ----------------------------------------------------
@@ -516,6 +541,14 @@ rl.on('line', (line) => {
     }
   }
   if (message.type === 'user') {
+    lastUserUuid = typeof message.uuid === 'string' ? message.uuid : null
+    // The 0.3.x Agent SDK attributes a result to the prompt after the CLI
+    // echoes the queued user message. The real CLI emits this replay frame;
+    // the older fixture did not need it because the 0.2.x bridge settled from
+    // the terminal result alone.
+    if (typeof message.session_id === 'string') sessionId = message.session_id
+    send(message)
+    log('echoed user')
     const text = textOf(message.message).trim()
     // A whole research turn, for a client that wants to watch one arrive.
     if (/\bsurvey\b/i.test(text)) {
@@ -677,6 +710,7 @@ rl.on('line', (line) => {
       reply(`${command[1] === 'effort' ? 'Effort' : 'Auto-compact'} set to ${command[2]}`)
       return
     }
+    log(`replying ${text}`)
     reply(
       `[effort=${effort}; autocompact=${autocompact}; style=${outputStyle}; resumed=${resumed ?? 'none'}; session=${sessionId}; model=${model}] ${text}`,
     )

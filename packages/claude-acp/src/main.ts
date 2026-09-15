@@ -1,24 +1,20 @@
 #!/usr/bin/env node
-/*
- * Follows the entry point of `@zed-industries/claude-code-acp` (Apache 2.0,
- * Copyright Zed Industries, Inc. and contributors), with this package's agent
- * in place of its own. Licence: licenses/Apache-2.0.txt.
- */
-import { applyEnvironmentSettings, loadManagedSettings } from '@zed-industries/claude-code-acp'
+import { resolveSettings } from '@anthropic-ai/claude-agent-sdk'
 
 import { HarnessDeskClaudeAgent } from './bridge.js'
 
 /**
  * `claude-acp` — Claude Code as an ACP agent, on stdio.
  *
- * What `@zed-industries/claude-code-acp`'s own entry point does, with this
- * package's agent in place of its own: managed settings first, every console
- * channel to stderr so nothing but ACP reaches stdout, then serve.
+ * The official Claude Agent ACP entry point applies managed settings first,
+ * keeps every console channel on stderr, then serves ACP on stdout. HarnessDesk
+ * uses the same public bridge contract with its own agent metadata and
+ * extensions.
  * `CLAUDE_CODE_EXECUTABLE` still names the Claude Code to drive;
  * `CLAUDE_ACP_STATE_DIR` is where per-session effort is remembered.
  */
-const managed = loadManagedSettings()
-if (managed) applyEnvironmentSettings(managed)
+const policy = await resolveSettings({ settingSources: [] })
+for (const [key, value] of Object.entries(policy.effective.env ?? {})) process.env[key] = value
 console.log = console.error
 console.info = console.error
 console.warn = console.error

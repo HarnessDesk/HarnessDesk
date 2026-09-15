@@ -287,13 +287,12 @@ On 2026-08-22, two investigations demonstrated why static catalogues fail:
   Although desktop Codex had written `model = "gpt-5.6-sol"` to
   `~/.codex/config.toml`, HarnessDesk silently substituted the fallback
   catalogue default.
-- **Missing Fable 5 in Claude Code:** The ACP registry ran
-  `@zed-industries/claude-code-acp` (0.16.2, March 2026), which bundled
-  Agent SDK 0.2.44, embedding Claude Code 2.1.44 — a build capped at
-  Opus 4.6. The user had installed Claude Code 2.1.240 locally. The Zed
-  bridge respected `CLAUDE_CODE_EXECUTABLE` to drive an external binary
-  capable of declaring Fable 5, Opus 5, and Sonnet 5, but nothing set the
-  variable.
+- **Claude Code catalogue:** The official
+  `@agentclientprotocol/claude-agent-acp` bridge (0.77.0) bundles Agent SDK
+  0.3.270 and can expose the installed Claude Code catalogue through the
+  bridge. HarnessDesk still respects `CLAUDE_CODE_EXECUTABLE` so the bridge
+  can drive an external Claude binary capable of declaring its current model
+  set rather than silently relying on a stale embedded catalogue.
 - **Cursor operated correctly:** The `cursor-acp` bridge queries
   `cursor-agent models` on every launch, and `cursor-agent` updates itself.
   It immediately advertised GPT-5.6 Sol/Luna, Fable 5, and Opus 5.
@@ -339,7 +338,7 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
      "id": "claude-code",
      "command": "node",
      "args": ["…/packages/claude-acp/dist/src/main.js"],
-     "package": "@zed-industries/claude-code-acp",
+     "package": "@agentclientprotocol/claude-agent-acp",
      "executable": { "command": "claude", "env": "CLAUDE_CODE_EXECUTABLE" }
    }
    ```
@@ -437,13 +436,13 @@ in the composer's effort control:
 | Claude Code | Declared per model (low…max on Opus/Fable/Sonnet, none on Haiku) forwarded by `packages/claude-acp` | `--effort` at spawn; mid-conversation updates re-spawn with `--resume`; initial turn changes run `/effort` |
 | Cursor | Suffixes parsed from `cursor-agent models` (`-high`, `-xhigh`, `-thinking`) by `packages/cursor-acp` | Selects corresponding variant identifier on subsequent turn |
 
-`packages/claude-acp` wraps `@zed-industries/claude-code-acp` because the
-Zed bridge omits effort levels and defines no configuration options.
-The wrapper subclasses the bridge, adds the effort option, records the
-selected setting in `~/.harnessdesk/claude-acp/efforts.json` across
-process restarts, and identifies as `bridge 0.1.0`. The "Default" selection
-passes no `--effort` parameter, allowing Claude Code's terminal defaults
-to govern.
+`packages/claude-acp` wraps `@agentclientprotocol/claude-agent-acp` to add
+HarnessDesk-specific session controls and compatibility extensions while
+keeping the upstream bridge's public ACP surface intact.
+The wrapper subclasses the bridge, adds the effort, auto-compact and output
+style controls, records selected settings in `~/.harnessdesk/claude-acp/`,
+and identifies as `bridge 0.1.0`. The "Default" selection passes no
+`--effort` parameter, allowing Claude Code's terminal defaults to govern.
 
 Model catalogue lists cannot be unified across agents: the same underlying
 weights are exposed as `claude-fable-5[1m]` in Claude Code,

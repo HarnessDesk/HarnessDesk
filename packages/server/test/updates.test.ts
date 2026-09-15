@@ -50,7 +50,7 @@ test('isNewer compares release triples and never trusts what it cannot parse', (
 test('upgradeCommand rephrases an install as an upgrade where the tool distinguishes them', () => {
   assert.equal(upgradeCommand('brew install codex'), 'brew upgrade codex')
   assert.equal(upgradeCommand('npm i -g @openai/codex'), 'npm i -g @openai/codex@latest')
-  assert.equal(upgradeCommand('npm install -g @zed-industries/claude-code-acp'), 'npm install -g @zed-industries/claude-code-acp@latest')
+  assert.equal(upgradeCommand('npm install -g @agentclientprotocol/claude-agent-acp'), 'npm install -g @agentclientprotocol/claude-agent-acp@latest')
   assert.equal(upgradeCommand('npm i -g thing@2'), 'npm i -g thing@2')
   assert.equal(upgradeCommand('curl -fsSL https://x | sh'), 'curl -fsSL https://x | sh')
 })

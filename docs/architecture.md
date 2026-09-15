@@ -50,7 +50,7 @@ Eighteen packages make up the repository:
 | `packages/codex` | Generated Codex JSON-RPC protocol client | Zero dependencies |
 | `packages/adapter-acp` | ACP adapter driving stdio peers | `protocol`, `transport-acp` |
 | `packages/transport-acp` | ACP line framing and transport | Zero dependencies |
-| `packages/claude-acp` | Bundled Claude Code ACP bridge | `@zed-industries/claude-code-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk` |
+| `packages/claude-acp` | Bundled Claude Code ACP bridge | `@agentclientprotocol/claude-agent-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk` |
 | `packages/cursor-acp` | Bundled Cursor ACP bridge for `cursor-agent` | Zero runtime dependencies |
 | `packages/adapter-testkit` | Conformance suite for any `AgentRuntime` | `protocol` |
 | `packages/cordis-host` | In-process extension kernel, capability gates | `protocol`, `@deepseek-ai/cordis` |
@@ -77,7 +77,7 @@ An adapter turns one agent into an `AgentRuntime`. Three ship:
 Two ACP bridges ship in this repository because the published ones were not
 enough:
 
-- **`claude-acp`** — a thin layer over `@zed-industries/claude-code-acp` that
+- **`claude-acp`** — a thin compatibility layer over `@agentclientprotocol/claude-agent-acp` that
   forwards reasoning effort and remembers it per session.
 - **`cursor-acp`** — a real bridge onto `cursor-agent --print
   --output-format stream-json` (the npm `cursor-agent-acp` is a stub that

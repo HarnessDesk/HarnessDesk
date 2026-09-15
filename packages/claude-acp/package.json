@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Claude Code as an ACP agent, with the controls the agent declares \u2014 a thin layer over @zed-industries/claude-code-acp that forwards reasoning effort.",
+  "description": "Claude Code as an ACP agent, with HarnessDesk session controls layered over the official Claude Agent ACP bridge.",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "bin": {
@@ -16,9 +16,11 @@
     }
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "0.14.1",
-    "@anthropic-ai/claude-agent-sdk": "0.2.44",
-    "@zed-industries/claude-code-acp": "0.16.2"
+    "@agentclientprotocol/claude-agent-acp": "0.77.0",
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.270",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@harnessdesk/adapter-acp": "workspace:*",

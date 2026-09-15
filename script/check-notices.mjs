@@ -13,7 +13,7 @@
  * installed. Two shapes carry them, and both are already the file's own
  * style:
  *
- *   - Package: `@zed-industries/claude-code-acp` (0.16.2)
+ *   - Package: `@agentclientprotocol/claude-agent-acp` (0.77.0)
  *   - License: Apache 2.0 — see `licenses/Apache-2.0.txt`
  *
  *   | `react`, `react-dom` | MIT | The renderer |
