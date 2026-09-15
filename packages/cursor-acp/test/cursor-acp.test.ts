@@ -256,6 +256,19 @@ test('model and mode picks reach the cursor-agent command line', async () => {
   }
 })
 
+test('the shared ACP adapter keeps Cursor sandbox out of permission controls', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    const sandbox = session.options().find((option) => option.id === 'sandbox')
+    assert.ok(sandbox)
+    assert.equal(sandbox.category, 'other')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('the sandbox is a session control, and off by default it says nothing', async () => {
   const runtime = make()
   await runtime.start()
@@ -1566,5 +1579,3 @@ test('writeToolPlugin refuses invalid sessionId with directory traversal (#413)'
     /Invalid session id: \.\.\/outside/,
   )
 })
-
-

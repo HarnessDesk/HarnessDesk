@@ -5,6 +5,13 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Cline ACP auto-approval is honored** — Cline's auto-approve setting now
+  appears in the permissions control and automatically accepts covered tool
+  calls. The Claude ACP bridge's Claude Agent SDK and MCP SDK dependencies are
+  refreshed alongside cross-agent ACP regression coverage.
+
 ## 0.2.0 — 2026-09-14
 
 Flows: a room can be handed its policy instead of you performing it card by

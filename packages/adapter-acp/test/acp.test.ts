@@ -620,6 +620,41 @@ test('ACP modes and config options land on the capability surface unchanged', as
   }
 })
 
+test('Cline-style auto_approve is a permission option and round-trips as a boolean', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const option = session.options().find((entry) => entry.id === 'auto_approve')
+    assert.ok(option && option.type === 'boolean')
+    assert.equal(option.category, '_permissions')
+    assert.equal(option.currentValue, false)
+
+    await session.setOption('auto_approve', true)
+    const changed = await tape.until(
+      (event) =>
+        event.type === 'session/options' &&
+        event.options.some((entry) => entry.id === 'auto_approve' && entry.currentValue === true),
+    )
+    const updated = (changed as Extract<AgentEvent, { type: 'session/options' }>).options.find(
+      (entry) => entry.id === 'auto_approve',
+    )
+    assert.ok(updated && updated.type === 'boolean')
+    assert.equal(updated.currentValue, true)
+
+    await session.send([{ type: 'text', text: 'use the tool' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.equal(turn.status, 'completed')
+    assert.equal(tape.events.some((event) => event.type === 'approval/requested'), false)
+    const tool = turn.items.find((item) => item.type === 'toolCall')
+    assert.ok(tool && tool.type === 'toolCall' && tool.status === 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('changing the model in ACP emits session/settings as well as session/options (#374)', async () => {
   const runtime = make()
   await runtime.start()

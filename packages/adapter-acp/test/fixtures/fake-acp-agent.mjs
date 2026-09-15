@@ -70,6 +70,7 @@ const newSession = (id0, cwd) => {
     options: {
       voice: 'plain',
       verbose: false,
+      auto_approve: false,
       ponder: 'default',
       // A control that exists but cannot be moved — see `configOptionsOf`.
       wide: false,
@@ -107,6 +108,15 @@ const configOptionsOf = (state) => [
     name: 'Verbose',
     type: 'toggle',
     currentValue: state.options.verbose,
+  },
+  {
+    id: 'auto_approve',
+    name: 'Auto-approve tools',
+    description: 'Automatically approve all tool calls without asking for permission.',
+    // Cline 3.x reports the ACP-native boolean shape rather than the older
+    // toggle spelling; keep the fixture on the wire shape we need to support.
+    type: 'boolean',
+    currentValue: state.options.auto_approve,
   },
   // A thought-level control the un-Codex way: the levels belong to whatever
   // model is current, which is all a conforming agent can declare.
@@ -264,6 +274,16 @@ const runPrompt = async (id, params) => {
       status: 'pending',
       rawInput: { target: 'the thing' },
     })
+    if (state.options.auto_approve) {
+      update(state.id, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc-1',
+        status: 'completed',
+        rawOutput: { poked: true },
+      })
+      say('poked it.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id,
       // A real agent says why: Claude Code and DeepSeek Harness both attach
@@ -815,6 +835,9 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (params.configId === 'auto_approve' && params.type !== 'boolean') {
+      return fail(id, 'auto_approve must use the ACP boolean option type')
+    }
     if (CONFIG_MODEL_ONLY && params.configId === 'model') {
       if (!['small', 'large'].includes(params.value)) return fail(id, `no model ${params.value}`)
       state.modelId = params.value

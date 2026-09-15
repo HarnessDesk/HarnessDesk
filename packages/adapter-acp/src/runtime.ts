@@ -586,7 +586,8 @@ const readsKey = (source: AcpSecretSource, key: string): boolean => {
  * (`_something`, by ACP convention) passes through for the interface to
  * treat as `other`. Anything else is `other` outright.
  */
-const acpCategory = (category: string | null | undefined): OptionCategory => {
+const acpCategory = (id: string, category: string | null | undefined): OptionCategory => {
+  if (id === 'auto_approve') return '_permissions'
   if (category === 'mode' || category === 'model' || category === 'thought_level' || category === 'other') {
     return category
   }
@@ -2594,8 +2595,9 @@ class AcpSession implements AgentSession {
 
   /**
    * Both directions: modes become the `mode` select, and ACP's own config
-   * options land unchanged — a select is a select, a toggle is a
-   * boolean. No translation table, which is the point.
+   * options land unchanged — a select stays a select, while ACP's native
+   * boolean and the older toggle spelling become HarnessDesk booleans. No
+   * translation table, which is the point.
    */
   options(): readonly ConfigOption[] {
     const options: ConfigOption[] = []
@@ -2631,8 +2633,8 @@ class AcpSession implements AgentSession {
     for (const option of this.#configOptions) {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
-      const category = acpCategory(option.category)
-      if (option.type === 'toggle') {
+      const category = acpCategory(option.id, option.category)
+      if (option.type === 'toggle' || option.type === 'boolean') {
         options.push({
           type: 'boolean',
           id: option.id,
@@ -2699,11 +2701,14 @@ class AcpSession implements AgentSession {
       else if (this.#models) this.#models = { ...this.#models, currentModelId: value as string }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
+      const declared = this.#configOptions.find((entry) => entry.id === id)
       await this.#host.connection.request('session/set_config_option', {
         sessionId: this.id,
         // ACP's field is `configId` (SessionConfigId); the SDK's validator
-        // rejects anything else with "Invalid params".
+        // rejects anything else with "Invalid params". Boolean options also
+        // carry their ACP-native type so the official SDK accepts the value.
         configId: id,
+        ...(declared?.type === 'boolean' ? { type: 'boolean' as const } : {}),
         value,
       })
       this.#configOptions = this.#configOptions.map((entry) =>

@@ -253,7 +253,8 @@ export interface AcpConfigOption {
   readonly description?: string | null
   /** ACP's placement hint: `mode`, `model`, `thought_level`, `other`, or the agent's own. */
   readonly category?: string | null
-  readonly type: 'select' | 'toggle'
+  /** ACP 1.4 calls the native on/off shape `boolean`; `toggle` is retained for older bridges. */
+  readonly type: 'select' | 'toggle' | 'boolean'
   readonly currentValue: string | boolean
   /**
    * Set when the agent would refuse a change to this control right now, with
