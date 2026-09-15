@@ -61,6 +61,7 @@ const teamsHolding = (envelope: string): ReadonlyMap<string, TeamState> =>
       {
         id: 'room-1',
         name: 'Checkout rewrite',
+        updatedAt: 1,
         root: '/w',
         members: [],
         intents: [],

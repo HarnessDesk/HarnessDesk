@@ -68,6 +68,7 @@ const ROOM = 'room-1'
 const state: TeamState = {
   id: ROOM,
   name: 'Checkout rewrite',
+  updatedAt: 1,
   root: '/repo',
   members: [sessionKey('codex', 'c1'), sessionKey('claude', 'k1')],
   messaging: true,

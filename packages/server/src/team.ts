@@ -113,6 +113,8 @@ interface Board {
   readonly id: string
   /** What a person calls it. Chosen when the room is made. */
   name: string
+  /** When this room last changed, for recency ordering in the workspace tree. */
+  updatedAt: number
   /**
    * The conversations in this room, keyed `runtime\u0000sessionId`.
    *
@@ -190,6 +192,8 @@ interface StoredBoard {
   /** Absent on a board written before a project could hold more than one. */
   readonly id?: string
   readonly name?: string
+  /** Absent on boards written before rooms were ordered by activity. */
+  readonly updatedAt?: number
   readonly root?: string
   readonly members?: readonly string[]
   readonly nextIntent: number
@@ -548,6 +552,18 @@ const NOT_LIVE =
 const folderOf = (root: string): string =>
   root.split('/').filter((one) => one !== '').pop() ?? 'Room'
 
+/** Best available activity time for a board written before `updatedAt` existed. */
+const lastStoredActivity = (raw: StoredBoard): number => {
+  if (raw.updatedAt !== undefined) return raw.updatedAt
+  return Math.max(
+    0,
+    ...(raw.intents ?? []).map((intent) => intent.updatedAt ?? intent.createdAt ?? 0),
+    ...(raw.channel ?? []).map((entry) => entry.at ?? 0),
+    ...(raw.plans ?? []).flatMap((plan) => [plan.createdAt ?? 0, plan.wrappedAt ?? 0]),
+    ...Object.values(raw.roster ?? {}).map((member) => member.at ?? 0),
+  )
+}
+
 /**
  * Whether one folder strictly contains another. Trailing slashes are trimmed
  * so `/repo` and `/repo/` are one folder, and the separator is required so
@@ -742,6 +758,7 @@ export class Team {
              own — the folder is the name the person saw — and moving the root
              must not quietly rename their room. */
           name: raw.name ?? folderOf(recorded),
+          updatedAt: lastStoredActivity(raw),
           members: [...(raw.members ?? Object.keys(raw.nicknames ?? {}))] as SessionKey[],
           root: recorded,
           ...(raw.cwd && raw.cwd !== recorded ? { cwd: raw.cwd } : {}),
@@ -923,6 +940,7 @@ export class Team {
       : {
           id,
           name: '',
+          updatedAt: 0,
           root: '',
           members: [],
           intents: [],
@@ -967,10 +985,9 @@ export class Team {
          mode that will actually be applied rather than only the override. */
       inbound: this.inboundFor(peer.runtime, peer.sessionId),
     }))
-    // Naming is a write, and so is remembering: a member seen for the first
-    // time has just been given a name and a photograph, and both have to
-    // survive a restart or neither is worth having.
-    this.#commit(board)
+    // Naming is a write, and so is remembering: persist lazy roster state, but
+    // do not treat this read as room activity or move the room in the tree.
+    this.#commit(board, false)
     return info
   }
 
@@ -2125,10 +2142,9 @@ export class Team {
         ? `On this board:\n${lines.join('\n')}`
         : 'Nobody else is in this room.'
     const counts = board ? ` ${this.#counts(board)}.` : ' The board is empty.'
-    // Naming is a write: a member seen here for the first time has just been
-    // given the name this answer offers, and a name that does not survive the
-    // next restart is not a name.
-    if (board) this.#commit(board)
+    // Status may lazily remember a member's name, so persist it without
+    // treating the read as room activity or moving the room in the tree.
+    if (board) this.#commit(board, false)
     return `${team}\n${counts} Address a message by its room name with agent_message; list work with list_intents.`
   }
 
@@ -2631,6 +2647,7 @@ export class Team {
     return {
       id: board.id,
       name: board.name,
+      updatedAt: board.updatedAt,
       members: [...board.members],
       root: board.root,
       ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
@@ -2691,6 +2708,7 @@ export class Team {
     const board: Board = {
       id: `room-${Date.now().toString(36)}-${(this.#nextRoom += 1).toString(36)}`,
       name: called,
+      updatedAt: Date.now(),
       members: [],
       root: project,
       ...(root !== project ? { cwd: root } : {}),
@@ -2711,11 +2729,12 @@ export class Team {
 
   #nextRoom = 0
 
-  /** The rooms in one project, oldest first. */
+  /** The rooms in one project, newest activity first. */
   roomsFor(root: string): readonly TeamState[] {
     return [...this.#boards.values()]
       .filter((board) => board.root === root)
       .map((board) => this.#stateOf(board))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   /**
@@ -3746,7 +3765,8 @@ export class Team {
     return `${this.#counts(board)}.\n\n${lines.join('\n')}`
   }
 
-  #commit(board: Board): void {
+  #commit(board: Board, touchActivity = true): void {
+    if (touchActivity) board.updatedAt = Date.now()
     this.#port.changed(this.#stateOf(board))
     /* Every card that becomes claimable becomes claimable here. Waking from
        the commit is what makes a wait free: nobody polls, and a seat is in
@@ -3756,6 +3776,7 @@ export class Team {
       version: 1,
       id: board.id,
       name: board.name,
+      updatedAt: board.updatedAt,
       root: board.root,
       members: board.members,
       nextIntent: board.nextIntent,

@@ -179,6 +179,7 @@ const summary = (over: { id: string } & Partial<Omit<SessionSummary, 'id'>>): Se
 const room = (over: {
   id: string
   name: string
+  updatedAt?: number
   members?: string[]
   root?: string
   intents?: { state: string }[]
@@ -186,6 +187,7 @@ const room = (over: {
   ({
     id: over.id,
     name: over.name,
+    updatedAt: over.updatedAt ?? 1,
     root: over.root ?? '/repo',
     members: over.members ?? [],
     messaging: true,
@@ -326,6 +328,45 @@ it('several rooms in one project are several rows', () => {
   ])
   expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
   expect(roomRow(tree, 'Tax rounding')).toBeTruthy()
+})
+
+it('orders rooms and loose conversations together by recency', () => {
+  const { container: tree } = treeWith(
+    [
+      room({ id: 'r1', name: 'Zeta', updatedAt: 10 }),
+      room({ id: 'r2', name: 'Alpha', updatedAt: 30 }),
+    ],
+    [summary({ id: 'Loose', updatedAt: 20 })],
+  )
+
+  const nested = tree.querySelector('[class*="nested"]')
+  if (!nested) throw new Error('project rows did not render')
+  const rows = [...nested.children].map((child) => {
+    const roomRow = child.querySelector('[role="button"]')
+    if (roomRow) return roomRow.getAttribute('aria-label')
+    return child.querySelector('button')?.textContent?.trim() ?? null
+  })
+  expect(rows).toEqual(['Room Alpha', 'Loose', 'Room Zeta'])
+})
+
+it('puts pinned conversations before rooms and keeps their pin order', () => {
+  const first = summary({ id: 'Pinned first', updatedAt: 10 })
+  const second = summary({ id: 'Pinned second', updatedAt: 100 })
+  const { container: tree } = treeWith(
+    [room({ id: 'r1', name: 'Recent room', updatedAt: 50 })],
+    [first, second],
+    [],
+    { pinnedSessions: [sessionKey('codex', second.id), sessionKey('codex', first.id)] },
+  )
+
+  const nested = tree.querySelector('[class*="nested"]')
+  if (!nested) throw new Error('project rows did not render')
+  const rows = [...nested.children].map((child) => {
+    const roomRow = child.querySelector('[role="button"]')
+    if (roomRow) return roomRow.getAttribute('aria-label')
+    return child.querySelector('button')?.textContent?.trim() ?? null
+  })
+  expect(rows).toEqual(['Pinned second', 'Pinned first', 'Room Recent room'])
 })
 
 it('a room in a project the tree was not already showing still gets a row', () => {
@@ -1086,5 +1127,3 @@ it('renames an inactive session without opening it or changing active session (#
   // Must call renameSession with the title and keyB
   expect(renameSession).toHaveBeenCalledWith('Renamed Conversation', keyB)
 })
-
-
