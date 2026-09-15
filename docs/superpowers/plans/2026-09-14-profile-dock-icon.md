@@ -41,7 +41,7 @@
   test('rejects malformed ids and uses the default path for reset', () => {
     assert.equal(avatarResourcePath('../secret', '/resources/avatars/128'), null)
     assert.equal(avatarResourcePath('pirate', '/resources/avatars/128'), null)
-    assert.equal(defaultIconPath({ packaged: true, resourcesPath: '/resources', here: '/dev/electron' }), '/resources/app.icns')
+    assert.equal(defaultIconPath({ packaged: true, resourcesPath: '/resources', here: '/dev/electron' }), '/resources/icon.icns')
     assert.equal(defaultIconPath({ packaged: false, resourcesPath: '/resources', here: '/dev/electron' }), '/dev/build/icon.icns')
   })
 
@@ -168,7 +168,7 @@
   ipcMain.on('harnessdesk:set-dock-icon', (_event, avatar) => setDockIcon(avatar))
   ```
 
-  Use `app.dock.setIcon()` only when the helper has produced a non-empty native image. Restore `app.icns` in packaged builds and `packages/desktop/build/icon.icns` in development.
+  Use `app.dock.setIcon()` only when the helper has produced a non-empty native image. Restore `icon.icns` in packaged builds and `packages/desktop/build/icon.icns` in development.
 
 - [ ] **Step 4: Package the avatar resources**
 

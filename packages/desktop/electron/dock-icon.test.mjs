@@ -22,7 +22,7 @@ test('rejects malformed ids and uses the default path for reset', () => {
   assert.equal(avatarResourcePath('pirate', '/resources/avatars/128'), null)
   assert.equal(
     defaultIconPath({ packaged: true, resourcesPath: '/resources', here: '/dev/electron' }),
-    '/resources/app.icns',
+    '/resources/icon.icns',
   )
   assert.equal(
     defaultIconPath({ packaged: false, resourcesPath: '/resources', here: '/dev/electron' }),
@@ -55,4 +55,3 @@ test('sets and resets a macOS Dock icon, but ignores other platforms', () => {
   })('wizard')
   assert.deepEqual(calls, ['/avatars/wizard.png', '/default.icns'])
 })
-

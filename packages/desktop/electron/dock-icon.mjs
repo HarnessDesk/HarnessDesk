@@ -39,7 +39,7 @@ export const avatarResourcePath = (avatar, root) =>
 
 /** The immutable bundle icon used in development and by a packaged app. */
 export const defaultIconPath = ({ packaged, resourcesPath, here }) =>
-  packaged ? join(resourcesPath, 'app.icns') : join(here, '../build/icon.icns')
+  packaged ? join(resourcesPath, 'icon.icns') : join(here, '../build/icon.icns')
 
 /**
  * Creates the small native side effect behind the renderer's optional bridge.
@@ -62,4 +62,3 @@ export const createDockIconSetter = ({
     app.dock.setIcon(image)
   }
 }
-
