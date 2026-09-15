@@ -26,7 +26,9 @@ beforeEach(() => {
   calls = []
   answers = {}
   setDockIcon = vi.fn()
-  ;(window as { harnessdesk?: Partial<DesktopBridge> }).harnessdesk = { setDockIcon } as DesktopBridge
+  ;(window as { harnessdesk?: Partial<DesktopBridge> }).harnessdesk = {
+    setDockIcon,
+  } as Partial<DesktopBridge> as DesktopBridge
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
     calls.push({ method, params })
     return answers[method] ?? null
