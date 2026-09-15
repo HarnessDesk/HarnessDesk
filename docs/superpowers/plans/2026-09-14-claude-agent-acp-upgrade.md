@@ -138,8 +138,8 @@ git commit -m "fix: preserve Claude session options and replay semantics"
 **Files:**
 - Modify: `packages/transport-acp/src/index.ts`
 - Modify: `packages/adapter-acp/src/runtime.ts`
-- Modify: `packages/adapter-acp/src/updates.ts`
-- Test: `packages/adapter-acp/test/runtime.test.ts`
+- Modify: `packages/adapter-acp/src/runtime.ts`
+- Test: `packages/adapter-acp/test/acp.test.ts`
 - Test: `packages/claude-acp/test/ask-user.test.ts`
 - Modify: `packages/claude-acp/test/fixtures/fake-claude.mjs`
 
@@ -180,7 +180,7 @@ git commit -m "feat: support ACP elicitation requests"
 - Modify: `packages/adapter-acp/src/runtime.ts`
 - Modify: `packages/protocol/src/runtime.ts`
 - Modify: `packages/protocol/src/items.ts`
-- Test: `packages/adapter-acp/test/runtime.test.ts`
+- Test: `packages/adapter-acp/test/acp.test.ts`
 - Test: `packages/claude-acp/test/claude-acp.test.ts`
 - Modify: `packages/claude-acp/test/fixtures/fake-claude.mjs`
 
@@ -230,7 +230,7 @@ git commit -m "feat: map standard Claude ACP lifecycle updates"
 
 - [ ] **Step 1: Add a failing source-contract test**
 
-Assert that package source contains no `@zed-industries/claude-code-acp` reference, no `dist/mcp-server.js` import, and no stale `claudeCode.options.agent` forwarding.
+Assert that package source contains no `@zed-industries/claude-code-acp` reference, no private upstream `dist/*` import, and no stale `claudeCode.options.agent` forwarding.
 
 - [ ] **Step 2: Run the contract test to verify it fails**
 

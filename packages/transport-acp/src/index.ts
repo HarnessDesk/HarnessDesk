@@ -279,7 +279,9 @@ export interface AcpConfigOption {
     readonly description?: string | null
     /** As above, for one choice rather than the whole control. */
     readonly disabled?: string | null
+    readonly _meta?: Readonly<Record<string, unknown>> | null
   }[]
+  readonly _meta?: Readonly<Record<string, unknown>> | null
 }
 
 /**
