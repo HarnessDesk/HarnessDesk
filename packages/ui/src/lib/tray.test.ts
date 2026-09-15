@@ -177,11 +177,11 @@ describe('describeTray', () => {
       accountPrefs: { 'claude:oauth:me@example.com': { pinLaneId: 'weekly' } },
       usage: [
         report('claude', [
-          lane({ id: 'session', label: 'Session', usedPercent: 12, windowMinutes: 300 }),
-          lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
+          lane({ id: 'session', label: 'Session', usedPercent: 90, windowMinutes: 300 }),
+          lane({ id: 'weekly', label: 'Weekly', usedPercent: 12 }),
         ], { account: 'me@example.com' }),
       ],
     })
-    expect(summary.agents[0]?.detail).toBe('37% left')
+    expect(summary.agents[0]?.detail).toBe('88% left')
   })
 })

@@ -326,12 +326,12 @@ describe('two accounts, one agent', () => {
       accountPrefs: { 'a:oauth:me@example.com': { pinLaneId: 'weekly' } },
       usage: [
         report('a', [
-          lane({ id: 'session', label: 'Session', usedPercent: 12, windowMinutes: 300 }),
-          lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
+          lane({ id: 'session', label: 'Session', usedPercent: 90, windowMinutes: 300 }),
+          lane({ id: 'weekly', label: 'Weekly', usedPercent: 12 }),
         ], { account: 'me@example.com' }),
       ],
       sessionRuntime: runtimeId('a'),
     })
-    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('37%')
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('88%')
   })
 })

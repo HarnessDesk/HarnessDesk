@@ -196,6 +196,38 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   expect(container.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
 })
 
+it('resets expanded account and usage state when the trigger closes and reopens the menu', () => {
+  const report = usageReport(CLAUDE, [
+    lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
+    lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
+  ])
+  mount({ usage: [report] })
+  click(row())
+
+  const current = container.querySelector('[data-current]')
+  if (!current) throw new Error('no current account')
+  click(current)
+  const usage = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('Usage remaining'),
+  )
+  if (!usage) throw new Error('no Usage remaining row')
+  click(usage)
+  expect(container.querySelector('[data-usage-details]')).not.toBeNull()
+
+  click(row())
+  expect(container.querySelector('[role="menu"]')).toBeNull()
+
+  click(row())
+  const reopened = container.querySelector('[role="menu"]')
+  expect(reopened?.textContent).not.toContain('shane@example.com')
+  expect(reopened?.querySelector('[data-current]')).not.toBeNull()
+  const reopenedUsage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
+    item.textContent?.includes('Usage remaining'),
+  )
+  expect(reopenedUsage?.getAttribute('aria-expanded')).toBe('false')
+  expect(reopened?.querySelector('[data-usage-details]')).toBeNull()
+})
+
 it('closes when something takes the screen, and a sign-out it was asking about is not waiting when it opens again', () => {
   /* The floating sidebar sends the event as it is put away. Left open, the
      menu came back with the sidebar, the sign-out still asking to be

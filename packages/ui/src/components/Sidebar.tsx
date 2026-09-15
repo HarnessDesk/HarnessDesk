@@ -783,7 +783,13 @@ export const AccountFooter = ({
         {...(here ? { title: `New sessions run as ${nextAs}` } : {})}
         {...(open ? { 'data-open': '' } : {})}
         onClick={() => {
-          setOpen((value) => !value)
+          if (open) {
+            setOpen(false)
+            setAccountsOpen(false)
+            setUsageOpen(false)
+          } else {
+            setOpen(true)
+          }
           setConfirmingSignOut(false)
         }}
       >

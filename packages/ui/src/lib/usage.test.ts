@@ -324,8 +324,8 @@ describe('describeReport', () => {
     const view = describeReport(
       report({
         lanes: [
-          lane({ id: 'session', label: 'Session', usedPercent: 29, windowMinutes: 300 }),
-          lane({ id: 'weekly', label: 'Weekly', usedPercent: 72, windowMinutes: 10_080 }),
+          lane({ id: 'session', label: 'Session', usedPercent: 90, windowMinutes: 300 }),
+          lane({ id: 'weekly', label: 'Weekly', usedPercent: 12, windowMinutes: 10_080 }),
         ],
       }),
       { now: NOON, preference: { pinLaneId: 'weekly' } },
