@@ -60,6 +60,10 @@
       {
         "from": "../ui/dist",
         "to": "ui"
+      },
+      {
+        "from": "../../assets/avatars/128",
+        "to": "avatars/128"
       }
     ],
     "asarUnpack": [

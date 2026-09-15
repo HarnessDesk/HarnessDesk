@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld('harnessdesk', {
     if (typeof title === 'string') ipcRenderer.send('harnessdesk:set-title', title.slice(0, 200))
   },
 
+  // The profile stores an avatar id, never a path or image payload. Main
+  // validates the id again before it touches the native Dock icon.
+  setDockIcon: (avatar) => {
+    if (avatar === null || (typeof avatar === 'string' && avatar.length <= 32)) {
+      ipcRenderer.send('harnessdesk:set-dock-icon', avatar)
+    }
+  },
+
   // Appearance. Light and Dark are the app's own choice and have to reach
   // Chromium, or the browser pane's page follows the OS instead of the app.
   setTheme: (theme) => {
