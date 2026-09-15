@@ -207,6 +207,7 @@ const treeWith = (
     name: 'repo',
     lastOpenedAt: 1,
   },
+  activeSessionKey: AppSnapshot['activeSessionKey'] = null,
 ): { container: HTMLElement; store: AppStore } => {
   const snapshot = {
     ...emptySnapshot(),
@@ -214,6 +215,7 @@ const treeWith = (
     workspace: open,
     workspaces: [open],
     history: sessions,
+    activeSessionKey,
     sessions: new Map(live.map((one) => [sessionKey(one.runtime, one.id), one])),
     listPrefs: { ...emptySnapshot().listPrefs, ...prefs },
     teams: new Map(rooms.map((one) => [one.id, one])),
@@ -222,6 +224,7 @@ const treeWith = (
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     toggleCollapsed: vi.fn(),
+    setOthersOpen: vi.fn(),
     openTeamRoom: vi.fn(),
     openSession: vi.fn(),
   } as unknown as AppStore
@@ -234,6 +237,62 @@ const treeWith = (
   })
   return { container, store }
 }
+
+it('reveals the active session in a collapsed project', () => {
+  const active = summary({ id: 'active' })
+  const { store } = treeWith(
+    [],
+    [active],
+    [],
+    { collapsed: ['/repo'] },
+    { path: '/other', name: 'other', lastOpenedAt: 1 },
+    sessionKey('codex', sessionId('active')),
+  )
+
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('/repo')
+})
+
+it('opens Other projects when the active session belongs to a far project', () => {
+  const active = summary({ id: 'active', cwd: '/far' })
+  const { store } = treeWith(
+    [],
+    [
+      active,
+      summary({ id: 'near-one', cwd: '/one' }),
+      summary({ id: 'near-two', cwd: '/two' }),
+      summary({ id: 'near-three', cwd: '/three' }),
+    ],
+    [],
+    {},
+    { path: '/current', name: 'current', lastOpenedAt: 1 },
+    sessionKey('codex', sessionId('active')),
+  )
+
+  expect(store.setOthersOpen).toHaveBeenCalledWith(true)
+})
+
+it('expands the active session beyond the five-row preview', () => {
+  const active = summary({ id: 'active', updatedAt: 1 })
+  const sessions = [
+    active,
+    ...Array.from({ length: 5 }, (_, index) =>
+      summary({ id: `session-${index + 1}`, updatedAt: index + 2 }),
+    ),
+  ]
+  const { container: tree } = treeWith(
+    [],
+    sessions,
+    [],
+    {},
+    { path: '/other', name: 'other', lastOpenedAt: 1 },
+    sessionKey('codex', sessionId('active')),
+  )
+
+  const row = [...tree.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === 'active',
+  )
+  expect(row?.hasAttribute('data-active')).toBe(true)
+})
 
 const roomRow = (where: HTMLElement, name: string): HTMLElement => {
   const found = [...where.querySelectorAll('[role="button"]')].find(
