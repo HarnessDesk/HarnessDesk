@@ -553,15 +553,16 @@ const folderOf = (root: string): string =>
   root.split('/').filter((one) => one !== '').pop() ?? 'Room'
 
 /** Best available activity time for a board written before `updatedAt` existed. */
-const lastStoredActivity = (raw: StoredBoard): number =>
-  Math.max(
+const lastStoredActivity = (raw: StoredBoard): number => {
+  if (raw.updatedAt !== undefined) return raw.updatedAt
+  return Math.max(
     0,
-    raw.updatedAt ?? 0,
     ...(raw.intents ?? []).map((intent) => intent.updatedAt ?? intent.createdAt ?? 0),
     ...(raw.channel ?? []).map((entry) => entry.at ?? 0),
     ...(raw.plans ?? []).flatMap((plan) => [plan.createdAt ?? 0, plan.wrappedAt ?? 0]),
     ...Object.values(raw.roster ?? {}).map((member) => member.at ?? 0),
   )
+}
 
 /**
  * Whether one folder strictly contains another. Trailing slashes are trimmed

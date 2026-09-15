@@ -909,6 +909,33 @@ test('reading team status does not reorder it ahead of a newer room', async (t) 
   assert.deepEqual(team.roomsFor('/repo').map((state) => state.id), before)
 })
 
+test('reloading a room preserves its stored activity over roster timestamps', async (t) => {
+  const { team, port, dir, room } = await rig(t)
+  await team.joinRoom(room, 'codex' as RuntimeId, 'c1')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const newer = (await team.createRoom('/repo', 'newer')).id
+  port.peers = [peer({ sessionId: 'c1' })]
+  await team.peersFor(room)
+  await team.flush()
+  const storedUpdatedAt = team.stateFor(room).updatedAt
+
+  const reloaded = new Team(dir, {
+    peers: () => [],
+    rootOf: async () => '/repo',
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  })
+  await reloaded.load()
+
+  assert.equal(reloaded.stateFor(room).updatedAt, storedUpdatedAt)
+  assert.deepEqual(reloaded.roomsFor('/repo').map((state) => state.id), [newer, room])
+  await reloaded.flush()
+})
+
 /**
  * Putting a room away, and what does *not* go with it.
  *
