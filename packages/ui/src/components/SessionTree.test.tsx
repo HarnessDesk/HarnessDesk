@@ -349,6 +349,26 @@ it('orders rooms and loose conversations together by recency', () => {
   expect(rows).toEqual(['Room Alpha', 'Loose', 'Room Zeta'])
 })
 
+it('puts pinned conversations before rooms and keeps their pin order', () => {
+  const first = summary({ id: 'Pinned first', updatedAt: 10 })
+  const second = summary({ id: 'Pinned second', updatedAt: 100 })
+  const { container: tree } = treeWith(
+    [room({ id: 'r1', name: 'Recent room', updatedAt: 50 })],
+    [first, second],
+    [],
+    { pinnedSessions: [sessionKey('codex', second.id), sessionKey('codex', first.id)] },
+  )
+
+  const nested = tree.querySelector('[class*="nested"]')
+  if (!nested) throw new Error('project rows did not render')
+  const rows = [...nested.children].map((child) => {
+    const roomRow = child.querySelector('[role="button"]')
+    if (roomRow) return roomRow.getAttribute('aria-label')
+    return child.querySelector('button')?.textContent?.trim() ?? null
+  })
+  expect(rows).toEqual(['Pinned second', 'Pinned first', 'Room Recent room'])
+})
+
 it('a room in a project the tree was not already showing still gets a row', () => {
   /* A room is only ever drawn from inside a project group, and the groups are
      built from the *sessions* — so a room whose root no session in `history`

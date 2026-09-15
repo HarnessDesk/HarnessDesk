@@ -1140,15 +1140,28 @@ export const SessionTree = ({ now }: { now: number }) => {
       (summary) => !inRooms.has(String(sessionKey(summary.runtime, summary.id))),
     )
     const shown = expanded.has(group.root) ? loose : loose.slice(0, COLLAPSED_LIMIT)
-    const pinned = snapshot.listPrefs.pinnedSessions
+    const pinnedIndexes = new Map(
+      snapshot.listPrefs.pinnedSessions.map((key, index) => [String(key), index]),
+    )
     const rows = [
-      ...rooms.map((room) => ({ kind: 'room' as const, room, updatedAt: room.updatedAt })),
-      ...shown.map((summary) => ({ kind: 'session' as const, summary, updatedAt: summary.updatedAt })),
+      ...rooms.map((room) => ({
+        kind: 'room' as const,
+        room,
+        updatedAt: room.updatedAt,
+        pinnedIndex: null,
+      })),
+      ...shown.map((summary) => ({
+        kind: 'session' as const,
+        summary,
+        updatedAt: summary.updatedAt,
+        pinnedIndex: pinnedIndexes.get(String(sessionKey(summary.runtime, summary.id))) ?? null,
+      })),
     ].sort((a, b) => {
-      if (a.kind === 'session' && b.kind === 'session') {
-        const aPinned = pinned.includes(sessionKey(a.summary.runtime, a.summary.id))
-        const bPinned = pinned.includes(sessionKey(b.summary.runtime, b.summary.id))
-        if (aPinned !== bPinned) return aPinned ? -1 : 1
+      const aPinned = a.pinnedIndex !== null
+      const bPinned = b.pinnedIndex !== null
+      if (aPinned !== bPinned) return aPinned ? -1 : 1
+      if (a.pinnedIndex !== null && b.pinnedIndex !== null) {
+        if (a.pinnedIndex !== b.pinnedIndex) return a.pinnedIndex - b.pinnedIndex
       }
       return b.updatedAt - a.updatedAt
     })
