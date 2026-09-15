@@ -98,6 +98,20 @@ test('the effort control is declared from the model the agent reports, beside th
   }
 })
 
+test('the shared ACP adapter keeps Claude effort controls in the reasoning category', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    const effort = effortOf(session.options())
+    assert.ok(effort)
+    assert.equal(effort.category, 'thought_level')
+    assert.equal(session.options().find((option) => option.id === 'mode')?.category, 'mode')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('the bridge uses the official Claude ACP package contract', () => {
   const manifest = JSON.parse(readFileSync(join(process.cwd(), 'packages/claude-acp/package.json'), 'utf8')) as {
     dependencies?: Record<string, string>
@@ -105,8 +119,8 @@ test('the bridge uses the official Claude ACP package contract', () => {
   assert.deepEqual(manifest.dependencies, {
     '@agentclientprotocol/claude-agent-acp': '0.77.0',
     '@agentclientprotocol/sdk': '1.4.0',
-    '@anthropic-ai/claude-agent-sdk': '0.3.270',
-    '@modelcontextprotocol/sdk': '1.29.0',
+    '@anthropic-ai/claude-agent-sdk': '0.3.272',
+    '@modelcontextprotocol/sdk': '1.30.0',
     zod: '4.6.5',
   })
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)

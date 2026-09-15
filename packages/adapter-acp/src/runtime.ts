@@ -586,7 +586,8 @@ const readsKey = (source: AcpSecretSource, key: string): boolean => {
  * (`_something`, by ACP convention) passes through for the interface to
  * treat as `other`. Anything else is `other` outright.
  */
-const acpCategory = (category: string | null | undefined): OptionCategory => {
+const acpCategory = (id: string, category: string | null | undefined): OptionCategory => {
+  if (id === 'auto_approve') return '_permissions'
   if (category === 'mode' || category === 'model' || category === 'thought_level' || category === 'other') {
     return category
   }
@@ -2631,7 +2632,7 @@ class AcpSession implements AgentSession {
     for (const option of this.#configOptions) {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
-      const category = acpCategory(option.category)
+      const category = acpCategory(option.id, option.category)
       if (option.type === 'toggle') {
         options.push({
           type: 'boolean',

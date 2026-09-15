@@ -70,6 +70,7 @@ const newSession = (id0, cwd) => {
     options: {
       voice: 'plain',
       verbose: false,
+      auto_approve: false,
       ponder: 'default',
       // A control that exists but cannot be moved — see `configOptionsOf`.
       wide: false,
@@ -107,6 +108,13 @@ const configOptionsOf = (state) => [
     name: 'Verbose',
     type: 'toggle',
     currentValue: state.options.verbose,
+  },
+  {
+    id: 'auto_approve',
+    name: 'Auto-approve tools',
+    description: 'Automatically approve all tool calls without asking for permission.',
+    type: 'toggle',
+    currentValue: state.options.auto_approve,
   },
   // A thought-level control the un-Codex way: the levels belong to whatever
   // model is current, which is all a conforming agent can declare.
@@ -264,6 +272,16 @@ const runPrompt = async (id, params) => {
       status: 'pending',
       rawInput: { target: 'the thing' },
     })
+    if (state.options.auto_approve) {
+      update(state.id, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc-1',
+        status: 'completed',
+        rawOutput: { poked: true },
+      })
+      say('poked it.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id,
       // A real agent says why: Claude Code and DeepSeek Harness both attach

@@ -18,8 +18,8 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.77.0",
     "@agentclientprotocol/sdk": "1.4.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.270",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.272",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
