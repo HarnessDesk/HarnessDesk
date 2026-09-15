@@ -822,7 +822,7 @@
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: var(--hd-space-2);
-  min-height: var(--hd-bar-h);
+  height: var(--hd-nav-h);
   font-size: var(--hd-text);
 }
 
@@ -844,7 +844,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: var(--hd-bar-h);
+  height: var(--hd-nav-h);
   padding: 0;
   border: 0;
   background: none;
