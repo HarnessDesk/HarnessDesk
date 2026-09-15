@@ -57,6 +57,12 @@ test('the browser pane’s own channels are all present', () => {
   assert.match(main.slice(main.indexOf("ipcMain.on('harnessdesk:browser-reveal-download'")), /downloadedPaths\.has\(path\)/)
 })
 
+test('the profile picture can request a native Dock icon', () => {
+  assert.ok(preloadSends.includes('harnessdesk:set-dock-icon'), 'preload does not send the Dock icon channel')
+  assert.ok(mainReceives.includes('harnessdesk:set-dock-icon'), 'main does not receive the Dock icon channel')
+  assert.match(main, /ipcMain\.on\('harnessdesk:set-dock-icon'/)
+})
+
 test('the shell fronts the driven tab before it drives it', () => {
   // Chromium stops rasterising a <webview> nobody is looking at, so a driven
   // tab left behind another screenshots stale. `ensure` is the one place

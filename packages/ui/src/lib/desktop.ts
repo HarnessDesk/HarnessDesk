@@ -40,6 +40,8 @@ export interface DesktopBridge {
   readonly platform: string
   openExternal(url: string): void
   setTitle(title: string): void
+  /** The selected global profile picture, applied to the macOS Dock when available. */
+  setDockIcon?(avatar: string | null): void
   /**
    * The appearance choice, handed to the shell's native theme. Only the
    * desktop build has one; it is what the browser pane's page reads as
@@ -139,6 +141,11 @@ export const setTraySummary = (summary: TraySummary): void => {
 export const setWindowTitle = (title: string): void => {
   desktop()?.setTitle(title)
   document.title = title === 'HarnessDesk' ? title : `${title} — HarnessDesk`
+}
+
+/** Applies the global profile picture to the native Dock icon when supported. */
+export const setDockIcon = (avatar: string | null): void => {
+  desktop()?.setDockIcon?.(avatar)
 }
 
 export const onShortcut = (handler: (name: string) => void): (() => void) =>

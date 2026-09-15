@@ -14,6 +14,7 @@ import { respondToCrash } from './crash-policy.mjs'
 import { MARK, drawTrayMeter } from './meter.mjs'
 import { attachAppUpdates } from './app-updates.mjs'
 import { decide, relevant } from './notifications.mjs'
+import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
 import { isAppNavigation } from './navigation.mjs'
@@ -73,6 +74,16 @@ const uiRoot = app.isPackaged
 
 /** Rendered from assets/brand/svgs by `pnpm run icons`; packaged alongside the shell. */
 const assetsDir = join(here, 'assets')
+const avatarRoot = app.isPackaged
+  ? join(process.resourcesPath, 'avatars', '128')
+  : resolve(here, '../../../assets/avatars/128')
+const setDockIcon = createDockIconSetter({
+  platform: process.platform,
+  app,
+  nativeImage,
+  avatarRoot,
+  defaultIcon: defaultIconPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, here }),
+})
 const sessionUrl = () => (running ? `${running.url}/?token=${running.token}` : null)
 
 let mainWindow = null
@@ -789,6 +800,8 @@ ipcMain.on('harnessdesk:open-external', (_event, url) => {
 ipcMain.on('harnessdesk:set-title', (_event, title) => {
   if (typeof title === 'string') mainWindow?.setTitle(title)
 })
+
+ipcMain.on('harnessdesk:set-dock-icon', (_event, avatar) => setDockIcon(avatar))
 
 // The app's appearance choice, as the shell's native theme. The renderer can
 // dress itself, but the browser pane's page is Chromium's, not ours: what a
