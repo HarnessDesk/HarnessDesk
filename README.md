@@ -13,6 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue?style=flat-square" alt="MIT licence" /></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black?style=flat-square&logo=apple&logoColor=white" alt="macOS 13 or later" />
   <img src="https://img.shields.io/badge/agents-Codex%20%C2%B7%20Claude%20%C2%B7%20Cursor%20%C2%B7%20Gemini%20%C2%B7%20any%20ACP-111?style=flat-square" alt="Codex, Claude, Cursor, Gemini, and any ACP agent" />
+  <a href="https://startupscores.com/open-source/harnessdesk"><img src="https://startupscores.com/badge/harnessdesk.svg?style=shield&amp;v=combo&amp;theme=dark" alt="HarnessDesk on StartupScores" /></a>
 </p>
 
 <p align="center">
