@@ -58,9 +58,10 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
-import { openExternal } from '../lib/desktop'
+import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
 import { readColumnWidths } from '../lib/git-columns'
@@ -4208,9 +4209,10 @@ export class AppStore {
         externalBinary: typeof rawBrowser?.externalBinary === 'string' ? rawBrowser.externalBinary : '',
         keepExternalProfile: rawBrowser?.keepExternalProfile !== false,
       }
+      const profile = readProfile(preferences['profile'])
       this.#patch({
         accountPrefs,
-        profile: readProfile(preferences['profile']),
+        profile,
         customPresets: readCustomPresets(preferences['customPresets']),
         planEdits,
         listPrefs,
@@ -4247,6 +4249,7 @@ export class AppStore {
           ? { look: preferences['look'] }
           : {}),
       })
+      setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
     } catch {
       // Preferences are a convenience; their absence must not block startup —
       // including for the banners that wait on them, which would otherwise be
@@ -4532,9 +4535,11 @@ export class AppStore {
    * become the whole stored profile, and the face would be forgotten.
    */
   setProfile(patch: ProfilePatch): void {
+    const previous = this.#snapshot.profile
     const profile = applyProfile(this.#snapshot.profile, patch)
     if (sameProfile(profile, this.#snapshot.profile)) return
     this.#patch({ profile })
+    if (previous.avatar !== profile.avatar) setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
     void this.#writePreference({ profile: storedProfile(profile) }, 'Your profile')
   }
 
