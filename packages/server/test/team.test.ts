@@ -881,6 +881,34 @@ test('a room is keyed by the project, even when it is made from a worktree', asy
   assert.equal(reloadedTeam.stateFor(room.id).cwd, '/repo/.worktrees/feature')
 })
 
+test('reading room peers does not reorder it ahead of a newer room', async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [peer({ sessionId: 'c1' })]
+  await team.joinRoom(room, 'codex' as RuntimeId, 'c1')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const newer = (await team.createRoom('/repo', 'newer')).id
+  const before = team.roomsFor('/repo').map((state) => state.id)
+  assert.deepEqual(before, [newer, room])
+
+  await team.peersFor(room)
+
+  assert.deepEqual(team.roomsFor('/repo').map((state) => state.id), before)
+})
+
+test('reading team status does not reorder it ahead of a newer room', async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [peer({ sessionId: 'c1' })]
+  await team.joinRoom(room, 'codex' as RuntimeId, 'c1')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const newer = (await team.createRoom('/repo', 'newer')).id
+  const before = team.roomsFor('/repo').map((state) => state.id)
+  assert.deepEqual(before, [newer, room])
+
+  await team.status({ runtime: 'codex' as RuntimeId, sessionId: 'c1' })
+
+  assert.deepEqual(team.roomsFor('/repo').map((state) => state.id), before)
+})
+
 /**
  * Putting a room away, and what does *not* go with it.
  *
@@ -3968,4 +3996,3 @@ test('claimNext and readiness checks do not crash when a stored intent has depen
   const result = await team.claimNext(codex)
   assert.match(result, /^Claimed #1 — open work with null dependsOn/)
 })
-

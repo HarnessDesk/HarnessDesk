@@ -984,10 +984,9 @@ export class Team {
          mode that will actually be applied rather than only the override. */
       inbound: this.inboundFor(peer.runtime, peer.sessionId),
     }))
-    // Naming is a write, and so is remembering: a member seen for the first
-    // time has just been given a name and a photograph, and both have to
-    // survive a restart or neither is worth having.
-    this.#commit(board)
+    // Naming is a write, and so is remembering: persist lazy roster state, but
+    // do not treat this read as room activity or move the room in the tree.
+    this.#commit(board, false)
     return info
   }
 
@@ -2142,10 +2141,9 @@ export class Team {
         ? `On this board:\n${lines.join('\n')}`
         : 'Nobody else is in this room.'
     const counts = board ? ` ${this.#counts(board)}.` : ' The board is empty.'
-    // Naming is a write: a member seen here for the first time has just been
-    // given the name this answer offers, and a name that does not survive the
-    // next restart is not a name.
-    if (board) this.#commit(board)
+    // Status may lazily remember a member's name, so persist it without
+    // treating the read as room activity or moving the room in the tree.
+    if (board) this.#commit(board, false)
     return `${team}\n${counts} Address a message by its room name with agent_message; list work with list_intents.`
   }
 
@@ -3766,8 +3764,8 @@ export class Team {
     return `${this.#counts(board)}.\n\n${lines.join('\n')}`
   }
 
-  #commit(board: Board): void {
-    board.updatedAt = Date.now()
+  #commit(board: Board, touchActivity = true): void {
+    if (touchActivity) board.updatedAt = Date.now()
     this.#port.changed(this.#stateOf(board))
     /* Every card that becomes claimable becomes claimable here. Waking from
        the commit is what makes a wait free: nobody polls, and a seat is in
