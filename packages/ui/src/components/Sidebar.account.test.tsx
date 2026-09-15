@@ -86,6 +86,8 @@ const usageReport = (runtime: RuntimeId, lanes: readonly UsageLane[]): UsageRepo
 const mount = (overrides: Partial<AppSnapshot> = {}) => {
   const selectRuntime = vi.fn(async () => {})
   const onOpenSettings = vi.fn()
+  const onOpenUsage = vi.fn()
+  const onSignIn = vi.fn()
   const claudeAccount = signedIn('olivia@acme.dev')
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -108,11 +110,11 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={() => {}} onSignIn={() => {}} />
+        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
       </StoreProvider>,
     )
   })
-  return { selectRuntime, onOpenSettings }
+  return { selectRuntime, onOpenSettings, onOpenUsage, onSignIn }
 }
 
 const row = (): HTMLButtonElement => {
@@ -226,6 +228,58 @@ it('resets expanded account and usage state when the trigger closes and reopens 
   )
   expect(reopenedUsage?.getAttribute('aria-expanded')).toBe('false')
   expect(reopened?.querySelector('[data-usage-details]')).toBeNull()
+})
+
+it.each([
+  ['Settings', 'settings'],
+  ['Dashboard', 'usage'],
+  ['Add an account…', 'signIn'],
+] as const)('resets expanded state when %s closes the menu', (_label, callback) => {
+  const { onOpenSettings, onOpenUsage, onSignIn } = mount({
+    usage: [
+      usageReport(CLAUDE, [
+        lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
+        lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
+      ]),
+    ],
+  })
+
+  const expand = () => {
+    click(row())
+    const current = container.querySelector('[data-current]')
+    if (!current) throw new Error('no current account')
+    click(current)
+    const usage = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+      item.textContent?.includes('Usage remaining'),
+    )
+    if (!usage) throw new Error('no Usage remaining row')
+    click(usage)
+    expect(container.querySelector('[data-usage-details]')).not.toBeNull()
+  }
+
+  const reopenCollapsed = () => {
+    click(row())
+    const reopened = container.querySelector('[role="menu"]')
+    expect(reopened?.textContent).not.toContain('shane@example.com')
+    expect(reopened?.querySelector('[data-current]')).not.toBeNull()
+    const usage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
+      item.textContent?.includes('Usage remaining'),
+    )
+    expect(usage?.getAttribute('aria-expanded')).toBe('false')
+    expect(reopened?.querySelector('[data-usage-details]')).toBeNull()
+  }
+
+  expand()
+  const item = [...container.querySelectorAll('[role="menuitem"]')].find((candidate) =>
+    candidate.textContent?.includes(_label),
+  )
+  if (!item) throw new Error(`no ${_label} row`)
+  click(item)
+  expect(container.querySelector('[role="menu"]')).toBeNull()
+  if (callback === 'settings') expect(onOpenSettings).toHaveBeenCalled()
+  if (callback === 'usage') expect(onOpenUsage).toHaveBeenCalled()
+  if (callback === 'signIn') expect(onSignIn).toHaveBeenCalled()
+  reopenCollapsed()
 })
 
 it('closes when something takes the screen, and a sign-out it was asking about is not waiting when it opens again', () => {

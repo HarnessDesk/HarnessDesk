@@ -404,25 +404,25 @@ export const AccountFooter = ({
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
+  const closeMenu = useCallback((): void => {
+    setOpen(false)
+    setAccountsOpen(false)
+    setUsageOpen(false)
+    setConfirmingSignOut(false)
+  }, [])
 
   useEffect(() => {
     if (!open) return
     const close = (event: PointerEvent): void => {
       if (!wrap.current?.contains(event.target as Node)) {
-        setOpen(false)
-        setAccountsOpen(false)
-        setUsageOpen(false)
-        setConfirmingSignOut(false)
+        closeMenu()
       }
     }
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         // Spent on the menu, so a sidebar floating over a narrow window stays.
         event.preventDefault()
-        setOpen(false)
-        setAccountsOpen(false)
-        setUsageOpen(false)
-        setConfirmingSignOut(false)
+        closeMenu()
       }
     }
     /*
@@ -434,10 +434,7 @@ export const AccountFooter = ({
       to hand back.
     */
     const onDismiss = (): void => {
-      setOpen(false)
-      setAccountsOpen(false)
-      setUsageOpen(false)
-      setConfirmingSignOut(false)
+      closeMenu()
     }
     document.addEventListener('pointerdown', close)
     document.addEventListener('keydown', onKey)
@@ -447,7 +444,7 @@ export const AccountFooter = ({
       document.removeEventListener('keydown', onKey)
       document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
     }
-  }, [open])
+  }, [closeMenu, open])
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -528,8 +525,7 @@ export const AccountFooter = ({
     setBusy(true)
     try {
       await store.signOutAgent(snapshot.activeRuntime)
-      setOpen(false)
-      setConfirmingSignOut(false)
+      closeMenu()
     } finally {
       setBusy(false)
     }
@@ -550,7 +546,7 @@ export const AccountFooter = ({
               className={styles.you}
               title="Your name and picture. Nothing syncs between machines."
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 onOpenSettings('profile')
               }}
             >
@@ -580,9 +576,7 @@ export const AccountFooter = ({
                     setUsageOpen(false)
                     return
                   }
-                  setOpen(false)
-                  setAccountsOpen(false)
-                  setUsageOpen(false)
+                  closeMenu()
                   void store.selectRuntime(seat.info.id)
                 }}
               >
@@ -639,7 +633,7 @@ export const AccountFooter = ({
               role="menuitem"
               className={styles.accountMenuRow}
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 // Opens the chooser rather than adding one here. "An account"
                 // does not mean "another of this one": the agent is the first
                 // question, and only picking one that is already connected
@@ -693,8 +687,7 @@ export const AccountFooter = ({
                   role="menuitem"
                   className={styles.usageDetailsAction}
                   onClick={() => {
-                    setOpen(false)
-                    setUsageOpen(false)
+                    closeMenu()
                     onOpenUsage(here?.info.id)
                   }}
                 >
@@ -708,7 +701,7 @@ export const AccountFooter = ({
               role="menuitem"
               className={styles.accountMenuRow}
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 onOpenSettings()
               }}
             >
@@ -723,7 +716,7 @@ export const AccountFooter = ({
               role="menuitem"
               className={styles.accountMenuRow}
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 onOpenUsage()
               }}
             >
@@ -784,13 +777,11 @@ export const AccountFooter = ({
         {...(open ? { 'data-open': '' } : {})}
         onClick={() => {
           if (open) {
-            setOpen(false)
-            setAccountsOpen(false)
-            setUsageOpen(false)
+            closeMenu()
           } else {
             setOpen(true)
+            setConfirmingSignOut(false)
           }
-          setConfirmingSignOut(false)
         }}
       >
         {/* You. The same face as the menu's top row, at the row's size, and

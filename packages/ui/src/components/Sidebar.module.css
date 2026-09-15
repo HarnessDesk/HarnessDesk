@@ -815,7 +815,6 @@
 
 .usageDetails {
   margin: 0 var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-8);
-  border-top: 1px solid var(--hdp-alias-border-l1);
 }
 
 .usageLane {
@@ -824,8 +823,7 @@
   align-items: center;
   gap: var(--hd-space-2);
   min-height: var(--hd-bar-h);
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  font-size: var(--hd-text-xs);
+  font-size: var(--hd-text);
 }
 
 .usageLaneName {
@@ -851,7 +849,7 @@
   border: 0;
   background: none;
   color: inherit;
-  font-size: var(--hd-text-xs);
+  font-size: var(--hd-text);
   text-align: left;
   cursor: pointer;
 }
