@@ -163,6 +163,20 @@ import { applyLoginCompleted, startedLogin, type LoginState } from './login'
 import { readCustomPresets, type AgentPreset } from './presets'
 import { Transport, transportUrl } from '../lib/transport'
 
+const summaryOfSession = (session: Session): SessionSummary => ({
+  id: session.id,
+  runtime: session.runtime,
+  title: session.title ?? null,
+  preview: session.preview ?? null,
+  cwd: session.cwd,
+  status: session.status,
+  createdAt: session.createdAt,
+  updatedAt: session.updatedAt,
+  git: session.git ?? null,
+  repo: null,
+  archived: session.archived ?? false,
+})
+
 /**
  * Renderer state.
  *
@@ -1484,6 +1498,18 @@ export class AppStore {
     return changed ? next : null
   }
 
+  #ensureHistorySummary(session: Session): void {
+    const key = String(sessionKey(session.runtime, session.id))
+    if (this.#snapshot.history.some((entry) => String(sessionKey(entry.runtime, entry.id)) === key)) {
+      return
+    }
+    this.#patch({
+      history: [...this.#snapshot.history, summaryOfSession(session)].sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      ),
+    })
+  }
+
   // ----------------------------------------------------------------- sessions
 
   /**
@@ -1544,6 +1570,7 @@ export class AppStore {
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       this.#setSession(session)
+      this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
       // A conversation that reopened is the only evidence its folder is back.

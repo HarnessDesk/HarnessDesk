@@ -69,6 +69,32 @@ beforeEach(() => {
 const panesOf = () => panes(store.getSnapshot().layout.root)
 
 describe('opening a conversation', () => {
+  it('adds a searched session to history once it is opened', async () => {
+    const searched = session({
+      id: sessionId('searched'),
+      title: 'Found from search',
+      cwd: '/searched-project',
+      updatedAt: 20,
+    })
+    answers['session/read'] = searched
+    answers['session/resume'] = searched
+
+    await store.openSession(searched.id, { runtime: RUNTIME })
+    await store.openSession(searched.id, { runtime: RUNTIME })
+
+    const rows = store.getSnapshot().history.filter(
+      (row) => row.runtime === RUNTIME && row.id === searched.id,
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: searched.id,
+      runtime: RUNTIME,
+      title: 'Found from search',
+      cwd: '/searched-project',
+      updatedAt: 20,
+    })
+  })
+
   it('keeps the turn in flight when the read has not caught up with it', async () => {
     answers['session/read'] = working
     answers['session/resume'] = working
