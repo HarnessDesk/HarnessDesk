@@ -297,9 +297,23 @@ it('expands the active session beyond the five-row preview', () => {
 it('scrolls the active session row into view', () => {
   const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
   try {
-    const active = summary({ id: 'active' })
-    treeWith([], [active], [], {}, undefined, sessionKey('codex', sessionId('active')))
+    const active = summary({ id: 'active', updatedAt: 1 })
+    const sessions = [
+      active,
+      ...Array.from({ length: 5 }, (_, index) =>
+        summary({ id: `session-${index + 1}`, updatedAt: index + 2 }),
+      ),
+    ]
+    const { container: tree } = treeWith(
+      [],
+      sessions,
+      [],
+      {},
+      undefined,
+      sessionKey('codex', sessionId('active')),
+    )
 
+    expect(tree.querySelector('button[data-active]')?.textContent).toBe('active')
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
   } finally {
     scrollIntoView.mockRestore()
