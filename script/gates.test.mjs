@@ -1325,7 +1325,7 @@ test('installedLicence finds installed package licenses without find binary (#39
   const cordisLicence = installedLicence('@deepseek-ai/cordis', repoRoot)
   assert.equal(cordisLicence, 'MIT')
 
-  const acpLicence = installedLicence('@zed-industries/claude-code-acp', repoRoot)
+  const acpLicence = installedLicence('@agentclientprotocol/claude-agent-acp', repoRoot)
   assert.equal(acpLicence, 'Apache-2.0')
 
   // Returns null for non-installed package
@@ -1379,4 +1379,3 @@ test('packages/server/tsconfig.json includes project references for internal dep
   }
   assert.ok(!refs.has('../transport-acp'), 'packages/server/tsconfig.json must not reference ../transport-acp')
 })
-

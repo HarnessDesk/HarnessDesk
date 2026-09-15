@@ -474,6 +474,10 @@ export interface AcpPromptResponse {
 /** The `_meta` a prompt response may carry, read structurally; the rest of it is ignored. */
 export interface AcpPromptMeta {
   readonly quota?: AcpQuota | null
+  /** Claude's bridge reports uncached input separately from cache counters. */
+  readonly harnessdesk?: {
+    readonly inputTokensAreUncached?: boolean | null
+  } | null
 }
 
 /**

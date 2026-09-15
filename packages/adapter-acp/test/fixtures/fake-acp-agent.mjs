@@ -26,6 +26,7 @@ import { createInterface } from 'node:readline'
  * its own store, so the adapter's resume path is tested across "restarts".
  */
 const STORE = process.env.FAKE_ACP_STORE ?? null
+const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
 const readStore = () => {
   if (!STORE) return {}
   try { return JSON.parse(readFileSync(STORE, 'utf8')) } catch { return {} }
@@ -79,6 +80,17 @@ const newSession = (id0, cwd) => {
 }
 
 const configOptionsOf = (state) => [
+  ...(CONFIG_MODEL_ONLY ? [{
+    id: 'model',
+    name: 'Model',
+    category: 'model',
+    type: 'select',
+    currentValue: state.modelId,
+    options: [
+      { value: 'small', name: 'Small' },
+      { value: 'large', name: 'Large' },
+    ],
+  }] : []),
   {
     id: 'voice',
     name: 'Voice',
@@ -476,6 +488,13 @@ const runPrompt = async (id, params) => {
       usage: { totalTokens: 150, inputTokens: 100, outputTokens: 50, cachedReadTokens: 20, cachedWriteTokens: 50 },
     })
   }
+  if (text === 'split') {
+    return reply(id, {
+      stopReason: 'end_turn',
+      usage: { totalTokens: 170, inputTokens: 100, outputTokens: 20, cachedReadTokens: 20, cachedWriteTokens: 50 },
+      _meta: { harnessdesk: { inputTokensAreUncached: true } },
+    })
+  }
   if (text === 'nowrites') {
     return reply(id, {
       stopReason: 'end_turn',
@@ -733,7 +752,7 @@ const handlers = {
     const state = newSession(undefined, params?.cwd)
     reply(id, {
       sessionId: state.id,
-      models: {
+      ...(CONFIG_MODEL_ONLY ? {} : { models: {
         currentModelId: state.modelId,
         availableModels: [
           { modelId: 'small', name: 'Small' },
@@ -757,7 +776,7 @@ const handlers = {
           // agent last started: present only in processes started after it was set.
           ...(process.env.FAKE_ACP_EXTRA_MODEL ? [{ modelId: process.env.FAKE_ACP_EXTRA_MODEL, name: 'New' }] : []),
         ],
-      },
+      } }),
       modes: {
         currentModeId: state.modeId,
         availableModes: [
@@ -796,6 +815,13 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (CONFIG_MODEL_ONLY && params.configId === 'model') {
+      if (!['small', 'large'].includes(params.value)) return fail(id, `no model ${params.value}`)
+      state.modelId = params.value
+      reply(id, { configOptions: configOptionsOf(state) })
+      update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+      return
+    }
     if (!(params.configId in state.options)) {
       return fail(id, `no option ${params.configId}`)
     }
@@ -842,13 +868,13 @@ const handlers = {
     }
     reply(id, {
       sessionId: state.id,
-      models: {
+      ...(CONFIG_MODEL_ONLY ? {} : { models: {
         currentModelId: state.modelId,
         availableModels: [
           { modelId: 'small', name: 'Small' },
           { modelId: 'large', name: 'Large', description: 'Slower, wiser.' },
         ],
-      },
+      } }),
       modes: {
         currentModeId: state.modeId,
         availableModes: [

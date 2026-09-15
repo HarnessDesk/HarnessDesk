@@ -1522,6 +1522,7 @@ export class AcpRuntime implements AgentRuntime {
     const result = await this.#connection.request<AcpSessionDeleted>(ACP_SESSION_DELETE, {
       sessionId: String(id),
     })
+    this.#tasks?.forget(id)
     this.#titles.delete(id)
     this.#previews.delete(id)
     const disposition = result?.disposition ?? 'removed'
@@ -2071,10 +2072,10 @@ const NO_TOKENS: TokenUsage = {
  * counters. HarnessDesk's turn model keeps the full input total in
  * `inputTokens`, so reconstruct it here while preserving the cache split.
  */
-const tokenUsageOf = (usage: AcpUsage): TokenUsage => {
+const tokenUsageOf = (usage: AcpUsage, inputTokensAreUncached = false): TokenUsage => {
   const cachedRead = usage.cachedReadTokens ?? 0
   const cachedWrite = usage.cachedWriteTokens ?? 0
-  const splitInput = usage.inputTokens < cachedRead + cachedWrite
+  const splitInput = inputTokensAreUncached || usage.inputTokens < cachedRead + cachedWrite
   return {
   totalTokens: usage.totalTokens,
   // Most ACP peers report `inputTokens` as the full input already. Claude's
@@ -2560,7 +2561,9 @@ class AcpSession implements AgentSession {
   }
 
   settings(): SessionSettings {
-    return { cwd: this.#cwd, model: this.#models?.currentModelId ?? this.#host.agentName }
+    const declaredModel = this.#configOptions.find((option) => option.id === 'model')
+    const configModel = declaredModel && typeof declaredModel.currentValue === 'string' ? declaredModel.currentValue : null
+    return { cwd: this.#cwd, model: this.#models?.currentModelId ?? configModel ?? this.#host.agentName }
   }
 
   /**
@@ -2648,19 +2651,26 @@ class AcpSession implements AgentSession {
         modeId: value,
       })
       this.#modes = { ...this.#modes, currentModeId: value as string }
-    } else if (id === 'model' && this.#models) {
+    } else if (id === 'model') {
       // Picking the model a session already runs is a no-op worth skipping:
       // Claude Code records every model change as a `/model` command in its
       // own transcript, and that echo is read back on the next open.
-      if (this.#models.currentModelId === value) return
-      const modelOption = this.#configOptions.some((entry) => entry.id === 'model')
+      const modelOption = this.#configOptions.find((entry) => entry.id === 'model')
+      const currentModel = this.#models?.currentModelId ?? (modelOption && typeof modelOption.currentValue === 'string' ? modelOption.currentValue : null)
+      if (currentModel === value) return
       const response = await this.#host.connection.request<{ configOptions?: readonly AcpConfigOption[]; models?: AcpModelState }>(modelOption ? 'session/set_config_option' : 'session/set_model',
         modelOption
           ? { sessionId: this.id, configId: 'model', value }
           : { sessionId: this.id, modelId: value },
       )
       if (response?.configOptions) this.#configOptions = response.configOptions
-      this.#models = { ...this.#models, currentModelId: value as string }
+      else if (modelOption) {
+        this.#configOptions = this.#configOptions.map((entry) =>
+          entry.id === 'model' ? { ...entry, currentValue: value as string } : entry,
+        )
+      }
+      if (response?.models) this.#models = response.models
+      else if (this.#models) this.#models = { ...this.#models, currentModelId: value as string }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
       await this.#host.connection.request('session/set_config_option', {
@@ -2737,7 +2747,7 @@ class AcpSession implements AgentSession {
         // counts in the extension slot instead is read from there, and one
         // that says nothing at all, from its own record if it keeps one.
         const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
-        if (usage) this.#recordTurnUsage(usage)
+        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
         // A turn nobody could account for is not the one before it: its figures
         // are unknown, so the last turn shows none rather than the previous
         // turn's under this one's name. For every runtime, not only the ones
@@ -3212,8 +3222,8 @@ class AcpSession implements AgentSession {
   }
 
   /** A finished turn's tokens: they become `last`, and join the running total. */
-  #recordTurnUsage(usage: AcpUsage): void {
-    const turn = tokenUsageOf(usage)
+  #recordTurnUsage(usage: AcpUsage, inputTokensAreUncached = false): void {
+    const turn = tokenUsageOf(usage, inputTokensAreUncached)
     const previous = this.#usage?.total ?? NO_TOKENS
     // The running total carries a write count only while the chain of turns
     // behind it is unbroken. An empty total is the start of the chain, not a

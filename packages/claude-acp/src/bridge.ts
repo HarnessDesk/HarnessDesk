@@ -274,6 +274,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #tasks = new Map<string, TaskRegistry>()
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
+  readonly #deletedSessions = new Set<string>()
   readonly #stateDir: string
   readonly #log: (line: string) => void
   constructor(client: AcpClient, options: HarnessDeskClaudeAgentOptions = {}) {
@@ -287,7 +288,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
         if (method === '_claude/sdkMessage') {
           const payload = params as { sessionId?: unknown; message?: unknown }
           const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
-          if (sessionId && payload.message) {
+          if (sessionId && !this.#deletedSessions.has(sessionId) && payload.message) {
             const tasks = this.#tasks.get(sessionId) ?? new TaskRegistry()
             const delegations = this.#delegations.get(sessionId) ?? new DelegationRegistry()
             this.#tasks.set(sessionId, tasks)
@@ -324,6 +325,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const params = withInstructions(request)
     const values = optionsIn(params._meta)
     const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
+    this.#deletedSessions.delete(response.sessionId)
     const session = this.sessions[response.sessionId]
     const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: { ...values }, spawned: { ...values }, prompted: false, styles: await optionStyles(this, response.sessionId), meta: params._meta, cwd: params.cwd }
@@ -335,6 +337,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   }
   override async loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse> {
     const remembered = this.#readControls(request.sessionId)
+    this.#deletedSessions.delete(request.sessionId)
     const params = withInstructions(request)
     const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
     const session = this.sessions[request.sessionId]
@@ -389,13 +392,29 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       await this.#recreate(params.sessionId, stored)
       stored.spawned = { ...stored.values }
     }
-    return response
+    if (!response.usage) return response
+    return {
+      ...response,
+      _meta: {
+        ...((response._meta ?? {}) as Record<string, unknown>),
+        harnessdesk: {
+          ...(((response._meta as Record<string, unknown> | null | undefined)?.['harnessdesk'] as Record<string, unknown> | undefined) ?? {}),
+          inputTokensAreUncached: true,
+        },
+      },
+    }
   }
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (method === SESSION_DELETE) {
       const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
       if (!sessionId) throw RequestError.invalidParams('A session id is required.')
+      this.#deletedSessions.add(sessionId)
       this.#controls.delete(sessionId)
+      this.#tasks.delete(sessionId)
+      this.#delegations.delete(sessionId)
+      const poller = this.#outputPollers.get(sessionId)
+      if (poller) clearTimeout(poller)
+      this.#outputPollers.delete(sessionId)
       this.#writeControls(sessionId, {})
       return { removed: trash(sessionFiles(sessionId)), disposition: 'trash' }
     }
@@ -432,9 +451,13 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   }
 
   #pollTaskOutput(sessionId: string): void {
-    if (this.#outputPollers.has(sessionId)) return
+    if (this.#deletedSessions.has(sessionId) || this.#outputPollers.has(sessionId)) return
     const retries = (process.env['CLAUDE_ACP_TASK_OUTPUT_RETRIES_MS'] ?? '250,500,1000,2000,4000,8000').split(',').map(Number).filter((value) => Number.isFinite(value) && value >= 0)
     const poll = (attempt: number): void => {
+      if (this.#deletedSessions.has(sessionId)) {
+        this.#outputPollers.delete(sessionId)
+        return
+      }
       const registry = this.#tasks.get(sessionId)
       if (!registry) return
       let changed = false
@@ -537,6 +560,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(methods.agent.providers.disable, (ctx) => agent.unstable_disableProvider(ctx.params))
       .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
       .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
+      .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))
       .onRequest(TASKS_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_LIST, ctx.params))
       .onRequest(TASKS_STOP, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_STOP, ctx.params))
       .onRequest(TASKS_CLEAR, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_CLEAR, ctx.params))

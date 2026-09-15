@@ -6,7 +6,7 @@ import { whichOnPath as findOnPath } from './which.js'
  * The agent CLI behind a bridge.
  *
  * Some ACP agents are bridges: a shim that embeds its own copy of the agent
- * and speaks ACP on its behalf. `@zed-industries/claude-code-acp` is one — it
+ * and speaks ACP on its behalf. `@agentclientprotocol/claude-agent-acp` is one — it
  * ships an Agent SDK that ships a Claude Code, and that Claude Code is
  * whatever was current when the bridge was last published, which can be
  * months behind the one installed on the machine. The embedded copy decides

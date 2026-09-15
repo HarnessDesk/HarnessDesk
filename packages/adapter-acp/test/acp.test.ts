@@ -16,12 +16,13 @@ import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
 
-const make = (): AcpRuntime =>
+const make = (env: Record<string, string> = {}): AcpRuntime =>
   new AcpRuntime({
     id: 'fake-acp',
     name: 'Fake ACP Agent',
     command: process.execPath,
     args: [FAKE],
+    env,
   })
 
 describeAdapterConformance('adapter-acp', {
@@ -630,6 +631,39 @@ test('changing the model in ACP emits session/settings as well as session/option
     const settingsEvent = await tape.until((event) => event.type === 'session/settings')
     assert.equal((settingsEvent as Extract<AgentEvent, { type: 'session/settings' }>).settings.model, 'large')
     assert.equal(session.settings().model, 'large')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a source-marked split usage response includes both cache halves in input totals', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'split' }])
+    const usage = (await tape.until((event) => event.type === 'usage/updated')) as Extract<AgentEvent, { type: 'usage/updated' }>
+    assert.equal(usage.usage.last.inputTokens, 170)
+    assert.equal(usage.usage.last.cachedInputTokens, 20)
+    assert.equal(usage.usage.last.cacheWriteTokens, 50)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a model declared only through configOptions updates settings after selection', async () => {
+  const runtime = make({ FAKE_ACP_CONFIG_MODEL_ONLY: '1' })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    assert.equal(session.settings().model, 'small')
+    await session.setOption('model', 'large')
+    const settingsEvent = await tape.until((event) => event.type === 'session/settings')
+    assert.equal((settingsEvent as Extract<AgentEvent, { type: 'session/settings' }>).settings.model, 'large')
+    assert.equal(session.settings().model, 'large')
+    assert.equal(session.options().find((option) => option.id === 'model')?.currentValue, 'large')
   } finally {
     await runtime.dispose()
   }
@@ -1818,4 +1852,3 @@ test('concurrent resumeSession deduplicates in-flight resume and returns same in
     await second.dispose()
   }
 })
-

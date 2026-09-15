@@ -63,8 +63,12 @@ const log = (line) => {
   const file = process.env.FAKE_CLAUDE_LOG
   if (file) appendFileSync(file, `${line}\n`)
 }
-process.on('uncaughtException', (error) => log(`uncaught ${error?.stack ?? error}`))
-process.on('unhandledRejection', (error) => log(`unhandled ${error?.stack ?? error}`))
+const fail = (label, error) => {
+  log(`${label} ${error?.stack ?? error}`)
+  process.exit(1)
+}
+process.on('uncaughtException', (error) => fail('uncaught', error))
+process.on('unhandledRejection', (error) => fail('unhandled', error))
 log(`spawn ${process.pid} effort=${effort} autocompact=${autocompact} style=${outputStyle} resume=${resumed ?? 'none'} session=${sessionId}`)
 process.on('exit', () => log(`exit ${process.pid}`))
 // A signal death skips 'exit'; the SDK ends a replaced process with SIGTERM.
