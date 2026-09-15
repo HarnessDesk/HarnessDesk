@@ -4539,7 +4539,13 @@ export class AppStore {
     const profile = applyProfile(this.#snapshot.profile, patch)
     if (sameProfile(profile, this.#snapshot.profile)) return
     this.#patch({ profile })
-    if (previous.avatar !== profile.avatar) setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
+    if (previous.avatar !== profile.avatar) {
+      try {
+        setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
+      } catch {
+        // A native Dock update is best effort; it must not block persistence.
+      }
+    }
     void this.#writePreference({ profile: storedProfile(profile) }, 'Your profile')
   }
 

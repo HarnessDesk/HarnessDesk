@@ -76,6 +76,15 @@ it('syncs avatar changes and reset with the optional desktop Dock bridge', () =>
   expect(setDockIcon).toHaveBeenCalledTimes(2)
 })
 
+it('persists the profile when the optional desktop Dock bridge throws', () => {
+  setDockIcon.mockImplementationOnce(() => {
+    throw new Error('Dock unavailable')
+  })
+  store.setProfile({ avatar: 'wizard' })
+  expect(store.getSnapshot().profile).toEqual({ avatar: 'wizard' })
+  expect(writes()).toEqual([{ patch: { profile: { avatar: 'wizard' } } }])
+})
+
 it('reapplies a stored avatar when preferences load', async () => {
   answers['app/state/get'] = { profile: { avatar: 'dj' } }
   await store.loadPreferences()
