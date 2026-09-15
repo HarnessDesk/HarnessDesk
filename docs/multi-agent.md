@@ -660,7 +660,7 @@ state turn cost honestly.
   [context-usage.md](context-usage.md#what-a-session-delegated)).
 - **Current bridge status**: Cursor's bridge and `@harnessdesk/dsh-acp` do not
   implement the delegation extension yet. DSH 0.1.2 spawns children with
-  chosen provider, model, effort, and output caps. `@harnessdesk/dsh-acp` 0.5.2
+  chosen provider, model, effort, and output caps. `@harnessdesk/dsh-acp` 0.5.3
   carries messages: child reports over `send_message` and settlement notices
   arrive on the parent transcript as notices with senders named. Real Codex or
   Claude Code children spawned by DSH execute under DSH's native login and
