@@ -1053,6 +1053,41 @@ export const SessionTree = ({ now }: { now: number }) => {
   )
   const far = groups.filter((group) => !near.includes(group))
 
+  const activeKey = snapshot.activeSessionKey ? String(snapshot.activeSessionKey) : null
+  const activeGroup = useMemo(
+    () =>
+      activeKey === null
+        ? null
+        : groups.find((group) =>
+            group.sessions.some((summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey),
+          ) ?? null,
+    [activeKey, groups],
+  )
+
+  useEffect(() => {
+    if (!activeKey || !activeGroup) return
+    if (collapsed.has(activeGroup.root)) store.toggleCollapsed(activeGroup.root)
+    if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
+
+    const roomKeys = new Set(
+      projectRoots(activeGroup)
+        .flatMap((root) => roomsByProject.get(root) ?? [])
+        .flatMap((room) => room.members.map(String)),
+    )
+    const loose = activeGroup.sessions.filter(
+      (summary) => !roomKeys.has(String(sessionKey(summary.runtime, summary.id))),
+    )
+    const activeIndex = loose.findIndex(
+      (summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey,
+    )
+    if (activeIndex >= COLLAPSED_LIMIT) {
+      setExpanded((current) => {
+        if (current.has(activeGroup.root)) return current
+        return new Set(current).add(activeGroup.root)
+      })
+    }
+  }, [activeGroup, activeKey, collapsed, far, othersOpen, roomsByProject, store])
+
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
     () => store.setProjectsCollapsed(groups.map((group) => group.root), anyOpen),
