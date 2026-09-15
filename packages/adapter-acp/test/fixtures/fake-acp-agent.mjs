@@ -113,7 +113,9 @@ const configOptionsOf = (state) => [
     id: 'auto_approve',
     name: 'Auto-approve tools',
     description: 'Automatically approve all tool calls without asking for permission.',
-    type: 'toggle',
+    // Cline 3.x reports the ACP-native boolean shape rather than the older
+    // toggle spelling; keep the fixture on the wire shape we need to support.
+    type: 'boolean',
     currentValue: state.options.auto_approve,
   },
   // A thought-level control the un-Codex way: the levels belong to whatever
@@ -833,6 +835,9 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (params.configId === 'auto_approve' && params.type !== 'boolean') {
+      return fail(id, 'auto_approve must use the ACP boolean option type')
+    }
     if (CONFIG_MODEL_ONLY && params.configId === 'model') {
       if (!['small', 'large'].includes(params.value)) return fail(id, `no model ${params.value}`)
       state.modelId = params.value
