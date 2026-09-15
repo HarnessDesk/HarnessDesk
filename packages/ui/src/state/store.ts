@@ -4589,9 +4589,10 @@ export class AppStore {
     const cleaned: AccountPrefs = {
       ...(merged.nickname?.trim() ? { nickname: merged.nickname.trim() } : {}),
       ...(merged.tint ? { tint: merged.tint } : {}),
+      ...(merged.pinLaneId?.trim() ? { pinLaneId: merged.pinLaneId.trim() } : {}),
     }
     const accountPrefs: Record<string, AccountPrefs> = { ...this.#snapshot.accountPrefs }
-    if (cleaned.nickname === undefined && cleaned.tint === undefined) delete accountPrefs[key]
+    if (cleaned.nickname === undefined && cleaned.tint === undefined && cleaned.pinLaneId === undefined) delete accountPrefs[key]
     else accountPrefs[key] = cleaned
     this.#patch({ accountPrefs })
     void this.#writePreference({ accountPrefs }, 'The account name')

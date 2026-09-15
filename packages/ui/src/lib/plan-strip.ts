@@ -1,8 +1,9 @@
 import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import type { Tone } from './limits'
+import { prefsForUsage, type AccountPrefsMap } from './accounts'
 import { readinessOf } from './readiness'
-import { describeReport, toneForRemaining, workingAccount, type LaneView } from './usage'
+import { describeReport, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
  * What the strip in the conversation header draws, whatever the size of the
@@ -100,6 +101,7 @@ export interface StripInput {
   readonly runtimes: readonly RuntimeInfo[]
   readonly usage: readonly UsageReport[]
   readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
+  readonly accountPrefs: AccountPrefsMap
   readonly health: RuntimeHealth | null
   readonly activeRuntime: RuntimeId | null
   /**
@@ -113,8 +115,13 @@ export interface StripInput {
 /** Under this, a figure is worth the pixels at any width. */
 const LOW = 20
 
-const meterFor = (info: RuntimeInfo, report: UsageReport, now: number): StripMeter | null => {
-  const view = describeReport(report, { now, maxLanes: 1 })
+const meterFor = (
+  info: RuntimeInfo,
+  report: UsageReport,
+  now: number,
+  preference: UsagePreference,
+): StripMeter | null => {
+  const view = describeReport(report, { now, maxLanes: 1, preference })
   const lane = view.hero
   // No lane is no bar. A permanent row of dashes teaches people to stop
   // looking, and the screen is where "why is this one missing" is answered.
@@ -185,11 +192,13 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
     accounts: info.capabilities.account,
     usage: reports,
   })
+  const preferenceFor = (report: UsageReport): UsagePreference =>
+    prefsForUsage(report.runtime, report.account, input.accountsByRuntime, input.accountPrefs) ?? {}
   const meters = reports
-    .map((report) => meterFor(info, report, input.now))
+    .map((report) => meterFor(info, report, input.now, preferenceFor(report)))
     .filter((meter): meter is StripMeter => meter !== null)
   // The account that decides, not the first one that happened to arrive.
-  const decided = workingAccount(reports)
+  const decided = workingAccount(reports, preferenceFor)
   const meter = meters.find((entry) => entry.report === decided) ?? meters[0] ?? null
   return {
     info,

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { Account, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
+import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, CaretIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -12,7 +12,7 @@ import { SessionListControls, SessionTree } from './SessionTree'
 import './TaskPanel'
 import { Menu, MenuItem, MenuLabel } from './Menu'
 import { DISMISS_OVERLAYS, Popover } from './Popover'
-import { accountKey, accountName, accountIdentity, tintOf } from '../lib/accounts'
+import { accountKey, accountName, accountIdentity, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
@@ -24,6 +24,7 @@ import { ProfileFace } from './ProfileFace'
 import { Clipped } from '../design/primitives/Kit'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
+import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
 
 /**
@@ -377,6 +378,8 @@ interface Seat {
   readonly figure: string | null
   readonly tone: 'good' | 'warn' | 'bad'
   readonly current: boolean
+  readonly report: UsageReport | null
+  readonly preference: AccountPrefs | undefined
 }
 
 export const AccountFooter = ({
@@ -396,24 +399,30 @@ export const AccountFooter = ({
   // and not the focused conversation's.
   const runtime = useRuntime()
   const [open, setOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
+  const closeMenu = useCallback((): void => {
+    setOpen(false)
+    setAccountsOpen(false)
+    setUsageOpen(false)
+    setConfirmingSignOut(false)
+  }, [])
 
   useEffect(() => {
     if (!open) return
     const close = (event: PointerEvent): void => {
       if (!wrap.current?.contains(event.target as Node)) {
-        setOpen(false)
-        setConfirmingSignOut(false)
+        closeMenu()
       }
     }
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         // Spent on the menu, so a sidebar floating over a narrow window stays.
         event.preventDefault()
-        setOpen(false)
-        setConfirmingSignOut(false)
+        closeMenu()
       }
     }
     /*
@@ -425,8 +434,7 @@ export const AccountFooter = ({
       to hand back.
     */
     const onDismiss = (): void => {
-      setOpen(false)
-      setConfirmingSignOut(false)
+      closeMenu()
     }
     document.addEventListener('pointerdown', close)
     document.addEventListener('keydown', onKey)
@@ -436,7 +444,7 @@ export const AccountFooter = ({
       document.removeEventListener('keydown', onKey)
       document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
     }
-  }, [open])
+  }, [closeMenu, open])
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -450,12 +458,6 @@ export const AccountFooter = ({
       accounts: info.capabilities.account,
       usage,
     })
-    const report = usage[0] ?? null
-    const view = report ? describeReport(report, { now: Date.now(), maxLanes: 1 }) : null
-    const lane = view?.hero ?? null
-    const figure =
-      lane && lane.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
-    const tone = view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const))
     const accounts = status?.accounts ?? []
     const current = info.id === snapshot.activeRuntime
 
@@ -468,14 +470,27 @@ export const AccountFooter = ({
           name: info.presentation.name,
           sub: READINESS_LABEL[state],
           state,
-          figure,
-          tone,
+          figure: usage[0]
+            ? (() => {
+                const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
+                return lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
+              })()
+            : null,
+          tone: usage[0] ? describeReport(usage[0], { now: Date.now(), maxLanes: 1 }).tone : 'good',
           current,
+          report: usage[0] ?? null,
+          preference: undefined,
         },
       ]
     }
     return accounts.map((account) => {
       const key = accountKey(info.id, account)
+      const report =
+        usage.find((entry) => usageAccount(entry) === account.label.trim()) ??
+        (accounts.length === 1 ? usage[0] : null)
+      const preference = snapshot.accountPrefs[key]
+      const view = report ? describeReport(report, { now: Date.now(), maxLanes: 1, preference }) : null
+      const lane = view?.hero ?? null
       return {
         key,
         info,
@@ -483,9 +498,11 @@ export const AccountFooter = ({
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
-        figure,
-        tone,
+        figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
+        tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
+        report: report ?? null,
+        preference,
       }
     })
   })
@@ -498,14 +515,17 @@ export const AccountFooter = ({
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
   const yourName = profileName(snapshot.profile)
+  const usageView = here?.report
+    ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
+    : null
+  const hasUsage = usageView !== null && usageView.all.length > 0
 
   const signOut = async (): Promise<void> => {
     if (!snapshot.activeRuntime) return
     setBusy(true)
     try {
       await store.signOutAgent(snapshot.activeRuntime)
-      setOpen(false)
-      setConfirmingSignOut(false)
+      closeMenu()
     } finally {
       setBusy(false)
     }
@@ -526,7 +546,7 @@ export const AccountFooter = ({
               className={styles.you}
               title="Your name and picture. Nothing syncs between machines."
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 onOpenSettings('profile')
               }}
             >
@@ -542,15 +562,21 @@ export const AccountFooter = ({
 
           <div className={styles.menuSection}>
             <div className={styles.menuLabel}>Run new sessions as</div>
-            {seats.map((seat) => (
+            {(accountsOpen ? seats : here ? [here] : seats).map((seat) => (
               <button
                 key={seat.key}
                 type="button"
                 role="menuitem"
                 className={styles.seat}
                 {...(seat.current ? { 'data-current': '' } : {})}
+                {...(seat.current && seats.length > 1 ? { 'aria-expanded': accountsOpen } : {})}
                 onClick={() => {
-                  setOpen(false)
+                  if (seat.current && seats.length > 1) {
+                    setAccountsOpen((value) => !value)
+                    setUsageOpen(false)
+                    return
+                  }
+                  closeMenu()
                   void store.selectRuntime(seat.info.id)
                 }}
               >
@@ -607,7 +633,7 @@ export const AccountFooter = ({
               role="menuitem"
               className={styles.accountMenuRow}
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 // Opens the chooser rather than adding one here. "An account"
                 // does not mean "another of this one": the agent is the first
                 // question, and only picking one that is already connected
@@ -628,9 +654,54 @@ export const AccountFooter = ({
             <button
               type="button"
               role="menuitem"
+              className={`${styles.accountMenuRow} ${hasUsage && usageOpen ? styles.accountMenuRowOpen : ''}`}
+              aria-expanded={hasUsage ? usageOpen : false}
+              onClick={() => {
+                if (hasUsage) setUsageOpen((value) => !value)
+              }}
+            >
+              <span className={styles.accountMenuAction}>
+                <UsageIcon size={13} />
+                Usage remaining
+              </span>
+              <span className={styles.accountMenuMeta} data-tone={here?.tone}>
+                {here?.figure ?? '—'}
+                {hasUsage && <CaretIcon size={13} className={styles.accountMenuCaret} />}
+              </span>
+            </button>
+            {usageOpen && usageView && (
+              <div className={styles.usageDetails} data-usage-details>
+                {usageView.all.map((lane) => (
+                  <div className={styles.usageLane} key={lane.id}>
+                    <span className={styles.usageLaneName}>{lane.title}</span>
+                    <span className={styles.accountMenuMeta} data-tone={lane.tone}>
+                      {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
+                    </span>
+                    <span className={styles.usageLaneReset}>
+                      {lane.shortCountdown ? `in ${lane.shortCountdown}` : '—'}
+                    </span>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.usageDetailsAction}
+                  onClick={() => {
+                    closeMenu()
+                    onOpenUsage(here?.info.id)
+                  }}
+                >
+                  Open usage dashboard
+                  <span className={styles.accountMenuMeta}>›</span>
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              role="menuitem"
               className={styles.accountMenuRow}
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 onOpenSettings()
               }}
             >
@@ -645,7 +716,7 @@ export const AccountFooter = ({
               role="menuitem"
               className={styles.accountMenuRow}
               onClick={() => {
-                setOpen(false)
+                closeMenu()
                 onOpenUsage()
               }}
             >
@@ -705,8 +776,12 @@ export const AccountFooter = ({
         {...(here ? { title: `New sessions run as ${nextAs}` } : {})}
         {...(open ? { 'data-open': '' } : {})}
         onClick={() => {
-          setOpen((value) => !value)
-          setConfirmingSignOut(false)
+          if (open) {
+            closeMenu()
+          } else {
+            setOpen(true)
+            setConfirmingSignOut(false)
+          }
         }}
       >
         {/* You. The same face as the menu's top row, at the row's size, and

@@ -128,7 +128,7 @@ it('gives the bar to the conversation own agent, not the one in the most trouble
   expect(bars()[0]?.textContent).toBe('88%')
 })
 
-it('shows the binding lane, not the roomiest one', () => {
+it('shows the shortest default lane, unless a longer one is spent', () => {
   mount({
     runtimes: [runtime('a', 'Agent A')],
     usage: [
@@ -139,8 +139,8 @@ it('shows the binding lane, not the roomiest one', () => {
     ],
     ...conversationWith('a'),
   })
-  expect(titles()[0]).toBe('Agent A — Weekly, 12% left')
-  expect(bars()[0]?.textContent).toBe('12%')
+  expect(titles()[0]).toBe('Agent A — Session, 95% left')
+  expect(bars()[0]?.textContent).toBe('95%')
 })
 
 it('answers with the countdown once there is nothing left', () => {

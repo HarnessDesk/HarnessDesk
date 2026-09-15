@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
+  AccountStatus,
   LedgerReport,
   LedgerRow,
   RuntimeId,
@@ -9,6 +10,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { burnWord } from '../lib/burn'
+import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { formatTokens } from '../lib/context-usage'
 import { dayLabel, dayLabelLong, periodTotals, shareOf, stackDaily } from '../lib/ledger'
 import { paletteTone, type Tone } from '../lib/limits'
@@ -302,6 +304,7 @@ export const Usage = ({
               key={`${report.runtime}:${report.account ?? ''}`}
               report={report}
               info={byId.get(report.runtime) ?? null}
+              preference={prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs)}
               now={now}
               selected={scope === report.runtime}
               onClick={() => setScope(report.runtime)}
@@ -357,6 +360,7 @@ export const Usage = ({
                   key={`${report.runtime}:${report.account ?? ''}`}
                   report={report}
                   info={byId.get(report.runtime) ?? null}
+                  preference={prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs)}
                   now={now}
                   onRefresh={() => void store.refreshUsage(report.runtime)}
                   onStopTracking={() => store.setUsageTracked(report.runtime, false)}
@@ -393,7 +397,14 @@ export const Usage = ({
           {/* Only when the rail is on one agent: see `Runway`. Its own lanes
               decide whether it draws anything at all, so an agent with no
               plottable window costs no heading. */}
-          {scoped && <Runway reports={reports} now={now} />}
+          {scoped && (
+            <Runway
+              reports={reports}
+              now={now}
+              accountsByRuntime={snapshot.accountsByRuntime}
+              accountPrefs={snapshot.accountPrefs}
+            />
+          )}
 
           <Spend
             ledger={ledger}
@@ -496,18 +507,20 @@ const RailRow = ({
 const AccountRow = ({
   report,
   info,
+  preference,
   now,
   selected,
   onClick,
 }: {
   report: UsageReport
   info: RuntimeInfo | null
+  preference?: AccountPrefs
   now: number
   selected: boolean
   onClick: () => void
 }) => {
   // No lanes below the headline: the rail asks one question of each account.
-  const view = describeReport(report, { now, maxLanes: 0 })
+  const view = describeReport(report, { now, maxLanes: 0, preference })
   const left = view.hero?.remainingPercent ?? null
   const agent = info?.presentation.name ?? String(report.runtime)
   return (
@@ -545,17 +558,19 @@ export const stateOf = (report: UsageReport, view: ReportView): Readiness => {
 const Card = ({
   report,
   info,
+  preference,
   now,
   onRefresh,
   onStopTracking,
 }: {
   report: UsageReport
   info: RuntimeInfo | null
+  preference?: AccountPrefs
   now: number
   onRefresh: () => void
   onStopTracking: () => void
 }) => {
-  const view: ReportView = describeReport(report, { now, maxLanes: 3 })
+  const view: ReportView = describeReport(report, { now, maxLanes: 3, preference })
   const plan = planLabel(report.plan)
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
@@ -758,7 +773,17 @@ const describeMargin = (margin: number): string => {
  * The lanes are the account's own, capped at three: past three the small
  * multiple stops being comparable and starts being a list.
  */
-const Runway = ({ reports, now }: { reports: readonly UsageReport[]; now: number }) => {
+const Runway = ({
+  reports,
+  now,
+  accountsByRuntime,
+  accountPrefs,
+}: {
+  reports: readonly UsageReport[]
+  now: number
+  accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
+  accountPrefs: AccountPrefsMap
+}) => {
   /*
    * Every account the scoped agent has, not the first one that sorted.
    *
@@ -773,7 +798,11 @@ const Runway = ({ reports, now }: { reports: readonly UsageReport[]; now: number
    */
   const many = reports.length > 1
   const cards = reports.flatMap((report) => {
-    const view = describeReport(report, { now, maxLanes: 8 })
+    const view = describeReport(report, {
+      now,
+      maxLanes: 8,
+      preference: prefsForUsage(report.runtime, report.account, accountsByRuntime, accountPrefs),
+    })
     return view.all
       .filter((lane) => lane.burn !== null)
       .slice(0, many ? 2 : 3)
