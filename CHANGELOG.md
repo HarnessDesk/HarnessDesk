@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Antigravity session names use the opening prompt** — ACP no longer lets the
+  agent's `Session <id>` placeholder hide the first ask in the session tree.
 - **Cline ACP auto-approval is honored** — Cline's auto-approve setting now
   appears in the permissions control and automatically accepts covered tool
   calls. The Claude ACP bridge's Claude Agent SDK and MCP SDK dependencies are

@@ -1279,6 +1279,40 @@ test("a session open here wears the agent's own name, not the first thing typed"
   }
 })
 
+test('an ACP placeholder title leaves the opening ask available to the sidebar (#667)', async (t) => {
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-placeholder-title-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'store.json')
+  const runtime = new AcpRuntime({
+    id: 'antigravity-acp',
+    name: 'Antigravity',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: store },
+  })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: dir })
+    await session.send([{ type: 'text', text: 'Fix the Antigravity session title' }])
+    await tape.until((event) => event.type === 'turn/completed')
+
+    const saved = JSON.parse(await readFile(store, 'utf8')) as Record<string, { title: string }>
+    saved[String(session.id)]!.title = `Session ${String(session.id)}`
+    await writeFile(store, JSON.stringify(saved))
+
+    const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
+    assert.ok(row)
+    assert.equal(row.title, null, 'the machine placeholder is not a conversation name')
+    assert.equal(row.preview, 'Fix the Antigravity session title')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('refreshCatalog restarts an idle agent and picks up what it now declares', async () => {
   const runtime = make()
   const { until } = record(runtime)
