@@ -239,4 +239,3 @@ Fixes #668
 \`\`\`
 
 After publishing, read the PR metadata and body back from GitHub and report the URL, head SHA, verification evidence, and screenshot path.
-
