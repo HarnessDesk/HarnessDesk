@@ -15,14 +15,14 @@ import { currentNameOf, type KnownAgent } from './known-agents.js'
  */
 export const knowledgeOverlay = (
   agent: AcpAgentConfig,
-  known: Pick<KnownAgent, 'id' | 'name' | 'formerNames'> | undefined,
+  known: Pick<KnownAgent, 'id' | 'name' | 'formerNames' | 'auth'> | undefined,
   options: {
     /** The environment the agent is started with. Defaults to the host's, under the row's own. */
     readonly env?: Readonly<Record<string, string | undefined>>
     /** Where a changed vendor format is reported; see `AntigravityStoreOptions.warn`. */
     readonly warn?: (message: string, details?: unknown) => void
   } = {},
-): Pick<AcpAgentConfig, 'name' | 'resolveIdentity' | 'usageRecord'> => {
+): Pick<AcpAgentConfig, 'name' | 'resolveIdentity' | 'usageRecord' | 'account'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
   const resolveIdentity = identityReaderFor(known, {
     ...(agent.args ? { args: agent.args } : {}),
@@ -30,9 +30,17 @@ export const knowledgeOverlay = (
     env,
   })
   const usageRecord = usageRecordFor(known, { env, ...(options.warn ? { warn: options.warn } : {}) })
+  const account = known?.auth && (known.auth.status || known.auth.login || known.auth.logout)
+    ? {
+        ...(known.auth.status ? { status: known.auth.status } : {}),
+        ...(known.auth.login ? { login: known.auth.login } : {}),
+        ...(known.auth.logout ? { logout: known.auth.logout } : {}),
+      }
+    : undefined
   return {
     name: currentNameOf(known, agent.name),
     ...(resolveIdentity ? { resolveIdentity } : {}),
     ...(usageRecord ? { usageRecord } : {}),
+    ...(account ? { account } : {}),
   }
 }

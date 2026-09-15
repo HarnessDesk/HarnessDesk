@@ -78,6 +78,21 @@ test('signed out is an empty list, not an error — even when status exits 1', a
   }
 })
 
+test('an account with no status command keeps its browser methods', async () => {
+  const account = new CliAccount(
+    {
+      login: { command: FAKE_CLI, args: ['login'] },
+      logout: { command: FAKE_CLI, args: ['logout'] },
+    },
+    'fake-acp' as never,
+    () => {},
+  )
+  assert.deepEqual((await account.status()).signInMethods, [
+    { id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' },
+  ])
+  assert.deepEqual((await account.status()).accounts, [])
+})
+
 test('login returns the URL the CLI printed and completion arrives as an event', async () => {
   const runtime = make()
   await runtime.start()
@@ -146,6 +161,31 @@ test('logout runs the command and announces the change', async () => {
   try {
     await runtime.logout()
     assert.ok(events.some((event) => event.type === 'account/changed'))
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a no-status account uses the observed identity and clears it after logout', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    account: {
+      login: { command: FAKE_CLI, args: ['login'] },
+      logout: { command: FAKE_CLI, args: ['logout'] },
+    },
+    resolveIdentity: () => ({ kind: 'agent', label: 'Google account', anonymous: true }),
+  })
+  await runtime.start()
+  try {
+    assert.deepEqual((await runtime.getAccount()).accounts, [])
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Google account', anonymous: true }])
+    await runtime.logout()
+    assert.deepEqual((await runtime.getAccount()).accounts, [])
+    assert.equal((await runtime.getAccount()).signInMethods[0]?.flow, 'browser')
   } finally {
     await runtime.dispose()
   }

@@ -638,7 +638,7 @@ export class AcpRuntime implements AgentRuntime {
       ? new CliAccount(
           config.account,
           runtimeId(config.id),
-          (event) => this.emit(event),
+          (event) => this.#accountEvent(event),
           (message, details) => config.logger?.debug?.(message, details),
         )
       : null
@@ -1335,9 +1335,15 @@ export class AcpRuntime implements AgentRuntime {
     })
     if (this.#account) {
       const status = await this.#account.status()
+      // An interactive-only CLI has no safe status probe. In that case the
+      // ACP session observation is the sign-in proof, while the CLI commands
+      // remain the source of the driveable sign-in/sign-out methods.
+      const observed = this.#config.account?.status
+        ? { accounts: [], signInMethods: [] }
+        : this.#observedAccount(keyAccounts.length > 0)
       return {
-        accounts: [...status.accounts, ...keyAccounts],
-        signInMethods: [...status.signInMethods, ...keyMethods],
+        accounts: [...status.accounts, ...keyAccounts, ...observed.accounts],
+        signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
       }
     }
     const observed = this.#observedAccount(keyAccounts.length > 0)
@@ -1358,7 +1364,17 @@ export class AcpRuntime implements AgentRuntime {
 
   async logout(): Promise<void> {
     if (!this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
-    await this.#account.logout()
+    const before = this.#signIn
+    // Make the state transition visible to the account/changed event emitted
+    // by CliAccount when its command succeeds. Restore it if the command
+    // itself fails, since the provider may still be signed in.
+    this.#signIn = { state: 'required', message: 'Signed out.' }
+    try {
+      await this.#account.logout()
+    } catch (error) {
+      this.#signIn = before
+      throw error
+    }
   }
 
   async getRateLimits(): Promise<RateLimits | null> {
@@ -1716,6 +1732,16 @@ export class AcpRuntime implements AgentRuntime {
     // open should hear that the answer changed.
     if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
     this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+  }
+
+  /** Keep an interactive CLI's observation in step with its account events. */
+  #accountEvent(event: AgentEvent): void {
+    if (event.type === 'account/loginCompleted' && event.success) {
+      // CliAccount emits account/changed immediately after this completion;
+      // update first so the listener reads the new identity on that event.
+      this.#signIn = { state: 'observed' }
+    }
+    this.emit(event)
   }
 
   /**

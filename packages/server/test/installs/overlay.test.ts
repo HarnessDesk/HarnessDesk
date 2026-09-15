@@ -42,6 +42,10 @@ test("a row under Antigravity's retired name gets today's name, its reader and i
   assert.equal(overlay.name, 'Antigravity')
   assert.deepEqual(overlay.resolveIdentity?.(), { kind: 'agent', label: 'Google account', anonymous: true })
   assert.equal(typeof overlay.usageRecord?.since, 'function', 'the store it counts its usage in')
+  assert.deepEqual(overlay.account, {
+    login: { command: 'agy', args: ['--print', '/help'] },
+    logout: { command: 'agy', args: ['--print', '/logout'] },
+  })
 })
 
 test('Gemini CLI gets a reader and no record; an agent the desk does not know keeps its name and gets neither', () => {
