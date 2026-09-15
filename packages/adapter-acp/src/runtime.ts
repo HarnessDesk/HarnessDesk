@@ -1437,7 +1437,7 @@ export class AcpRuntime implements AgentRuntime {
       // takes the agent's rather than falling back to the first thing the
       // user typed: one conversation, one name, in both windows.
       for (const row of rows) {
-        const title = titleOf(row)
+        const title = titleOf(row, this.info.id)
         if (title) this.#titles.set(makeSessionId(row.sessionId), title)
         // The ask a conversation opened with, for the same reason: a session
         // loaded here has no turns of its own to take one from — the agent
@@ -1460,7 +1460,7 @@ export class AcpRuntime implements AgentRuntime {
           (row): SessionSummary => ({
             id: makeSessionId(row.sessionId),
             runtime: this.info.id,
-            title: titleOf(row),
+            title: titleOf(row, this.info.id),
             // What the conversation opened with, for the rows an agent
             // leaves unnamed — the same split a live session has, where the
             // title is the agent's name and the preview is the ask.
@@ -2324,9 +2324,10 @@ const firstSentence = (text: string): string => {
 }
 
 /** Antigravity labels an unnamed conversation `Session <id>` in its store. */
-const titleOf = (row: AcpSessionRow): string | null => {
+const titleOf = (row: AcpSessionRow, runtimeId: string): string | null => {
   const title = row.title?.trim() ?? ''
-  return title !== '' && title !== `Session ${row.sessionId}` ? title : null
+  const antigravityPlaceholder = runtimeId === 'antigravity-acp' && title === `Session ${row.sessionId}`
+  return title !== '' && !antigravityPlaceholder ? title : null
 }
 
 const textOf = (block: AcpContentBlock): string => (block.type === 'text' ? block.text : '')
