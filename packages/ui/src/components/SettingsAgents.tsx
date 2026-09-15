@@ -522,7 +522,7 @@ const AgentBlock = ({
           // week is the tightest lane and is not the account's figure. Rounded
           // the way `describeLane` rounds, so this row and the Dashboard cannot
           // disagree about the same account.
-          const binding = report ? bindingLane(report.lanes) : null
+          const binding = report ? bindingLane(report.lanes, snapshot.accountPrefs[key]) : null
           const remaining = binding === null ? null : remainingOf(binding)
           const left = remaining === null ? null : Math.round(remaining)
           // Account-wide only: a spent model-scoped window is a limit you
@@ -1182,6 +1182,15 @@ const AccountDetail = ({
     (entry) => entry.runtime === info.id && (usageAccount(entry) === account.label.trim() || usageAccount(entry) === ''),
   )
   const state: Readiness = report && isBlocked(report) ? 'limit' : 'ready'
+  const accountWide = report?.lanes.some((lane) => lane.placeholder !== true && !lane.scope) ?? false
+  const usageOptions = [
+    { value: '', label: 'Automatic' },
+    ...(report?.lanes ?? [])
+      .filter((lane) => lane.placeholder !== true && (!accountWide || !lane.scope))
+      .map((lane) => ({ value: lane.id, label: lane.scope ? `${lane.label} · ${lane.scope}` : lane.label })),
+  ]
+  const pinLaneId =
+    prefs?.pinLaneId && usageOptions.some((option) => option.value === prefs.pinLaneId) ? prefs.pinLaneId : ''
 
   useEffect(() => {
     let cancelled = false
@@ -1238,6 +1247,23 @@ const AccountDetail = ({
               info={info}
               value={tintOf(key, snapshot.accountPrefs)}
               onChange={(tint) => store.setAccountPrefs(key, { tint })}
+            />
+          }
+        />
+      </Rows>
+
+      <SectionHead name="Usage" />
+      <Rows>
+        <Row
+          title="Primary usage window"
+          desc="Which limit appears first in the tray, account summary and menu."
+          control={
+            <Select
+              label="Primary usage window"
+              value={pinLaneId}
+              options={usageOptions}
+              disabled={usageOptions.length <= 1}
+              onChange={(laneId) => store.setAccountPrefs(key, { pinLaneId: laneId || undefined })}
             />
           }
         />

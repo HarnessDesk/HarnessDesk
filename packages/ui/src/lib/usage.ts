@@ -114,6 +114,11 @@ export interface ReportView {
   readonly age: string
 }
 
+/** The account-local choice that changes which usage lane leads a summary. */
+export interface UsagePreference {
+  readonly pinLaneId?: string
+}
+
 const clamp = (value: number, low: number, high: number): number =>
   value < low ? low : value > high ? high : value
 
@@ -228,22 +233,42 @@ export const describeLane = (
  * is nothing else to go on. It still appears in the list, still turns red,
  * and still says when it comes back.
  */
-export const bindingLane = (lanes: readonly UsageLane[]): UsageLane | null => {
+export const bindingLane = (
+  lanes: readonly UsageLane[],
+  preference: UsagePreference = {},
+): UsageLane | null => {
   const real = lanes.filter((lane) => lane.placeholder !== true)
   if (real.length === 0) return null
   const wide = real.filter((lane) => !lane.scope)
   const candidates = wide.length > 0 ? wide : real
-  let best: UsageLane | null = null
-  let bestRemaining = Number.POSITIVE_INFINITY
-  for (const lane of candidates) {
+  // A spent account-wide limit is a hard block. It wins over a shorter live
+  // window and over a pin because the shorter window cannot bypass it. When
+  // several are spent, the longest one is the most useful explanation of the
+  // hold; ties keep the provider's order.
+  const spent = candidates.filter((lane) => {
     const remaining = remainingOf(lane)
-    if (remaining === null) continue
-    if (remaining < bestRemaining) {
-      best = lane
-      bestRemaining = remaining
-    }
+    return remaining !== null && remaining <= 0
+  })
+  if (spent.length > 0) {
+    return spent.reduce((best, lane) => {
+      const bestMinutes = best.windowMinutes ?? -1
+      const laneMinutes = lane.windowMinutes ?? -1
+      return laneMinutes > bestMinutes ? lane : best
+    })
   }
-  return best ?? candidates[0] ?? null
+
+  const pinned = preference.pinLaneId
+    ? candidates.find((lane) => lane.id === preference.pinLaneId && isKnown(lane))
+    : undefined
+  if (pinned) return pinned
+
+  const measurable = candidates.filter((lane) => remainingOf(lane) !== null)
+  const ranked = measurable.length > 0 ? measurable : candidates
+  return ranked.reduce((best, lane) => {
+    const bestMinutes = best.windowMinutes ?? Number.POSITIVE_INFINITY
+    const laneMinutes = lane.windowMinutes ?? Number.POSITIVE_INFINITY
+    return laneMinutes < bestMinutes ? lane : best
+  }, ranked[0] as UsageLane)
 }
 
 /**
@@ -385,37 +410,46 @@ export const isBlocked = (report: UsageReport): boolean => {
  * spent the one that comes back soonest decides, because when is the only
  * question left. Ties keep the source's own order.
  */
-export const workingAccount = (reports: readonly UsageReport[]): UsageReport | null => {
+export const workingAccount = (
+  reports: readonly UsageReport[],
+  preferenceFor: (report: UsageReport) => UsagePreference = () => ({}),
+): UsageReport | null => {
   let best: UsageReport | null = null
-  for (const report of reports) if (best === null || outbids(report, best)) best = report
+  for (const report of reports) {
+    if (best === null || outbids(report, best, preferenceFor)) best = report
+  }
   return best
 }
 
 /** 1 measured and usable, 2 usable but unmeasured, 3 spent. Lower decides. */
-const accountRank = (report: UsageReport): 1 | 2 | 3 => {
+const accountRank = (report: UsageReport, preferenceFor: (report: UsageReport) => UsagePreference): 1 | 2 | 3 => {
   if (isBlocked(report)) return 3
-  const lane = bindingLane(report.lanes)
+  const lane = bindingLane(report.lanes, preferenceFor(report))
   return lane !== null && remainingOf(lane) !== null ? 1 : 2
 }
 
-const leftOf = (report: UsageReport): number => {
-  const lane = bindingLane(report.lanes)
+const leftOf = (report: UsageReport, preferenceFor: (report: UsageReport) => UsagePreference): number => {
+  const lane = bindingLane(report.lanes, preferenceFor(report))
   const remaining = lane === null ? null : remainingOf(lane)
   return remaining ?? 0
 }
 
 /** When it comes back, or infinity for a hold whose end nobody reported. */
-const returnsAt = (report: UsageReport): number => {
-  const lane = bindingLane(report.lanes)
+const returnsAt = (report: UsageReport, preferenceFor: (report: UsageReport) => UsagePreference): number => {
+  const lane = bindingLane(report.lanes, preferenceFor(report))
   return lane?.resetsAt ?? Number.POSITIVE_INFINITY
 }
 
-const outbids = (candidate: UsageReport, holder: UsageReport): boolean => {
-  const rank = accountRank(candidate)
-  const held = accountRank(holder)
+const outbids = (
+  candidate: UsageReport,
+  holder: UsageReport,
+  preferenceFor: (report: UsageReport) => UsagePreference,
+): boolean => {
+  const rank = accountRank(candidate, preferenceFor)
+  const held = accountRank(holder, preferenceFor)
   if (rank !== held) return rank < held
-  if (rank === 1) return leftOf(candidate) > leftOf(holder)
-  if (rank === 3) return returnsAt(candidate) < returnsAt(holder)
+  if (rank === 1) return leftOf(candidate, preferenceFor) > leftOf(holder, preferenceFor)
+  if (rank === 3) return returnsAt(candidate, preferenceFor) < returnsAt(holder, preferenceFor)
   return false
 }
 
@@ -428,10 +462,10 @@ const outbids = (candidate: UsageReport, holder: UsageReport): boolean => {
  */
 export const describeReport = (
   report: UsageReport,
-  { now, maxLanes = 3 }: { now: number; maxLanes?: number },
+  { now, maxLanes = 3, preference }: { now: number; maxLanes?: number; preference?: UsagePreference },
 ): ReportView => {
   const drawable = report.lanes.filter((lane) => lane.placeholder !== true)
-  const heroLane = bindingLane(report.lanes)
+  const heroLane = bindingLane(report.lanes, preference)
   const hero = heroLane ? describeLane(heroLane, now, report.lanes) : null
   const rest = drawable.filter((lane) => lane.id !== heroLane?.id)
   const shown = rest.slice(0, Math.max(0, maxLanes))

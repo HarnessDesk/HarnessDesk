@@ -50,6 +50,7 @@ const tray = (over: Partial<Parameters<typeof describeTray>[0]> = {}) =>
     runtimes: [],
     usage: [],
     accountsByRuntime: {},
+    accountPrefs: {},
     health: null,
     activeRuntime: null,
     now: NOON,
@@ -165,5 +166,22 @@ describe('describeTray', () => {
     // No account is no reading, and no reading is no bar: the shell must not
     // be handed a zero it would draw as an empty plan.
     expect(summary.agents[1]).toMatchObject({ left: null })
+  })
+
+  it('uses an account pinned usage window for the menu bar figure', () => {
+    const summary = tray({
+      runtimes: [runtime('claude', 'Claude Code')],
+      accountsByRuntime: {
+        claude: { accounts: [{ kind: 'oauth', label: 'me@example.com' }], signInMethods: [] },
+      } as never,
+      accountPrefs: { 'claude:oauth:me@example.com': { pinLaneId: 'weekly' } },
+      usage: [
+        report('claude', [
+          lane({ id: 'session', label: 'Session', usedPercent: 12, windowMinutes: 300 }),
+          lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
+        ], { account: 'me@example.com' }),
+      ],
+    })
+    expect(summary.agents[0]?.detail).toBe('37% left')
   })
 })

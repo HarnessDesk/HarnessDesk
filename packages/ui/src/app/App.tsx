@@ -167,6 +167,7 @@ export const App = () => {
           runtimes: snapshot.runtimes,
           usage: snapshot.usage,
           accountsByRuntime: snapshot.accountsByRuntime,
+          accountPrefs: snapshot.accountPrefs,
           health: snapshot.health,
           activeRuntime: snapshot.activeRuntime,
           now: Date.now(),
@@ -181,6 +182,7 @@ export const App = () => {
     snapshot.runtimes,
     snapshot.usage,
     snapshot.accountsByRuntime,
+    snapshot.accountPrefs,
     snapshot.health,
     snapshot.activeRuntime,
   ])

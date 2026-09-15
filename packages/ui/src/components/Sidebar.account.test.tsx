@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeInfo } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
@@ -60,6 +60,28 @@ const signedOut: AccountStatus = {
   accounts: [],
   signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }],
 } as unknown as AccountStatus
+
+const lane = (over: Partial<UsageLane> & Pick<UsageLane, 'id' | 'usedPercent'>): UsageLane => ({
+  label: over.id,
+  windowMinutes: 10_080,
+  resetsAt: null,
+  ...over,
+})
+
+const usageReport = (runtime: RuntimeId, lanes: readonly UsageLane[]): UsageReport =>
+  ({
+    runtime,
+    account: 'olivia@acme.dev',
+    plan: null,
+    lanes,
+    credits: null,
+    spend: null,
+    reached: null,
+    source: { kind: 'runtime', label: 'from its own API' },
+    fetchedAt: Date.now(),
+    staleAfterMs: 600_000,
+    error: null,
+  }) as unknown as UsageReport
 
 const mount = (overrides: Partial<AppSnapshot> = {}) => {
   const selectRuntime = vi.fn(async () => {})
@@ -127,6 +149,8 @@ it('ticks the default in the menu, chooses on a seat’s press, and signs out of
   // Sign-out is the default agent's, not the focused conversation's.
   expect(container.textContent).toContain('Sign out of Claude')
   expect(container.textContent).not.toContain('Sign out of Codex')
+  if (!ticked) throw new Error('no current seat')
+  click(ticked)
 
   const codexSeat = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('shane'),
@@ -134,6 +158,42 @@ it('ticks the default in the menu, chooses on a seat’s press, and signs out of
   if (!codexSeat) throw new Error('no Codex seat in the menu')
   click(codexSeat)
   expect(selectRuntime).toHaveBeenCalledWith(CODEX)
+})
+
+it('keeps the menu on the current account until the picker is opened', () => {
+  const { selectRuntime } = mount()
+  click(row())
+
+  const menu = container.querySelector('[role="menu"]')
+  expect(menu?.textContent).toContain('Shane-Claude')
+  expect(menu?.textContent).not.toContain('shane@example.com')
+
+  const current = menu?.querySelector('[data-current]')
+  if (!current) throw new Error('no current account')
+  click(current)
+
+  expect(container.querySelector('[role="menu"]')?.textContent).toContain('shane@example.com')
+  expect(selectRuntime).not.toHaveBeenCalled()
+})
+
+it('expands Usage remaining inline and lists the current account windows', () => {
+  const report = usageReport(CLAUDE, [
+    lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
+    lane({ id: 'weekly', label: 'Weekly', usedPercent: 63 }),
+  ])
+  mount({ usage: [report] })
+  click(row())
+
+  const usage = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('Usage remaining'),
+  )
+  if (!usage) throw new Error('no Usage remaining row')
+  expect(usage.getAttribute('aria-expanded')).toBe('false')
+  click(usage)
+
+  expect(usage.getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelector('[data-usage-details]')?.textContent).toContain('Session')
+  expect(container.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
 })
 
 it('closes when something takes the screen, and a sign-out it was asking about is not waiting when it opens again', () => {
@@ -214,6 +274,9 @@ it('an agent that keeps its own credential wears no ring and is not dimmed for i
   expect(badge?.hasAttribute('data-off')).toBe(false)
   expect(badge?.hasAttribute('data-tint')).toBe(false)
   click(seat)
+  const current = container.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
   const item = [...container.querySelectorAll('[role="menuitem"]')].find((el) => /^Cline/.test(el.textContent?.trim() ?? ''))
   expect(item?.textContent).toContain('Ready')
   const disc = item?.querySelector('[data-slot="hover-card-trigger"] > span')
@@ -307,6 +370,9 @@ it('a seat inside the menu offers Usage too, on the same account as the badge be
     )
   })
   click(row())
+  const current = container.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
   const codexSeat = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('shane@example.com'),
   )

@@ -45,13 +45,13 @@ const report = (over: Partial<UsageReport>): UsageReport => ({
 })
 
 describe('bindingLane', () => {
-  it('picks the lane with the least left, not the first or the longest', () => {
+  it('picks the shortest account-wide lane, not the first or the longest', () => {
     const lanes = [
       lane({ id: 'session', usedPercent: 29, windowMinutes: 300 }),
       lane({ id: 'weekly', usedPercent: 72 }),
       lane({ id: 'review', usedPercent: 88 }),
     ]
-    expect(bindingLane(lanes)?.id).toBe('review')
+    expect(bindingLane(lanes)?.id).toBe('session')
   })
 
   it('will not let one spent model speak for the whole account', () => {
@@ -62,7 +62,7 @@ describe('bindingLane', () => {
     ]
     // 0% left is true about Fable and false about the account, which still has
     // 28% and every other model.
-    expect(bindingLane(lanes)?.id).toBe('weekly')
+    expect(bindingLane(lanes)?.id).toBe('session')
   })
 
   it('falls back to a scoped lane when there is nothing else to go on', () => {
@@ -93,6 +93,39 @@ describe('bindingLane', () => {
 
   it('returns nothing for an agent with no lanes', () => {
     expect(bindingLane([])).toBeNull()
+  })
+
+  it('prefers the shortest account-wide window when no longer window is spent', () => {
+    const lanes = [
+      lane({ id: 'weekly', usedPercent: 72, windowMinutes: 10_080 }),
+      lane({ id: 'session', usedPercent: 29, windowMinutes: 300 }),
+      lane({ id: 'monthly', usedPercent: 10, windowMinutes: 43_200 }),
+    ]
+    expect(bindingLane(lanes)?.id).toBe('session')
+  })
+
+  it('keeps a spent longer-term window ahead of a live shorter window', () => {
+    const lanes = [
+      lane({ id: 'session', usedPercent: 20, windowMinutes: 300 }),
+      lane({ id: 'weekly', usedPercent: 100, windowMinutes: 10_080 }),
+    ]
+    expect(bindingLane(lanes)?.id).toBe('weekly')
+  })
+
+  it('lets a valid pin choose a live window after safety blockers are considered', () => {
+    const lanes = [
+      lane({ id: 'session', usedPercent: 20, windowMinutes: 300 }),
+      lane({ id: 'weekly', usedPercent: 72, windowMinutes: 10_080 }),
+    ]
+    expect(bindingLane(lanes, { pinLaneId: 'weekly' })?.id).toBe('weekly')
+  })
+
+  it('falls back to automatic selection when the pinned lane is absent', () => {
+    const lanes = [
+      lane({ id: 'session', usedPercent: 20, windowMinutes: 300 }),
+      lane({ id: 'weekly', usedPercent: 72, windowMinutes: 10_080 }),
+    ]
+    expect(bindingLane(lanes, { pinLaneId: 'monthly' })?.id).toBe('session')
   })
 })
 
@@ -175,18 +208,19 @@ describe('describeReport', () => {
 
   it('leads with the binding lane and names both forms of its reset', () => {
     const view = describeReport(report({ lanes }), { now: NOON, maxLanes: 2 })
-    // Fable is spent, but the account is not: the headline is the account's.
-    expect(view.hero?.id).toBe('weekly')
-    expect(view.hero?.remainingPercent).toBe(28)
-    expect(view.hero?.title).toBe('Weekly')
-    expect(view.hero?.countdown).toBe('3d 12h')
-    expect(view.tone).toBe('warn')
+    // Fable is spent, but the account is not: the headline is the shortest
+    // account-wide window, not the model-scoped lane.
+    expect(view.hero?.id).toBe('session')
+    expect(view.hero?.remainingPercent).toBe(71)
+    expect(view.hero?.title).toBe('Session')
+    expect(view.hero?.countdown).toBe('3h 20m')
+    expect(view.tone).toBe('good')
     expect(view.blocked).toBe(false)
   })
 
   it('counts every hidden lane, not just the ones the cap dropped', () => {
     const view = describeReport(report({ lanes }), { now: NOON, maxLanes: 2 })
-    expect(view.lanes.map((row) => row.id)).toEqual(['session', 'weekly:fable'])
+    expect(view.lanes.map((row) => row.id)).toEqual(['weekly', 'weekly:fable'])
     expect(view.overflow).toBe(2)
   })
 
@@ -196,7 +230,7 @@ describe('describeReport', () => {
     // than pulled out of it: the card's table is one scale, and the big figure
     // is the lowest row of that table promoted.
     expect(view.all.map((row) => row.id)).toEqual(['session', 'weekly', 'weekly:fable'])
-    expect(view.heroId).toBe('weekly')
+    expect(view.heroId).toBe('session')
     expect(view.all.every((row) => row.remainingPercent !== 0 || row.spent)).toBe(true)
   })
 
@@ -284,6 +318,20 @@ describe('describeReport', () => {
     expect(fresh.stale).toBe(false)
     expect(old.stale).toBe(true)
     expect(old.age).toBe('30m ago')
+  })
+
+  it('uses the account pin for the hero while preserving the report lanes', () => {
+    const view = describeReport(
+      report({
+        lanes: [
+          lane({ id: 'session', label: 'Session', usedPercent: 29, windowMinutes: 300 }),
+          lane({ id: 'weekly', label: 'Weekly', usedPercent: 72, windowMinutes: 10_080 }),
+        ],
+      }),
+      { now: NOON, preference: { pinLaneId: 'weekly' } },
+    )
+    expect(view.heroId).toBe('weekly')
+    expect(view.all.map((entry) => entry.id)).toEqual(['session', 'weekly'])
   })
 })
 

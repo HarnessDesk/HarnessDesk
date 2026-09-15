@@ -2,8 +2,9 @@ import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport 
 
 import { brandForRuntime } from './brands'
 import type { TrayAgent, TraySummary } from './desktop'
+import { prefsForUsage } from './accounts'
 import { READINESS_LABEL, readinessOf } from './readiness'
-import { describeReport, workingAccount } from './usage'
+import { describeReport, workingAccount, type UsagePreference } from './usage'
 
 /**
  * What the menu bar says with no window open.
@@ -19,6 +20,7 @@ export interface TrayInput {
   readonly runtimes: readonly RuntimeInfo[]
   readonly usage: readonly UsageReport[]
   readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
+  readonly accountPrefs: Readonly<Record<string, UsagePreference>>
   readonly health: RuntimeHealth | null
   readonly activeRuntime: RuntimeId | null
   readonly now: number
@@ -61,8 +63,10 @@ const agentOf = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string,
   // the header cannot disagree about an agent: signed in to two, the one with
   // most left is the one a turn would use — and taking the first report that
   // arrived instead put whichever account raced in ahead on the menu bar.
-  const report = workingAccount(reports)
-  const lane = report ? describeReport(report, { now: input.now, maxLanes: 1 }).hero : null
+  const preferenceFor = (report: UsageReport): UsagePreference =>
+    prefsForUsage(report.runtime, report.account, input.accountsByRuntime, input.accountPrefs) ?? {}
+  const report = workingAccount(reports, preferenceFor)
+  const lane = report ? describeReport(report, { now: input.now, maxLanes: 1, preference: preferenceFor(report) }).hero : null
   const left = lane?.known && lane.remainingPercent !== null ? lane.remainingPercent : null
   const name = info.presentation.name
   // The account goes in front of the em dash, where the row says who it is —

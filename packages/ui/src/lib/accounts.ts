@@ -1,4 +1,4 @@
-import type { Account, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
+import type { Account, AccountStatus, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
 /**
  * The account is the unit, not the agent.
@@ -17,10 +17,29 @@ export interface AccountPrefs {
   /** What you call it. Empty or absent falls back to the identity itself. */
   readonly nickname?: string
   readonly tint?: Tint
+  /** The usage lane to promote in summaries for this account. */
+  readonly pinLaneId?: string
 }
 
 /** Every account's preferences, keyed by `accountKey`. */
 export type AccountPrefsMap = Readonly<Record<string, AccountPrefs>>
+
+/** Preferences for the account represented by one usage report. */
+export const prefsForUsage = (
+  runtime: RuntimeId,
+  accountLabel: string | null | undefined,
+  accounts: Readonly<Partial<Record<RuntimeId, AccountStatus>>>,
+  prefs: AccountPrefsMap,
+): AccountPrefs | undefined => {
+  const known = accounts[runtime]?.accounts ?? []
+  const label = accountLabel?.trim() ?? ''
+  const account = label
+    ? known.find((entry) => entry.label?.trim() === label)
+    : known.length === 1
+      ? known[0]
+      : undefined
+  return account ? prefs[accountKey(runtime, account)] : undefined
+}
 
 /**
  * A stable name for one account.

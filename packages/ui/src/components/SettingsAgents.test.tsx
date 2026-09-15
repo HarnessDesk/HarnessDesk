@@ -566,10 +566,10 @@ it('an account row says its plan and which way its figure counts', async () => {
   await act(async () => caret.click())
 
   expect(container.textContent).toContain('Pro')
-  // The tightest lane decides, and the number says what it means: 73% of the
-  // weekly lane spent is 27% left, not 70% from the 5-hour one.
-  expect(container.textContent).toContain('27% left')
-  expect(container.textContent).not.toMatch(/\b73%/)
+  // Automatic uses the shortest reported account-wide window: 70% remains in
+  // the 5-hour lane, while the longer weekly lane has 27% remaining.
+  expect(container.textContent).toContain('70% left')
+  expect(container.textContent).not.toMatch(/\b27% left/)
 })
 
 it('a pin on a copy that has gone says so, and names the copy that runs (#219)', async () => {

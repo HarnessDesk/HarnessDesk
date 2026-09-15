@@ -804,6 +804,62 @@
   background: var(--hdp-alias-interactive-bg-hover);
 }
 
+.accountMenuRowOpen {
+  background: var(--hdp-alias-interactive-bg-hover);
+}
+
+.accountMenuCaret {
+  margin-left: var(--hd-space-1-5);
+  vertical-align: -2px;
+}
+
+.usageDetails {
+  margin: 0 var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-8);
+  border-top: 1px solid var(--hdp-alias-border-l1);
+}
+
+.usageLane {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-height: var(--hd-bar-h);
+  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  font-size: var(--hd-text-xs);
+}
+
+.usageLaneName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usageLaneReset {
+  color: var(--hdp-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usageDetailsAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--hd-bar-h);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--hd-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.usageDetailsAction:hover {
+  color: var(--hd-accent);
+}
+
 /* An action row's label, with its icon in the quiet colour until hovered. */
 .accountMenuAction {
   display: inline-flex;

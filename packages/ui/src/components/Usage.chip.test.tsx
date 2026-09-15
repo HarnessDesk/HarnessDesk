@@ -57,10 +57,10 @@ const state = (input: UsageReport) => stateOf(input, describeReport(input, { now
 describe('the plan chip', () => {
   it('does not limit an account because one model is spent', () => {
     const view = describeReport(fableSpent, { now: NOON, maxLanes: 3 })
-    // The card's own two facts, unchanged: the headline is the account-wide
-    // weekly, and the scoped window still gets its sentence.
-    expect(view.hero?.id).toBe('weekly')
-    expect(view.hero?.remainingPercent).toBe(37)
+    // The account-wide shortest lane leads by default; the spent Fable lane
+    // stays visible but does not block the account.
+    expect(view.hero?.id).toBe('session')
+    expect(view.hero?.remainingPercent).toBe(88)
     expect(view.reachedLane?.scope).toBe('Fable')
     expect(state(fableSpent)).toBe('ready')
   })

@@ -13,6 +13,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { accountKey } from '../lib/accounts'
 import { AgentsSection } from './SettingsAgents'
 
 /**
@@ -26,7 +27,7 @@ import { AgentsSection } from './SettingsAgents'
  * limit dot, on an account with 37% of its weekly left and every other model
  * answering — and fixing only the chip would have left `0% left` beside a
  * *ready* dot, which is worse, because the two halves of one row would
- * disagree. Both now come from the account-wide binding lane.
+ * disagree. Both now come from the account's selected usage lane.
  *
  * The other thing pinned here is which report a row reads at all. A row is one
  * account, and it finds its report by matching the account's own label, so the
@@ -102,7 +103,7 @@ const fableSpent = report(
 /** A second account whose own weekly really is gone. */
 const reallySpent = report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100 })], 'weekly')
 
-const mount = async (usage: readonly UsageReport[]): Promise<void> => {
+const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -116,6 +117,7 @@ const mount = async (usage: readonly UsageReport[]): Promise<void> => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
+    limitsFor: vi.fn(async () => null),
     agentCatalog: vi.fn(async () => []),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
     setAccountPrefs: vi.fn(),
@@ -133,6 +135,7 @@ const mount = async (usage: readonly UsageReport[]): Promise<void> => {
     node.getAttribute('aria-label')?.startsWith('Show the accounts under'),
   )
   if (toggle) await act(async () => toggle.click())
+  return store
 }
 
 /**
@@ -156,7 +159,7 @@ describe('an account row in Settings', () => {
   it('reads the account own window, not whichever lane is tightest', async () => {
     await mount([fableSpent])
     const olivia = rows().find((row) => row.label === 'olivia@acme.dev')
-    expect(olivia?.figure).toBe('37% left')
+    expect(olivia?.figure).toBe('88% left')
     expect(olivia?.state).toBe('ready')
   })
 
@@ -173,7 +176,7 @@ describe('an account row in Settings', () => {
     await mount([reallySpent, fableSpent])
     const listed = rows()
     expect(listed.find((row) => row.label === 'olivia@acme.dev')).toMatchObject({
-      figure: '37% left',
+      figure: '88% left',
       state: 'ready',
     })
     expect(listed.find((row) => row.label === 'work@acme.dev')).toMatchObject({
@@ -188,5 +191,24 @@ describe('an account row in Settings', () => {
       figure: '0% left',
       state: 'limit',
     })
+  })
+
+  it('lets an account pin a reported usage window from its detail page', async () => {
+    const store = await mount([fableSpent])
+    const account = [...container.querySelectorAll('button')].find((node) =>
+      node.textContent?.includes('olivia@acme.dev'),
+    )
+    if (!account) throw new Error('no account row')
+    await act(async () => account.click())
+
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Primary usage window"]')
+    expect(select).not.toBeNull()
+    expect([...select!.options].map((option) => option.textContent)).toEqual(['Automatic', 'Session', 'Weekly'])
+
+    await act(async () => {
+      select!.value = 'weekly'
+      select!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(store.setAccountPrefs).toHaveBeenCalledWith(accountKey(CLAUDE, status.accounts[0]!), { pinLaneId: 'weekly' })
   })
 })
