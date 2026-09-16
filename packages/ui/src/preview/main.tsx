@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import {
   Component,
   StrictMode,
@@ -31,7 +32,7 @@ import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
-import { NativeSelect } from '../design/ui'
+import { NativeSelect } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -1169,15 +1170,15 @@ class Boundary extends Component<{ children: ReactNode }, { error: Error | null 
   override render(): ReactNode {
     if (this.state.error) {
       return (
-        <button
+        <Button variant="destructive" size="panel"
           type="button"
-          className="block w-full p-4 text-left text-sm text-destructive"
+          className="block text-left"
           onClick={() => this.setState({ error: null })}
           title="Render this frame again — use it after fixing the cause."
         >
           This screen threw while rendering: {this.state.error.message}
           <span className="mt-1 block text-muted-foreground">Click to retry.</span>
-        </button>
+        </Button>
       )
     }
     return this.props.children

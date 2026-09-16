@@ -6,8 +6,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 
-import { ResizeHandle } from '../design/ui'
-import { DockPanelActions, DockPanelBar } from '../design/patterns/DockPanel'
+import { ResizeHandle } from '../design'
+import { DockPanelActions, DockPanelBar } from '../design'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
 import { MountProvider } from '../panels/mount'
 import { PanelActions } from '../panels/PanelActions'

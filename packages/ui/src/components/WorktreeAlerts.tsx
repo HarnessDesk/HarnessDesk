@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import type { WorktreeChanges } from '@harnessdesk/protocol'
 
-import { Alert, AlertContent, AlertDescription, AlertTitle } from '../design/ui/alert'
+import { Alert, AlertContent, AlertDescription, AlertTitle } from '../design'
 import { AlertIcon } from './Icons'
 
 /**

@@ -1,7 +1,9 @@
 import { expect, it } from 'vitest'
 
 import composerCss from '../../components/Composer.module.css?raw'
+import buttonTsx from './button.tsx?raw'
 import composerTsx from './composer.tsx?raw'
+import textareaTsx from './textarea.tsx?raw'
 
 /**
  * The two composers are one shape.
@@ -47,8 +49,8 @@ const SHARED: readonly {
   },
   {
     what: 'the hairline',
-    css: 'inset 0 0 0 1px var(--hdp-alias-border-l3)',
-    utility: 'ring-(--hdp-alias-border-l3)',
+    css: 'inset 0 0 0 1px var(--hd-border-emphasis)',
+    utility: 'ring-(--hd-border-emphasis)',
   },
   {
     /* The whole utility, not the tail of it.
@@ -65,27 +67,8 @@ const SHARED: readonly {
   },
   {
     what: 'the focused hairline',
-    css: 'inset 0 0 0 1px var(--hdp-alias-border-l4',
-    utility: 'focus-within:ring-(--hdp-alias-border-l4)',
-  },
-  {
-    what: 'the send coin',
-    css: 'border-radius: 50%',
-    /* Ink, not the accent, since the token layer split the two: the filled
-       coin is the loudest control on a composer and the loudest control in
-       this app is `--hd-solid`. The module moved first and this followed,
-       which is the direction the note above sets. */
-    utility: 'rounded-full bg-(--hd-solid)',
-  },
-  {
-    what: "the send coin's fill",
-    css: 'background: var(--hd-solid)',
-    utility: 'bg-(--hd-solid)',
-  },
-  {
-    what: "the send coin's foreground",
-    css: 'color: var(--hd-solid-foreground)',
-    utility: 'text-(--hd-solid-foreground)',
+    css: 'inset 0 0 0 1px var(--hd-border-heavy',
+    utility: 'focus-within:ring-(--hd-border-heavy)',
   },
   /*
    * The four below were drift the six above did not cover, found by putting
@@ -97,32 +80,12 @@ const SHARED: readonly {
    * until it was beside its twin.
    */
   {
-    what: 'the line the text is set on',
-    css: 'line-height: var(--hd-composer-line)',
-    utility: 'leading-(--hd-composer-line)',
-  },
-  {
-    what: 'the floor of the text well',
-    css: 'min-height: var(--hd-composer-min)',
-    utility: 'min-h-(--hd-composer-min)',
-  },
-  {
-    what: 'where the text well stops growing',
-    css: 'max-height: var(--hd-composer-max)',
-    utility: 'max-h-(--hd-composer-max)',
-  },
-  {
     /* Kept beside the row above, which now contains it, because the two fail
        with different sentences: "the focused shadow moved" and "the Studio
        ring is gone" are different repairs. */
     what: 'the Studio focus ring',
     css: 'var(--hd-composer-ring, 0 0 0 0 transparent)',
     utility: 'var(--hd-composer-ring,0_0_0_0_transparent)',
-  },
-  {
-    what: 'the queued weight on the coin',
-    css: 'color-mix(in srgb, var(--hd-accent) 22%, transparent)',
-    utility: 'color-mix(in_srgb,var(--hd-accent)_22%,transparent)',
   },
 ]
 
@@ -131,10 +94,33 @@ it.each(SHARED)('$what is the same in both composers', ({ css, utility }) => {
   expect(composerTsx).toContain(utility)
 })
 
+it('both composers use the canonical send coin weights', () => {
+  for (const utility of [
+    'rounded-full',
+    'bg-(--hd-solid)',
+    'text-(--hd-solid-foreground)',
+    'color-mix(in_srgb,var(--hd-accent)_22%,transparent)',
+  ]) {
+    expect(buttonTsx).toContain(utility)
+    expect(composerTsx).toContain(utility)
+  }
+})
+
+it('both composers use the canonical text-well measure', () => {
+  for (const utility of [
+    'leading-(--hd-composer-line)',
+    'min-h-(--hd-composer-min)',
+    'max-h-(--hd-composer-max)',
+  ]) {
+    expect(textareaTsx).toContain(utility)
+    expect(composerTsx).toContain(utility)
+  }
+})
+
 it('the shell is the layer-1 surface the conversation sits on', () => {
-  // `--hd-card` resolves to `--hdp-alias-bg-layer-1`, which is what the module
+  // `--hd-card` resolves to `--hd-card`, which is what the module
   // names directly. Both land on the same paint; the token layer is the proof.
-  expect(composerCss).toContain('background: var(--hdp-alias-bg-layer-1)')
+  expect(composerCss).toContain('background: var(--hd-card)')
   expect(composerTsx).toContain('bg-(--hd-card)')
 })
 
@@ -148,7 +134,6 @@ it('focus deepens the shadow rather than lighting an accent ring', () => {
 })
 
 it('the send coin is 30px in both', () => {
-  // `size-7.5` is 30px on Tailwind's 4px scale, which is what `.send` sets.
-  expect(composerCss).toMatch(/\.send\s*\{[^}]*width:\s*30px/)
+  expect(buttonTsx).toContain('size-(--hd-btn-h)')
   expect(composerTsx).toContain('size-7.5')
 })

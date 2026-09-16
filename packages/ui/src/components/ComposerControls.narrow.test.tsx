@@ -20,7 +20,7 @@ import { ModelControl, PermissionControl } from './ComposerControls'
  * jsdom lays nothing out, so the toolbar is as wide as this file says.
  */
 
-vi.mock('../design', () => ({ Btn: () => null, Dialog: () => null }))
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let width = 1000

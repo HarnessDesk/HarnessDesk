@@ -32,7 +32,7 @@ export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
 }
 
 /** The token the empty `fontFamily` resolves to, so the palette keeps reaching it. */
-export const INHERITED_CODE_FACE = 'var(--hdp-font-family-code)'
+export const INHERITED_CODE_FACE = 'var(--hd-font-code)'
 
 export const FONT_SIZES = [11, 12, 13, 14, 16] as const
 export const TAB_SIZES = [2, 4, 8] as const

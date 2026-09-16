@@ -180,8 +180,8 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
     querySelectorAll: (selector) => {
       asked.push(selector)
       return [
-        { getAttribute: (name) => (name === 'title' ? '~/work/storefront' : null) },
-        { getAttribute: (name) => (name === 'alt' ? 'Codex' : null) },
+        { tagName: 'SPAN', className: 'path', getAttribute: (name) => (name === 'title' ? '~/work/storefront' : null) },
+        { tagName: 'IMG', className: '', getAttribute: (name) => (name === 'alt' ? 'Codex' : null) },
       ]
     },
   }
@@ -190,8 +190,8 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
   assert.equal(seen.text, 'the body')
   assert.equal(seen.documentTitle, 'HarnessDesk')
   assert.deepEqual(seen.attributes, [
-    ['title', '~/work/storefront'],
-    ['alt', 'Codex'],
+    ['title', '~/work/storefront', 'span', 'path'],
+    ['alt', 'Codex', 'img', ''],
   ])
 })
 

@@ -7,7 +7,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Popover, useEscapeSurface } from './Popover'
+import { Popover, useEscapeSurface } from '../design'
 import { Settings } from './Settings'
 import { Usage } from './Usage'
 
@@ -105,9 +105,9 @@ const escape = async (): Promise<boolean> => {
   return event.defaultPrevented
 }
 
-const menu = (): HTMLElement | null => document.querySelector('[role="menu"]')
+const menu = (): HTMLElement | null => document.querySelector('[data-slot="popover-popup"]')
 const window_ = (label: string): HTMLElement | null =>
-  document.querySelector(`[role="dialog"][aria-label="${label}"]`)
+  document.querySelector(`section[aria-label="${label}"]`)
 
 /** The window, with a menu beside it, and whether the window is still up. */
 const mount = async (which: 'Settings' | 'Dashboard'): Promise<() => boolean> => {
@@ -156,7 +156,7 @@ for (const which of ['Settings', 'Dashboard'] as const) {
     // well on a menu that never rendered.
     expect(window_(which)).not.toBeNull()
     expect(up()).toBe(true)
-    act(() => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('button[title="Range"]')!.click())
     expect(menu()).not.toBeNull()
 
     // One press: the menu goes, the window stays. This is what closed both.

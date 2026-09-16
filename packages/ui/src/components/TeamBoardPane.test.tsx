@@ -11,7 +11,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { dismissOverlays } from './Popover'
+import { dismissOverlays } from '../design'
 import { TeamBoardPane } from './TeamBoardPane'
 
 /**
@@ -178,10 +178,12 @@ const menuItems = async (id: number): Promise<HTMLElement[]> => {
     `button[aria-label="What to do with #${id}"]`,
   )
   if (!trigger) throw new Error(`no menu on #${id}`)
-  /* Enter on the trigger rather than a click: it is the keyboard path, and it
-     is the one Radix opens with in jsdom, which has no pointer capture. */
+  /* A native button activated with Enter emits a click after keydown. jsdom
+     does not synthesize that browser default, so deliver both parts of the
+     keyboard activation sequence that Base UI receives in Chromium. */
   act(() => {
     trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    trigger.click()
   })
   await act(async () => {})
   /* Portalled, so the menu is in the document and not in the mount. */
@@ -591,6 +593,7 @@ it('opens the holder’s card from its name as well as its face', async () => {
   if (!name) throw new Error('no holder name to rest on')
   act(() => {
     name.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    name.closest('[data-slot="hover-card-trigger"]')?.dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -976,4 +979,3 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   const labels = items.map((one) => one.textContent?.trim())
   expect(labels).toContain('Answer approve')
 })
-

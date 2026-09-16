@@ -15,7 +15,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--hdp-alias-bg-base);
+  background: var(--hd-background);
 
   /*
    * How big each dock currently is.
@@ -82,8 +82,8 @@
   min-height: 0;
   overflow: hidden;
   background: var(--hd-sidebar-plate);
-  border-right: var(--hd-border-width) solid var(--hdp-alias-border-l1);
-  transition: width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  border-right: var(--hd-border-width) solid var(--hd-border);
+  transition: width var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 /* A zero-width column must not paint a 1px seam of its own — nor keep controls
@@ -93,8 +93,8 @@
   border-right: none;
   visibility: hidden;
   transition:
-    width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
-    visibility 0s linear var(--hdp-transition-duration-slow);
+    width var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
 }
 
 .shell[data-dragging] .sidebar {
@@ -402,8 +402,8 @@
   border: 2px dashed transparent;
   border-radius: var(--hd-radius);
   transition:
-    background var(--hdp-transition-duration-fast) var(--hdp-ease-in-out),
-    border-color var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+    background var(--hd-duration-fast) var(--hd-ease),
+    border-color var(--hd-duration-fast) var(--hd-ease);
 }
 
 .drop[data-over] {
@@ -455,15 +455,15 @@
   transform: translateX(-100%);
   visibility: hidden;
   transition:
-    transform var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
-    visibility 0s linear var(--hdp-transition-duration-slow);
+    transform var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
 }
 
 .shell[data-narrow] .sidebar[data-floating] {
   transform: none;
   visibility: visible;
   box-shadow: var(--hd-shadow-lg);
-  transition: transform var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  transition: transform var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 /* Sliding rather than growing, its contents have no narrower width to be held
@@ -497,14 +497,14 @@
   opacity: 0;
   visibility: hidden;
   transition:
-    opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
-    visibility 0s linear var(--hdp-transition-duration-slow);
+    opacity var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
 }
 
 .scrim[data-open] {
   opacity: 1;
   visibility: visible;
-  transition: opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  transition: opacity var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 /* The app shortens every transition's duration when motion is reduced, but

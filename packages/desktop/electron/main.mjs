@@ -262,13 +262,18 @@ const showMainWindow = async () => {
  * icon, and its `iconPath` option is honoured on Linux and Windows alone, so
  * the mark is drawn here instead — on the same tile the Dock icon bakes in.
  */
-const showAbout = () => {
+const showAbout = async () => {
   app.focus({ steal: true })
   if (aboutWindow && !aboutWindow.isDestroyed()) {
     aboutWindow.show()
     aboutWindow.focus()
     return
   }
+  const preferences = await host?.call('app/state/get', {}).catch(() => ({})) ?? {}
+  const palette = ['editorial', 'shadcn'].includes(preferences['palette']) ? preferences['palette'] : ''
+  const accent = ['violet', 'green', 'rose', 'orange', 'mono'].includes(preferences['accent']) ? preferences['accent'] : ''
+  const corners = ['square', 'round'].includes(preferences['corners']) ? preferences['corners'] : ''
+  const interfaceName = preferences['look'] === 'studio' ? 'studio' : ''
   aboutWindow = new BrowserWindow({
     width: 300,
     height: 360,
@@ -292,6 +297,10 @@ const showAbout = () => {
       version: app.getVersion(),
       electron: process.versions.electron,
       chrome: process.versions.chrome,
+      palette,
+      accent,
+      corners,
+      interface: interfaceName,
     },
   })
 }
@@ -422,7 +431,7 @@ const buildTrayMenu = () =>
       { label: 'Settings…', click: () => void showMainWindow().then(() => sendShortcut('settings')) },
       'menu/settings.png',
     ),
-    withGlyph({ label: 'About HarnessDesk', click: showAbout }, 'menu/about.png'),
+    withGlyph({ label: 'About HarnessDesk', click: () => void showAbout() }, 'menu/about.png'),
     { type: 'separator' },
     withGlyph({ label: 'Quit HarnessDesk', click: () => app.quit() }, 'menu/quit.png'),
   ])
@@ -444,7 +453,7 @@ const buildMenu = () => {
     {
       label: 'HarnessDesk',
       submenu: [
-        { label: 'About HarnessDesk', click: showAbout },
+        { label: 'About HarnessDesk', click: () => void showAbout() },
         // Absent entirely when update checks are off — a disabled item would
         // read as broken rather than as a choice.
         ...(updateMenuItem
@@ -730,6 +739,11 @@ const start = async () => {
   })
 
   mainWindow = await createWindow(sessionUrl())
+  // Native UI-system verification opens the real auxiliary window without
+  // scripting macOS's global menu bar (which would require controlling the
+  // user's accessibility session). It is the same function the About menu
+  // item calls and is isolated behind a test-only environment flag.
+  if (process.env['HARNESSDESK_TEST_ABOUT'] === '1') void showAbout()
 }
 
 /**

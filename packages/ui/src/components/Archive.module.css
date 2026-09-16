@@ -1,9 +1,9 @@
 /*
  * The archive page inside Settings.
  *
- * Two classes, because everything else on the page is Kit: the field that
- * narrows the list, and the line under each agent's heading that says where
- * that agent's archive actually lives.
+ * Two classes, because the generic page structure comes from the Settings
+ * patterns: the field that narrows the list, and the line under each agent's
+ * heading that says where that agent's archive actually lives.
  */
 
 .search {
@@ -18,7 +18,7 @@
   margin: -4px 0 10px;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* The agent's mark on its heading, pulled onto the text's centre line — the

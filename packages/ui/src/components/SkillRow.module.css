@@ -1,27 +1,25 @@
 /*
- * What a skill row adds to a Kit row, and nothing more.
+ * What a skill row adds to the canonical Settings row, and nothing more.
  *
- * The container, the hairlines, the 34px mark, the padding and the chevron all
- * come from `Kit.module.css` — this file must never restate any of them. That
- * is the whole point: the Library list drifted from Plugins because it drew
- * its own box (`--hd-radius` and `bg-card` against Kit's `--hd-radius-lg` and
- * `--hdp-alias-bg-layer-1`), and the outer border is the first thing anyone
- * notices. Owning only the parts Kit has no opinion about is what stops that
- * happening again the next time the density changes.
+ * The container, hairlines, mark, padding and chevron come from `Rows` and
+ * `RowButton`; this file must never restate them. The Library list previously
+ * drifted from Plugins because it drew its own box. Owning only the parts the
+ * shared pattern has no opinion about is what prevents that on the next
+ * density change.
  *
- * Colours here use `--hdp-alias-*` where they sit beside Kit's own text, and
+ * Colours here use `--hdp-alias-*` where they sit beside shared row text, and
  * `--hd-*` for this app's own judgements — the split `docs` draws between the
  * DSH-derived platform layer and ours.
  */
 
-/* Kit gives every list a bottom margin for stacking; this one is the page's
+/* Rows gives every list a bottom margin for stacking; this one is the page's
    last block before the gaps and the history, which own their own spacing. */
 .list {
   margin-bottom: 0;
 }
 
-/* The letters on Kit's neutral mark. Kit sets the 34px tile, its ground and
-   its inset hairline; only the type is ours. */
+/* The letters on the pattern's neutral mark. The pattern owns the tile,
+   ground and inset hairline; only the type is ours. */
 .monogram {
   font-size: 11px;
   font-weight: var(--hd-weight-semibold);
@@ -48,7 +46,7 @@
 .command {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- the description ----------------------------------------------------- */
@@ -71,17 +69,17 @@
 
 .blank {
   font-style: italic;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- the control slot ---------------------------------------------------- */
 
-/* Kit's `.rowCtl` already lays this out with an 8px gap; the finding only
-   needs its voice. */
+/* The row control slot already owns its layout; the finding only needs its
+   voice. */
 .finding {
   font-size: var(--hd-text-sm);
   white-space: nowrap;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .finding[data-tone='warn'] {
@@ -107,13 +105,13 @@
   width: 20px;
   height: 20px;
   border-radius: var(--hd-radius-full);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   opacity: 0.4;
 }
 
 .face[data-state='reaches'] {
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-muted);
+  color: var(--hd-foreground);
   opacity: 1;
 }
 

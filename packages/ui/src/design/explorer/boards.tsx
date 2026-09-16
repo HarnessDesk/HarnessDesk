@@ -2,27 +2,39 @@ import { useState, type JSX } from 'react'
 
 import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
 import {
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertTitle,
   Banner,
   BannerAction,
-  Btn,
+  Button,
+  AgentCard,
+  ApprovalDialog,
   ChannelMessage,
   ChannelSignal,
   Chip,
   ConfirmDialog,
   DetailHead,
   Face,
+  Input,
   Dialog,
   Dot,
-  IconBtn,
+  NativeSelect,
   PageHead,
   Row,
   RowButton,
   RowChoice,
   Rows,
+  Lightbox,
+  PublicationCard,
+  RefusedAction,
   SectionHead,
   Segmented,
-  Select,
-  Toggle,
+  Switch,
+  SwitchShape,
+  ToggleGroup,
+  ToggleGroupItem,
 } from '..'
 import styles from './explorer.module.css'
 
@@ -56,27 +68,57 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
+const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'action'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'lg', 'icon', 'icon-xs', 'icon-sm', 'icon-lg', 'content', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
+const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
+const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare'] as const
+const INPUT_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
+const NATIVE_SELECT_CATALOG_VARIANTS = ['default', 'filled'] as const
+const NATIVE_SELECT_CATALOG_SIZES = ['default', 'compact'] as const
+const NATIVE_SELECT_CATALOG_STATES = ['closed', 'open', 'focus-visible', 'disabled'] as const
+const ALERT_CATALOG_VARIANTS = ['default', 'soft'] as const
+const ALERT_CATALOG_SIZES = ['default'] as const
+const ALERT_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
+const ALERT_CATALOG_TONE = ['neutral', 'info', 'success', 'warning', 'danger'] as const
+const SWITCH_CATALOG_VARIANTS = ['default'] as const
+const SWITCH_CATALOG_SIZES = ['default', 'sm'] as const
+const SWITCH_CATALOG_STATES = ['unchecked', 'checked', 'focus-visible', 'disabled'] as const
+const SWITCH_CATALOG_ON = ['true', 'false'] as const
+const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline'] as const
+const TOGGLE_GROUP_CATALOG_SIZES = ['default', 'sm', 'lg'] as const
+const TOGGLE_GROUP_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
+
 const ButtonBoard = () => (
   <>
-    <div className={styles.matrix}>
-      {([undefined, 'primary', 'quiet', 'danger'] as const).map((variant) => (
-        <Case key={variant ?? 'default'} label={variant ?? 'default'}>
-          <Btn variant={variant}>Continue</Btn>
-          <Btn variant={variant} disabled>
+    <div className={styles.matrix} data-catalog-states={BUTTON_CATALOG_STATES.join(' ')}>
+      {BUTTON_CATALOG_VARIANTS.map((variant) => (
+        <Case key={variant} label={variant}>
+          <Button variant={variant} data-catalog-variant={variant}>Continue</Button>
+          <Button variant={variant} disabled>
             Continue
-          </Btn>
-          <Btn variant={variant} small>
+          </Button>
+          <Button variant={variant} size="sm">
             Small
-          </Btn>
+          </Button>
         </Case>
       ))}
       <Case label="icon only">
-        <IconBtn aria-label="Terminal">
+        <Button variant="ghost" size="icon-sm" aria-label="Terminal">
           <TerminalIcon size={14} />
-        </IconBtn>
-        <IconBtn aria-label="Folder">
+        </Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Folder">
           <FolderIcon size={14} />
-        </IconBtn>
+        </Button>
+      </Case>
+      <Case label="all supported sizes">
+        <div className="flex w-full flex-wrap items-start gap-2">
+          {BUTTON_CATALOG_SIZES.map((size) => (
+            <Button key={size} variant="outline" size={size} data-catalog-size={size} aria-label={`Button size ${size}`}>
+              {size.startsWith('icon') ? <TerminalIcon size={14} /> : size}
+            </Button>
+          ))}
+        </div>
       </Case>
     </div>
     <p className={styles.rule}>
@@ -127,23 +169,52 @@ const ControlBoard = () => {
   return (
     <>
       <div className={styles.matrix}>
-        <Case label="toggle">
-          <Toggle on={on} onChange={setOn} label="Start sessions in a worktree" />
-          <Toggle on={false} onChange={() => {}} label="Off" />
-          <Toggle on label="Managed by the agent" />
+        <Case label="input variants and sizes">
+          <div className="grid w-full gap-2" data-catalog-states={INPUT_CATALOG_STATES.join(' ')}>
+            {INPUT_CATALOG_VARIANTS.map((variant) => (
+              <Input key={variant} variant={variant} data-catalog-variant={variant} placeholder={variant} aria-label={`${variant} input`} />
+            ))}
+            {INPUT_CATALOG_SIZES.map((controlSize) => (
+              <Input key={controlSize} controlSize={controlSize} data-catalog-size={controlSize} placeholder={controlSize} aria-label={`${controlSize} input size`} />
+            ))}
+            <Input disabled value="disabled" aria-label="Disabled input" readOnly />
+            <Input aria-invalid value="invalid" aria-label="Invalid input" readOnly />
+          </div>
         </Case>
-        <Case label="select">
-          <Select
-            label="Model"
-            value="default"
-            options={[
-              { value: 'default', label: "The agent's default" },
-              { value: 'fast', label: 'Fast' },
-            ]}
-            onChange={() => {}}
-          />
+        <Case label="toggle">
+          <div data-catalog-variants={SWITCH_CATALOG_VARIANTS.join(' ')} data-catalog-states={SWITCH_CATALOG_STATES.join(' ')}>
+            <Switch checked={on} onCheckedChange={setOn} aria-label="Start sessions in a worktree" />
+            {SWITCH_CATALOG_SIZES.map((size) => (
+              <Switch key={size} size={size} data-catalog-size={size} checked={false} onCheckedChange={() => {}} aria-label={`${size} switch`} />
+            ))}
+            {SWITCH_CATALOG_ON.map((value) => (
+              <SwitchShape key={value} checked={value === 'true'} data-catalog-on={value} />
+            ))}
+            <Switch checked aria-label="Managed by the agent" disabled />
+          </div>
+        </Case>
+        <Case label="native select variants and sizes">
+          <div className="grid w-full gap-2" data-catalog-states={NATIVE_SELECT_CATALOG_STATES.join(' ')}>
+            {NATIVE_SELECT_CATALOG_VARIANTS.map((variant) => (
+              <NativeSelect key={variant} variant={variant} data-catalog-variant={variant} aria-label={`${variant} model`} defaultValue="default">
+                <option value="default">The agent&apos;s default</option>
+                <option value="fast">Fast</option>
+              </NativeSelect>
+            ))}
+            {NATIVE_SELECT_CATALOG_SIZES.map((controlSize) => (
+              <NativeSelect key={controlSize} controlSize={controlSize} data-catalog-size={controlSize} aria-label={`${controlSize} select`} defaultValue="default">
+                <option value="default">{controlSize}</option>
+              </NativeSelect>
+            ))}
+            <NativeSelect disabled aria-label="Disabled select"><option>Disabled</option></NativeSelect>
+          </div>
         </Case>
         <Case label="segmented">
+          <div
+            data-catalog-variants={TOGGLE_GROUP_CATALOG_VARIANTS.join(' ')}
+            data-catalog-sizes={TOGGLE_GROUP_CATALOG_SIZES.join(' ')}
+            data-catalog-states={TOGGLE_GROUP_CATALOG_STATES.join(' ')}
+          >
           <Segmented
             label="Reasoning effort"
             value={effort}
@@ -154,6 +225,21 @@ const ControlBoard = () => {
               { value: 'high', label: 'High' },
             ]}
           />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {TOGGLE_GROUP_CATALOG_VARIANTS.map((variant) => (
+              <ToggleGroup key={variant} type="single" variant={variant} defaultValue="one" data-catalog-variant={variant}>
+                <ToggleGroupItem value="one">One</ToggleGroupItem>
+                <ToggleGroupItem value="two">Two</ToggleGroupItem>
+              </ToggleGroup>
+            ))}
+            {TOGGLE_GROUP_CATALOG_SIZES.map((size) => (
+              <ToggleGroup key={size} type="single" size={size} defaultValue="one" data-catalog-size={size}>
+                <ToggleGroupItem value="one">{size}</ToggleGroupItem>
+                <ToggleGroupItem value="two">Two</ToggleGroupItem>
+              </ToggleGroup>
+            ))}
+          </div>
+          </div>
         </Case>
       </div>
       <p className={styles.rule}>
@@ -171,19 +257,19 @@ const RowBoard = () => {
   return (
     <>
       <div className={styles.stack}>
-        <SectionHead name="Plugins" action={<Btn variant="outline" small>Add</Btn>} />
+        <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
         <Rows>
           <Row
             mark={<PluginIcon size={15} />}
             title="Browser"
             desc="Drive a page and read it back."
-            control={<Toggle on onChange={() => {}} label="Browser" />}
+            control={<Switch checked onCheckedChange={() => {}} aria-label="Browser" />}
           />
           <Row
             mark={<PluginIcon size={15} />}
             title="Filesystem"
             desc="~/.harnessdesk/plugins/fs"
-            control={<Toggle on={false} onChange={() => {}} label="Filesystem" />}
+            control={<Switch checked={false} onCheckedChange={() => {}} aria-label="Filesystem" />}
           />
           <RowButton
             mark={<BranchIcon size={15} />}
@@ -225,14 +311,14 @@ const HeadBoard = () => (
       <PageHead
         title="Agents"
         blurb="Which coding agents this app can start a session with."
-        actions={<Btn variant="default">Add an agent</Btn>}
+        actions={<Button variant="default">Add an agent</Button>}
       />
       <DetailHead
         mark={<PluginIcon size={22} />}
         name="Browser"
         owner="built in"
         blurb="Drive a page and read it back. Available to agents that accept plugin tools."
-        actions={<Btn small>Remove</Btn>}
+        actions={<Button variant="secondary" size="sm">Remove</Button>}
       />
     </div>
     <p className={styles.rule}>
@@ -253,11 +339,11 @@ const FaceBoard = () => (
       <DetailHead
         mark={<Face avatar="wizard" size={44} />}
         name="Jane Doe"
-        blurb="A person's head: the face they chose, drawn as Kit's avatar squared."
+        blurb="A person's head: the face they chose, drawn through the canonical avatar primitive."
       />
     </div>
     <p className={styles.rule}>
-      A person is a squared tile; an account is a ring. The tile is Kit's avatar — one plate, one
+      A person is a squared tile; an account is a ring. The tile is the shared avatar primitive — one plate, one
       hairline — its corner stepping up the radius scale as it grows, and the house mark for any
       face this build does not ship: the third tile is an id no build has.
     </p>
@@ -266,7 +352,20 @@ const FaceBoard = () => (
 
 const BannerBoard = () => (
   <>
-    <div className={styles.stack}>
+    <div
+      className={styles.stack}
+      data-catalog-variants={ALERT_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={ALERT_CATALOG_SIZES.join(' ')}
+      data-catalog-states={ALERT_CATALOG_STATES.join(' ')}
+    >
+      {ALERT_CATALOG_TONE.map((tone) => (
+        <Alert key={tone} tone={tone} data-catalog-tone={tone}>
+          <AlertContent>
+            <AlertTitle>{tone}</AlertTitle>
+            <AlertDescription>The canonical alert tone, rendered from the CVA contract.</AlertDescription>
+          </AlertContent>
+        </Alert>
+      ))}
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>
@@ -319,15 +418,17 @@ const BannerBoard = () => (
 )
 
 const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'confirm'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'confirm' | 'approval' | 'lightbox'>(null)
   return (
     <>
       <div className={styles.matrix}>
         <Case label="open one">
-          <Btn onClick={() => setOpen('plain')}>Dialog</Btn>
-          <Btn variant="danger" onClick={() => setOpen('confirm')}>
+          <Button variant="secondary" onClick={() => setOpen('plain')}>Dialog</Button>
+          <Button variant="destructive" onClick={() => setOpen('confirm')}>
             Delete conversation
-          </Btn>
+          </Button>
+          <Button variant="outline" onClick={() => setOpen('approval')}>Approval</Button>
+          <Button variant="outline" onClick={() => setOpen('lightbox')}>Lightbox</Button>
         </Case>
       </div>
       {open === 'plain' && (
@@ -337,10 +438,10 @@ const DialogBoard = () => {
           onClose={() => setOpen(null)}
           footer={
             <>
-              <Btn variant="primary" onClick={() => setOpen(null)}>
+              <Button variant="default" onClick={() => setOpen(null)}>
                 Add
-              </Btn>
-              <Btn onClick={() => setOpen(null)}>Cancel</Btn>
+              </Button>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
             </>
           }
           footerAside="⌘⏎ to add"
@@ -359,6 +460,53 @@ const DialogBoard = () => {
           HarnessDesk kept of it. It will not be in either window afterwards.
         </ConfirmDialog>
       )}
+      {open === 'approval' && (
+        <ApprovalDialog
+          title="Run a command?"
+          icon={<TerminalIcon size={16} />}
+          focused
+          focusKey="catalog-approval"
+          actions={[
+            { id: 'keep', label: 'Keep waiting', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
+            { id: 'run', label: 'Run once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
+          ]}
+        >
+          <code>pnpm verify</code> runs in the current workspace.
+        </ApprovalDialog>
+      )}
+      {open === 'lightbox' && (
+        <Lightbox
+          images={[{ url: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180"%3E%3Crect width="320" height="180" fill="%235b8def"/%3E%3C/svg%3E', name: 'Synthetic catalog image' }]}
+          index={0}
+          onClose={() => setOpen(null)}
+        />
+      )}
+      <div className={styles.matrix}>
+        <Case label="agent card">
+          <AgentCard subject={{
+            kind: 'agent',
+            name: 'Review agent',
+            identity: 'Codex · dev@example.com',
+            tint: 'green',
+            mark: <PluginIcon size={15} />,
+            running: { model: 'Astra', state: 'Ready' },
+            actions: [{ label: 'Open', primary: true, onSelect: () => undefined }],
+          }} />
+        </Case>
+        <Case label="publication card">
+          <PublicationCard reference={{
+            kind: 'pullRequest', action: 'opened', repo: 'acme/harnessdesk', number: 42,
+            url: 'https://example.com/acme/harnessdesk/pull/42', title: 'Unify the interface',
+            state: 'open', author: 'jane-doe', additions: 120, deletions: 38, files: 12,
+            excerpt: 'One foundation and one component vocabulary.', via: 'app', signature: null,
+          }} />
+        </Case>
+        <Case label="refused action">
+          <RefusedAction reason="Finish the active turn before removing this agent.">
+            <Button disabled variant="destructive">Remove agent</Button>
+          </RefusedAction>
+        </Case>
+      </div>
       <p className={styles.rule}>
         Actions sit bottom-right with the proceeding one rightmost, because that is where every
         macOS dialog puts them. Nothing is focused on open, so a stray Return cannot confirm, and
@@ -533,7 +681,7 @@ One-line fix, right target, no regressions. Ship it.`
 export const BOARDS: Board[] = [
   {
     id: 'button',
-    title: 'Btn · IconBtn',
+    title: 'Button · icon size',
     about: 'One button; the variant says what pressing it costs.',
     render: ButtonBoard,
   },
@@ -545,7 +693,7 @@ export const BOARDS: Board[] = [
   },
   {
     id: 'control',
-    title: 'Toggle · Select · Segmented',
+    title: 'Switch · NativeSelect · Segmented',
     about: 'Answering a question that takes effect immediately.',
     render: ControlBoard,
   },

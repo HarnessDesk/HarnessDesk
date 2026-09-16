@@ -11,7 +11,7 @@
   --ring-size: 16px;
   --ring-stroke: 2px;
   --ring-fill: 0%;
-  --ring-track: var(--hdp-alias-border-l3);
+  --ring-track: var(--hd-border-emphasis);
   --ring-color: var(--hd-accent);
   flex: none;
   display: inline-block;
@@ -29,7 +29,7 @@
     transparent calc(100% - var(--ring-stroke) - 0.5px),
     #000 calc(100% - var(--ring-stroke))
   );
-  transition: --ring-fill 400ms var(--hdp-ease-in-out, ease);
+  transition: --ring-fill 400ms var(--hd-ease, ease); /* desk: canonical One UI System scale */
 }
 
 .ring[data-tone='warn'] {
@@ -46,7 +46,7 @@
   -webkit-mask: none;
   mask: none;
   box-sizing: border-box;
-  border: var(--ring-stroke) dashed var(--hdp-alias-label-tertiary);
+  border: var(--ring-stroke) dashed var(--hd-muted-foreground);
 }
 
 /* --- panel -------------------------------------------------------------- */
@@ -70,7 +70,7 @@
 .headline {
   font-size: var(--hd-text);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -86,23 +86,23 @@
   margin-top: 2px;
   font-size: var(--hd-text-xs);
   line-height: 15px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .track {
   height: 5px;
-  margin: 2px 9px 8px;
-  border-radius: 3px;
-  background: var(--hdp-alias-bg-module-platform);
+  margin: 2px var(--hd-space-2) 8px; /* desk: canonical One UI System scale */
+  border-radius: var(--hd-radius-xs); /* desk: canonical One UI System scale */
+  background: var(--hd-muted);
   overflow: hidden;
 }
 
 .fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--hd-radius-xs); /* desk: canonical One UI System scale */
   background: var(--hd-accent);
-  transition: width 400ms var(--hdp-ease-in-out, ease);
+  transition: width 400ms var(--hd-ease, ease); /* desk: canonical One UI System scale */
 }
 
 .fill[data-tone='good'] {
@@ -121,7 +121,7 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 3px 9px;
+  padding: var(--hd-space-1) var(--hd-space-2); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   line-height: 16px;
 }
@@ -129,12 +129,12 @@
 .rowLabel {
   flex: 1;
   min-width: 0;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .rowValue {
   flex: none;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -143,7 +143,7 @@
   min-width: 64px;
   text-align: right;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -153,7 +153,7 @@
 
 .window .track {
   height: 4px;
-  margin: 1px 9px 6px;
+  margin: 1px var(--hd-space-2) 6px; /* desk: canonical One UI System scale */
 }
 
 /*
@@ -169,22 +169,22 @@
   display: flex;
   gap: 2px;
   height: 5px;
-  margin: 2px 9px 8px;
-  border-radius: 3px;
+  margin: 2px var(--hd-space-2) 8px; /* desk: canonical One UI System scale */
+  border-radius: var(--hd-radius-xs); /* desk: canonical One UI System scale */
   overflow: hidden;
 }
 
 .stackPart {
   height: 100%;
-  border-radius: 2px;
-  transition: width 400ms var(--hdp-ease-in-out, ease);
+  border-radius: var(--hd-radius-2xs);
+  transition: width 400ms var(--hd-ease, ease); /* desk: canonical One UI System scale */
 }
 
 .swatch {
   flex: none;
   width: 7px;
   height: 7px;
-  border-radius: 2px;
+  border-radius: var(--hd-radius-2xs);
   align-self: center;
 }
 
@@ -195,21 +195,21 @@
 
 .stackPart[data-part='1'],
 .swatch[data-part='1'] {
-  background: color-mix(in srgb, var(--hd-accent) 55%, var(--hdp-alias-bg-module-platform));
+  background: color-mix(in srgb, var(--hd-accent) 55%, var(--hd-muted));
 }
 
 .stackPart[data-part='2'],
 .swatch[data-part='2'] {
-  background: color-mix(in srgb, var(--hd-accent) 30%, var(--hdp-alias-bg-module-platform));
+  background: color-mix(in srgb, var(--hd-accent) 30%, var(--hd-muted));
 }
 
 .stackPart[data-part='3'],
 .swatch[data-part='3'] {
-  background: color-mix(in srgb, var(--hd-accent) 15%, var(--hdp-alias-bg-module-platform));
+  background: color-mix(in srgb, var(--hd-accent) 15%, var(--hd-muted));
 }
 
 /* A count qualifies its label rather than competing with it. */
 .rowCount {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }

@@ -144,9 +144,9 @@ it('says what the files buy, and what their absence costs', () => {
   const { store, intents } = rig()
   render(store, intents)
 
-  expect(container.textContent).toContain('the job is reserved but the code is not')
+  expect(document.body.textContent).toContain('the job is reserved but the code is not')
   type('Files it will own', 'src/limiter.js')
-  expect(container.textContent).toContain('overlapping src/limiter.js')
+  expect(document.body.textContent).toContain('overlapping src/limiter.js')
 })
 
 it('offers only work that could still hold this up', () => {
@@ -159,9 +159,9 @@ it('offers only work that could still hold this up', () => {
     intent({ id: 3, title: 'Given up on', state: 'abandoned' }),
   ])
 
-  expect(container.textContent).toContain('Still open')
-  expect(container.textContent).not.toContain('Already finished')
-  expect(container.textContent).not.toContain('Given up on')
+  expect(document.body.textContent).toContain('Still open')
+  expect(document.body.textContent).not.toContain('Already finished')
+  expect(document.body.textContent).not.toContain('Given up on')
 })
 
 it('records what a job waits for', async () => {
@@ -210,7 +210,7 @@ it('shows the refusal when the board will not own a path', async () => {
   })
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('outside this workspace')
+  expect(document.body.textContent).toContain('outside this workspace')
 })
 
 /**

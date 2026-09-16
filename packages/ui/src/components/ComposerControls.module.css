@@ -16,22 +16,20 @@
   align-items: flex-start;
   gap: 10px;
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--hdp-alias-border-l1);
-  border-radius: var(--hd-radius);
-  background: none;
-  color: inherit;
+
+
+
+
+
   text-align: left;
-  cursor: pointer;
+
 }
 
 .choice:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .choice[data-selected] {
-  border-color: var(--hd-accent);
-  background: var(--hdp-alias-bg-module-platform);
+
 }
 
 .choiceMark {
@@ -40,7 +38,7 @@
   height: 14px;
   margin-top: 2px;
   border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l3);
+  border: 1.5px solid var(--hd-border-emphasis);
 }
 
 .choice[data-selected] .choiceMark {
@@ -57,13 +55,13 @@
 }
 
 .choiceLabel > svg {
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .choiceHint {
   font-size: var(--hd-text-sm);
   line-height: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 

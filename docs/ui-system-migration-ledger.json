@@ -1,0 +1,2999 @@
+{
+  "version": 1,
+  "startingCommit": "9f2d6dec1d8e7534c83a4c8d23d7b7d280fb3422",
+  "entries": [
+    {
+      "path": "assets/brand/social-preview.src.html",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-app-icon-dark.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-app-icon-light.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-dock-icon-dark.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-dock-icon-light.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-icon-black-transparent.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-icon-blue-transparent.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-icon-white-transparent.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "assets/brand/svgs/harnessdesk-menubar-template.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "docs/diagrams/architecture.html",
+      "scope": "asset",
+      "owner": "documentation-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "documentation-only rendered asset"
+    },
+    {
+      "path": "docs/diagrams/plugin-tools.html",
+      "scope": "asset",
+      "owner": "documentation-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "documentation-only rendered asset"
+    },
+    {
+      "path": "docs/images/agents-bare-dark.svg",
+      "scope": "asset",
+      "owner": "documentation-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "documentation-only rendered asset"
+    },
+    {
+      "path": "docs/images/agents-dark.svg",
+      "scope": "asset",
+      "owner": "documentation-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "documentation-only rendered asset"
+    },
+    {
+      "path": "docs/images/agents-light.svg",
+      "scope": "asset",
+      "owner": "documentation-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "documentation-only rendered asset"
+    },
+    {
+      "path": "examples/browser-plugin/index.js",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/adapter-acp/test/acp.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/adapter-codex/test/fixtures/plugin-icon.svg",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/cordis-host/src/browser-page.ts",
+      "scope": "production",
+      "owner": "plugin-or-embedded-boundary",
+      "disposition": "specialized-boundary",
+      "evidence": "capability-gated plugin or isolated embedded document boundary"
+    },
+    {
+      "path": "packages/cordis-host/test/browser-page.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/desktop/electron/assets/about-foundation.css",
+      "scope": "production",
+      "owner": "native-surface",
+      "disposition": "specialized-boundary",
+      "evidence": "Electron-owned native asset"
+    },
+    {
+      "path": "packages/desktop/electron/assets/about.html",
+      "scope": "production",
+      "owner": "native-surface",
+      "disposition": "specialized-boundary",
+      "evidence": "Electron-owned native asset"
+    },
+    {
+      "path": "packages/desktop/electron/assets/mark.svg",
+      "scope": "production",
+      "owner": "native-surface",
+      "disposition": "specialized-boundary",
+      "evidence": "Electron-owned native asset"
+    },
+    {
+      "path": "packages/desktop/electron/pdf.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/plugins/src/web.ts",
+      "scope": "production",
+      "owner": "plugin-or-embedded-boundary",
+      "disposition": "specialized-boundary",
+      "evidence": "capability-gated plugin or isolated embedded document boundary"
+    },
+    {
+      "path": "packages/plugins/test/plugins.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/server/test/wire.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/design.html",
+      "scope": "catalog",
+      "owner": "catalog",
+      "disposition": "verified-boundary",
+      "evidence": "registered live design.html implementation"
+    },
+    {
+      "path": "packages/ui/index.html",
+      "scope": "production",
+      "owner": "application-root",
+      "disposition": "migrated",
+      "evidence": "shared foundation root and production build"
+    },
+    {
+      "path": "packages/ui/preview.html",
+      "scope": "production",
+      "owner": "application-root",
+      "disposition": "migrated",
+      "evidence": "shared foundation root and production build"
+    },
+    {
+      "path": "packages/ui/site-demo/guide.ts",
+      "scope": "production",
+      "owner": "site-demo",
+      "disposition": "migrated",
+      "evidence": "shared design API and site-demo build"
+    },
+    {
+      "path": "packages/ui/site-demo/index.html",
+      "scope": "production",
+      "owner": "site-demo",
+      "disposition": "migrated",
+      "evidence": "shared design API and site-demo build"
+    },
+    {
+      "path": "packages/ui/site-demo/main.tsx",
+      "scope": "production",
+      "owner": "site-demo",
+      "disposition": "migrated",
+      "evidence": "shared design API and site-demo build"
+    },
+    {
+      "path": "packages/ui/src/app/App.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/assets/brand/mark.svg",
+      "scope": "asset",
+      "owner": "brand-asset",
+      "disposition": "specialized-boundary",
+      "evidence": "brand artwork through the icon facade"
+    },
+    {
+      "path": "packages/ui/src/assets/fonts/fonts.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "foundation font asset"
+    },
+    {
+      "path": "packages/ui/src/components/Activity.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AddMember.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AddMember.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/AddMember.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AddWork.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AddWork.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/AddWork.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AgentCards.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/AgentCards.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Agents.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AppWindow.escape.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/AppWindow.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AppWindow.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/AppWindow.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AppearancePreview.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/AppearancePreview.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Approvals.elicitation.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Approvals.focus.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Approvals.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Approvals.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Approvals.userInput.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Archive.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Archive.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Archive.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/BackgroundTasks.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/BackgroundTasks.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/BranchSwitcher.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/BranchSwitcher.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/BranchSwitcher.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/BrandIcons.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/BrandIcons.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/BringHome.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/BringHome.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/BrowserPane.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/BrowserPane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ChangesReview.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ChangesReview.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ChangesReview.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Channel.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Channel.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/CodeEditor.shortcut.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/CodeEditor.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.agents.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.groups.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.highlight.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.pages.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.search.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/CommandPalette.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.chips.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.contributions.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.handoff.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.mention.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.notes.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.planEdits.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.queue.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Composer.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ComposerControls.agent.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ComposerControls.models.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ComposerControls.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ComposerControls.narrow.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ComposerControls.place.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ComposerControls.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ContextUsage.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ContextUsage.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ContextUsage.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Conversation.git.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Conversation.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Conversation.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Conversation.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/DeleteSession.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/DeleteSession.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Details.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Details.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Details.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Diff.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Diff.nav.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Diff.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Diff.wrap.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Extensions.disabled.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Extensions.loadErrors.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Extensions.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/FilePane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/FlowStart.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/FlowStart.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/FolderGone.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/FolderGone.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/FolderPicker.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/FolderPicker.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitAskAgent.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitAskAgent.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitDialogs.commit.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/GitDialogs.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitDialogs.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitPane.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitPane.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/GitPane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitWorktrees.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/GitWorktrees.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/HandOut.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/HandOut.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/HandOut.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Icons.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Icons.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ImportOffer.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ImportOffer.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/InstallPlugin.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/InstallPlugin.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Items.files.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Items.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Items.peer.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Items.tool.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Items.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Library.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Library.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Library.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/LibraryActions.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/LibraryActions.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/LibraryActions.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Markdown.document.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Markdown.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Markdown.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Menu.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/MessageActions.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/MessageQueue.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/MessageQueue.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/MessageQueue.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/NewSessionChoice.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/NewSessionChoice.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/NewSessionChoice.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/NewSessionDefaults.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/NewWorktree.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/NewWorktree.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/NewWorktree.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Notices.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Notices.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/OptionConfirm.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Panel.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Panel.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Panes.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Panes.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/PlanMeters.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/PlanMeters.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/PlanMeters.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Plugins.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/PluginsSection.access.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/PluginsSection.capabilities.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/PluginsSection.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Popover.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/PreviewPane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ProfileFace.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Publication.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Publication.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Publication.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/RemoveWorktree.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/RemoveWorktree.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/RoomActions.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/RoomActions.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/RoomActions.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/RoomComposer.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/RoomComposer.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SchemaForm.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SchemaForm.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SessionBars.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SessionBars.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SessionTree.arrange.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SessionTree.projects.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SessionTree.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SessionTree.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Settings.keys.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Settings.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Settings.route.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Settings.skills.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Settings.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsAgents.default.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsAgents.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsAgents.section.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsAgents.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsAgents.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsAgents.usage.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsYou.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsYou.profile.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SettingsYou.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SetupDesk.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SetupDesk.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SetupDesk.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Sidebar.account.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Sidebar.filter.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Sidebar.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Sidebar.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Sidebar.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SignIn.accounts.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/SignIn.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SignIn.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SkillRow.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SkillRow.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/SkillSheet.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/StepGroup.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TabStrip.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TaskPanel.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TaskPanel.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/TaskPanel.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TeamBoardPane.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/TeamBoardPane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TeamRoomPane.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TeamRoomPane.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/TeamRoomPane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TerminalPane.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TerminalToggle.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/ToolPaneHeader.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/ToolPanes.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Trajectory.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Trajectory.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TriggerMenu.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TriggerMenu.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TurnFiles.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TurnFiles.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/TurnFiles.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TurnTail.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TurnWork.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/TurnWork.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Usage.balance.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Usage.chip.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Usage.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/Usage.note.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/Usage.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/WindowControls.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/WindowControls.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/WorkspaceMenu.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/WorkspaceMenu.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/components/WorktreeAlerts.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/design/explorer/Explorer.tsx",
+      "scope": "catalog",
+      "owner": "catalog",
+      "disposition": "verified-boundary",
+      "evidence": "registered live design.html implementation"
+    },
+    {
+      "path": "packages/ui/src/design/explorer/boards-compositions.tsx",
+      "scope": "catalog",
+      "owner": "catalog",
+      "disposition": "verified-boundary",
+      "evidence": "registered live design.html implementation"
+    },
+    {
+      "path": "packages/ui/src/design/explorer/boards.tsx",
+      "scope": "catalog",
+      "owner": "catalog",
+      "disposition": "verified-boundary",
+      "evidence": "registered live design.html implementation"
+    },
+    {
+      "path": "packages/ui/src/design/explorer/explorer.module.css",
+      "scope": "catalog",
+      "owner": "catalog",
+      "disposition": "verified-boundary",
+      "evidence": "registered live design.html implementation"
+    },
+    {
+      "path": "packages/ui/src/design/explorer/main.tsx",
+      "scope": "catalog",
+      "owner": "catalog",
+      "disposition": "verified-boundary",
+      "evidence": "registered live design.html implementation"
+    },
+    {
+      "path": "packages/ui/src/design/foundation/tokens.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "authoritative design token source"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/AgentCard.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/AgentCard.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ApprovalDialog.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ApprovalDialog.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ApprovalDialog.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ChannelMessage.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ChannelMessage.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ConfirmDialog.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ConfirmDialog.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ConfirmDialog.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/DockPanel.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Lightbox.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "Base UI-backed Lightbox presentation contract"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Lightbox.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Lightbox.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern with focus and gallery tests"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Menu.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Menu.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ModalDialog.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/ModalDialog.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Popover.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Popover.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/PublicationCard.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/RefusedAction.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/RefusedAction.tsx",
+      "scope": "production",
+      "owner": "design-pattern",
+      "disposition": "canonical",
+      "evidence": "canonical keyboard-reachable disabled-action explanation"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Settings.clipped.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Settings.face.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Settings.field.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Settings.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/patterns/Settings.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    {
+      "path": "packages/ui/src/design/primitives/Banner.module.css",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "canonical notification pattern"
+    },
+    {
+      "path": "packages/ui/src/design/primitives/Banner.tsx",
+      "scope": "production",
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "canonical notification pattern"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/ComposerBoard.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/ConversationPage.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/GitHistoryPage.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/GroupProject.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/PanelPlayground.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/PanelPlayground.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/PropagationPage.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/RailBoard.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/Showcase.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/ToolsPage.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/composer-board.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/conversation-page.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/git-history-page.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/group-project.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/group-threads.tsx",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/panel-playground.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/propagation-page.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/rail-board.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/showcase.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/showcase/tools-page.module.css",
+      "scope": "fixture",
+      "owner": "catalog-fixture",
+      "disposition": "verified-boundary",
+      "evidence": "isolated deterministic fixture or example"
+    },
+    {
+      "path": "packages/ui/src/design/ui/alert-dialog.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/alert.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/attachment.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/avatar-stack.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/avatar.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/badge.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/board.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/ui/board.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/breadcrumb.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/browser-chrome.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/button.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/ui/button.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/card.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/chart.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/ui/chart.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/checkbox.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/commit.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/composer.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/data-table.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/delta.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/dialog.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/ui/dialog.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/dropdown-menu.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/empty-state.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/field.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/hover-card.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/design/ui/hover-card.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/icon-tile.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/index.ts",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/input-group.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/input.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/key-value.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/label.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/list-row.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/marker.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/native-select.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/popover.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/progress.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/radio-group.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/rail.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/resize-handle.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/scroll-area.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/section.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/select.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/separator.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/spark.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/stat.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/stepper.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/switch.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/table.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/tabs.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/textarea.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/toast.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/toggle-group.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/tool-pane.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/tooltip.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/design/ui/turn.tsx",
+      "scope": "production",
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    {
+      "path": "packages/ui/src/lib/annotate.ts",
+      "scope": "production",
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    {
+      "path": "packages/ui/src/lib/export-session.ts",
+      "scope": "production",
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    {
+      "path": "packages/ui/src/lib/handoff.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/lib/resizing.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/lib/sanitize.test.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/lib/sanitize.ts",
+      "scope": "production",
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    {
+      "path": "packages/ui/src/main.tsx",
+      "scope": "production",
+      "owner": "application-root",
+      "disposition": "migrated",
+      "evidence": "shared foundation root and production build"
+    },
+    {
+      "path": "packages/ui/src/panels/PanelActions.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/panels/PanelActions.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/panels/Workbench.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/panels/Workbench.narrow.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/panels/Workbench.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/panels/Workbench.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/panels/builtins.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/panels/mount.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/panels/views.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/preview/main.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/slots/PanelBlocks.module.css",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/slots/PanelBlocks.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/slots/PanelBlocks.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/slots/registry.tsx",
+      "scope": "production",
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    {
+      "path": "packages/ui/src/state/context.focus.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/state/context.runtime.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/state/context.tsx",
+      "scope": "production",
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    {
+      "path": "packages/ui/src/state/theme.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/styles/app.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "packages/ui/src/styles/base.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "packages/ui/src/styles/design-platform.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "packages/ui/src/styles/editor.css",
+      "scope": "production",
+      "owner": "specialized-adapter",
+      "disposition": "specialized-boundary",
+      "evidence": "CodeMirror and syntax-renderer theme bridge"
+    },
+    {
+      "path": "packages/ui/src/styles/editorial.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "packages/ui/src/styles/scrollbar.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "packages/ui/src/styles/shadcn-themes.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "packages/ui/src/styles/shadcn.css",
+      "scope": "production",
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    {
+      "path": "script/agent-marks.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
+    },
+    {
+      "path": "script/build-icons.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
+    },
+    {
+      "path": "script/design-audit.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
+    },
+    {
+      "path": "script/design-tokens.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "script/gates.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "script/shots/shoot.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
+    },
+    {
+      "path": "script/social-preview.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
+    },
+    {
+      "path": "script/stylesheet-imports.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "script/ui-architecture.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "script/ui-catalog.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "script/ui-inventory.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
+    },
+    {
+      "path": "script/ui-inventory.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    }
+  ],
+  "unresolved": [],
+  "summary": {
+    "total": 425,
+    "byScope": {
+      "asset": 15,
+      "fixture": 20,
+      "test": 127,
+      "production": 251,
+      "catalog": 6,
+      "tooling": 6
+    },
+    "byDisposition": {
+      "specialized-boundary": 21,
+      "verified-boundary": 159,
+      "migrated": 163,
+      "canonical": 82
+    }
+  }
+}

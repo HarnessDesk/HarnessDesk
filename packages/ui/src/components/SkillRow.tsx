@@ -8,8 +8,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { Rows, RowButton, kit } from '../design/primitives/Kit'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../design/ui'
+import { CodeText, Rows, RowButton } from '../design'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { REACH_SENTENCE } from '../lib/reach-states'
 import type { LibraryColumn } from './LibraryActions'
 import styles from './SkillRow.module.css'
@@ -17,7 +17,7 @@ import styles from './SkillRow.module.css'
 /**
  * A skill, as a line in a list of things you have.
  *
- * ——— why this is a Kit row ———
+ * ——— why this is a canonical Settings row ———
  *
  * It was a card grid first. Claude's skills directory and Codex's skills page
  * are both card grids, copying them read well in a fixture of six entries,
@@ -30,20 +30,17 @@ import styles from './SkillRow.module.css'
  *
  * The reason was the *component*. Every other page in Settings — Plugins,
  * Extensions, the per-agent Skills page, Accounts — draws its list with
- * `Kit.Rows` and `Kit.RowButton`: one bordered container at `--hd-radius-lg`,
- * 14/16 padding, a 34px neutral mark with an inset hairline, title over
- * description, controls and a chevron on the right. A settings page that
- * hand-rolls its own row out of a lower layer is a page that will drift from
- * its neighbours on the next density change, and had already drifted on this
- * one.
+ * the shared `Rows` and `RowButton` pattern: one bordered container, canonical
+ * padding, a neutral mark, title over description, controls and a chevron on
+ * the right. A settings page that hand-rolls its own row out of a lower layer
+ * is a page that will drift from its neighbours on the next density change,
+ * and had already drifted on this one.
  *
  * So this *is* a Plugins row — the same component, not a copy of its look.
- * That is the only version of "consistent" that survives someone editing
- * Kit.module.css. The repo's rule is `design/ui` for new surfaces and `Kit`
- * for the rest; a list inside Settings is not a new surface, it is the same
- * list Settings has always had, with one more thing to say in the control
- * slot. `SkillSheet` stays on `design/ui`, because a dialog is its own
- * surface and every dialog in the app is already that layer.
+ * That is the only version of "consistent" that survives someone editing the
+ * canonical pattern. A list inside Settings is the same presentation contract
+ * as its neighbours, with one more thing to say in the control slot.
+ * `SkillSheet` composes the canonical dialog policy for the same reason.
  *
  * The information design is unchanged — that part was right:
  *
@@ -66,7 +63,7 @@ import styles from './SkillRow.module.css'
  * is recognisable — and the first two letters where it is a single word,
  * because one letter on a tile is a placeholder and two is a monogram.
  *
- * On Kit's own neutral ground, not a tint. A tint would be legitimate by
+ * On the Settings pattern's neutral ground, not a tint. A tint would be legitimate by
  * `IconTile`'s rule (it identifies rather than judges) and at a hundred rows
  * a hundred pastel squares stop identifying and start reading as decoration —
  * and every other mark in Settings is this grey.
@@ -104,24 +101,23 @@ const ReachFace = ({
   const sentence = note ? `${REACH_SENTENCE[state]} — ${note}` : REACH_SENTENCE[state]
   return (
     <Tooltip>
-      {/* `asChild`: this is Radix, and its Trigger renders a <button> by
-          default — a button inside the row's own button is invalid markup
-          that React warns about and the browser un-nests. */}
-      <TooltipTrigger asChild>
-        <span
-          data-slot="skill-reach"
-          data-state={state}
-          {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
-          aria-label={`${column.label}: ${sentence}`}
-          role="img"
-          className={styles.face}
-        >
-          {column.info ? (
-            <RuntimeMark runtime={column.info} size={12} />
-          ) : (
-            <span className={styles.initial}>{column.label[0]}</span>
-          )}
-        </span>
+      <TooltipTrigger
+        render={
+          <span
+            data-slot="skill-reach"
+            data-state={state}
+            {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
+            aria-label={`${column.label}: ${sentence}`}
+            role="img"
+            className={styles.face}
+          />
+        }
+      >
+        {column.info ? (
+          <RuntimeMark runtime={column.info} size={12} />
+        ) : (
+          <span className={styles.initial}>{column.label[0]}</span>
+        )}
       </TooltipTrigger>
       <TooltipContent>
         {column.label} · {name} — {sentence}
@@ -228,9 +224,9 @@ export const SkillRow = ({
               `/name`, and showing only the first leaves the second to
               guesswork. MCP servers get no slash — they are loaded, not
               invoked. */}
-          <code className={`${kit.mono} ${styles.command}`}>
+          <CodeText as="code" className={styles.command}>
             {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
-          </code>
+          </CodeText>
         </span>
       }
       desc={
@@ -272,7 +268,7 @@ export const SkillRow = ({
 /**
  * The rows together, in the container every other Settings list uses.
  *
- * `Kit.Rows` owns the border, the radius and the hairlines — including the
+ * `Rows` owns the border, the radius and the hairlines — including the
  * `:last-child` exception that a per-row border always forgets.
  */
 export const SkillList = ({ children }: { children: React.ReactNode }) => (

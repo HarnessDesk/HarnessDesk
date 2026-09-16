@@ -541,7 +541,7 @@ describe('BrowserPane', () => {
     act(() => {
       tabs()[0]?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 20 }))
     })
-    const rows = [...container.querySelectorAll('[role^="menuitem"]')].map((row) => row.textContent)
+    const rows = [...document.querySelectorAll('[role^="menuitem"]')].map((row) => row.textContent)
     expect(rows.join('|')).toContain('Duplicate')
     expect(rows.join('|')).toContain('Close other tabs')
     expect(rows.join('|')).toContain('Close tabs to the right')

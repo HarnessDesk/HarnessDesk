@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import type { TeamState } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Input } from '../design'
+import { Button, Dialog, Input } from '../design'
 import { useStore } from '../state/context'
 import styles from './RoomActions.module.css'
 
@@ -54,12 +54,12 @@ export const RenameRoom = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || name.trim() === ''} onClick={() => void rename()}>
+          <Button variant="default" disabled={busy || name.trim() === ''} onClick={() => void rename()}>
             {busy ? 'Renaming…' : 'Rename'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -139,12 +139,12 @@ export const DeleteRoom = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="danger" disabled={busy} onClick={() => void remove()}>
+          <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
             {busy ? 'Deleting…' : 'Delete room'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >

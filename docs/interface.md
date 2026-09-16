@@ -553,7 +553,7 @@ same card, compacted.
 
 Four sizes carry the whole interface and 14px is the default answer; ink has
 three levels and the faintest is for facts, not for text. The tokens live in
-`packages/ui/src/design/tokens.css`, the foundation layer recorded in
+`packages/ui/src/design/foundation/tokens.css`, the foundation layer recorded in
 [design-system.md](design-system.md); the guideline is
 [design.md](design.md). A raw `font-size` in a component is how an app ends
 up with ten sizes.

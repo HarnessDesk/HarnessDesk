@@ -41,7 +41,7 @@ import {
   SignOutIcon,
   UsageIcon,
 } from './Icons'
-import { Btn, Chip, PageHead, Segmented } from '../design/primitives/Kit'
+import { Button, Chip, PageHead, Segmented } from '../design'
 import {
   BurnDown,
   ChartAxis,
@@ -63,9 +63,8 @@ import {
   tintFor,
   tintsFor,
   type Tint,
-} from '../design/ui'
-import { Menu, MenuItem } from './Menu'
-import { dismissOverlays, Popover, useEscapeSurface } from './Popover'
+} from '../design'
+import { Menu, MenuItem, Popover, dismissOverlays, useEscapeSurface } from '../design'
 import styles from './Usage.module.css'
 
 /**
@@ -330,10 +329,10 @@ export const Usage = ({
 
         <div className={styles.navFoot}>
           {oldest !== null && <span className={styles.age}>Read {formatAge(oldest, now)}</span>}
-          <Btn small disabled={refreshing} onClick={() => void refresh()}>
+          <Button variant="secondary" size="sm" disabled={refreshing} onClick={() => void refresh()}>
             <RetryIcon size={13} />
             {refreshing ? 'Refreshing…' : 'Refresh'}
-          </Btn>
+          </Button>
         </div>
       </WindowNav>
 
@@ -386,9 +385,9 @@ export const Usage = ({
                   </span>
                 </span>
                 {onSignIn && (
-                  <Btn variant="primary" onClick={() => onSignIn(asleep.id)}>
+                  <Button variant="default" onClick={() => onSignIn(asleep.id)}>
                     Sign in to {asleep.presentation.name}
-                  </Btn>
+                  </Button>
                 )}
               </div>
             )}
@@ -474,9 +473,9 @@ const RailRow = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button
     type="button"
-    className={styles.acct}
+    variant="quiet" size="content" className={styles.acct}
     {...(selected ? { 'data-selected': '' } : {})}
     {...(title ? { title } : {})}
     onClick={onClick}
@@ -501,7 +500,7 @@ const RailRow = ({
     ) : sub ? (
       <span className={styles.acctSub}>{sub}</span>
     ) : null}
-  </button>
+  </Button>
 )
 
 const AccountRow = ({
@@ -1252,9 +1251,9 @@ const Spend = ({
         <ChartFoot>
           <span className={styles.costWord}>{coverageSentence(ledger)}</span>
           <span className={styles.fill} />
-          <Btn small variant="quiet" disabled={scan?.running} onClick={onScan}>
+          <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
-          </Btn>
+          </Button>
         </ChartFoot>
       </ChartFrame>
     </section>

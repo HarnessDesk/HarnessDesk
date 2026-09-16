@@ -1,22 +1,22 @@
 .overview {
   flex: none;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .overviewLabel {
   margin-bottom: 6px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* A proportional bar: each segment's width is its share of the turn's time. */
 .bar {
   display: flex;
   height: 8px;
-  border-radius: 4px;
+  border-radius: var(--hd-radius-xs);
   overflow: hidden;
-  background: var(--hdp-alias-bg-module-platform);
+  background: var(--hd-muted);
 }
 
 .segment {
@@ -30,20 +30,20 @@
   gap: 4px 12px;
   margin-top: 8px;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .legendItem {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 .swatch {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--hd-radius-2xs);
 }
 
 .list {
@@ -59,8 +59,8 @@
   z-index: 1;
   padding: 8px 6px 4px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  background: var(--hdp-alias-bg-base);
+  color: var(--hd-secondary-foreground);
+  background: var(--hd-background);
 }
 
 .row {
@@ -73,14 +73,14 @@
 }
 
 .row:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .rowDot {
   flex: none;
   width: 7px;
   height: 7px;
-  border-radius: 2px;
+  border-radius: var(--hd-radius-2xs);
   align-self: center;
 }
 
@@ -93,14 +93,14 @@
 }
 
 .rowMono {
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
 }
 
 .rowTime {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -112,6 +112,6 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   text-align: right;
 }

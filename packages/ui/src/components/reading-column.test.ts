@@ -119,13 +119,13 @@ it.each([
 ])('$what is inset by the gutter its stream reserves', ({ css, selector }) => {
   // The room's two docked rules read `--room-dock`, which is that sum
   // named once; the conversation's spell it out. Either is the gutter.
-  expect(rule(css, selector)).toMatch(/var\(--hdp-scrollbar-width|var\(--room-dock\)/)
+  expect(rule(css, selector)).toMatch(/var\(--hd-scrollbar-width|var\(--room-dock\)/)
 })
 
 /**
  * A bare read of the gutter token is a padding that can silently become zero.
  *
- * `var(--hdp-scrollbar-width)` with the token absent substitutes to
+ * `var(--hd-scrollbar-width)` with the token absent substitutes to
  * `calc(24px + )`, which is invalid at computed-value time — so the whole
  * `padding` falls back to its initial value, `0`, taking the bottom padding
  * with it. Every entry imports `app.css` today, so it is not reachable; the
@@ -138,7 +138,7 @@ it('every read of the scrollbar gutter carries its own fallback', () => {
     ['Conversation.module.css', conversationCss],
     ['TeamRoomPane.module.css', roomCss],
   ] as const) {
-    const bare = css.match(/var\(--hdp-scrollbar-width\)/g) ?? []
-    expect(bare, `${what} reads --hdp-scrollbar-width with no fallback`).toEqual([])
+    const bare = css.match(/var\(--hd-scrollbar-width\)/g) ?? []
+    expect(bare, `${what} reads --hd-scrollbar-width with no fallback`).toEqual([])
   }
 })

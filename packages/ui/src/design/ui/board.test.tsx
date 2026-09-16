@@ -68,7 +68,7 @@ describe('Board', () => {
     // The column keeps its own fixed width; only the parent's rule overrides it,
     // so every other board in the app is untouched by this prop existing.
     const column = container.querySelector<HTMLElement>('[data-slot="board-column"]')
-    expect(column?.className).toContain('w-[280px]')
+    expect(column?.className).toContain('w-(--hd-board-column-width)')
 
     const plain = draw(<Board>{columns}</Board>)
     expect(plain.className).not.toContain('[&>[data-slot=board-column]]:w-auto')

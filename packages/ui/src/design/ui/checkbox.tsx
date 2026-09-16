@@ -1,4 +1,4 @@
-import { Checkbox as CheckboxPrimitive } from 'radix-ui'
+import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox'
 import type * as React from 'react'
 
 import { CheckIcon } from '@/components/Icons'
@@ -16,14 +16,22 @@ import { cn } from '@/lib/utils'
 
 const Checkbox = ({
   className,
+  checked,
+  defaultChecked,
   ...props
-}: React.ComponentProps<typeof CheckboxPrimitive.Root>) => (
+}: Omit<React.ComponentProps<typeof CheckboxPrimitive.Root>, 'checked' | 'defaultChecked'> & {
+  checked?: boolean | 'indeterminate'
+  defaultChecked?: boolean | 'indeterminate'
+}) => (
   <CheckboxPrimitive.Root
     data-slot="checkbox"
     className={cn(
-      'peer border-input dark:bg-input/30 data-[state=checked]:bg-(--hd-toggle-on) data-[state=checked]:text-(--hd-toggle-knob-on) data-[state=checked]:border-(--hd-toggle-on) size-4 shrink-0 rounded-(--hd-radius-sm) border transition-colors outline-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive',
+      'peer border-input dark:bg-input/30 data-checked:bg-(--hd-toggle-on) data-checked:text-(--hd-toggle-knob-on) data-checked:border-(--hd-toggle-on) size-4 shrink-0 rounded-(--hd-radius-sm) border transition-colors outline-none data-disabled:cursor-not-allowed data-disabled:opacity-50 aria-invalid:border-destructive',
       className,
     )}
+    checked={checked === 'indeterminate' ? false : checked}
+    defaultChecked={defaultChecked === 'indeterminate' ? false : defaultChecked}
+    indeterminate={checked === 'indeterminate' || defaultChecked === 'indeterminate'}
     {...props}
   >
     <CheckboxPrimitive.Indicator

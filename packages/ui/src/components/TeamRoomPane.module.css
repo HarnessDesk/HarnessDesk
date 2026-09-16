@@ -213,16 +213,15 @@
 .railFilterClear {
   display: flex;
   flex: none;
-  padding: var(--hd-space-0-5);
-  border: 0;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hd-muted-foreground);
-  cursor: pointer;
+
+
+
+
+
+
 }
 
 .railFilterClear:hover {
-  color: var(--hd-foreground);
 }
 
 .railList {
@@ -383,7 +382,7 @@
      rightly, since a name under that prefix reads as something the whole app
      may rely on. `--composer-h` in `Conversation.module.css` is the same
      shape. */
-  --room-dock: calc(var(--hd-space-6) + var(--hdp-scrollbar-width, 8px));
+  --room-dock: calc(var(--hd-space-6) + var(--hd-scrollbar-width, 8px));
 }
 
 /* The stream and the thing that floats over it. */
@@ -443,16 +442,16 @@
   bottom: var(--hd-space-2);
   margin-inline: auto;
   width: fit-content;
-  padding: var(--hd-space-1) var(--hd-space-3);
-  border: 0;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-primary);
-  color: var(--hd-primary-foreground);
-  font: inherit;
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
-  box-shadow: var(--hd-shadow-sm);
-  cursor: pointer;
+
+
+
+
+
+
+
+
+
+
 }
 
 /* In the column with the words it is about: a line that runs the full pane
@@ -510,18 +509,17 @@
   align-items: center;
   gap: var(--hd-space-1);
   flex-shrink: 0;
-  padding: var(--hd-space-2) var(--hd-space-3);
-  border: 0;
-  border-bottom: var(--hd-border-width) solid var(--hd-border);
-  background: none;
-  font: inherit;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  cursor: pointer;
+
+
+
+
+
+
+
+
 }
 
 .back:hover {
-  color: var(--hd-foreground);
 }
 
 /* --- one column at a time -------------------------------------------------
@@ -671,16 +669,15 @@
 .columnClose {
   display: flex;
   flex: none;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  color: var(--hd-muted-foreground);
-  padding: var(--hd-space-1);
-  border-radius: var(--hd-radius-sm);
+
+
+
+
+
+
 }
 .columnClose:hover {
-  background: var(--hd-hover);
-  color: var(--hd-foreground);
+
 }
 
 .columnBody {
@@ -704,19 +701,18 @@
    spacing exception — it sat against the count. */
 .railAdd {
   width: var(--hd-icon-target); /* desk: 18 → 24, WCAG 2.2 SC 2.5.8's floor */
-  height: var(--hd-icon-target); /* desk: 18 → 24 */
+ /* desk: 18 → 24 */
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  background: transparent;
-  border-radius: var(--hd-radius-md); /* desk: 6 → 8, with the target */
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+
+
+ /* desk: 6 → 8, with the target */
+
+
 }
 
 .railAdd:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+
 }
 

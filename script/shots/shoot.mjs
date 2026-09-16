@@ -28,9 +28,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE } from '../lib/desk.mjs'
+import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE } from '../lib/desk.mjs'
 import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { REPOS } from './cast.mjs'
@@ -167,6 +167,10 @@ try {
   /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
     await cdp.eval(TILDIFY(homedir()))
+    // Native verification repositories may live in a unique temporary root.
+    // Normalize that synthetic path too so concurrency-safe random suffixes
+    // never become public screenshot content.
+    await cdp.eval(TILDIFY(WORK))
     await sleep(150)
   }
 
@@ -286,7 +290,15 @@ rules:
   const stageRoom = async () => {
     if (roomId) return roomId
     const keys = []
-    for (const runtime of ['codex', 'claude-code', 'cursor', 'gemini-cli']) {
+    // The fake Codex app-server deliberately reports `/w` as its transcript
+    // cwd. That is useful adapter coverage, but a real room correctly refuses
+    // a conversation outside its project. Use four of the camera rig's ACP
+    // agents for room scenes while the native run reserves Codex for the
+    // conversation and integrated-terminal checks.
+    const roomRuntimes = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
+      ? ['claude-code', 'cursor', 'gemini-cli', 'copilot']
+      : ['codex', 'claude-code', 'cursor', 'gemini-cli']
+    for (const runtime of roomRuntimes) {
       keys.push(await seat(cdp, { work: REPO, runtime, picks: {} }))
     }
     roomId = await makeRoom(cdp, { work: REPO, name: 'Checkout hardening', members: keys.map(splitKey) })
@@ -343,11 +355,19 @@ rules:
     } },
 
     /** One conversation, mid-work: reasoning, a plan and tool calls. */
-    conversation: { expect: 'Worked for', run: async () => {
+    conversation: { leaveOverlay: true, expect: 'Worked for', run: async () => {
       const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
       await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
       // Long enough for the scripted turn to reach its summary.
       await sleep(6500)
+      // The native UI-system run uses the repository's fake Codex app-server,
+      // whose representative turn pauses at a real approval. Answer it through
+      // the same store verb as the Approvals surface so the scene reaches the
+      // completed-turn state the camera is meant to inspect.
+      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') {
+        await answerApprovals(cdp)
+        await sleep(1800)
+      }
       /* Unfold the steps. The app folds a finished turn down to one line, which
          is the right default for somebody scrolling a day's work and the wrong
          one for a photograph — folded, this pane is two paragraphs and a great
@@ -362,10 +382,52 @@ rules:
       await sleep(1600)
     } },
 
+    /** The rebuilt settings patterns, reached through the same store request features use. */
+    settings: { expect: 'Appearance', run: async () => {
+      await cdp.eval(`${STORE}.askSettings('appearance'); true`)
+      await sleep(1400)
+    } },
+
     /** The repository pane: a real graph over real git objects. */
     git: { leaveOverlay: true, expect: 'History', run: async () => {
       await cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`)
       await sleep(2200)
+    } },
+
+    /** CodeMirror behind the canonical editor theme bridge. */
+    editor: { leaveOverlay: true, expect: 'README.md', run: async () => {
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      await cdp.eval(`${STORE}.openFile(${q(join(REPO, 'README.md'))}); true`)
+      await sleep(2200)
+    } },
+
+    /** xterm behind the canonical terminal option bridge. */
+    terminal: { leaveOverlay: true, run: async () => {
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      // Use the system's plain POSIX shell rather than the runner's configured
+      // interactive shell. The latter may print a personal prompt from a real
+      // dotfile; `/bin/sh -i` still exercises the process and xterm bridges
+      // while keeping the evidence deterministic and publishable.
+      await cdp.eval(
+        `(async () => { await ${STORE}.openTerminal({ command: ['/bin/sh', '-i'] }); return true })()`,
+        120_000,
+      )
+      await sleep(2200)
+      const opened = await cdp.eval(
+        `JSON.stringify(${STORE}.getSnapshot().workbench).includes('"kind":"terminal"')`,
+      )
+      if (!opened) {
+        const diagnostic = await cdp.json(`(() => {
+          const snapshot = ${STORE}.getSnapshot()
+          return {
+            activeRuntime: snapshot.activeRuntime,
+            runtimes: snapshot.runtimes.map((runtime) => ({ id: runtime.id, health: runtime.health })),
+            notices: snapshot.notices.map((notice) => notice.message),
+            workbench: snapshot.workbench,
+          }
+        })()`)
+        throw new Error(`the terminal view did not enter the native workbench: ${JSON.stringify(diagnostic)}`)
+      }
     } },
 
     /** A room of agents, and the board they claim work from. */
@@ -477,9 +539,27 @@ rules:
     } },
 
     /** The browser pane — a real `<webview>`, driven by the agent's tools. */
-    browser: { leaveOverlay: true, expect: 'harnessdesk', run: async () => {
-      await cdp.eval(`${STORE}.openBrowser('https://harnessdesk.app'); true`)
-      await sleep(3500)
+    browser: { leaveOverlay: true, run: async () => {
+      const fixture = join(WORK, 'browser-fixture.html')
+      writeFileSync(fixture, `<!doctype html>
+<meta charset="utf-8">
+<title>HarnessDesk browser fixture</title>
+<style>body{font:16px system-ui;margin:4rem;color:#253047;background:#f7f9fc}h1{font-size:2rem}</style>
+<h1>Storefront preview</h1><p>A deterministic local page inside the production Electron webview.</p>`)
+      const url = pathToFileURL(fixture).href
+      await cdp.eval(`${STORE}.openBrowser(${q(url)}); true`)
+      let title = ''
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        title = await cdp.eval(`document.querySelector('webview')?.getTitle?.() ?? ''`).catch(() => '')
+        if (title === 'HarnessDesk browser fixture') break
+        await sleep(100)
+      }
+      const opened = await cdp.eval(
+        `JSON.stringify(${STORE}.getSnapshot().workbench).includes('"kind":"browser"')`,
+      )
+      if (!opened || title !== 'HarnessDesk browser fixture') {
+        throw new Error(`the inline browser did not load its local fixture (title ${q(title)})`)
+      }
     } },
   }
 

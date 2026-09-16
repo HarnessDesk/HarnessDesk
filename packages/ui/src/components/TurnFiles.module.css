@@ -12,8 +12,8 @@
   max-width: var(--hd-column);
   margin: 10px auto 4px;
   border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hdp-alias-bg-layer-1));
-  box-shadow: inset 0 0 0 1px var(--hd-card-border, var(--hdp-alias-border-l2));
+  background: var(--hd-card-fill, var(--hd-card));
+  box-shadow: inset 0 0 0 1px var(--hd-card-border, var(--hd-border-strong));
   overflow: hidden;
 }
 
@@ -30,8 +30,8 @@
   align-items: center;
   gap: 12px;
   row-gap: 8px;
-  padding: 12px 14px 12px 12px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  padding: 12px var(--hd-space-4) 12px 12px; /* desk: canonical One UI System scale */
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .glyph {
@@ -41,8 +41,8 @@
   width: 36px;
   height: 36px;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
 }
 
 .title {
@@ -59,16 +59,16 @@
   gap: 8px;
   font-size: var(--hd-text);
   font-weight: 500;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .revertedTag {
   padding: 0 6px;
   border-radius: 8px;
-  background: var(--hdp-alias-bg-module-platform);
+  background: var(--hd-muted);
   font-size: var(--hd-text-xs);
   font-weight: 500;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .counts {
@@ -98,28 +98,24 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--hd-radius);
-  background: none;
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
-  font-size: var(--hd-text);
-  cursor: pointer;
+
+
+
+
+
+
+
+
+
 }
 
 .action:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .action:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .actionPrimary {
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
 }
 
 .files {
@@ -133,17 +129,16 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 34px;
-  padding: 5px 14px 5px 14px;
-  border: none;
-  background: none;
-  font: inherit;
+
+ /* desk: canonical One UI System scale */
+
+
+
   text-align: left;
-  cursor: pointer;
+
 }
 
 .file:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .path {
@@ -153,15 +148,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .dir {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .kind {
   margin-left: 8px;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }

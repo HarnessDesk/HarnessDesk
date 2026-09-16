@@ -3,7 +3,7 @@ import type { PublicationItem } from '@harnessdesk/protocol'
 import { openExternal } from '../lib/desktop'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
-import { KindGlyph, PublicationCard, StatePill, publicationVerb } from '../design/patterns/PublicationCard'
+import { KindGlyph, PublicationCard, StatePill, publicationVerb } from '../design'
 import styles from './Publication.module.css'
 
 /**

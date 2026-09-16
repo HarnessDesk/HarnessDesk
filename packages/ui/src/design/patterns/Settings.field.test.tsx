@@ -2,7 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { Field, Input, Select } from './Kit'
+import { NativeSelect } from '../ui/native-select'
+import { Input } from '../ui/input'
+import { Field } from './Settings'
 
 /**
  * What `Field` promises its control: the label points at it, and whatever is
@@ -63,13 +65,14 @@ describe('Field', () => {
     await render(
       <Field label="Then" hint="What the rule does.">
         {(control) => (
-          <Select
+          <NativeSelect
             {...control}
-            label="What the rule does"
+            aria-label="What the rule does"
             value="deny"
-            options={[{ value: 'deny', label: 'Deny it' }]}
             onChange={() => {}}
-          />
+          >
+            <option value="deny">Deny it</option>
+          </NativeSelect>
         )}
       </Field>,
     )

@@ -1,5 +1,6 @@
+import { Button, Input } from '../design'
 import type { ReactNode } from 'react'
-import { Clipped } from '../design/primitives/Kit'
+import { Clipped } from '../design'
 
 import { ArrowLeftIcon, SearchIcon } from './Icons'
 import styles from './AppWindow.module.css'
@@ -20,9 +21,9 @@ import styles from './AppWindow.module.css'
  */
 
 export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div className={styles.win} role="dialog" aria-modal="true" aria-label={label}>
+  <section className={styles.win} aria-label={label}>
     <div className={styles.winBody}>{children}</div>
-  </div>
+  </section>
 )
 
 export const WindowNav = ({
@@ -42,16 +43,16 @@ export const WindowNav = ({
 }) => (
   <nav className={styles.winNav} data-hd-density="comfortable">
     <div className={`${styles.winNavTop} hd-drag`}>
-      <button type="button" className={`${styles.backRow} hd-no-drag`} onClick={onBack}>
+      <Button type="button" variant="navigation" size="navigation" className={`${styles.backRow} hd-no-drag`} onClick={onBack}>
         <span className={styles.backIcon}>
           <ArrowLeftIcon size={15} />
         </span>
         Back to app
-      </button>
+      </Button>
       {search && (
         <div className={`${styles.winSearch} hd-no-drag`}>
           <SearchIcon size={14} />
-          <input
+          <Input
             type="search"
             value={search.value}
             placeholder={search.placeholder}
@@ -88,9 +89,9 @@ export const WindowNavItem = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button
     type="button"
-    className={styles.winNavItem}
+    variant="navigation" size="navigation" className={styles.winNavItem}
     {...(selected ? { 'data-selected': '' } : {})}
     onClick={onClick}
   >
@@ -102,7 +103,7 @@ export const WindowNavItem = ({
     <span className={styles.winNavLabel}>{label}</span>
     {count !== undefined && <span className={styles.winNavCount}>{count}</span>}
     {trail}
-  </button>
+  </Button>
 )
 
 /**
@@ -126,19 +127,27 @@ export const WindowNavIdentity = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button
     type="button"
-    className={`${styles.winNavItem} ${styles.winIdentity}`}
+    variant="navigation" size="navigation" className={`${styles.winNavItem} ${styles.winIdentity}`}
     {...(selected ? { 'data-selected': '' } : {})}
     onClick={onClick}
   >
     {face}
-    <Clipped className={styles.winNavLabel}>{name}</Clipped>
-  </button>
+    <Clipped className={`${styles.winNavLabel} ${styles.winIdentityLabel}`}>{name}</Clipped>
+  </Button>
 )
 
 export const WindowNavEmpty = ({ children }: { children: ReactNode }) => (
   <div className={styles.winNavEmpty}>{children}</div>
+)
+
+export const WindowNavCount = ({ children, title }: { children: ReactNode; title?: string }) => (
+  <span className={styles.winNavCount} title={title}>{children}</span>
+)
+
+export const WindowNavStateMark = ({ children }: { children: ReactNode }) => (
+  <span className={styles.winNavDot}>{children}</span>
 )
 
 /**
@@ -157,5 +166,3 @@ export const WindowPage = ({ wide, children }: { wide?: boolean; children: React
     </div>
   </div>
 )
-
-export { styles as appWindow }

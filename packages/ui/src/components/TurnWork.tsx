@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useEffect, useState } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
@@ -85,9 +86,9 @@ export const TurnWork = ({
       {...(line.trouble ? { 'data-trouble': '' } : {})}
       {...(line.informative ? { 'data-described': '' } : {})}
     >
-      <button
+      <Button
         type="button"
-        className={styles.head}
+        variant="row" size="row" className={styles.head}
         aria-expanded={open}
         onClick={() => setChoice(!open)}
         title={open ? 'Fold the work away' : 'Show what the agent did'}
@@ -99,7 +100,7 @@ export const TurnWork = ({
         {!open && line.receipt.length > 0 && <span className={styles.headReceipt}>· {line.receipt}</span>}
         <ChevronIcon className={styles.chevron} size={13} {...(open ? { 'data-open': '' } : {})} />
         <span className={styles.rule} />
-      </button>
+      </Button>
       {open && (
         <div className={styles.body} data-register="light">
           {groupItems(shown).map((node) =>

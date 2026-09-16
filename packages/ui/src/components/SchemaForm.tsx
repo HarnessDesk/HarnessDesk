@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import type { JsonSchema } from '@harnessdesk/protocol'
 
-import { Btn, Input, kit, Note, Row, Rows, Segmented, Toggle } from '../design/primitives/Kit'
+import { Button, Input, Note, Row, Rows, Segmented, Switch, WireText } from '../design'
 import styles from './SchemaForm.module.css'
 
 /**
@@ -118,10 +118,10 @@ export const SchemaForm = ({
             {...(property.description ? { desc: property.description } : {})}
             control={
               property.type === 'boolean' ? (
-                <Toggle
-                  label={property.title}
-                  on={draft[property.key] === undefined ? (property.fallbackOn ?? false) : Boolean(draft[property.key])}
-                  onChange={(next) => set(property.key, next)}
+                <Switch
+                  aria-label={property.title}
+                  checked={draft[property.key] === undefined ? (property.fallbackOn ?? false) : Boolean(draft[property.key])}
+                  onCheckedChange={(next) => set(property.key, next)}
                 />
               ) : property.type === 'enum' ? (
                 <Segmented
@@ -134,7 +134,7 @@ export const SchemaForm = ({
                 <Input
                   /* A template is longer than a name: a field whose default
                      would not fit the ordinary width is given room to read it. */
-                  className={(property.fallback?.length ?? 0) > 32 ? styles.textWide : styles.text}
+                  variant="filled" className={(property.fallback?.length ?? 0) > 32 ? styles.textWide : styles.text}
                   aria-label={property.title}
                   {...(property.fallback !== undefined ? { placeholder: property.fallback } : {})}
                   value={String(draft[property.key] ?? '')}
@@ -174,16 +174,16 @@ export const SchemaForm = ({
                   }
                 />
               ) : (
-                <span className={kit.wire}>{JSON.stringify(draft[property.key] ?? null)}</span>
+                <WireText>{JSON.stringify(draft[property.key] ?? null)}</WireText>
               )
             }
           />
         ))}
       </Rows>
       <div className={styles.foot}>
-        <Btn variant="primary" disabled={!dirty} onClick={() => onSubmit(draft)}>
+        <Button variant="default" disabled={!dirty} onClick={() => onSubmit(draft)}>
           Apply and reload
-        </Btn>
+        </Button>
       </div>
     </>
   )

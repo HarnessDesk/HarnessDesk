@@ -1,15 +1,22 @@
-import { isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { createElement, isValidElement, useEffect, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
-import { escapeSurface, onDismissOverlays, type DismissDetail } from '../lib/overlays'
+import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
+import {
+  Popover as BasePopover,
+  PopoverPopup,
+  PopoverPortal,
+  PopoverPositioner,
+  PopoverTrigger,
+} from '../ui/popover'
+import { Input } from '../ui/input'
 
 import styles from './Popover.module.css'
 
 /* The contract itself is in `lib/overlays.ts`, free of React so that anything
    can take part in it; it is re-exported here because this is the module the
    app has always asked for it by name. */
-export { DISMISS_OVERLAYS, dismissOverlays } from '../lib/overlays'
-export type { DismissDetail } from '../lib/overlays'
+export { DISMISS_OVERLAYS, dismissOverlays } from '../../lib/overlays'
+export type { DismissDetail } from '../../lib/overlays'
 
 /**
  * Closes this floating thing when something takes the screen.
@@ -58,16 +65,9 @@ export const useEscapeSurface = (active: boolean, close: () => void): void => {
  * Closes on outside click and on Escape, and returns focus to the trigger — the
  * baseline a menu has to meet to be usable from the keyboard.
  *
- * The panel is fixed-positioned from the trigger's rectangle rather than
- * absolutely within it: a menu that inherits its ancestor's overflow gets
- * clipped at the sidebar edge, and one positioned in page coordinates can be
- * clamped to the window instead.
- *
- * It is also rendered into the document body rather than beside the trigger.
- * A fixed panel still takes its *intrinsic* width from the column it sits in,
- * so the sidebar's menus came out as wide as the sidebar — a 160px list of
- * words holding a 270px slab open. At the body it is as wide as its own
- * longest row, which is what every menu on the platform does.
+ * Base UI owns focus, outside press, Escape, collision handling and portal
+ * placement. HarnessDesk keeps only the product policy: tone, layout and the
+ * global "another surface took the window" dismissal event.
  */
 
 /**
@@ -114,75 +114,15 @@ export const Popover = ({
   children: (close: () => void) => ReactNode
 }) => {
   const [open, setOpenState] = useState(false)
-  const setOpen = (next: boolean | ((value: boolean) => boolean)): void => {
+  const setOpen = (next: boolean): void => {
     setOpenState((value) => {
-      const resolved = typeof next === 'function' ? next(value) : next
-      if (resolved !== value) onOpenChange?.(resolved)
-      return resolved
+      if (next !== value) onOpenChange?.(next)
+      return next
     })
   }
-  const anchor = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
-
-  // Before paint, place the panel in window coordinates and keep it on-screen.
-  useLayoutEffect(() => {
-    if (!open) return
-    const el = panel.current
-    const anchorRect = trigger.current?.getBoundingClientRect()
-    if (!el || !anchorRect) return
-    const margin = 8
-    let left = align === 'left' ? anchorRect.left : anchorRect.right - el.offsetWidth
-    left = Math.min(left, window.innerWidth - el.offsetWidth - margin)
-    left = Math.max(left, margin)
-    el.style.left = `${left}px`
-    if (drop === 'up') {
-      el.style.bottom = `${window.innerHeight - anchorRect.top + 6}px`
-      el.style.maxHeight = `${Math.max(120, anchorRect.top - 6 - margin)}px`
-    } else {
-      let top = anchorRect.bottom + 6
-      /*
-        The room is the window's, not a number. A fixed ceiling scrolled the
-        browser pane's fourteen-row settings menu at 400px with half the
-        window empty beneath it, and the rows past the fold — the ones that
-        keep cookies and clear them — were found only by people who noticed
-        the scrollbar. The panel takes what is below the trigger, slides up
-        when that is not enough, and scrolls only when the window itself is
-        too short for it.
-      */
-      el.style.maxHeight = ''
-      if (top + el.offsetHeight > window.innerHeight - margin) {
-        top = Math.max(margin, window.innerHeight - margin - el.offsetHeight)
-      }
-      el.style.top = `${top}px`
-      el.style.maxHeight = `${Math.max(120, window.innerHeight - margin - top)}px`
-    }
-  }, [open, drop, align])
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent): void => {
-      const target = event.target as Node
-      // The panel is no longer inside the anchor, so it has to be asked too.
-      if (anchor.current?.contains(target) || panel.current?.contains(target)) return
-      setOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      // Spent here, and said so: whatever this menu opened over — a sidebar
-      // floating over a narrow window — hears that the key was taken, and one
-      // press closes one thing.
-      event.preventDefault()
-      setOpen(false)
-      trigger.current?.focus()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open])
+  const externalReturnFocus = useRef<boolean | null>(null)
 
   /*
     A dialog opening is also a way of leaving. Menus have to outrank the
@@ -200,6 +140,7 @@ export const Popover = ({
     Focus held anywhere else stays put either way.
   */
   useDismissOverlays(open, ({ returnFocus }) => {
+    externalReturnFocus.current = returnFocus === true
     if (returnFocus === true && panel.current?.contains(document.activeElement)) trigger.current?.focus()
     setOpen(false)
   })
@@ -210,16 +151,21 @@ export const Popover = ({
     // press: the window moves and the button only fires when the pointer
     // happened not to travel, which reads as a control that works every other
     // time. app-region is a property of a box, and this anchor is the box.
-    <div className={`${styles.anchor} hd-no-drag`} ref={anchor} data-drop={drop} data-align={align}>
-      <button
-        ref={trigger}
-        type="button"
-        className={triggerClassName ?? styles.trigger}
-        {...(open ? { 'data-open': '' } : {})}
-        data-tone={tone}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={title}
+    <BasePopover
+      open={open}
+      onOpenChange={(next, details) => {
+        if (!next && details.reason === 'escape-key') trigger.current?.focus()
+        setOpen(next)
+      }}
+    >
+      <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align}>
+        <PopoverTrigger
+          ref={trigger}
+          className={triggerClassName ?? styles.trigger}
+          {...(open ? { 'data-open': '' } : {})}
+          data-tone={tone}
+          aria-haspopup="menu"
+          title={title}
         /* A glyph is not a name. When the trigger's content is an icon rather
            than words, the hover text becomes the accessible name — otherwise
            the control is announced as "button" and a screen reader user has no
@@ -235,20 +181,97 @@ export const Popover = ({
            replaced by a path. That is WCAG 2.5.3 — "click feat/worktrees"
            matches nothing — and it fails in the direction that matters,
            because the visible text is what a person says out loud. */
-        {...(title === undefined || hasText(label) ? {} : { 'aria-label': title })}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {label}
-      </button>
-      {open &&
-        createPortal(
-          <div className={styles.panel} role="menu" ref={panel}>
-            {children(() => setOpen(false))}
-          </div>,
-          document.body,
-        )}
-    </div>
+          {...(title === undefined || hasText(label) ? {} : { 'aria-label': title })}
+        >
+          {label}
+        </PopoverTrigger>
+        <PopoverPortal>
+          <PopoverPositioner
+            positionMethod="fixed"
+            side={drop === 'up' ? 'top' : 'bottom'}
+            align={align === 'left' ? 'start' : 'end'}
+            sideOffset={6}
+            collisionPadding={8}
+            className={styles.positioner}
+          >
+            <PopoverPopup
+              ref={panel}
+              className={styles.panel}
+              initialFocus={false}
+              finalFocus={() => {
+                const requested = externalReturnFocus.current
+                externalReturnFocus.current = null
+                return requested === false ? false : trigger.current
+              }}
+            >
+              {children(() => setOpen(false))}
+            </PopoverPopup>
+          </PopoverPositioner>
+        </PopoverPortal>
+      </div>
+    </BasePopover>
   )
 }
 
-export { styles as popoverStyles }
+export const PopoverGroupLabel = ({ children }: { children: ReactNode }) => (
+  <div className={styles.groupLabel}>{children}</div>
+)
+
+export const PopoverOption = ({
+  as = 'button',
+  className,
+  children,
+  ...props
+}: {
+  as?: 'button' | 'div'
+  className?: string
+  children: ReactNode
+} & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLDivElement>) => createElement(
+  as,
+  {
+    ...props,
+    ...(as === 'button' ? { type: props.type ?? 'button' } : {}),
+    className: `${styles.option}${className ? ` ${className}` : ''}`,
+  },
+  children,
+)
+
+export const PopoverOptionMark = ({
+  checked = false,
+  children,
+}: {
+  checked?: boolean
+  children?: ReactNode
+}) => <span className={checked ? styles.optionCheck : styles.optionIcon}>{children}</span>
+
+export const PopoverOptionBody = ({ children }: { children: ReactNode }) => (
+  <span className={styles.optionBody}>{children}</span>
+)
+
+export const PopoverOptionLabel = ({ children }: { children: ReactNode }) => (
+  <span className={styles.optionLabel}>{children}</span>
+)
+
+export const PopoverOptionHint = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={`${styles.optionHint}${className ? ` ${className}` : ''}`}>{children}</span>
+)
+
+export const PopoverOptionLive = ({ label = 'Live' }: { label?: string }) => (
+  <span className={styles.optionLive} aria-label={label} />
+)
+
+export const PopoverStrong = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={`${styles.strong}${className ? ` ${className}` : ''}`}>{children}</span>
+)
+
+export const PopoverDim = ({ children }: { children: ReactNode }) => (
+  <span className={styles.dim}>{children}</span>
+)
+
+export const PopoverFilterInput = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+  <Input {...props} className={`${styles.filterInput}${props.className ? ` ${props.className}` : ''}`} />
+)
+
+export const PopoverUpdateNote = ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div {...props} className={`${styles.updateNote}${props.className ? ` ${props.className}` : ''}`}>{children}</div>
+)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { Button } from '../design'
 import { asAdditions, asRemovals, drawnWhole, parseDiff, type WholeFile } from '../lib/diff'
 import { ChevronIcon } from './Icons'
 import styles from './Diff.module.css'
@@ -82,24 +83,24 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
           <span>
             Hunk {Math.min(hunk + 1, hunkRows.length)} of {hunkRows.length}
           </span>
-          <button
-            type="button"
-            className={styles.navButton}
+          <Button
+            variant="ghost"
+            size="icon-xs"
             disabled={hunk <= 0}
             onClick={() => go(hunk - 1)}
             aria-label="Previous hunk"
           >
             <ChevronIcon size={11} style={{ transform: 'rotate(-90deg)' }} />
-          </button>
-          <button
-            type="button"
-            className={styles.navButton}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             disabled={hunk >= hunkRows.length - 1}
             onClick={() => go(hunk + 1)}
             aria-label="Next hunk"
           >
             <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
-          </button>
+          </Button>
         </div>
       )}
       <div className={styles.scroll}>
@@ -139,9 +140,9 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
       {hidden > 0 && (
         <div className={styles.truncated}>
           {hidden.toLocaleString()} more lines
-          <button type="button" className={styles.expand} onClick={() => setExpanded(true)}>
+          <Button variant="ghost" size="icon-sm" className={styles.expand} onClick={() => setExpanded(true)}>
             Show all
-          </button>
+          </Button>
         </div>
       )}
     </div>

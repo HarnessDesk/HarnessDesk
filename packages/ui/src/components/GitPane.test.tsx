@@ -177,7 +177,7 @@ const button = (label: string): HTMLButtonElement => {
 
 /** What the pane's header says, and every hint it says on hover. */
 const headerStrip = (): { readonly text: string; readonly tooltips: readonly string[] } => {
-  const header = container.querySelector('header')
+  const header = document.body.querySelector('header')
   if (!header) throw new Error('no header')
   return {
     // `ltr` wraps the subtitle in bidi marks; the path itself is what matters.
@@ -204,19 +204,19 @@ it('asks for the log, the refs and the status together, and shows the walk', asy
   expect(methods).toContain('git/refs')
   expect(methods).toContain('git/status')
 
-  expect(container.textContent).toContain('tip: the latest work')
-  expect(container.textContent).toContain('root: where it began')
+  expect(document.body.textContent).toContain('tip: the latest work')
+  expect(document.body.textContent).toContain('root: where it began')
   // The decorations ride the row as chips, in git's own words.
-  expect(container.textContent).toContain('main')
-  expect(container.textContent).toContain('v1')
+  expect(document.body.textContent).toContain('main')
+  expect(document.body.textContent).toContain('v1')
   // The short id column.
-  expect(container.textContent).toContain('aaaa111')
-  expect(container.textContent).toContain('2 commits')
+  expect(document.body.textContent).toContain('aaaa111')
+  expect(document.body.textContent).toContain('2 commits')
 })
 
 it('says in words when the folder is outside git', async () => {
   await mount({ refs: null })
-  expect(container.textContent).toContain('not a git repository')
+  expect(document.body.textContent).toContain('not a git repository')
 })
 
 /**
@@ -259,7 +259,7 @@ it('pins the dirty working tree as one row that opens Changes', async () => {
       { path: 'b.ts', status: 'untracked', staged: false },
     ] },
   })
-  const row = [...container.querySelectorAll('button')].find((node) =>
+  const row = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('Uncommitted changes · 2 files'),
   )
   expect(row).toBeTruthy()
@@ -269,16 +269,16 @@ it('pins the dirty working tree as one row that opens Changes', async () => {
 
 it('opens a commit on click, and a patch only when a file is chosen', async () => {
   const { request } = await mount({ log: [commit('aaaa1111111', 'tip: the latest work')] })
-  const row = [...container.querySelectorAll('[role="option"]')].find((node) =>
+  const row = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
     node.textContent?.includes('tip: the latest work'),
   ) as HTMLElement
   await act(async () => row.click())
 
   expect(request).toHaveBeenCalledWith('git/commit', { root: '/repo/app', sha: 'aaaa1111111' })
-  expect(container.textContent).toContain('With a body worth reading.')
-  expect(container.textContent).toContain('src/app.ts')
+  expect(document.body.textContent).toContain('With a body worth reading.')
+  expect(document.body.textContent).toContain('src/app.ts')
   // The parent is a way to travel, not just a fact.
-  expect(container.textContent).toContain('bbbb222')
+  expect(document.body.textContent).toContain('bbbb222')
 
   // The first file is opened for reading by default, and its patch was
   // fetched once — not one request per file up front.
@@ -287,13 +287,13 @@ it('opens a commit on click, and a patch only when a file is chosen', async () =
 
 it('the refs rail lists branches in folders, with the current one marked', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')] })
-  expect(container.textContent).toContain('Branches · 2')
-  expect(container.textContent).toContain('HEAD')
-  expect(container.textContent).toContain('↑2')
+  expect(document.body.textContent).toContain('Branches · 2')
+  expect(document.body.textContent).toContain('HEAD')
+  expect(document.body.textContent).toContain('↑2')
   // feat/graph files under its folder; the folder row carries the name.
-  expect(container.textContent).toContain('feat')
-  expect(container.textContent).toContain('graph')
-  expect(container.textContent).toContain('Tags · 1')
+  expect(document.body.textContent).toContain('feat')
+  expect(document.body.textContent).toContain('graph')
+  expect(document.body.textContent).toContain('Tags · 1')
 })
 
 const DIRTY: GitStatus = {
@@ -309,7 +309,7 @@ const DIRTY: GitStatus = {
 
 it('the toolbar carries the client verbs, counting work to commit and push', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')], status: DIRTY })
-  const bar = container.querySelector('[role="toolbar"]')!
+  const bar = document.body.querySelector('[role="toolbar"]')!
   expect(bar.textContent).toContain('Commit')
   expect(bar.textContent).toContain('Pull')
   expect(bar.textContent).toContain('Push')
@@ -374,7 +374,7 @@ it('a branch row answers with the SourceTree menu, and delete asks in red first'
     log: [commit('aaaa1111111', 'tip')],
     on: { 'git/deleteBranch': null },
   })
-  const row = [...container.querySelectorAll('button')].find(
+  const row = [...document.body.querySelectorAll('button')].find(
     (node) => node.title.startsWith('feat/graph —'),
   )!
   await rightClick(row)
@@ -402,7 +402,7 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
     ],
     on: { 'git/revert': { summary: 'Reverted aaaa111.', conflicts: [] } },
   })
-  const row = [...container.querySelectorAll('[role="option"]')].find((node) =>
+  const row = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
     node.textContent?.includes('tip: the latest work'),
   )!
   await rightClick(row)
@@ -417,12 +417,12 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
   expect(notice).toHaveBeenCalledWith('info', 'Reverted aaaa111.')
 
   // The merge commit's menu greys cherry-pick with the reason.
-  const mergeRow = [...container.querySelectorAll('[role="option"]')].find((node) =>
+  const mergeRow = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
     node.textContent?.includes('merge: two parents'),
   )!
   await rightClick(mergeRow)
   const pick = button('Cherry-pick onto the current branch')
-  expect(pick.disabled).toBe(true)
+  expect(pick.getAttribute('aria-disabled')).toBe('true')
 })
 
 it('a stash row applies through the menu and reports the outcome', async () => {
@@ -431,7 +431,7 @@ it('a stash row applies through the menu and reports the outcome', async () => {
     refs: { ...REFS, stashes: [{ ref: 'stash@{0}', sha: 'eeee555', at: 1, message: 'work in flight' }] },
     on: { 'git/stashApply': { summary: 'Applied the stash.', conflicts: [] } },
   })
-  const row = [...container.querySelectorAll('button')].find((node) =>
+  const row = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('work in flight'),
   )!
   await rightClick(row)
@@ -464,8 +464,8 @@ const CHECKOUTS: readonly GitWorktree[] = [
 
 it('the rail lists the other checkouts, and one repository with one checkout gets no section', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')], worktrees: CHECKOUTS })
-  expect(container.textContent).toContain('Worktrees · 3')
-  expect(container.textContent).toContain('feat/graph')
+  expect(document.body.textContent).toContain('Worktrees · 3')
+  expect(document.body.textContent).toContain('feat/graph')
 
   // A repository checked out once has no fact here the rest of the rail lacks.
   act(() => root.unmount())
@@ -474,12 +474,12 @@ it('the rail lists the other checkouts, and one repository with one checkout get
     log: [commit('aaaa1111111', 'tip')],
     worktrees: [worktree({ path: '/repo/app', branch: 'main', isMain: true, isCurrent: true })],
   })
-  expect(container.textContent).not.toContain('Worktrees ·')
+  expect(document.body.textContent).not.toContain('Worktrees ·')
 })
 
 it('the toolbar counts the checkouts beside the main one', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')], worktrees: CHECKOUTS })
-  const bar = container.querySelector('[role="toolbar"]')!
+  const bar = document.body.querySelector('[role="toolbar"]')!
   const btn = [...bar.querySelectorAll('button')].find((node) => node.textContent?.includes('Worktrees'))!
   // Three checkouts, two of them beside the main one.
   expect(btn.textContent).toContain('2')
@@ -622,10 +622,11 @@ it('opening a checkout switches workspace, and the one you are in cannot be open
   const { openWorkspace } = await mount({ log: [commit('aaaa1111111', 'tip')], worktrees: CHECKOUTS })
   await act(async () => button('Worktrees').click())
 
-  const here = document.querySelector('[title="/repo/app"]')!.parentElement!
+  const dialog = document.querySelector('[role="dialog"]')!
+  const here = dialog.querySelector('[title="/repo/app"]')!.parentElement!
   expect([...here.querySelectorAll('button')].find((n) => n.textContent?.includes('Open'))!.disabled).toBe(true)
 
-  const other = document.querySelector('[title="/repo/app-feature"]')!.parentElement!
+  const other = dialog.querySelector('[title="/repo/app-feature"]')!.parentElement!
   await act(async () => [...other.querySelectorAll('button')].find((n) => n.textContent?.includes('Open'))!.click())
   expect(openWorkspace).toHaveBeenCalledWith('/repo/app-feature')
 })
@@ -699,7 +700,7 @@ it('conflicts left behind stay on screen with the way out, not just in a toast',
   expect(notice).toHaveBeenCalledWith('warning', expect.stringContaining('2 conflicts'))
   expect(openDetailsTab).toHaveBeenCalledWith('changes')
   // The half-made merge outlives the notice that announced it.
-  const strip = container.querySelector('[role="status"]')!
+  const strip = document.body.querySelector('[role="status"]')!
   expect(strip.textContent).toContain('The pull hit 2 conflicts')
   expect(strip.textContent).toContain('Ask an agent to fix this')
 })
@@ -739,7 +740,7 @@ it('asking hands the chosen agent a new session, in the repository, with the sta
   // "Starting…" button over the conversation the person wants to watch.
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   // The session took the screen; the strip has nothing left to nag about.
-  expect(container.querySelector('[role="status"]')).toBeNull()
+  expect(document.body.querySelector('[role="status"]')).toBeNull()
 })
 
 it('a refused rebase offers the same door, and says nothing changed', async () => {
@@ -751,7 +752,7 @@ it('a refused rebase offers the same door, and says nothing changed', async () =
       ),
     },
   })
-  const row = [...container.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
+  const row = [...document.body.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
   await rightClick(row)
   await act(async () => button('Rebase main onto feat/graph…').click())
   await act(async () => button('Rebase').click())
@@ -776,7 +777,7 @@ it('the refusal hands over to the ask rather than sitting behind it', async () =
     log: [commit('aaaa1111111', 'tip')],
     on: { 'git/rebase': new Error('The rebase onto feat/graph would not apply cleanly and was aborted; nothing changed.') },
   })
-  const row = [...container.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
+  const row = [...document.body.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
   await rightClick(row)
   await act(async () => button('Rebase main onto feat/graph…').click())
   await act(async () => button('Rebase').click())
@@ -791,7 +792,7 @@ it('the refusal hands over to the ask rather than sitting behind it', async () =
 
 // ------------------------------------------------------- the table head
 
-const head = () => container.querySelector('[role="row"]')!
+const head = () => document.body.querySelector('[role="row"]')!
 
 it('the table head names the columns and carries a handle for each width', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')] })
@@ -872,7 +873,7 @@ it('a graph column too narrow for the history says how many lanes it is not show
   await mount({ log: TWO_LANES, prefs: { gitColumns: { graph: 22 } } })
   // Room for one lane of two; the other is counted off rather than clipped.
   expect(head().textContent).toContain('+1')
-  const drawn = container.querySelector('[role="option"] span > svg')
+  const drawn = document.body.querySelector('[role="option"] span > svg')
   expect(drawn).toBeTruthy()
   // One column of lanes drawn, at full spacing — not two squeezed in.
   expect(drawn!.getAttribute('width')).toBe('12')
@@ -883,7 +884,7 @@ it('a graph column dragged shut draws nothing and counts nothing', async () => {
   // No room for a lane is not "one lane hidden", it is no graph: a count
   // that cannot fit beside the label would land on the next column.
   expect(head().textContent).not.toContain('+')
-  expect(container.querySelector('[role="option"] span > svg')).toBeNull()
+  expect(document.body.querySelector('[role="option"] span > svg')).toBeNull()
   // The handle stays, so the column can be brought back.
   expect(head().querySelector('[aria-label="Resize the Graph column"]')).toBeTruthy()
 })
@@ -938,7 +939,7 @@ it('the conflict banner goes when the tree no longer has conflicts', async () =>
     on: { 'git/pull': { summary: 'The pull hit 1 conflict; resolve and commit.', conflicts: ['src/a.ts'] } },
   })
   await act(async () => button('Pull').click())
-  expect(container.querySelector('[role="status"]')!.textContent).toContain('1 conflict')
+  expect(document.body.querySelector('[role="status"]')!.textContent).toContain('1 conflict')
 
   // Somebody else resolved and committed it — a terminal, another agent. The
   // next read of the repository has to withdraw the claim, not keep offering
@@ -957,7 +958,7 @@ it('the conflict banner goes when the tree no longer has conflicts', async () =>
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
   })
-  expect(container.querySelector('[role="status"]')).toBeNull()
+  expect(document.body.querySelector('[role="status"]')).toBeNull()
 })
 
 it('a branch whose upstream is gone says so, and Pull says why it cannot', async () => {
@@ -966,8 +967,10 @@ it('a branch whose upstream is gone says so, and Pull says why it cannot', async
   await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
   const pull = button('Pull')
   expect(pull.disabled).toBe(true)
-  expect(pull.title).toBe('The branch this one tracks, origin/main, is gone.')
-  const current = container.querySelector('[class*="_railRow_"][data-current]')
+  expect(pull.closest('[data-slot="refused-action"]')?.getAttribute('aria-label')).toBe(
+    'The branch this one tracks, origin/main, is gone.',
+  )
+  const current = document.body.querySelector('[class*="_railRow_"][data-current]')
   expect(current?.textContent).toContain('main')
   expect(current?.textContent).toContain('gone')
 })
@@ -976,7 +979,7 @@ it("the branch menu's Pull says the upstream is gone, and Push stays", async () 
   // Round one: the toolbar's Pull was tested, and the branch menu's was not.
   const [main, feature] = REFS.branches
   await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
-  await rightClick(container.querySelector('[class*="_railRow_"][data-current]')!)
+  await rightClick(document.body.querySelector('[class*="_railRow_"][data-current]')!)
   const item = (label: string) =>
     [...document.querySelectorAll('button')].find((node) => node.textContent?.includes(label)) as HTMLButtonElement | undefined
   const pull = item('Pull origin/main')
@@ -996,7 +999,7 @@ it('a file staged and then changed again is one file to commit, not two', async 
     ],
   }
   await mount({ log: [commit('aaaa1111111', 'tip')], status: TWICE })
-  const bar = container.querySelector('[role="toolbar"]')!
+  const bar = document.body.querySelector('[role="toolbar"]')!
   const commitBtn = [...bar.querySelectorAll('button')].find((node) => node.textContent?.includes('Commit'))!
   expect(commitBtn.textContent).toContain('1')
   expect(commitBtn.textContent).not.toContain('2')
@@ -1004,4 +1007,3 @@ it('a file staged and then changed again is one file to commit, not two', async 
   const rows = [...document.querySelectorAll('[role="checkbox"]')].filter((node) => node.textContent?.includes('src/a.ts'))
   expect(rows).toHaveLength(1)
 })
-

@@ -37,7 +37,7 @@ describe('the dim over a narrow window', () => {
        nothing. */
     const closed = blockAfter('.scrim {')
     expect(closed).toMatch(/visibility:\s*hidden/)
-    expect(closed).toMatch(/visibility 0s linear var\(--hdp-transition-duration-slow\)/)
+    expect(closed).toMatch(/visibility 0s linear var\(--hd-duration-slow\)/)
     expect(closed).not.toMatch(/pointer-events:\s*none/)
     expect(blockAfter('.scrim[data-open] {')).toMatch(/visibility:\s*visible/)
   })
@@ -47,7 +47,7 @@ describe('the dim over a narrow window', () => {
        with Tab" — a rule nothing held until now. */
     const hidden = blockAfter('.sidebar[data-hidden] {')
     expect(hidden).toMatch(/visibility:\s*hidden/)
-    expect(hidden).toMatch(/visibility 0s linear var\(--hdp-transition-duration-slow\)/)
+    expect(hidden).toMatch(/visibility 0s linear var\(--hd-duration-slow\)/)
   })
 
   it('slides the sidebar out of the way in a narrow window, and draws it in full while it floats', () => {

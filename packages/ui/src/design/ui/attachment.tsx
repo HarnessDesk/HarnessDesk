@@ -76,6 +76,7 @@ const Attachment = ({
   <div
     data-slot="attachment"
     data-state={state}
+    data-orientation={orientation ?? 'horizontal'}
     className={cn(
       attachmentVariants({ size, orientation }),
       state === 'error' && 'border-(--hd-danger)/50 bg-(--hd-danger-dim)',

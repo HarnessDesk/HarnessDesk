@@ -2,8 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { ContextMenu, MenuItem } from '../components/Menu'
-import { Popover } from '../components/Popover'
+import { ContextMenu, MenuItem, Popover } from '../design'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dock, emptyWorkbench, type Workbench as Model } from '../state/workbench'
@@ -29,7 +28,7 @@ import './builtins'
 /* The main area only needs to be something that can hold focus — and a menu,
    the kind a conversation's header has, to be open when something lies over it. */
 vi.mock('../components/Panes', async () => {
-  const { Popover: Menu } = await import('../components/Popover')
+  const { Popover: Menu } = await import('../design')
   return {
     Panes: () => (
       <>
@@ -142,8 +141,8 @@ const content = (): HTMLElement => {
   return found as HTMLElement
 }
 const seam = (label: string): Element | null => container.querySelector(`[aria-label="${label}"]`)
-/** An open menu; each is drawn into the document's body, not beside its trigger. */
-const menu = (): HTMLElement | null => document.querySelector('[role="menu"]')
+/** An open popover; each is drawn into the document's body, not beside its trigger. */
+const menu = (): HTMLElement | null => document.querySelector('[data-slot="popover-popup"]')
 const named = (within: Element, name: string): HTMLButtonElement => {
   const found = [...within.querySelectorAll('button')].find((button) => button.textContent === name)
   if (!found) throw new Error(`no ${name} button`)

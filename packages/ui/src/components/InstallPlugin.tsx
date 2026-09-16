@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import { Btn, Dialog, Input } from '../design'
+import { Button, Dialog, Input } from '../design'
 import { useStore } from '../state/context'
 import { AlertIcon, FolderIcon, PluginIcon } from './Icons'
 import styles from './InstallPlugin.module.css'
@@ -74,10 +74,10 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
       footer={
         inspected ? (
           <>
-            <Btn variant="primary" disabled={busy} onClick={() => void confirm()}>
+            <Button variant="default" disabled={busy} onClick={() => void confirm()}>
               {busy ? 'Installing…' : 'Install and enable'}
-            </Btn>
-            <Btn
+            </Button>
+            <Button variant="secondary"
               disabled={busy}
               onClick={() => {
                 setInspected(null)
@@ -85,7 +85,7 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
               }}
             >
               Back
-            </Btn>
+            </Button>
           </>
         ) : undefined
       }
@@ -106,9 +106,9 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
                 if (event.key === 'Enter') void look()
               }}
             />
-            <Btn variant="primary" disabled={busy || specifier.trim().length === 0} onClick={() => void look()}>
+            <Button variant="default" disabled={busy || specifier.trim().length === 0} onClick={() => void look()}>
               {busy ? 'Reading…' : 'Continue'}
-            </Btn>
+            </Button>
           </div>
           <p className={styles.note}>
             <FolderIcon size={13} />

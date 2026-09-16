@@ -4,6 +4,7 @@ import type { FileChange, Turn } from '@harnessdesk/protocol'
 
 import { totalsByFile } from '../lib/turn-view'
 import { useSessionKey, useStore } from '../state/context'
+import { Button } from '../design'
 import { DiffIcon, RedoIcon, UndoIcon } from './Icons'
 import styles from './TurnFiles.module.css'
 
@@ -89,50 +90,46 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
         <span className={styles.actions}>
           {turn.status !== 'inProgress' &&
             (reverted ? (
-              <button
-                type="button"
-                className={styles.action}
+              <Button
+                variant="quiet" size="content" className={styles.action}
                 onClick={() => void apply('redo')}
                 disabled={busy}
                 title="Write this turn's edits again. Refuses if you have edited one of these files since."
               >
                 {busy ? 'Redoing…' : 'Redo'}
                 <RedoIcon size={13} />
-              </button>
+              </Button>
             ) : (
               <>
-                <button
-                  type="button"
-                  className={styles.action}
+                <Button
+                  variant="quiet" size="content" className={styles.action}
                   onClick={() => void apply('undo')}
                   disabled={busy}
                   title="Put these files back the way they were before this turn. Refuses if you have edited one since."
                 >
                   {busy ? 'Undoing…' : 'Undo'}
                   <UndoIcon size={13} />
-                </button>
+                </Button>
                 {partly && (
-                  <button
-                    type="button"
-                    className={styles.action}
+                  <Button
+                    variant="quiet" size="content" className={styles.action}
                     onClick={() => void apply('undo', true)}
                     disabled={busy}
                     title="Put back everything this turn can. The file just named is left exactly as it is — the agent recorded nothing to put back there."
                   >
                     {busy ? 'Undoing…' : 'Undo the rest'}
                     <UndoIcon size={13} />
-                  </button>
+                  </Button>
                 )}
               </>
             ))}
-          <button
-            type="button"
-            className={`${styles.action} ${styles.actionPrimary}`}
+          <Button
+            variant="quiet" size="content" className={`${styles.action} ${styles.actionPrimary}`}
             onClick={() => store.setDetailsTab('changes')}
             title="Open the Changes panel"
           >
             Review
-          </button>
+          </Button>
         </span>
       </div>
       <ul className={styles.files}>
@@ -142,9 +139,9 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           const dir = relative.slice(0, relative.length - name.length)
           return (
             <li key={file.path}>
-              <button
+              <Button
                 type="button"
-                className={styles.file}
+                variant="row" size="row" className={styles.file}
                 onClick={() => store.openFile(file.path)}
                 title={`Open ${relative}`}
               >
@@ -157,7 +154,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                 <span className={styles.counts}>
                   <span className={styles.added}>+{file.added}</span> <span className={styles.removed}>−{file.removed}</span>
                 </span>
-              </button>
+              </Button>
             </li>
           )
         })}

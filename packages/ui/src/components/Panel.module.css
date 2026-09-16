@@ -17,8 +17,8 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 7px 8px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  padding: var(--hd-space-2) 8px; /* desk: canonical One UI System scale */
+  border-bottom: 1px solid var(--hd-border);
 }
 
 /* The tab itself is no longer drawn here.
@@ -27,7 +27,7 @@
  * moved with it, into utilities on the trigger in Details.tsx — because a
  * module class and a Tailwind utility describing the same padding are two
  * sources of truth, and the utility wins: app.css is bundled last, so
- * `.px-2` beats `.tab { padding: 0 7px }` at equal specificity. The strip's
+ * `.px-2` beats `.tab { padding: 0 var(--hd-space-2) }` at equal specificity. The strip's
  * row below still belongs to this file; only the tabs in it left.
  */
 
@@ -43,7 +43,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
 }
 
 /* A text field, so it stands on the text-control rung rather than on a
@@ -54,12 +54,12 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
   padding: 0 var(--hd-space-2-5); /* desk: 9 → 10, onto the spacing scale */
-  border: 1px solid var(--hdp-alias-border-l2);
+  border: 1px solid var(--hd-border-strong);
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .findBox:focus-within {
@@ -71,29 +71,29 @@
   min-width: 0;
   border: 0;
   background: none;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   font: inherit;
   font-size: var(--hd-text-sm);
   outline: none;
 }
 
 .findBox input::placeholder {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .pill {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   height: 26px;
-  padding: 0 9px;
+  padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
   border: none;
   /* A pill, said as a pill. Half the height written out is a pill only while
      the height does not change, and it follows no shape dial. */
   border-radius: var(--hd-radius-full); /* desk: 13 → a pill, said as one */
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
   font: inherit;
   font-size: var(--hd-text-xs);
   white-space: nowrap;
@@ -104,7 +104,7 @@ button.pill {
 }
 
 button.pill:hover {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .pill[data-on] {
@@ -130,9 +130,9 @@ button.pill:hover {
   gap: 8px;
   height: var(--hd-bar-h);
   padding: 0 10px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- what a row is -------------------------------------------------------- */
@@ -143,21 +143,21 @@ button.pill:hover {
   gap: 8px;
   padding: 8px 6px 4px;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .dayLabel {
   padding: 10px 6px 4px;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   width: 100%;
-  padding: 6px 7px;
+  padding: 6px var(--hd-space-2); /* desk: canonical One UI System scale */
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
@@ -171,7 +171,7 @@ button.row {
 }
 
 button.row:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .row[data-selected] {
@@ -182,14 +182,14 @@ button.row:hover {
    centring it against a paragraph. */
 .row[data-tall] {
   align-items: flex-start;
-  padding: 8px 7px;
+  padding: 8px var(--hd-space-2); /* desk: canonical One UI System scale */
 }
 
 .rowMark {
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .row[data-tall] .rowMark {
@@ -206,7 +206,7 @@ button.row:hover {
 .rowTitle {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   white-space: nowrap;
@@ -218,7 +218,7 @@ button.row:hover {
   margin-top: 1px;
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -241,7 +241,7 @@ button.row:hover {
   margin-top: 1px;
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -249,23 +249,23 @@ button.row:hover {
 }
 
 .rowMeta {
-  margin-top: 3px;
+  margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: 11px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .rowTime {
   flex: none;
   font-size: 11px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .counts {
   flex: none;
   display: inline-flex;
-  gap: 7px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
   font-variant-numeric: tabular-nums;
 }
@@ -287,9 +287,9 @@ button.row:hover {
 }
 
 .empty {
-  padding: 28px 8px;
+  padding: var(--hd-space-8) 8px; /* desk: canonical One UI System scale */
   text-align: center;
   font-size: var(--hd-text-sm);
   line-height: 19px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }

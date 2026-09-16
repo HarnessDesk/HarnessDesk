@@ -79,10 +79,10 @@ const DENSITY = {
     row: 'grid-cols-[24px_1fr] gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50',
     avatar: 'size-6',
     mark: 14,
-    initials: 'text-[10px]',
+    initials: 'text-(length:--hd-text-2xs)',
     /* The grouped row's own moment, in the gutter the face would be in. */
     stampAlign: 'justify-center',
-    stamp: 'pt-0.5 text-[9px] leading-4',
+    stamp: 'pt-0.5 text-(length:--hd-text-3xs) leading-4',
     name: 'text-sm',
     body: 'text-sm',
     /* About eight lines at this size; the "Show more" below opens the rest. */
@@ -387,14 +387,14 @@ export const ChannelMessage = ({
           {body ?? text}
         </div>
         {(overflows || expanded) && (
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             data-slot="channel-more"
             className="mt-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
             onClick={() => setExpanded((on) => !on)}
           >
             {expanded ? 'Show less' : 'Show more'}
-          </button>
+          </Button>
         )}
 
         {outcomes && outcomes.length > 0 && (
@@ -445,7 +445,7 @@ export const ChannelMessage = ({
                 keyboard arrives — opacity, never `hidden`, so it stays in the
                 accessibility tree and stays tabbable. The panel is already a
                 diagnostic surface and keeps it up. */}
-            <button
+            <Button variant="ghost" size="sm"
               type="button"
               data-slot="channel-peek"
               className={`mt-1 text-xs text-muted-foreground hover:text-foreground hover:underline ${
@@ -457,7 +457,7 @@ export const ChannelMessage = ({
               onClick={() => setPeeking((on) => !on)}
             >
               {peeking ? 'Hide envelope' : 'Envelope'}
-            </button>
+            </Button>
             {peeking && (
               <pre className="mt-1.5 overflow-x-auto rounded-md bg-muted p-2 font-mono text-xs leading-[1.4] whitespace-pre-wrap">
                 {envelope}

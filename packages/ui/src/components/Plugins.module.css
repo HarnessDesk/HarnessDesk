@@ -4,18 +4,18 @@
   display: flex;
   flex-direction: column;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-card);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
   overflow: hidden;
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--hd-space-4); /* desk: canonical One UI System scale */
   min-height: 64px;
-  padding: 12px 14px 12px 12px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  padding: 12px var(--hd-space-4) 12px 12px; /* desk: canonical One UI System scale */
+  border-bottom: 1px solid var(--hd-border);
   cursor: pointer;
   outline: none;
 }
@@ -26,7 +26,7 @@
 
 .row:hover,
 .row:focus-visible {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .glyph {
@@ -36,8 +36,8 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
 }
 
 .glyph[data-origin='builtin'] {
@@ -56,7 +56,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 .rowTitle {
@@ -69,7 +69,7 @@
 .rowName {
   font-size: var(--hd-text);
   font-weight: 500;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -78,13 +78,13 @@
 .origin {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowLine {
   font-size: var(--hd-text);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -102,7 +102,7 @@
   align-items: center;
   gap: 4px;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowState {
@@ -120,7 +120,7 @@
 
 .rowChevron {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- the page ------------------------------------------------------------- */
@@ -128,7 +128,7 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--hd-space-5); /* desk: canonical One UI System scale */
 }
 
 .back {
@@ -142,15 +142,15 @@
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font: inherit;
   font-size: var(--hd-text);
   cursor: pointer;
 }
 
 .back:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
 }
 
 .backChevron {
@@ -160,7 +160,7 @@
 .pageHead {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 
 .pageTitle {
@@ -168,21 +168,21 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 .pageName {
   font-size: var(--hd-text-lg);
   font-weight: 500;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .pageMeta {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .pageBlurb {
@@ -190,7 +190,7 @@
   max-width: 72ch;
   font-size: var(--hd-text);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .pageError {
@@ -211,7 +211,7 @@
 
 .kindBlock {
   padding: 8px 0 4px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 .kindHead {
@@ -221,46 +221,46 @@
   margin-bottom: 4px;
   font-size: var(--hd-text);
   font-weight: 500;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .kindList {
   list-style: none;
   margin: 0;
-  padding: 0 0 0 19px;
+  padding: 0 0 0 var(--hd-space-5); /* desk: canonical One UI System scale */
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 .kindItem {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 3px 0;
+  padding: var(--hd-space-1) 0; /* desk: canonical One UI System scale */
   font-size: var(--hd-text);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .kindHint {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .grantList {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--hd-space-5); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .pageActions {
   display: flex;
   gap: 8px;
   padding-top: 6px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 .danger {
@@ -295,7 +295,7 @@
   margin: 0 0 6px;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .capFilters {
@@ -306,9 +306,10 @@
 
 /* A schema form is not a row, so it gets the card without the row anatomy. */
 .configCard {
-  padding: 14px 16px;
-  border: 1px solid var(--hdp-alias-border-l1);
+  padding: var(--hd-space-4) 16px; /* desk: canonical One UI System scale */
+  border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius-lg);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   margin-bottom: 6px;
 }
+/* @design-owners PluginsSection */

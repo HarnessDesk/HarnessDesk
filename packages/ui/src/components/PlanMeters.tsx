@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -7,8 +8,7 @@ import { describeLane, formatAge, formatMoney } from '../lib/usage'
 import { useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon, UsageIcon } from './Icons'
-import { Menu } from './Menu'
-import { Popover } from './Popover'
+import { Menu, Popover } from '../design'
 import styles from './PlanMeters.module.css'
 
 /**
@@ -85,15 +85,15 @@ export const PlanMeters = ({
         <Meter view={anchor.meter} now={now} onOpen={() => onOpen(anchor.meter.runtime)} />
       )}
       {anchor?.kind === 'signIn' && (
-        <button
+        <Button
           type="button"
-          className={styles.signInChip}
+          variant="quiet" size="content" className={`${styles.signInChip} truncate`}
           onClick={() => onSignIn(anchor.info.id)}
           title={`${anchor.info.presentation.name} has no account here — sign in to use it`}
         >
           <SignInIcon size={12} />
           {anchor.info.presentation.name}
-        </button>
+        </Button>
       )}
       {/* An agent that is out and is not this conversation's is the one piece
           of roster news worth its own space: the token can say how many are
@@ -152,9 +152,9 @@ const Meter = ({
     {(close) => (
       <Menu close={close}>
         <div className={styles.panel}>
-          <button
+          <Button
             type="button"
-            className={styles.panelHead}
+            variant="row" size="row" className={styles.panelHead}
             onClick={() => {
               close()
               onOpen()
@@ -163,7 +163,7 @@ const Meter = ({
             <RuntimeMark runtime={view.info} size={14} />
             <span className={styles.panelName}>{view.name}</span>
             <span className={styles.panelOpen}>Open</span>
-          </button>
+          </Button>
           {(view.report.plan || view.report.account) && (
             <p className={styles.identity}>
               {[view.report.plan, view.report.account].filter(Boolean).join(' · ')}
@@ -243,10 +243,10 @@ const Rest = ({
           <p className={styles.rosterHead}>{rest.title}</p>
           <div className={styles.roster}>
             {rest.meters.map((meter) => (
-              <button
+              <Button
                 key={`${meter.runtime}:${meter.report.account ?? ''}`}
                 type="button"
-                className={styles.rosterRow}
+                variant="row" size="row" className={styles.rosterRow}
                 data-tone={meter.tone}
                 onClick={() => {
                   close()
@@ -268,15 +268,15 @@ const Rest = ({
                 <span className={styles.laneWhen}>
                   {meter.out ? (meter.lane.shortCountdown ?? 'out') : (meter.lane.shortCountdown ?? '')}
                 </span>
-              </button>
+              </Button>
             ))}
             {/* The agents with no bar. They are why the count and the bars can
                 disagree, so the panel has to hold them or the count looks wrong. */}
             {rest.asides.map((aside) => (
-              <button
+              <Button
                 key={aside.runtime}
                 type="button"
-                className={styles.rosterRow}
+                variant="row" size="row" className={styles.rosterRow}
                 data-quiet=""
                 onClick={() => {
                   close()
@@ -286,7 +286,7 @@ const Rest = ({
                 <RuntimeMark runtime={aside.info} size={14} />
                 <span className={styles.rosterName}>{aside.info.presentation.name}</span>
                 <span className={styles.rosterDetail}>{aside.detail}</span>
-              </button>
+              </Button>
             ))}
           </div>
           <p className={styles.foot}>

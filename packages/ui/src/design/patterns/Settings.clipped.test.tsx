@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Clipped } from './Kit'
+import { Clipped } from './Settings'
 
 /**
  * `Clipped`: a line that says itself whole on hover only while it is cut, so

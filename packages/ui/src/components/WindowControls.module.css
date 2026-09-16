@@ -9,23 +9,20 @@
   align-items: center;
   justify-content: center;
   width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
+
+
+
+
+
+
+
 }
 
 .button:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+
 }
 
 .button:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 /* A narrow header keeps the toggle and folds the arrows: they are on the

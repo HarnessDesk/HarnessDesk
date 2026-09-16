@@ -173,7 +173,7 @@ it('keeps the name and says why when the host will not make the room', async () 
   })
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('not open any more')
+  expect(document.body.textContent).toContain('not open any more')
   expect(
     document.querySelector<HTMLInputElement>('[aria-label="Room name"]')?.value,
   ).toBe('Auth')
@@ -275,7 +275,7 @@ it('counts the rooms a project already has when the folder you have open is a su
   })
   render(store)
   act(() => choice('A room').click())
-  const note = [...container.querySelectorAll('p')].find((one) =>
+  const note = [...document.body.querySelectorAll('p')].find((one) =>
     one.textContent?.includes('room'),
   )
   expect(note?.textContent).toContain('One room already in this project: Checkout rewrite')

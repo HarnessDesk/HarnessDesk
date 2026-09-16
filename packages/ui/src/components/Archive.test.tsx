@@ -90,10 +90,10 @@ const mount = async (
 }
 
 const button = (label: string): HTMLButtonElement | undefined =>
-  [...container.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
+  [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
 
 const type = (value: string): void => {
-  const field = container.querySelector('input')
+  const field = document.body.querySelector('input')
   if (!field) throw new Error('no search field')
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -107,7 +107,7 @@ it('asks each agent for the archive itself, not for everything', async () => {
   const { request } = await mount([codex], { codex: [summary('a', 'codex')] })
 
   expect(request).toHaveBeenCalledWith('session/list', { runtime: 'codex', archived: 'only' })
-  expect(container.textContent).toContain('Conversation a')
+  expect(document.body.textContent).toContain('Conversation a')
 })
 
 it('names where the archive lives, agent by agent, without being asked', async () => {
@@ -119,11 +119,11 @@ it('names where the archive lives, agent by agent, without being asked', async (
   })
 
   // The page's own promise, that nothing here has been lost.
-  expect(container.textContent).toContain('Nothing here has been deleted')
+  expect(document.body.textContent).toContain('Nothing here has been deleted')
   // And both differences at once — no scoping, no clicking to find out.
-  expect(container.textContent).toContain('keeps this archive itself')
-  expect(container.textContent).toContain('has no archive of its own')
-  expect(container.textContent).toContain('still listed in Claude Code’s own window')
+  expect(document.body.textContent).toContain('keeps this archive itself')
+  expect(document.body.textContent).toContain('has no archive of its own')
+  expect(document.body.textContent).toContain('still listed in Claude Code’s own window')
 })
 
 it('gives an agent a heading only when it has something', async () => {
@@ -132,8 +132,8 @@ it('gives an agent a heading only when it has something', async () => {
   await mount([codex, claude], { codex: [summary('a', 'codex')] })
 
   // A heading over an empty card is a question the reader has to answer.
-  expect(container.textContent).toContain('OpenAI Codex · 1')
-  expect(container.textContent).not.toContain('Claude Code')
+  expect(document.body.textContent).toContain('OpenAI Codex · 1')
+  expect(document.body.textContent).not.toContain('Claude Code')
 })
 
 it('offers Restore to everyone and Delete only where it is real', async () => {
@@ -144,16 +144,18 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
     dsh: [summary('b', 'dsh', '/repo/other')],
   })
 
-  const rows = [...container.querySelectorAll('button')].filter((node) =>
+  const rows = [...document.body.querySelectorAll('button')].filter((node) =>
     node.textContent?.includes('Delete'),
   )
   expect(rows).toHaveLength(2)
   // One agent can, one cannot, and the one that cannot says so rather than
   // offering a button that throws after the confirmation promised otherwise.
   expect(rows.filter((node) => node.disabled)).toHaveLength(1)
-  expect(rows.find((node) => node.disabled)?.title).toContain('keeps no way to delete one')
   expect(
-    [...container.querySelectorAll('button')].filter((n) => n.textContent?.includes('Restore')),
+    rows.find((node) => node.disabled)?.closest('[data-slot="refused-action"]')?.getAttribute('aria-label'),
+  ).toContain('keeps no way to delete one')
+  expect(
+    [...document.body.querySelectorAll('button')].filter((n) => n.textContent?.includes('Restore')),
   ).toHaveLength(2)
 })
 
@@ -162,18 +164,18 @@ it('does not offer "Archive instead" for something already archived', async () =
   await mount([codex], { codex: [summary('a', 'codex')] })
 
   act(() => button('Delete…')?.click())
-  expect(container.textContent).toContain('Delete conversation')
+  expect(document.body.textContent).toContain('Delete conversation')
   // A button that would do nothing reads as one that failed.
   expect(button('Archive instead')).toBeUndefined()
-  expect(container.textContent).not.toContain('archive it instead')
+  expect(document.body.textContent).not.toContain('archive it instead')
 })
 
 it('says the archive is empty in words that explain how to fill it', async () => {
   await mount([runtime('codex', 'OpenAI Codex', { archiveHistory: true })], {})
-  expect(container.textContent).toContain('Nothing is archived')
-  expect(container.textContent).toContain('⋯ menu in the sidebar')
+  expect(document.body.textContent).toContain('Nothing is archived')
+  expect(document.body.textContent).toContain('⋯ menu in the sidebar')
   // Nothing to narrow, so nothing to narrow it with.
-  expect(container.querySelector('input')).toBeNull()
+  expect(document.body.querySelector('input')).toBeNull()
 })
 
 it('blames the search only when there was one', async () => {
@@ -181,11 +183,11 @@ it('blames the search only when there was one', async () => {
   await mount([codex], { codex: [summary('a', 'codex')] })
 
   type('nothing like this')
-  expect(container.textContent).toContain('Nothing here matches')
-  expect(container.textContent).not.toContain('Nothing is archived')
+  expect(document.body.textContent).toContain('Nothing here matches')
+  expect(document.body.textContent).not.toContain('Nothing is archived')
 
   type('')
-  expect(container.textContent).toContain('Conversation a')
+  expect(document.body.textContent).toContain('Conversation a')
 })
 
 it('names an agent that could not be asked instead of counting it as empty', async () => {
@@ -211,5 +213,5 @@ it('names an agent that could not be asked instead of counting it as empty', asy
       </StoreProvider>,
     )
   })
-  expect(container.textContent).toContain('could not be asked')
+  expect(document.body.textContent).toContain('could not be asked')
 })

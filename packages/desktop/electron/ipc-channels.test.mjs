@@ -91,12 +91,12 @@ test('a screenshot can only be taken of a tab the pane itself named', () => {
  * the consequence is the shell's, so it is checked here, where the shell's
  * other window concerns are.
  */
-const ui = join(here, '..', '..', 'ui', 'src', 'components')
+const ui = join(here, '..', '..', 'ui', 'src')
 
 test('floating panels opt out of the window-drag region', () => {
   for (const [file, rule] of [
-    ['Popover.module.css', '.panel'],
-    ['Menu.module.css', '.surface'],
+    ['design/patterns/Popover.module.css', '.panel'],
+    ['design/patterns/Menu.module.css', '.surface'],
   ]) {
     const css = readFileSync(join(ui, file), 'utf8')
     const from = css.indexOf(rule)
@@ -108,6 +108,6 @@ test('floating panels opt out of the window-drag region', () => {
 
 test('the browser pane puts its tab strip in a no-drag box', () => {
   // The strip sits where a pane title would, inside the drag region.
-  const header = readFileSync(join(ui, 'ToolPaneHeader.tsx'), 'utf8')
+  const header = readFileSync(join(ui, 'components/ToolPaneHeader.tsx'), 'utf8')
   assert.match(header, /lead \?[\s\S]{0,120}hd-no-drag/, 'a header lead must be wrapped in hd-no-drag')
 })

@@ -16,14 +16,14 @@
   gap: var(--hd-space-2);
   font-size: var(--hd-text-sm);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* A greyed control is an explanation, so the reason sits beside the name
    rather than in a tooltip nobody opens. */
 .why {
   font-weight: 400;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .note {
@@ -33,7 +33,7 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .problem {
@@ -56,36 +56,33 @@
   align-items: center;
   gap: var(--hd-space-2);
   flex: 1;
-  padding: var(--hd-space-2) var(--hd-space-3);
-  border: 1px solid var(--hdp-alias-border-l1);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-base);
+
+
+
+
   /* Both read as choices. At secondary the unselected one looked disabled
      beside its neighbour, next to a third button that genuinely is. Selection
      is carried by the border and the weight. */
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  cursor: pointer;
+
+
+
+
 }
 
 .mode:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .mode[aria-checked='true'] {
-  border-color: var(--hd-accent);
-  font-weight: 600;
+
 }
 
 .mode:disabled {
-  opacity: 0.55;
-  cursor: default;
+
 }
 
 .count {
   margin-left: auto;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -108,7 +105,7 @@
 }
 
 .candidate:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .candidateName {
@@ -117,11 +114,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .candidateAgent {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }

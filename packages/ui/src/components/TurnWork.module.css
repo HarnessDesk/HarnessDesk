@@ -17,21 +17,21 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 10px 0 8px;
-  border: none;
+
+
   /* The head paints nothing of its own — hovering moves colour, not fill —
      so the radius is here for the focus ring to follow. */
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  cursor: pointer;
+
+
+
   text-align: left;
-  color: var(--hdp-alias-label-tertiary);
-  font: inherit;
-  font-size: var(--hd-text);
+
+
+
 }
 
 .head:hover .headLabel {
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .headLabel {
@@ -47,11 +47,11 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .work[data-running] .headLabel {
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* Trouble tints the whole line — a declined command must not read like a
@@ -65,8 +65,8 @@
 
 .chevron {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
-  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+  color: var(--hd-muted-foreground);
+  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .chevron[data-open] {
@@ -78,7 +78,7 @@
   flex: 1;
   height: 1px;
   margin-left: 6px;
-  background: var(--hdp-alias-border-l1);
+  background: var(--hd-border);
 }
 
 .body {
@@ -95,7 +95,7 @@
   min-height: 26px;
   padding: 2px 0 4px 2px;
   font-size: var(--hd-text);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* Text that moves: a light band sweeps across the words, the way Codex shows
@@ -103,11 +103,11 @@
 .shimmer {
   background: linear-gradient(
     90deg,
-    var(--hdp-alias-label-tertiary) 0%,
-    var(--hdp-alias-label-tertiary) 35%,
-    var(--hdp-alias-label-primary) 50%,
-    var(--hdp-alias-label-tertiary) 65%,
-    var(--hdp-alias-label-tertiary) 100%
+    var(--hd-muted-foreground) 0%,
+    var(--hd-muted-foreground) 35%,
+    var(--hd-foreground) 50%,
+    var(--hd-muted-foreground) 65%,
+    var(--hd-muted-foreground) 100%
   );
   background-size: 220% 100%;
   -webkit-background-clip: text;
@@ -129,6 +129,6 @@
   .shimmer {
     animation: none;
     background: none;
-    color: var(--hdp-alias-label-tertiary);
+    color: var(--hd-muted-foreground);
   }
 }

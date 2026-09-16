@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { ImportableConfig } from '@harnessdesk/protocol'
 
 import { useRuntime, useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction } from '../design/primitives/Banner'
+import { Banner, BannerAction } from '../design'
 import { ImportIcon } from './Icons'
 import { isSilenced, type NoticeIdentity } from '../lib/notice-policy'
 

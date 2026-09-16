@@ -1,4 +1,4 @@
-import { Face } from '../design/primitives/Kit'
+import { Face } from '../design'
 import { useSnapshot } from '../state/context'
 
 /**

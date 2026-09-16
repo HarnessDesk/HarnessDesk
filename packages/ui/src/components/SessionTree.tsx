@@ -1,3 +1,4 @@
+import { Button, Input } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
@@ -40,8 +41,7 @@ import { SessionHoverCard } from './AgentCards'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteRoom, RenameRoom } from './RoomActions'
 import { DeleteSession } from './DeleteSession'
-import { Menu, MenuItem, MenuLabel, MenuSeparator, ContextMenu, useContextMenu } from './Menu'
-import { Popover } from './Popover'
+import { Menu, MenuItem, MenuLabel, MenuSeparator, ContextMenu, Popover, useContextMenu } from '../design'
 import { WorkspaceMenu } from './WorkspaceMenu'
 import styles from './Sidebar.module.css'
 
@@ -139,8 +139,8 @@ const SessionRow = ({
     <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
       {renaming ? (
         <div style={{ padding: '4px 8px' }}>
-          <input
-            className={styles.renameInput}
+          <Input
+            variant="quiet" controlSize="compact" className={styles.renameInput}
             value={draft}
             autoFocus
             onChange={(event) => setDraft(event.target.value)}
@@ -157,10 +157,9 @@ const SessionRow = ({
         </div>
       ) : (
         <>
-          <button
+          <Button
             ref={rowRef}
-            type="button"
-            className={styles.row}
+            type="button" variant="navigation" size="navigation" className={styles.row}
             data-density={snapshot.listPrefs.density}
             {...(snapshot.activeSessionKey === key ? { 'data-active': '' } : {})}
             {...(openInPane ? { 'data-open': '' } : {})}
@@ -276,12 +275,12 @@ const SessionRow = ({
                 </span>
               )}
             </span>
-          </button>
+          </Button>
 
           <span className={styles.rowMenu} {...(menu.at ? { 'data-open': '' } : {})}>
-            <button
+            <Button
               type="button"
-              className={styles.rowMenuButton}
+              variant="ghost" size="icon-sm" className={styles.rowMenuButton}
               aria-haspopup="menu"
               aria-expanded={menu.at !== null}
               onClick={menu.open}
@@ -289,7 +288,7 @@ const SessionRow = ({
               aria-label={`Actions for ${label}`}
             >
               <MoreIcon size={12} />
-            </button>
+            </Button>
           </span>
         </>
       )}
@@ -500,9 +499,9 @@ const GroupHead = ({
       onDragEnd={drag.onEnd}
       onContextMenu={menu.open}
     >
-      <button
+      <Button
         type="button"
-        className={styles.groupRow}
+        variant="navigation" size="navigation" className={styles.groupRow}
         {...(current ? { 'data-current': '' } : {})}
         onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
         title={`${current ? 'The folder this app is working in.\n' : ''}${group.root}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
@@ -523,20 +522,20 @@ const GroupHead = ({
         <span className={styles.groupName}>{group.name}</span>
         {pinned && <PinIcon size={11} className={styles.groupPin} />}
         <span className={styles.groupCount}>{group.sessions.length}</span>
-      </button>
+      </Button>
       <span className={styles.groupTools}>
-        <button
+        <Button
           type="button"
-          className={styles.groupAdd}
+          variant="ghost" size="icon-sm" className={styles.groupAdd}
           onClick={() => void store.startSessionIn(group.root)}
           title={`New session in ${group.name}`}
           aria-label={`New session in ${group.name}`}
         >
           <PlusIcon size={12} />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className={styles.groupAdd}
+          variant="ghost" size="icon-sm" className={styles.groupAdd}
           aria-haspopup="menu"
           aria-expanded={menu.at !== null}
           onClick={menu.open}
@@ -544,7 +543,7 @@ const GroupHead = ({
           aria-label={`Actions for ${group.name}`}
         >
           <MoreIcon size={12} />
-        </button>
+        </Button>
       </span>
       <WorkspaceMenu
         group={group}
@@ -652,9 +651,9 @@ const RoomRow = ({
           }
         }}
       >
-        <button
+        <Button
           type="button"
-          className={styles.roomTwisty}
+          variant="ghost" size="icon-sm" className={styles.roomTwisty}
           aria-expanded={open}
           aria-label={open ? `Hide the agents in ${room.name}` : `Show the agents in ${room.name}`}
           onClick={(event) => {
@@ -663,7 +662,7 @@ const RoomRow = ({
           }}
         >
           <ChevronIcon className={styles.groupChevron} size={11} {...(open ? { 'data-open': '' } : {})} />
-        </button>
+        </Button>
         <TeamIcon size={12} className={styles.roomIcon} />
         <span className={styles.groupName}>{room.name}</span>
         {/* A state and a size, and they must not read as one number. Drawn
@@ -698,9 +697,9 @@ const RoomRow = ({
             room is another thing this project holds and the two rows must not
             teach different habits. */}
         <span className={styles.rowMenu} {...(menu.at ? { 'data-open': '' } : {})}>
-          <button
+          <Button
             type="button"
-            className={styles.rowMenuButton}
+            variant="ghost" size="icon-sm" className={styles.rowMenuButton}
             aria-haspopup="menu"
             aria-expanded={menu.at !== null}
             onClick={(event) => {
@@ -711,7 +710,7 @@ const RoomRow = ({
             aria-label={`Actions for ${room.name}`}
           >
             <MoreIcon size={12} />
-          </button>
+          </Button>
         </span>
       </div>
       <ContextMenu at={menu.at} label={`Actions for ${room.name}`} onClose={menu.close}>
@@ -1235,15 +1234,15 @@ export const SessionTree = ({ now }: { now: number }) => {
               ),
             )}
             {!expanded.has(group.root) && loose.length > COLLAPSED_LIMIT && (
-              <button
+              <Button
                 type="button"
-                className={styles.showMore}
+                variant="row" size="row" className={styles.showMore}
                 onClick={() =>
                   setExpanded((current) => new Set(current).add(group.root))
                 }
               >
                 Show {loose.length - COLLAPSED_LIMIT} more
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -1284,9 +1283,9 @@ export const SessionTree = ({ now }: { now: number }) => {
       {near.map(renderGroup)}
       {far.length > 0 && (
         <>
-          <button
+          <Button
             type="button"
-            className={styles.otherProjects}
+            variant="row" size="row" className={styles.otherProjects}
             onClick={() => setOthersOpen(!othersOpen)}
             aria-expanded={othersOpen}
             {...(dragging && !far.some((group) => group.root === dragging)
@@ -1310,7 +1309,7 @@ export const SessionTree = ({ now }: { now: number }) => {
             <ChevronIcon className={styles.groupChevron} size={11} {...(othersOpen ? { 'data-open': '' } : {})} />
             Other projects
             <span className={styles.groupCount}>{far.length}</span>
-          </button>
+          </Button>
           {othersOpen && far.map(renderGroup)}
         </>
       )}

@@ -15,13 +15,13 @@
   font-size: var(--hd-text-sm);
   font-weight: 600;
   line-height: 1.5;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
   line-height: 1.5;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .error {
@@ -44,21 +44,20 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  background: none;
-  cursor: pointer;
+
+
+
+
+
+
 }
 
 .agent[data-on] {
-  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
 }
 
 .agentName {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .agentTick {
@@ -76,28 +75,26 @@
 
 .label {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* Monospaced because it is half git's output: a path that wraps mid-segment
    is a path nobody can check against the repository. */
 .prompt {
-  resize: vertical;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  background: none;
-  outline: none;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-xs);
-  line-height: 1.6;
-  color: var(--hdp-alias-label-primary);
+
+
+
+
+
+
+
+
+
+
   overflow-wrap: anywhere;
 }
 
 .prompt:focus {
-  box-shadow: inset 0 0 0 1px var(--hd-ring);
 }
 
 /* --- the refusal block --------------------------------------------------- */

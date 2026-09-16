@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 import type { RuntimeId, UserContent } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { Dialog } from '../design/primitives/Dialog'
-import { Btn } from '../design/primitives/Kit'
+import { Dialog } from '../design'
+import { Button, Textarea } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon, CheckIcon } from './Icons'
 import { troubleHeadline, troublePrompt, type GitTrouble } from '../lib/git-trouble'
@@ -80,12 +80,12 @@ export const AskAgentDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !runtime || prompt.trim().length === 0} onClick={start}>
+          <Button variant="default" disabled={busy || !runtime || prompt.trim().length === 0} onClick={start}>
             {busy ? 'Starting…' : 'Start session'}
-          </Btn>
-          <Btn disabled={busy} onClick={() => onDone(false)}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={() => onDone(false)}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -99,12 +99,12 @@ export const AskAgentDialog = ({
         ) : (
           <div className={styles.agents} role="radiogroup" aria-label="Which agent">
             {runtimes.map((entry) => (
-              <button
+              <Button
                 key={entry.id}
                 type="button"
                 role="radio"
                 aria-checked={runtime === entry.id}
-                className={styles.agent}
+                variant="choice" size="row" className={styles.agent}
                 {...(runtime === entry.id ? { 'data-on': '' } : {})}
                 onClick={() => setRuntime(entry.id)}
               >
@@ -115,15 +115,15 @@ export const AskAgentDialog = ({
                     <CheckIcon size={12} />
                   </span>
                 )}
-              </button>
+              </Button>
             ))}
           </div>
         )}
 
         <label className={styles.field}>
           <span className={styles.label}>What it will be asked — yours to edit</span>
-          <textarea
-            className={styles.prompt}
+          <Textarea
+            variant="editor" controlSize="compact" className={styles.prompt}
             value={prompt}
             rows={12}
             spellCheck={false}
@@ -160,10 +160,10 @@ export const TroubleNote = ({
   <div className={styles.trouble}>
     <span className={styles.troubleWhat}>{message}</span>
     {trouble && (
-      <Btn small className={styles.troubleDo} onClick={() => onAsk(trouble)}>
+      <Button variant="secondary" size="sm" className={styles.troubleDo} onClick={() => onAsk(trouble)}>
         <AgentIcon size={13} />
         Ask an agent to fix this
-      </Btn>
+      </Button>
     )}
   </div>
 )

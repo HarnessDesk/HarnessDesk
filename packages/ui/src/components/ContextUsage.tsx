@@ -13,8 +13,7 @@ import {
 import { describeLimits, formatReset } from '../lib/limits'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
 import styles from './ContextUsage.module.css'
-import { Menu, MenuLabel, MenuNote } from './Menu'
-import { Popover } from './Popover'
+import { Menu, MenuLabel, MenuNote, Popover } from '../design'
 
 /**
  * The ring beside the model: how full the context window is, for whichever

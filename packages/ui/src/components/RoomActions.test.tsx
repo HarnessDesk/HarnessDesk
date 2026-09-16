@@ -97,7 +97,7 @@ it('renames a room, and says the rename is only the label', async () => {
 
   expect(store.renameRoom).toHaveBeenCalledWith('room-1', 'Tax rounding')
   expect(onClose).toHaveBeenCalled()
-  expect(container.textContent).toContain('board, its members and everything said in it are untouched')
+  expect(document.body.textContent).toContain('board, its members and everything said in it are untouched')
 })
 
 it('a rename that changes nothing asks the host for nothing', async () => {
@@ -134,8 +134,8 @@ it('the delete names what goes, counted', () => {
   })
 
   // Jobs and messages, not entries: a signal is not something somebody wrote.
-  expect(container.textContent).toContain('2 jobs and 1 message')
-  expect(container.textContent).toContain('cannot be undone')
+  expect(document.body.textContent).toContain('2 jobs and 1 message')
+  expect(document.body.textContent).toContain('cannot be undone')
 })
 
 it('the delete says the conversations survive, which is the fear it answers', () => {
@@ -151,8 +151,8 @@ it('the delete says the conversations survive, which is the fear it answers', ()
     )
   })
 
-  expect(container.textContent).toContain('All 2 conversations in it leave the room and carry on')
-  expect(container.textContent).toContain('no transcript is touched')
+  expect(document.body.textContent).toContain('All 2 conversations in it leave the room and carry on')
+  expect(document.body.textContent).toContain('no transcript is touched')
 })
 
 it('one conversation is said in the singular', () => {
@@ -166,7 +166,7 @@ it('one conversation is said in the singular', () => {
       </StoreProvider>,
     )
   })
-  expect(container.textContent).toContain('The one conversation in it leaves the room and carries on')
+  expect(document.body.textContent).toContain('The one conversation in it leaves the room and carries on')
 })
 
 it('an empty room does not pretend to be losing something', () => {
@@ -178,8 +178,8 @@ it('an empty room does not pretend to be losing something', () => {
       </StoreProvider>,
     )
   })
-  expect(container.textContent).toContain('nothing on its board')
-  expect(container.textContent).toContain('No conversations are in it.')
+  expect(document.body.textContent).toContain('nothing on its board')
+  expect(document.body.textContent).toContain('No conversations are in it.')
 })
 
 it('deletes, and reports what the host said went', async () => {
@@ -221,5 +221,5 @@ it('stays open and says why when the host will not delete it', async () => {
   await settle()
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('no room room-1')
+  expect(document.body.textContent).toContain('no room room-1')
 })

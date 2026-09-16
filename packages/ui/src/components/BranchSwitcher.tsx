@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { BranchIcon, PlusIcon, SearchIcon } from './Icons'
-import { MenuItem, MenuLabel } from './Menu'
+import { Button, Input, MenuItem, MenuLabel } from '../design'
 import styles from './BranchSwitcher.module.css'
 
 /**
@@ -74,8 +74,8 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
       {branches && branches.length >= FILTER_FROM && (
         <div className={styles.search}>
           <SearchIcon size={14} className={styles.searchIcon} />
-          <input
-            className={styles.filter}
+          <Input
+            variant="quiet" controlSize="compact" className={styles.filter}
             placeholder={`Search ${folder} branches`}
             value={query}
             autoFocus
@@ -112,8 +112,8 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
             if (name.trim()) void checkout(name.trim(), true)
           }}
         >
-          <input
-            className={styles.filter}
+          <Input
+            variant="quiet" controlSize="compact" className={styles.filter}
             placeholder="new-branch-name"
             value={name}
             autoFocus
@@ -126,9 +126,9 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
               }
             }}
           />
-          <button type="submit" className={styles.createButton} disabled={!name.trim() || busy !== null}>
+          <Button type="submit" variant="default" size="sm" className={styles.createButton} disabled={!name.trim() || busy !== null}>
             Create
-          </button>
+          </Button>
         </form>
       ) : (
         <MenuItem

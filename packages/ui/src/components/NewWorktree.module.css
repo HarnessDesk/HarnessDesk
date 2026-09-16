@@ -117,13 +117,13 @@
 .filter {
   flex: 1;
   min-width: 0;
-  height: 26px;
-  border: none;
-  background: none;
-  color: var(--hd-foreground);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  outline: none;
+
+
+
+
+
+
+
 }
 
 /* The list scrolls rather than growing: a repository with forty branches
@@ -140,22 +140,20 @@
   align-items: center;
   gap: var(--hd-space-2);
   width: 100%;
-  padding: var(--hd-space-1-5) var(--hd-space-2);
-  border: none;
-  background: none;
-  color: var(--hd-foreground);
-  font: inherit;
-  font-size: var(--hd-text-sm);
+
+
+
+
+
+
   text-align: left;
-  cursor: pointer;
+
 }
 
 .branch:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .branch[data-selected] {
-  background: var(--hd-primary-muted);
 }
 
 .branchIcon {

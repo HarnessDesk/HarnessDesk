@@ -32,6 +32,12 @@ const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
    written to be deliberately un-Codex and answers "hearing: … done.", which is
    correct for the adapter's tests and unpublishable in a screenshot. */
 const AGENT = join(APP, 'script/shots/agent.mjs')
+// The native UI-system smoke needs one runtime that can host the integrated
+// terminal. In that run the built-in Codex adapter is pointed at its scripted
+// app-server fixture, so the camera-only ACP row must leave the `codex` id free.
+const REGISTERED_CAST = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
+  ? CAST.filter((agent) => agent.id !== 'codex')
+  : CAST
 
 export const HOME = process.env['HD_SHOTS_HOME'] ?? join(homedir(), '.harnessdesk-shots')
 /**
@@ -173,7 +179,7 @@ writeFileSync(
   join(HOME, 'agents.json'),
   `${JSON.stringify(
     {
-      agents: CAST.map((agent, n) => ({
+      agents: REGISTERED_CAST.map((agent, n) => ({
         id: agent.id,
         name: agent.name,
         brand: agent.brand,
@@ -214,5 +220,5 @@ writeFileSync(
   )}\n`,
 )
 
-say(`agents: ${CAST.length}  (${CAST.map((one) => one.name).join(', ')})`)
+say(`agents: ${REGISTERED_CAST.length} registered  (${REGISTERED_CAST.map((one) => one.name).join(', ')})`)
 say(`home:   ${HOME}`)

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -31,7 +32,7 @@ import { bindingLane, describeLane } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design/patterns/AgentCard'
+import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_OPEN_DELAY,
@@ -40,7 +41,7 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from '../design/ui'
+} from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
 
@@ -412,6 +413,7 @@ export const AgentHoverCard = ({
   /** The surface has nothing worth a card; the mark renders bare. */
   readonly disabled?: boolean
 }) => {
+  const triggerId = useId()
   const [open, setOpen] = useState(false)
   /* Where it opens — see `sideFor`. */
   const [placed, setPlaced] = useState<CardSide>(side ?? 'right')
@@ -605,68 +607,65 @@ export const AgentHoverCard = ({
   return (
     <HoverCard
       open={open}
-      onOpenChange={(next) => {
+      triggerId={triggerId}
+      onOpenChange={(next, details) => {
         if (next) ask()
+        else if (details.reason === 'trigger-focus' && resting.current) details.cancel()
         else setOpen(false)
       }}
     >
-      <HoverCardTrigger asChild>
-        {/* The card is supplementary — every fact on it is reachable through
-            the row's own action — so the trigger stays out of the tab order
-            rather than adding a stop before every row in a list of sixty. */}
-        <Trigger
-          ref={(node: HTMLElement | null) => {
-            /* Null between React letting go of one callback and taking up the
-               next, which is every render; only a different element counts. */
-            if (!node) return
-            if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
-            triggerRef.current = node
-          }}
-          className={className}
-          tabIndex={-1}
-          onPointerEnter={() => {
-            resting.current = true
-          }}
-          onPointerOver={(event: ReactPointerEvent<HTMLElement>) => {
-            const control = (event.target as Element).closest('[data-no-card]')
-            const onControl = control !== null && event.currentTarget.contains(control)
-            if (onControl === quiet.current) return
-            quiet.current = onControl
-            window.clearTimeout(again.current)
-            if (onControl) setOpen(false)
-            else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
-          }}
-          onPointerLeave={() => {
-            resting.current = false
-            pressed.current = false
-            quiet.current = false
-            window.clearTimeout(again.current)
-          }}
-          onPointerDown={() => {
-            pressed.current = true
-            window.clearTimeout(again.current)
-            setOpen(false)
-          }}
-          onFocus={(event: ReactFocusEvent<HTMLElement>) => {
-            /* Refused before Radix sees it: its handler runs after this one and
-               skips an event already prevented, so a row's focus neither opens
-               the card nor — on the way out — closes it. */
-            if (!openOnFocus) {
-              event.preventDefault()
-              return
-            }
-            focused.current = keyboard
-          }}
-          onBlur={(event: ReactFocusEvent<HTMLElement>) => {
-            if (!openOnFocus) {
-              event.preventDefault()
-              return
-            }
-            focused.current = false
-          }}
-        >
-          {children}
-        </Trigger>
+      <HoverCardTrigger
+        id={triggerId}
+        render={
+          <Trigger
+            ref={(node: HTMLElement | null) => {
+              if (!node) return
+              if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
+              triggerRef.current = node
+            }}
+            className={className}
+            tabIndex={-1}
+            onPointerEnter={() => {
+              resting.current = true
+            }}
+            onPointerOver={(event: ReactPointerEvent<HTMLElement>) => {
+              const control = (event.target as Element).closest('[data-no-card]')
+              const onControl = control !== null && event.currentTarget.contains(control)
+              if (onControl === quiet.current) return
+              quiet.current = onControl
+              window.clearTimeout(again.current)
+              if (onControl) setOpen(false)
+              else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
+            }}
+            onPointerLeave={() => {
+              resting.current = false
+              pressed.current = false
+              quiet.current = false
+              window.clearTimeout(again.current)
+            }}
+            onPointerDown={() => {
+              pressed.current = true
+              window.clearTimeout(again.current)
+              setOpen(false)
+            }}
+            onFocus={(event: ReactFocusEvent<HTMLElement>) => {
+              if (!openOnFocus) {
+                event.preventDefault()
+                return
+              }
+              focused.current = keyboard
+            }}
+            onBlur={(event: ReactFocusEvent<HTMLElement>) => {
+              if (!openOnFocus) {
+                event.preventDefault()
+                return
+              }
+              focused.current = false
+            }}
+          />
+        }
+      >
+        {children}
       </HoverCardTrigger>
       {/* `body()` builds an element; Radix's portal keeps it unmounted until
           the card opens, so the hooks inside it — the store subscription and

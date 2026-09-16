@@ -104,7 +104,12 @@ export const COLLECT = `(() => {
   for (const element of document.querySelectorAll('[title], [alt]')) {
     for (const name of ['title', 'alt']) {
       const value = element.getAttribute(name)
-      if (value) attributes.push([name, value])
+      if (value) attributes.push([
+        name,
+        value,
+        element.tagName?.toLowerCase?.() ?? 'unknown',
+        typeof element.className === 'string' ? element.className : '',
+      ])
     }
   }
   return {
@@ -154,7 +159,11 @@ export const textReasons = ({ text, documentTitle, attributes }, { user } = {}) 
     // The article is picked rather than fixed: these names are read by whoever
     // is holding up a take, and "a alt attribute" reads as a broken message
     // about a broken frame.
-    ...(attributes ?? []).map(([name, value]) => [`${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} attribute`, value]),
+    ...(attributes ?? []).map(([name, value, tag, className]) => [
+      `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} attribute` +
+        (tag ? ` on ${tag}${className ? `.${String(className).trim().replace(/\s+/g, '.')}` : ''}` : ''),
+      value,
+    ]),
   ]
   const reasons = []
   for (const [where, value] of places) {

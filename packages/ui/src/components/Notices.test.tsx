@@ -137,7 +137,7 @@ const dismiss = (): HTMLButtonElement | null =>
   container.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')
 
 const menuItem = (label: string): HTMLElement | null =>
-  [...container.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(
+  [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(
     (row) => row.textContent?.includes(label) ?? false,
   ) ?? null
 
@@ -329,5 +329,4 @@ it('reads the pane runtime account rather than singular default agent account', 
 
   expect(container.textContent).toContain('Agent B is not signed in')
 })
-
 

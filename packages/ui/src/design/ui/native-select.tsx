@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import { cva, type VariantProps } from 'class-variance-authority'
 
 import { CaretIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
@@ -13,15 +14,40 @@ import { cn } from '@/lib/utils'
  * platform's own element does everything needed; this only makes it look
  * like it belongs beside the other controls.
  */
+const nativeSelectVariants = cva(
+  'w-full appearance-none rounded-md border bg-transparent pr-7 pl-2.5 text-sm transition-colors outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30',
+  {
+    variants: {
+      variant: {
+        default: 'border-input',
+        filled: 'border-(--hd-border) bg-(--hd-muted)',
+      },
+      size: {
+        default: 'h-(--hd-field-h)',
+        compact: 'h-6',
+      },
+    },
+    defaultVariants: { variant: 'default', size: 'default' },
+  },
+)
+
+type NativeSelectVariants = VariantProps<typeof nativeSelectVariants>
+type NativeSelectProps = React.ComponentProps<'select'> & {
+  variant?: NonNullable<NativeSelectVariants['variant']>
+  controlSize?: NonNullable<NativeSelectVariants['size']>
+}
+
 const NativeSelect = ({
   className,
   children,
+  variant = 'default',
+  controlSize = 'default',
   ...props
-}: React.ComponentProps<'select'>) => (
+}: NativeSelectProps) => (
   <span data-slot="native-select" className={cn('relative inline-flex', className)}>
     <select
       data-slot="native-select-control"
-      className="border-input h-(--hd-field-h) w-full appearance-none rounded-md border bg-transparent pr-7 pl-2.5 text-sm transition-colors outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+      className={nativeSelectVariants({ variant, size: controlSize })}
       {...props}
     >
       {children}
@@ -35,4 +61,4 @@ const NativeSelect = ({
   </span>
 )
 
-export { NativeSelect }
+export { NativeSelect, nativeSelectVariants, type NativeSelectProps }

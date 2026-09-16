@@ -30,7 +30,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from './Icons'
-import { PageHead, kit } from '../design/primitives/Kit'
+import { CodeText, PageHead } from '../design'
 import {
   Button,
   EmptyState,
@@ -42,7 +42,7 @@ import {
   TooltipContent,
   TooltipTrigger,
   Input,
-} from '../design/ui'
+} from '../design'
 import {
   installSource,
   LibraryFlows,
@@ -672,26 +672,30 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           }}
         >
           <Tooltip>
-            <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value="list"
-                aria-label="Show each entry as a row"
-                className={SWITCH_ITEM}
-              >
-                <RowsLooseIcon size={13} />
-              </ToggleGroupItem>
+            <TooltipTrigger
+              render={
+                <ToggleGroupItem
+                  value="list"
+                  aria-label="Show each entry as a row"
+                  className={SWITCH_ITEM}
+                />
+              }
+            >
+              <RowsLooseIcon size={13} />
             </TooltipTrigger>
             <TooltipContent>List — read what each one does</TooltipContent>
           </Tooltip>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value="matrix"
-                aria-label="Show every entry against every agent"
-                className={SWITCH_ITEM}
-              >
-                <MatrixIcon size={13} />
-              </ToggleGroupItem>
+            <TooltipTrigger
+              render={
+                <ToggleGroupItem
+                  value="matrix"
+                  aria-label="Show every entry against every agent"
+                  className={SWITCH_ITEM}
+                />
+              }
+            >
+              <MatrixIcon size={13} />
             </TooltipTrigger>
             <TooltipContent>Matrix — every entry against every agent</TooltipContent>
           </Tooltip>
@@ -1122,10 +1126,10 @@ const Entry = ({
   <>
     <tr className={styles.row} {...(open ? { 'data-open': '' } : {})}>
       <th scope="row" className={styles.name}>
-        <button type="button" className={styles.nameButton} onClick={onToggle} aria-expanded={open}>
+        <Button type="button" variant="link" size="content" className={styles.nameButton} onClick={onToggle} aria-expanded={open}>
           <span className={styles.title}>{entry.title ?? entry.name}</span>
           {entry.description && <span className={styles.desc}>{entry.description}</span>}
-        </button>
+        </Button>
       </th>
       {entry.reach.map((reach, index) => {
         const runtime = columns[index]
@@ -1156,9 +1160,9 @@ const Entry = ({
               {entry.copies.map((copy) => {
                 const order = orderOf(copy)
                 return (
-                  <li key={copy.path} className={styles.copy}>
+                  <li key={copy.path} className={`${styles.copy} group/copy`}>
                     <span className={styles.copyLine}>
-                      <code className={kit.mono}>{shortPath(copy.path, home)}</code>
+                      <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
                       {order.wins.length > 0 && (
                         <span
                           className={styles.orderChip}
@@ -1178,9 +1182,8 @@ const Entry = ({
                       )}
                       {entry.kind === 'skill' && !copy.readOnly && (
                         <Button
-                          variant="ghost"
+                          variant="reveal"
                           size="icon-sm"
-                          className={styles.copyRemove}
                           aria-label={`Remove the copy at ${copy.path}`}
                           title="Remove this copy — previewed first, backed up before it goes"
                           onClick={() =>
@@ -1196,9 +1199,8 @@ const Entry = ({
                       )}
                       {entry.kind === 'mcp' && (
                         <Button
-                          variant="ghost"
+                          variant="reveal"
                           size="icon-sm"
-                          className={styles.copyRemove}
                           aria-label={`Remove ${entry.name} from ${copy.path}`}
                           title="Remove this declaration — previewed first, backed up before it goes"
                           onClick={() =>

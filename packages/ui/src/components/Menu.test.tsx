@@ -2,8 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ContextMenu, Menu, MenuItem, MenuToggle, Submenu, useContextMenu } from './Menu'
-import { dismissOverlays } from './Popover'
+import { ContextMenu, Menu, MenuItem, MenuToggle, Submenu, dismissOverlays, useContextMenu } from '../design'
 
 /**
  * The menu's contract, exercised through the DOM: a row closes the menu or
@@ -79,7 +78,7 @@ describe('Menu rows', () => {
     expect(row('High').getAttribute('role')).toBe('menuitemradio')
     expect(row('High').getAttribute('aria-checked')).toBe('true')
     expect(row('Low').getAttribute('aria-checked')).toBe('false')
-    expect(row('Max').disabled).toBe(true)
+    expect(row('Max').getAttribute('aria-disabled')).toBe('true')
     expect(row('Max').textContent).toContain('Policy forbids it.')
   })
 
@@ -141,10 +140,24 @@ describe('Menu rows', () => {
     expect(document.activeElement).toBe(row('Two'))
     key(row('Two'), 'ArrowUp')
     expect(document.activeElement).toBe(row('One'))
-    key(row('One'), 'ArrowUp')
+    key(row('One'), 'End')
     expect(document.activeElement).toBe(row('Three'))
     key(row('Three'), 'Home')
     expect(document.activeElement).toBe(row('One'))
+  })
+
+  it('Escape closes the composed menu through its owning surface', () => {
+    const close = vi.fn()
+    act(() => {
+      root.render(
+        <Menu close={close}>
+          <MenuItem label="One" onSelect={() => {}} />
+        </Menu>,
+      )
+    })
+    act(() => row('One').focus())
+    key(row('One'), 'Escape')
+    expect(close).toHaveBeenCalledOnce()
   })
 })
 
@@ -192,7 +205,8 @@ describe('Submenu', () => {
     expect(document.activeElement).toBe(row('More models'))
   })
 
-  it('hovering a sibling row closes it', () => {
+  it('hovering a sibling row closes it', async () => {
+    vi.useFakeTimers()
     act(() => {
       root.render(
         <Menu close={() => {}}>
@@ -206,14 +220,15 @@ describe('Submenu', () => {
     click(row('Effort'))
     expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
     act(() => {
-      row('Plain').dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))
+      row('Plain').dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))
     })
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
     expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
   })
 })
 
 describe('ContextMenu', () => {
-  it('renders at the point it was asked for, and nothing when it was not', () => {
+  it('renders through the Base UI fixed positioner at the point it was asked for, and nothing when it was not', async () => {
     const onClose = vi.fn()
     act(() => {
       root.render(
@@ -232,9 +247,10 @@ describe('ContextMenu', () => {
     })
     const panel = document.querySelector<HTMLElement>('[role="menu"]')
     expect(panel?.getAttribute('aria-label')).toBe('Actions')
-    expect(panel?.style.left).toBe('40px')
-    expect(panel?.style.top).toBe('50px')
+    const positioner = document.querySelector<HTMLElement>('[data-slot="dropdown-menu-positioner"]')
+    expect(positioner?.style.position).toBe('fixed')
     // The first row takes focus so the keyboard works at once.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     expect(document.activeElement).toBe(row('Pin'))
   })
 
@@ -270,7 +286,7 @@ describe('ContextMenu', () => {
     expect(onClose).toHaveBeenCalledTimes(3)
   })
 
-  it('asked to give focus back, it gives it to what had it before the menu took it — and only when asked', () => {
+  it('asked to give focus back, it gives it to what had it before the menu took it — and only when asked', async () => {
     /* It opens at a point, with no trigger to return to. The floating sidebar
        keeps what had focus as the place to come back to, and a row unmounted
        in between is nowhere. */
@@ -284,6 +300,7 @@ describe('ContextMenu', () => {
         </ContextMenu>,
       )
     })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     expect(document.activeElement).toBe(row('Pin'))
 
     act(() => dismissOverlays())
@@ -316,8 +333,7 @@ describe('ContextMenu', () => {
     expect(event.defaultPrevented).toBe(true)
     const panel = document.querySelector<HTMLElement>('[role="menu"]')
     expect(panel).not.toBeNull()
-    expect(panel?.style.left).toBe('77px')
-    expect(panel?.style.top).toBe('88px')
+    expect(document.querySelector<HTMLElement>('[data-slot="dropdown-menu-positioner"]')?.style.position).toBe('fixed')
     expect(row('Rename')).toBeDefined()
     expect(row('Archive')).toBeDefined()
   })

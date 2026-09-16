@@ -37,14 +37,14 @@ const ComposerShell = ({ className, ...props }: React.ComponentProps<'div'>) => 
     data-slot="composer"
     className={cn(
       'flex flex-col rounded-(--hd-radius-lg) bg-(--hd-card)',
-      'shadow-[0_1px_3px_rgba(0,0,0,0.06)] ring-1 ring-(--hdp-alias-border-l3) ring-inset',
+      'shadow-[0_1px_3px_rgba(0,0,0,0.06)] ring-1 ring-(--hd-border-emphasis) ring-inset',
       // The focused shadow carries `--hd-composer-ring` ahead of it, exactly as
       // the module does. Under Desk that token is `none` and this is one
       // shadow; under Studio it is the app's focus ring, and without it here
       // the two composers announced focus differently in the same interface —
       // one of them one keystroke from the other.
       'transition-shadow focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),0_2px_10px_rgba(0,0,0,0.08)]',
-      'focus-within:ring-(--hdp-alias-border-l4)',
+      'focus-within:ring-(--hd-border-heavy)',
       className,
     )}
     {...props}
@@ -135,7 +135,7 @@ const ComposerSend = ({ className, ...props }: React.ComponentProps<'button'>) =
       'transition-[background,transform] hover:bg-(--hd-solid-hover) active:scale-90',
       'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-(--hd-solid)',
       'data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)]',
-      'data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hdp-alias-label-primary))]',
+      'data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hd-foreground))]',
       'data-[when=later]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--hd-accent)_78%,transparent)]',
       'data-[when=later]:hover:bg-[color-mix(in_srgb,var(--hd-accent)_32%,transparent)]',
       '[&_svg]:size-4',

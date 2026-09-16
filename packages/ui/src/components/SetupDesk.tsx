@@ -5,7 +5,7 @@ import type { RuntimeId } from '@harnessdesk/protocol'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { Btn } from '../design/primitives/Kit'
+import { Button } from '../design'
 import styles from './SetupDesk.module.css'
 
 /**
@@ -83,13 +83,13 @@ export const SetupDesk = ({
               </span>
               <span className={styles.rowAction}>
                 {state === 'signin' ? (
-                  <Btn small variant="primary" onClick={() => onSignIn(info.id)}>
+                  <Button size="sm" variant="default" onClick={() => onSignIn(info.id)}>
                     Sign in
-                  </Btn>
+                  </Button>
                 ) : state === 'ready' && info.id !== snapshot.activeRuntime ? (
-                  <Btn small onClick={() => void store.selectRuntime(info.id)}>
+                  <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
                     Use this agent
-                  </Btn>
+                  </Button>
                 ) : null}
               </span>
             </div>
@@ -98,9 +98,9 @@ export const SetupDesk = ({
       </div>
       <p className={styles.foot}>
         Another agent on this machine?{' '}
-        <button type="button" className={styles.footLink} onClick={onOpenAgents}>
+        <Button variant="link" size="content" className={styles.footLink} onClick={onOpenAgents}>
           Add an agent…
-        </button>
+        </Button>
       </p>
     </>
   )

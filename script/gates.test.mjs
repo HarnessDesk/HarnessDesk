@@ -330,37 +330,48 @@ test("a comment's divider becomes a heading rather than a rule and a stray line"
   assert.doesNotMatch(out, /^-{10,}$/m)
 })
 
-test('compareBaseline catches non-numeric baseline values and prevents vacuous pass (#400)', () => {
-  const mockCounts = {
+test('compareBaseline requires a complete numeric zero baseline and zero current drift (#400)', () => {
+  const cleanCounts = {
     wrongVariant: 0,
     missingClass: 0,
     forkedToken: 0,
-    handRolledOverlay: 4,
-    looseTarget: 11,
-    looseIcon: 3,
+    handRolledOverlay: 0,
+    looseTarget: 0,
+    looseIcon: 0,
     danglingToken: 0,
-    crossImport: 11,
-    rawRadius: 49,
-    offGrid: 185,
-    rawColour: 8,
-    arbitraryUtility: 6,
+    crossImport: 0,
+    rawRadius: 0,
+    offGrid: 0,
+    rawColour: 0,
+    arbitraryUtility: 0,
   }
 
   // A malformed baseline with string/non-numeric values
-  const malformedBaseline = { ...mockCounts, offGrid: 'nan' }
-  const result = compareBaseline(mockCounts, malformedBaseline)
+  const malformedBaseline = { ...cleanCounts, offGrid: 'nan' }
+  const result = compareBaseline(cleanCounts, malformedBaseline)
   assert.equal(result.worse, true)
   assert.ok(result.problems.some((p) => p.message.includes('not a valid number')))
 
   // Missing entry in baseline
-  const missingBaseline = { ...mockCounts }
+  const missingBaseline = { ...cleanCounts }
   delete missingBaseline.offGrid
-  const missingResult = compareBaseline(mockCounts, missingBaseline)
+  const missingResult = compareBaseline(cleanCounts, missingBaseline)
   assert.equal(missingResult.worse, true)
   assert.ok(missingResult.problems.some((p) => p.message.includes('Missing baseline entry')))
 
-  // Valid baseline with no drift passes
-  const validResult = compareBaseline(mockCounts, mockCounts)
+  // Editing the baseline cannot accept existing debt.
+  const raisedBaseline = { ...cleanCounts, offGrid: 1 }
+  const raisedResult = compareBaseline(cleanCounts, raisedBaseline)
+  assert.equal(raisedResult.worse, true)
+  assert.ok(raisedResult.problems.some((p) => p.message.includes('must be zero')))
+
+  // A zero baseline still fails any current finding.
+  const driftResult = compareBaseline({ ...cleanCounts, offGrid: 1 }, cleanCounts)
+  assert.equal(driftResult.worse, true)
+  assert.ok(driftResult.problems.some((p) => p.message.includes('requires zero')))
+
+  // Only a complete zero baseline with a clean scan passes.
+  const validResult = compareBaseline(cleanCounts, cleanCounts)
   assert.equal(validResult.worse, false)
   assert.equal(validResult.problems.length, 0)
 })
@@ -809,6 +820,18 @@ test('the audit reads a stylesheet imported from another folder, and one behind 
     'screens/one/One.tsx imports ../../design/ui/kit.module.css',
     'screens/one/One.tsx imports @/design/ui/kit.module.css (../../design/ui/kit.module.css)',
   ])
+})
+
+test('a shared feature stylesheet names every co-owner explicitly', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-owner-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const dir = path.join(root, 'components')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'Family.module.css'), '/* @design-owners Child */\n.row { display: flex; }\n')
+  const allowed = sheetsOf(dir, path.join(dir, 'Child.tsx'), 'components/Child.tsx', "import styles from './Family.module.css'", root)
+  const refused = sheetsOf(dir, path.join(dir, 'Stranger.tsx'), 'components/Stranger.tsx', "import styles from './Family.module.css'", root)
+  assert.deepEqual(allowed.crossImports, [])
+  assert.equal(refused.crossImports.length, 1)
 })
 
 test('a glob that ends in a double star takes the rest of the path (#263)', () => {
@@ -1292,12 +1315,21 @@ test('distSegments refuses a wildcard where it reads a fixed segment (#269)', ()
 
 test('tracked text files contain no raw NUL bytes (#360)', () => {
   const extensions = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|css|html|yml|yaml|sh|py|toml)$/
-  const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
+  const files = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard'],
+    { cwd: repoRoot, encoding: 'utf8' },
+  )
     .split('\n')
     .filter((file) => extensions.test(file))
   const withNul = []
   for (const file of files) {
-    const buf = fs.readFileSync(path.resolve(repoRoot, file))
+    const resolved = path.resolve(repoRoot, file)
+    // The index still names a deletion until it is staged. That file is not
+    // part of the working tree being verified; conversely, new untracked
+    // source is, and is included by the command above.
+    if (!fs.existsSync(resolved)) continue
+    const buf = fs.readFileSync(resolved)
     if (buf.includes(0)) withNul.push(file)
   }
   assert.deepEqual(withNul, [])

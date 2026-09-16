@@ -5,7 +5,7 @@ import type { AuditRow } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import type { ReportFoot } from './Details'
 import { AlertIcon, CheckIcon, SessionIcon, ShieldIcon, ZapIcon } from './Icons'
-import { kit } from '../design/primitives/Kit'
+import { AccountMark } from '../design'
 import { DayLabel, PanelEmpty, PanelRow, RowTime } from './Panel'
 
 /**
@@ -155,9 +155,9 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
               <PanelRow
                 key={`${row.at}-${index}`}
                 mark={
-                  <span className={`${kit.avatar} ${kit.avatarSm}`}>
+                  <AccountMark size="sm">
                     {info ? <RuntimeMark runtime={info} size={12} /> : iconOf(row)}
-                  </span>
+                  </AccountMark>
                 }
                 title={describe(row)}
                 sub={nameOf(row.runtime)}

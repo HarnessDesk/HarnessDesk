@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useMemo } from 'react'
 
 import type { Session, Turn } from '@harnessdesk/protocol'
@@ -7,7 +8,7 @@ import { formatTokens } from '../lib/context-usage'
 import { delegatedIn, summariseTurn } from '../lib/turn-summary'
 import { openExternal } from '../lib/desktop'
 import { useStore } from '../state/context'
-import { KindGlyph } from '../design/patterns/PublicationCard'
+import { KindGlyph } from '../design'
 import { AlertIcon, CheckIcon, DiffIcon, QuestionIcon, TerminalIcon } from './Icons'
 import { MessageActions } from './MessageActions'
 import styles from './Conversation.module.css'
@@ -121,9 +122,9 @@ export const TurnTail = ({
       {summary && (
         <div className={styles.turnSummary} role="status">
           {summary.files.length > 0 && !hideFiles && (
-            <button
+            <Button
               type="button"
-              className={styles.turnSummaryItem}
+              variant="quiet" size="content" className={styles.turnSummaryItem}
               onClick={() => store.setDetailsTab('changes')}
               title={summary.files.join('\n')}
             >
@@ -133,7 +134,7 @@ export const TurnTail = ({
                   ? summary.files[0]
                   : `${summary.files.length} files · ${summary.files.slice(0, 2).join(', ')}${summary.files.length > 2 ? ', …' : ''}`}
               </span>
-            </button>
+            </Button>
           )}
           {summary.commands > 0 && (
             <span className={styles.turnSummaryItem} data-static="">
@@ -178,10 +179,10 @@ export const TurnTail = ({
           {/* What the turn put on the forge, each a door to the page. The
               verb is the transcript row's; here the number is enough. */}
           {summary.published.map((reference, index) => (
-            <button
+            <Button
               key={`${reference.url}-${index}`}
               type="button"
-              className={styles.turnSummaryItem}
+              variant="quiet" size="content" className={styles.turnSummaryItem}
               onClick={() => openExternal(reference.url)}
               title={reference.title ?? reference.url}
             >
@@ -195,7 +196,7 @@ export const TurnTail = ({
                       ? `updated #${reference.number}`
                       : `opened #${reference.number}`}
               </span>
-            </button>
+            </Button>
           ))}
           {summary.question && (
             <span className={styles.turnSummaryItem} data-static="" data-tone="ask">

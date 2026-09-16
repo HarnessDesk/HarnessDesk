@@ -1,3 +1,4 @@
+import { Button, Textarea } from '../design'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
@@ -78,9 +79,9 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
     return (
       <li className={styles.item}>
         {bullet}
-        <textarea
+        <Textarea
           ref={field}
-          className={styles.input}
+          variant="composer" controlSize="composer" className={styles.input}
           value={draft}
           rows={1}
           aria-label={`Task: ${todo.label}`}
@@ -108,9 +109,10 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
   return (
     <li className={styles.item}>
       {bullet}
-      <button
+      <Button
         type="button"
-        className={`${styles.label} ${todo.done ? styles.doneLabel : ''}`}
+        variant="row" size="row" className={styles.label}
+        {...(todo.done ? { 'data-done': '' } : {})}
         title={
           todo.edited
             ? `You reworded this. The agent wrote “${todo.source}”, and is told your wording with your next message.`
@@ -123,7 +125,7 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
         {/* The panel is a read of the conversation, so where it is showing
             something the conversation does not say, it says so. */}
         {todo.edited && <span className={styles.edited}>edited</span>}
-      </button>
+      </Button>
     </li>
   )
 }

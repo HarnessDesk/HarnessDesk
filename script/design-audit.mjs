@@ -7,14 +7,12 @@
  * has already happened, so the drift is a number that can be driven to zero
  * instead of a feeling that things look a bit inconsistent.
  *
- * It reports; it does not fail. The findings below are the state of the app
- * as it stands, and fixing them is a migration to be done deliberately —
- * `--strict` fails on anything worse than the recorded baseline, which is how
- * this becomes a gate once the burn-down starts.
+ * It reports by default. In strict mode every category must be zero; a saved
+ * baseline is schema documentation, never permission to carry design debt.
  *
  *   node script/design-audit.mjs            report
- *   node script/design-audit.mjs --strict   fail if worse than the baseline
- *   node script/design-audit.mjs --baseline rewrite the baseline
+ *   node script/design-audit.mjs --strict   fail on any finding
+ *   node script/design-audit.mjs --baseline record zero only after a clean scan
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -44,12 +42,15 @@ const UI_SRC = path.join(root, 'packages/ui/src')
 /**
  * The foundation is not a screen, and must not be audited as one.
  *
- * `styles/` and the `design/` root are where tokens are declared — that is
- * their entire job, and `forkedToken` exists to stop a *screen* doing it. The
- * platform stylesheet in `styles/` is vendored besides, so its raw values are
- * upstream's to spell.
+ * `styles/` and `design/foundation/` are where tokens and theme presets are
+ * declared — that is their entire job. Canonical components, patterns, the
+ * catalog, and showcase are deliberately not excluded: moving a literal into
+ * the design directory must never make a finding disappear.
  */
-const NOT_UI = new Set([path.join(UI_SRC, 'styles'), path.join(UI_SRC, 'design')])
+const NOT_UI = new Set([
+  path.join(UI_SRC, 'styles'),
+  path.join(UI_SRC, 'design', 'foundation'),
+])
 
 /**
  * Found, not listed.
@@ -158,7 +159,16 @@ const findings = {
  * swapping the icon set must not change a chart. The rule this file enforces
  * is "one place decides what a symbol looks like"; a sparkline has no symbol.
  */
-const ICON_MODULES = new Set(['Icons.tsx', 'BrandIcons.tsx', 'spark.tsx'])
+const ICON_MODULES = new Set([
+  'Icons.tsx',
+  'BrandIcons.tsx',
+  'spark.tsx',
+  // Data marks and illustrations are not glyphs. They remain local because
+  // their paths are the content being rendered, not a replaceable icon set.
+  'chart.tsx',
+  'AppearancePreview.tsx',
+  'GitPane.tsx',
+])
 
 /** Where the primitives live: the one place allowed to define an overlay. */
 const PRIMITIVES = path.join(root, 'packages/ui/src/design/primitives')
@@ -294,9 +304,13 @@ export const sheetsOf = (dir, file, name, source, uiSrc) => {
   // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
   for (const { binding, file: spec } of stylesheetImports(source, file, { strict: true })) {
     const sheet = resolveStylesheet(dir, spec, uiSrc)
-    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
-    if (!ownsStylesheet(file, sheet)) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
     const target = path.join(dir, sheet)
+    const declaredOwners = fs.existsSync(target)
+      ? /@design-owners\s+([^\n*]+)/.exec(read(target))?.[1]?.split(',').map((owner) => owner.trim()) ?? []
+      : []
+    const declared = declaredOwners.includes(path.basename(file, path.extname(file)))
+    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
+    if (!ownsStylesheet(file, sheet) && !declared) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
     if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
   }
   return { sheets, crossImports }
@@ -501,6 +515,10 @@ const counts = Object.fromEntries(SECTIONS.map(([key]) => [key, findings[key].le
 const total = Object.values(counts).reduce((sum, n) => sum + n, 0)
 
 if (process.argv.includes('--baseline')) {
+  if (total !== 0) {
+    console.error(`Refusing to record a non-zero design baseline (${total} findings). Fix the drift first.`)
+    process.exit(1)
+  }
   fs.writeFileSync(BASELINE, `${JSON.stringify(counts, null, 2)}\n`)
   console.log('baseline written:', counts)
   process.exit(0)
@@ -514,9 +532,8 @@ const verbose = process.argv.includes('--verbose')
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 /**
- * Compares current audit counts against baseline counts.
- * Throws or returns validation problems if baseline values are non-numeric,
- * and reports whether any section grew worse.
+ * Validates the zero baseline and reports any current finding. A non-zero
+ * baseline is itself invalid: debt cannot be accepted by editing the ledger.
  */
 export const compareBaseline = (counts, baseline) => {
   const problems = []
@@ -539,8 +556,17 @@ export const compareBaseline = (counts, baseline) => {
       worse = true
       continue
     }
+    if (was !== 0) {
+      problems.push({
+        key,
+        title,
+        was,
+        message: `Baseline value for '${key}' must be zero, received ${was}`,
+      })
+      worse = true
+    }
     const current = counts[key] ?? 0
-    if (current > was) {
+    if (current > 0) {
       worse = true
       problems.push({
         key,
@@ -548,7 +574,7 @@ export const compareBaseline = (counts, baseline) => {
         was,
         current,
         fix,
-        message: `${title}: ${was} -> ${current}. New drift is not accepted.`,
+        message: `${title}: ${current}. The strict design gate requires zero.`,
       })
     }
   }

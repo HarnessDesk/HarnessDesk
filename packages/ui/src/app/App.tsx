@@ -9,7 +9,7 @@ import { shortcutFor } from '../lib/shortcuts'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ImportOffer } from '../components/ImportOffer'
-import { Toaster } from '../design/ui'
+import { Toaster } from '../design'
 import { Notices, StatusBanner } from '../components/Notices'
 import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette } from '../components/CommandPalette'
@@ -20,6 +20,7 @@ import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
 import { Usage } from '../components/Usage'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { sidebarPlacement } from '../state/workbench'
 import { useTheme } from '../state/theme'
 
 /**
@@ -68,6 +69,13 @@ export const App = () => {
   // The resolved face, for anything that needs telling rather than styling —
   // Sonner paints its own surface and takes the theme as a value.
   const theme = useTheme()
+  // A standing banner belongs to the pane being read, not to the whole
+  // window. Centring it across the window let a wide banner cover the
+  // sidebar at supported-but-small window sizes. Move the notice rail past
+  // the sidebar only while the sidebar actually owns a column; a floating or
+  // hidden sidebar deliberately leaves it centred on the page underneath.
+  const noticeLeft =
+    sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
 
   // One way to choose a folder per build: the desktop app uses the system
   // dialog, as Claude Code and Codex do; the browser build, which has none,
@@ -323,7 +331,12 @@ export const App = () => {
               is so marked inert with the conversation, so this stack goes
               under its curtain wherever it is drawn, and a notice raised while
               the sidebar is open arrives inside something already inert. */}
-          <div className="hd-floatingNotices" data-over-conversation ref={notices}>
+          <div
+            className="hd-floatingNotices"
+            data-over-conversation
+            ref={notices}
+            style={{ left: `${noticeLeft}px` }}
+          >
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
             <ImportOffer
               onReview={() => {

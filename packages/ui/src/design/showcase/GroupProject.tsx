@@ -196,13 +196,13 @@ export const GroupProject = () => {
           <div className={styles.pickerLabel}>Add a harness to this project</div>
           <div className={styles.pickerGrid}>
             {AVAILABLE.map((one) => (
-              <button key={one.name} type="button" className={styles.pickerItem}>
+              <Button variant="ghost" size="sm" key={one.name} type="button" className={styles.pickerItem}>
                 <IconTile size="sm">
                   <BrandMark brand={one.brand} size={13} />
                 </IconTile>
                 <span className={styles.pickerName}>{one.name}</span>
                 <span className={styles.pickerNote}>{one.note}</span>
-              </button>
+              </Button>
             ))}
           </div>
         </Section>
@@ -445,7 +445,7 @@ const TaskCard = ({
         holder ? (
           /* The harness, pressable. This is the edge of the triangle: from a
              task to the conversation doing it, in one press. */
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             className={styles.holder}
             onClick={() => onOpenAgent(holder.id)}
@@ -456,14 +456,14 @@ const TaskCard = ({
             </IconTile>
             <span className={styles.holderName}>{holder.name}</span>
             <span className={styles.holderModel}>{holder.model}</span>
-          </button>
+          </Button>
         ) : (
           /* Unclaimed is where the heterogeneity becomes a decision rather
              than a fact: the row is the list of harnesses you could put on it. */
           <div className={styles.claim}>
             <span className={styles.claimLabel}>Claim with</span>
             {AGENTS.map((one) => (
-              <button
+              <Button variant="ghost" size="sm"
                 key={one.id}
                 type="button"
                 className={styles.claimMark}
@@ -472,7 +472,7 @@ const TaskCard = ({
                 onClick={() => onClaim(task.id, one.id)}
               >
                 <BrandMark brand={one.brand} size={13} />
-              </button>
+              </Button>
             ))}
           </div>
         )
@@ -525,12 +525,12 @@ const Conversation = ({
     {/* The third edge: the conversation names its task and offers the way
         back, so the triangle closes rather than stranding the reader. */}
     {task && (
-      <button type="button" className={styles.onTask} onClick={onBackToBoard}>
+      <Button variant="ghost" size="sm" type="button" className={styles.onTask} onClick={onBackToBoard}>
         <ArrowLeftIcon aria-hidden />
         <PlanIcon aria-hidden />
         <span className={styles.onTaskTitle}>{task.title}</span>
         <span className={styles.onTaskBack}>Back to board</span>
-      </button>
+      </Button>
     )}
 
     <div className={styles.messages}>

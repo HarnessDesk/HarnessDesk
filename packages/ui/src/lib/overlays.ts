@@ -10,9 +10,8 @@
  * where they were and where they disagreed.
  *
  * Deliberately free of React and of the app: the primitives are a subscribe and
- * a push, so a component anywhere can take part — including the vendored Radix
- * menus in `design/ui`, which cannot reach `components/`.
- * `components/Popover.tsx` wraps both as hooks.
+ * a push, so a component anywhere can take part — including the canonical Base
+ * UI menus and popovers in `design/`, which cannot reach feature components.
  */
 
 /**

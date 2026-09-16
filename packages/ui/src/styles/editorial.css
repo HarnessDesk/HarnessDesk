@@ -11,9 +11,10 @@
  *
  * Selected in Settings › Appearance; `useTheme` writes
  * `body[data-hd-palette='editorial']`, and this sheet re-grounds the alias
- * layer that every Kit primitive and component consumes. The static ramps in
- * design-platform.css are untouched — this sheet must override every alias
- * that points at a cool or blue static, or that color leaks through.
+ * layer that every canonical primitive, pattern, and feature consumes. The
+ * static ramps in design-platform.css are untouched — this sheet must
+ * override every alias that points at a cool or blue static, or that color
+ * leaks through.
  *
  * Both faces live here: the bare selector is the light face, and the
  * `[data-hd-dark-theme]` pair is the dark one, so the palette and the

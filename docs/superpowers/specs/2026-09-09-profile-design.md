@@ -107,7 +107,7 @@ own messages are bubbles with no avatar, as in Codex and Claude.
 
 ### The face
 
-`Face` (in `design/primitives/Kit.tsx` — Kit's avatar, squared) is one squared tile
+`Face` (exported by `design/index.ts` from the canonical avatar primitive) is one squared tile
 wherever a person is drawn, so the footprint never changes when the face
 does. Squared because the avatars were drawn as squared tiles and a room
 draws every sender in one; the corner is a step of the radius scale per size

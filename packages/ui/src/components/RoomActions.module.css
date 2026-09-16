@@ -8,7 +8,7 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* What survives, said as plainly as what does not. A delete dialog that only
@@ -17,7 +17,7 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .problem {

@@ -67,20 +67,10 @@
   padding-right: var(--hd-space-0-5);
 }
 
-.userFooter .action {
-  opacity: 0.55; /* desk: the whole footer at .55 → its buttons only, so the time keeps its ink */
-  transition: opacity var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
-}
-
-.userRow:hover .userFooter .action,
-.userFooter:focus-within .action {
-  opacity: 1;
-}
-
 .userTime {
   margin-right: var(--hd-space-1-5);
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -121,21 +111,21 @@
 
 .shellPrompt {
   flex: none;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
   line-height: var(--hd-line); /* desk: 17 → 21 */
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .shellCommand {
   flex: 1;
   min-width: 0;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
   line-height: var(--hd-line); /* desk: 17 → 21 */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .shellCopy {
@@ -151,13 +141,13 @@
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   cursor: pointer;
 }
 
 .shellCopy:hover {
   background: var(--hd-hover);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* The bubble already sits on the muted surface, so a code span inside it needs
@@ -166,9 +156,9 @@
 .bubbleCode {
   padding: 1px var(--hd-space-1); /* desk: 5 → 4 */
   border-radius: var(--hd-radius-sm); /* desk: 5 → 6, the ladder's mark rung */
-  background: var(--hdp-alias-bg-base);
+  background: var(--hd-background);
   box-shadow: var(--hd-hairline-soft);
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: 0.86em;
   overflow-wrap: anywhere;
 }
@@ -193,14 +183,14 @@
 .imageTile {
   display: block;
   width: 120px;
-  height: 120px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-lg);
-  background: var(--hdp-alias-bg-layer-2);
-  box-shadow: var(--hd-hairline-soft);
+
+
+
+
+
+
   overflow: hidden;
-  cursor: zoom-in;
+
 }
 
 .images:has(.imageTile:only-child) .imageTile {
@@ -244,7 +234,7 @@
 }
 
 .commentary {
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /*
@@ -280,7 +270,7 @@
 
 .row {
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow: var(--hd-hairline);
   overflow: hidden;
 }
@@ -290,24 +280,23 @@
   align-items: center;
   gap: var(--hd-space-2);
   width: 100%;
-  min-height: var(--hd-row-h); /* desk: 34 → 30, the app's rung for a one-line row */
-  padding: var(--hd-space-1) var(--hd-space-2-5); /* desk: 6px 10px → 4px 10px, so 21px of line lands on the rung */
-  border: none;
-  background: none;
-  cursor: pointer;
+ /* desk: 34 → 30, the app's rung for a one-line row */
+ /* desk: 6px 10px → 4px 10px, so 21px of line lands on the rung */
+
+
+
   text-align: left;
-  color: var(--hdp-alias-label-secondary);
+
 }
 
 .rowHeader:hover {
-  background: var(--hd-hover);
 }
 
 .rowIcon {
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowTitle {
@@ -316,14 +305,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .rowTitlePlain {
-  font-family: var(--hdp-font-family);
+  font-family: var(--hd-font-family);
   font-size: var(--hd-text);
 }
 
@@ -333,14 +322,14 @@
   align-items: center;
   gap: var(--hd-space-2);
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .chevron {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
-  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+  color: var(--hd-muted-foreground);
+  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .chevron[data-open] {
@@ -356,12 +345,12 @@
   overflow: auto;
   margin: 0;
   padding: var(--hd-space-2-5) var(--hd-space-3);
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm); /* desk: 19 → 18 */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .json {
@@ -369,11 +358,11 @@
   padding: var(--hd-space-2-5) var(--hd-space-3);
   max-height: 300px;
   overflow: auto;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm); /* desk: 19 → 18 */
   white-space: pre-wrap;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* A verdict on a step, in the smallest type the app has. It stands on the icon
@@ -390,7 +379,7 @@
   font-weight: var(--hd-weight-medium);
   text-transform: uppercase;
   background: var(--hd-muted);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .badge[data-status='failed'] {
@@ -400,7 +389,7 @@
 
 .badge[data-status='declined'] {
   background: var(--hd-muted);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   text-decoration: line-through;
 }
 
@@ -409,7 +398,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l3);
+  border: 1.5px solid var(--hd-border-emphasis);
   border-top-color: var(--hd-accent);
   animation: spin 0.7s linear infinite;
 }
@@ -426,7 +415,7 @@
   padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3);
   font-size: var(--hd-text);
   line-height: var(--hd-line); /* desk: 22 → 21, the line the 14px step is set on */
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .reasoningSummary {
@@ -454,15 +443,14 @@
   align-items: center;
   gap: var(--hd-space-2);
   width: 100%;
-  padding: var(--hd-space-1-5) var(--hd-space-2-5); /* desk: 7 → 6 */
-  border: none;
-  background: none;
-  cursor: pointer;
+ /* desk: 7 → 6 */
+
+
+
   text-align: left;
 }
 
 .fileHeader:hover {
-  background: var(--hd-hover);
 }
 
 .filePath {
@@ -473,7 +461,7 @@
   white-space: nowrap;
   direction: rtl;
   text-align: left;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-sm);
 }
 
@@ -505,7 +493,7 @@
   align-items: center;
   gap: var(--hd-space-2-5);
   padding: var(--hd-space-2-5) 0;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
 }
 
@@ -523,7 +511,7 @@
   gap: var(--hd-space-1-5);
   min-height: var(--hd-chip-h);
   padding: var(--hd-space-0-5) 0;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
 }
@@ -532,7 +520,7 @@
    There is no step of the scale at 3px because there is no gap at 3px. */
 .noticeIcon {
   flex: none;
-  margin-top: 3px;
+  margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 /* --- error -------------------------------------------------------------- */
@@ -571,12 +559,12 @@
 }
 
 .planStep[data-status='completed'] {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   text-decoration: line-through;
 }
 
 .planStep[data-status='inProgress'] {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   font-weight: var(--hd-weight-medium);
 }
 
@@ -585,9 +573,9 @@
   flex: none;
   width: 14px;
   height: 14px;
-  margin-top: 3px;
+  margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
   border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l4);
+  border: 1.5px solid var(--hd-border-heavy);
   display: inline-grid;
   place-items: center;
 }
@@ -616,7 +604,7 @@
   height: var(--hd-icon-target);
   white-space: nowrap;
   opacity: 0.55; /* desk: .6 → .55, one resting value for both rows */
-  transition: opacity var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+  transition: opacity var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .actions:hover,
@@ -629,29 +617,27 @@
   display: inline-grid;
   place-items: center;
   width: var(--hd-icon-target);
-  height: var(--hd-icon-target);
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+
+
+
+
+
+
+
 }
 
 .action:hover {
-  background: var(--hd-hover);
-  color: var(--hdp-alias-label-primary);
+
 }
 
 .action[data-on] {
-  color: var(--hd-accent);
 }
 
 .actionLabel {
   margin-left: var(--hd-space-1);
   font-size: var(--hd-text-sm);
   white-space: nowrap;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- context injection -------------------------------------------------- */
@@ -665,7 +651,7 @@
 }
 
 .injectionWrap[data-open] {
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow: var(--hd-hairline);
   overflow: hidden;
 }
@@ -675,29 +661,27 @@
   align-items: center;
   gap: var(--hd-space-1-5); /* desk: 7 → 6 */
   width: 100%;
-  min-height: var(--hd-control-h);
-  padding: var(--hd-space-0-5) var(--hd-space-2); /* desk: 3 → 2 */
-  border: none;
-  background: none;
-  cursor: pointer;
+
+ /* desk: 3 → 2 */
+
+
+
   text-align: left;
-  border-radius: var(--hd-radius);
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+
+
+
 }
 
 .injectionWrap[data-open] .injection {
-  border-radius: 0;
 }
 
 .injection:hover {
-  background: var(--hd-hover);
 }
 
 .injectionLabel {
   font-size: var(--hd-text-xs);
   font-weight: var(--hd-weight-medium);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* Another conversation's words: marked at the row, not only inside it. A
@@ -709,7 +693,6 @@
 }
 
 .injectionWrap[data-peer] .injection {
-  color: var(--hd-secondary-foreground);
 }
 
 .injectionBody {
@@ -725,7 +708,7 @@
 .injectionBody > div {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .injectionBody h1,
@@ -742,7 +725,7 @@
 
 .group {
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow: var(--hd-hairline);
   overflow: hidden;
 }
@@ -752,18 +735,17 @@
   align-items: center;
   gap: var(--hd-space-2);
   width: 100%;
-  min-height: var(--hd-row-h); /* desk: 32 → 30, the app's rung for a one-line row */
-  padding: var(--hd-space-1) var(--hd-space-2-5); /* desk: 5 → 4 */
-  border: none;
-  background: none;
-  cursor: pointer;
+ /* desk: 32 → 30, the app's rung for a one-line row */
+ /* desk: 5 → 4 */
+
+
+
   text-align: left;
-  color: var(--hdp-alias-label-secondary);
-  font-size: var(--hd-text);
+
+
 }
 
 .groupHeader:hover {
-  background: var(--hd-hover);
 }
 
 .groupSummary {
@@ -811,8 +793,8 @@
 
 .argKey {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-family: var(--hdp-font-family-code);
+  color: var(--hd-muted-foreground);
+  font-family: var(--hd-font-code);
 }
 
 .argValue {
@@ -820,19 +802,19 @@
   min-width: 0;
   max-height: 132px;
   overflow: auto;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .rowSubtitle {
   margin-left: var(--hd-space-2);
   font-size: var(--hd-text-sm);
-  font-family: var(--hdp-font-family-code);
-  color: var(--hdp-alias-label-tertiary);
+  font-family: var(--hd-font-code);
+  color: var(--hd-muted-foreground);
   font-weight: var(--hd-weight-normal);
 }
 
@@ -854,7 +836,7 @@
 }
 
 .todoRow[data-done] {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   text-decoration: line-through;
 }
 
@@ -866,7 +848,7 @@
   align-items: center;
   width: 14px;
   height: var(--hd-line); /* desk: 18 → 21, so the mark centres on the row's line */
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .todoRow[data-active] .todoMark {
@@ -893,27 +875,26 @@
 
 [data-register='light'] .rowHeader,
 [data-register='light'] .groupHeader {
-  min-height: var(--hd-control-h);
-  padding: var(--hd-space-0-5) var(--hd-space-1-5) var(--hd-space-0-5) var(--hd-space-0-5); /* desk: 3 → 2 */
-  border-radius: var(--hd-radius-sm);
-  color: var(--hdp-alias-label-tertiary);
+ /* desk: 3 → 2 */
+
+
 }
 
 [data-register='light'] .rowTitle {
   font-size: var(--hd-text);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 [data-register='light'] .rowTitlePlain,
 [data-register='light'] .groupSummary {
   font-size: var(--hd-text);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 [data-register='light'] .rowHeader:hover .rowTitle,
 [data-register='light'] .rowHeader:hover .rowTitlePlain,
 [data-register='light'] .groupHeader:hover .groupSummary {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* Indented to the row's own title rather than to a number: the header's
@@ -922,7 +903,7 @@
   margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6); /* desk: 22 → 24, the step that lands on the title */
   border-top: none;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow: var(--hd-hairline);
   overflow: hidden;
 }
@@ -939,7 +920,7 @@
 }
 
 [data-register='light'] .commentary {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* The name an agent called this tool by. It is here, inside the opened step,
@@ -954,9 +935,10 @@
 .wireName {
   padding: var(--hd-space-2) var(--hd-space-3); /* desk: 9 → 8 */
   border-bottom: 1px solid var(--hd-border);
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm); /* desk: 17 → 18 */
   overflow-wrap: anywhere;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
+/* @design-owners MessageActions, StepGroup */

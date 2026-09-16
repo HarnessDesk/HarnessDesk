@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import themes from './shadcn-themes.css?raw'
 import platform from './design-platform.css?raw'
-import tokens from '../design/tokens.css?raw'
+import tokens from '../design/foundation/tokens.css?raw'
 
 /**
  * The shadcn palette has the same one failure mode the editorial palette

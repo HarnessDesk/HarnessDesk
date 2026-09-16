@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { Btn } from '..'
+import { Button, Input } from '..'
+import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
 import { COMPOSITION_BOARDS } from './boards-compositions'
 import { ComposerBoard } from '../showcase/ComposerBoard'
@@ -8,6 +9,7 @@ import { ConversationPage } from '../showcase/ConversationPage'
 import { GitHistoryPage } from '../showcase/GitHistoryPage'
 import { GroupProject } from '../showcase/GroupProject'
 import { PanelPlayground } from '../showcase/PanelPlayground'
+import { PropagationPage } from '../showcase/PropagationPage'
 import { RailBoard } from '../showcase/RailBoard'
 import { Showcase } from '../showcase/Showcase'
 import { ToolsPage } from '../showcase/ToolsPage'
@@ -135,6 +137,13 @@ const SURFACES = [
     render: PanelPlayground,
   },
   {
+    id: 'propagation',
+    title: 'Foundation propagation',
+    about:
+      'The deterministic browser-integration surface: real Settings furniture, Composer, portal dialog, menu, board, CodeMirror, and the xterm option bridge under one test-only token scope.',
+    render: PropagationPage,
+  },
+  {
     id: 'tools',
     title: 'Browser · Terminal · Editor',
     about:
@@ -170,7 +179,7 @@ const DIAL_DEFAULTS: DialState = Object.fromEntries(
 /**
  * The explorer's own nav item.
  *
- * Deliberately NOT `Kit.Row`: a settings row is never one of a set, so it has
+ * Deliberately not a `SettingsRow`: a catalog item is never one of a settings set, so it has
  * no selected state, and giving it one to serve this page would push a
  * requirement from the documentation up into the system it documents. The
  * explorer is a screen like any other, and screens own their own furniture.
@@ -184,21 +193,27 @@ const NavItem = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
-    type="button"
-    className={styles.navItem}
+  <Button
+    variant={selected ? 'secondary' : 'ghost'}
+    className={styles.navControl}
     onClick={onClick}
-    {...(selected ? { 'data-selected': '' } : {})}
   >
     {title}
-  </button>
+  </Button>
 )
 
 export const Explorer = () => {
-  const [boardId, setBoardId] = useState<string>('showcase')
+  const [boardId, setBoardId] = useState<string>(() => new URLSearchParams(window.location.search).get('view') ?? 'showcase')
+  const [query, setQuery] = useState('')
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
   const [foundation, setFoundation] = useState<string>(FOUNDATIONS[0]?.id ?? 'current')
   const [dials, setDials] = useState<DialState>(DIAL_DEFAULTS)
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', boardId)
+    window.history.replaceState(null, '', url)
+  }, [boardId])
 
   useEffect(() => {
     const dark =
@@ -251,19 +266,30 @@ export const Explorer = () => {
 
   const board = [...BOARDS, ...COMPOSITION_BOARDS].find((one) => one.id === boardId)
   const surface = SURFACES.find((one) => one.id === boardId)
+  const match = (title: string): boolean => title.toLowerCase().includes(query.trim().toLowerCase())
+  const primitiveBoards = BOARDS.filter((one) => match(one.title))
+  const patternBoards = COMPOSITION_BOARDS.filter((one) => match(one.title))
+  const productSurfaces = SURFACES.filter((one) => match(one.title))
 
   return (
     <div className={styles.shell}>
       <nav className={styles.nav}>
         <div className={styles.brand}>Design system</div>
+        <Input
+          className={styles.navSearch}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Find components"
+          aria-label="Find components"
+        />
         <div className={styles.section}>Foundation</div>
         <NavItem
-          title="Tokens"
+          title="Foundation"
           selected={boardId === 'foundation'}
           onClick={() => setBoardId('foundation')}
         />
         <div className={styles.section}>Primitives</div>
-        {BOARDS.map((one) => (
+        {primitiveBoards.map((one) => (
           <NavItem
             key={one.id}
             title={one.title}
@@ -271,8 +297,8 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Compositions</div>
-        {COMPOSITION_BOARDS.map((one) => (
+        <div className={styles.section}>Patterns</div>
+        {patternBoards.map((one) => (
           <NavItem
             key={one.id}
             title={one.title}
@@ -280,8 +306,8 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Surfaces</div>
-        {SURFACES.map((one) => (
+        <div className={styles.section}>Product Surfaces</div>
+        {productSurfaces.map((one) => (
           <NavItem
             key={one.id}
             title={one.title}
@@ -289,6 +315,8 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
+        <div className={styles.section}>Coverage</div>
+        <NavItem title="Manifest" selected={boardId === 'coverage'} onClick={() => setBoardId('coverage')} />
       </nav>
       <main className={styles.main}>
         <div className={styles.bar}>
@@ -296,14 +324,14 @@ export const Explorer = () => {
             <div key={dial.id} className={styles.switch}>
               <span className={styles.switchLabel}>{dial.label}</span>
               {dial.options.map((option) => (
-                <Btn
+                <Button
                   key={option.value}
-                  small
-                  variant={dials[dial.id] === option.value ? 'primary' : 'quiet'}
+                  size="sm"
+                  variant={dials[dial.id] === option.value ? 'default' : 'ghost'}
                   onClick={() => setDials((prior) => ({ ...prior, [dial.id]: option.value }))}
                 >
                   {option.label}
-                </Btn>
+                </Button>
               ))}
             </div>
           ))}
@@ -311,33 +339,35 @@ export const Explorer = () => {
           <div className={styles.switch}>
             <span className={styles.switchLabel}>Foundation</span>
             {FOUNDATIONS.map((one) => (
-              <Btn
+              <Button
                 key={one.id}
-                small
-                variant={foundation === one.id ? 'primary' : 'quiet'}
+                size="sm"
+                variant={foundation === one.id ? 'default' : 'ghost'}
                 onClick={() => setFoundation(one.id)}
                 title={one.about}
               >
                 {one.title}
-              </Btn>
+              </Button>
             ))}
           </div>
           <div className={styles.switch}>
             <span className={styles.switchLabel}>Theme</span>
             {(['light', 'dark', 'system'] as const).map((one) => (
-              <Btn
+              <Button
                 key={one}
-                small
-                variant={theme === one ? 'primary' : 'quiet'}
+                size="sm"
+                variant={theme === one ? 'default' : 'ghost'}
                 onClick={() => setTheme(one)}
               >
                 {one}
-              </Btn>
+              </Button>
             ))}
           </div>
         </div>
         <div className={styles.body}>
-          {surface ? (
+          {boardId === 'coverage' ? (
+            <CoverageBoard />
+          ) : surface ? (
             <>
               <h1 className={styles.boardTitle}>{surface.title}</h1>
               <p className={styles.boardAbout}>{surface.about}</p>
@@ -357,6 +387,30 @@ export const Explorer = () => {
     </div>
   )
 }
+
+const CoverageBoard = () => (
+  <>
+    <h1 className={styles.boardTitle}>Coverage</h1>
+    <p className={styles.boardAbout}>
+      The checked-in catalog manifest ties every canonical implementation to its live example and
+      representative production consumers. The catalog gate fails when a primitive or pattern is
+      added or removed without updating this registry.
+    </p>
+    <div className={styles.coverage}>
+      {CATALOG_ENTRIES.map((entry) => (
+        <div className={styles.coverageRow} key={entry.id}>
+          <code>{entry.id}</code>
+          <span>{entry.category}</span>
+          <span>{entry.purpose}</span>
+          <span className={styles.coverageStates}>
+            {entry.variants.join(' · ')} / {entry.states.join(' · ')}
+          </span>
+          <a href={`?view=${entry.exampleId}`}>Open example</a>
+        </div>
+      ))}
+    </div>
+  </>
+)
 
 /** What every token currently resolves to, read from the live document. */
 const FoundationBoard = () => {

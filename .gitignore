@@ -23,4 +23,8 @@ internal/
 .codex/
 .cursor/
 .superpowers/
+.playwright-cli/
 packages/ui/dist-site-demo/
+output/playwright/
+output/native-ui-system/
+output/native-ui-system-minimum/

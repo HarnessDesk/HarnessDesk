@@ -9,8 +9,8 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
-import { Dialog } from '../design/primitives/Dialog'
-import { Btn, Input, Toggle } from '../design/primitives/Kit'
+import { Dialog } from '../design'
+import { Button, Input, NativeSelect, Switch, Textarea } from '../design'
 import { DiffView } from './Diff'
 import {
   BranchIcon,
@@ -218,8 +218,8 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn
-            variant="primary"
+          <Button
+            variant="default"
             onClick={() => void commit()}
             disabled={busy || message.trim().length === 0 || !commitable}
           >
@@ -233,16 +233,16 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
                 : chosen.length === 1
                   ? 'Commit 1 file'
                   : `Commit ${chosen.length} files`}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
       <div className={styles.body}>
-        <textarea
-          className={styles.message}
+        <Textarea
+          variant="editor" controlSize="compact" className={styles.message}
           value={message}
           rows={3}
           placeholder="What this commit does"
@@ -309,12 +309,12 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
               }
               const on = !excluded.has(file.path)
               return (
-                <button
+                <Button
                   key={file.path}
                   type="button"
                   role="checkbox"
                   aria-checked={on}
-                  className={styles.file}
+                  variant="row" size="row" className={styles.file}
                   onClick={() =>
                     setExcluded((current) => {
                       const next = new Set(current)
@@ -331,7 +331,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
                     {STATUS_LETTER[file.status]}
                   </span>
                   <span className={styles.path}>{file.path}</span>
-                </button>
+                </Button>
               )
             })}
           </div>
@@ -389,18 +389,18 @@ export const MergeDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" onClick={() => void merge()} disabled={busy || !ref}>
+          <Button variant="default" onClick={() => void merge()} disabled={busy || !ref}>
             {busy ? 'Merging…' : 'Merge'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
       <div className={styles.body}>
-        <select
-          className={styles.select}
+        <NativeSelect
+          variant="filled" controlSize="compact" className={styles.select}
           value={ref}
           aria-label="What to merge"
           onChange={(event) => setRef(event.target.value)}
@@ -410,7 +410,7 @@ export const MergeDialog = ({
               {choice}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <span className={styles.note}>
           A conflict is not a failure: the files stay in the working tree, named, and committing concludes the
           merge.
@@ -470,12 +470,12 @@ export const RenameBranchDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" onClick={() => void rename()} disabled={busy || to.trim().length === 0 || to.trim() === from}>
+          <Button variant="default" onClick={() => void rename()} disabled={busy || to.trim().length === 0 || to.trim() === from}>
             {busy ? 'Renaming…' : 'Rename'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -534,12 +534,12 @@ export const DeleteBranchDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="danger" onClick={() => void remove()} disabled={busy}>
+          <Button variant="destructive" onClick={() => void remove()} disabled={busy}>
             {busy ? 'Deleting…' : 'Delete'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -549,7 +549,7 @@ export const DeleteBranchDialog = ({
           commits refuses unless forced, and forcing it orphans those commits.
         </span>
         <div className={styles.row}>
-          <Toggle on={force} onChange={setForce} label="Force — delete even with unmerged commits" />
+          <Switch checked={force} onCheckedChange={setForce} aria-label="Force — delete even with unmerged commits" />
           <span>Delete even if its commits are nowhere else.</span>
         </div>
         {error && <div className={styles.error}>{error}</div>}
@@ -601,12 +601,12 @@ export const TagDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" onClick={() => void create()} disabled={busy || name.trim().length === 0}>
+          <Button variant="default" onClick={() => void create()} disabled={busy || name.trim().length === 0}>
             {busy ? 'Tagging…' : 'Create tag'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -682,12 +682,12 @@ export const ResetDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant={mode === 'hard' ? 'danger' : 'primary'} onClick={() => void reset()} disabled={busy}>
+          <Button variant={mode === 'hard' ? 'destructive' : 'default'} onClick={() => void reset()} disabled={busy}>
             {busy ? 'Resetting…' : mode === 'hard' ? 'Reset and discard' : 'Reset'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -698,19 +698,19 @@ export const ResetDialog = ({
         </span>
         <div role="radiogroup" aria-label="Reset mode" className={styles.modes}>
           {RESET_MODES.map((choice) => (
-            <button
+            <Button
               key={choice.mode}
               type="button"
               role="radio"
               aria-checked={mode === choice.mode}
-              className={styles.mode}
+              variant="choice" size="row" className={styles.mode}
               {...(mode === choice.mode ? { 'data-on': '' } : {})}
               {...(choice.mode === 'hard' ? { 'data-hard': '' } : {})}
               onClick={() => setMode(choice.mode)}
             >
               <span className={styles.modeName}>{choice.label}</span>
               <span className={styles.modeWhat}>{choice.what}</span>
-            </button>
+            </Button>
           ))}
         </div>
         {error && <div className={styles.error}>{error}</div>}
@@ -750,12 +750,12 @@ export const StashDialog = ({ root, onDone }: { root: string; onDone: (done: boo
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" onClick={() => void stash()} disabled={busy}>
+          <Button variant="default" onClick={() => void stash()} disabled={busy}>
             {busy ? 'Stashing…' : 'Stash'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -821,7 +821,7 @@ export const DiffRangeDialog = ({
       tall
       flush
       onClose={onDone}
-      footer={<Btn onClick={onDone}>Close</Btn>}
+      footer={<Button variant="secondary" onClick={onDone}>Close</Button>}
     >
       {error ? (
         <div className={styles.error}>{error}</div>
@@ -896,12 +896,12 @@ export const ConfirmDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant={tone === 'destructive' ? 'danger' : 'primary'} onClick={() => void confirm()} disabled={busy}>
+          <Button variant={tone === 'destructive' ? 'destructive' : 'default'} onClick={() => void confirm()} disabled={busy}>
             {busy ? '…' : confirmLabel}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >

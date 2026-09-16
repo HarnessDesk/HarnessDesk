@@ -11,7 +11,7 @@ import { ModelControl } from './ComposerControls'
 // ModelControl does not render either primitive, but ComposerControls imports
 // them through the full design barrel. Keep this focused test from loading
 // unrelated design-preview dependencies.
-vi.mock('../design', () => ({ Btn: () => null, Dialog: () => null }))
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement

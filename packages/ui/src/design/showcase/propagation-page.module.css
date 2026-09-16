@@ -1,0 +1,38 @@
+.page {
+  display: grid;
+  gap: var(--hd-space-6);
+  max-width: var(--hd-column);
+}
+
+.heading {
+  margin: 0 0 var(--hd-space-2);
+  font-size: var(--hd-heading);
+  line-height: var(--hd-line);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.editor {
+  height: var(--hd-space-18);
+  overflow: hidden;
+  border: var(--hd-border-width) solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-background);
+}
+
+.terminalProbe {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hd-space-3);
+  margin-top: var(--hd-space-2);
+  padding: var(--hd-space-2);
+  border-radius: var(--hd-radius);
+  background: var(--hd-muted);
+  color: var(--hd-foreground);
+  font-family: var(--hd-font-code);
+}

@@ -1,3 +1,4 @@
+import { Button, Input } from '../design'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/protocol'
@@ -30,6 +31,7 @@ import {
 import { RuntimeMark } from './BrandIcons'
 import { summonable } from '../panels/views'
 import type { Section } from './Settings'
+import { DialogContent, DialogRoot } from '../design'
 
 /**
  * Every settings page ⌘K can open, by the name on its nav row, except the
@@ -517,19 +519,19 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   let lastGroup: Entry['group'] | null = null
 
   return (
-    <div className={styles.backdrop} onPointerDown={host.close}>
-      <div
+    <DialogRoot open onOpenChange={(open) => { if (!open) host.close() }}>
+      <DialogContent
         className={styles.dialog}
-        role="dialog"
-        aria-modal="true"
+        portalled={false}
         aria-label="Command palette"
-        onPointerDown={(event) => event.stopPropagation()}
+        initialFocus={input}
+        showCloseButton={false}
       >
         <div className={styles.inputRow}>
           <SearchIcon size={15} className={styles.inputIcon} />
-          <input
+          <Input
             ref={input}
-            className={styles.input}
+            variant="filled" className={styles.input}
             autoFocus
             placeholder="Search sessions, files, agents, commands, actions…"
             value={query}
@@ -561,11 +563,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
             return (
               <div key={entry.id}>
                 {header && <div className={styles.group}>{header}</div>}
-                <button
+                <Button
                   type="button"
                   role="option"
                   aria-selected={index === active}
-                  className={styles.row}
+                  variant="navigation" size="navigation" className={styles.row}
                   {...(index === active ? { 'data-active': '' } : {})}
                   onMouseEnter={() => setActiveId(entry.id)}
                   onClick={() => run(index)}
@@ -584,12 +586,12 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                       ) : entry.matchLine}
                     </span>
                   )}
-                </button>
+                </Button>
               </div>
             )
           })}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   )
 }

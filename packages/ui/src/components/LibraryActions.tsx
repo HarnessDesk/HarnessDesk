@@ -12,8 +12,8 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
-import { Btn, Dialog, Input } from '../design'
-import { Checkbox, ToggleGroup, ToggleGroupItem } from '../design/ui'
+import { Button, Dialog, Input, Textarea } from '../design'
+import { Checkbox, ToggleGroup, ToggleGroupItem } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
@@ -25,7 +25,7 @@ import {
   ImportIcon,
   PlusIcon,
 } from './Icons'
-import { kit } from '../design/primitives/Kit'
+import { CodeText } from '../design'
 import styles from './LibraryActions.module.css'
 
 /**
@@ -234,23 +234,23 @@ export const PlanDialog = ({
       }
       footer={
         results ? (
-          <Btn variant="primary" onClick={onClose}>
+          <Button variant="default" onClick={onClose}>
             Close
-          </Btn>
+          </Button>
         ) : (
           <>
-            <Btn
-              variant="primary"
+            <Button
+              variant="default"
               disabled={busy || !plan || runnable.length === 0}
               onClick={() => void apply()}
             >
               {busy
                 ? 'Applying…'
                 : `Apply ${runnable.length} ${runnable.length === 1 ? 'change' : 'changes'}`}
-            </Btn>
-            <Btn onClick={onClose} disabled={busy}>
+            </Button>
+            <Button variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
-            </Btn>
+            </Button>
           </>
         )
       }
@@ -268,9 +268,9 @@ export const PlanDialog = ({
             const expandable = op.preview !== undefined && op.preview !== ''
             return (
               <li key={op.id} className={styles.op} data-action={op.action}>
-                <button
+                <Button
                   type="button"
-                  className={styles.opHead}
+                  variant="row" size="row" className={styles.opHead}
                   onClick={() => expandable && setOpen((current) => (current === op.id ? null : op.id))}
                   aria-expanded={open === op.id}
                   disabled={!expandable}
@@ -301,7 +301,7 @@ export const PlanDialog = ({
                       <ChevronIcon size={13} />
                     </span>
                   )}
-                </button>
+                </Button>
                 {open === op.id && op.preview && (
                   <div className={styles.opBody}>
                     <DiffView diff={op.preview} wrap />
@@ -309,7 +309,7 @@ export const PlanDialog = ({
                       <p className={styles.opFiles}>
                         Also carries {op.extraFiles.length}{' '}
                         {op.extraFiles.length === 1 ? 'bundle file' : 'bundle files'}:{' '}
-                        <code className={kit.mono}>{op.extraFiles.slice(0, 4).join(', ')}</code>
+                        <CodeText as="code">{op.extraFiles.slice(0, 4).join(', ')}</CodeText>
                         {op.extraFiles.length > 4 ? '…' : ''}
                       </p>
                     )}
@@ -320,7 +320,7 @@ export const PlanDialog = ({
                     )}
                     {result?.backupPath && (
                       <p className={styles.opFiles}>
-                        Backed up to <code className={kit.mono}>{result.backupPath}</code>
+                        Backed up to <CodeText as="code">{result.backupPath}</CodeText>
                       </p>
                     )}
                   </div>
@@ -348,7 +348,7 @@ export const PlanDialog = ({
  */
 export const SWITCH_TRACK = 'h-(--hd-control-h) rounded-(--hd-radius-sm) bg-(--hd-muted) p-0.5'
 export const SWITCH_ITEM =
-  'h-full gap-1.5 rounded-(--hd-radius-sm) px-2 text-sm font-medium whitespace-nowrap text-(--hd-muted-foreground) hover:bg-transparent hover:text-(--hd-foreground) data-[state=on]:bg-(--hd-card) data-[state=on]:text-(--hd-foreground) data-[state=on]:shadow-(--hd-shadow-sm)'
+  'h-full gap-1.5 rounded-(--hd-radius-sm) px-2 text-sm font-medium whitespace-nowrap text-(--hd-muted-foreground) hover:bg-transparent hover:text-(--hd-foreground) data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm)'
 
 /**
  * Which agent, of the ones on this machine.
@@ -527,12 +527,12 @@ export const ImportDialog = ({
       }
       footer={
         <>
-          <Btn variant="primary" disabled={picked.length === 0} onClick={go}>
+          <Button variant="default" disabled={picked.length === 0} onClick={go}>
             {picked.length === 0
               ? 'Preview'
               : `Preview ${picked.length} ${picked.length === 1 ? 'import' : 'imports'}`}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -550,17 +550,17 @@ export const ImportDialog = ({
       ) : (
         <>
           <div className={styles.bulk}>
-            <Btn small onClick={() => setExcluded(new Set())}>
+            <Button variant="secondary" size="sm" onClick={() => setExcluded(new Set())}>
               All
-            </Btn>
-            <Btn
-              small
+            </Button>
+            <Button variant="secondary"
+              size="sm"
               onClick={() =>
                 setExcluded(new Set(candidates.map((entry) => `${entry.kind}:${entry.name}`)))
               }
             >
               None
-            </Btn>
+            </Button>
           </div>
           <ul className={styles.candidates}>
             {candidates.map((entry) => {
@@ -647,10 +647,10 @@ export const ResolveDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={winner === null} onClick={go}>
+          <Button variant="default" disabled={winner === null} onClick={go}>
             Preview the resolution
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -662,16 +662,16 @@ export const ResolveDialog = ({
       <ul className={styles.choices} role="radiogroup" aria-label="The copy that should win">
         {loadable.map((copy) => (
           <li key={copy.path}>
-            <button
+            <Button
               type="button"
               role="radio"
               aria-checked={winner === copy.path}
-              className={styles.choice}
+              variant="choice" size="row" className={styles.choice}
               data-on={winner === copy.path ? '' : undefined}
               onClick={() => setWinner(copy.path)}
             >
               <span className={styles.choiceDot} />
-              <code className={kit.mono}>{shortPath(copy.path, home)}</code>
+              <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
               <span className={styles.choiceNote}>
                 {copy.readBy.length === 0
                   ? 'Read by nobody'
@@ -679,7 +679,7 @@ export const ResolveDialog = ({
                       .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                       .join(', ')}`}
               </span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
@@ -742,10 +742,10 @@ export const AuthorDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={!ready} onClick={go}>
+          <Button variant="default" disabled={!ready} onClick={go}>
             Preview the install
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -778,8 +778,8 @@ export const AuthorDialog = ({
         </label>
         <label className={styles.field}>
           <span className={styles.fieldLabel}>Instructions</span>
-          <textarea
-            className={styles.textarea}
+          <Textarea
+            variant="editor" controlSize="compact" className={styles.textarea}
             value={body}
             rows={6}
             placeholder="What the agent should do when this skill fires."
@@ -919,13 +919,13 @@ export const LibraryHistory = ({
               {row.status === 'failed'
                 ? `Failed to ${HISTORY_TRY[row.op] ?? row.op} ${row.name}${row.detail ? ` — ${row.detail}` : ''}`
                 : `${HISTORY_VERB[row.op] ?? row.op} ${row.name}`}
-              <code className={`${kit.mono} ${styles.historyPath}`} title={row.path}>
+              <CodeText as="code" className={styles.historyPath} title={row.path}>
                 {shortPath(row.path, home)}
-              </code>
+              </CodeText>
             </span>
             {row.backupPath !== undefined && row.status === 'done' && (
-              <Btn
-                small
+              <Button variant="secondary"
+                size="sm"
                 title={`Restore what this change filed at ${row.backupPath}`}
                 onClick={() =>
                   onFlow({
@@ -943,15 +943,15 @@ export const LibraryHistory = ({
                 }
               >
                 Restore…
-              </Btn>
+              </Button>
             )}
           </li>
         ))}
       </ul>
       {rows.length > shown.length && (
-        <Btn small onClick={() => setAll(true)}>
+        <Button variant="secondary" size="sm" onClick={() => setAll(true)}>
           Show all {rows.length}
-        </Btn>
+        </Button>
       )}
     </section>
   )

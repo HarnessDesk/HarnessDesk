@@ -22,6 +22,7 @@ import { TEMPLATE_BRIDGES } from '@harnessdesk/server'
  */
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const smoke = readFileSync(new URL('./smoke-packaged.mjs', import.meta.url), 'utf8')
 
 test('every template bridge is a dependency of the app', () => {
   const dependencies = Object.keys(manifest.dependencies ?? {})
@@ -53,4 +54,19 @@ test('node_modules is unpacked wholesale, so spawned children are real files', (
       'app.asar, and claude-acp alone pulls ~100 transitive packages, so ' +
       'per-package globs would rot the first time a dependency moved.',
   )
+})
+
+test('the packaged smoke never opens the developer keychain', () => {
+  assert.match(
+    smoke,
+    /['"]--use-mock-keychain['"]/,
+    'the ad-hoc bundle gets a new Keychain identity on each build; the smoke ' +
+      'must use Chromium\'s isolated mock keychain or app.ready can wait behind ' +
+      'an OS prompt before the renderer and catalogue exist.',
+  )
+})
+
+test('the packaged smoke awaits forced exit before removing isolated state', () => {
+  assert.match(smoke, /child\.kill\('SIGKILL'\)\s*\n\s*await waitForExit\(3000\)/)
+  assert.match(smoke, /maxRetries:\s*10/)
 })

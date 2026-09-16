@@ -301,7 +301,7 @@ export const GitHistoryPage = () => {
           </div>
           <div className="mb-3 rounded-(--hd-radius-sm) border border-(--hd-border)">
             <FileRow status="M" path="packages/ui/src/design/ui/badge.tsx" added={4} removed={2} />
-            <FileRow status="M" path="packages/ui/src/design/tokens.css" added={18} removed={6} />
+            <FileRow status="M" path="packages/ui/src/design/foundation/tokens.css" added={18} removed={6} />
             <FileRow status="A" path="packages/ui/src/design/ui/tone.ts" added={132} removed={0} />
           </div>
           <DiffBlock

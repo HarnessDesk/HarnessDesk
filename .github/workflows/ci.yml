@@ -116,6 +116,9 @@ jobs:
       - name: Design drift
         run: node script/design-audit.mjs --strict
 
+      - name: UI system
+        run: node script/check-ui-system.mjs
+
       - name: Interface drift
         run: node script/check-interface-drift.mjs
 
@@ -160,4 +163,60 @@ jobs:
         with:
           name: HarnessDesk-unsigned
           path: packages/desktop/release/mac-*/HarnessDesk.app
+          retention-days: 7
+
+  ui-system-browser:
+    name: UI system browser integration
+    runs-on: macos-14
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium
+      - run: pnpm test:ui-system
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ui-system-browser-report
+          path: output/playwright/ui-system/
+          retention-days: 7
+
+  ui-system-native:
+    name: UI system native integration
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm test:ui-system:native
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ui-system-native-report
+          path: output/native-ui-system/
           retention-days: 7

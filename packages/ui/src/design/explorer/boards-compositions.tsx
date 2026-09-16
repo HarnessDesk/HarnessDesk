@@ -35,6 +35,11 @@ import {
   BoardColumn,
   BoardMenuButton,
   Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
   Checkbox,
   ChoiceRow,
   DataTableColumnHeader,
@@ -49,6 +54,9 @@ import {
   FieldLegend,
   FieldSet,
   FieldSeparator,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
   IconTile,
   InputGroupAddon,
   InputGroupInput,
@@ -64,6 +72,12 @@ import {
   RadioGroup,
   RadioGroupItem,
   ResizeHandle,
+  ScrollArea,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Section,
   SectionAction,
   SectionBody,
@@ -94,12 +108,18 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Textarea,
+  Toaster,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   TINTS,
   useTableSelection,
   useTableSort,
   TONES,
   Toolbar,
   ToolbarGap,
+  toast,
 } from '../ui'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
@@ -130,6 +150,32 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
+const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'inline', 'composer'] as const
+const TEXTAREA_CATALOG_SIZES = ['default', 'compact', 'composer'] as const
+const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
+const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
+const ATTACHMENT_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
+const ATTACHMENT_CATALOG_STATES = ['default', 'loading', 'error'] as const
+const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical'] as const
+const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
+const ICON_TILE_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
+const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
+const ICON_TILE_CATALOG_SHAPE = ['square', 'round'] as const
+const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
+const INPUT_GROUP_CATALOG_SIZES = ['default'] as const
+const INPUT_GROUP_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
+const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 'block-end'] as const
+const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
+const MARKER_CATALOG_SIZES = ['default'] as const
+const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet'] as const
+const SECTION_CATALOG_SIZES = ['default'] as const
+const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
+const STAT_CATALOG_VARIANTS = ['plain', 'bordered', 'tinted'] as const
+const STAT_CATALOG_SIZES = ['default'] as const
+const STAT_CATALOG_STATES = ['default', 'loading', 'error'] as const
+const STAT_CATALOG_ALIGN = ['start', 'center'] as const
+
 /** The rule this component holds, said under the states that demonstrate it. */
 const Rule = ({ children }: { children: React.ReactNode }) => (
   <p className={styles.rule}>{children}</p>
@@ -139,7 +185,24 @@ const Rule = ({ children }: { children: React.ReactNode }) => (
 
 const StatBoard = () => (
   <>
-    <div className={styles.stack} style={{ maxWidth: 'none' }}>
+    <div
+      className={styles.stack}
+      style={{ maxWidth: 'none' }}
+      data-catalog-variants={STAT_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={STAT_CATALOG_SIZES.join(' ')}
+      data-catalog-states={STAT_CATALOG_STATES.join(' ')}
+      data-catalog-align={STAT_CATALOG_ALIGN.join(' ')}
+    >
+      <StatRow>
+        {STAT_CATALOG_VARIANTS.map((variant) => (
+          <Stat key={variant} variant={variant} data-catalog-variant={variant} label={variant} value="12" caption="catalog case" />
+        ))}
+      </StatRow>
+      <StatRow>
+        {STAT_CATALOG_ALIGN.map((align) => (
+          <Stat key={align} align={align} data-catalog-align={align} label={align} value="12" caption="catalog case" />
+        ))}
+      </StatRow>
       <StatRow>
         <Stat
           label="Sessions today"
@@ -239,7 +302,19 @@ const DeltaBoard = () => (
 
 const SectionBoard = () => (
   <>
-    <div className={styles.stack} style={{ maxWidth: 640 }}>
+    <div
+      className={styles.stack}
+      style={{ maxWidth: 640 }}
+      data-catalog-variants={SECTION_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={SECTION_CATALOG_SIZES.join(' ')}
+      data-catalog-states={SECTION_CATALOG_STATES.join(' ')}
+    >
+      {SECTION_CATALOG_VARIANTS.map((variant) => (
+        <Section key={variant} variant={variant} data-catalog-variant={variant}>
+          <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
+          <SectionBody>Canonical section variant.</SectionBody>
+        </Section>
+      ))}
       <Section>
         <SectionHeader>
           <SectionTitle>Approvals</SectionTitle>
@@ -307,7 +382,13 @@ const SectionBoard = () => (
 
 const TileBoard = () => (
   <>
-    <div className={styles.matrix}>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={ICON_TILE_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={ICON_TILE_CATALOG_SIZES.join(' ')}
+      data-catalog-states={ICON_TILE_CATALOG_STATES.join(' ')}
+      data-catalog-shape={ICON_TILE_CATALOG_SHAPE.join(' ')}
+    >
       <Case label="tone — a judgement">
         {TONES.map((tone) => (
           <IconTile key={tone} tone={tone} title={tone}>
@@ -323,23 +404,18 @@ const TileBoard = () => (
         ))}
       </Case>
       <Case label="size">
-        <IconTile size="sm" tint="blue">
-          <FolderIcon />
-        </IconTile>
-        <IconTile tint="blue">
-          <FolderIcon />
-        </IconTile>
-        <IconTile size="lg" tint="blue">
-          <FolderIcon />
-        </IconTile>
+        {ICON_TILE_CATALOG_SIZES.map((size) => (
+          <IconTile key={size} size={size} data-catalog-size={size} tint="blue">
+            <FolderIcon />
+          </IconTile>
+        ))}
       </Case>
       <Case label="shape — a person or a thing">
-        <IconTile shape="round" tint="violet" size="lg">
-          <AgentIcon />
-        </IconTile>
-        <IconTile shape="square" tint="violet" size="lg">
-          <ExtensionIcon />
-        </IconTile>
+        {ICON_TILE_CATALOG_SHAPE.map((shape) => (
+          <IconTile key={shape} shape={shape} data-catalog-shape={shape} tint="violet" size="lg">
+            {shape === 'round' ? <AgentIcon /> : <ExtensionIcon />}
+          </IconTile>
+        ))}
       </Case>
     </div>
     <Rule>
@@ -435,7 +511,20 @@ const KeyValueBoard = () => (
 
 const FieldBoard = () => (
   <>
-    <div className={styles.stack} style={{ maxWidth: 420 }}>
+    <div
+      className={styles.stack}
+      style={{ maxWidth: 420 }}
+      data-catalog-variants={INPUT_GROUP_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={INPUT_GROUP_CATALOG_SIZES.join(' ')}
+      data-catalog-states={INPUT_GROUP_CATALOG_STATES.join(' ')}
+      data-catalog-align={INPUT_GROUP_CATALOG_ALIGN.join(' ')}
+    >
+      {INPUT_GROUP_CATALOG_ALIGN.map((align) => (
+        <InputGroup key={align}>
+          <InputGroupAddon align={align} data-catalog-align={align}>{align}</InputGroupAddon>
+          <InputGroupInput aria-label={`${align} input group`} defaultValue="Value" />
+        </InputGroup>
+      ))}
       <Field label="Repository" required hint="A local checkout. Worktrees are fine.">
         {(control) => (
           <InputGroup>
@@ -462,6 +551,15 @@ const FieldBoard = () => (
           <InputGroup className="w-40">
             <InputGroupInput {...control} defaultValue="30" inputMode="numeric" />
             <InputGroupAddon align="inline-end">minutes</InputGroupAddon>
+          </InputGroup>
+        )}
+      </Field>
+      <Field label="Command" hint="Block affixes remain part of the same field contract.">
+        {(control) => (
+          <InputGroup>
+            <InputGroupAddon align="block-start">Shell</InputGroupAddon>
+            <InputGroupInput {...control} defaultValue="pnpm verify" />
+            <InputGroupAddon align="block-end">Runs in the project root</InputGroupAddon>
           </InputGroup>
         )}
       </Field>
@@ -755,24 +853,20 @@ const AdoptedBoard = () => {
 
   return (
     <>
-      <div className={styles.matrix}>
+      <div
+        className={styles.matrix}
+        data-marker-catalog-variants={MARKER_CATALOG_VARIANTS.join(' ')}
+        data-marker-catalog-sizes={MARKER_CATALOG_SIZES.join(' ')}
+        data-marker-catalog-states={MARKER_CATALOG_STATES.join(' ')}
+      >
         <Case label="marker &mdash; three variants, was one">
           <div className="flex w-full flex-col">
-            <Marker>
-              <MarkerIcon>
-                <BranchIcon />
-              </MarkerIcon>
-              <MarkerContent>Switched to feat/auth-migration</MarkerContent>
-            </Marker>
-            <Marker variant="separator">
-              <MarkerContent>Context compacted</MarkerContent>
-            </Marker>
-            <Marker variant="border">
-              <MarkerIcon>
-                <FolderIcon />
-              </MarkerIcon>
-              <MarkerContent>Explored 4 files</MarkerContent>
-            </Marker>
+            {MARKER_CATALOG_VARIANTS.map((variant) => (
+              <Marker key={variant} variant={variant} data-catalog-variant={variant}>
+                <MarkerIcon>{variant === 'border' ? <FolderIcon /> : <BranchIcon />}</MarkerIcon>
+                <MarkerContent>{variant === 'separator' ? 'Context compacted' : 'Explored 4 files'}</MarkerContent>
+              </Marker>
+            ))}
           </div>
         </Case>
 
@@ -819,9 +913,74 @@ const AdoptedBoard = () => {
             </div>
           </div>
         </Case>
+
+        <Case label="card &mdash; grouped content">
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle>Catalog source</CardTitle>
+              <CardDescription>The production card primitive, not copied markup.</CardDescription>
+            </CardHeader>
+            <CardContent>One border, one ground, one spacing contract.</CardContent>
+          </Card>
+        </Case>
+
+        <Case label="select &mdash; open with pointer or keyboard">
+          <Select defaultValue="desk">
+            <SelectTrigger aria-label="Interface">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="desk">Desk</SelectItem>
+              <SelectItem value="studio">Studio</SelectItem>
+            </SelectContent>
+          </Select>
+        </Case>
+
+        <Case label="scroll area &mdash; real overflow">
+          <ScrollArea className="h-20 w-full rounded-(--hd-radius-sm) border border-(--hd-border) p-2">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index}>Recorded line {index + 1}</div>
+            ))}
+          </ScrollArea>
+        </Case>
+
+        <Case label="textarea &mdash; supported roles">
+          <div className="grid w-full gap-2" data-catalog-states={TEXTAREA_CATALOG_STATES.join(' ')}>
+            {TEXTAREA_CATALOG_VARIANTS.map((variant) => (
+              <Textarea key={variant} variant={variant} data-catalog-variant={variant} controlSize={variant === 'composer' ? 'composer' : 'compact'} defaultValue={variant} aria-label={`${variant} textarea`} />
+            ))}
+            {TEXTAREA_CATALOG_SIZES.map((controlSize) => (
+              <Textarea key={controlSize} controlSize={controlSize} data-catalog-size={controlSize} defaultValue={controlSize} aria-label={`${controlSize} textarea size`} />
+            ))}
+            <Textarea disabled defaultValue="disabled" aria-label="Disabled textarea" />
+            <Textarea aria-invalid defaultValue="invalid" aria-label="Invalid textarea" />
+          </div>
+        </Case>
+
+        <Case label="tooltip and toast &mdash; focusable help and transient status">
+          <div className="flex gap-2">
+            <HoverCard>
+              <HoverCardTrigger render={<Button variant="outline">Preview details</Button>} />
+              <HoverCardContent className="p-3">A richer, enterable preview rather than a repeated label.</HoverCardContent>
+            </HoverCard>
+            <Tooltip>
+              <TooltipTrigger render={<Button variant="outline">Rest or focus</Button>} />
+              <TooltipContent>This help is the real portal-backed tooltip.</TooltipContent>
+            </Tooltip>
+            <Button variant="secondary" onClick={() => toast.success('Catalog event delivered')}>Show toast</Button>
+            <Toaster />
+          </div>
+        </Case>
       </div>
 
-      <div className={styles.stack} style={{ maxWidth: 560, marginTop: 'var(--hd-space-4)' }}>
+      <div
+        className={styles.stack}
+        style={{ maxWidth: 560, marginTop: 'var(--hd-space-4)' }}
+        data-attachment-catalog-variants={ATTACHMENT_CATALOG_VARIANTS.join(' ')}
+        data-attachment-catalog-sizes={ATTACHMENT_CATALOG_SIZES.join(' ')}
+        data-attachment-catalog-states={ATTACHMENT_CATALOG_STATES.join(' ')}
+        data-attachment-catalog-orientation={ATTACHMENT_CATALOG_ORIENTATION.join(' ')}
+      >
         <div className={styles.caseLabel}>attachment &mdash; the states ours never had</div>
         <AttachmentGroup>
           {(
@@ -841,6 +1000,32 @@ const AdoptedBoard = () => {
               <AttachmentActions>
                 <AttachmentAction aria-label={`Remove ${one.title}`} />
               </AttachmentActions>
+            </Attachment>
+          ))}
+        </AttachmentGroup>
+        <Attachment orientation="vertical" size="lg" state="done">
+          <AttachmentMedia />
+          <AttachmentContent>
+            <AttachmentTitle>portrait.png</AttachmentTitle>
+            <AttachmentDescription>Vertical orientation</AttachmentDescription>
+          </AttachmentContent>
+          <AttachmentActions>
+            <AttachmentAction aria-label="Remove portrait.png" />
+          </AttachmentActions>
+        </Attachment>
+        <AttachmentGroup>
+          {ATTACHMENT_CATALOG_SIZES.map((size) => (
+            <Attachment key={size} size={size} data-catalog-size={size} state="done">
+              <AttachmentMedia />
+              <AttachmentContent><AttachmentTitle>{size}</AttachmentTitle></AttachmentContent>
+            </Attachment>
+          ))}
+        </AttachmentGroup>
+        <AttachmentGroup>
+          {ATTACHMENT_CATALOG_ORIENTATION.map((orientation) => (
+            <Attachment key={orientation} orientation={orientation} data-catalog-orientation={orientation} state="done">
+              <AttachmentMedia />
+              <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
             </Attachment>
           ))}
         </AttachmentGroup>
@@ -934,7 +1119,7 @@ const AdoptedBoard = () => {
         &mdash; <code>marker</code> had one variant of three, <code>attachment</code> had no upload
         state at all, <code>breadcrumb</code> existed only in the mock pages, and{' '}
         <code>field</code> had no grouping layer. <code>radio-group</code> replaced the behaviour
-        under <code>Kit.Segmented</code>, which kept its look and gained arrow keys. The last two
+        under the canonical <code>RadioGroup</code>, which keeps the product look and supplies arrow keys. The last two
         were taken as capability rather than code: <code>data-table</code>&rsquo;s recipe wants
         TanStack, and <code>resizable</code>&rsquo;s wants to own the sizes the layout store owns
         &mdash; so the sortable heading, the selection and the pagination are here, and the resize

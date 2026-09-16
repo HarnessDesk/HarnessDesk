@@ -52,7 +52,7 @@ const buttonVariants = cva(
        button. It centred anyway — but a line box taller than its control is
        the thing that makes a two-line label overflow instead of wrap, and
        Kit's `.btn` has always said `line-height: 1`. */
-    'text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors outline-none select-none',
+    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors outline-none select-none',
     /* The focus mark. `outline-none` above kills the document's, and until
        now nothing put one back: a button in this app could be focused with
        no way to tell. The reference's answer is two marks at once — the ring
@@ -74,10 +74,31 @@ const buttonVariants = cva(
         secondary:
           'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover)',
         ghost:
-          'hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
+          'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
         destructive:
           'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover)',
         link: 'text-(--hd-primary-ink) underline-offset-4 hover:underline',
+        /* Product surfaces select a semantic role; they never redraw the
+           control from a screen stylesheet. These roles are deliberately
+           opinionated rather than an `unstyled` escape hatch. */
+        row:
+          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[done]:opacity-60 data-[done]:line-through aria-expanded:bg-(--hd-active)',
+        navigation:
+          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))]',
+        choice:
+          'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-accent-dim) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring)',
+        quiet:
+          'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover)',
+        muted:
+          'bg-transparent text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover)',
+        warning:
+          'bg-transparent text-(--hd-warning-ink) hover:bg-(--hd-hover) hover:text-(--hd-foreground)',
+        reveal:
+          'rounded-(--hd-radius-sm) bg-transparent p-1 text-(--hd-muted-foreground) opacity-0 group-hover/member:opacity-100 group-hover/tab:opacity-70 group-data-[active]/tab:opacity-70 group-hover/copy:opacity-100 hover:bg-(--hd-active) hover:text-(--hd-foreground) hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+        subtle:
+          'bg-(--hd-muted) text-(--hd-foreground) hover:bg-(--hd-hover)',
+        action:
+          'bg-(--hd-solid) text-(--hd-solid-foreground) transition-[background,box-shadow,transform] hover:bg-(--hd-solid-hover) active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100 data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)] data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hd-foreground))] data-[when=later]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--hd-accent)_78%,transparent)] data-[when=nothing]:bg-(--hd-muted) data-[when=nothing]:text-(--hd-muted-foreground) data-[when=nothing]:active:scale-100',
       },
       size: {
         default:
@@ -92,11 +113,25 @@ const buttonVariants = cva(
         'icon-xs': 'size-5 p-0',
         'icon-sm': 'size-(--hd-btn-h-sm) p-0',
         'icon-lg': 'size-8 p-0',
+        content: 'h-auto p-0 whitespace-normal',
+        inline: 'h-auto rounded-(--hd-radius-sm) p-1 whitespace-normal',
+        panel: 'h-auto w-full p-4 whitespace-normal',
+        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 whitespace-normal',
+        navigation: 'h-(--hd-nav-h) p-(--hd-nav-padding)',
+        fill: 'h-full w-full p-0',
+        'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },
   },
 )
+
+type ButtonVariants = VariantProps<typeof buttonVariants>
+type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
+  className?: string
+  variant?: NonNullable<ButtonVariants['variant']>
+  size?: NonNullable<ButtonVariants['size']>
+}
 
 const Button = ({
   className,
@@ -105,7 +140,7 @@ const Button = ({
   type,
   render,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) => (
+}: ButtonProps) => (
   <ButtonPrimitive
     data-slot="button"
     className={cn(buttonVariants({ variant, size, className }))}
@@ -118,4 +153,4 @@ const Button = ({
   />
 )
 
-export { Button, buttonVariants }
+export { Button, buttonVariants, type ButtonProps }

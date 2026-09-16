@@ -13,18 +13,16 @@
 }
 
 .fileAction {
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid var(--hdp-alias-border-l2);
-  border-radius: 10px;
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  cursor: pointer;
+
+
+
+
+
+
+
+
 }
 
 .fileAction:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+
 }

@@ -7,7 +7,7 @@ import type { ForgeReference, PublicationItem } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { ItemView } from './Items'
-import { publicationVerb } from '../design/patterns/PublicationCard'
+import { publicationVerb } from '../design'
 
 /**
  * A publication in the transcript.
@@ -136,6 +136,7 @@ describe('the publication row', () => {
 
       act(() => {
         link.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+        link.closest('[data-slot="hover-card-trigger"]')?.dispatchEvent(new MouseEvent('mouseenter'))
       })
       act(() => {
         vi.advanceTimersByTime(1000)

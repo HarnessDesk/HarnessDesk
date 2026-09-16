@@ -3,7 +3,9 @@ import type { ForgeReference } from '@harnessdesk/protocol'
 import { GitHubMark } from '@/components/BrandIcons'
 import { CommentIcon, IssueIcon, PullRequestIcon, ReviewIcon } from '@/components/Icons'
 import { openExternal } from '@/lib/desktop'
-import { Button, IconTile, softTone, type Tone } from '@/design/ui'
+import { Button } from '../ui/button'
+import { IconTile } from '../ui/icon-tile'
+import { softTone, type Tone } from '../ui/tone'
 
 const STATE: Record<NonNullable<ForgeReference['state']>, { label: string; tone: Tone }> = {
   open: { label: 'Open', tone: 'success' },

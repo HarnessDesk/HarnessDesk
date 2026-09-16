@@ -10,6 +10,8 @@ import { PanelActions } from '../panels/PanelActions'
 import { ltr } from './ToolPaneHeader'
 import { useTheme } from '../state/theme'
 import { PlusIcon } from './Icons'
+import { terminalAppearance } from '../design/adapters/terminal'
+import { Button } from '../design'
 import styles from './ToolPanes.module.css'
 
 /**
@@ -34,27 +36,6 @@ import styles from './ToolPanes.module.css'
 
 const decode = (b64: string): Uint8Array => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
 const encode = (text: string): string => btoa(unescape(encodeURIComponent(text)))
-
-const themeFor = (): { background: string; foreground: string; cursor: string; selectionBackground: string } => {
-  const style = getComputedStyle(document.body)
-  const read = (name: string, fallback: string): string => style.getPropertyValue(name).trim() || fallback
-  return {
-    background: read('--hdp-alias-bg-layer-1', '#ffffff'),
-    foreground: read('--hdp-alias-label-primary', '#1f1f1f'),
-    cursor: read('--hd-accent', '#5676e8'),
-    selectionBackground: read('--hd-accent-dim', 'rgba(86, 118, 232, 0.2)'),
-  }
-}
-
-/**
- * xterm paints its own canvas and measures glyphs itself, so it needs a real
- * font list — a `var()` it cannot resolve makes the measurement and the paint
- * disagree, and every line wraps at the wrong column.
- */
-const fontFor = (): string => {
-  const declared = getComputedStyle(document.body).getPropertyValue('--hdp-font-family-code').trim()
-  return declared ? `${declared}, Menlo, monospace` : 'Menlo, monospace'
-}
 
 /**
  * The terminal, as the panel system mounts it.
@@ -86,15 +67,15 @@ export const TerminalSurface = () => {
           {ltr(view.cwd)}
         </span>
         <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className={styles.headerButton}
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => void store.openTerminal({ cwd: view.cwd })}
           title={`New shell in ${view.cwd}`}
           aria-label="New terminal"
         >
           <PlusIcon size={12} />
-        </button>
+        </Button>
         {/* Alone in its panel, this row is the only one — so the panel's verbs
             live at the end of it rather than in a strip above saying
             "Terminal" over a bar that already says where the shell is. */}
@@ -122,11 +103,12 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
   useEffect(() => {
     const element = host.current
     if (!element) return
+    const appearance = terminalAppearance()
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 12.5,
-      fontFamily: fontFor(),
-      theme: themeFor(),
+      fontFamily: appearance.fontFamily,
+      theme: appearance.theme,
       scrollback: 5000,
       allowProposedApi: true,
     })
@@ -194,7 +176,7 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
   }, [store, terminalId])
 
   useEffect(() => {
-    if (term.current) term.current.options.theme = themeFor()
+    if (term.current) term.current.options.theme = terminalAppearance().theme
   }, [theme])
 
   return (
@@ -212,12 +194,12 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
                   : `Exited with code ${exitCode}.`}
           </span>
           <span style={{ flex: 1 }} />
-          <button type="button" className={styles.action} onClick={() => void store.restartTerminal(view.terminalId)}>
+          <Button variant="outline" size="sm" onClick={() => void store.restartTerminal(view.terminalId)}>
             {view.command ? 'Run again' : 'New shell'}
-          </button>
-          <button type="button" className={styles.action} onClick={() => store.closeTerminal(view.terminalId)}>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => store.closeTerminal(view.terminalId)}>
             Close
-          </button>
+          </Button>
         </div>
       )}
     </>

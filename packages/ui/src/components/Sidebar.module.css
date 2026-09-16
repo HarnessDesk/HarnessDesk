@@ -92,7 +92,7 @@
 }
 
 .workspace:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 /* The app's name is the sidebar's title — Codex's heading step over its own
@@ -109,7 +109,7 @@
 
 .workspaceChevron {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   transform: rotate(90deg);
 }
 
@@ -129,39 +129,29 @@
    group row under it 30px, and the session row neither — three rows in one
    column, none agreeing, all drawn to look like the same row. */
 .navItem {
-  display: flex;
-  align-items: center;
+  justify-content: flex-start;
   gap: var(--hd-nav-gap);
   width: 100%;
-  height: var(--hd-nav-h);
-  padding: var(--hd-nav-padding);
-  border: none;
-  border-radius: var(--hd-nav-radius);
-  background: none;
-  color: var(--hd-sidebar-foreground);
-  cursor: pointer;
+
+
+
+
   text-align: left;
-  font-size: var(--hd-text);
+
 }
 
 .navItem:hover:not(:disabled) {
-  background: var(--hd-sidebar-hover);
-}
-
-.navItem:disabled {
-  opacity: 0.45;
-  cursor: default;
 }
 
 .navIcon {
   flex: none;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .navCount {
   margin-left: auto;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -199,7 +189,7 @@
   font-weight: var(--hd-label-weight, var(--hd-weight-normal));
   letter-spacing: var(--hd-label-tracking, 0);
   text-transform: var(--hd-label-transform, none);
-  color: var(--hd-label-ink, var(--hdp-alias-label-secondary));
+  color: var(--hd-label-ink, var(--hd-secondary-foreground));
 }
 
 .sectionTitle {
@@ -232,54 +222,49 @@
 .filterIcon {
   position: absolute;
   left: 6px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   pointer-events: none;
 }
 
 .filter:hover .filterIcon,
 .sectionLabel[data-filtering] .filterIcon {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .filterInput {
   width: 100%;
   min-width: 0;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: var(--hd-text);
-  cursor: pointer;
+
+
+
+
+
+
+
+
+
 }
 
 .filterInput:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
-.sectionLabel[data-filtering] .filterInput {
-  padding: 0 6px 0 21px;
-  background: var(--hdp-alias-interactive-bg-hover);
-  cursor: text;
+.sectionLabel[data-filtering] .filterInput { /* desk: canonical One UI System scale */
+
+
 }
 
 .filterInput:focus {
-  outline: none;
-  background: var(--hdp-alias-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+
+
 }
 
 .filterInput::placeholder {
-  color: var(--hdp-alias-label-tertiary);
 }
 
 /* Narrower than the word, the placeholder would read as a clipped letter or
    two — "F" — which looks like a bug. Nothing but the funnel, then. */
 @container (max-width: 66px) {
   .filterInput::placeholder {
-    color: transparent;
   }
 }
 
@@ -292,26 +277,25 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: var(--hd-nav-h-group);
-  padding: var(--hd-nav-padding);
-  border: none;
-  border-radius: var(--hd-nav-radius);
-  background: none;
-  color: var(--hd-sidebar-foreground);
-  cursor: pointer;
+
+
+
+
+
+
+
   text-align: left;
-  font-size: var(--hd-text);
+
 }
 
 .groupRow:hover {
-  background: var(--hd-sidebar-hover);
-  color: var(--hd-sidebar-foreground);
+
 }
 
 .groupChevron {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
-  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+  color: var(--hd-muted-foreground);
+  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .groupChevron[data-open] {
@@ -320,7 +304,7 @@
 
 .groupIcon {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /*
@@ -354,15 +338,15 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 3px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 .groupCount {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -388,16 +372,15 @@
   align-items: flex-start;
   gap: 8px;
   width: 100%;
-  padding: 6px var(--hd-nav-inset);
-  border: none;
-  border-radius: var(--hd-nav-radius);
-  background: none;
-  cursor: pointer;
+
+
+
+
+
   text-align: left;
 }
 
 .row:hover {
-  background: var(--hd-sidebar-hover);
 }
 
 /*
@@ -419,12 +402,11 @@
 .row[data-open],
 .row[data-active]:hover,
 .row[data-open]:hover {
-  background: var(--hd-sidebar-selected, var(--hdp-alias-interactive-bg-active));
 }
 
 .row[data-active] .rowTitle,
 .row[data-open] .rowTitle {
-  color: var(--hd-sidebar-selected-foreground, var(--hdp-alias-label-primary));
+  color: var(--hd-sidebar-selected-foreground, var(--hd-foreground));
   font-weight: var(--hd-nav-weight-selected, var(--hd-weight-normal));
 }
 
@@ -441,7 +423,7 @@
 .row[data-open] .statusGlyph,
 .row[data-active] .dot,
 .row[data-open] .dot {
-  color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
+  color: var(--hd-sidebar-selected-muted-foreground, var(--hd-secondary-foreground));
 }
 
 /* The title line: the name, and — for a conversation that ran in a worktree
@@ -467,7 +449,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   line-height: var(--hd-line);
 }
 
@@ -476,12 +458,12 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .row[data-active] .rowWorktree,
 .row[data-open] .rowWorktree {
-  color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
+  color: var(--hd-sidebar-selected-muted-foreground, var(--hd-secondary-foreground));
 }
 
 /* A conversation whose folder has been deleted, marked on the same right rail
@@ -493,7 +475,7 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowWorktree + .rowGone {
@@ -502,15 +484,15 @@
 
 .row[data-active] .rowGone,
 .row[data-open] .rowGone {
-  color: var(--hd-sidebar-selected-muted-foreground, var(--hdp-alias-label-secondary));
+  color: var(--hd-sidebar-selected-muted-foreground, var(--hd-secondary-foreground));
 }
 
 .rowMeta {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   min-width: 0;
   line-height: 15px;
 }
@@ -531,10 +513,10 @@
 }
 
 .emptyGroup {
-  padding: 4px 8px 8px 28px;
+  padding: 4px 8px 8px var(--hd-space-8); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   line-height: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .dot {
@@ -558,7 +540,7 @@
   padding: 24px 12px;
   text-align: center;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   line-height: 18px;
 }
 
@@ -590,19 +572,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
+  width: var(--hd-target-min); /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
+
+
+
   /* Sits over a hovered row, so it takes the plate it covers. */
-  background: var(--hd-sidebar-plate);
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+
+
+
 }
 
 .rowMenuButton:hover {
-  color: var(--hdp-alias-label-primary);
 }
 
 .menuItemDanger {
@@ -611,33 +592,32 @@
 
 .renameInput {
   width: 100%;
-  height: 24px;
-  padding: 0 6px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-base);
-  box-shadow: inset 0 0 0 1px var(--hd-accent);
-  color: inherit;
-  font: inherit;
-  font-size: var(--hd-text);
+
+
+
+
+
+
+
+
+
 }
 
 .showMore {
   display: block;
   width: 100%;
-  padding: 4px 8px;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+
+
+
+
+
+
   text-align: left;
-  font-size: var(--hd-text-sm);
+
 }
 
 .showMore:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-secondary);
+
 }
 
 /* --- account footer ----------------------------------------------------- */
@@ -649,7 +629,7 @@
   position: relative;
   flex: none;
   padding: 4px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 .accountRow {
@@ -669,7 +649,7 @@
 
 .accountRow:hover,
 .accountRow[data-open] {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .accountMenuMark {
@@ -706,7 +686,7 @@
 .accountMeta {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -723,7 +703,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--hdp-alias-label-tertiary);
+  background: var(--hd-muted-foreground);
 }
 
 .statusDot[data-state='ready'] {
@@ -746,16 +726,16 @@
   z-index: 30;
   padding: 4px;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.22),
-    inset 0 0 0 1px var(--hdp-alias-border-l2);
+    inset 0 0 0 1px var(--hd-border-strong);
 }
 
 .accountMenuHeader {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   padding: 8px 8px 6px;
 }
 
@@ -774,7 +754,7 @@
 
 .accountMenuPlan {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   text-transform: capitalize;
 }
 
@@ -797,15 +777,15 @@
 
 .accountMenuRow[data-static] {
   cursor: default;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .accountMenuRow:not([data-static]):hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .accountMenuRowOpen {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .accountMenuCaret {
@@ -821,7 +801,7 @@
   display: grid;
   grid-template-columns: 1fr auto auto;
   align-items: center;
-  gap: var(--hd-space-2);
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   height: var(--hd-nav-h);
   font-size: var(--hd-text);
 }
@@ -834,7 +814,7 @@
 }
 
 .usageLaneReset {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -866,7 +846,7 @@
 }
 
 .accountMenuAction > svg {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .accountMenuRow:hover .accountMenuAction > svg {
@@ -881,14 +861,14 @@
 .accountMenuRuntime {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   min-width: 0;
 }
 
 .accountMenuMeta {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -905,7 +885,7 @@
 .accountMenuDivider {
   height: 1px;
   margin: 4px 6px;
-  background: var(--hdp-alias-border-l1);
+  background: var(--hd-border);
 }
 
 .accountMenuConfirm {
@@ -915,7 +895,7 @@
 .accountMenuConfirmText {
   font-size: var(--hd-text-sm);
   line-height: 16px;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   margin-bottom: 8px;
 }
 
@@ -929,15 +909,15 @@
   height: 24px;
   padding: 0 10px;
   border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-interactive-bg-hover);
+  border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
+  background: var(--hd-hover);
   color: inherit;
   font-size: var(--hd-text-sm);
   cursor: pointer;
 }
 
 .accountMenuButton:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-active, var(--hdp-alias-interactive-bg-hover));
+  background: var(--hd-active, var(--hd-hover));
 }
 
 .accountMenuButtonDanger {
@@ -968,16 +948,16 @@
   border: none;
   background: none;
   padding: 2px 4px;
-  border-radius: 5px;
-  color: var(--hdp-alias-label-tertiary);
+  border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
+  color: var(--hd-muted-foreground);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
 }
 
 .listControls button:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
 }
 
 .listControls[data-filtered]::after {
@@ -1014,9 +994,9 @@
   height: 7px;
   /* Centred on the title's line, not on the row: a comfortable row is two
      lines tall and the glyph belongs to the first. */
-  margin-top: 7px;
+  margin-top: var(--hd-space-2); /* desk: canonical One UI System scale */
   border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-label-tertiary);
+  border: 1.5px solid var(--hd-muted-foreground);
   opacity: 0.55;
 }
 
@@ -1046,9 +1026,8 @@
 
 /* Compact is one line — the title — in a 28px row: the height Codex and
    Claude Code give theirs. Tighter than this and the titles run together. */
-.row[data-density='compact'] {
-  padding-top: 5px;
-  padding-bottom: 5px;
+.row[data-density='compact'] { /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
 }
 
 
@@ -1057,24 +1036,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+  width: var(--hd-target-min); /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
+
+
+
+
+
+
 }
 
 .iconButton:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+
 }
 
 .iconButton:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 /*
@@ -1109,19 +1085,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+  width: var(--hd-target-min); /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
+
+
+
+
+
+
 }
 
 .groupAdd:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+
 }
 
 /* A little air between one folder and the next, so the list reads as
@@ -1143,7 +1118,7 @@
   display: block;
   font-size: var(--hd-text-sm);
   line-height: 14px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* A nav row with a secondary action at its end: the option, not a second verb. */
@@ -1164,26 +1139,34 @@
   align-items: center;
   justify-content: center;
   width: 26px;
-  height: 26px;
+
   /* The nav's own padding is 6 and this box overhangs it by 6, which would
      put the branch glyph 2px outside the rail the counts below it sit on. */
   margin-right: var(--hd-space-0-5);
-  padding: 0;
-  border: none;
+
+
+
+
+
+
+}
+
+.navSecondaryHelp {
+  display: inline-flex;
+  flex: none;
   border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+}
+
+.navSecondaryHelp:focus-visible {
+  box-shadow: var(--hd-focus-ring);
+  outline: none;
 }
 
 .navSecondary:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+
 }
 
 .navSecondary:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 /* The live trace: the glyph and the meta word agree on colour. */
@@ -1236,13 +1219,13 @@
 .triage {
   margin: 0 0 8px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .triageLabel {
   padding: 2px 8px 4px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .triage[data-tone='waiting'] .triageLabel {
@@ -1254,20 +1237,19 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 6px 8px;
+
   margin-top: 4px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  font: inherit;
-  font-size: var(--hd-text-sm);
+
+
+
+
+
+
   text-align: left;
-  cursor: pointer;
+
 }
 
 .otherProjects:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .otherProjects .groupCount {
@@ -1278,7 +1260,7 @@
    hover buttons showing, so the menu does not appear to float from nothing. */
 .groupPin {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- arranging projects by hand ------------------------------------------ */
@@ -1308,14 +1290,12 @@
 }
 
 .groupHead[draggable='true'] .groupRow {
-  cursor: grab;
 }
 
 /* Dropping onto the fold hands a project back to the sort, so the fold says
    it will take one while a drag is in the air. */
 .otherProjects[data-insert='into'] {
-  box-shadow: inset 0 0 0 1px var(--hd-primary);
-  background: var(--hd-primary-muted);
+
 }
 
 /* Said to a screen reader, drawn to nobody. */
@@ -1335,7 +1315,7 @@
 
 .menuSection {
   padding: 4px 0;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .menuSection:last-child {
@@ -1343,9 +1323,9 @@
 }
 
 .menuLabel {
-  padding: 5px 9px 4px;
+  padding: var(--hd-space-1) var(--hd-space-2) 4px; /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* You: the seat a HarnessDesk account will take. There is no such account
@@ -1360,7 +1340,7 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 7px 9px;
+  padding: var(--hd-space-2) var(--hd-space-2); /* desk: canonical One UI System scale */
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
@@ -1371,7 +1351,7 @@
 }
 
 .you:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .youText {
@@ -1413,8 +1393,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
   font-weight: 400;
   white-space: nowrap;
@@ -1425,7 +1405,7 @@
 .seat {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   width: 100%;
   padding: 6px 8px;
   border: none;
@@ -1438,7 +1418,7 @@
 }
 
 .seat:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .seat[data-current] {
@@ -1461,15 +1441,15 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
 /* The row's badge for a default agent nobody has signed in to: no ring,
    because the ring is the account's, and there is no account. */
 .seatAvatar[data-off] {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .seatAvatar[data-tint='blue'] {
@@ -1517,7 +1497,7 @@
 .seatSub {
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1538,7 +1518,7 @@
 .seatFigure {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1573,7 +1553,7 @@
   background: var(--hd-danger);
 }
 .statusDot[data-state='available'] {
-  background: var(--hdp-alias-border-l3);
+  background: var(--hd-border-emphasis);
 }
 
 /* The app's mark beside its name. Sized to the wordmark's cap height rather
@@ -1585,8 +1565,8 @@
   place-items: center;
   /* The row's own gap is 2px, which is the spacing between two buttons, not
      between a mark and the word it belongs to. */
-  margin-right: 7px;
-  color: var(--hdp-alias-label-primary);
+  margin-right: var(--hd-space-2); /* desk: canonical One UI System scale */
+  color: var(--hd-foreground);
 }
 
 /* --- rooms in the tree --------------------------------------------------- */
@@ -1605,14 +1585,14 @@
   height: var(--hd-row-h);
   padding: 0 8px 0 2px;
   border-radius: 8px;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   cursor: pointer;
   text-align: left;
   font-size: var(--hd-text);
 }
 
 .roomRow:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 
@@ -1628,21 +1608,21 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: inherit;
-  cursor: pointer;
+  width: 24px; /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
+
+
+
+
+
+
 }
 
 .roomTwisty:hover {
-  background: var(--hdp-alias-interactive-bg-active);
 }
 
 .roomIcon {
   flex: none;
   color: var(--hd-tint-violet-ink);
 }
+/* @design-owners SessionTree */

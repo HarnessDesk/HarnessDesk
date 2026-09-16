@@ -56,7 +56,7 @@
  *
  * Borders, washes and masks in the alias tier are one ink at an alpha rather
  * than a colour each, so a hairline and a hover state are visibly the same
- * family. The app's own vocabulary — `--hd-*`, in ../design/tokens.css —
+ * family. The app's own vocabulary — `--hd-*`, in ../design/foundation/tokens.css —
  * reads this file and is what components should reference; nothing here is
  * meant to be used directly by a screen.
  */

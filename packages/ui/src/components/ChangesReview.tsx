@@ -4,7 +4,7 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
 import { inView } from '../lib/git-view'
-import { Tabs, TabsList, TabsTrigger } from '../design/ui'
+import { Button, Tabs, TabsList, TabsTrigger } from '../design'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavEmpty, WindowNavItem, WindowPage } from './AppWindow'
 import { DiffView } from './Diff'
@@ -233,9 +233,9 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                     </span>
                     <Counts added={count.added} removed={count.removed} />
                     <span className={styles.space} />
-                    <button type="button" className={styles.action} onClick={() => store.openFile(absolute(file.path))}>
+                    <Button variant="quiet" size="content" className={styles.action} onClick={() => store.openFile(absolute(file.path))}>
                       Open
-                    </button>
+                    </Button>
                   </div>
                   {hunks.length === 0 ? (
                     <div className={styles.quiet}>
@@ -251,14 +251,13 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                         <div className={styles.hunkHead}>
                           <code className={styles.hunkRange}>{hunk.header}</code>
                           <span className={styles.space} />
-                          <button
-                            type="button"
-                            className={styles.action}
+                          <Button
+                            variant="quiet" size="content" className={styles.action}
                             title="Quote this hunk into the composer as a revision request"
                             onClick={() => reviseHunk(file.path, hunk)}
                           >
                             Revise this hunk…
-                          </button>
+                          </Button>
                         </div>
                         <DiffView diff={hunk.text} />
                       </div>

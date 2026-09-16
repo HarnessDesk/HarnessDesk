@@ -1295,6 +1295,7 @@ it('takes a member out of the room from its card, and leaves the conversation al
     ;(trigger as Element).dispatchEvent(
       new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
     )
+    ;(trigger as Element).dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -1393,6 +1394,7 @@ it('sets one member’s inbound from its card, leaving the room’s own switch a
     ;(trigger as Element).dispatchEvent(
       new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }),
     )
+    ;(trigger as Element).dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -1425,11 +1427,12 @@ it('sets one member’s inbound from its card, leaving the room’s own switch a
   vi.useRealTimers()
 })
 
-/* A pointer coming to rest on one spot, and leaving it — the way Radix hears
-   a hover, and the way the two tests above open a card. */
+/* A mouse entering emits both pointer compatibility and native mouse events.
+   Base UI owns the latter; HarnessDesk's control exclusion owns the former. */
 const rest = (spot: Element): void => {
   act(() => {
     spot.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    spot.closest('[data-slot="hover-card-trigger"]')?.dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -1439,6 +1442,11 @@ const rest = (spot: Element): void => {
 const leave = (spot: Element): void => {
   act(() => {
     spot.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }))
+    const trigger = spot.closest('[data-slot="hover-card-trigger"]') ?? spot
+    trigger.dispatchEvent(
+      new MouseEvent('mouseleave', { relatedTarget: document.body, clientX: -1, clientY: -1 }),
+    )
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: -1, clientY: -1 }))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -1474,10 +1482,10 @@ it('opens a member’s card from its name and the line under it, as from its mar
   for (const spot of spots) {
     expect(spot, 'a line to rest on').toBeTruthy()
     rest(spot as Element)
-    expect(trigger?.getAttribute('data-state')).toBe('open')
+    expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
     expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
     leave(spot as Element)
-    expect(trigger?.getAttribute('data-state')).toBe('closed')
+    expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
   }
   vi.useRealTimers()
 })
@@ -1497,7 +1505,7 @@ it('pressing a member opens it and takes its card away', async () => {
   const name = textAt(row('Opus'), 'Opus')
   const trigger = row('Opus').closest('[data-slot="hover-card-trigger"]')
   rest(name)
-  expect(trigger?.getAttribute('data-state')).toBe('open')
+  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
 
   act(() => {
     name.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
@@ -1508,13 +1516,13 @@ it('pressing a member opens it and takes its card away', async () => {
     vi.advanceTimersByTime(1000)
   })
 
-  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
   expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain('k1')
 
   // And it comes back for the next rest: leaving the row ends the hold.
   leave(name)
   rest(name)
-  expect(trigger?.getAttribute('data-state')).toBe('open')
+  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -1537,7 +1545,7 @@ it('the plus beside a member opens no card, puts an open one away, and still wat
   if (!watch) throw new Error('no watch control on the row')
 
   rest(name)
-  expect(trigger?.getAttribute('data-state')).toBe('open')
+  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
   act(() => {
     watch.dispatchEvent(
       new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: name }),
@@ -1546,14 +1554,14 @@ it('the plus beside a member opens no card, puts an open one away, and still wat
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
 
   act(() => (watch as HTMLButtonElement).click())
   await act(async () => {})
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
   expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
   vi.useRealTimers()
 })
@@ -1586,9 +1594,9 @@ it('a pointer that comes in over the plus gets the card once it reaches the name
   if (!watch) throw new Error('no watch control on the row')
 
   rest(watch)
-  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
   move(watch, name)
-  expect(trigger?.getAttribute('data-state')).toBe('open')
+  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -1614,7 +1622,7 @@ it('tabbing to the plus opens no card', async () => {
     vi.advanceTimersByTime(1000)
   })
   expect(document.activeElement).toBe(watch)
-  expect(trigger?.getAttribute('data-state')).toBe('closed')
+  expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
   vi.useRealTimers()
 })
 

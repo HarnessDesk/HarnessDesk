@@ -42,14 +42,14 @@
  *   distinction the token layer already drew and the references collapsed.
  *
  * ---------------------------------------------------------------------------
- * Which build of the registry a file is on
+ * Primitive foundation
  *
- * shadcn ships three builds of most components — Base UI, React Aria, Radix —
- * and they are NOT interchangeable: parts are named differently and state
- * arrives on different attributes. A file half-migrated between them compiles
- * and renders unstyled. **Read the import at the top of a file before editing
- * it.** `button`, `switch`, `tabs`, `radio-group` and `alert-dialog` are on
- * `@base-ui/react`; the rest are Radix or have no primitive at all.
+ * Every interactive primitive in this directory uses `@base-ui/react`. shadcn
+ * publishes variants for several headless libraries, but mixing their part
+ * names, state attributes, focus models, or portals creates two interaction
+ * systems even when the screenshots look alike. `script/ui-architecture.mjs`
+ * rejects Radix and feature-level headless imports, and tests pin the Base UI
+ * DOM state attributes that the styles consume.
  *
  * One thing the published Base UI snippets get wrong, found by reading the
  * live DOM: Base UI 1.7 emits `data-orientation="horizontal"` and no
@@ -64,8 +64,8 @@
  * `attachment` had no upload state, `breadcrumb` existed only in the mock
  * pages, `field` had no grouping layer. Four replaced a hand-rolled
  * equivalent while the app's own rule survived on top: `radio-group` is now
- * the behaviour under `Kit.Segmented` (which kept its look and gained arrow
- * keys), `alert` is the shell under `Banner` (which kept the neutral card and
+ * the behaviour under the canonical `Segmented` pattern, `alert` is the shell
+ * under `Banner` (which kept the neutral card and
  * the dismissal policy), `alert-dialog` is the shell under `ConfirmDialog`
  * (which kept "nothing is focused"), and `input-group` replaced a three-part
  * version outright. `toast` is Sonner, mounted beside `Notices` rather than
@@ -77,9 +77,9 @@
  * owns. So the sortable heading, the selection and the pagination are here,
  * and the resize handle is here with the keyboard support that was the point.
  *
- * What is NOT adopted, deliberately, is in the audit: `command`, `context-menu`
- * and `message-scroller` overlap surfaces of ours that do more, and swapping
- * them would lose features. `message-scroller` is the one worth prototyping.
+ * Command and transcript scrolling remain product patterns because their
+ * contracts exceed a generic menu or scroller. Context menus, dropdowns,
+ * popovers, dialogs, and their nested focus behavior are Base UI-backed.
  */
 export * from './alert'
 export * from './alert-dialog'

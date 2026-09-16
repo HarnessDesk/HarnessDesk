@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "surfaces": [
+    { "id": "surface.dashboard", "implementationPath": "packages/ui/src/design/showcase/Showcase.tsx" },
+    { "id": "surface.group", "implementationPath": "packages/ui/src/design/showcase/GroupProject.tsx" },
+    { "id": "surface.conversation", "implementationPath": "packages/ui/src/design/showcase/ConversationPage.tsx" },
+    { "id": "surface.composer", "implementationPath": "packages/ui/src/design/showcase/ComposerBoard.tsx" },
+    { "id": "surface.rail", "implementationPath": "packages/ui/src/design/showcase/RailBoard.tsx" },
+    { "id": "surface.git", "implementationPath": "packages/ui/src/design/showcase/GitHistoryPage.tsx" },
+    { "id": "surface.panels", "implementationPath": "packages/ui/src/design/showcase/PanelPlayground.tsx" },
+    { "id": "surface.propagation", "implementationPath": "packages/ui/src/design/showcase/PropagationPage.tsx" },
+    { "id": "surface.tools", "implementationPath": "packages/ui/src/design/showcase/ToolsPage.tsx" }
+  ]
+}

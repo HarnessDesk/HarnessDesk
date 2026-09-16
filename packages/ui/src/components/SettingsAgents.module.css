@@ -3,7 +3,7 @@
    Two clicks, two different pages — the name opens the agent, a row opens
    the account. */
 
-/* Same card as Kit's `.rows`, on the same tokens — see the note there. */
+/* Same card contract as the canonical Settings Rows pattern. */
 .agent {
   border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
   border-radius: var(--hd-card-radius, var(--hd-radius-lg));
@@ -28,17 +28,16 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 12px 12px 16px;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
+
+
+
+
+
   text-align: left;
-  cursor: pointer;
+
 }
 
 .headOpen:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .headText {
@@ -61,7 +60,7 @@
   flex: none;
   font-size: var(--hd-text-sm);
   font-weight: 400;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -76,7 +75,7 @@
 
 .headCount {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   white-space: nowrap;
 }
 
@@ -85,27 +84,30 @@
   display: inline-grid;
   place-items: center;
   width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
-  transition: transform var(--hd-duration-fast) var(--hd-ease);
+
+
+
+
+
+
+
 }
 
 .headToggle:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-secondary);
+
 }
 
-.agent[data-open] .headToggle {
+.headToggleIcon {
+  display: inline-flex;
+  transition: transform var(--hd-duration-fast) var(--hd-ease);
+}
+
+.agent[data-open] .headToggleIcon {
   transform: rotate(180deg);
 }
 
 .body {
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 /* The account rows. Not a `Rows` card — the card is the agent, and a second
@@ -125,8 +127,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
   font-weight: 400;
   white-space: nowrap;
@@ -137,7 +139,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 /* --- why it will not start ------------------------------------------------ */
@@ -151,14 +153,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-2);
-  padding: 14px var(--hd-card-padding);
+  padding: var(--hd-space-4) var(--hd-card-padding); /* desk: canonical One UI System scale */
 }
 
 .problemLead {
   margin: 0;
   font-size: var(--hd-text);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* The agent speaking. Line breaks kept, because a validator writes one
@@ -171,8 +173,8 @@
   overflow: auto;
   padding: var(--hd-space-2) var(--hd-space-2-5);
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
@@ -183,7 +185,7 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- narrowing the list -------------------------------------------------- */
@@ -224,8 +226,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
 }
 
@@ -243,8 +245,8 @@
   height: 20px;
   padding: 0 8px;
   border-radius: var(--hd-radius-full);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-xs);
   white-space: nowrap;
 }
@@ -281,7 +283,7 @@
 
 .figure {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -319,10 +321,9 @@
   padding: 16px;
 }
 
-/* The meters are a row of this card, and Kit draws a hairline under every row
-   but the last. This block is not a Kit row, so nothing fell between it and
-   the Credits row and the card read as a meter block with a row stuck to the
-   bottom — the thing the one-card restructure was for (round 2 of #216). */
+/* The meters are a row of this card, and the Settings Rows pattern draws a
+   hairline under every row but the last. This block is specialized meter
+   geometry, so it supplies the same divider before the Credits row. */
 .meters:not(:last-child) {
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
 }
@@ -346,19 +347,19 @@
 
 .meterValue {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .meterReset {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* The prepaid balance, in the tone describeLimits grades it: the meters'
    figure ink while there is some, the danger ink when there is none. */
 .credits {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -373,14 +374,14 @@
 
 .meterTrack {
   height: 4px;
-  border-radius: 2px;
-  background: var(--hdp-alias-bg-module-platform);
+  border-radius: var(--hd-radius-2xs);
+  background: var(--hd-muted);
   overflow: hidden;
 }
 
 .meterFill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--hd-radius-2xs);
   background: var(--hd-success);
 }
 
@@ -396,7 +397,7 @@
   margin: 0 0 8px;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .note[data-tone='bad'] {
@@ -444,8 +445,8 @@
   );
   padding: 8px 10px;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-card);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
 .registryCellText {
@@ -481,11 +482,11 @@
   overflow: hidden;
   font-size: var(--hd-text-xs);
   line-height: var(--registry-line-h, 16px);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* Blocked is quiet, never silent: the line above is the reason. */
 .registryCell[data-blocked] .registryCellName {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-weight: 400;
 }

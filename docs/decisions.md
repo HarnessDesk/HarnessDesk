@@ -1,11 +1,35 @@
 # The decisions this is built on
 
-Eleven choices that shape everything else. Each is
+The choices that shape everything else. Each is
 stated as it stands today, not as it was argued — what the code does, and what
 it costs to keep doing it. Where a decision has a rule a reviewer can apply,
 the rule is the last line of its section.
 
 ---
+
+## One foundation and one public UI vocabulary
+
+Every first-party surface is downstream of one design system. The editable
+foundation lives in `packages/ui/src/design/foundation`; generic interactive
+controls are Base UI-backed shadcn-style source in `design/ui`; HarnessDesk
+compositions live in `design/patterns`; and specialized renderers cross only
+the explicit contracts in `design/adapters`. Features import the public
+`design/index.ts` vocabulary instead of reaching into those layers.
+
+This replaces the former split between Kit, shadcn/Radix controls, and local
+overlay implementations. The cost is intentional constraint: a feature that
+needs a new generic state changes the canonical component or adds a named
+pattern before it changes a screen. In return, one edit propagates to Settings,
+conversation, rooms, tools, the live catalog, portals, editor and terminal
+bridges, and the generated native About foundation.
+
+The constraint is executable. `script/check-ui-system.mjs` reconciles every
+tracked UI-producing file, rejects legacy or alternate headless imports, and
+requires catalog coverage; `script/design-audit.mjs --strict` refuses every
+style-system finding and any non-zero saved baseline.
+
+**The rule:** product features compose the public design API; they do not own
+generic controls, overlay behavior, or foundation values.
 
 ## Native Codex first, ACP for everything else
 

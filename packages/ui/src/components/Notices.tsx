@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { useRuntime, useRuntimeAccount, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction, bannerStyles as styles, type BannerTone } from '../design/primitives/Banner'
+import { Banner, BannerAction, BannerStack, type BannerTone } from '../design'
 import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, type NoticeIdentity } from '../lib/notice-policy'
@@ -31,7 +31,7 @@ export const Notices = () => {
   if (notices.length === 0) return null
 
   return (
-    <div className={styles.stack}>
+    <BannerStack>
       {notices.map((notice) => (
         <Banner
           key={notice.id}
@@ -57,7 +57,7 @@ export const Notices = () => {
           {notice.message}
         </Banner>
       ))}
-    </div>
+    </BannerStack>
   )
 }
 

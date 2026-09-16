@@ -16,7 +16,7 @@
   gap: var(--hd-space-1-5);
   min-height: var(--hd-chip-h);
   padding: var(--hd-space-0-5) 0;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
 }
@@ -25,7 +25,7 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .publicationVerb {
@@ -45,8 +45,8 @@
   padding: 0 var(--hd-space-2);
   border-radius: var(--hd-radius-full);
   box-shadow: var(--hd-hairline);
-  background: var(--hdp-alias-bg-layer-1);
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-card);
+  color: var(--hd-foreground);
   text-decoration: none;
 }
 
@@ -58,5 +58,5 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
 }

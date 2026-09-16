@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from 'react'
 import { useQueue, useSessionKey, useStore } from '../state/context'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
+import { Button } from '../design'
 import {
   AlertIcon,
   CrossIcon,
@@ -121,23 +122,21 @@ export const MessageQueue = () => {
             : `${count} message${count === 1 ? '' : 's'} waiting — sent when this turn ends`}
         </span>
         {paused && (
-          <button
-            type="button"
-            className={styles.action}
+          <Button
+            variant="quiet" size="content" className={styles.action}
             onClick={() => void store.flushQueue(key ?? undefined)}
             title="Send the first waiting message now"
           >
             Send now
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          className={styles.action}
+        <Button
+          variant="quiet" size="content" className={styles.action}
           onClick={() => void store.clearQueue(key ?? undefined)}
           title="Throw away everything waiting"
         >
           {count === 1 ? 'Discard' : 'Discard all'}
-        </button>
+        </Button>
       </div>
       <ol className={styles.list}>
         {queue.messages.map((message, index) => (
@@ -194,44 +193,44 @@ export const MessageQueue = () => {
             <When paused={paused} index={index} state={message.state} />
             {message.state === 'queued' && (
               <span className={styles.controls}>
-                <button
+                <Button
                   type="button"
-                  className={styles.control}
+                  variant="ghost" size="icon-sm" className={styles.control}
                   disabled={index === 0}
                   aria-label="Move up"
                   title="Send this one earlier"
                   onClick={() => void store.moveQueued(message.id, index - 1, key ?? undefined)}
                 >
                   <MoveUpIcon size={13} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.control}
+                  variant="ghost" size="icon-sm" className={styles.control}
                   disabled={index === count - 1}
                   aria-label="Move down"
                   title="Send this one later"
                   onClick={() => void store.moveQueued(message.id, index + 1, key ?? undefined)}
                 >
                   <MoveDownIcon size={13} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.control}
+                  variant="ghost" size="icon-sm" className={styles.control}
                   aria-label="Edit"
                   title="Put this back in the composer"
                   onClick={() => edit(message.id)}
                 >
                   <PencilIcon size={13} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.control}
+                  variant="ghost" size="icon-sm" className={styles.control}
                   aria-label="Remove"
                   title="Drop this message"
                   onClick={() => void store.unqueue(message.id, key ?? undefined)}
                 >
                   <CrossIcon size={13} />
-                </button>
+                </Button>
               </span>
             )}
           </li>

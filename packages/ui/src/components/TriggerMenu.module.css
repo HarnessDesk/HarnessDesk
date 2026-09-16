@@ -7,17 +7,17 @@
   overflow-y: auto;
   padding: 4px;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow:
     0 6px 24px rgba(0, 0, 0, 0.16),
-    inset 0 0 0 1px var(--hdp-alias-border-l2);
+    inset 0 0 0 1px var(--hd-border-strong);
   z-index: 5;
 }
 
 .header {
   padding: 6px 8px 4px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .row {
@@ -25,19 +25,18 @@
   align-items: baseline;
   gap: 8px;
   width: 100%;
-  padding: 6px 8px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: inherit;
-  cursor: pointer;
+
+
+
+
+
+
   text-align: left;
-  font-size: var(--hd-text);
+
 }
 
 .row[data-selected],
 .row:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .name {
@@ -46,7 +45,7 @@
 }
 
 .nameMono {
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text);
 }
 
@@ -57,20 +56,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .hintPath {
   direction: rtl;
   text-align: left;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
 }
 
 .badge {
   flex: none;
   height: 17px;
   padding: 0 6px;
-  border-radius: 9px;
+  border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
   font-size: var(--hd-text-xs);
@@ -84,10 +83,10 @@
 }
 
 .empty {
-  padding: 14px 10px;
+  padding: var(--hd-space-4) 10px; /* desk: canonical One UI System scale */
   text-align: center;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* A row's own glyph, when the kinds this menu knows cannot say it — an
@@ -100,7 +99,7 @@
   display: inline-flex;
   width: 14px;
   justify-content: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* The badge in the two inks that are not "what kind of thing this is".

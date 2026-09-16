@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import { Btn, Dialog, Input } from '../design'
+import { Button, Dialog, Input } from '../design'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
@@ -127,7 +127,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
         onClose={onClose}
         footer={
           <>
-            <Btn variant="primary" disabled={busy || name.trim() === ''} onClick={() => void create()}>
+            <Button variant="default" disabled={busy || name.trim() === ''} onClick={() => void create()}>
               {busy
                 ? flow
                   ? 'Seating…'
@@ -135,10 +135,10 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
                 : flow
                   ? 'Create room and start'
                   : 'Create room'}
-            </Btn>
-            <Btn disabled={busy} onClick={() => setNaming(false)}>
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setNaming(false)}>
               Back
-            </Btn>
+            </Button>
           </>
         }
       >
@@ -174,9 +174,9 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
   return (
     <Dialog title="What are you starting?" size="sm" onClose={onClose}>
       <div className={styles.choices}>
-        <button
+        <Button
           type="button"
-          className={styles.choice}
+          variant="choice" size="row" className={styles.choice}
           onClick={() => {
             onClose()
             store.newDraft()
@@ -191,11 +191,11 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
               One agent, working in this folder. What ⌘N does.
             </span>
           </span>
-        </button>
+        </Button>
 
-        <button
+        <Button
           type="button"
-          className={styles.choice}
+          variant="choice" size="row" className={styles.choice}
           disabled={!root}
           onClick={() => setNaming(true)}
         >
@@ -210,7 +210,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
                 : 'Several agents share one board — work is claimed, and nobody edits the same file twice.'}
             </span>
           </span>
-        </button>
+        </Button>
       </div>
     </Dialog>
   )

@@ -1,7 +1,7 @@
 import { sessionKey } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction } from '../design/primitives/Banner'
+import { Banner, BannerAction } from '../design'
 
 /**
  * What a conversation says when the folder it ran in is gone.

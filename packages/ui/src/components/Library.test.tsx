@@ -161,7 +161,7 @@ const mount = async (
  * view added later cannot silently re-point these at the wrong one.
  */
 const showMatrix = async (): Promise<void> => {
-  const button = [...container.querySelectorAll('button')].find(
+  const button = [...document.body.querySelectorAll('button')].find(
     (node) => node.getAttribute('aria-label') === 'Show every entry against every agent',
   )
   expect(button, 'the view switch should offer the matrix').toBeTruthy()
@@ -169,7 +169,7 @@ const showMatrix = async (): Promise<void> => {
 }
 
 const cellNames = (): readonly string[] =>
-  [...container.querySelectorAll('[role="img"]')].map(
+  [...document.body.querySelectorAll('[role="img"]')].map(
     (node) => node.getAttribute('aria-label') ?? '',
   )
 
@@ -185,7 +185,7 @@ it('tells absent apart from present-but-unread', async () => {
 it('names every agent from its own presentation, never a literal', async () => {
   await mount(library([entry('alpha', ['reaches', 'absent'])]))
   await showMatrix()
-  const headers = [...container.querySelectorAll('th[scope="col"]')].map((node) => node.textContent)
+  const headers = [...document.body.querySelectorAll('th[scope="col"]')].map((node) => node.textContent)
   expect(headers).toEqual(['Name', 'First Agent', 'Second Agent'])
 })
 
@@ -203,16 +203,16 @@ it('a count filters the table down to what it counted', async () => {
     ]),
   )
   await showMatrix()
-  expect(container.textContent).toContain('good')
-  expect(container.textContent).toContain('empty')
+  expect(document.body.textContent).toContain('good')
+  expect(document.body.textContent).toContain('empty')
 
-  const button = [...container.querySelectorAll('button')].find((node) =>
+  const button = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('empty on disk'),
   )
   expect(button, 'the summary strip should offer the hollow count').toBeTruthy()
   await act(async () => button?.click())
 
-  const rows = [...container.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
+  const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   expect(rows).toEqual(['empty'])
 })
 
@@ -228,16 +228,16 @@ it('only-problems means defects and strandings, never mere non-reach', async () 
     ]),
   )
   await showMatrix()
-  const toggle = container.querySelector('[role="switch"]') as HTMLElement | null
+  const toggle = document.body.querySelector('[role="switch"]') as HTMLElement | null
   expect(toggle, 'the problems switch should render').toBeTruthy()
   await act(async () => toggle?.click())
-  const rows = [...container.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
+  const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   expect(rows).toEqual(['empty', 'stranded'])
 })
 
 it('a count with nothing to show cannot be pressed', async () => {
   await mount(library([entry('good', ['reaches', 'reaches'])]))
-  const button = [...container.querySelectorAll('button')].find((node) =>
+  const button = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('empty on disk'),
   )
   expect((button as HTMLButtonElement | undefined)?.disabled).toBe(true)
@@ -261,16 +261,16 @@ it('opening a row shows every copy and who reads it', async () => {
     ]),
   )
   await showMatrix()
-  const disclosure = container.querySelector('[aria-expanded]') as HTMLButtonElement | null
+  const disclosure = document.body.querySelector('[aria-expanded]') as HTMLButtonElement | null
   expect(disclosure).toBeTruthy()
   await act(async () => disclosure?.click())
   // With the tilde, because that is how the path is written everywhere else
   // it appears — in a shell, in the agent's own config, in its documentation.
   // Spelled out, four copies of one skill are four lines whose differing part
   // begins past the fold.
-  expect(container.textContent).toContain('~/.agents/skills/alpha')
-  expect(container.textContent).not.toContain('/home/u/.agents')
-  expect(container.textContent).toContain('No agent reads this directory.')
+  expect(document.body.textContent).toContain('~/.agents/skills/alpha')
+  expect(document.body.textContent).not.toContain('/home/u/.agents')
+  expect(document.body.textContent).toContain('No agent reads this directory.')
 })
 
 it('says why a column is weaker rather than letting it look empty', async () => {
@@ -284,8 +284,8 @@ it('says why a column is weaker rather than letting it look empty', async () => 
       },
     ],
   })
-  expect(container.textContent).toContain('Second Agent')
-  expect(container.textContent).toContain('read from disk')
+  expect(document.body.textContent).toContain('Second Agent')
+  expect(document.body.textContent).toContain('read from disk')
 })
 
 it('reports a failed scan instead of an empty library', async () => {
@@ -305,7 +305,7 @@ it('reports a failed scan instead of an empty library', async () => {
       </StoreProvider>,
     )
   })
-  expect(container.textContent).toContain('the host said no')
+  expect(document.body.textContent).toContain('the host said no')
 })
 
 it('usage joins the matrix: the never-fired tile isolates paid-and-idle', async () => {
@@ -322,12 +322,12 @@ it('usage joins the matrix: the never-fired tile isolates paid-and-idle', async 
     },
   )
   await showMatrix()
-  const tile = [...container.querySelectorAll('button')].find((node) =>
+  const tile = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('never fired'),
   )
   expect(tile, 'the never-fired tile should render once usage arrives').toBeTruthy()
   await act(async () => tile?.click())
-  const rows = [...container.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
+  const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   // `invisible` reaches nobody: it is a reach problem, not an idle expense.
   expect(rows).toEqual(['idle'])
 })
@@ -340,7 +340,7 @@ it('the footer prices what the table shows, per agent', async () => {
     ]),
   )
   await showMatrix()
-  const cells = [...container.querySelectorAll('tfoot tr:first-child td')].map(
+  const cells = [...document.body.querySelectorAll('tfoot tr:first-child td')].map(
     (node) => node.textContent,
   )
   expect(cells).toEqual(['\u2248150 tok', '\u224850 tok'])
@@ -360,11 +360,11 @@ it('the never-fired view leads with the most expensive idle row', async () => {
     usageOf({ working: { sessions: 1, activations: 1, lastAt: 5, byRuntime: { one: { sessions: 1, activations: 1 } } } }),
   )
   await showMatrix()
-  const tile = [...container.querySelectorAll('button')].find((node) =>
+  const tile = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('never fired'),
   )
   await act(async () => tile?.click())
-  const rows = [...container.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
+  const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   expect(rows).toEqual(['dear-idle', 'cheap-idle'])
 })
 
@@ -380,7 +380,7 @@ it('the fired-here footer counts per agent over the rows on screen', async () =>
     }),
   )
   await showMatrix()
-  const fired = [...container.querySelectorAll('tfoot tr:last-child td')].map((node) => node.textContent)
+  const fired = [...document.body.querySelectorAll('tfoot tr:last-child td')].map((node) => node.textContent)
   expect(fired).toEqual(['2 of 2', '1 of 2'])
 })
 
@@ -395,10 +395,10 @@ it('a split that cannot name every activation shows the remainder', async () => 
     }),
   )
   await showMatrix()
-  const disclosure = container.querySelector('[aria-expanded]') as HTMLButtonElement | null
+  const disclosure = document.body.querySelector('[aria-expanded]') as HTMLButtonElement | null
   await act(async () => disclosure?.click())
-  expect(container.textContent).toContain('2× First Agent')
-  expect(container.textContent).toContain('3× under earlier registrations')
+  expect(document.body.textContent).toContain('2× First Agent')
+  expect(document.body.textContent).toContain('3× under earlier registrations')
 })
 
 it('the drawer offers to install where the entry does not reach', async () => {
@@ -407,11 +407,11 @@ it('the drawer offers to install where the entry does not reach', async () => {
   const request = await mount(library([entry('alpha', ['reaches', 'absent'])]))
   await showMatrix()
   await act(async () => {
-    ;[...container.querySelectorAll('button')]
+    ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('alpha'))
       ?.click()
   })
-  const install = [...container.querySelectorAll('button')].find((one) =>
+  const install = [...document.body.querySelectorAll('button')].find((one) =>
     one.textContent?.includes('Install to Second Agent'),
   )
   expect(install).toBeTruthy()
@@ -432,9 +432,9 @@ it('detects the hollow directories and turns them into one previewed clean-up', 
   const request = await mount(
     library([entry('good', ['reaches', 'reaches']), entry('ghost', ['hollow', 'absent'])]),
   )
-  expect(container.textContent).toContain('1 directory holds a skill’s name and no definition')
+  expect(document.body.textContent).toContain('1 directory holds a skill’s name and no definition')
   await act(async () => {
-    ;[...container.querySelectorAll('button')]
+    ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('Clean up…'))
       ?.click()
   })
@@ -494,11 +494,11 @@ it('says which copy wins an agent’s scan order, and which is shadowed', async 
   await mount(value)
   await showMatrix()
   await act(async () => {
-    ;[...container.querySelectorAll('button')]
+    ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('dup'))
       ?.click()
   })
-  const chips = [...container.querySelectorAll('[title*="scan order"]')].map(
+  const chips = [...document.body.querySelectorAll('[title*="scan order"]')].map(
     (one) => one.textContent,
   )
   expect(chips).toContain('loads for First Agent')
@@ -511,8 +511,8 @@ it('arriving from the banner opens the import flow over the same page', async ()
   await mount(library([entry('alpha', ['reaches', 'absent'])]), undefined, {
     initialFlow: 'import',
   })
-  expect(container.textContent).toContain('Import between agents')
-  expect(container.textContent).toContain('Nothing changes until a preview is confirmed')
+  expect(document.body.textContent).toContain('Import between agents')
+  expect(document.body.textContent).toContain('Nothing changes until a preview is confirmed')
 })
 
 it('a row whose copies disagree offers Resolve, never Install', async () => {
@@ -541,11 +541,11 @@ it('a row whose copies disagree offers Resolve, never Install', async () => {
   await mount(library([two]))
   await showMatrix()
   await act(async () => {
-    ;[...container.querySelectorAll('button')]
+    ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('dup'))
       ?.click()
   })
-  const labels = [...container.querySelectorAll('button')].map((one) => one.textContent ?? '')
+  const labels = [...document.body.querySelectorAll('button')].map((one) => one.textContent ?? '')
   expect(labels.some((label) => label.includes('Install to'))).toBe(false)
   expect(labels.some((label) => label.includes('Resolve copies'))).toBe(true)
 })
@@ -600,7 +600,7 @@ it('a bulk import carries the source agent\u2019s own copy, not a namesake', asy
     ],
   })
   const radios = (group: string): readonly HTMLButtonElement[] => [
-    ...(container
+    ...(document.body
       .querySelector(`[role="radiogroup"][aria-label="${group}"]`)
       ?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []),
   ]
@@ -614,7 +614,7 @@ it('a bulk import carries the source agent\u2019s own copy, not a namesake', asy
       .find((one) => one.textContent === 'Second Agent')
       ?.click()
   })
-  const preview = [...container.querySelectorAll('button')].find((one) =>
+  const preview = [...document.body.querySelectorAll('button')].find((one) =>
     one.textContent?.startsWith('Preview 1'),
   )
   expect(preview).toBeTruthy()
@@ -660,15 +660,15 @@ it('history shows what changed from here, and a kept backup can be restored', as
   const request = await mount(library([entry('alpha', ['reaches', 'reaches'])]), undefined, {
     audit,
   })
-  expect(container.textContent).toContain('Changes made from here')
-  expect(container.textContent).toContain('Replaced a copy of alpha')
+  expect(document.body.textContent).toContain('Changes made from here')
+  expect(document.body.textContent).toContain('Replaced a copy of alpha')
   // Newest on top: the log appends oldest-first, the page reads it back.
-  expect(container.textContent?.indexOf('fetcher')).toBeLessThan(
-    container.textContent?.indexOf('Replaced a copy of alpha') ?? -1,
+  expect(document.body.textContent?.indexOf('fetcher')).toBeLessThan(
+    document.body.textContent?.indexOf('Replaced a copy of alpha') ?? -1,
   )
   // A failure reads as a sentence, verb in the infinitive, reason attached.
-  expect(container.textContent).toContain('Failed to add fetcher — No write permission')
-  const restore = [...container.querySelectorAll('button')].find(
+  expect(document.body.textContent).toContain('Failed to add fetcher — No write permission')
+  const restore = [...document.body.querySelectorAll('button')].find(
     (one) => one.textContent === 'Restore\u2026',
   )
   expect(restore).toBeTruthy()
@@ -717,12 +717,12 @@ it('never offers to install a server into an agent with no config file for one',
   // The MCP rows live behind their own tab, and the drawer behind the row.
   const openFetcher = async (): Promise<void> => {
     await act(async () => {
-      ;[...container.querySelectorAll('button')]
+      ;[...document.body.querySelectorAll('button')]
         .find((one) => one.textContent?.startsWith('MCP servers'))
         ?.click()
     })
     await act(async () => {
-      ;[...container.querySelectorAll('button')]
+      ;[...document.body.querySelectorAll('button')]
         .find((one) => one.textContent?.includes('fetcher'))
         ?.click()
     })
@@ -734,7 +734,7 @@ it('never offers to install a server into an agent with no config file for one',
   await showMatrix()
   await openFetcher()
   const offers = () =>
-    [...container.querySelectorAll('button')].filter((one) =>
+    [...document.body.querySelectorAll('button')].filter((one) =>
       one.textContent?.includes('Add to Second Agent'),
     )
   expect(offers()).toHaveLength(0)
@@ -791,13 +791,13 @@ it('ten agents collapse the drawer offers into one previewed plan', async () => 
   })
   await showMatrix()
   await act(async () => {
-    ;[...container.querySelectorAll('button')]
+    ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('alpha'))
       ?.click()
   })
-  const labels = [...container.querySelectorAll('button')].map((one) => one.textContent ?? '')
+  const labels = [...document.body.querySelectorAll('button')].map((one) => one.textContent ?? '')
   expect(labels.some((label) => label === 'Install to Agent 2')).toBe(false)
-  const all = [...container.querySelectorAll('button')].find((one) =>
+  const all = [...document.body.querySelectorAll('button')].find((one) =>
     one.textContent?.includes('Install to all 5 missing'),
   )
   expect(all).toBeTruthy()
@@ -820,12 +820,12 @@ it('three or more column caveats fold behind their count', async () => {
     ] as Library['gaps'],
   }
   await mount(value)
-  expect(container.textContent).toContain(
+  expect(document.body.textContent).toContain(
     '3 columns are read from disk rather than from their agents',
   )
   // The fold hides nothing: each agent's own sentence is still there to open.
-  expect(container.querySelector('details')).toBeTruthy()
-  expect(container.textContent).toContain('A second reason.')
+  expect(document.body.querySelector('details')).toBeTruthy()
+  expect(document.body.textContent).toContain('A second reason.')
 })
 
 it('never offers a skill to an agent the location table cannot write to', async () => {
@@ -839,11 +839,11 @@ it('never offers a skill to an agent the location table cannot write to', async 
   await mount(value)
   await showMatrix()
   await act(async () => {
-    ;[...container.querySelectorAll('button')]
+    ;[...document.body.querySelectorAll('button')]
       .find((one) => one.textContent?.includes('alpha'))
       ?.click()
   })
-  const offer = [...container.querySelectorAll('button')].find((one) =>
+  const offer = [...document.body.querySelectorAll('button')].find((one) =>
     one.textContent?.includes('Install to Second Agent'),
   )
   expect(offer).toBeUndefined()
@@ -852,7 +852,7 @@ it('never offers a skill to an agent the location table cannot write to', async 
 /* ——— the list, which is what the page now opens on ————————————————— */
 
 const cards = (): readonly HTMLElement[] => [
-  ...container.querySelectorAll<HTMLElement>('[data-slot="skill-row"]'),
+  ...document.body.querySelectorAll<HTMLElement>('[data-slot="skill-row"]'),
 ]
 
 it('opens on a list, one row per entry, each carrying what the thing is for', async () => {
@@ -881,7 +881,7 @@ it('writes a skill’s name as the command that fires it', async () => {
 
 it('a row says who loads it without a table, and names each state for readers', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
-  const faces = [...container.querySelectorAll('[data-slot="skill-reach"]')].map((node) => ({
+  const faces = [...document.body.querySelectorAll('[data-slot="skill-reach"]')].map((node) => ({
     state: node.getAttribute('data-state'),
     label: node.getAttribute('aria-label'),
   }))
@@ -1058,8 +1058,8 @@ it('an empty library offers the way out of being empty', async () => {
   // machine with no skills on it. The second is a first run, and telling it
   // to adjust filters it never set is how a first run reads as broken.
   await mount(library([]))
-  expect(container.textContent).toContain('No skills on this machine yet')
-  const write = [...container.querySelectorAll('button')].find((one) =>
+  expect(document.body.textContent).toContain('No skills on this machine yet')
+  const write = [...document.body.querySelectorAll('button')].find((one) =>
     one.textContent?.includes('Write a skill'),
   )
   expect(write, 'an empty library should offer to fill itself').toBeTruthy()
@@ -1240,7 +1240,7 @@ it('the switched-off chip isolates exactly the entries with a switch down', asyn
       }),
     ]),
   )
-  const chip = [...container.querySelectorAll('button')].find((node) =>
+  const chip = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('switched off'),
   )
   expect(chip, 'the chip row should offer the switched-off count').toBeTruthy()
@@ -1276,7 +1276,7 @@ it('an agent that refuses toggles gets a sentence, never a switch', async () => 
  * native setter, so React's onChange fires.
  */
 const typeSearch = async (text: string): Promise<void> => {
-  const box = container.querySelector(
+  const box = document.body.querySelector(
     'input[aria-label="Filter the library by name"]',
   ) as HTMLInputElement | null
   expect(box, 'the page should have a search box').toBeTruthy()
@@ -1288,7 +1288,7 @@ const typeSearch = async (text: string): Promise<void> => {
 }
 
 const chipNamed = (label: string): HTMLButtonElement | undefined =>
-  [...container.querySelectorAll('[data-slot="library-count"]')].find((node) =>
+  [...document.body.querySelectorAll('[data-slot="library-count"]')].find((node) =>
     node.textContent?.includes(label),
   ) as HTMLButtonElement | undefined
 
@@ -1329,11 +1329,11 @@ it('an empty list blames whichever of the two narrowings actually emptied it', a
   // the page empty.
   await act(async () => chipNamed('reach some')?.click())
   await typeSearch('beta')
-  expect(container.textContent).toContain('Nothing matches')
-  expect(container.textContent).toContain('1 entry matches “beta”')
+  expect(document.body.textContent).toContain('Nothing matches')
+  expect(document.body.textContent).toContain('1 entry matches “beta”')
   // Not “No skill here is called beta” — there is one, and the state filter
   // is what is holding it back.
-  expect(container.textContent).not.toContain('No skill here is called')
+  expect(document.body.textContent).not.toContain('No skill here is called')
 })
 
 it('a skill is installed and a server is added, in every place that offers it', async () => {
@@ -1349,7 +1349,7 @@ it('a skill is installed and a server is added, in every place that offers it', 
 it('the matrix says what its marks mean, on screen', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
   await showMatrix()
-  const legend = container.querySelector('[data-slot="library-legend"]')
+  const legend = document.body.querySelector('[data-slot="library-legend"]')
   expect(legend, 'the matrix should carry a visible key').toBeTruthy()
   expect(legend?.textContent).toContain('Reaches')
   expect(legend?.textContent).toContain('Not read')
@@ -1378,10 +1378,10 @@ it('a copy an agent has not read back yet says so, and is not filed as a fault',
   expect(cards()[0]?.textContent).toContain('Not read yet by Second Agent')
   // Quietly — the problems filter is for defects, and this is not one.
   await act(async () => {
-    const only = container.querySelector('[role="switch"]') as HTMLElement | null
+    const only = document.body.querySelector('[role="switch"]') as HTMLElement | null
     only?.click()
   })
-  expect(container.textContent).toContain('Nothing matches')
+  expect(document.body.textContent).toContain('Nothing matches')
 })
 
 it('the sheet offers to make a stale agent look again, and reports a refusal', async () => {
@@ -1576,5 +1576,5 @@ it('determines winning copy under Windows-style scan roots (#664)', async () => 
     },
   )
   await showMatrix()
-  expect(container.textContent).toContain('alpha')
+  expect(document.body.textContent).toContain('alpha')
 })
