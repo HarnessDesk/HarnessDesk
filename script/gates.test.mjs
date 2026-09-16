@@ -8,7 +8,7 @@ import { codeOf, compareBaseline, sheetsOf, squaresOf } from './design-audit.mjs
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
-import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
+import { ALLOWED, basesFor as docPathBasesFor, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
 import { checkNotices, installedLicence } from './check-notices.mjs'
 import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
@@ -1020,6 +1020,12 @@ test('an allowlisted doc path is held to its own reason (#223)', () => {
      DESCRIBED_AS entry for a step the gate no longer runs. */
   assert.match(docPathProblems(named, () => true, allowed)[0], /it resolves now/)
   assert.match(docPathProblems(new Map(), () => false, allowed)[0], /no document names it/)
+})
+
+test('documented repository paths resolve only through tracked files', () => {
+  const value = 'docs/architecture.md'
+  assert.equal(docPathBasesFor(repoRoot, new Set())(value, 'README.md'), false)
+  assert.equal(docPathBasesFor(repoRoot, new Set([value]))(value, 'README.md'), true)
 })
 
 test('what counts as a documented repository path (#223)', () => {

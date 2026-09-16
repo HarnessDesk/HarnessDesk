@@ -146,11 +146,9 @@ guardrails.
   exercised on the real dialog and menu contracts;
 - dark mode, reduced motion, and 1024x768 rendering are captured.
 
-Artifacts:
-
-- `output/playwright/ui-system/propagation-light.png`
-- `output/playwright/ui-system/propagation-dark-1024x768.png`
-- `output/playwright/ui-system/report/`
+The run writes its generated artifacts under `output/playwright/ui-system/`:
+`propagation-light.png`, `propagation-dark-1024x768.png`, and the `report/`
+directory. CI uploads that tree from the browser integration job.
 
 ### Native Electron
 
@@ -171,14 +169,11 @@ and Settings in both themes. It found and fixed a notice rail that overlapped
 the sidebar wordmark at that width; the recaptured frames were inspected for
 clipping, overlap, scroll ownership, and disappearing labels.
 
-Artifacts:
-
-- `output/native-ui-system/report.json`
-- `output/native-ui-system/contact-sheet.png`
-- `output/native-ui-system/frames/`
-- `output/native-ui-system/about-dark.png`
-- `output/native-ui-system-minimum/report.json`
-- `output/native-ui-system-minimum/contact-sheet.png`
+The full run writes `report.json`, `contact-sheet.png`, `frames/`, and
+`about-dark.png` under `output/native-ui-system/`. The minimum-size run writes
+its `report.json` and `contact-sheet.png` under
+`output/native-ui-system-minimum/`. CI uploads the full-run tree from the
+native integration job.
 
 No real profile, credential store, repository, account, path, or transcript is
 used. Each frame is rejected before writing if the privacy audit cannot vouch
@@ -193,7 +188,7 @@ for its visible text, attributes, or accounts.
 | `node script/design-audit.mjs --strict` | exit 0; 0 findings |
 | `node script/check-design-tokens.mjs` | exit 0; 1,678 values plus native foundation current |
 | `node script/design-doc.mjs --check` | exit 0; generated documentation current |
-| `pnpm test:gates` | exit 0; 219 passed |
+| `pnpm test:gates` | exit 0; 220 passed |
 | `pnpm --filter @harnessdesk/ui run test` | exit 0; 214 files, 2,598 tests passed |
 | `pnpm test:ui-system` | exit 0; 4 passed |
 | `pnpm test:ui-system:native` | exit 0; 18 app frames plus About; relaunch persistence passed |
