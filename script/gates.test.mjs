@@ -24,6 +24,12 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+test('the browser integration job builds workspace package entries before Vite', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')
+  const browserJob = workflow.match(/^  ui-system-browser:[\s\S]*?(?=^  [a-z][a-z-]+:|\Z)/m)?.[0] ?? ''
+  assert.match(browserJob, /run: pnpm run build:node[\s\S]*run: pnpm test:ui-system/)
+})
+
 /**
  * The gates' own parsers, tested — because both of them were silently wrong
  * and neither could have said so.

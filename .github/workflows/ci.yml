@@ -183,6 +183,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # Vite resolves workspace packages through their compiled `dist` entry.
+      # A clean runner has none until the Node build creates them.
+      - run: pnpm run build:node
       - run: pnpm exec playwright install chromium
       - run: pnpm test:ui-system
 
