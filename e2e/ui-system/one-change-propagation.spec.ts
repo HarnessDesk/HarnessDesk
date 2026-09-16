@@ -125,7 +125,7 @@ test('dialog and menu keyboard contracts enter, dismiss, and return focus safely
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Add a workspace' })
   await expect(dialog).toBeVisible()
-  expect(await dialog.evaluate((node) => document.activeElement === node)).toBe(true)
+  await expect(dialog).toBeFocused()
 
   // Initial focus is the static surface, so a held Return cannot take the
   // proceeding action as the dialog opens.
