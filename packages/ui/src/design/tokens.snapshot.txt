@@ -5,7 +5,9 @@
 --hd-accent-hover = rgb(98, 135, 249)
 --hd-active = rgba(9, 12, 17, 0.09)
 --hd-background = rgb(255, 255, 255)
+--hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(9, 12, 17, 0.05)
 --hd-border-emphasis = rgba(9, 12, 17, 0.14)
@@ -425,7 +427,9 @@
 --hd-accent-hover = rgb(118, 153, 251)
 --hd-active = rgba(255, 255, 255, 0.13)
 --hd-background = rgb(22, 24, 27)
+--hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(255, 255, 255, 0.05)
 --hd-border-emphasis = rgba(255, 255, 255, 0.2)
@@ -845,7 +849,9 @@
 --hd-accent-hover = rgb(98, 135, 249)
 --hd-active = rgba(9, 12, 17, 0.09)
 --hd-background = rgb(255, 255, 255)
+--hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(9, 12, 17, 0.05)
 --hd-border-emphasis = rgba(9, 12, 17, 0.14)
@@ -1284,7 +1290,9 @@
 --hd-accent-hover = rgb(118, 153, 251)
 --hd-active = rgba(255, 255, 255, 0.13)
 --hd-background = rgb(22, 24, 27)
+--hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(255, 255, 255, 0.05)
 --hd-border-emphasis = rgba(255, 255, 255, 0.2)

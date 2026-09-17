@@ -60,7 +60,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 8px 0 max(8px, var(--titlebar-inset, 0px)); /* desk: unchanged at 8, the inset is 0 unless this row is the corner */
+  gap: var(--hd-bar-gap);
+  padding: 0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px)); /* desk: unchanged at 8, the inset is 0 unless this row is the corner */
 }
 
 .header {
@@ -69,11 +70,11 @@
   /* The wordmark starts on the left rail, with the nav icons under it. The
      right stops at 8 rather than 14 so the search button can hang its box
      over the rail and land the magnifier on it — see the note at the top. */
-  padding: 0 8px 0 var(--rail);
+  padding: 0 var(--hd-bar-pad) 0 var(--rail);
   margin-bottom: 4px;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--hd-bar-gap); /* desk: 2 → 6, the bar's own gap */
 }
 
 /* The workspace switcher reads as a title, not a form control. */

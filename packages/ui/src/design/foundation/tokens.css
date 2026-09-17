@@ -327,6 +327,11 @@ body {
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
   --hd-bar-h: 46px; /* desk: 44 → 46, the window's own bar */
+  /* What a bar holds its controls at, and how far they stand from its ends.
+     One pair for every bar in the window, so a control in the title row and a
+     control in a pane's header sit on the same rhythm. */
+  --hd-bar-gap: var(--hd-space-1-5);
+  --hd-bar-pad: var(--hd-space-2);
   --hd-column: 736px;
 
   /* A row whose trailing action floats over its own label rather than taking

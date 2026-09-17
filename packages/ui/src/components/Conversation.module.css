@@ -10,13 +10,13 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--hd-bar-gap); /* desk: 8 → 6, the bar's own gap */
   height: var(--hd-titlebar-height);
   /* With the sidebar away this header can be the window's top-left, and the
      macOS window buttons are drawn over it — so it starts after whatever room
      the shell says this box owes them. See `--titlebar-inset` in
      `app.css`; with the sidebar up, or in the browser, that is nothing. */
-  padding: 0 12px 0 max(16px, var(--titlebar-inset, 0px)); /* desk: unchanged at 16, the inset is 0 unless this row is the corner */
+  padding: 0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px)); /* desk: 12/16 → 8, the bar's own padding */
   border-bottom: 1px solid var(--hd-border);
   /* The plan strip gives way to the session's name by the width of this row,
      not the window's: a narrow centre column on a wide screen is still narrow. */
