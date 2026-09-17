@@ -72,17 +72,6 @@ for (const { svg, icns } of icons) {
   console.log(`${svg} -> packages/desktop/build/${icns}`)
 }
 
-// --- The Dock's way back to the app's own face.
-//
-// Choosing a profile picture puts that avatar on the Dock, and choosing the
-// default has to put this back. The bundle icon cannot be the image that does
-// it: `nativeImage` has no .icns decoder and hands back an empty image, so the
-// shell needs the same artwork as a raster Chromium can read. 512 is room to
-// spare over the largest tile macOS draws — 128pt, doubled on a Retina screen —
-// and the same pixels as the .icns slot of that size, so nothing shifts.
-render('harnessdesk-dock-icon-light.svg', 512, 512, join(assetsDir, 'dockIcon.png'))
-console.log('harnessdesk-dock-icon-light.svg -> packages/desktop/electron/assets/dockIcon.png')
-
 // --- The mark's colourways: the faces someone can wear instead of a whale.
 //
 // Settings › You offers the twenty-three whales in `assets/avatars` and, before
@@ -125,12 +114,74 @@ const [blueTop, blueBottom] = stops(blueMark, 'harnessdesk-icon-blue-transparent
 const blueGradient = blueMark.slice(blueMark.indexOf('<defs>') + '<defs>'.length, blueMark.indexOf('</defs>'))
 if (!blueGradient.includes('brandBlue')) throw new Error('build-icons: the blue mark no longer defines brandBlue')
 
-/** The light dock icon with a different plate under the mark. */
+// The container macOS draws an app icon in.
+//
+// macOS 26 masks every legacy `.icns` into this shape — Notes, Mail, Claude and
+// this app's own bundle icon composite to the same alpha to the pixel, so the
+// *app icon* needs nothing from us. A runtime icon is the exception: `app.dock
+// .setIcon` goes through `applicationIconImage`, which fills the tile as given
+// and is not masked, so a face has to arrive already in this shape or it sits in
+// the Dock squarer than everything beside it.
+//
+// Measured on macOS 26.5.2 from the system's own composite: on the 824 plate, a
+// superellipse corner of radius 270/1024 with exponent 2.70, which fits the
+// measured edge to 2px. The plate we ship in the .icns is r=226 n=3.68 — the
+// pre-26 shape, and still the right one there, since that file is what older
+// macOS draws verbatim and macOS 26 re-masks anyway.
+const CONTAINER = { radius: 270, exponent: 2.7 }
+
+/**
+ * The plate as a path: straight edges, and each corner walked as a superellipse.
+ * Sampled rather than fitted to Béziers — this path is generated and never read,
+ * and at 96 steps a corner's chord error is under a twentieth of a pixel at 1024.
+ */
+const containerPath = (x0, y0, side, { radius: r, exponent: n }) => {
+  const x1 = x0 + side
+  const y1 = y0 + side
+  const at = (v) => v.toFixed(2)
+  // One quarter, from the edge it leaves to the edge it meets.
+  const corner = (cx, cy, sx, sy, xLeads) => {
+    const steps = []
+    for (let i = 0; i <= 96; i += 1) {
+      const t = (i / 96) * (Math.PI / 2)
+      const c = Math.cos(t) ** (2 / n)
+      const s = Math.sin(t) ** (2 / n)
+      steps.push(`L ${at(cx + sx * r * (xLeads ? c : s))} ${at(cy + sy * r * (xLeads ? s : c))}`)
+    }
+    return steps.join(' ')
+  }
+  return [
+    `M ${at(x0)} ${at(y0 + r)}`,
+    corner(x0 + r, y0 + r, -1, -1, true),
+    `L ${at(x1 - r)} ${at(y0)}`,
+    corner(x1 - r, y0 + r, 1, -1, false),
+    `L ${at(x1)} ${at(y1 - r)}`,
+    corner(x1 - r, y1 - r, 1, 1, true),
+    `L ${at(x0 + r)} ${at(y1)}`,
+    corner(x0 + r, y1 - r, -1, 1, false),
+    'Z',
+  ].join(' ')
+}
+
+/** The plate every runtime icon here wears: the 824 plate at +100, in that shape. */
+const CONTAINER_D = containerPath(100, 100, 824, CONTAINER)
+
+/** The same icon with its plate re-cut to a given shape. */
+const recut = (source, d) => {
+  const plate = /(<path id="plate"[^>]*\sd=")[^"]*(")/
+  if (!plate.test(source)) throw new Error('build-icons: the plate path is not where it was')
+  return source.replace(plate, `$1${d}$2`)
+}
+
+/** The light dock icon, in the container macOS draws, with a different plate under the mark. */
 const plated = (top, bottom) =>
-  swap(
-    swap(dockLight, '<stop offset="0" stop-color="#F2F2F4"/>', `<stop offset="0" stop-color="${top}"/>`),
-    '<stop offset="1" stop-color="#D9D9DE"/>',
-    `<stop offset="1" stop-color="${bottom}"/>`,
+  recut(
+    swap(
+      swap(dockLight, '<stop offset="0" stop-color="#F2F2F4"/>', `<stop offset="0" stop-color="${top}"/>`),
+      '<stop offset="1" stop-color="#D9D9DE"/>',
+      `<stop offset="1" stop-color="${bottom}"/>`,
+    ),
+    CONTAINER_D,
   )
 
 /** …and with a different ink in it. `opacity` is how silver is made: white, held back. */
@@ -158,6 +209,19 @@ const FACES = [
   // same reason the black whale is not in the picker (`lib/avatars.ts`).
   ['mark-plain', blueMark],
 ]
+
+// --- The Dock's way back to the app's own face.
+//
+// Choosing a profile picture puts that avatar on the Dock, and choosing the
+// default has to put this back. The bundle icon cannot be the image that does
+// it: `nativeImage` has no .icns decoder and hands back an empty image, so the
+// shell needs the same artwork as a raster Chromium can read. It is cut like the
+// faces, in the container above, because that is what the Dock was showing
+// before a face was picked: on macOS 26 the tile you see is the bundle icon
+// already re-masked into that shape. 512 is room to spare over the largest tile
+// macOS draws — 128pt, doubled on a Retina screen.
+renderSource(recut(dockLight, CONTAINER_D), 512, join(assetsDir, 'dockIcon.png'))
+console.log('harnessdesk-dock-icon-light.svg -> packages/desktop/electron/assets/dockIcon.png (in the system container)')
 
 // Two sizes, the avatars' own: 384 for the Dock and any large tile, 128 for the
 // working size the renderer bundles (`assets/avatars/README.md` says why those).

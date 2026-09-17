@@ -70,7 +70,9 @@ export const avatarResourcePath = (avatar, roots) =>
  * obvious candidate: `nativeImage` has no .icns decoder and hands back an empty
  * image, so a reset would be dropped by the guard below and the Dock would keep
  * the avatar. `pnpm run icons` renders the same vector to this PNG, beside the
- * shell's other assets so the path is one thing in development and packaged.
+ * shell's other assets so the path is one thing in development and packaged —
+ * cut in the container macOS draws an app icon in, because an icon set here is
+ * drawn as given rather than masked (`assets/brand/README.md`).
  */
 export const DEFAULT_ICON_FILE = 'dockIcon.png'
 
