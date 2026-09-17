@@ -73,13 +73,6 @@
   color: var(--hd-accent);
 }
 
-.empty {
-  padding: var(--hd-space-4) 10px; /* desk: canonical One UI System scale */
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
-
 /* A row's own glyph, when the kinds this menu knows cannot say it — an
    agent's brand mark for a room's members. Centred rather than left on the
    baseline the row aligns to: a square mark hung off a text baseline sits

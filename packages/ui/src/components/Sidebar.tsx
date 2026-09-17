@@ -216,7 +216,7 @@ export const Sidebar = ({
 
       <div className={styles.list} ref={listRef} onScroll={onScroll}>
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
-          <p className={styles.empty}>
+          <p className="hd-empty-line">
             {ready
               ? `No sessions yet. Start one to see it here${
                   runtime.presentation.historySource

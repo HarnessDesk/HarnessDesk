@@ -738,7 +738,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | finding | count | what it costs |
 | --- | --- | --- |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
-| `patternClass` | 21 | Fourteen screens draw their own page header and ten their own empty state, at different paddings and different sizes, while PageHead and EmptyState sit unused in the design system. It is why two pages that do the same thing do not look alike. |
+| `patternClass` | 3 | Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |
 | `forkedToken` | 0 | Forks the source of truth: the generated doc and the token snapshot both miss it. |

@@ -51,12 +51,6 @@
   color: var(--hd-foreground);
 }
 
-.empty {
-  padding: var(--hd-space-8) 0; /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
-
 .folder {
   margin: 0 0 var(--hd-space-6); /* desk: canonical One UI System scale */
 }

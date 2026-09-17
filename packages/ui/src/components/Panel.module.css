@@ -286,10 +286,3 @@ button.row:hover {
   background: var(--hd-accent);
 }
 
-.empty {
-  padding: var(--hd-space-8) 8px; /* desk: canonical One UI System scale */
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 19 → 18, the line the 13px step is set on */
-  color: var(--hd-muted-foreground);
-}

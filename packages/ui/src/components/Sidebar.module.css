@@ -506,14 +506,6 @@
   background: var(--hd-success);
 }
 
-.empty {
-  padding: 24px 12px;
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-sidebar-muted-foreground);
-  line-height: var(--hd-line-sm);
-}
-
 /* The row's menu sits at the right edge, centred on a compact row and on
    the title line of a comfortable one; it shows on hover and while open. */
 .rowMenu {
