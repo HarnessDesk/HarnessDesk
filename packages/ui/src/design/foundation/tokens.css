@@ -991,7 +991,7 @@ body {
  * prompted the measurement. That is the point of having had a token layer.
  */
 body[data-hd-dark-theme] {
-  --hd-sidebar-plate: var(--hdp-static-neutral-1000); /* desk: measured against the Codex desktop app, whose dark under-colour is black */
+  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-850); /* desk: black → a plate above the page, the direction the column reads in */
 
   /* An elevation drawn in black does nothing on a black page: the smallest
      rung becomes a hairline of light instead. */
