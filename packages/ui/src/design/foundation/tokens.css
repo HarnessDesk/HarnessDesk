@@ -779,7 +779,7 @@ body {
    * family arrived; a token with no relatives has nowhere better to be, and
    * one with eight does.
    */
-  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-00); /* desk: 249 → white, a plate above the ground in both themes */
+  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-50);
   --hd-sidebar: var(--hd-sidebar-plate);
   --hd-sidebar-foreground: var(--hdp-alias-label-primary);
   /*

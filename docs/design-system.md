@@ -176,7 +176,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | token | value |
 | --- | --- |
 | `--hd-solid` | `rgb(27, 27, 27)` |
-| `--hd-solid-hover` | `color-mix(in srgb, rgb(27, 27, 27) 86%, rgb(245, 245, 245))` |
+| `--hd-solid-hover` | `color-mix(in srgb, rgb(27, 27, 27) 86%, rgb(255, 255, 255))` |
 | `--hd-solid-foreground` | `rgb(255, 255, 255)` |
 
 ### Density scopes
