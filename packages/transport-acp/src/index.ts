@@ -55,6 +55,13 @@ export interface AcpAgentCapabilities {
 /** ACP's sign-out request, declared by `agentCapabilities.auth.logout`. */
 export const ACP_LOGOUT = 'logout'
 
+/**
+ * ACP's sign-in request: `{ methodId }`, one of `initialize`'s `authMethods`.
+ * It answers nothing — the agent does whatever signing in means for it, a
+ * browser it opens itself included, and the reply is the flow's completion.
+ */
+export const ACP_AUTHENTICATE = 'authenticate'
+
 /** One row of `session/list`, as Claude Code 0.16.2 serves it. */
 export interface AcpSessionRow {
   readonly sessionId: string
@@ -565,16 +572,27 @@ export class AcpError extends Error {
 /**
  * `error.data`, flattened to a line worth showing.
  *
- * Agents put a string here, or an object with `details` (Claude Code does);
- * anything else is kept as JSON rather than dropped, because a clue that
- * reads badly still beats no clue at all.
+ * Agents put a string here, or an object with `details` (Claude Code does)
+ * or `message` (Antigravity's server does — its `auth_required` carries
+ * `{"message":"No authentication method selected. Call `authenticate` with
+ * one of: …"}`); anything else is kept as JSON rather than dropped, because
+ * a clue that reads badly still beats no clue at all.
+ *
+ * `message` was the shape that fell through to the JSON branch, and the
+ * account pane showed the brace: the sign-in offer under each of
+ * Antigravity's four methods read `Authentication required: {"message":"No
+ * authentication method selected.` — cut mid-record, because the sentence it
+ * is trimmed to ended inside the JSON (#749). `said` is the error's own
+ * message, so a `data.message` that only repeats it is not said twice.
  */
-const detailOf = (data: unknown): string | undefined => {
+const detailOf = (data: unknown, said?: string): string | undefined => {
   if (data === null || data === undefined) return undefined
   if (typeof data === 'string') return data.trim() || undefined
   if (typeof data === 'object') {
-    const details = (data as { details?: unknown })['details']
-    if (typeof details === 'string' && details.trim()) return details.trim()
+    for (const key of ['details', 'message'] as const) {
+      const value = (data as Record<string, unknown>)[key]
+      if (typeof value === 'string' && value.trim() && value.trim() !== said?.trim()) return value.trim()
+    }
   }
   try {
     const json = JSON.stringify(data)
@@ -1097,7 +1115,8 @@ export class AcpConnection {
       this.#pending.delete(id)
       if ('error' in message && message['error']) {
         const error = message['error'] as { message?: string; code?: number; data?: unknown }
-        pending.reject(new AcpError(error.message ?? 'agent error', error.code, detailOf(error['data'])))
+        const said = error.message ?? 'agent error'
+        pending.reject(new AcpError(said, error.code, detailOf(error['data'], said)))
       } else {
         pending.resolve(message['result'])
       }

@@ -1004,8 +1004,10 @@ export class AppStore {
       return
     }
     await this.startLogin(runtime, method.id)
-    const start = this.#snapshot.logins[runtime]?.start
-    if (start) openExternal(start.url)
+    // No URL means the agent opened the browser itself — ACP's `authenticate`
+    // does — so there is nothing here to open and nothing to report.
+    const url = this.#snapshot.logins[runtime]?.start.url
+    if (url) openExternal(url)
   }
 
   /**

@@ -235,7 +235,18 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     },
     auth: {
       kind: 'terminal',
-      status: cli('opencode', 'auth', 'list'),
+      /* No `status` command — #749. `opencode auth list` is a *provider*
+         listing, not a status: it draws a box of names and counts
+         ("┌ Credentials …/auth.json │ ● OpenCode Zen api └ 1 credentials")
+         with no `loggedIn`, no address and no sentence, so it never parsed
+         as an account and OpenCode read as signed out however many
+         providers it had. Worse, a declared status *replaces* the session
+         observation, so the one piece of evidence the desk did have was
+         suppressed: every OpenCode conversation opened onto "Sign in to
+         OpenCode" instead of a composer. Measured on opencode 1.18.30 —
+         `auth list` has no `--json`, so there is nothing here to parse.
+         The record it draws that box from is read directly instead; see
+         `openCodeIdentity` in `identity.ts`. */
       terminal: 'opencode auth login',
       note: 'Providers are added one at a time with `opencode auth login`, which asks in the terminal; Claude Pro/Max, ChatGPT and Copilot sign in through a browser from there, the rest take an API key.',
     },

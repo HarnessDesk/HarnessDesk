@@ -445,7 +445,9 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   // "open" means the system browser: in a plain web build an automatic
   // window.open is popup-blocker bait, so the link does that job on a click.
   useEffect(() => {
-    if (login?.outcome.type === 'pending' && login.start.type === 'browser' && isDesktop()) {
+    // An agent that opened the browser from inside its own `authenticate`
+    // hands over no URL, and there is nothing here to open (#749).
+    if (login?.outcome.type === 'pending' && login.start.type === 'browser' && login.start.url && isDesktop()) {
       openExternal(login.start.url)
     }
   }, [login?.start.loginId, login?.outcome.type, login?.start])
@@ -993,9 +995,15 @@ const Pending = ({
       )}
 
       <div className={own.row}>
-        <Button variant="secondary" onClick={() => openExternal(start.url)}>
-          {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
-        </Button>
+        {/* Only where there is a page to open. An agent that opened the
+            browser from inside its own `authenticate` never said which URL
+            it used, so the button would have nowhere to go (#749); the wait
+            and the cancel are the whole of what this flow offers then. */}
+        {start.url ? (
+          <Button variant="secondary" onClick={() => openExternal(start.url!)}>
+            {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
+          </Button>
+        ) : null}
         <Button variant="ghost" onClick={() => void store.cancelLogin(runtime)}>
           Cancel
         </Button>

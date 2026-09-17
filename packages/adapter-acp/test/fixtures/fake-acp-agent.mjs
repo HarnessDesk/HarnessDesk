@@ -725,6 +725,27 @@ const handlers = {
         : {}),
     })
   },
+  /* ACP's own sign-in. Answers nothing, as the schema has it, and takes
+     however long the sign-in takes — the real ones open a browser inside
+     this call. FAKE_ACP_AUTH_MS delays the reply so a test can watch the
+     pending state and cancel it; FAKE_ACP_AUTH_FAILS=1 refuses it. */
+  authenticate: (id, params) => {
+    const known = (process.env.FAKE_ACP_AUTH_METHODS
+      ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
+      : [{ id: 'device' }]
+    ).map((m) => m.id)
+    if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
+    const answer = () => {
+      if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
+      // Signed in, so the sessions this agent was refusing now open.
+      signedOut = false
+      delete process.env.FAKE_ACP_AUTH_REQUIRED
+      reply(id, {})
+    }
+    const wait = Number(process.env.FAKE_ACP_AUTH_MS ?? 0)
+    if (wait > 0) setTimeout(answer, wait)
+    else answer()
+  },
   // ACP's own sign-out. Served only when it was declared: an agent that
   // never put `auth.logout` in its capabilities and is asked anyway should
   // answer the way any agent answers a method it does not have.

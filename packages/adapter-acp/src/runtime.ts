@@ -90,6 +90,7 @@ import {
   ACP_SESSION_DELETE_CAPABILITY,
   ACP_INSTRUCTIONS_CAPABILITY,
   type AcpSessionDeleted,
+  ACP_AUTHENTICATE,
   ACP_DELEGATION_NOTIFICATION,
   ACP_LOGOUT,
   type AcpDelegation,
@@ -615,6 +616,8 @@ export class AcpRuntime implements AgentRuntime {
   /** What the host last decided to run, when it decides at all. */
   #launch: AcpLaunchDecision | null = null
   readonly #account: CliAccount | null
+  /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
+  readonly #acpLogins = new Set<string>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -1385,12 +1388,66 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  async login(_method: string): Promise<LoginStart> {
+  async login(method: string): Promise<LoginStart> {
+    if (method.startsWith(ACP_METHOD)) return this.#authenticateOverAcp(method.slice(ACP_METHOD.length))
     if (!this.#account) throw new Error(`${this.#config.name} declares no sign-in command.`)
     return this.#account.login()
   }
 
+  /**
+   * ACP's own sign-in, for one of the methods the agent declared.
+   *
+   * `authenticate` is a request that does not answer until the agent has
+   * signed in — Antigravity's server opens Google in the browser itself,
+   * from inside the call — so the flow is *started* here and settled by the
+   * reply, which is exactly the shape `login()` already has for a CLI whose
+   * browser flow ends in an exit. What it cannot give is a URL: the agent
+   * opened the page, and never says which. The hand-back carries none, and
+   * the shell shows "waiting for you in the browser" without a link.
+   *
+   * The request cannot be recalled once sent, so a cancel drops the desk's
+   * claim on the flow rather than stopping the agent — and if the agent
+   * signs in anyway, the account still changed and the desk is told to look
+   * again. `CliAccount` treats a cancelled-then-successful flow the same way.
+   */
+  async #authenticateOverAcp(methodId: string): Promise<LoginStart> {
+    const loginId = randomUUID()
+    this.#acpLogins.add(loginId)
+    const runtime = runtimeId(this.#config.id)
+    void this.#connection.request(ACP_AUTHENTICATE, { methodId }).then(
+      () => {
+        const mine = this.#acpLogins.delete(loginId)
+        // Before the events, so whoever reads the identity on `account/changed`
+        // reads it signed in — the same ordering `#accountEvent` keeps.
+        this.#noteSignIn({ state: 'observed' })
+        if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
+        this.emit({ type: 'account/changed', runtime })
+      },
+      (error: unknown) => {
+        if (!this.#acpLogins.delete(loginId)) return
+        this.emit({
+          type: 'account/loginCompleted',
+          runtime,
+          loginId,
+          success: false,
+          error: firstSentence(describeAcp(error)),
+        })
+      },
+    )
+    return { type: 'browser', loginId }
+  }
+
   async cancelLogin(loginId: string): Promise<void> {
+    if (this.#acpLogins.delete(loginId)) {
+      this.emit({
+        type: 'account/loginCompleted',
+        runtime: runtimeId(this.#config.id),
+        loginId,
+        success: false,
+        error: 'Sign-in was cancelled.',
+      })
+      return
+    }
     await this.#account?.cancel(loginId)
   }
 
@@ -1810,9 +1867,13 @@ export class AcpRuntime implements AgentRuntime {
    * where the agent writes it, "Signed in" where it does not. Only after a
    * session opened: a record on disk is what the agent will try, not proof
    * that it still works, and a refusal outranks it.
-   * A refusal is answered with the agent's declared methods, as `external`
-   * flows: the desk does not drive ACP's `authenticate` yet, so the honest
-   * offer is the agent's own words about how to sign in.
+   * A refusal is answered with the agent's declared methods, and they are
+   * `browser` flows because the desk does now drive ACP's `authenticate`:
+   * declaring a method in `initialize` is the agent saying "call
+   * `authenticate` with this id", so an offer to press it is the agent's own
+   * offer rather than the desk's guess. They were `external` — a sentence
+   * and nothing to press — which for Antigravity left no way in at all, its
+   * CLI being a different program (#749).
    */
   #observedAccount(hasKey: boolean): AccountStatus {
     const seen = this.#signIn
@@ -1828,9 +1889,9 @@ export class AcpRuntime implements AgentRuntime {
       return {
         accounts: [],
         signInMethods: (this.#initialized?.authMethods ?? []).map((method) => ({
-          id: `acp:${method.id}`,
+          id: `${ACP_METHOD}${method.id}`,
           label: method.name,
-          flow: 'external' as const,
+          flow: 'browser' as const,
           description: [method.description ?? '', said].filter((part) => part.length > 0).join(' — '),
         })),
       }
@@ -2335,6 +2396,13 @@ type SignInObservation =
  * server sends the code and the words, a bridge may send the words alone,
  * and a bare -32000 is a failure of some other kind.
  */
+/**
+ * What a sign-in method id gets so the desk can tell an ACP method from a
+ * CLI's or a stored key's. `#observedAccount` mints them and `login()` reads
+ * them back; the agent's own id is whatever follows.
+ */
+const ACP_METHOD = 'acp:'
+
 const AUTH_REQUIRED_WORDS =
   /authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
 const isAuthRefusal = (error: unknown): boolean =>

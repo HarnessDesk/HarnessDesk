@@ -200,6 +200,21 @@ test('a no-status account uses the observed identity and clears it after logout'
  * has been given the desk claims nothing, which is what keeps "Needs sign-in"
  * off an agent that is in the middle of opening pull requests.
  */
+/** The first event that matches, or a failure naming what did arrive. */
+const until = async (
+  events: readonly AgentEvent[],
+  matches: (event: AgentEvent) => boolean,
+  timeoutMs = 5000,
+): Promise<AgentEvent> => {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const found = events.find(matches)
+    if (found) return found
+    if (Date.now() > deadline) throw new Error(`timed out; saw ${events.map((e) => e.type).join(', ')}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 const bare = (env: Record<string, string> = {}): AcpRuntime =>
   new AcpRuntime({
     id: 'fake-acp',
@@ -239,9 +254,18 @@ test('an agent that refuses a session for want of a sign-in says so, in its decl
     assert.equal(status.signInMethods.length, 1)
     assert.equal(status.signInMethods[0]?.id, 'acp:device')
     assert.equal(status.signInMethods[0]?.label, 'Sign in on the agent side')
-    assert.equal(status.signInMethods[0]?.flow, 'external', 'the desk does not drive ACP authenticate')
+    assert.equal(status.signInMethods[0]?.flow, 'browser', 'the agent asked to be called, so the desk offers a button')
     assert.match(status.signInMethods[0]?.description ?? '', /Run the agent login\./)
     assert.match(status.signInMethods[0]?.description ?? '', /Authentication required/)
+    /* The whole line, because this is a line a person reads and it used to
+       show the agent's `error.data` as a brace: `Authentication required:
+       {"message":"No authentication method selected.` — cut mid-record,
+       since the sentence it is trimmed to ended inside the JSON. The fake
+       refuses in Antigravity's own shape, `data.message` (#749). */
+    assert.equal(
+      status.signInMethods[0]?.description,
+      'Run the agent login. — Authentication required: No authentication method selected.',
+    )
   } finally {
     await runtime.dispose()
   }
@@ -307,7 +331,7 @@ test('a prompt-time auth refusal moves an observed agent to sign-in required', a
     assert.equal(status.signInMethods.length, 1)
     assert.equal(status.signInMethods[0]?.id, 'acp:devin-browser')
     assert.equal(status.signInMethods[0]?.label, 'Log in with browser')
-    assert.equal(status.signInMethods[0]?.flow, 'external')
+    assert.equal(status.signInMethods[0]?.flow, 'browser')
     assert.match(status.signInMethods[0]?.description ?? '', /Please log in to use Devin/)
     assert.ok(
       events.some((event) => event.type === 'account/changed'),
@@ -349,6 +373,115 @@ test('a prompt-time non-auth error leaves an observed agent signed in (control)'
 })
 
 /**
+ * Sign-in over ACP itself — #749.
+ *
+ * `authenticate` takes one of the ids from `initialize`'s `authMethods` and
+ * answers nothing; the agent does whatever signing in means for it, and for
+ * Antigravity's server that is opening Google in the browser from inside the
+ * call. So the desk starts the flow, hands back no URL, and waits for the
+ * reply. Before this, an agent's declared methods were `external` — a
+ * sentence and nothing to press — which for an agent whose CLI is a
+ * different program left no way in at all.
+ */
+test('a declared ACP method is a sign-in the desk can drive, and hands back no URL to open', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const offered = (await runtime.getAccount()).signInMethods[0]
+    assert.equal(offered?.flow, 'browser', 'the agent asked to be called; that is a button')
+    assert.equal(offered?.id, 'acp:device')
+
+    const started = await runtime.login(offered!.id)
+    assert.equal(started.type, 'browser')
+    assert.equal(started.type === 'browser' ? started.url : 'x', undefined, 'the agent opened the browser, not the desk')
+
+    const completed = (await until(events, (e) => e.type === 'account/loginCompleted')) as Extract<
+      AgentEvent,
+      { type: 'account/loginCompleted' }
+    >
+    assert.equal(completed.success, true)
+    assert.equal(completed.loginId, started.loginId)
+    assert.ok(events.some((event) => event.type === 'account/changed'))
+
+    // It took: the agent opens sessions again, and the desk says signed in.
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    await runtime.createSession({ cwd: process.cwd() })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-in the agent refuses completes as a failure, in the agent’s own words', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1', FAKE_ACP_AUTH_FAILS: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const started = await runtime.login('acp:device')
+    const completed = (await until(events, (e) => e.type === 'account/loginCompleted')) as Extract<
+      AgentEvent,
+      { type: 'account/loginCompleted' }
+    >
+    assert.equal(completed.success, false)
+    assert.equal(completed.loginId, started.loginId)
+    // One sentence, not the agent's whole paragraph.
+    assert.equal(completed.error, 'the browser flow was refused.')
+    assert.deepEqual((await runtime.getAccount()).accounts, [], 'still signed out')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a cancelled ACP sign-in ends at once, and the agent signing in anyway still tells the desk to look', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1', FAKE_ACP_AUTH_MS: '400' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const started = await runtime.login('acp:device')
+    await runtime.cancelLogin(started.loginId)
+    const completed = (await until(events, (e) => e.type === 'account/loginCompleted')) as Extract<
+      AgentEvent,
+      { type: 'account/loginCompleted' }
+    >
+    assert.equal(completed.success, false)
+    assert.equal(completed.error, 'Sign-in was cancelled.')
+
+    /* The request was already sent and cannot be recalled, so the agent goes
+       on and signs in. That is one ending for the flow — the cancel — and a
+       changed account the desk must still hear about.
+       Counted, not matched: the refusal above already emitted one, and
+       waiting for "an account/changed" found that one and returned before
+       the agent had finished. */
+    const changedByNow = events.filter((e) => e.type === 'account/changed').length
+    await until(events, () => events.filter((e) => e.type === 'account/changed').length > changedByNow)
+    assert.equal(
+      events.filter((e) => e.type === 'account/loginCompleted').length,
+      1,
+      'the flow ended once, however the agent finished',
+    )
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that declared no methods is still refused a sign-in in words', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_METHODS: '[]' })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.login('cli-browser'), /declares no sign-in command/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
  * Sign-out over ACP itself — #749.
  *
  * Google Antigravity's ACP server is the case this exists for: its
@@ -372,7 +505,7 @@ test('an agent that declares ACP logout is signed out over the protocol, with no
     const status = await runtime.getAccount()
     assert.deepEqual(status.accounts, [], 'signed out, and the desk says so')
     assert.equal(status.signInMethods[0]?.id, 'acp:device', 'the way back in is the agent’s own declared method')
-    assert.equal(status.signInMethods[0]?.flow, 'external')
+    assert.equal(status.signInMethods[0]?.flow, 'browser', 'and it is one the desk can drive — signing out is not a dead end')
     // And it took: the agent itself now refuses to open anything.
     await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
   } finally {

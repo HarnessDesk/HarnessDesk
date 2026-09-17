@@ -156,7 +156,9 @@ test('browser sign-in returns a URL and finishes as an event, never a poll', asy
 
   const started = await runtime.login('chatgpt')
   assert.equal(started.type, 'browser')
-  assert.match(started.type === 'browser' ? started.url : '', /^https:\/\//)
+  // Codex always hands over its page; only an agent that opened the browser
+  // itself starts a `browser` flow with no URL (see `LoginStart`).
+  assert.match(started.type === 'browser' ? (started.url ?? '') : '', /^https:\/\//)
 
   await tape.until((events) => loginEvents(events).length > 0)
   const [completed] = loginEvents(tape.events)

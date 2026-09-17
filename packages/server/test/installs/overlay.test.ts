@@ -64,6 +64,20 @@ test('Gemini CLI gets a reader and no record; an agent the desk does not know ke
   assert.deepEqual(custom, { name: 'Google Antigravity' }, 'a retired name is retired only for the agent it belonged to')
 })
 
+test('OpenCode asks its CLI nothing and reads its own record instead — #749', (t) => {
+  const data = folder(t, { 'opencode/auth.json': { opencode: { type: 'api', key: 'secret' } } })
+  const overlay = knowledgeOverlay({ id: 'opencode', name: 'OpenCode', command: 'opencode', args: ['acp'] }, knownAgent('opencode'), {
+    env: { XDG_DATA_HOME: data },
+  })
+  /* `opencode auth list` drew a box of provider names that never parsed as an
+     account, and a declared status replaces the session observation — so the
+     desk reported OpenCode signed out for good and put a sign-in wall where
+     its composer should be. No command now, and the record answers. */
+  assert.equal(overlay.account, undefined)
+  assert.equal(knownAgent('opencode')?.auth.status, undefined)
+  assert.deepEqual(overlay.resolveIdentity?.(), { kind: 'agent', label: 'opencode', anonymous: true })
+})
+
 test("a Cline row's relative --data-dir is read where that row runs", (t) => {
   const root = folder(t, {
     'state/settings/providers.json': {
