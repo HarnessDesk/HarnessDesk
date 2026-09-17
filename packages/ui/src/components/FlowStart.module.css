@@ -24,7 +24,7 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 
@@ -33,7 +33,7 @@
 }
 
 .cost {
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal);
   color: var(--hd-secondary-foreground);
 }
 
@@ -71,7 +71,7 @@
 .role {
   flex: none;
   min-width: 5.5rem;
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 

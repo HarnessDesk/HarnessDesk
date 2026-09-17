@@ -107,7 +107,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   font-size: var(--hd-heading);
   letter-spacing: -0.01em;
 }
@@ -607,7 +607,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -676,7 +676,7 @@
 
 .accountMenuName {
   font-size: var(--hd-text);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1096,7 +1096,7 @@
 
 .rowMetaItem[data-trace='waiting'] {
   color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .rowMetaItem[data-trace='failed'] {
@@ -1249,7 +1249,7 @@
   gap: 6px;
   min-width: 0;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 /* A chosen name can be longer than the menu is wide: cut, never wrapped, and
@@ -1278,7 +1278,7 @@
   background: var(--hd-muted);
   color: var(--hd-sidebar-muted-foreground);
   font-size: var(--hd-text-xs);
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal);
   white-space: nowrap;
 }
 
@@ -1370,7 +1370,7 @@
 .seatName {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

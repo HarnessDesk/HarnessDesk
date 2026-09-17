@@ -182,7 +182,7 @@
 
 /* Model reads as the subject, effort as its qualifier. */
 .strong {
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 

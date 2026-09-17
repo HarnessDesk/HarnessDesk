@@ -949,4 +949,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `offGrid` | 0 | Will not follow a density change. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
+| `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 

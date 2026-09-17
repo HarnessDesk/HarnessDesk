@@ -12,5 +12,6 @@
   "rawRadius": 0,
   "offGrid": 0,
   "rawColour": 0,
-  "arbitraryUtility": 0
+  "arbitraryUtility": 0,
+  "rawWeight": 0
 }

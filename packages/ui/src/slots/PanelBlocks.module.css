@@ -215,7 +215,7 @@
 
 .documentTitle {
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   margin-bottom: 4px;
 }
 
@@ -283,7 +283,7 @@
   padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
   background: var(--hd-card);
   border-bottom: 1px solid var(--hd-border);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-secondary-foreground);
   text-align: left;
   white-space: nowrap;

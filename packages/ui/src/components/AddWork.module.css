@@ -15,12 +15,12 @@
   align-items: baseline;
   gap: var(--hd-space-2);
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 
 .optional {
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal);
   color: var(--hd-muted-foreground);
 }
 

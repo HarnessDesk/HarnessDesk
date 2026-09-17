@@ -91,7 +91,7 @@
   width: 14px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
 }
 
 .status[data-status='added'],
@@ -157,7 +157,7 @@
 
 .modeName {
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 

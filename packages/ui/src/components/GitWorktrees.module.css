@@ -89,7 +89,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 
@@ -220,7 +220,7 @@
 
 .modeName {
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 

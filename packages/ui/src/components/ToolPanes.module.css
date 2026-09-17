@@ -24,7 +24,7 @@
 
 .title {
   flex: none;
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   white-space: nowrap;
 }
 

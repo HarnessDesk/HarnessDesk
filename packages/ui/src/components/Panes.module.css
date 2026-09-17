@@ -37,7 +37,7 @@
   padding-left: var(--hd-space-1);
   overflow: hidden;
   font-size: var(--hd-text-sm);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -47,7 +47,7 @@
 .title {
   flex: 1;
   font-size: var(--hd-text);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
 }
 
 .queue {
@@ -93,7 +93,7 @@
 }
 
 .metaLabel {
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .metaValue {
@@ -129,7 +129,7 @@
 .questionText {
   margin: 0 0 8px;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .choices {
@@ -179,7 +179,7 @@
   box-shadow: inset 0 0 0 1px var(--hd-border-emphasis);
   color: inherit;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   cursor: pointer;
 }
 

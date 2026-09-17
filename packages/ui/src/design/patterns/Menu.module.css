@@ -143,7 +143,7 @@
   color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .shortcut,

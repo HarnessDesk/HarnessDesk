@@ -420,7 +420,7 @@
   background: var(--hd-accent);
   color: var(--hd-accent-foreground);
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   opacity: 0;
 }
 

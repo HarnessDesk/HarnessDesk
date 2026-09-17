@@ -26,7 +26,7 @@
 
 .crumbCurrent {
   padding: 1px var(--hd-space-1); /* desk: canonical One UI System scale */
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 

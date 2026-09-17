@@ -39,7 +39,7 @@
 .headTitle {
   font-size: var(--hd-heading);
   line-height: var(--hd-line-heading); /* desk: 26 → 28, the line the 20px step is set on */
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   letter-spacing: -0.01em;
 }
 
@@ -72,7 +72,7 @@
 
 .railTitle {
   font-size: var(--hd-text-lg);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   margin-bottom: 8px;
 }
 
@@ -149,7 +149,7 @@
 .rosterName {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -179,7 +179,7 @@
   padding-top: 10px;
   border-top: 1px solid var(--hd-border);
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--hd-muted-foreground);
@@ -203,7 +203,7 @@
    the rail already tells you not to expect much of it. */
 .rosterRow[data-blocked] .rosterName {
   color: var(--hd-muted-foreground);
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal);
 }
 
 .whoMeta {
@@ -251,7 +251,7 @@
 
 .whoName {
   font-size: var(--hd-text-lg);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .blurb {
@@ -313,7 +313,7 @@
 
 .methodName {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .methodHint {
@@ -445,7 +445,7 @@
 
 .stateTitle {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .stateHint {
@@ -462,7 +462,7 @@
   font-family: var(--hd-font-code);
   font-size: var(--hd-heading);
   line-height: var(--hd-line-heading);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   letter-spacing: 0.18em;
   text-align: center;
   user-select: all;
@@ -544,7 +544,7 @@
 
 .nextTitle {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .nextHint {

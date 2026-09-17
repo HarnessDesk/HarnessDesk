@@ -109,7 +109,7 @@
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   pointer-events: none;
 }
 
@@ -300,7 +300,7 @@
 
 .mentionName {
   flex: none;
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .mentionPath {

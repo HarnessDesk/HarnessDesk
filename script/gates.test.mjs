@@ -5,6 +5,7 @@ import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
 import { codeOf, compareBaseline, createSourceCache, sheetsOf, squaresOf, STYLESHEET_OWNERS } from './design-audit.mjs'
+import { SECTIONS } from './design-sections.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
@@ -14,6 +15,17 @@ import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
+
+/**
+ * A clean scan, derived rather than listed.
+ *
+ * These fixtures used to name every category by hand, which made adding one to
+ * the audit break two tests that have nothing to say about it: the fixture was
+ * a second copy of the category list, kept in step by whoever noticed. Reading
+ * the list the audit itself uses means a new category arrives at zero, where a
+ * clean scan is exactly where it should arrive.
+ */
+const zeroes = () => Object.fromEntries(SECTIONS.map(([key]) => [key, 0]))
 import { createSteps } from './lib/steps.mjs'
 import { removeTemporaryDirectory } from './lib/temporary-directory.mjs'
 import { leadComment } from './design-doc.mjs'
@@ -380,22 +392,7 @@ test("a comment's divider becomes a heading rather than a rule and a stray line"
 })
 
 test('compareBaseline requires a complete numeric zero baseline and zero current drift (#400)', () => {
-  const cleanCounts = {
-    wrongVariant: 0,
-    missingClass: 0,
-    forkedToken: 0,
-    handRolledOverlay: 0,
-    looseTarget: 0,
-    looseIcon: 0,
-    danglingToken: 0,
-    crossImport: 0,
-    rawRadius: 0,
-    offGrid: 0,
-    rawColour: 0,
-    arbitraryUtility: 0,
-    rawType: 0,
-    patternClass: 0,
-  }
+  const cleanCounts = zeroes()
 
   // A malformed baseline with string/non-numeric values
   const malformedBaseline = { ...cleanCounts, offGrid: 'nan' }
@@ -429,12 +426,7 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
 
 
 test('a burn-down category is gated on a ceiling that may only fall', () => {
-  const clean = {
-    wrongVariant: 0, missingClass: 0, forkedToken: 0, handRolledOverlay: 0,
-    looseTarget: 0, looseIcon: 0, danglingToken: 0, crossImport: 0,
-    rawRadius: 0, offGrid: 0, rawColour: 0, arbitraryUtility: 0,
-    rawType: 0, patternClass: 0,
-  }
+  const clean = zeroes()
   const ceiling = { ...clean, patternClass: 126 }
 
   // At the ceiling: the debt is recorded, so the gate is quiet.

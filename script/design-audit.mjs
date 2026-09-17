@@ -172,6 +172,7 @@ const findings = {
   rawColour: [],
   arbitraryUtility: [],
   rawType: [],
+  rawWeight: [],
   patternClass: [],
 }
 
@@ -287,6 +288,24 @@ for (const file of cssFiles()) {
        */
       if (/var\(--hd|inherit|100%|em\b|--prose/.test(value)) continue
       findings.rawType.push(`${name}: font-size: ${value}`)
+    }
+
+    /*
+     * And the other half of a type step. The scale is three rungs — normal,
+     * medium, semibold — and the app agreed with it on every value while
+     * writing ninety of them as bare numbers, which is a scale nobody can
+     * move: shifting medium off 500 would have meant finding forty-six
+     * places. Two of the ninety were not even on the scale, and one of those
+     * two could not render — the bundled face stops at 600, so 650 was
+     * always drawing 600 while telling the next reader it was heavier.
+     *
+     * A weight with a space in it is a variable face's range in `@font-face`,
+     * not a declaration a screen is making.
+     */
+    for (const match of css.matchAll(/font-weight:\s*([^;]+);/g)) {
+      const value = match[1].trim()
+      if (/var\(--hd|inherit|\s/.test(value)) continue
+      findings.rawWeight.push(`${name}: font-weight: ${value}`)
     }
     /*
      * Once per sheet per pattern, not once per class.

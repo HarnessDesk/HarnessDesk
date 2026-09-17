@@ -69,7 +69,7 @@
 
 .headline {
   font-size: var(--hd-text);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
   font-variant-numeric: tabular-nums;
 }

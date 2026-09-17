@@ -58,7 +58,7 @@
   align-items: center;
   gap: 8px;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 
@@ -67,7 +67,7 @@
   border-radius: 8px;
   background: var(--hd-muted);
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-muted-foreground);
 }
 

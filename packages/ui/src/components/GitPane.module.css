@@ -511,7 +511,7 @@
   background: var(--hd-accent);
   color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
 }
 
@@ -616,7 +616,7 @@
 
 .cardSubject {
   font-size: var(--hd-text);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-foreground);
 }
 
@@ -699,7 +699,7 @@
   width: 14px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
 }
 
 .fileStatus[data-status='added'] {

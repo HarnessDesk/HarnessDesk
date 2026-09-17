@@ -13,7 +13,7 @@
 .headline {
   margin: 0;
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   line-height: 1.5;
   color: var(--hd-foreground);
 }
