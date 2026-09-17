@@ -43,7 +43,7 @@ const render = (): void => {
 }
 
 const trigger = (): HTMLButtonElement => {
-  const button = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+  const button = container.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')
   if (!button) throw new Error('no trigger')
   return button
 }
@@ -55,6 +55,15 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('announces the popup role it opens and names that popup from the trigger', () => {
+    render()
+    click(trigger())
+    const popup = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')!
+    expect(trigger().getAttribute('aria-haspopup')).toBe(popup.getAttribute('role'))
+    expect(popup.getAttribute('aria-labelledby')).toBe(trigger().id)
+    expect(document.getElementById(popup.getAttribute('aria-labelledby')!)?.textContent).toBe('Menu')
+  })
+
   it('opts its box out of the window drag region, so the press reaches the trigger', () => {
     render()
     const anchor = trigger().parentElement as HTMLElement
@@ -117,10 +126,9 @@ describe('Popover', () => {
     elsewhere.remove()
   })
 
-  it('dismissed by a window that gives nothing back, it leaves focus off its trigger', () => {
-    /* Settings and Usage take no focus when they open. Handed to a trigger
-       behind the window, focus answered Enter by opening the menu again,
-       above the window — measured in a real engine. */
+  it('dismissed without an explicit focus handoff, it leaves focus off its trigger', () => {
+    /* A window owns its own focus entry. Menu cleanup must not focus the
+       trigger behind that window. */
     render()
     click(trigger())
     const row = document.querySelector('[data-slot="popover-popup"] button') as HTMLButtonElement

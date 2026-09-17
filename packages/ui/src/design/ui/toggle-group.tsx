@@ -114,7 +114,9 @@ const ToggleGroupItem = ({
           variant: context.variant ?? variant,
           size: context.size ?? size,
         }),
-        'min-w-0 flex-1 shrink-0 rounded-none shadow-none first:rounded-l-md last:rounded-r-md data-[variant=outline]:border-l-0 data-[variant=outline]:first:border-l',
+        // Intrinsic widths keep long labels inside their own segment. Equal
+        // zero-basis cells overflow when the group's labels differ in length.
+        'flex-none rounded-none shadow-none first:rounded-l-md last:rounded-r-md data-[variant=outline]:border-l-0 data-[variant=outline]:first:border-l',
         className,
       )}
       render={(renderProps, state) => (

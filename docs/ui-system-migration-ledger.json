@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "startingCommit": "9f2d6dec1d8e7534c83a4c8d23d7b7d280fb3422",
   "entries": [
     {
@@ -101,6 +101,13 @@
       "evidence": "documentation-only rendered asset"
     },
     {
+      "path": "e2e/ui-system/usage-segmented.spec.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
       "path": "examples/browser-plugin/index.js",
       "scope": "fixture",
       "owner": "catalog-fixture",
@@ -126,7 +133,8 @@
       "scope": "production",
       "owner": "plugin-or-embedded-boundary",
       "disposition": "specialized-boundary",
-      "evidence": "capability-gated plugin or isolated embedded document boundary"
+      "evidence": "capability-gated plugin or isolated embedded document boundary",
+      "reclassified": true
     },
     {
       "path": "packages/cordis-host/test/browser-page.test.ts",
@@ -140,21 +148,24 @@
       "scope": "production",
       "owner": "native-surface",
       "disposition": "specialized-boundary",
-      "evidence": "Electron-owned native asset"
+      "evidence": "Electron-owned native asset",
+      "reclassified": true
     },
     {
       "path": "packages/desktop/electron/assets/about.html",
       "scope": "production",
       "owner": "native-surface",
       "disposition": "specialized-boundary",
-      "evidence": "Electron-owned native asset"
+      "evidence": "Electron-owned native asset",
+      "reclassified": true
     },
     {
       "path": "packages/desktop/electron/assets/mark.svg",
       "scope": "production",
       "owner": "native-surface",
       "disposition": "specialized-boundary",
-      "evidence": "Electron-owned native asset"
+      "evidence": "Electron-owned native asset",
+      "reclassified": true
     },
     {
       "path": "packages/desktop/electron/pdf.test.mjs",
@@ -168,7 +179,8 @@
       "scope": "production",
       "owner": "plugin-or-embedded-boundary",
       "disposition": "specialized-boundary",
-      "evidence": "capability-gated plugin or isolated embedded document boundary"
+      "evidence": "capability-gated plugin or isolated embedded document boundary",
+      "reclassified": true
     },
     {
       "path": "packages/plugins/test/plugins.test.ts",
@@ -196,42 +208,48 @@
       "scope": "production",
       "owner": "application-root",
       "disposition": "migrated",
-      "evidence": "shared foundation root and production build"
+      "evidence": "shared foundation root and production build",
+      "reclassified": true
     },
     {
       "path": "packages/ui/preview.html",
       "scope": "production",
       "owner": "application-root",
       "disposition": "migrated",
-      "evidence": "shared foundation root and production build"
+      "evidence": "shared foundation root and production build",
+      "reclassified": true
     },
     {
       "path": "packages/ui/site-demo/guide.ts",
       "scope": "production",
       "owner": "site-demo",
       "disposition": "migrated",
-      "evidence": "shared design API and site-demo build"
+      "evidence": "shared design API and site-demo build",
+      "reclassified": true
     },
     {
       "path": "packages/ui/site-demo/index.html",
       "scope": "production",
       "owner": "site-demo",
       "disposition": "migrated",
-      "evidence": "shared design API and site-demo build"
+      "evidence": "shared design API and site-demo build",
+      "reclassified": true
     },
     {
       "path": "packages/ui/site-demo/main.tsx",
       "scope": "production",
       "owner": "site-demo",
       "disposition": "migrated",
-      "evidence": "shared design API and site-demo build"
+      "evidence": "shared design API and site-demo build",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/app/App.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/assets/brand/mark.svg",
@@ -245,21 +263,24 @@
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "foundation font asset"
+      "evidence": "foundation font asset",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Activity.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AddMember.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AddMember.test.tsx",
@@ -273,14 +294,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AddWork.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AddWork.test.tsx",
@@ -294,7 +317,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AgentCards.test.tsx",
@@ -308,14 +332,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Agents.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AppWindow.escape.test.tsx",
@@ -329,7 +355,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AppWindow.test.tsx",
@@ -343,21 +370,24 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AppearancePreview.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/AppearancePreview.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Approvals.elicitation.test.tsx",
@@ -378,14 +408,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Approvals.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Approvals.userInput.test.tsx",
@@ -399,7 +431,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Archive.test.tsx",
@@ -413,7 +446,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/BackgroundTasks.test.tsx",
@@ -427,14 +461,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/BranchSwitcher.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/BranchSwitcher.test.tsx",
@@ -448,7 +484,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/BrandIcons.test.tsx",
@@ -462,7 +499,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/BringHome.test.tsx",
@@ -476,7 +514,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/BrowserPane.test.tsx",
@@ -490,14 +529,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ChangesReview.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ChangesReview.test.tsx",
@@ -511,7 +552,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Channel.test.tsx",
@@ -525,7 +567,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/CodeEditor.shortcut.test.tsx",
@@ -539,7 +582,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/CommandPalette.agents.test.tsx",
@@ -567,7 +611,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/CommandPalette.pages.test.tsx",
@@ -588,7 +633,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Composer.chips.test.tsx",
@@ -623,7 +669,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Composer.notes.test.tsx",
@@ -651,7 +698,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ComposerControls.agent.test.tsx",
@@ -672,7 +720,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ComposerControls.narrow.test.tsx",
@@ -693,14 +742,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ContextUsage.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ContextUsage.test.tsx",
@@ -714,7 +765,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Conversation.git.test.tsx",
@@ -728,7 +780,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Conversation.test.tsx",
@@ -742,28 +795,32 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/DeleteSession.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/DeleteSession.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Details.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Details.test.tsx",
@@ -777,14 +834,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Diff.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Diff.nav.test.tsx",
@@ -798,7 +857,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Diff.wrap.test.tsx",
@@ -826,28 +886,32 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/FilePane.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/FlowStart.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/FlowStart.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/FolderGone.test.tsx",
@@ -861,35 +925,40 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/FolderPicker.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/FolderPicker.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitAskAgent.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitAskAgent.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitDialogs.commit.test.tsx",
@@ -903,21 +972,39 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitDialogs.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
+    },
+    {
+      "path": "packages/ui/src/components/GitGraph.test.tsx",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "packages/ui/src/components/GitGraph.tsx",
+      "scope": "production",
+      "owner": "git-data-geometry",
+      "disposition": "specialized-boundary",
+      "evidence": "repository history graph geometry; GitGraph.test.tsx verifies graph nodes and connections",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitPane.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitPane.test.tsx",
@@ -931,28 +1018,32 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitWorktrees.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/GitWorktrees.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/HandOut.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/HandOut.test.tsx",
@@ -966,7 +1057,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Icons.test.tsx",
@@ -980,7 +1072,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ImportOffer.test.tsx",
@@ -994,21 +1087,24 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/InstallPlugin.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/InstallPlugin.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Items.files.test.tsx",
@@ -1022,7 +1118,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Items.peer.test.tsx",
@@ -1043,14 +1140,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Library.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Library.test.tsx",
@@ -1064,14 +1163,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/LibraryActions.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/LibraryActions.test.tsx",
@@ -1085,7 +1186,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Markdown.document.test.tsx",
@@ -1099,14 +1201,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Markdown.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Menu.test.tsx",
@@ -1120,14 +1224,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/MessageQueue.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/MessageQueue.test.tsx",
@@ -1141,14 +1247,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/NewSessionChoice.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/NewSessionChoice.test.tsx",
@@ -1162,7 +1270,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/NewSessionDefaults.test.tsx",
@@ -1176,7 +1285,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/NewWorktree.test.tsx",
@@ -1190,7 +1300,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Notices.test.tsx",
@@ -1204,49 +1315,56 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/OptionConfirm.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Panel.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Panel.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Panes.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Panes.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/PlanMeters.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/PlanMeters.test.tsx",
@@ -1260,14 +1378,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Plugins.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/PluginsSection.access.test.tsx",
@@ -1288,7 +1408,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Popover.test.tsx",
@@ -1302,21 +1423,24 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ProfileFace.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Publication.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Publication.test.tsx",
@@ -1330,7 +1454,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/RemoveWorktree.test.tsx",
@@ -1344,14 +1469,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/RoomActions.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/RoomActions.test.tsx",
@@ -1365,7 +1492,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/RoomComposer.test.tsx",
@@ -1379,35 +1507,40 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SchemaForm.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SchemaForm.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SessionBars.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SessionBars.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SessionTree.arrange.test.tsx",
@@ -1435,7 +1568,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Settings.keys.test.tsx",
@@ -1449,7 +1583,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Settings.route.test.tsx",
@@ -1470,7 +1605,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SettingsAgents.default.test.tsx",
@@ -1484,7 +1620,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SettingsAgents.section.test.tsx",
@@ -1505,7 +1642,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SettingsAgents.usage.test.tsx",
@@ -1519,7 +1657,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SettingsYou.profile.test.tsx",
@@ -1533,14 +1672,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SetupDesk.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SetupDesk.test.tsx",
@@ -1554,7 +1695,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Sidebar.account.test.tsx",
@@ -1575,7 +1717,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Sidebar.test.tsx",
@@ -1589,7 +1732,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SignIn.accounts.test.tsx",
@@ -1603,56 +1747,64 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SignIn.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SkillRow.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SkillRow.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/SkillSheet.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/StepGroup.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TabStrip.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TaskPanel.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TaskPanel.test.tsx",
@@ -1666,7 +1818,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TeamBoardPane.test.tsx",
@@ -1680,14 +1833,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TeamRoomPane.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TeamRoomPane.test.tsx",
@@ -1701,14 +1856,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TerminalPane.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TerminalToggle.test.tsx",
@@ -1722,49 +1879,56 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/ToolPanes.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Trajectory.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Trajectory.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TriggerMenu.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TriggerMenu.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TurnFiles.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TurnFiles.test.tsx",
@@ -1778,28 +1942,32 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TurnTail.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TurnWork.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/TurnWork.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Usage.balance.test.tsx",
@@ -1820,7 +1988,8 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/Usage.note.test.tsx",
@@ -1834,42 +2003,48 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/WindowControls.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/WindowControls.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/WorkspaceMenu.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/WorkspaceMenu.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/components/WorktreeAlerts.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/explorer/Explorer.tsx",
@@ -1911,7 +2086,8 @@
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "authoritative design token source"
+      "evidence": "authoritative design token source",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/AgentCard.test.tsx",
@@ -1925,14 +2101,16 @@
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ApprovalDialog.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ApprovalDialog.test.tsx",
@@ -1946,7 +2124,8 @@
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ChannelMessage.test.tsx",
@@ -1960,14 +2139,16 @@
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ConfirmDialog.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ConfirmDialog.test.tsx",
@@ -1981,21 +2162,24 @@
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/DockPanel.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Lightbox.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "Base UI-backed Lightbox presentation contract"
+      "evidence": "Base UI-backed Lightbox presentation contract",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Lightbox.test.tsx",
@@ -2009,56 +2193,64 @@
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern with focus and gallery tests"
+      "evidence": "registered public HarnessDesk pattern with focus and gallery tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Menu.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Menu.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ModalDialog.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/ModalDialog.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Popover.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Popover.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/PublicationCard.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/RefusedAction.test.tsx",
@@ -2072,7 +2264,8 @@
       "scope": "production",
       "owner": "design-pattern",
       "disposition": "canonical",
-      "evidence": "canonical keyboard-reachable disabled-action explanation"
+      "evidence": "canonical keyboard-reachable disabled-action explanation",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Settings.clipped.test.tsx",
@@ -2100,28 +2293,32 @@
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/patterns/Settings.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "registered public HarnessDesk pattern"
+      "evidence": "registered public HarnessDesk pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/primitives/Banner.module.css",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "canonical notification pattern"
+      "evidence": "canonical notification pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/primitives/Banner.tsx",
       "scope": "production",
       "owner": "canonical-pattern",
       "disposition": "canonical",
-      "evidence": "canonical notification pattern"
+      "evidence": "canonical notification pattern",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/showcase/ComposerBoard.tsx",
@@ -2268,42 +2465,48 @@
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/alert.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/attachment.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/avatar-stack.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/avatar.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/badge.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/board.test.tsx",
@@ -2317,21 +2520,24 @@
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/breadcrumb.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/browser-chrome.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/button.test.tsx",
@@ -2345,14 +2551,16 @@
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/card.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/chart.test.tsx",
@@ -2366,42 +2574,48 @@
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/checkbox.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/commit.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/composer.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/data-table.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/delta.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/dialog.test.tsx",
@@ -2415,28 +2629,32 @@
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/dropdown-menu.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/empty-state.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/field.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/hover-card.test.tsx",
@@ -2450,231 +2668,264 @@
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/icon-tile.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/index.ts",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/input-group.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/input.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/key-value.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/label.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/list-row.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/marker.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/native-select.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/popover.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/progress.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/radio-group.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/rail.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/resize-handle.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/scroll-area.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/section.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/select.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/separator.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/spark.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/stat.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/stepper.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/switch.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/table.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/tabs.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/textarea.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/toast.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/toggle-group.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/tool-pane.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/tooltip.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/design/ui/turn.tsx",
       "scope": "production",
       "owner": "canonical-primitive",
       "disposition": "canonical",
-      "evidence": "registered public canonical module"
+      "evidence": "registered public canonical module",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/lib/annotate.ts",
       "scope": "production",
       "owner": "ui-support",
       "disposition": "migrated",
-      "evidence": "nonvisual feature support used by migrated surfaces"
+      "evidence": "nonvisual feature support used by migrated surfaces",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/lib/export-session.ts",
       "scope": "production",
       "owner": "ui-support",
       "disposition": "migrated",
-      "evidence": "nonvisual feature support used by migrated surfaces"
+      "evidence": "nonvisual feature support used by migrated surfaces",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/lib/handoff.test.ts",
@@ -2702,35 +2953,40 @@
       "scope": "production",
       "owner": "ui-support",
       "disposition": "migrated",
-      "evidence": "nonvisual feature support used by migrated surfaces"
+      "evidence": "nonvisual feature support used by migrated surfaces",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/main.tsx",
       "scope": "production",
       "owner": "application-root",
       "disposition": "migrated",
-      "evidence": "shared foundation root and production build"
+      "evidence": "shared foundation root and production build",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/PanelActions.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/PanelActions.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/Workbench.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/Workbench.narrow.test.tsx",
@@ -2751,42 +3007,48 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/builtins.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/mount.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/panels/views.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/preview/main.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/slots/PanelBlocks.module.css",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/slots/PanelBlocks.test.tsx",
@@ -2800,14 +3062,16 @@
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/slots/registry.tsx",
       "scope": "production",
       "owner": "feature-composition",
       "disposition": "migrated",
-      "evidence": "public design API, zero design-audit findings, UI tests"
+      "evidence": "public design API, zero design-audit findings, UI tests",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/state/context.focus.test.tsx",
@@ -2828,7 +3092,8 @@
       "scope": "production",
       "owner": "ui-support",
       "disposition": "migrated",
-      "evidence": "nonvisual feature support used by migrated surfaces"
+      "evidence": "nonvisual feature support used by migrated surfaces",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/state/theme.test.tsx",
@@ -2842,56 +3107,64 @@
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/base.css",
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/design-platform.css",
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/editor.css",
       "scope": "production",
       "owner": "specialized-adapter",
       "disposition": "specialized-boundary",
-      "evidence": "CodeMirror and syntax-renderer theme bridge"
+      "evidence": "CodeMirror and syntax-renderer theme bridge",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/editorial.css",
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/scrollbar.css",
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/shadcn-themes.css",
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "packages/ui/src/styles/shadcn.css",
       "scope": "production",
       "owner": "canonical-foundation",
       "disposition": "canonical",
-      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+      "evidence": "ordered foundation, theme, reset or semantic utility layer",
+      "reclassified": true
     },
     {
       "path": "script/agent-marks.mjs",
@@ -2929,6 +3202,13 @@
       "evidence": "covered by the repository test gates"
     },
     {
+      "path": "script/repository-files.test.mjs",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
       "path": "script/shots/shoot.mjs",
       "scope": "tooling",
       "owner": "ui-tooling",
@@ -2948,6 +3228,13 @@
       "owner": "verification",
       "disposition": "verified-boundary",
       "evidence": "covered by the repository test gates"
+    },
+    {
+      "path": "script/ui-architecture.mjs",
+      "scope": "tooling",
+      "owner": "ui-tooling",
+      "disposition": "verified-boundary",
+      "evidence": "generator or structural verification tool"
     },
     {
       "path": "script/ui-architecture.test.mjs",
@@ -2980,18 +3267,18 @@
   ],
   "unresolved": [],
   "summary": {
-    "total": 425,
+    "total": 430,
     "byScope": {
       "asset": 15,
+      "test": 130,
       "fixture": 20,
-      "test": 127,
-      "production": 251,
+      "production": 252,
       "catalog": 6,
-      "tooling": 6
+      "tooling": 7
     },
     "byDisposition": {
-      "specialized-boundary": 21,
-      "verified-boundary": 159,
+      "specialized-boundary": 22,
+      "verified-boundary": 163,
       "migrated": 163,
       "canonical": 82
     }

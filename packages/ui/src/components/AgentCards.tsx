@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FocusEvent as ReactFocusEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -143,9 +142,8 @@ const onPointerMove = (event: Event): void => {
  * tap that moved no focus left set — the next keyboard lost its card — and
  * which a stylus, pressing the same way, never set at all.
  *
- * Only a key and a press move it, because only they can move focus. Radix's
- * menus keep a flag like this and clear it on `pointermove` as well, because
- * a menu's highlight follows the mouse; here the question is only what a
+ * Only a key and a press move it, because only they can move focus. Unlike
+ * a menu's highlight that follows the mouse, here the question is only what a
  * focus followed, and for a focus that follows a key or a press this answers
  * it as Chromium's own `:focus-visible` does. Measured in this app's shell
  * (Chromium 148), a focus moved by a script matched it after a key, after a
@@ -239,7 +237,7 @@ const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || 
  * is the one direction that produces a trade.
  *
  * The rem is passed in rather than read here. This runs on every answer the
- * positioner writes, Radix's own style writes included, and the root's font
+ * positioner writes, Base UI's own style writes included, and the root's font
  * size cannot change under an open card without the window resizing — so it
  * is read once, as the card opens, and that reading is current for that open.
  *
@@ -321,7 +319,7 @@ const sideFor = (trigger: HTMLElement, wanted: CardSide, rem: number): CardSide 
  * "The mark, never the row" had two reasons, and both are dealt with here
  * rather than avoided:
  *
- *   Focus.    Radix opens a card for focus as well as for the pointer, and
+ *   Focus.    The controlled card accepts focus as well as the pointer, and
  *             where the trigger is one thing to focus — a publication's link —
  *             that is how a keyboard reaches its card, so it stays, for a
  *             keyboard's focus (see `keyboard`). A row is different: it holds
@@ -344,14 +342,14 @@ const sideFor = (trigger: HTMLElement, wanted: CardSide, rem: number): CardSide 
  * the case — its title says which column a pick will take away, and a card
  * beside that sentence would be saying something else. It sits at the row's
  * trailing edge, the edge a pointer coming from the chat crosses first, and
- * moving on from it to the name is the same visit to the trigger: Radix hears
+ * moving on from it to the name is the same visit to the trigger: Base UI hears
  * no second arrival and asks nothing. So the card is asked for again as the
  * pointer moves off the control, after the delay of any rest.
  *
  * The trigger is a `span`, or a `div` where it wraps a block, and `asChild` is
- * not offered to callers. Radix's own default is an `<a>`, and these triggers
- * sit inside rows that are already buttons — an anchor inside a button is
- * invalid HTML, and browsers resolve it by breaking one of the two. A span
+ * not offered to callers. These explicitly rendered noninteractive hosts
+ * sit inside rows that are already buttons; another interactive host there
+ * would be invalid HTML. A span
  * nests anywhere and lets the row keep its click.
  *
  * ---------------------------------------------------------------------------
@@ -405,8 +403,8 @@ export const AgentHoverCard = ({
    */
   readonly as?: 'span' | 'div'
   /**
-   * Whether a keyboard's focus arriving inside the trigger opens the card, as
-   * Radix does. False for a trigger that holds controls of its own, where
+   * Whether a keyboard's focus arriving inside the trigger opens the card.
+   * False for a trigger that holds controls of its own, where
    * focus then neither opens the card nor closes it. See the note above.
    */
   readonly openOnFocus?: boolean
@@ -426,8 +424,8 @@ export const AgentHoverCard = ({
      to the element that is there. */
   const [redrawn, setRedrawn] = useState(0)
   /* What the card may open for — a pointer resting on the trigger, or a
-     keyboard's focus inside it where `openOnFocus`. Radix asks to open for
-     either and cannot say which, so these say it. */
+     keyboard's focus inside it where `openOnFocus`. These refs enforce the
+     product policy for every Base UI open request and delayed re-ask. */
   const resting = useRef(false)
   const focused = useRef(false)
   /* Held shut: pressed since the pointer arrived, until it leaves. */
@@ -450,8 +448,8 @@ export const AgentHoverCard = ({
     wanted.current = side ?? 'right'
   })
   /* The card's element while it is drawn: the positioner's output, which the
-     watch on the card's side reads. State rather than a ref, because Radix's
-     portal draws the card a render after it opens, and the watch has to start
+     watch on the card's side reads. State rather than a ref, because the
+     portal can mount after the open render, and the watch has to start
      again when it arrives. */
   const [card, setCard] = useState<HTMLDivElement | null>(null)
   /* What a rem is, read as the card opens and used for every measurement of
@@ -459,7 +457,7 @@ export const AgentHoverCard = ({
   const rem = useRef(16)
   useWindowWatch()
 
-  /* The one way a card opens: Radix's requests come here, and so does every
+  /* The one way a card opens: Base UI's requests come here, and so does every
      re-ask. Its first line is what keeps a re-ask off an open card — every
      open passes through here and cancels whatever re-ask was pending, so
      none is left to land on the card it has just opened. */
@@ -584,7 +582,7 @@ export const AgentHoverCard = ({
     }
   }, [open, placed, redrawn, card])
 
-  /* Disabling the card must also close it. The state outlives the Radix
+  /* Disabling the card must also close it. The state outlives the Base UI
      tree below, which unmounts while `disabled` holds — so a card that was
      open when a menu took the seat came straight back, unhovered, the moment
      the menu closed. The pointer is forgotten with it: a trigger unmounted
@@ -648,18 +646,13 @@ export const AgentHoverCard = ({
               window.clearTimeout(again.current)
               setOpen(false)
             }}
-            onFocus={(event: ReactFocusEvent<HTMLElement>) => {
-              if (!openOnFocus) {
-                event.preventDefault()
-                return
-              }
+            onFocus={() => {
+              // ask() refuses focus-driven opens unless this ref authorizes them.
+              if (!openOnFocus) return
               focused.current = keyboard
             }}
-            onBlur={(event: ReactFocusEvent<HTMLElement>) => {
-              if (!openOnFocus) {
-                event.preventDefault()
-                return
-              }
+            onBlur={() => {
+              if (!openOnFocus) return
               focused.current = false
             }}
           />
@@ -667,7 +660,7 @@ export const AgentHoverCard = ({
       >
         {children}
       </HoverCardTrigger>
-      {/* `body()` builds an element; Radix's portal keeps it unmounted until
+      {/* `body()` builds an element; Base UI's portal keeps it unmounted until
           the card opens, so the hooks inside it — the store subscription and
           the clock — do not run before then, and stop when it closes. Creating
           an element is a couple of object allocations and no more. Not drawn
@@ -678,17 +671,10 @@ export const AgentHoverCard = ({
           /* A card of its own per side, so the watch's first read can never
              meet an answer for the side before.
 
-             `data-side` is Radix's rendering of Floating UI's *state*, and
-             that state is seeded with the side asked for and replaced only
-             when the positioner resolves; Radix passes no `open` to
-             `useFloating`, so nothing resets it on close, and a card closed
-             other than abruptly stays mounted through its exit. Opened again
-             on a different side inside that window, it would be read as traded
-             and closed. Nothing reaches that today — every open comes a full
-             open delay after the event that armed it, and the exit is about
-             150ms — so it was held by a timing margin. This holds it by
-             construction, at the cost of a remount only when the side
-             actually changes. */
+             The popup exposes the resolved position through `data-side`.
+             A side change gets a fresh element so the observer cannot read
+             a previous placement during mounting or an exit transition.
+             This does not depend on the headless library's internal timing. */
           key={placed}
           ref={setCard}
           side={placed}
@@ -821,7 +807,7 @@ const busyNow = (live: Session | undefined): boolean =>
 /**
  * Once a second, so a turn timer counts while it is being read.
  *
- * Only ever called from a card *body*, which Radix mounts when the card opens
+ * Only ever called from a card *body*, which Base UI mounts when the card opens
  * and unmounts when it closes — so this is one timer while a card is on
  * screen and none otherwise. It used to sit in the wrapper, where it was one
  * timer per mark in the window; see `AgentHoverCard`.

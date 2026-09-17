@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { codeOf, compareBaseline, sheetsOf, squaresOf } from './design-audit.mjs'
+import { codeOf, compareBaseline, createSourceCache, sheetsOf, squaresOf, STYLESHEET_OWNERS } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
@@ -24,6 +24,26 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+test('audit source cache reads each present or missing stylesheet once and preserves IO failures', () => {
+  const calls = []
+  const read = createSourceCache((file) => {
+    calls.push(file)
+    if (file === 'missing') throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+    if (file === 'denied') throw Object.assign(new Error('denied'), { code: 'EACCES' })
+    return '.row { display: flex }'
+  })
+  assert.equal(read('sheet'), read('sheet'))
+  assert.equal(read('missing'), null)
+  assert.equal(read('missing'), null)
+  assert.deepEqual(calls, ['sheet', 'missing'])
+  assert.throws(() => read('denied'), /denied/)
+})
+
+test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
+  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
+  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+})
 
 test('the browser integration job builds workspace package entries before Vite', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')
@@ -851,7 +871,7 @@ test('the audit reads a stylesheet imported from another folder, and one behind 
   ])
 })
 
-test('a shared feature stylesheet names every co-owner explicitly', (t) => {
+test('a stylesheet cannot grant itself a new co-owner', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-owner-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const dir = path.join(root, 'components')
@@ -859,8 +879,19 @@ test('a shared feature stylesheet names every co-owner explicitly', (t) => {
   fs.writeFileSync(path.join(dir, 'Family.module.css'), '/* @design-owners Child */\n.row { display: flex; }\n')
   const allowed = sheetsOf(dir, path.join(dir, 'Child.tsx'), 'components/Child.tsx', "import styles from './Family.module.css'", root)
   const refused = sheetsOf(dir, path.join(dir, 'Stranger.tsx'), 'components/Stranger.tsx', "import styles from './Family.module.css'", root)
-  assert.deepEqual(allowed.crossImports, [])
+  assert.equal(allowed.crossImports.length, 1)
   assert.equal(refused.crossImports.length, 1)
+})
+
+test('a recorded stylesheet family accepts only its capped owner and declared annotation', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-cap-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const dir = path.join(root, 'components')
+  fs.mkdirSync(dir)
+  fs.writeFileSync(path.join(dir, 'Sidebar.module.css'), '/* @design-owners SessionTree, NewOwner */\n.row { display: flex; }')
+  const inspect = (name) => sheetsOf(dir, path.join(dir, `${name}.tsx`), `components/${name}.tsx`, "import styles from './Sidebar.module.css'", root)
+  assert.deepEqual(inspect('SessionTree').crossImports, [])
+  assert.equal(inspect('NewOwner').crossImports.length, 1)
 })
 
 test('a glob that ends in a double star takes the rest of the path (#263)', () => {

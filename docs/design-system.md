@@ -556,12 +556,10 @@ that cannot be clicked through it — the board's card menu, until it took part
 
 Answers Escape while it is the surface on top.
 
-For a surface that is neither a `Dialog` nor a menu: the two app windows, and
-anything else that takes the screen without going through either. `Dialog`
-answers on the window in the capture phase and stops the event dead, so it
-still outranks this; a menu spends the key on `document` and is heard first.
-What this settles is the order among the surfaces that are left — see
-`lib/overlays.ts`.
+Orders screen-level surfaces after nested menus and dialogs have had the
+key. AppWindow uses canonical dialog modality but explicitly delegates
+Escape here, retaining the window stack's ordering and approval boundary.
+Other dialogs consume Escape themselves; see `lib/overlays.ts`.
 
 ### `publicationVerb`
 

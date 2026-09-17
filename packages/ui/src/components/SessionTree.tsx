@@ -520,9 +520,11 @@ const GroupHead = ({
         ) : (
           <FolderIcon size={12} className={styles.groupIcon} />
         )}
-        <span className={styles.groupName}>{group.name}</span>
-        {pinned && <PinIcon size={11} className={styles.groupPin} />}
-        <span className={styles.groupCount}>{group.sessions.length}</span>
+        <span className={styles.groupBody}>
+          <span className={styles.groupName}>{group.name}</span>
+          {pinned && <PinIcon size={11} className={styles.groupPin} />}
+          <span className={styles.groupCount}>{group.sessions.length}</span>
+        </span>
       </Button>
       <span className={styles.groupTools}>
         <Button

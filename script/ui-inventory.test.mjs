@@ -1,7 +1,64 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { execFileSync, spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { buildInventory, classifyUiFile } from './ui-inventory.mjs'
+
+test('ledger check rejects an edited output and regenerates from separate reviewed input', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-inventory-output-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  for (const dir of ['script/lib', 'docs', 'packages/ui/src/components']) fs.mkdirSync(path.join(root, dir), { recursive: true })
+  for (const rel of ['ui-inventory.mjs', 'lib/repository-files.mjs']) fs.copyFileSync(fileURLToPath(new URL(rel, import.meta.url)), path.join(root, 'script', rel))
+  const panel = 'packages/ui/src/components/Panel.tsx'
+  fs.writeFileSync(path.join(root, panel), 'export const Panel = () => <div />')
+  fs.writeFileSync(path.join(root, 'script/ui-inventory-dispositions.json'), JSON.stringify({ version: 1, dispositions: {
+    [panel]: { owner: 'feature-composition', disposition: 'migrated', evidence: 'explicit review' },
+  } }))
+  execFileSync('git', ['init', '-q', root])
+  execFileSync('git', ['add', panel], { cwd: root })
+  const run = (args = []) => spawnSync(process.execPath, ['script/ui-inventory.mjs', ...args], { cwd: root, encoding: 'utf8' })
+  assert.equal(run().status, 0)
+  assert.equal(run(['--check']).status, 0)
+  const output = path.join(root, 'docs/ui-system-migration-ledger.json')
+  const ledger = JSON.parse(fs.readFileSync(output, 'utf8'))
+  ledger.entries[0].owner = 'invented owner'
+  fs.writeFileSync(output, `${JSON.stringify(ledger, null, 2)}\n`)
+  assert.equal(run(['--check']).status, 1)
+  assert.equal(run().status, 0)
+  assert.equal(JSON.parse(fs.readFileSync(output, 'utf8')).entries[0].owner, 'feature-composition')
+})
+
+test('fresh nonproduction classification cannot be overwritten by a prior ledger entry', () => {
+  assert.throws(() => buildInventory({
+    files: ['packages/ui/src/components/Panel.test.tsx'],
+    read: () => '<div />',
+    overrides: { 'packages/ui/src/components/Panel.test.tsx': { scope: 'production', owner: 'invented', disposition: 'migrated', evidence: 'invented' } },
+  }), /classification|disposition/)
+})
+
+test('explicit production dispositions cannot disguise production as a test boundary', () => {
+  assert.throws(() => buildInventory({
+    files: ['packages/ui/src/components/Panel.tsx'],
+    read: () => '<div />',
+    overrides: { 'packages/ui/src/components/Panel.tsx': { scope: 'test', owner: 'verification', disposition: 'verified-boundary', evidence: 'invented' } },
+  }), /classification|disposition/)
+})
+
+for (const scope of ['', null, false, 0, undefined]) {
+  test(`rejects the present invalid production scope ${String(scope)}`, () => {
+    assert.throws(() => buildInventory({
+      files: ['packages/ui/src/components/Panel.tsx'],
+      read: () => '<div />',
+      overrides: { 'packages/ui/src/components/Panel.tsx': {
+        scope, owner: 'feature-composition', disposition: 'migrated', evidence: 'explicit review',
+      } },
+    }), /classification|disposition/)
+  })
+}
 
 test('requires an explicit ledger disposition for every production file', () => {
   assert.deepEqual(classifyUiFile('packages/ui/src/design/ui/button.tsx'), {

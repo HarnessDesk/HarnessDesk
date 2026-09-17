@@ -118,7 +118,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
 }
 
 const row = (): HTMLButtonElement => {
-  const found = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+  const found = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
   if (!found) throw new Error('no seat row')
   return found
 }

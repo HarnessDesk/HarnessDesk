@@ -2,7 +2,36 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
 
-import { closeDesk, connectDesk, selectMainPage, waitForSnapshot } from './lib/desk.mjs'
+import { closeDesk, connectDesk, selectMainPage, waitForDebugger, waitForSnapshot } from './lib/desk.mjs'
+
+test('debugger discovery trusts only the endpoint announced by its own child', async () => {
+  const child = new EventEmitter()
+  child.stderr = new EventEmitter()
+  const ready = waitForDebugger(child)
+  child.stderr.emit('data', Buffer.from('DevTools listening on ws://127.0.0.1:'))
+  child.stderr.emit('data', Buffer.from('43210/devtools/browser/owned-browser\n'))
+  assert.equal(await ready, 'ws://127.0.0.1:43210/devtools/browser/owned-browser')
+})
+
+test('debugger discovery refuses a child that exits without binding', async () => {
+  const child = new EventEmitter()
+  child.stderr = new EventEmitter()
+  const ready = waitForDebugger(child)
+  child.emit('exit', 1)
+  await assert.rejects(ready, /exited before announcing/)
+})
+
+test('connectDesk refuses a foreign HarnessDesk before opening its renderer', async () => {
+  let opened = false
+  await assert.rejects(connectDesk({
+    child: { exitCode: 1 }, port: 9123,
+    browserUrl: 'ws://127.0.0.1:9123/devtools/browser/owned',
+    fetchImpl: async () => ({ json: async () => ({ webSocketDebuggerUrl: 'ws://127.0.0.1:9123/devtools/browser/foreign' }) }),
+    openCdp: async () => { opened = true },
+    sleepImpl: async () => {}, discoveryAttempts: 1,
+  }), /debugger ownership mismatch/)
+  assert.equal(opened, false)
+})
 
 test('waitForSnapshot re-reads rendered appearance after the store has hydrated', async () => {
   const snapshots = [
@@ -96,7 +125,10 @@ test('connectDesk cleans up when a renderer target appears but its store never m
       child,
       sink: { writableEnded: false, end: (done) => { sinkEnded = true; done() } },
       port: 9123,
-      fetchImpl: async () => ({ json: async () => [page('HarnessDesk', 'http://127.0.0.1:9123/?token=desk', 'main')] }),
+      browserUrl: 'ws://127.0.0.1:9123/devtools/browser/owned',
+      fetchImpl: async url => ({ json: async () => url.endsWith('/json/version')
+        ? { webSocketDebuggerUrl: 'ws://127.0.0.1:9123/devtools/browser/owned' }
+        : [page('HarnessDesk', 'http://127.0.0.1:9123/?token=desk', 'main')] }),
       openCdp: async () => ({
         eval: async () => false,
         close: () => { cdpClosed = true },

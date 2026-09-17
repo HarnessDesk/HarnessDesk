@@ -860,8 +860,8 @@ const IntentCard = ({
   const snapshot = useSnapshot()
 
   /*
-   * The menu's open state is held here rather than left to Radix, because
-   * something other than the menu has to be able to close it. Radix closes on
+   * The menu's open state is held here rather than left to Base UI, because
+   * something other than the menu has to be able to close it. Base UI closes on
    * Escape and on a press outside, and a window taking the screen is neither:
    * Settings, Usage and — in a narrow window — the floating sidebar announce
    * themselves instead, and a menu drawn at `--hd-z-popover` outranks all

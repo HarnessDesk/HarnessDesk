@@ -21,11 +21,11 @@ import { cn } from '@/lib/utils'
  * it can be entered and pressed. That difference is what the delays encode:
  *
  *   Open  is slow enough that dragging the pointer down a rail of eight
- *         members fires nothing. Radix ships 700ms, which is a beat too long
+ *         members fires nothing. The former 700ms default was a beat too long
  *         to feel like a response to a deliberate rest; 420 is the point at
  *         which a pass reads as a pause.
  *   Close is long enough for the pointer to cross the gap into the card and
- *         reach a button. Radix ships 300, which leaves a card hanging over
+ *         reach a button. The former 300ms default left a card hanging over
  *         the row after the reader has plainly moved on. 160 with an 8px
  *         offset is comfortably inside the travel time and out of the way.
  *
@@ -45,7 +45,7 @@ const HOVER_CARD_SIDE_OFFSET = 8
 
 /* The gutter the positioner keeps between a card and the window's edge.
  *
- * Radix's own default, written down here because a caller measures the room
+ * The explicit shared value, written down here because a caller measures the room
  * beside a trigger with it too (`roomOn` in `AgentHoverCard`). Nothing crossed
  * the two rulers before: a `collisionPadding` given to the content would have
  * made the positioner the stricter of the two, which is the one direction that

@@ -25,10 +25,16 @@ const shootArgs = explicitScenes
   : [
       ...args,
       '--scene', 'desk',
+      '--scene', 'sidebar-menu',
+      '--scene', 'sidebar-accounts',
+      '--scene', 'workspace-hover',
+      '--scene', 'session-hover',
+      '--scene', 'dashboard',
       '--scene', 'settings',
       '--scene', 'settings-agents',
       '--scene', 'settings-library',
       '--scene', 'settings-skills',
+      '--scene', 'settings-permissions',
       '--scene', 'conversation',
       '--scene', 'git',
       '--scene', 'editor',
@@ -58,7 +64,10 @@ writeFileSync(marker, 'HarnessDesk isolated native UI-system rig\n')
 const run = (script, scriptArgs) =>
   execFileSync(process.execPath, [join(root, script), ...scriptArgs], {
     cwd: root,
-    env: environment,
+    // About is tested on the explicit relaunch below. Opening it during the
+    // scene sweep backgrounds the main window and pauses its resize/placement
+    // animation frames, leaving dynamically expanded menus at stale positions.
+    env: { ...environment, HARNESSDESK_TEST_ABOUT: '0' },
     stdio: 'inherit',
   })
 
@@ -86,11 +95,9 @@ try {
 // The screenshot pass closes the app. Relaunch the same isolated home and
 // profile to prove that the last applied appearance travelled through the host
 // preference store, rather than a catalog-only or renderer-local cache.
-  const relaunchPort = 9950 + Math.floor(Math.random() * 30)
   const desk = await launchDesk({
   app: root,
   home: rigHome,
-  port: relaunchPort,
   userDataDir: join(rigHome, 'electron'),
   logPath: join(output, 'relaunch.log'),
   env: environment,
@@ -137,7 +144,7 @@ try {
 
   let aboutTarget
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    const targets = await (await fetch(`http://127.0.0.1:${relaunchPort}/json/list`)).json()
+    const targets = await (await fetch(`http://127.0.0.1:${desk.port}/json/list`)).json()
     aboutTarget = targets.find((target) => target.type === 'page' && target.title === 'About HarnessDesk')
     if (aboutTarget?.webSocketDebuggerUrl) break
     await sleep(100)

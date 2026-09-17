@@ -287,6 +287,17 @@
   white-space: nowrap;
 }
 
+/* Reserve the actions in the content layout, leaving the navigation
+   button's canonical padding and full-width interaction surface intact. */
+.groupBody {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: var(--hd-space-1-5);
+  padding-right: calc(var(--hd-btn-h-sm) * 2);
+}
+
 /* A claimed job is a state, so it wears the glyph the board gives that
    column. Without it the row read "1 0" — two counts a gap apart in one
    grey, and nothing on either saying what it counted. */
@@ -379,8 +390,8 @@
    glyph following a title of whatever length it happens to be is five marks
    in five places. The title truncates against it.
 
-   It shares its cell with the ⋯ button, which takes it on hover — the same
-   trade every other row makes with the end of its title. */
+   The body reserves the menu's cell, so the glyph remains readable while
+   the row's actions are showing. */
 .rowHead {
   display: flex;
   align-items: center;
@@ -637,20 +648,6 @@
 }
 
 /* --- the account menu --------------------------------------------------- */
-
-.accountMenu {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 6px;
-  right: 6px;
-  z-index: 30;
-  padding: 4px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-card);
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.22),
-    inset 0 0 0 1px var(--hd-border-strong);
-}
 
 .accountMenuHeader {
   display: flex;
@@ -942,6 +939,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
 }
 
 /* Compact is one line — the title — in a 28px row: the height Codex and
@@ -958,13 +956,9 @@
 }
 
 /*
- * A project's hover buttons, over the row rather than in it.
- *
- * They used to be laid out beside the row, which meant appearing on hover
- * cost the row 40px: the folder's count jumped left every time the pointer
- * crossed it, and the hover pill stopped short of the row's own end. Sessions
- * had already settled this — their ⋯ floats over the title's tail — so the
- * projects follow, on the same rail and with the same plate.
+ * A project's hover buttons occupy the trailing space its row reserves.
+ * Keeping that space when hidden lets the pin, count and title stay put
+ * when the actions appear, and keeps every mark visible beside them.
  */
 .groupTools {
   position: absolute;

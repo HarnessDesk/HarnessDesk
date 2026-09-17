@@ -475,7 +475,7 @@ const RailRow = ({
 }) => (
   <Button
     type="button"
-    variant="quiet" size="content" className={styles.acct}
+    variant="row" size="row" className={`grid ${styles.acct}`}
     {...(selected ? { 'data-selected': '' } : {})}
     {...(title ? { title } : {})}
     onClick={onClick}

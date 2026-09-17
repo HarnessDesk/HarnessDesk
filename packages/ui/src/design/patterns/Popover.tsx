@@ -1,4 +1,4 @@
-import { createElement, isValidElement, useEffect, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createElement, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -40,12 +40,10 @@ export const useDismissOverlays = (
 /**
  * Answers Escape while it is the surface on top.
  *
- * For a surface that is neither a `Dialog` nor a menu: the two app windows, and
- * anything else that takes the screen without going through either. `Dialog`
- * answers on the window in the capture phase and stops the event dead, so it
- * still outranks this; a menu spends the key on `document` and is heard first.
- * What this settles is the order among the surfaces that are left — see
- * `lib/overlays.ts`.
+ * Orders screen-level surfaces after nested menus and dialogs have had the
+ * key. AppWindow uses canonical dialog modality but explicitly delegates
+ * Escape here, retaining the window stack's ordering and approval boundary.
+ * Other dialogs consume Escape themselves; see `lib/overlays.ts`.
  */
 export const useEscapeSurface = (active: boolean, close: () => void): void => {
   const held = useRef(close)
@@ -97,6 +95,7 @@ export const Popover = ({
   drop = 'down',
   align = 'right',
   tone = 'calm',
+  fullWidth = false,
   triggerClassName,
   onOpenChange,
   children,
@@ -105,6 +104,8 @@ export const Popover = ({
   title?: string
   /** Replaces the default trigger look, for a button that already has one. */
   triggerClassName?: string
+  /** Fill a row or column instead of shrinking the trigger to its label. */
+  fullWidth?: boolean
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
   tone?: 'calm' | 'warn' | 'alert'
@@ -121,6 +122,7 @@ export const Popover = ({
     })
   }
   const trigger = useRef<HTMLButtonElement>(null)
+  const triggerId = useId()
   const panel = useRef<HTMLDivElement>(null)
   const externalReturnFocus = useRef<boolean | null>(null)
 
@@ -135,8 +137,8 @@ export const Popover = ({
     on the way out, as Escape does. The floating sidebar asks: it gives
     focus back, when it goes, to whatever had it when it came, and a row
     unmounted in between is nowhere to give it back to. Settings and Usage
-    do not — they take no focus of their own, and focus handed to a trigger
-    behind them answered Enter by opening the menu again, above the window.
+    let their canonical dialog move focus into the window instead, without
+    a menu cleanup focusing behind it.
     Focus held anywhere else stays put either way.
   */
   useDismissOverlays(open, ({ returnFocus }) => {
@@ -158,13 +160,13 @@ export const Popover = ({
         setOpen(next)
       }}
     >
-      <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align}>
+      <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align} data-full-width={fullWidth || undefined}>
         <PopoverTrigger
           ref={trigger}
+          id={triggerId}
           className={triggerClassName ?? styles.trigger}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
-          aria-haspopup="menu"
           title={title}
         /* A glyph is not a name. When the trigger's content is an icon rather
            than words, the hover text becomes the accessible name — otherwise
@@ -196,6 +198,7 @@ export const Popover = ({
           >
             <PopoverPopup
               ref={panel}
+              aria-labelledby={triggerId}
               className={styles.panel}
               initialFocus={false}
               finalFocus={() => {

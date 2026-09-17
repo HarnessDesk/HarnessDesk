@@ -188,7 +188,7 @@ export const selectMainPage = (targets) =>
  * already has open would make this launch quit silently — and steal the focus
  * of their window on the way out.
  */
-export const launchDesk = async ({ app, home, port, userDataDir, logPath, executable, env = process.env }) => {
+export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, executable, env = process.env }) => {
   const electron = executable ?? `${app}/packages/desktop/node_modules/.bin/electron`
   if (!existsSync(electron)) {
     throw new Error(`no electron at ${electron} — run pnpm install in ${app}`)
@@ -215,8 +215,40 @@ export const launchDesk = async ({ app, home, port, userDataDir, logPath, execut
   child.stdout.on('data', (chunk) => sink?.write(chunk))
   child.stderr.on('data', (chunk) => sink?.write(chunk))
 
-  return connectDesk({ child, sink, port, ...(executable ? { discoveryAttempts: 300 } : {}) })
+  let browserUrl
+  try {
+    browserUrl = await waitForDebugger(child)
+  } catch (error) {
+    await closeDesk({ child, sink })
+    throw error
+  }
+  const ownedPort = Number(new URL(browserUrl).port)
+  return connectDesk({ child, sink, port: ownedPort, browserUrl, ...(executable ? { discoveryAttempts: 300 } : {}) })
 }
+
+/** Read the endpoint from this child's stderr, never from a guessed port. */
+export const waitForDebugger = (child, timeoutMs = 30_000) => new Promise((resolve, reject) => {
+  let output = ''
+  const finish = (error, endpoint) => {
+    clearTimeout(timer)
+    child.stderr.off('data', onData)
+    child.off('exit', onExit)
+    child.off('error', onError)
+    if (error) reject(error)
+    else resolve(endpoint)
+  }
+  const onData = chunk => {
+    output = (output + chunk.toString()).slice(-8192)
+    const match = /DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)\s/.exec(output)
+    if (match) finish(null, match[1])
+  }
+  const onExit = () => finish(new Error('Electron exited before announcing its debugger'))
+  const onError = error => finish(error)
+  const timer = setTimeout(() => finish(new Error('Electron did not announce its own debugger')), timeoutMs)
+  child.stderr.on('data', onData)
+  child.once('exit', onExit)
+  child.once('error', onError)
+})
 
 /**
  * Finish a spawned launch. Kept separate so the failure path can be exercised
@@ -227,6 +259,7 @@ export const connectDesk = async ({
   child,
   sink = null,
   port,
+  browserUrl,
   fetchImpl = fetch,
   openCdp = Cdp.open,
   sleepImpl = sleep,
@@ -235,18 +268,22 @@ export const connectDesk = async ({
 }) => {
   let cdp
   try {
+    if (!browserUrl) throw new Error('debugger ownership requires the spawned child endpoint')
     for (let attempt = 0; attempt < discoveryAttempts; attempt += 1) {
       await sleepImpl(1000)
       let page
+      let list, version
       try {
-        const list = await (await fetchImpl(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json()
-        // Auxiliary windows (the native About panel) are pages too. Prefer the
-        // exact main-window title so a verification run that deliberately opens
-        // one does not wait for an app store that auxiliary HTML does not own.
-        page = selectMainPage(list)
+        version = await (await fetchImpl(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) })).json()
+        list = await (await fetchImpl(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json()
       } catch {
         continue /* the debugger is not up yet */
       }
+      if (version.webSocketDebuggerUrl !== browserUrl) throw new Error('debugger ownership mismatch: refusing a foreign process')
+      // Auxiliary windows (the native About panel) are pages too. Prefer the
+      // exact main-window title so a verification run that deliberately opens
+      // one does not wait for an app store that auxiliary HTML does not own.
+      page = selectMainPage(list)
       if (!page?.webSocketDebuggerUrl) continue
       // A non-HarnessDesk debugger target is ignored by selectMainPage; only a
       // target with the app's exact title or token-gated renderer URL arrives.
@@ -254,7 +291,7 @@ export const connectDesk = async ({
       // The store is what everything below talks to; a renderer that has not
       // finished booting has none yet.
       for (let ready = 0; ready < storeAttempts; ready += 1) {
-        if (await cdp.eval('Boolean(window.__hdStore)').catch(() => false)) return { child, cdp, sink }
+        if (await cdp.eval('Boolean(window.__hdStore)').catch(() => false)) return { child, cdp, sink, port, browserUrl }
         await sleepImpl(1000)
       }
       throw new Error('the renderer came up without a store')

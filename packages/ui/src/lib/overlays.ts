@@ -25,9 +25,9 @@ export interface DismissDetail {
   /**
    * For a caller that gives focus back, when it goes, to what had it when it
    * came: a menu holding focus hands it to its trigger first. The floating
-   * sidebar asks; Settings and Usage do not, because they take no focus of
-   * their own and focus handed to a trigger behind them answered Enter by
-   * opening the menu again, above the window.
+   * sidebar asks; Settings and Usage do not, because their modal AppWindow
+   * now takes and contains focus itself. Returning focus to a covered menu
+   * trigger would race that transfer.
    */
   readonly returnFocus?: boolean
 }

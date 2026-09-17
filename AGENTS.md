@@ -80,6 +80,11 @@ them in `docs/decisions.md`.
     every one of them enforced by `node script/design-audit.mjs --strict`:
     - Never import another screen's `*.module.css`. If two screens need the
       same thing, it belongs in `design/ui` or a named `design/patterns` contract.
+      Six existing screen families retain exactly eleven additional co-owners,
+      capped by `STYLESHEET_OWNERS` in `script/design-audit.mjs`. Their
+      `@design-owners` comments document membership but cannot authorize another
+      importer. Expanding that debt requires changing this rule and the fixed
+      gate list; new shared UI belongs in the design system.
     - Never write a literal where a token exists — a raw radius, colour or
       spacing step will not follow a theme or a redesign. That includes a
       literal hidden behind a custom property.

@@ -142,7 +142,7 @@ const draw = (at: number): void => {
 }
 
 const triggers = (): HTMLButtonElement[] => [
-  ...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]'),
+  ...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="dialog"]'),
 ]
 const model = (): HTMLButtonElement => {
   const found = triggers().find((trigger) => /model and reasoning/i.test(trigger.title))

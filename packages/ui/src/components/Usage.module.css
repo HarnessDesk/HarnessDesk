@@ -33,10 +33,6 @@
   color: var(--hd-muted-foreground);
 }
 
-.acct[data-selected] .acctMark {
-  color: var(--hd-secondary-foreground);
-}
-
 .acctName {
   grid-row: 1;
   min-width: 0;
@@ -97,6 +93,14 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Selected rows use a neutral fill; the reading ink stays legible across
+   interfaces while the meter retains the account's warning or error tone. */
+.acct[data-selected] .acctMark,
+.acct[data-selected] .acctFigure,
+.acct[data-selected] .acctSub {
+  color: var(--hd-secondary-foreground);
 }
 
 /* The one row that offers something rather than reporting something. */

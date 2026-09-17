@@ -611,7 +611,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
-        {/* A ToggleGroup rather than radix Tabs, dressed as one: a tab
+        {/* A ToggleGroup rather than Tabs, dressed as one: a tab
             trigger activates on mousedown, which a plain click() never
             fires — and this switcher has to answer to tests and keyboards
             alike. Ignoring the empty value is what stops a second press

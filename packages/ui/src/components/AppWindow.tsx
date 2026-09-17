@@ -1,5 +1,5 @@
-import { Button, Input } from '../design'
-import type { ReactNode } from 'react'
+import { Button, DialogPopup, DialogPortal, DialogRoot, Input } from '../design'
+import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import { Clipped } from '../design'
 
 import { ArrowLeftIcon, SearchIcon } from './Icons'
@@ -16,15 +16,52 @@ import styles from './AppWindow.module.css'
  * chrome is one component and both wear it.
  *
  * The window's own traffic lights sit in the band above the rail, so the rail
- * starts below them and the top of the rail is draggable — this is a window,
- * not an overlay pretending to be one.
+ * starts below them and the top of the rail is draggable. It looks like a
+ * window, while the canonical dialog owns its focus and modal lifecycle.
  */
 
-export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => (
-  <section className={styles.win} aria-label={label}>
-    <div className={styles.winBody}>{children}</div>
-  </section>
-)
+/** Embedded catalogs show several windows together without taking the desk. */
+export const AppWindowMode = createContext<'modal' | 'embedded'>('modal')
+
+export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => {
+  const embedded = useContext(AppWindowMode) === 'embedded'
+  const [host, setHost] = useState<HTMLDivElement | null>(null)
+  const surface = useRef<HTMLDivElement>(null)
+  return (
+    <div ref={setHost}>
+      <DialogRoot
+        open
+        modal={!embedded}
+        disablePointerDismissal
+        onOpenChange={(open, details) => {
+          if (!open && details.reason === 'escape-key') {
+            // The existing window stack answers after menus and before the
+            // covered conversation/sidebar. Preserve that ordering while
+            // Base UI owns modality, focus containment and focus return.
+            details.cancel()
+            details.allowPropagation()
+          }
+        }}
+      >
+        {host && (
+          <DialogPortal container={host}>
+            <DialogPopup
+              ref={surface}
+              className={styles.win}
+              aria-label={label}
+              aria-modal={embedded ? undefined : true}
+              aria-describedby={undefined}
+              initialFocus={embedded ? false : surface}
+              finalFocus={!embedded}
+            >
+              <div className={styles.winBody}>{children}</div>
+            </DialogPopup>
+          </DialogPortal>
+        )}
+      </DialogRoot>
+    </div>
+  )
+}
 
 export const WindowNav = ({
   onBack,

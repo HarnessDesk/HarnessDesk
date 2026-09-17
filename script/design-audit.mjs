@@ -23,6 +23,8 @@ import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
+import { repositoryFiles } from './lib/repository-files.mjs'
+import { overlayViolations } from './ui-architecture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -38,6 +40,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * a burn-down while nothing had been fixed.
  */
 const UI_SRC = path.join(root, 'packages/ui/src')
+const tracked = new Set(repositoryFiles(root).map((file) => path.join(root, file)))
 
 /**
  * The foundation is not a screen, and must not be audited as one.
@@ -69,6 +72,7 @@ const uiDirs = (dir) => {
     entries.some(
       (e) =>
         e.isFile() &&
+        tracked.has(path.join(dir, e.name)) &&
         (e.name.endsWith('.module.css') || (e.name.endsWith('.tsx') && !e.name.includes('.test.'))),
     )
   ) {
@@ -84,7 +88,26 @@ const uiDirs = (dir) => {
 
 const DIRS = uiDirs(UI_SRC)
 
-const read = (file) => fs.readFileSync(file, 'utf8')
+/** One source snapshot per audit, including absent optional imports. */
+export const createSourceCache = (readFile = (file) => fs.readFileSync(file, 'utf8')) => {
+  const sources = new Map()
+  return (file) => {
+    if (!sources.has(file)) {
+      try { sources.set(file, readFile(file)) }
+      catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        sources.set(file, null)
+      }
+    }
+    return sources.get(file)
+  }
+}
+const sourceOf = createSourceCache()
+const read = (file) => {
+  const source = sourceOf(file)
+  if (source === null) throw new Error(`Missing source file: ${file}`)
+  return source
+}
 /** Where a finding is, said the way a person would look for it. */
 const label = (file) => path.relative(path.join(root, 'packages/ui/src'), file)
 const filesIn = (suffix, reject = () => false) =>
@@ -93,7 +116,7 @@ const filesIn = (suffix, reject = () => false) =>
       .readdirSync(dir)
       .filter((name) => name.endsWith(suffix) && !reject(name))
       .map((name) => path.join(dir, name)),
-  )
+  ).filter((file) => tracked.has(file))
 const cssFiles = () => filesIn('.css')
 const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 
@@ -167,11 +190,20 @@ const ICON_MODULES = new Set([
   // their paths are the content being rendered, not a replaceable icon set.
   'chart.tsx',
   'AppearancePreview.tsx',
-  'GitPane.tsx',
+  'GitGraph.tsx',
 ])
 
-/** Where the primitives live: the one place allowed to define an overlay. */
-const PRIMITIVES = path.join(root, 'packages/ui/src/design/primitives')
+/** Existing screen families only, capped at eleven additional owners. An
+ * annotation documents membership; it cannot grant a new exception. See
+ * AGENTS.md rule 11. Shared generic UI still belongs in design/. */
+export const STYLESHEET_OWNERS = Object.freeze({
+  'components/Conversation.module.css': ['components/TurnTail.tsx'],
+  'components/Items.module.css': ['components/MessageActions.tsx', 'components/StepGroup.tsx'],
+  'components/Plugins.module.css': ['components/PluginsSection.tsx'],
+  'components/Settings.module.css': ['components/Extensions.tsx'],
+  'components/Sidebar.module.css': ['components/SessionTree.tsx'],
+  'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/FilePane.tsx', 'components/PreviewPane.tsx', 'components/TerminalPane.tsx', 'components/ToolPaneHeader.tsx'],
+})
 
 /** The space steps the system offers, as plain numbers. */
 const tokens = resolveTokens({ root })
@@ -278,9 +310,9 @@ for (const file of cssFiles()) {
 // it styled completely unstyled, silently, with nothing failing. Nobody finds
 // that except by looking at the screen. Every reference is checked against the
 // classes its stylesheet actually declares.
-const classesOf = (cssPath) => {
+const classesOf = (source) => {
   const names = new Set()
-  for (const hit of bare(read(cssPath)).matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)) names.add(hit[1])
+  for (const hit of bare(source).matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)) names.add(hit[1])
   return names
 }
 
@@ -305,13 +337,16 @@ export const sheetsOf = (dir, file, name, source, uiSrc) => {
   for (const { binding, file: spec } of stylesheetImports(source, file, { strict: true })) {
     const sheet = resolveStylesheet(dir, spec, uiSrc)
     const target = path.join(dir, sheet)
-    const declaredOwners = fs.existsSync(target)
-      ? /@design-owners\s+([^\n*]+)/.exec(read(target))?.[1]?.split(',').map((owner) => owner.trim()) ?? []
+    const css = sourceOf(target)
+    const declaredOwners = css !== null
+      ? /@design-owners\s+([^\n*]+)/.exec(css)?.[1]?.split(',').map((owner) => owner.trim()) ?? []
       : []
+    const cappedOwners = STYLESHEET_OWNERS[path.relative(uiSrc, target).split(path.sep).join('/')] ?? []
     const declared = declaredOwners.includes(path.basename(file, path.extname(file)))
+      && cappedOwners.includes(path.relative(uiSrc, file).split(path.sep).join('/'))
     // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
     if (!ownsStylesheet(file, sheet) && !declared) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
-    if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
+    if (css !== null) sheets.set(binding, { file: sheet, classes: classesOf(css) })
   }
   return { sheets, crossImports }
 }
@@ -441,20 +476,11 @@ for (const file of tsxFiles()) {
   const dir = path.dirname(file)
   const source = read(file)
 
-  // An overlay built beside the system rather than out of it.
-  //
-  // This is the rule the audit could not previously catch, and the one that
-  // cost the most: `aria-modal` outside `design/primitives` means a screen has
-  // answered where the buttons go, what Escape does, what a click outside
-  // does and where focus returns — five decisions, made again, and usually at
-  // least one of them made by omission.
-  //
-  // The recorded baseline is the four surfaces that are deliberately not
-  // dialogs. It is a ceiling, not a target: a fifth is new drift.
+  // Shared structural policy covers both raw dialog attributes and low-level
+  // parts, including aliased imports. Canonical patterns own overlay policy;
+  // AppWindow is the exact specialized composition recorded in that policy.
   const code = codeOf(file)
-  if (dir !== PRIMITIVES && /aria-modal/.test(code)) {
-    findings.handRolledOverlay.push(`${name}: aria-modal outside design/primitives`)
-  }
+  for (const detail of overlayViolations(path.relative(root, file).split(path.sep).join('/'), source)) findings.handRolledOverlay.push(`${name}: ${detail}`)
 
   // An icon drawn in place rather than imported.
   if (!ICON_MODULES.has(path.basename(file)) && /<svg[\s>]/.test(code)) {

@@ -964,12 +964,22 @@ it('the conflict banner goes when the tree no longer has conflicts', async () =>
 it('a branch whose upstream is gone says so, and Pull says why it cannot', async () => {
   // #98: `[gone]` read as level: zero ahead, zero behind, and a Pull that could only fail.
   const [main, feature] = REFS.branches
-  await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
+  const { request } = await mount({ refs: { ...REFS, branches: [{ ...main!, ahead: 0, behind: 0, gone: true }, feature!] } })
   const pull = button('Pull')
-  expect(pull.disabled).toBe(true)
-  expect(pull.closest('[data-slot="refused-action"]')?.getAttribute('aria-label')).toBe(
+  expect(pull.disabled).toBe(false)
+  expect(pull.tabIndex).toBe(0)
+  expect(pull.getAttribute('aria-disabled')).toBe('true')
+  expect(pull.getAttribute('aria-label')).toBe('Pull')
+  expect(document.getElementById(pull.getAttribute('aria-describedby')!)?.textContent).toBe(
     'The branch this one tracks, origin/main, is gone.',
   )
+  await act(async () => {
+    pull.focus()
+    pull.click()
+    pull.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(document.activeElement).toBe(pull)
+  expect(request.mock.calls.some(([method]) => method === 'git/pull')).toBe(false)
   const current = document.body.querySelector('[class*="_railRow_"][data-current]')
   expect(current?.textContent).toContain('main')
   expect(current?.textContent).toContain('gone')

@@ -4,6 +4,11 @@
   min-width: 0;
 }
 
+.anchor[data-full-width],
+.anchor[data-full-width] > button {
+  width: 100%;
+}
+
 .trigger {
   display: inline-flex;
   align-items: center;

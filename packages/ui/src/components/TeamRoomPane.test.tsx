@@ -341,7 +341,7 @@ const type = (box: HTMLTextAreaElement, text: string): void => {
    — so it is looked for there rather than in the pane. */
 const audience = (): HTMLButtonElement =>
   container.querySelector(
-    '[data-slot="composer-tools"] button[aria-haspopup="menu"]',
+    '[data-slot="composer-tools"] button[aria-haspopup="dialog"]',
   ) as HTMLButtonElement
 
 const menuRows = (): readonly HTMLButtonElement[] =>

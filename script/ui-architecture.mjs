@@ -28,6 +28,9 @@ const RAW_CONTROL_AUTHORITIES = [
   // Base UI Menu receives its semantic host through `render`; the raw node
   // is not an independent behavior or visual implementation.
   'packages/ui/src/design/patterns/Menu.tsx',
+  // This pattern owns a polymorphic semantic menu row over canonical menu
+  // behavior. Authority is explicit rather than depending on createElement.
+  'packages/ui/src/design/patterns/Popover.tsx',
 ]
 const CANONICAL_CONTROLS = new Set(['Button', 'Input', 'Textarea', 'NativeSelect'])
 const CONTROL_LAYOUT_PROPERTY = /^(?:display|position|top|right|bottom|left|inset(?:-(?:inline|block|top|right|bottom|left))?|z-index|width|min-width|max-width|margin(?:-(?:top|right|bottom|left|inline|block))?|flex(?:-(?:basis|direction|flow|grow|shrink|wrap))?|grid(?:-(?:area|auto-columns|auto-flow|auto-rows|column|column-end|column-gap|column-start|gap|row|row-end|row-gap|row-start|template|template-areas|template-columns|template-rows))?|gap|row-gap|column-gap|align-(?:content|items|self)|justify-(?:content|items|self)|place-(?:content|items|self)|order|overflow(?:-[xy])?|overflow-wrap|word-break|text-overflow|white-space|text-align|vertical-align)$/
@@ -35,7 +38,10 @@ const CONTROL_VISUAL_UTILITY = /(?:^|:)(?:h-|min-h-|max-h-|p[trblxy]?-|rounded(?
 const CONTROL_LAYOUT_UTILITY = /^(?:hd-no-drag$|block|inline|inline-block|inline-flex|flex|grid|relative|absolute|fixed|sticky|isolate|w-|min-w-|max-w-|-?m[trblxy]?-|inset-|top-|right-|bottom-|left-|z-|grow(?:-|$)|shrink(?:-|$)|basis-|flex-|grid-|col-|row-|order-|items-|justify-|content-|self-|place-|gap-|space-|overflow-|truncate$|whitespace-|break-|text-(?:left|right|center|justify)$)/
 
 const classIsSelectorSubject = (selector, className) => selector.split(',').some((part) => {
-  const match = new RegExp(`\\.${className}(?![\\w-])`).exec(part)
+  const safe = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // CSS identifiers escape punctuation such as the $ legal in a JS binding.
+  part = part.replace(/\\([^\da-f\s])/gi, '$1')
+  const match = new RegExp(`\\.${safe}(?![\\w$-])`).exec(part)
   if (!match) return false
   const suffix = part.slice(match.index + match[0].length).trim()
   return !/[ >+~]/.test(suffix.replace(/\([^)]*\)/g, ''))
@@ -46,6 +52,72 @@ const isPrivateTokenAuthority = (file) =>
 
 const isRawControlAuthority = (file) => RAW_CONTROL_AUTHORITIES.some((authority) =>
   authority.endsWith('/') ? file.startsWith(authority) : file === authority)
+
+const parseSource = (file, source) => {
+  const kind = /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind)
+  const problem = ast.parseDiagnostics?.[0]
+  if (problem) throw new Error(`${file}: TypeScript could not parse this file: ${ts.flattenDiagnosticMessageText(problem.messageText, ' ')}`)
+  return ast
+}
+
+/** Only canonical overlay implementations and the app-window policy compose
+ * low-level parts. AppWindow still uses the canonical modal/focus behavior. */
+const isOverlayAuthority = (file) => /^packages\/ui\/src\/design\/(?:ui|patterns)\//.test(file)
+const OVERLAY_PART = /^(?:Alert)?Dialog(?:Popup|Overlay|Viewport|Portal)$/
+
+const createElementMatcher = (ast) => {
+  const names = new Set(['createElement'])
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== 'react') continue
+    const bindings = statement.importClause?.namedBindings
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) if ((binding.propertyName ?? binding.name).text === 'createElement') names.add(binding.name.text)
+    }
+  }
+  return (callee) => ts.isIdentifier(callee)
+    ? names.has(callee.text)
+    : ts.isPropertyAccessExpression(callee) && callee.name.text === 'createElement'
+}
+
+export const overlayViolations = (file, source, ast = parseSource(file, source)) => {
+  if (isOverlayAuthority(file)) return []
+  const violations = []
+  const appWindow = file === 'packages/ui/src/components/AppWindow.tsx'
+  const isCreateElement = createElementMatcher(ast)
+  const visit = (node) => {
+    if (!appWindow && ts.isImportSpecifier(node) && OVERLAY_PART.test((node.propertyName ?? node.name).text)) {
+      violations.push(`imports ${node.propertyName?.text ?? node.name.text} outside a canonical overlay policy`)
+    }
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const role = jsxAttribute(node, 'role', ast)?.initializer
+      const value = role && ts.isJsxExpression(role) ? role.expression : role
+      if (value && ts.isStringLiteral(value) && /^(?:alert)?dialog$/.test(value.text)) violations.push(`raw role="${value.text}" outside a canonical overlay policy`)
+      const tag = node.tagName.getText(ast).split('.').at(-1)
+      if (jsxAttribute(node, 'aria-modal', ast) && !(appWindow && tag === 'DialogPopup')) violations.push('aria-modal outside a canonical overlay policy')
+      if (!appWindow && OVERLAY_PART.test(tag)) violations.push('uses dialog parts outside a canonical overlay policy')
+    }
+    if (ts.isCallExpression(node) && isCreateElement(node.expression)) {
+      const [host, props] = node.arguments
+      const tag = host && (ts.isIdentifier(host) ? host.text : ts.isPropertyAccessExpression(host) ? host.name.text : undefined)
+      if (!appWindow && tag && OVERLAY_PART.test(tag)) violations.push('uses dialog parts outside a canonical overlay policy')
+      if (props && ts.isObjectLiteralExpression(props)) {
+        for (const property of props.properties) {
+          if (!ts.isPropertyAssignment(property)) continue
+          const key = ts.isComputedPropertyName(property.name) ? property.name.expression : property.name
+          const name = ts.isIdentifier(key) || ts.isStringLiteral(key) ? key.text : null
+          if (name === 'role' && ts.isStringLiteral(property.initializer) && /^(?:alert)?dialog$/.test(property.initializer.text)) {
+            violations.push(`raw role="${property.initializer.text}" outside a canonical overlay policy`)
+          }
+          if (name === 'aria-modal' && !(appWindow && tag === 'DialogPopup')) violations.push('aria-modal outside a canonical overlay policy')
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return [...new Set(violations)]
+}
 
 const jsxAttribute = (node, name, ast) => node.attributes.properties.find((attribute) =>
   ts.isJsxAttribute(attribute) && attribute.name.getText(ast) === name)
@@ -58,7 +130,7 @@ const isNullJsxAttribute = (attribute) =>
   && attribute.initializer.expression?.kind === ts.SyntaxKind.NullKeyword
 
 const moduleSpecifiers = (file, source) => {
-  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const ast = parseSource(file, source)
   const found = []
   const visit = (node) => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
@@ -71,7 +143,7 @@ const moduleSpecifiers = (file, source) => {
 }
 
 const stylesheetBindings = (file, source) => {
-  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const ast = parseSource(file, source)
   const found = new Map()
   for (const statement of ast.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
@@ -300,10 +372,18 @@ export const scanUiArchitecture = (files) => {
       }
     }
     if (file.path.startsWith(UI_SOURCE) && !TEST_SOURCE.test(file.path) && !isRawControlAuthority(file.path)) {
-      const ast = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+      const ast = parseSource(file.path, file.source)
+      const isCreateElement = createElementMatcher(ast)
+      for (const detail of overlayViolations(file.path, file.source, ast)) findings.push({ path: file.path, rule: 'screen-owned-overlay', detail })
       const cssBindings = stylesheetBindings(file.path, file.source)
       const reportedControlOverrides = new Set()
       const visit = (node) => {
+        if (ts.isCallExpression(node)) {
+          const tag = node.arguments[0]
+          if (isCreateElement(node.expression) && tag && ts.isStringLiteral(tag) && ['button', 'input', 'textarea', 'select'].includes(tag.text)) {
+            findings.push({ path: file.path, rule: 'screen-generic-control', detail: `createElement('${tag.text}') bypasses the canonical design contract` })
+          }
+        }
         if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
           const tag = node.tagName.getText(ast)
           if (['button', 'input', 'textarea', 'select'].includes(tag)) {
@@ -325,7 +405,7 @@ export const scanUiArchitecture = (files) => {
             const expression = className && ts.isJsxAttribute(className) && className.initializer
               ? className.initializer.getText(ast)
               : ''
-            for (const reference of expression.matchAll(/\b([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\b/g)) {
+            for (const reference of expression.matchAll(/(?<![\w$])([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)(?![\w$])/g)) {
               const cssPath = cssBindings.get(reference[1])
               const css = cssPath ? cssByPath.get(cssPath) : undefined
               const key = `${tag}:${cssPath}:${reference[2]}`
@@ -350,9 +430,6 @@ export const scanUiArchitecture = (files) => {
             }
           }
           const role = jsxAttribute(node, 'role', ast)
-          if (role && ts.isJsxAttribute(role) && role.initializer && ts.isStringLiteral(role.initializer) && /^(?:alert)?dialog$/.test(role.initializer.text)) {
-            findings.push({ path: file.path, rule: 'screen-owned-overlay', detail: `raw role="${role.initializer.text}" bypasses the canonical dialog policy` })
-          }
           if (role && ts.isJsxAttribute(role) && role.initializer && ts.isStringLiteral(role.initializer) && role.initializer.text === 'menu') {
             findings.push({ path: file.path, rule: 'screen-owned-menu', detail: 'raw role="menu" bypasses the canonical Menu or Popover policy' })
           }

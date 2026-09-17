@@ -89,7 +89,6 @@ const desk = await launchDesk({
   app: APP,
   executable: process.env['HD_SHOTS_EXECUTABLE'],
   home: HOME,
-  port: 9840 + Math.floor(Math.random() * 100),
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
 })
@@ -212,6 +211,10 @@ try {
           footer: '[class*="accountRow"]', footerName: '[class*="accountLabel"]',
           agentBadge: '[class*="seatAvatar"]', agentGlyph: '[class*="seatAvatar"] svg', statusDot: '[class*="statusDot"]',
           menu: '[role="menu"]', menuItem: '[role="menuitem"]',
+          popover: '[data-slot="popover-popup"]', accountMenu: '[class*="accountMenu_"]',
+          usageAccount: 'button[class*="acct_"]', usageName: '[class*="acctName"]', usageTrack: '[class*="acctTrack"]',
+          usageCards: '[class*="cards_"]', usageCard: '[class*="card_"]',
+          segmentedItem: '[data-slot="toggle-group-item"]',
         }
         const measure = node => {
           const css = getComputedStyle(node), rect = node.getBoundingClientRect()
@@ -226,6 +229,9 @@ try {
           const node = [...document.querySelectorAll(selector)].find(node => node.getBoundingClientRect().height > 0)
           if (node) output[key] = measure(node)
         }
+        output.reviewerOptions = [...document.querySelectorAll('[data-slot="toggle-group-item"]')]
+          .filter(node => ['You', 'Automatic review', 'Guardian sub-agent'].includes(node.textContent.trim()))
+          .map(node => ({ label: node.textContent.trim(), ...measure(node) }))
         const menu = document.querySelector('[role="menu"]')
         if (menu) {
           output.menuAncestors = []
@@ -248,6 +254,11 @@ try {
               faults.push('horizontal sidebar overflow: ' + node.className)
             }
           }
+          const footer = sidebar.querySelector('button[class*="accountRow"]')
+          if (footer) {
+            const row = footer.getBoundingClientRect(), column = sidebar.getBoundingClientRect()
+            if (column.right - row.right > 8) faults.push('sidebar footer no longer fills its column')
+          }
         }
         for (const row of document.querySelectorAll('button[class*="rowButton"], button[class*="rowChoice"]')) {
           if (!visible(row)) continue
@@ -264,11 +275,59 @@ try {
           const padding = parseFloat(getComputedStyle(header).getPropertyValue('--hd-space-3'))
           if (icon.top - box.top < padding || box.bottom - icon.bottom < padding) faults.push('agent header lost its Settings row padding')
         }
+        for (const row of document.querySelectorAll('button[class*="acct_"]')) {
+          if (!visible(row)) continue
+          const box = row.getBoundingClientRect(), css = getComputedStyle(row)
+          if (parseFloat(css.paddingTop) < 4 || parseFloat(css.paddingBottom) < 4 || box.height < 26) faults.push('Dashboard account row collapsed')
+          const meter = row.querySelector('[class*="acctTrack"]')?.getBoundingClientRect()
+          const name = row.querySelector('[class*="acctName"]')?.getBoundingClientRect()
+          if (meter && (meter.width < box.width / 2 || meter.top - name.bottom < 3)) faults.push('Dashboard meter lost its grid track')
+        }
+        for (const option of document.querySelectorAll(':is(section, [role="dialog"])[aria-label="Settings"] [data-slot="toggle-group-item"]')) {
+          if (!visible(option)) continue
+          const box = option.getBoundingClientRect(), css = getComputedStyle(option)
+          const range = document.createRange()
+          range.selectNodeContents(option)
+          const text = range.getBoundingClientRect()
+          if (text.left - box.left < parseFloat(css.paddingLeft) - 1 || box.right - text.right < parseFloat(css.paddingRight) - 1) faults.push('Settings segment label overflows its option')
+        }
+        for (const row of document.querySelectorAll('[class*="groupHead"]:hover, [class*="rowWrap"]:hover')) {
+          const action = row.querySelector('[class*="groupAdd"], button[aria-haspopup="menu"]')
+          if (!action || !visible(action)) continue
+          for (const mark of row.querySelectorAll('[class*="groupPin"], [class*="groupCount"], [class*="rowGone"], [class*="rowWorktree"]')) {
+            if (mark.getBoundingClientRect().right > action.getBoundingClientRect().left) faults.push('sidebar hover action overlaps metadata')
+          }
+        }
+        for (const popup of document.querySelectorAll('[data-slot="popover-popup"]')) {
+          const box = popup.getBoundingClientRect()
+          if (box.top < 0 || box.bottom > innerHeight + 1 || box.left < 0 || box.right > innerWidth + 1) {
+            faults.push('popup extends outside the viewport: ' + JSON.stringify(box.toJSON()))
+          }
+        }
         for (const item of document.querySelectorAll('[role="menuitem"]')) {
           if (!visible(item)) continue
           let opacity = 1
           for (let node = item; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity)
           if (opacity < 0.99) faults.push('invisible menu item: ' + item.textContent.slice(0, 80))
+          // A DOM-visible, opaque item can still sit outside a zero-height
+          // popup and be clipped away. Check the painted/hit-tested center.
+          const rect = item.getBoundingClientRect()
+          const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2
+          const popup = item.closest('[data-slot="popover-popup"]')
+          if (popup) {
+            const box = popup.getBoundingClientRect()
+            const contentX = x - box.left + popup.scrollLeft, contentY = y - box.top + popup.scrollTop
+            if (box.height < Math.min(rect.height, 24)
+              || contentY < 0 || contentY > popup.scrollHeight
+              || contentX < 0 || contentX > popup.scrollWidth) {
+              faults.push('menu item clipped outside popup: ' + item.textContent.slice(0, 80))
+            } else if (y >= box.top && y <= box.bottom && x >= box.left && x <= box.right
+              && !item.contains(document.elementFromPoint(x, y))) {
+              faults.push('menu item cannot receive a pointer: ' + item.textContent.slice(0, 80)
+                + ' ' + JSON.stringify({ x, y, hit: document.elementFromPoint(x, y)?.outerHTML.slice(0, 160),
+                  popup: box.toJSON(), viewport: { width: innerWidth, height: innerHeight } }))
+            }
+          }
         }
         return faults
       })()`)
@@ -292,7 +351,12 @@ try {
         if (!scope) return false
         const wanted = ${q(text)}
         const all = [...scope.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], li, summary')]
-        const hits = all.filter((e) => (e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)
+        const hits = all.filter((e) => {
+          if (!((e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)) return false
+          if (e.closest('[aria-hidden="true"], [inert]')) return false
+          const rect = e.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0 && e.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
+        })
         /* The smallest match: once a word is on screen twice the outer one is
            usually a container that happens to contain the row you wanted. */
         const el = hits.sort((a, b) => (a.textContent ?? '').length - (b.textContent ?? '').length)[0]
@@ -424,7 +488,13 @@ rules:
    * no picture, because it is evidence.
    */
   const leaveOverlay = async () => {
-    await click('Back to app').catch(() => {})
+    // Scene changes must dismiss floating menus as well as full-screen pages.
+    // Otherwise the expanded account menu survives into the hover photographs.
+    await cdp.eval(`document.dispatchEvent(new CustomEvent('hd:dismiss-overlays', { detail: { returnFocus: true } })); true`)
+    await sleep(200)
+    for (let remaining = 0; remaining < 4; remaining += 1) {
+      if (!await click('Back to app')) break
+    }
     await sleep(600)
   }
 
@@ -473,7 +543,7 @@ rules:
     } },
 
     /** The rebuilt settings patterns, reached through the same store request features use. */
-    settings: { expect: 'Appearance', run: async () => {
+    settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
       await cdp.eval(`${STORE}.askSettings('appearance'); true`)
       await sleep(1400)
     } },
@@ -656,9 +726,12 @@ rules:
   // The review sweep records every Settings destination, including the rich
   // rows that a single Appearance frame cannot exercise.
   for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'agents', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
-    SCENES[`settings-${section}`] = { run: async () => {
+    SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
+      if (!await cdp.eval(`Boolean(document.querySelector(':is(section, [role="dialog"])[aria-label="Settings"]')) && !document.querySelector(':is(section, [role="dialog"])[aria-label="Dashboard"]')`)) {
+        throw new Error('Settings did not become the visible window for ' + section)
+      }
       if (section === 'agents') {
         // Keep an account in the frame so header and nested-row containment
         // are both exercised, not just the collapsed list's card outlines.
@@ -688,6 +761,80 @@ rules:
     })()`)
     if (!opened) throw new Error('composer agent trigger missing')
     await sleep(700)
+  } }
+  SCENES['sidebar-menu'] = { leaveOverlay: true, run: async () => {
+    const opened = await cdp.eval(`(() => {
+      const button = document.querySelector('button[class*="accountRow"]')
+      if (!button) return false
+      button.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('sidebar account trigger missing')
+    await sleep(700)
+  } }
+  SCENES['sidebar-accounts'] = { leaveOverlay: true, run: async () => {
+    const triggerOpen = await cdp.eval(`document.querySelector('button[class*="accountRow"]')?.getAttribute('aria-expanded') === 'true'`)
+    if (!triggerOpen) await SCENES['sidebar-menu'].run()
+    const expanded = await cdp.eval(`(() => {
+      const row = document.querySelector('[role="menuitem"][aria-expanded="false"]')
+      if (!row) return false
+      row.click()
+      return true
+    })()`)
+    if (!expanded) throw new Error('sidebar account disclosure missing')
+    await sleep(700)
+  } }
+  // The ordinary desk has no worktree/deleted-folder marks. Supply invented
+  // history facts through the rig's wire seam so hover screenshots exercise
+  // the crowded right rail rather than an empty row that could not regress.
+  const stageSidebarMarks = async () => {
+    await SCENES.desk.run()
+    await cdp.eval(`(() => {
+      const store = ${STORE}, root = ${q(REPO)}
+      if (!store.__shotsSidebarMarks) {
+        const real = store.transport.request.bind(store.transport)
+        store.transport.request = async (method, params) => {
+          const result = await real(method, params)
+          if (method !== 'session/list') return result
+          return { ...result, data: result.data.map((row, index) => row.cwd !== root || index > 1 ? row : {
+            ...row, cwd: root + '/.worktrees/sidebar-' + index,
+            repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+          }) }
+        }
+        store.__shotsSidebarMarks = true
+      }
+      store.setListPrefs({ pinned: [root] })
+      return store.loadHistory({ reset: true })
+    })()`)
+    await sleep(700)
+  }
+  const hover = async (selector) => {
+    // Hover-only actions have no box until their row is entered.
+    const rowPoint = await cdp.json(`(() => {
+      const node = document.querySelector(${q(selector)})?.closest('[class*="groupHead"], [class*="rowWrap"]')
+      if (!node) throw new Error('missing hover row')
+      const rect = node.getBoundingClientRect()
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    })()`)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...rowPoint })
+    await sleep(100)
+    const point = await cdp.json(`(() => {
+      const node = document.querySelector(${q(selector)})
+      if (!node) throw new Error('missing hover target')
+      const rect = node.getBoundingClientRect()
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    })()`)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await sleep(250)
+  }
+  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[class*="groupHead"] button[aria-haspopup="menu"]', run: async () => {
+    await stageSidebarMarks()
+    await hover('[class*="groupHead"] button[aria-haspopup="menu"]')
+  } }
+  SCENES['session-hover'] = { leaveOverlay: true, hover: '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]', run: async () => {
+    await stageSidebarMarks()
+    const selector = '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]'
+    await hover(selector)
   } }
   SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
     await cdp.eval(`${STORE}.askSettings('extensions'); true`)
@@ -721,6 +868,16 @@ rules:
     await scene.run()
     for (const theme of THEMES) {
       await setTheme(theme)
+      if (!scene.hover) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
+      if (scene.hover) {
+        await hover(scene.hover)
+        if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
+          throw new Error(name + ': pointer did not hover the target: ' + await cdp.eval(`(() => {
+            const node = document.querySelector(${q(scene.hover)}), r = node.getBoundingClientRect()
+            return JSON.stringify({ rect: r.toJSON(), hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.className, pointer: getComputedStyle(node).pointerEvents, hovered: [...document.querySelectorAll(':hover')].map(node => node.className), scale: visualViewport.scale })
+          })()`))
+        }
+      }
       await shoot(`${name}-${theme}`, scene.expect ?? null)
     }
   }

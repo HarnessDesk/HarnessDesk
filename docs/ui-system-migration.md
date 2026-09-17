@@ -36,6 +36,10 @@ app is also built as a macOS arm64 package and exercised in its real window.
 | --- | --- | --- |
 | Overlapping rows | Settings row buttons inherited a fixed small-button height | Content-sized rows; browser and native child-bounds containment checks |
 | Blank menus | The embedded Base UI positioner had no anchor and retained opacity zero | Real host anchor; effective ancestor-opacity assertion, selection, Escape and focus checks |
+| Sidebar menu reduced to a thin bar; footer narrower than its separator | The sidebar retained its absolutely positioned legacy menu inside the new clipped popup; the new trigger wrapper also shrank to its label | Remove duplicate placement/chrome; opt into the canonical full-width trigger contract; native popup bounds/hit tests and browser pointer/resize checks |
+| Dashboard Accounts rail compressed | Content-sized quiet buttons discarded the old navigation padding/selected fill | Canonical row sizing, neutral selection and an explicit grid; check row padding, meter width, selected state and themed contrast |
+| Workspace pin/count and session checkout marks hidden under hover actions | Absolutely positioned actions shared the metadata's trailing space | Reserve stable action space from control-size tokens; test pointer and keyboard actions at 200, 260 and 480px sidebar widths |
+| Permission segment labels overlap | Equal zero-basis flex cells allocated insufficient space to longer labels | Intrinsic option widths; measure rendered text against each option's padded bounds |
 | Squashed artwork and duplicate selection rings | Blanket descendant SVG sizing and overlapping generic/avatar selection styles | Icons retain explicit dimensions; one avatar ring; computed-size and shadow tests |
 | Lost state cues | Mechanical CSS removal outpaced the canonical variants | Restore current/indented Git rows, selected navigation, drop targets, deferred send hover, live/pressed tasks, warning/danger/success facts, attachment removal and light-register spacing |
 | Text in square buttons | Text actions inherited icon-only size variants | Use text-sized actions; architecture gate rejects literal text in icon-only buttons |
@@ -52,10 +56,26 @@ wrapper; noninteractive Git and turn facts keep their static presentation.
 The original focus-test race and dependency on an unavailable `rg` binary were
 already fixed before this repair and remain covered by the repository gate.
 
-The six browser integration tests include checks that actually failed before
+The browser integration tests include checks that actually failed before
 the repair: row bounds, menu effective opacity, current-branch weight, icon
 dimensions, drop feedback, deferred-send hover, pressed feedback, and transcript
 padding. Role presence and focus alone had allowed invisible menus to pass.
+
+The initial sidebar check was inadequate: accessible menu entries existed but
+were clipped outside an 8px popup, and the footer occupied only 181px of its
+240px column. It was not a usable-menu check. The follow-up restores a 232px
+footer with equal 4px edge insets and a content-sized popup. Native coverage now
+includes collapsed and expanded account menus, checks their painted/hit-tested
+contents while allowing intentional scrolling, and browser coverage presses
+Settings, tests Escape/focus return, and resizes the real Sidebar.
+
+Dashboard comparisons use identical demo accounts and a 1440x900 viewport.
+The original and migrated card grids both use a 320px minimum card width and
+add columns as space permits; differently sized windows and different account
+data are not evidence of a grid regression. The lost rail padding and selected
+state are regressions. The typography and geometry differences, including the
+slightly denser canonical navigation rows, are reported separately in the PR
+rather than described indiscriminately as improvements.
 
 Real packaged-app interaction checks include model/mode selection, opening the
 agent and sidebar menus, Escape and focus return, account expansion, Library
@@ -98,6 +118,13 @@ boundaries rather than imitated controls.
 
 ## Canonical edit locations
 
+Follow-up contract work remains in the canonical Button: `reveal` currently
+knows the member, tab, and copy group names, and `navigation` reads sidebar
+color tokens. A future change should give callers one explicit reveal/state
+contract and separate generic navigation roles from screen-specific presentation.
+This review records the coupling; it does not claim that refactor is completed
+or broaden this repair into another Button migration.
+
 | change | canonical source |
 | --- | --- |
 | Every button and icon-button contract | `packages/ui/src/design/ui/button.tsx` |
@@ -118,20 +145,25 @@ all rendered from production modules.
 
 ## Migration coverage
 
-The regenerated ledger contains 425 tracked UI-producing files and zero
+The regenerated ledger contains 430 tracked UI-producing files and zero
 unresolved entries:
 
 | disposition | count |
 | --- | ---: |
-| canonical | 81 |
+| canonical | 82 |
 | migrated | 163 |
-| specialized boundary | 21 |
-| verified boundary | 158 |
+| specialized boundary | 22 |
+| verified boundary | 163 |
 
 It covers production, catalog, tests, fixtures, tooling, native assets, CSS,
 HTML, embedded visual templates, and generated assets. The terminal
 file list is parser-generated, while every production disposition is an
-explicit checked-in decision. A new file in a familiar directory still lands
+explicit reviewed decision in `script/ui-inventory-dispositions.json`.
+The generated ledger is output only: editing its owner, disposition, or evidence
+fails `--check`, and regeneration restores the reviewed input. Entries whose
+production classification is deliberately resolved carry `reclassified: true`;
+test, fixture, and asset classification always comes freshly from the classifier.
+A new file in a familiar directory still lands
 as unresolved rather than inheriting that directory's status.
 
 Removed alternatives include the Kit component/CSS/test API, direct
@@ -142,6 +174,10 @@ design API or an explicit specialized/native boundary.
 
 The strict design audit is zero in every category. Its baseline is a complete
 zero schema and `--baseline` refuses to record non-zero debt.
+The eleven existing cross-screen stylesheet imports remain explicit migration
+debt across six recorded screen families. `@design-owners` annotations cannot
+expand membership: the fixed `STYLESHEET_OWNERS` list in the gate caps them, as
+documented beside AGENTS.md rule 11. They are not eleven extracted design patterns.
 
 ## Executable prevention
 
@@ -149,7 +185,9 @@ zero schema and `--baseline` refuses to record non-zero debt.
 
 1. `ui-inventory.mjs` requires an explicit per-file terminal disposition for
    every tracked visual source and fails closed even when a new file is added
-   under a previously migrated feature or canonical directory.
+   under a previously migrated feature or canonical directory. Gates include
+   staged additions and exclude untracked local reference files and tracked
+   files deleted from disk; regenerate the ledger after staging new sources.
 2. `ui-architecture.mjs` rejects legacy imports/re-exports, alternate headless
    libraries, feature bypasses of the public design entrypoint, and generic
    control styling outside the system. Canonical-control `className` values
@@ -157,6 +195,13 @@ zero schema and `--baseline` refuses to record non-zero debt.
    utilities and unresolved expressions fail closed. Feature CSS is parsed as
    nested rules, with comments removed and property names normalized, so a
    visual declaration cannot hide behind casing, comments, or `&` nesting.
+   Raw controls are checked in JSX and React `createElement` calls, including
+   renamed imports. Malformed source fails parsing instead of producing a
+   partial clean scan. Escaped CSS-module identifiers are matched literally.
+   The architecture and style audits share an overlay rule covering raw dialog
+   attributes and low-level dialog parts, including renamed imports. Canonical
+   overlay policy lives in `design/ui` and `design/patterns`; AppWindow is an
+   exact boundary allowed to compose those parts, not to hand-roll a dialog.
 3. `ui-catalog.mjs` requires every canonical UI/pattern module and every
    production surface from the independent surface registry to be represented
    in the live catalog. Every module declares variants, sizes, states, examples,
@@ -182,8 +227,8 @@ guardrails.
 
 ### Browser and catalog
 
-`pnpm test:ui-system` runs six Playwright tests against the live
-`design.html` production catalog:
+`pnpm test:ui-system` runs Playwright tests against the live
+`design.html` production catalog and `preview.html` product components:
 
 - one test-only foundation perturbation changes actual computed height,
   spacing, radius, type, semantic color, and focus across Settings, Composer,
@@ -204,16 +249,34 @@ directory. CI uploads that tree from the browser integration job.
 ### Native Electron
 
 `pnpm test:ui-system:native` builds an isolated fake desk with a repository
-fake Codex app-server and synthetic repositories. It captured and visually
-reviewed 18 privacy-audited 1440x900 frames: desk, settings, conversation,
-git, CodeMirror, xterm, board, room, and an actual Electron webview in light
-and dark. The run closes and relaunches the same isolated profile and verifies
+fake Codex app-server and synthetic repositories. The follow-up sweep captured
+36 privacy-audited 1440x900 frames: desk, collapsed/expanded account menus,
+workspace/session hover actions, Dashboard, Settings, Agents, Library, Skills,
+Permissions, conversation, Git, CodeMirror, xterm, board, room, and an actual
+Electron webview in light and dark. The run closes and relaunches the same isolated profile and verifies
 appearance persistence, draggable and clickable titlebar regions, accessible
 search naming, and the native window title. The relaunch uses dark mode with
 the editorial palette, violet accent, round corners, and studio interface, and
 proves every axis reaches both the renderer and the real Electron About
 auxiliary window. About loads the generated foundation and its computed
 foreground, background, and radius match the main renderer.
+
+The auxiliary About window opens only on that relaunch. Opening it during the
+scene sweep backgrounds the main window and can pause animation-frame-driven
+resize placement; it previously left an expanded menu at its old position in
+the test. The sweep now rejects out-of-viewport popups as well as clipped menu
+items. Scene changes dismiss floating menus and close covered app windows so
+a filename cannot silently describe a different page. Debugger discovery uses
+an OS-assigned port and the endpoint announced by the spawned child, then
+verifies that endpoint before attaching; matching a foreign window's title is
+not proof of ownership.
+
+The follow-up browser suite passes 27 tests, including dynamic menu growth and
+scrolling at 900px and 520px viewport heights, sidebar hover actions at three
+widths and two densities, intrinsic permission options, and the Dashboard's
+selected-row contrast across both interfaces and themes. The complete script
+suite passes 253 tests. These are bounded assertions, not an app-wide WCAG or
+human VoiceOver certification.
 
 A second real-app run at the supported 1024x768 native minimum captured desk
 and Settings in both themes. It found and fixed a notice rail that overlapped

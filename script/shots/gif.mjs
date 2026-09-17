@@ -73,7 +73,6 @@ say(`frame  ${WIDTH}x${HEIGHT} @${FPS}fps`)
 const desk = await launchDesk({
   app: APP,
   home: HOME,
-  port: 9760 + Math.floor(Math.random() * 60),
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
 })

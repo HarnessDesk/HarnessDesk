@@ -546,6 +546,7 @@ export const AccountFooter = ({
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         drop="up"
         align="left"
+        fullWidth
         triggerClassName={styles.accountRow}
         label={accountTrigger}
         onOpenChange={(next) => {
@@ -562,10 +563,9 @@ export const AccountFooter = ({
             onEscape={() => {
               close()
               resetMenu()
-              accountRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')?.focus()
+              accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
             }}
           >
-        <div className={styles.accountMenu}>
           {/* You — the seat a HarnessDesk account will take. There is no
               such account yet, and a sign-in button for one would be a lie,
               so this is what is true today: your profile, kept on this Mac.
@@ -779,7 +779,6 @@ export const AccountFooter = ({
               </div>
             )}
           </div>
-        </div>
           </Menu>
         )}
       </Popover>

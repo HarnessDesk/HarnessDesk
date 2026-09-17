@@ -1,0 +1,1266 @@
+{
+  "version": 1,
+  "description": "Explicit reviewed production boundaries. The generated ledger is never an input. New production paths require an entry here.",
+  "dispositions": {
+    "packages/cordis-host/src/browser-page.ts": {
+      "owner": "plugin-or-embedded-boundary",
+      "disposition": "specialized-boundary",
+      "evidence": "capability-gated plugin or isolated embedded document boundary"
+    },
+    "packages/desktop/electron/assets/about-foundation.css": {
+      "owner": "native-surface",
+      "disposition": "specialized-boundary",
+      "evidence": "Electron-owned native asset"
+    },
+    "packages/desktop/electron/assets/about.html": {
+      "owner": "native-surface",
+      "disposition": "specialized-boundary",
+      "evidence": "Electron-owned native asset"
+    },
+    "packages/desktop/electron/assets/mark.svg": {
+      "owner": "native-surface",
+      "disposition": "specialized-boundary",
+      "evidence": "Electron-owned native asset"
+    },
+    "packages/plugins/src/web.ts": {
+      "owner": "plugin-or-embedded-boundary",
+      "disposition": "specialized-boundary",
+      "evidence": "capability-gated plugin or isolated embedded document boundary"
+    },
+    "packages/ui/index.html": {
+      "owner": "application-root",
+      "disposition": "migrated",
+      "evidence": "shared foundation root and production build"
+    },
+    "packages/ui/preview.html": {
+      "owner": "application-root",
+      "disposition": "migrated",
+      "evidence": "shared foundation root and production build"
+    },
+    "packages/ui/site-demo/guide.ts": {
+      "owner": "site-demo",
+      "disposition": "migrated",
+      "evidence": "shared design API and site-demo build"
+    },
+    "packages/ui/site-demo/index.html": {
+      "owner": "site-demo",
+      "disposition": "migrated",
+      "evidence": "shared design API and site-demo build"
+    },
+    "packages/ui/site-demo/main.tsx": {
+      "owner": "site-demo",
+      "disposition": "migrated",
+      "evidence": "shared design API and site-demo build"
+    },
+    "packages/ui/src/app/App.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/assets/fonts/fonts.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "foundation font asset"
+    },
+    "packages/ui/src/components/Activity.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AddMember.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AddMember.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AddWork.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AddWork.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AgentCards.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Agents.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AppearancePreview.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AppearancePreview.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Approvals.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Approvals.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AppWindow.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/AppWindow.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Archive.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Archive.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/BackgroundTasks.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/BranchSwitcher.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/BranchSwitcher.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/BrandIcons.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/BringHome.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/BrowserPane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ChangesReview.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ChangesReview.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Channel.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/CodeEditor.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/CommandPalette.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/CommandPalette.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Composer.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Composer.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ComposerControls.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ComposerControls.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ContextUsage.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ContextUsage.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Conversation.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Conversation.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/DeleteSession.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/DeleteSession.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Details.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Details.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Diff.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Diff.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Extensions.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/FilePane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/FlowStart.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/FlowStart.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/FolderGone.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/FolderPicker.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/FolderPicker.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitAskAgent.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitAskAgent.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitDialogs.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitDialogs.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitGraph.tsx": {
+      "owner": "git-data-geometry",
+      "disposition": "specialized-boundary",
+      "evidence": "repository history graph geometry; GitGraph.test.tsx verifies graph nodes and connections"
+    },
+    "packages/ui/src/components/GitPane.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitPane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitWorktrees.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/GitWorktrees.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/HandOut.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/HandOut.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Icons.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ImportOffer.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/InstallPlugin.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/InstallPlugin.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Items.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Items.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Library.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Library.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/LibraryActions.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/LibraryActions.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Markdown.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Markdown.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/MessageActions.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/MessageQueue.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/MessageQueue.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/NewSessionChoice.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/NewSessionChoice.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/NewWorktree.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/NewWorktree.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Notices.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/OptionConfirm.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Panel.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Panel.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Panes.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Panes.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/PlanMeters.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/PlanMeters.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Plugins.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/PluginsSection.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/PreviewPane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ProfileFace.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Publication.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Publication.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/RemoveWorktree.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/RoomActions.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/RoomActions.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/RoomComposer.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SchemaForm.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SchemaForm.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SessionBars.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SessionBars.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SessionTree.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Settings.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Settings.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SettingsAgents.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SettingsAgents.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SettingsYou.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SettingsYou.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SetupDesk.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SetupDesk.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Sidebar.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Sidebar.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SignIn.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SignIn.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SkillRow.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SkillRow.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/SkillSheet.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/StepGroup.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TabStrip.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TaskPanel.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TaskPanel.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TeamBoardPane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TeamRoomPane.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TeamRoomPane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TerminalPane.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ToolPaneHeader.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/ToolPanes.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Trajectory.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Trajectory.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TriggerMenu.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TriggerMenu.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TurnFiles.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TurnFiles.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TurnTail.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TurnWork.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/TurnWork.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Usage.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/Usage.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/WindowControls.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/WindowControls.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/WorkspaceMenu.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/WorkspaceMenu.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/components/WorktreeAlerts.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/design/foundation/tokens.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "authoritative design token source"
+    },
+    "packages/ui/src/design/patterns/AgentCard.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ApprovalDialog.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ApprovalDialog.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ChannelMessage.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ConfirmDialog.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ConfirmDialog.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/DockPanel.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/Lightbox.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "Base UI-backed Lightbox presentation contract"
+    },
+    "packages/ui/src/design/patterns/Lightbox.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern with focus and gallery tests"
+    },
+    "packages/ui/src/design/patterns/Menu.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/Menu.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ModalDialog.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/ModalDialog.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/Popover.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/Popover.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/PublicationCard.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/RefusedAction.tsx": {
+      "owner": "design-pattern",
+      "disposition": "canonical",
+      "evidence": "canonical keyboard-reachable disabled-action explanation"
+    },
+    "packages/ui/src/design/patterns/Settings.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/patterns/Settings.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "registered public HarnessDesk pattern"
+    },
+    "packages/ui/src/design/primitives/Banner.module.css": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "canonical notification pattern"
+    },
+    "packages/ui/src/design/primitives/Banner.tsx": {
+      "owner": "canonical-pattern",
+      "disposition": "canonical",
+      "evidence": "canonical notification pattern"
+    },
+    "packages/ui/src/design/ui/alert-dialog.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/alert.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/attachment.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/avatar-stack.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/avatar.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/badge.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/board.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/breadcrumb.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/browser-chrome.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/button.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/card.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/chart.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/checkbox.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/commit.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/composer.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/data-table.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/delta.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/dialog.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/dropdown-menu.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/empty-state.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/field.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/hover-card.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/icon-tile.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/index.ts": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/input-group.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/input.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/key-value.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/label.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/list-row.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/marker.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/native-select.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/popover.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/progress.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/radio-group.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/rail.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/resize-handle.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/scroll-area.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/section.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/select.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/separator.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/spark.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/stat.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/stepper.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/switch.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/table.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/tabs.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/textarea.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/toast.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/toggle-group.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/tool-pane.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/tooltip.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/design/ui/turn.tsx": {
+      "owner": "canonical-primitive",
+      "disposition": "canonical",
+      "evidence": "registered public canonical module"
+    },
+    "packages/ui/src/lib/annotate.ts": {
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    "packages/ui/src/lib/export-session.ts": {
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    "packages/ui/src/lib/sanitize.ts": {
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    "packages/ui/src/main.tsx": {
+      "owner": "application-root",
+      "disposition": "migrated",
+      "evidence": "shared foundation root and production build"
+    },
+    "packages/ui/src/panels/builtins.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/panels/mount.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/panels/PanelActions.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/panels/PanelActions.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/panels/views.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/panels/Workbench.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/panels/Workbench.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/preview/main.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/slots/PanelBlocks.module.css": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/slots/PanelBlocks.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/slots/registry.tsx": {
+      "owner": "feature-composition",
+      "disposition": "migrated",
+      "evidence": "public design API, zero design-audit findings, UI tests"
+    },
+    "packages/ui/src/state/context.tsx": {
+      "owner": "ui-support",
+      "disposition": "migrated",
+      "evidence": "nonvisual feature support used by migrated surfaces"
+    },
+    "packages/ui/src/styles/app.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    "packages/ui/src/styles/base.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    "packages/ui/src/styles/design-platform.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    "packages/ui/src/styles/editor.css": {
+      "owner": "specialized-adapter",
+      "disposition": "specialized-boundary",
+      "evidence": "CodeMirror and syntax-renderer theme bridge"
+    },
+    "packages/ui/src/styles/editorial.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    "packages/ui/src/styles/scrollbar.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    "packages/ui/src/styles/shadcn-themes.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    },
+    "packages/ui/src/styles/shadcn.css": {
+      "owner": "canonical-foundation",
+      "disposition": "canonical",
+      "evidence": "ordered foundation, theme, reset or semantic utility layer"
+    }
+  }
+}

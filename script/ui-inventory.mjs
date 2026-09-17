@@ -8,6 +8,7 @@ import { repositoryFiles } from './lib/repository-files.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const output = path.join(root, 'docs/ui-system-migration-ledger.json')
+const decisions = path.join(root, 'script/ui-inventory-dispositions.json')
 const STARTING_COMMIT = '9f2d6dec1d8e7534c83a4c8d23d7b7d280fb3422'
 
 const VISUAL_EXTENSIONS = new Set(['.css', '.html', '.jsx', '.svg', '.tsx'])
@@ -28,7 +29,7 @@ export const classifyUiFile = (file) => {
     return record('catalog', 'catalog', 'verified-boundary', 'registered live design.html implementation')
   }
   // Production ownership is intentionally not inferred from a directory.
-  // The checked-in ledger is the explicit per-file authority. A newly added
+  // The separate reviewed disposition registry is the per-file authority. A newly added
   // screen, primitive, native asset, or embedded surface therefore lands as
   // pending until its owner, boundary and evidence are deliberately recorded.
   return record('production', 'unclassified', 'pending', 'new visual source requires an explicit owner and boundary')
@@ -45,7 +46,20 @@ export const buildInventory = ({ files, read, overrides = {} }) => {
   for (const file of [...files].sort()) {
     const source = read(file)
     if (!isVisual(file, source)) continue
-    entries.push({ path: file, ...classifyUiFile(file), ...(overrides[file] ?? {}) })
+    const classification = classifyUiFile(file)
+    const override = overrides[file]
+    if (override) {
+      if (classification.scope !== 'production' || (Object.hasOwn(override, 'scope') && override.scope !== classification.scope)) {
+        throw new Error(`${file}: a reviewed disposition cannot replace fresh classification`)
+      }
+      if (Object.keys(override).some((key) => !['scope', 'owner', 'disposition', 'evidence'].includes(key))
+        || !['canonical', 'migrated', 'specialized-boundary'].includes(override.disposition)
+        || typeof override.owner !== 'string' || !override.owner.trim() || override.owner === 'unclassified'
+        || typeof override.evidence !== 'string' || !override.evidence.trim()) {
+        throw new Error(`${file}: invalid reviewed production disposition`)
+      }
+    }
+    entries.push({ path: file, ...classification, ...override, ...(override ? { reclassified: true } : {}) })
   }
   const unresolved = entries
     .filter((entry) => entry.scope === 'production' && entry.disposition === 'pending')
@@ -56,21 +70,19 @@ export const buildInventory = ({ files, read, overrides = {} }) => {
     counts.byDisposition[entry.disposition] = (counts.byDisposition[entry.disposition] ?? 0) + 1
     return counts
   }, { total: 0, byScope: {}, byDisposition: {} })
-  return { version: 1, startingCommit: STARTING_COMMIT, entries, unresolved, summary }
+  return { version: 2, startingCommit: STARTING_COMMIT, entries, unresolved, summary }
 }
 
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (isMain) {
   const files = repositoryFiles(root)
-  const priorEntries = fs.existsSync(output)
-    ? JSON.parse(fs.readFileSync(output, 'utf8')).entries ?? []
-    : []
-  const overrides = Object.fromEntries(priorEntries.map(({ path: file, ...entry }) => [file, entry]))
+  const registry = JSON.parse(fs.readFileSync(decisions, 'utf8'))
+  if (registry.version !== 1 || !registry.dispositions) throw new Error('Invalid reviewed UI disposition registry')
   const inventory = buildInventory({
     files,
     read: (file) => fs.readFileSync(path.join(root, file), 'utf8'),
-    overrides,
+    overrides: registry.dispositions,
   })
   const text = `${JSON.stringify(inventory, null, 2)}\n`
   if (process.argv.includes('--check')) {

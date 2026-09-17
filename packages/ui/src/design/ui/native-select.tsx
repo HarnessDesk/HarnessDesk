@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 /*
  * A real <select>, dressed as the shadcn trigger.
  *
- * Not upstream shadcn, and deliberately so: radix's Select is a fine menu
+ * Not upstream shadcn, and deliberately so: a custom Select is a fine menu
  * and a poor citizen of tests and forms — jsdom cannot open it, and a
  * change event means nothing to it. Where the picker is plumbing rather
  * than presentation (the Team composer's recipient, a settings filter), the
