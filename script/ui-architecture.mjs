@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+
+import { repositoryFiles } from './lib/repository-files.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const UI_SOURCE = 'packages/ui/src/'
@@ -363,11 +364,8 @@ export const scanUiArchitecture = (files) => {
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (isMain) {
-  const files = execFileSync('rg', ['--files', 'packages/ui/src', '-g', '*.ts', '-g', '*.tsx', '-g', '*.css'], { cwd: root })
-    .toString('utf8')
-    .trim()
-    .split('\n')
-    .filter(Boolean)
+  const files = repositoryFiles(root)
+    .filter((file) => file.startsWith('packages/ui/src/') && /\.(?:ts|tsx|css)$/.test(file))
     .map((file) => ({ path: file, source: fs.readFileSync(path.join(root, file), 'utf8') }))
   const findings = scanUiArchitecture(files)
   if (findings.length > 0) {

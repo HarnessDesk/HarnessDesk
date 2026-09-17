@@ -30,6 +30,13 @@ test('the browser integration job builds workspace package entries before Vite',
   assert.match(browserJob, /run: pnpm run build:node[\s\S]*run: pnpm test:ui-system/)
 })
 
+test('UI system gates do not depend on an external ripgrep binary', () => {
+  for (const file of ['ui-inventory.mjs', 'ui-architecture.mjs', 'ui-catalog.mjs']) {
+    const source = fs.readFileSync(path.join(repoRoot, 'script', file), 'utf8')
+    assert.doesNotMatch(source, /execFileSync\(['"]rg['"]/, file)
+  }
+})
+
 /**
  * The gates' own parsers, tested — because both of them were silently wrong
  * and neither could have said so.

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+
+import { repositoryFiles } from './lib/repository-files.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -397,12 +398,11 @@ export const catalogIntegrity = ({ entries, existingPaths, ledgerPaths = existin
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (isMain) {
+  const existingPathList = repositoryFiles(root)
   const uiIndex = fs.readFileSync(path.join(root, 'packages/ui/src/design/ui/index.ts'), 'utf8')
   const uiModules = [...uiIndex.matchAll(/^export \* from '\.\/([^']+)'/gm)].map((match) => match[1])
-  const patternModules = execFileSync('rg', ['--files', 'packages/ui/src/design/patterns', '-g', '*.tsx'], { cwd: root })
-    .toString('utf8')
-    .trim()
-    .split('\n')
+  const patternModules = existingPathList
+    .filter((file) => file.startsWith('packages/ui/src/design/patterns/') && file.endsWith('.tsx'))
     .filter((file) => file && !file.endsWith('.test.tsx'))
     .map((file) => path.basename(file, '.tsx'))
   const manifest = fs.readFileSync(path.join(root, 'packages/ui/src/design/catalog/manifest.ts'), 'utf8')
@@ -426,7 +426,6 @@ if (isMain) {
     ...declarationIds(boards, 'BOARDS'),
     ...declarationIds(compositions, 'COMPOSITION_BOARDS'),
   ])
-  const existingPathList = execFileSync('rg', ['--files'], { cwd: root }).toString('utf8').trim().split('\n')
   const sourceFiles = existingPathList
     .filter((file) => /\.(?:[cm]?[jt]sx?|css)$/.test(file))
     .map((file) => ({ path: file, source: fs.readFileSync(path.join(root, file), 'utf8') }))

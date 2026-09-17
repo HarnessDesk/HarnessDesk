@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { repositoryFiles } from './lib/repository-files.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const output = path.join(root, 'docs/ui-system-migration-ledger.json')
@@ -61,10 +62,7 @@ export const buildInventory = ({ files, read, overrides = {} }) => {
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (isMain) {
-  const files = execFileSync('rg', ['--files'], { cwd: root })
-    .toString('utf8')
-    .split('\n')
-    .filter(Boolean)
+  const files = repositoryFiles(root)
   const priorEntries = fs.existsSync(output)
     ? JSON.parse(fs.readFileSync(output, 'utf8')).entries ?? []
     : []

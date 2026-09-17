@@ -188,7 +188,7 @@ for its visible text, attributes, or accounts.
 | `node script/design-audit.mjs --strict` | exit 0; 0 findings |
 | `node script/check-design-tokens.mjs` | exit 0; 1,678 values plus native foundation current |
 | `node script/design-doc.mjs --check` | exit 0; generated documentation current |
-| `pnpm test:gates` | exit 0; 220 passed |
+| `pnpm test:gates` | exit 0; 221 passed |
 | `pnpm --filter @harnessdesk/ui run test` | exit 0; 214 files, 2,598 tests passed |
 | `pnpm test:ui-system` | exit 0; 4 passed |
 | `pnpm test:ui-system:native` | exit 0; 18 app frames plus About; relaunch persistence passed |
