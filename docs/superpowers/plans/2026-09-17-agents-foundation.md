@@ -299,8 +299,14 @@ export interface AgentEntry {
   readonly id: AgentId
   readonly origin: AgentOrigin
   readonly path: string
-  /** Content hash of the file, captured so a Seat can record which brief it ran. */
-  readonly brief: string
+  /**
+   * Content hash of the file, captured so a Seat can record which brief it ran.
+   * Named `digest` rather than `brief` because `AgentDefinition.brief` is the
+   * prose: one word for both would hand a later reader a hash where it expected
+   * instructions, and the compiler could not object. `agent-inventory` already
+   * uses `digest` for exactly this.
+   */
+  readonly digest: string
   /** Same id, lower precedence. Listed and marked, never hidden. */
   readonly shadows: readonly { readonly origin: AgentOrigin; readonly path: string }[]
   readonly problems: readonly AgentProblem[]
@@ -544,13 +550,13 @@ test('without a project, the user roster is what there is', async () => {
   assert.equal(listed[0]?.origin, 'user')
 })
 
-test('the brief hash is stable for the same text and differs for different text', async () => {
+test('the digest is stable for the same text and differs for different text', async () => {
   const { roots, agents } = await rig()
   await write(roots.user, 'a', brief('Same'))
   await write(roots.user, 'b', brief('Same'))
   await write(roots.user, 'c', brief('Different'))
   const listed = await agents.list()
-  const by = new Map(listed.map((one) => [one.id, one.brief]))
+  const by = new Map(listed.map((one) => [one.id, one.digest]))
   assert.equal(by.get('a'), by.get('b'))
   assert.notEqual(by.get('a'), by.get('c'))
 })
@@ -660,7 +666,7 @@ export class Agents {
           definition: agent,
           origin: place.origin,
           path,
-          brief: createHash('sha256').update(source).digest('hex').slice(0, 16),
+          digest: createHash('sha256').update(source).digest('hex').slice(0, 16),
           shadows: [],
           problems,
         })
@@ -1217,7 +1223,7 @@ Add to `packages/server/src/methods/agents.ts`:
       ...(chosen.seat.model ? { model: chosen.seat.model } : {}),
       ...(chosen.seat.effort ? { effort: chosen.seat.effort } : {}),
       agent: entry.definition.id,
-      brief: entry.brief,
+      brief: entry.digest,
     })
     // The brief goes over once, as the standing order. Re-sending it every turn
     // would pay for it every turn and say nothing new.
