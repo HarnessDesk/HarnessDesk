@@ -22,10 +22,10 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--hd-space-0-5);
+  gap: var(--hd-space-0-5); /* desk: 2px → var(--hd-space-0-5) */
   height: var(--hd-bar-h);
-  padding: 0 var(--hd-bar-pad);
-  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  padding: 0 var(--hd-bar-pad); /* desk: var(--hd-space-2) 8px → 0 var(--hd-bar-pad), the bar’s own padding */
+  border-bottom: var(--hd-border-width) solid var(--hd-border); /* desk: 1px solid var(--hd-border) → var(--hd-border-width) solid var(--hd-border) */
 }
 
 /* The tab itself is no longer drawn here.
@@ -48,10 +48,10 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--hd-bar-gap);
+  gap: var(--hd-bar-gap); /* desk: 6px → var(--hd-bar-gap) */
   height: var(--hd-bar-h);
-  padding: 0 var(--hd-bar-pad);
-  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  padding: 0 var(--hd-bar-pad); /* desk: 8px → 0 var(--hd-bar-pad), the bar’s own padding */
+  border-bottom: var(--hd-border-width) solid var(--hd-border); /* desk: 1px solid var(--hd-border) → var(--hd-border-width) solid var(--hd-border) */
 }
 
 /* A text field, so it stands on the text-control rung rather than on a
@@ -65,7 +65,7 @@
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
   padding: 0 var(--hd-space-2-5); /* desk: 9 → 10, onto the spacing scale */
-  border: var(--hd-border-width) solid var(--hd-border-strong);
+  border: var(--hd-border-width) solid var(--hd-border-strong); /* desk: 1px solid var(--hd-border-strong) → var(--hd-border-width) solid var(--hd-border-strong) */
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
   box-shadow: var(--hd-input-shadow);
   color: var(--hd-muted-foreground);
@@ -79,7 +79,7 @@
    already has one, and a thinner one: no ring, so at a glance the field is
    the same shape with a different colour. */
 .findBox:focus-within {
-  border-color: var(--hd-ring);
+  border-color: var(--hd-ring); /* desk: var(--hd-accent) → var(--hd-ring) */
   box-shadow: var(--hd-focus-ring);
 }
 
@@ -105,11 +105,11 @@
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   /* The chip rung, which this row stood four pixels above while wearing the
      chip's fill and the chip's shape. */
-  height: var(--hd-chip-h);
+  height: var(--hd-chip-h); /* desk: 26px → var(--hd-chip-h) */
   padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
   border: none;
   border-radius: var(--hd-chip-radius); /* desk: 13 → a pill, said as one */
-  background: var(--hd-chip-fill);
+  background: var(--hd-chip-fill); /* desk: var(--hd-muted) → var(--hd-chip-fill) */
   color: var(--hd-secondary-foreground);
   font: inherit;
   font-size: var(--hd-text-xs);
@@ -144,10 +144,10 @@ button.pill:hover {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--hd-bar-gap);
+  gap: var(--hd-bar-gap); /* desk: 8px → var(--hd-bar-gap) */
   height: var(--hd-bar-h);
-  padding: 0 var(--hd-bar-pad);
-  border-top: var(--hd-border-width) solid var(--hd-border);
+  padding: 0 var(--hd-bar-pad); /* desk: 0 10px → 0 var(--hd-bar-pad), the bar’s own padding */
+  border-top: var(--hd-border-width) solid var(--hd-border); /* desk: 1px solid var(--hd-border) → var(--hd-border-width) solid var(--hd-border) */
   font-size: var(--hd-text-xs);
   color: var(--hd-muted-foreground);
 }

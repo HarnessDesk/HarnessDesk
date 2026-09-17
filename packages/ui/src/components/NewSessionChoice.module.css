@@ -41,7 +41,7 @@
 }
 
 .name {
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 

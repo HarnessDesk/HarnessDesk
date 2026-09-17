@@ -14,13 +14,13 @@
 .lede {
   margin: 0;
   font-size: var(--hd-text-sm);
-  line-height: var(--hd-line);
+  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
   color: var(--hd-secondary-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
-  line-height: var(--hd-line);
+  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
   color: var(--hd-secondary-foreground);
 }
 
@@ -89,7 +89,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 
@@ -185,7 +185,7 @@
   flex: 1 1 200px;
   min-width: 0;
   font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
+  line-height: var(--hd-line-sm); /* desk: 1.4 → 18, its step’s own line */
   color: var(--hd-foreground);
 }
 
@@ -220,13 +220,13 @@
 
 .modeName {
   font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 
 .modeWhat {
   font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
+  line-height: var(--hd-line-sm); /* desk: 1.4 → 18, its step’s own line */
   color: var(--hd-secondary-foreground);
 }
 

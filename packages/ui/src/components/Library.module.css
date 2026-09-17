@@ -52,7 +52,7 @@
   font-size: var(--hd-text-lg);
   font-weight: var(--hd-weight-semibold);
   font-variant-numeric: tabular-nums;
-  line-height: 1; /* the tile states the height; the figure must not add to it */
+  line-height: 1; /* desk: 1.2 → 1, the tile states the height and the figure must not add to it */
 }
 
 /* Amber on the count, not the label: the number is the alarming part, and
@@ -143,7 +143,7 @@
   padding: var(--hd-space-2) var(--hd-space-2-5);
   background: var(--hd-background);
   box-shadow: inset 0 -1px 0 var(--hd-border);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   text-align: left;
   white-space: nowrap;
 }

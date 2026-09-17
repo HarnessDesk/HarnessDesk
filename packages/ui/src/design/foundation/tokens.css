@@ -323,7 +323,7 @@ body {
      two written as a literal so it followed nothing. A rail row and a menu
      item are the same row: one line of text with the same air above and
      below, and an interface that sets its rows taller moves both. */
-  --hd-row-h: var(--hd-nav-h);
+  --hd-row-h: var(--hd-nav-h); /* desk: 30px → var(--hd-nav-h) */
   /*
    * A target with a glyph in it and no words: an icon button, a ⋮, a ✕.
    *

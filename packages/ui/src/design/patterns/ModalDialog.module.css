@@ -87,9 +87,9 @@
   /* A dialog names one question, and a page names a place, so this is the
      subject step and not the page one — held by weight rather than by size,
      which is what the page step is for. */
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
-  font-weight: var(--hd-weight-medium);
+  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
+  line-height: var(--hd-line); /* desk: var(--hd-line-lg) → 21, its step’s own line */
+  font-weight: var(--hd-weight-medium); /* desk: var(--hd-weight-semibold) → var(--hd-weight-medium) */
 }
 
 .close {

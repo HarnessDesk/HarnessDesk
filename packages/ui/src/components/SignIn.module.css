@@ -39,7 +39,7 @@
 .headTitle {
   font-size: var(--hd-heading);
   line-height: var(--hd-line-heading); /* desk: 26 → 28, the line the 20px step is set on */
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: -0.01em;
 }
 
@@ -94,7 +94,7 @@
 
 .railTitle {
   font-size: var(--hd-text-lg);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   margin-bottom: 8px;
 }
 
@@ -171,7 +171,7 @@
 .rosterName {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -201,7 +201,7 @@
   padding-top: 10px;
   border-top: 1px solid var(--hd-border);
   font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--hd-muted-foreground);
@@ -225,7 +225,7 @@
    the rail already tells you not to expect much of it. */
 .rosterRow[data-blocked] .rosterName {
   color: var(--hd-muted-foreground);
-  font-weight: var(--hd-weight-normal);
+  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
 }
 
 .whoMeta {
@@ -276,9 +276,9 @@
    narrow width. */
 .whoName {
   min-width: 0;
-  font-size: var(--hd-text);
+  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
   line-height: var(--hd-line);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -343,7 +343,7 @@
 
 .methodName {
   font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .methodHint {
@@ -475,7 +475,7 @@
 
 .stateTitle {
   font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .stateHint {
@@ -492,7 +492,7 @@
   font-family: var(--hd-font-code);
   font-size: var(--hd-heading);
   line-height: var(--hd-line-heading);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: 0.18em;
   text-align: center;
   user-select: all;
@@ -570,8 +570,8 @@
    the sentence came out one to a line. A floor plus a wrapping row puts the
    button underneath instead, which is a shape the words survive. */
 .nextText {
-  flex: 1 1 14ch;
-  min-width: 14ch;
+  flex: 1 1 14ch; /* desk: a basis, so the row wraps rather than crushing */
+  min-width: 14ch; /* desk: 0 → 14ch, a floor the words survive */
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -579,7 +579,7 @@
 
 .nextTitle {
   font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .nextHint {

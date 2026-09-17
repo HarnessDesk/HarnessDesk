@@ -36,9 +36,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: var(--hd-weight-medium);
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
+  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
+  line-height: var(--hd-line); /* desk: var(--hd-line-lg) → 21, its step’s own line */
 }
 
 .status {
@@ -301,7 +301,7 @@
 .emptyTitle {
   font-family: var(--hd-font-display);
   font-size: var(--hd-heading); /* desk: 22 → 20, the step every page title uses */
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 

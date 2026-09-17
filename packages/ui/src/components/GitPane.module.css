@@ -511,7 +511,7 @@
   background: var(--hd-accent);
   color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
   font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
 }
 
@@ -616,7 +616,7 @@
 
 .cardSubject {
   font-size: var(--hd-text);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 
@@ -699,7 +699,7 @@
   width: 14px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
 }
 
 .fileStatus[data-status='added'] {
@@ -814,7 +814,7 @@
   flex: 1 1 200px;
   min-width: 0;
   font-size: var(--hd-text-sm);
-  line-height: var(--hd-line);
+  line-height: var(--hd-line); /* desk: 1.45 → 21, its step’s own line */
   color: var(--hd-warning-ink);
 }
 

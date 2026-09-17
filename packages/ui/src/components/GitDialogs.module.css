@@ -31,7 +31,7 @@
 .note {
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
-  line-height: var(--hd-line);
+  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
 }
 
 .quiet {
@@ -91,7 +91,7 @@
   width: 14px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
 }
 
 .status[data-status='added'],
@@ -157,7 +157,7 @@
 
 .modeName {
   font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 

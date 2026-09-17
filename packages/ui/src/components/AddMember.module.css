@@ -15,14 +15,14 @@
   align-items: baseline;
   gap: var(--hd-space-2);
   font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 
 /* A greyed control is an explanation, so the reason sits beside the name
    rather than in a tooltip nobody opens. */
 .why {
-  font-weight: var(--hd-weight-normal);
+  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
   color: var(--hd-muted-foreground);
 }
 
@@ -66,7 +66,7 @@
 .count {
   margin-left: auto;
   color: var(--hd-muted-foreground);
-  font-weight: var(--hd-weight-normal);
+  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
   font-variant-numeric: tabular-nums;
 }
 
