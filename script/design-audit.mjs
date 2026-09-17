@@ -178,15 +178,28 @@ const findings = {
 /**
  * The shapes a screen keeps re-declaring instead of composing.
  *
- * Counted from the tree, not chosen: `.row` in eighteen stylesheets, `.body`
- * in sixteen, `.list` in fourteen. Each one already has a component in
- * `design/`, and `.head` beside `.header` is the tell — two spellings of one
- * idea means nobody could have shared it even if they wanted to.
+ * Three stems, and the list used to be thirteen. The longer one counted a
+ * class because its *name* collided with a component's, which is not the same
+ * claim at all: `.row td` in a diff table is a table row, `.name` in the
+ * library is a 250px sticky column, and `.body { display: flex;
+ * flex-direction: column; gap: 12px }` is a stack. Sampled across the stems,
+ * roughly one `.row` in three was a real re-implementation and the rest were
+ * ordinary English words used as class names. A ceiling built on that number
+ * is one a screen can pay down by renaming `.row` to `.line`, which buys
+ * nobody anything — the same failure this audit exists to refuse.
+ *
+ * What survives are the two ideas whose words are not generic. A `.head` or a
+ * `.header` in a screen's stylesheet is a page header drawn by hand, and two
+ * spellings of it in one tree is the tell that nobody could have shared it
+ * even if they wanted to. An `.empty` is an empty state: three screens carry
+ * one today at three different paddings and two different sizes, all saying
+ * "nothing here", while `EmptyState` sits in `design/` with five consumers.
+ *
+ * `.row`, `.list`, `.body` and the rest are not forgiven, they are unmeasured:
+ * telling a real one from a coincidence needs a test on what the class
+ * *declares*, not what it is called, and that is its own piece of work.
  */
-const PATTERN_STEMS = new Set([
-  'row', 'head', 'header', 'note', 'list', 'empty', 'field',
-  'title', 'label', 'body', 'page', 'foot', 'name',
-])
+const PATTERN_STEMS = new Set(['head', 'header', 'empty'])
 
 /** A screen's own stylesheet, as opposed to the system's. */
 const isScreenSheet = (file) => /\/(components|slots|panels)\//.test(file)
