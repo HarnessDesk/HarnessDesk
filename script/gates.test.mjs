@@ -393,6 +393,8 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
     offGrid: 0,
     rawColour: 0,
     arbitraryUtility: 0,
+    rawType: 0,
+    patternClass: 0,
   }
 
   // A malformed baseline with string/non-numeric values
@@ -423,6 +425,37 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
   const validResult = compareBaseline(cleanCounts, cleanCounts)
   assert.equal(validResult.worse, false)
   assert.equal(validResult.problems.length, 0)
+})
+
+
+test('a burn-down category is gated on a ceiling that may only fall', () => {
+  const clean = {
+    wrongVariant: 0, missingClass: 0, forkedToken: 0, handRolledOverlay: 0,
+    looseTarget: 0, looseIcon: 0, danglingToken: 0, crossImport: 0,
+    rawRadius: 0, offGrid: 0, rawColour: 0, arbitraryUtility: 0,
+    rawType: 0, patternClass: 0,
+  }
+  const ceiling = { ...clean, rawType: 34, patternClass: 308 }
+
+  // At the ceiling: the debt is recorded, so the gate is quiet.
+  const held = compareBaseline({ ...clean, rawType: 34, patternClass: 308 }, ceiling)
+  assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
+
+  // Above it: a screen just wrote another literal.
+  const grown = compareBaseline({ ...clean, rawType: 35, patternClass: 308 }, ceiling)
+  assert.equal(grown.worse, true)
+  assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+
+  // Below it: the work was done and the ceiling has to follow, or the debt can
+  // silently come back to 34 without the gate ever noticing.
+  const paid = compareBaseline({ ...clean, rawType: 33, patternClass: 308 }, ceiling)
+  assert.equal(paid.worse, true)
+  assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+
+  // A non-zero ceiling is still refused for every other category.
+  const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
+  assert.equal(smuggled.worse, true)
+  assert.ok(smuggled.problems.some((p) => p.message.includes('must be zero')))
 })
 
 

@@ -19,6 +19,18 @@
  */
 export const SECTIONS = [
   [
+    'rawType',
+    'Type sizes written out rather than named',
+    'The one axis of the scale with no gate: a token edit moves the controls and leaves these behind.',
+    'Use a step: --hd-text-xs/-sm/--hd-text/--hd-text-lg/--hd-heading. If the value you want is not a step, the answer is almost never a new step — 11px and 12.5px were each one screen deciding alone. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'patternClass',
+    'Patterns re-declared in a screen stylesheet',
+    'Nineteen screens drawing their own header is why pages stop looking alike; the shared component already exists.',
+    'Compose the pattern instead of re-declaring it: Row/Rows, ListRow/ListRows, EmptyState, Section, PageHead/SectionHead, Note, Field — all exported from packages/ui/src/design. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
     'wrongVariant',
     'Controls in a slot the design system has a rule for',
     'The same slot ends up drawn four different ways, one screen at a time.',

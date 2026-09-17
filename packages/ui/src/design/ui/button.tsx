@@ -116,14 +116,9 @@ const buttonVariants = cva(
           'h-(--hd-btn-h) p-(--hd-btn-padding) has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         xs: "h-5 gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
-        /* The one size with no token behind it: `lg` exists for a dialog's
-           confirm and a sign-in's submit, which are the two places the app
-           deliberately stands a button taller than a row. */
-        lg: 'h-8 px-4',
         icon: 'size-(--hd-btn-h) p-0',
         'icon-xs': 'size-5 p-0',
         'icon-sm': 'size-(--hd-btn-h-sm) p-0',
-        'icon-lg': 'size-8 p-0',
         content: 'h-auto p-0 whitespace-normal',
         /* A chip: the pill a summary or status strip is made of. Sized
            from the touch target rather than the control height, so it

@@ -31,6 +31,21 @@ const COMPONENTS = path.join(root, 'packages/ui/src/components')
 const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
 
 /**
+ * Categories that start above zero and are only allowed to fall.
+ *
+ * The rest of the audit is at zero and stays there, which is right for drift
+ * that has already been paid off. It is the wrong shape for debt being worked
+ * down: a category that starts at 126 cannot be gated on zero without either
+ * failing every build or being left out of the gate entirely, and left out is
+ * how 34 raw type sizes and 126 re-declared patterns accumulated unseen.
+ *
+ * So these carry a recorded ceiling instead. Going up fails. Going *down*
+ * also fails, with the fix being `--baseline` — because a ratchet that is not
+ * tightened is a ceiling nobody is under.
+ */
+const BURN_DOWN = new Set(['rawType', 'patternClass'])
+
+/**
  * Everywhere UI is written, not just the screens.
  *
  * The design system's own files are audited too, and held to the same rules —
@@ -152,7 +167,25 @@ const findings = {
   crossImport: [],
   rawColour: [],
   arbitraryUtility: [],
+  rawType: [],
+  patternClass: [],
 }
+
+/**
+ * The shapes a screen keeps re-declaring instead of composing.
+ *
+ * Counted from the tree, not chosen: `.row` in eighteen stylesheets, `.body`
+ * in sixteen, `.list` in fourteen. Each one already has a component in
+ * `design/`, and `.head` beside `.header` is the tell — two spellings of one
+ * idea means nobody could have shared it even if they wanted to.
+ */
+const PATTERN_STEMS = new Set([
+  'row', 'head', 'header', 'note', 'list', 'empty', 'field',
+  'title', 'label', 'body', 'page', 'foot', 'name',
+])
+
+/** A screen's own stylesheet, as opposed to the system's. */
+const isScreenSheet = (file) => /\/(components|slots|panels)\//.test(file)
 
 /**
  * Controls sitting in a slot whose meaning the design system has fixed.
@@ -223,6 +256,21 @@ const RADIUS = new Set(
 for (const file of cssFiles()) {
   const name = label(file)
   const css = bare(read(file))
+
+  // Type written out rather than named. `offGrid` and `rawRadius` already do
+  // this for space and shape; type had no check at all, which is how 11px,
+  // 11.5px and 12.5px reached the tree while the scale said four steps.
+  if (isScreenSheet(file)) {
+    for (const match of css.matchAll(/font-size:\s*([^;]+);/g)) {
+      const value = match[1].trim()
+      if (/var\(--hd|inherit|100%|1em|--prose/.test(value)) continue
+      findings.rawType.push(`${name}: font-size: ${value}`)
+    }
+    for (const match of css.matchAll(/^\.([A-Za-z][A-Za-z0-9]*)/gm)) {
+      const stem = (/^[a-z]+/.exec(match[1]) ?? [])[0]
+      if (stem && PATTERN_STEMS.has(stem)) findings.patternClass.push(`${name}: .${match[1]}`)
+    }
+  }
 
   // Spacing that is not a step of the scale.
   for (const match of css.matchAll(/(padding|margin|gap)(-[a-z]+)?:\s*([^;]+);/g)) {
@@ -541,8 +589,11 @@ const counts = Object.fromEntries(SECTIONS.map(([key]) => [key, findings[key].le
 const total = Object.values(counts).reduce((sum, n) => sum + n, 0)
 
 if (process.argv.includes('--baseline')) {
-  if (total !== 0) {
-    console.error(`Refusing to record a non-zero design baseline (${total} findings). Fix the drift first.`)
+  const strictTotal = SECTIONS
+    .filter(([key]) => !BURN_DOWN.has(key))
+    .reduce((sum, [key]) => sum + counts[key], 0)
+  if (strictTotal !== 0) {
+    console.error(`Refusing to record a non-zero design baseline (${strictTotal} findings). Fix the drift first.`)
     process.exit(1)
   }
   fs.writeFileSync(BASELINE, `${JSON.stringify(counts, null, 2)}\n`)
@@ -582,6 +633,31 @@ export const compareBaseline = (counts, baseline) => {
       worse = true
       continue
     }
+    const current = counts[key] ?? 0
+    if (BURN_DOWN.has(key)) {
+      if (current > was) {
+        worse = true
+        problems.push({
+          key,
+          title,
+          was,
+          current,
+          fix,
+          message: `${title}: ${was} -> ${current}. This category may only fall.`,
+        })
+      } else if (current < was) {
+        worse = true
+        problems.push({
+          key,
+          title,
+          was,
+          current,
+          fix: 'Record the lower ceiling: node script/design-audit.mjs --baseline',
+          message: `${title}: ${was} -> ${current}. Tighten the ceiling so it cannot drift back.`,
+        })
+      }
+      continue
+    }
     if (was !== 0) {
       problems.push({
         key,
@@ -591,7 +667,6 @@ export const compareBaseline = (counts, baseline) => {
       })
       worse = true
     }
-    const current = counts[key] ?? 0
     if (current > 0) {
       worse = true
       problems.push({
