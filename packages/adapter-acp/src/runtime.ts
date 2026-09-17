@@ -91,6 +91,7 @@ import {
   ACP_INSTRUCTIONS_CAPABILITY,
   type AcpSessionDeleted,
   ACP_DELEGATION_NOTIFICATION,
+  ACP_LOGOUT,
   type AcpDelegation,
   type AcpDelegationChanged,
   type AcpDelegationUsage,
@@ -1393,15 +1394,39 @@ export class AcpRuntime implements AgentRuntime {
     await this.#account?.cancel(loginId)
   }
 
+  /**
+   * Whether the agent answers ACP's own `logout`, which it says by putting
+   * an `auth.logout` key in its capabilities. The one sign-out this adapter
+   * can do without a CLI, and for Antigravity the only one there is: its
+   * server is a download of its own, the `agy` CLI beside it is a different
+   * program, and `agy --print /logout` is refused by print mode — clearing
+   * credentials is exactly the effect print mode will not let outlive a run
+   * (#749). Presence is the flag; an agent that declares nothing is never
+   * asked.
+   */
+  #logsOutOverAcp(): boolean {
+    return this.#initialized?.agentCapabilities?.auth?.logout !== undefined
+  }
+
   async logout(): Promise<void> {
-    if (!this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
+    // The CLI first where the registry named one: it is the explicit
+    // instruction, and it works with the agent stopped. ACP's own is the
+    // fallback for an agent whose CLI cannot be asked.
+    const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
+    if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
     // Make the state transition visible to the account/changed event emitted
     // by CliAccount when its command succeeds. Restore it if the command
     // itself fails, since the provider may still be signed in.
     this.#signIn = { state: 'required', message: 'Signed out.' }
     try {
-      await this.#account.logout()
+      if (overAcp) {
+        await this.#connection.request(ACP_LOGOUT, {})
+        // CliAccount announces its own; this path has nobody else to do it.
+        this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+      } else {
+        await this.#account!.logout()
+      }
     } catch (error) {
       this.#signIn = before
       throw error

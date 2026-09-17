@@ -42,10 +42,15 @@ test("a row under Antigravity's retired name gets today's name, its reader and i
   assert.equal(overlay.name, 'Antigravity')
   assert.deepEqual(overlay.resolveIdentity?.(), { kind: 'agent', label: 'Google account', anonymous: true })
   assert.equal(typeof overlay.usageRecord?.since, 'function', 'the store it counts its usage in')
-  assert.deepEqual(overlay.account, {
-    login: { command: 'agy', args: ['--print', '/help'] },
-    logout: { command: 'agy', args: ['--print', '/logout'] },
-  })
+  /* And no account commands — #749. The two this row used to carry were the
+     `agy` CLI, which is a different download from the ACP server the row
+     runs: `agy --print /help` exits 0 without starting a sign-in, so the desk
+     reported one that never happened, and `agy --print /logout` exits 2
+     always, print mode refusing a command whose effect outlives the run. The
+     server declares ACP's own `logout` instead, which the adapter drives. */
+  assert.equal(overlay.account, undefined)
+  assert.equal(knownAgent('antigravity-acp')?.auth.login, undefined)
+  assert.equal(knownAgent('antigravity-acp')?.auth.logout, undefined)
 })
 
 test('Gemini CLI gets a reader and no record; an agent the desk does not know keeps its name and gets neither', () => {

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -342,6 +345,100 @@ test('a prompt-time non-auth error leaves an observed agent signed in (control)'
     assert.deepEqual(status.signInMethods, [])
   } finally {
     await runtime.dispose()
+  }
+})
+
+/**
+ * Sign-out over ACP itself — #749.
+ *
+ * Google Antigravity's ACP server is the case this exists for: its
+ * credentials are its own, the `agy` CLI beside it is a different program,
+ * and `agy --print /logout` is refused by print mode because clearing
+ * credentials outlives the run. The server does declare ACP's `logout` in
+ * `agentCapabilities.auth`, so that is what the desk drives. The fixture
+ * declares and serves it the same way, and refuses to open anything after.
+ */
+test('an agent that declares ACP logout is signed out over the protocol, with no CLI to ask', async () => {
+  const runtime = bare({ FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+
+    await runtime.logout()
+    assert.ok(events.some((event) => event.type === 'account/changed'), 'the surface was told to look again')
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [], 'signed out, and the desk says so')
+    assert.equal(status.signInMethods[0]?.id, 'acp:device', 'the way back in is the agent’s own declared method')
+    assert.equal(status.signInMethods[0]?.flow, 'external')
+    // And it took: the agent itself now refuses to open anything.
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that declares no sign-out at all is refused in words, not asked anyway', async () => {
+  const runtime = bare()
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await assert.rejects(runtime.logout(), /declares no sign-out command/)
+    assert.deepEqual(
+      (await runtime.getAccount()).accounts,
+      [{ kind: 'agent', label: 'Signed in', anonymous: true }],
+      'a refusal to try changes nothing about the account',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-out the agent refuses leaves the account standing, in the agent’s words', async () => {
+  const runtime = bare({ FAKE_ACP_LOGOUT_FAILS: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await assert.rejects(runtime.logout(), /keychain refused/)
+    assert.deepEqual(
+      (await runtime.getAccount()).accounts,
+      [{ kind: 'agent', label: 'Signed in', anonymous: true }],
+      'the credentials are still there, so the surface must not say otherwise',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
+ * A row that names a sign-out command keeps it: the registry's instruction is
+ * explicit, works with the agent stopped, and is what Claude Code and Cursor
+ * are driven by. ACP's own is the fallback for an agent whose CLI cannot be
+ * asked, never a replacement.
+ */
+test('a declared logout command outranks the agent’s ACP logout', async () => {
+  const calls = mkdtempSync(join(tmpdir(), 'hd-logout-'))
+  const marker = join(calls, 'logged-out')
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env: { FAKE_ACP_LOGOUT: '1' },
+    account: { logout: { command: FAKE_CLI, args: ['logout'], env: { FAKE_CLI_TOUCH: marker } } },
+  })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await runtime.logout()
+    assert.equal(existsSync(marker), true, 'the CLI ran')
+    // The agent was never asked, so it still opens sessions.
+    await runtime.createSession({ cwd: process.cwd() })
+  } finally {
+    await runtime.dispose()
+    rmSync(calls, { recursive: true, force: true })
   }
 })
 

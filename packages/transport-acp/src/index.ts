@@ -39,7 +39,21 @@ export interface AcpAgentCapabilities {
     readonly resume?: object
     readonly fork?: object
   }
+  /**
+   * Sign-out, the protocol's own. A `logout` key means the agent answers the
+   * `logout` request and clears its stored credentials on it; presence is
+   * the flag, as with `sessionCapabilities` above. Read off Google
+   * Antigravity's ACP server 1.1.1, which answers `initialize` with
+   * `"auth":{"logout":{}}` beside an `authMethods` list — the one agent the
+   * desk drives that has no CLI able to sign it out (#749).
+   */
+  readonly auth?: {
+    readonly logout?: object
+  }
 }
+
+/** ACP's sign-out request, declared by `agentCapabilities.auth.logout`. */
+export const ACP_LOGOUT = 'logout'
 
 /** One row of `session/list`, as Claude Code 0.16.2 serves it. */
 export interface AcpSessionRow {
