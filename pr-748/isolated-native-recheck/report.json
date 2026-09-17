@@ -1,0 +1,39 @@
+{
+  "command": "node e2e/ui-system/native-smoke.mjs --measure --scene git",
+  "platform": "darwin",
+  "arch": "arm64",
+  "isolatedHome": "temporary isolated profile",
+  "isolatedWork": "temporary synthetic repositories",
+  "screenshots": [
+    "output/native-ui-system/frames/git-dark.png",
+    "output/native-ui-system/frames/git-light.png",
+    "output/native-ui-system/about-dark.png"
+  ],
+  "relaunch": {
+    "theme": "dark",
+    "dark": true,
+    "dragRegions": 3,
+    "noDragControls": 17,
+    "searchNamed": true,
+    "title": "HarnessDesk",
+    "background": "rgb(38, 38, 36)",
+    "foreground": "rgb(245, 244, 238)",
+    "radius": "16px",
+    "palette": "editorial",
+    "accent": "violet",
+    "corners": "round",
+    "interface": "studio"
+  },
+  "about": {
+    "title": "About HarnessDesk",
+    "heading": "HarnessDesk",
+    "foundationLoaded": true,
+    "background": "rgb(38, 38, 36)",
+    "foreground": "rgb(245, 244, 238)",
+    "radius": "16px",
+    "palette": "editorial",
+    "accent": "violet",
+    "corners": "round",
+    "interface": "studio"
+  }
+}
