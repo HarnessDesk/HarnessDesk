@@ -61,6 +61,7 @@ import { TurnFiles } from './TurnFiles'
 import { TurnWork } from './TurnWork'
 import { GoalBar, JobsBar } from './SessionBars'
 import { splitTasks, tasksChipLabel } from '../lib/tasks'
+import { ConversationMap } from './ConversationMap'
 import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
 import { BringHome } from './BringHome'
@@ -593,6 +594,9 @@ export const Conversation = ({
       </header>
 
       <div className={styles.body}>
+        {/* Beside the transcript, not in it: the rail is a picture of the
+            scroller and must not scroll with what it pictures. */}
+        {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
           <div className={styles.loading}>
             <span className={styles.loadingSpinner} />
@@ -608,7 +612,7 @@ export const Conversation = ({
               const streamingId =
                 busy && turn.id === live?.id ? (turn.items[turn.items.length - 1]?.id ?? null) : null
               return (
-                <div key={turn.id}>
+                <div key={turn.id} data-turn={turn.id}>
                   {turnIndex > 0 && <div className={styles.turnDivider} />}
                   {view.prompt.map((item) => (
                     <ItemView key={item.id} item={item} root={session.cwd} sentAt={turn.startedAt ?? undefined} />
