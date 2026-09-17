@@ -14,14 +14,25 @@
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: var(--hd-space-0-5);
+  gap: 0;
   width: var(--hd-space-8);
   padding-left: var(--hd-space-2);
   pointer-events: auto;
 }
 
 /*
- * One thing said.
+ * The target around one thing said. It is the canonical control at its
+ * smallest, which is the 24px floor: the dash inside it is two pixels tall and
+ * nobody can hit two pixels.
+ */
+.mark {
+  flex: none;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/*
+ * The drawing.
  *
  * `--near` is 0 at rest and 1 under the pointer, and only the width reads it:
  * a dash that grew taller would push every dash below it and slide the mark
@@ -31,30 +42,26 @@
  * — it is here to carry the first and last frames of a pass, not to animate
  * the pass itself.
  */
-.mark {
-  --near: 0;
-  flex: none;
-  width: calc(var(--hd-space-2) + var(--near) * var(--hd-space-3));
+.dash {
+  display: block;
+  width: calc(var(--hd-space-2) + var(--near, 0) * var(--hd-space-3));
   height: var(--hd-space-0-5);
-  padding: 0;
-  border: none;
   border-radius: var(--hd-radius-full);
   background: var(--hd-muted-foreground);
-  opacity: calc(0.35 + var(--near) * 0.45);
+  opacity: calc(0.35 + var(--near, 0) * 0.45);
   transition:
     width 90ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 90ms cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
 }
 
 /* What was asked stands a little longer than what came back, so the rail reads
    as a conversation rather than as a list of equal things. */
-.mark[data-kind='prompt'] {
-  width: calc(var(--hd-space-3) + var(--near) * var(--hd-space-3));
+.mark[data-kind='prompt'] .dash {
+  width: calc(var(--hd-space-3) + var(--near, 0) * var(--hd-space-3));
   background: var(--hd-foreground);
 }
 
-.mark:focus-visible {
+.mark:focus-visible .dash {
   opacity: 1;
 }
 

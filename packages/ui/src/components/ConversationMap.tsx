@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 
 import type { Turn } from '@harnessdesk/protocol'
 
+import { Button } from '../design'
 import { buildMarks, shouldRenderMap } from '../lib/conversation-map'
 import styles from './ConversationMap.module.css'
 
@@ -22,13 +23,12 @@ import styles from './ConversationMap.module.css'
  *
  * **The falloff is a cosine, not a step.** A linear ramp reads as a bar chart
  * following the mouse; the cosine is what makes a run of dashes read as one
- * surface being pushed. `RADIUS` is how far the push reaches and `BOOST` is
- * how far the nearest dash travels.
+ * surface being pushed. `RADIUS` is how far the push reaches; how far a dash
+ * travels at the peak is the stylesheet's, since it is a width.
  */
 
-/** How far along the rail a dash still feels the pointer, and how far it moves. */
+/** How far along the rail a dash still feels the pointer. */
 const RADIUS = 46
-const BOOST = 1.3
 /** How near the pointer has to be for a dash to offer its words. */
 const SNAP = 24
 
@@ -101,18 +101,22 @@ export const ConversationMap = ({
         const centre = node ? node.offsetTop + node.offsetHeight / 2 : -RADIUS * 2
         const near = push(centre)
         return (
-          <button
+          <Button
             key={`${mark.turn}-${mark.kind}-${index}`}
             type="button"
+            variant="ghost"
+            size="chip"
             className={styles.mark}
             data-kind={mark.kind}
-            data-near={near > 0.6 ? '' : undefined}
             style={{ '--near': near } as React.CSSProperties}
             aria-label={mark.preview}
             onClick={() => goTo(mark.turn)}
           >
+            {/* The dash is the drawing; the control around it is the target,
+                because two pixels is not something anybody can hit. */}
+            <span aria-hidden className={styles.dash} />
             {near > SNAP / RADIUS && <span className={styles.preview}>{mark.preview}</span>}
-          </button>
+          </Button>
         )
       })}
     </nav>
