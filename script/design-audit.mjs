@@ -266,10 +266,22 @@ for (const file of cssFiles()) {
       if (/var\(--hd|inherit|100%|1em|--prose/.test(value)) continue
       findings.rawType.push(`${name}: font-size: ${value}`)
     }
+    /*
+     * Once per sheet per pattern, not once per class.
+     *
+     * `.rowWrap`, `.rowHead`, `.rowBody`, `.rowTitle` and `.rowMeta` in one
+     * stylesheet are a single row's anatomy, not five duplicated patterns —
+     * counting each of them would make renaming `.rowTitle` to
+     * `.sessionTitle` read as progress, which is worse than the drift. What
+     * is actually being counted is "this screen declares a row of its own",
+     * and eighteen screens do.
+     */
+    const declared = new Set()
     for (const match of css.matchAll(/^\.([A-Za-z][A-Za-z0-9]*)/gm)) {
       const stem = (/^[a-z]+/.exec(match[1]) ?? [])[0]
-      if (stem && PATTERN_STEMS.has(stem)) findings.patternClass.push(`${name}: .${match[1]}`)
+      if (stem && PATTERN_STEMS.has(stem)) declared.add(stem)
     }
+    for (const stem of [...declared].sort()) findings.patternClass.push(`${name}: .${stem}*`)
   }
 
   // Spacing that is not a step of the scale.

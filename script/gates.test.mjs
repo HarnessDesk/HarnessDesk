@@ -435,20 +435,20 @@ test('a burn-down category is gated on a ceiling that may only fall', () => {
     rawRadius: 0, offGrid: 0, rawColour: 0, arbitraryUtility: 0,
     rawType: 0, patternClass: 0,
   }
-  const ceiling = { ...clean, rawType: 34, patternClass: 308 }
+  const ceiling = { ...clean, rawType: 34, patternClass: 126 }
 
   // At the ceiling: the debt is recorded, so the gate is quiet.
-  const held = compareBaseline({ ...clean, rawType: 34, patternClass: 308 }, ceiling)
+  const held = compareBaseline({ ...clean, rawType: 34, patternClass: 126 }, ceiling)
   assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
 
   // Above it: a screen just wrote another literal.
-  const grown = compareBaseline({ ...clean, rawType: 35, patternClass: 308 }, ceiling)
+  const grown = compareBaseline({ ...clean, rawType: 35, patternClass: 126 }, ceiling)
   assert.equal(grown.worse, true)
   assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
 
   // Below it: the work was done and the ceiling has to follow, or the debt can
   // silently come back to 34 without the gate ever noticing.
-  const paid = compareBaseline({ ...clean, rawType: 33, patternClass: 308 }, ceiling)
+  const paid = compareBaseline({ ...clean, rawType: 33, patternClass: 126 }, ceiling)
   assert.equal(paid.worse, true)
   assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
 
