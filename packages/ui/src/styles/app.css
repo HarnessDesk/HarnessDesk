@@ -125,6 +125,49 @@ a:hover {
   -webkit-app-region: drag;
 }
 
+/*
+ * The cadence: a line of text that is still being written.
+ *
+ * A whole-element opacity pulse says "this is disabled" as readily as it says
+ * "this is working" — it dims the words, and dim is the app's code for a
+ * control you cannot use. A light travelling along the line says the one thing
+ * and nothing else, because only a live thing moves.
+ *
+ * One element. The gradient paints the text itself through `background-clip`,
+ * so there is no second copy of the string in the accessibility tree and no
+ * wrapper for a caller to get wrong.
+ *
+ * The timing function is stepped rather than smooth, and that is the whole
+ * character of it: forty-eight ticks a second reads as a cadence — a thing
+ * working at a rate — where a continuous sweep reads as a decorative sheen.
+ *
+ * `app.css` collapses every animation to one 0.01ms iteration under
+ * `prefers-reduced-motion`, and this keyframe has no fill mode, so the line
+ * simply stands still and legible there.
+ */
+.hd-cadence {
+  background: linear-gradient(
+    90deg,
+    var(--hd-secondary-foreground) 42%,
+    var(--hd-foreground) 50%,
+    var(--hd-secondary-foreground) 58%
+  );
+  background-clip: text;
+  background-size: 250% 100%;
+  -webkit-text-fill-color: transparent;
+  animation: hd-cadence 1s steps(48, end) infinite;
+}
+
+@keyframes hd-cadence {
+  from {
+    background-position: 140% 0;
+  }
+
+  to {
+    background-position: -40% 0;
+  }
+}
+
 .hd-no-drag {
   -webkit-app-region: no-drag;
 }
