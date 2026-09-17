@@ -1,0 +1,71 @@
+import type { FlowPermission, FlowSeat } from './flow.js'
+
+/**
+ * An Agent: **who** does the work, as opposed to which runtime runs it.
+ *
+ * A directory on disk, because a team's reviewer is a team decision and a
+ * decision nobody can diff is a decision nobody can argue with. The brief is
+ * the body of `AGENT.md`; everything above is its front matter.
+ *
+ * Deliberately absent: credentials and session history. Both already have a
+ * plane, and two planes holding one fact are two planes that will disagree.
+ */
+export interface AgentDefinition {
+  /** The directory name. Small, lowercase, and what a flow's `uses:` names. */
+  readonly id: string
+  readonly name: string
+  readonly description?: string | null
+  /**
+   * A **ceiling**, never a grant. A Seat gets the narrower of this and the
+   * step's grant, and a step grants `read` unless it says otherwise — so
+   * writing needs the Agent and the step to agree.
+   */
+  readonly permission: FlowPermission
+  /** The only words this Agent may report. Empty means the step decides. */
+  readonly answers: readonly string[]
+  /** Evidence kinds it must leave behind. */
+  readonly produces: readonly string[]
+  /** Skills it may load, by name. Empty means whatever the runtime already has. */
+  readonly skills: readonly string[]
+  /**
+   * Ordered seat preference — the first candidate that is installed, signed in
+   * and unspent is taken. The same grammar a flow role's `seats` uses, because
+   * it is the same thing: `runtime[=model][/effort][+thinking]`.
+   */
+  readonly prefer: readonly FlowSeat[]
+  /** The body of the file: what this Agent is for, in its author's words. */
+  readonly brief: string
+}
+
+/** Where an Agent was found. Project beats user beats built-in. */
+export type AgentOrigin = 'project' | 'user' | 'builtin'
+
+/** The directory name, which an entry has even when its file does not parse. */
+export type AgentId = string
+
+/** One Agent as a listing shows it, with what it hid. */
+export interface AgentEntry {
+  /**
+   * Null when the file did not parse. The entry still exists so the roster can
+   * show what is broken and where — an unusable Agent that vanishes from the
+   * list is the same defect as a shadowed one that vanishes.
+   */
+  readonly definition: AgentDefinition | null
+  /** The directory name. Present even when `definition` is null. */
+  readonly id: AgentId
+  readonly origin: AgentOrigin
+  readonly path: string
+  /** Content hash of the file, captured so a Seat can record which brief it ran. */
+  readonly brief: string
+  /** Same id, lower precedence. Listed and marked, never hidden. */
+  readonly shadows: readonly { readonly origin: AgentOrigin; readonly path: string }[]
+  readonly problems: readonly AgentProblem[]
+}
+
+/** One thing wrong with a definition, and where. */
+export interface AgentProblem {
+  readonly level: 'error' | 'warning'
+  /** `permission`, `prefer[1]`, `brief` — where to look. */
+  readonly at: string
+  readonly text: string
+}
