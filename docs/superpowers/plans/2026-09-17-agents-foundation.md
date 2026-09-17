@@ -282,9 +282,19 @@ export interface AgentDefinition {
 /** Where an Agent was found. Project beats user beats built-in. */
 export type AgentOrigin = 'project' | 'user' | 'builtin'
 
+/** The directory name, which an entry has even when its file does not parse. */
+export type AgentId = string
+
 /** One Agent as a listing shows it, with what it hid. */
 export interface AgentEntry {
-  readonly definition: AgentDefinition
+  /**
+   * Null when the file did not parse. The entry still exists so the roster can
+   * show what is broken and where — an unusable Agent that vanishes from the
+   * list is the same defect as a shadowed one that vanishes.
+   */
+  readonly definition: AgentDefinition | null
+  /** The directory name. Present even when `definition` is null. */
+  readonly id: AgentId
   readonly origin: AgentOrigin
   readonly path: string
   /** Content hash of the file, captured so a Seat can record which brief it ran. */
@@ -306,7 +316,7 @@ export interface AgentProblem {
 Add to `packages/protocol/src/index.ts`, in the alphabetical position its neighbours keep:
 
 ```ts
-export type { AgentDefinition, AgentEntry, AgentOrigin, AgentProblem } from './agent.js'
+export type { AgentDefinition, AgentEntry, AgentId, AgentOrigin, AgentProblem } from './agent.js'
 ```
 
 - [ ] **Step 4: Write the parser**
@@ -459,7 +469,7 @@ because they are the same thing."
 
 **Interfaces:**
 - Consumes: `parseAgentDefinition` from Task 2; `AgentEntry` and `AgentOrigin` from `@harnessdesk/protocol`.
-- Produces: `class Agents { constructor(roots: AgentRoots); list(project?: string): Promise<AgentEntry[]>; read(id: string, project?: string): Promise<AgentEntry | null> }` and `interface AgentRoots { readonly user: string; readonly builtin: string }`.
+- Produces: `class Agents { constructor(roots: AgentRoots); list(project?: string): Promise<AgentEntry[]>; read(id: string, project?: string): Promise<AgentEntry | null> }` and `interface AgentRoots { readonly user: string; readonly builtin: string }`. Every entry carries `id` and `problems`; `definition` is null when the file did not parse, and callers must narrow before reading it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -507,7 +517,7 @@ test('a project Agent beats a user one, which beats a built-in', async () => {
 
   const listed = await agents.list(project)
   assert.equal(listed.length, 1)
-  assert.equal(listed[0]?.definition.name, 'Project reviewer')
+  assert.equal(listed[0]?.definition?.name, 'Project reviewer')
   assert.equal(listed[0]?.origin, 'project')
 })
 
@@ -528,7 +538,7 @@ test('without a project, the user roster is what there is', async () => {
   const { roots, agents } = await rig()
   await write(roots.user, 'scout', brief('Scout'))
   const listed = await agents.list()
-  assert.deepEqual(listed.map((one) => one.definition.id), ['scout'])
+  assert.deepEqual(listed.map((one) => one.id), ['scout'])
   assert.equal(listed[0]?.origin, 'user')
 })
 
@@ -538,7 +548,7 @@ test('the brief hash is stable for the same text and differs for different text'
   await write(roots.user, 'b', brief('Same'))
   await write(roots.user, 'c', brief('Different'))
   const listed = await agents.list()
-  const by = new Map(listed.map((one) => [one.definition.id, one.brief]))
+  const by = new Map(listed.map((one) => [one.id, one.brief]))
   assert.equal(by.get('a'), by.get('b'))
   assert.notEqual(by.get('a'), by.get('c'))
 })
@@ -548,9 +558,11 @@ test('one broken Agent costs itself, not the roster', async () => {
   await write(roots.user, 'good', brief('Good'))
   await write(roots.user, 'broken', '---\npermission: admin\n---\nx\n')
   const listed = await agents.list()
-  const ids = listed.map((one) => one.definition?.id ?? null)
-  assert.equal(ids.includes('good'), true)
-  const bad = listed.find((one) => one.path.includes('broken'))
+  assert.equal(listed.map((one) => one.id).includes('good'), true)
+  const bad = listed.find((one) => one.id === 'broken')
+  // A broken Agent is listed, carries its problems, and has no definition —
+  // rather than a hollow one a caller could mistake for a working Agent.
+  assert.equal(bad?.definition, null)
   assert.equal(bad?.problems.some((one) => one.level === 'error'), true)
 })
 
@@ -627,7 +639,8 @@ export class Agents {
         const path = join(place.dir, id, FILE)
         const winner = found.get(id)
         if (winner) {
-          found.set(id, { ...winner, shadows: [...winner.shadows, { origin: place.origin, path }] })
+          found.set(id, {
+          id, ...winner, shadows: [...winner.shadows, { origin: place.origin, path }] })
           continue
         }
         let source: string
@@ -639,7 +652,10 @@ export class Agents {
         }
         const { agent, problems } = parseAgentDefinition(source, id)
         found.set(id, {
-          definition: agent ?? { id, name: id, permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' },
+          // Null rather than a hollow stand-in: a definition that parsed and one
+          // that did not must not be the same shape, or every later reader has
+          // to guess which it got.
+          definition: agent,
           origin: place.origin,
           path,
           brief: createHash('sha256').update(source).digest('hex').slice(0, 16),
@@ -648,11 +664,11 @@ export class Agents {
         })
       }
     }
-    return [...found.values()].sort((a, b) => a.definition.id.localeCompare(b.definition.id))
+    return [...found.values()].sort((a, b) => a.id.localeCompare(b.id))
   }
 
   async read(id: string, project?: string): Promise<AgentEntry | null> {
-    return (await this.list(project)).find((one) => one.definition.id === id) ?? null
+    return (await this.list(project)).find((one) => one.id === id) ?? null
   }
 }
 ```
@@ -945,14 +961,14 @@ test('agent/list answers the roster', async () => {
   const ctx = await ctxWith()
   const listed = await agentMethods['agent/list'](ctx, {})
   assert.equal(listed.length, 1)
-  assert.equal(listed[0]?.definition.name, 'Reviewer')
+  assert.equal(listed[0]?.definition?.name, 'Reviewer')
   assert.equal(listed[0]?.origin, 'user')
 })
 
 test('agent/read answers one, by id', async () => {
   const ctx = await ctxWith()
   const one = await agentMethods['agent/read'](ctx, { id: 'reviewer' })
-  assert.equal(one?.definition.permission, 'read')
+  assert.equal(one?.definition?.permission, 'read')
 })
 
 test('agent/read answers null for an id nobody defined', async () => {
@@ -1186,6 +1202,9 @@ Add to `packages/server/src/methods/agents.ts`:
     if (!entry) throw new Error(`No Agent called “${params.id}”.`)
     const problem = entry.problems.find((one) => one.level === 'error')
     if (problem) throw new Error(`${entry.path} cannot be used: ${problem.at} — ${problem.text}`)
+    // The problem check above is why this cannot be null; the guard keeps that
+    // reasoning checkable by the compiler rather than trusting it.
+    if (!entry.definition) throw new Error(`${entry.path} did not parse.`)
 
     const candidates = params.seats?.length ? params.seats : entry.definition.prefer
     const chosen = chooseSeat(candidates, ctx.offers())
