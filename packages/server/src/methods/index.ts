@@ -33,9 +33,13 @@ export { TERMINAL_CHIP } from './plugins.js'
  * handler whose result disagrees with its declaration does not compile
  * either. Which module a method lives in follows its prefix, with two seams
  * named for what they are rather than for the prefix: `accounts` holds
- * `agents/*` and the account/API-key verbs, `runtime-extensions` holds a
- * runtime's own plugin, MCP and import verbs; both name the prefixes they
- * take, and `runtimes.ts` leaves exactly those out.
+ * `acp/*` — the ACP registry — the account/API-key verbs, and
+ * `runtime/installs*`; `runtime-extensions` holds a runtime's own plugin, MCP
+ * and import verbs; both name the prefixes they take, and `runtimes.ts`
+ * leaves exactly those out. `runtime/installs*` is named on the wire for what
+ * it is about — which copy of one runtime's CLI answers — and answered in
+ * `accounts.ts` because both verbs are gated on the writable registry that
+ * module owns, and both share its install scan with `acp/update`.
  */
 export const hostMethods: HostMethodTable = {
   ...appMethods,

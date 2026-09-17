@@ -157,7 +157,7 @@ export const createDefaultHost = (
 
   // Whether a newer build of an agent is published: one registry read a day
   // per package, cached here, and off entirely with HARNESSDESK_NO_UPDATE_CHECK.
-  // Advisory — see docs/agents.md for why it exists at all.
+  // Advisory — see docs/runtimes.md for why it exists at all.
   const updates =
     process.env['HARNESSDESK_NO_UPDATE_CHECK'] === '1'
       ? undefined
@@ -411,7 +411,7 @@ export const createDefaultHost = (
     ...(updates ? { updates } : {}),
     // Minutes between re-asking each agent what it offers; 0 turns the timer
     // off. Cursor adds models server-side; this is how a long-open window
-    // hears about them. See docs/agents.md.
+    // hears about them. See docs/runtimes.md.
     ...(process.env['HARNESSDESK_CATALOG_REFRESH_MINUTES'] !== undefined
       ? { catalogRefreshMs: Math.max(0, Number(process.env['HARNESSDESK_CATALOG_REFRESH_MINUTES']) || 0) * 60_000 }
       : {}),

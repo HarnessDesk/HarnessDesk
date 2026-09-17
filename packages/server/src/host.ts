@@ -223,12 +223,12 @@ export interface HostOptions {
   /**
    * The writable agent registry — how the interface adds and removes ACP
    * agents. Supplied by the wiring, which is the only place that knows how a
-   * registry entry becomes a runtime; without one, `agents/register` says so.
+   * registry entry becomes a runtime; without one, `acp/register` says so.
    */
   readonly agents?: AgentDirectory
   /**
    * Every copy of an agent on this machine, and which one answers. Attached
-   * to `RuntimeInfo.install` and asked again through `agents/installs`.
+   * to `RuntimeInfo.install` and asked again through `runtime/installs`.
    */
   readonly installs?: InstallService
 }

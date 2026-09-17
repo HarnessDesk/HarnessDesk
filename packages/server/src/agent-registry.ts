@@ -628,7 +628,7 @@ export class AgentDirectory {
       if (!registry) throw new Error('This host reads no ACP registry.')
       // A copy already on the machine is preferred to anything the registry
       // would fetch: the row points at it, the download is deferred, and
-      // `agents/update` is the door to the registry's own build later. Only
+      // `acp/update` is the door to the registry's own build later. Only
       // agents whose CLI speaks ACP itself qualify — an adapter entry still
       // needs its adapter, which the registry provides.
       const known = knownAgent(request.registry.id)

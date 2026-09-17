@@ -470,7 +470,7 @@ export interface AcpRegistryCatalogInfo {
 }
 
 /**
- * What `agents/register` accepts: a known template, an entry from the public
+ * What `acp/register` accepts: a known template, an entry from the public
  * ACP registry, or a command of the user's own.
  */
 export interface AgentRegisterRequest {
@@ -1112,38 +1112,38 @@ export interface HostMethods {
    * availability depends on what is installed on the machine right now, and
    * the answer is only worth computing while the add-agent surface is open.
    */
-  'agents/catalog': { params: Record<string, never>; result: readonly AgentTemplateInfo[] }
+  'acp/catalog': { params: Record<string, never>; result: readonly AgentTemplateInfo[] }
   /** The public ACP registry, read through the host's cache. */
-  'agents/registry': { params: Record<string, never>; result: AcpRegistryCatalogInfo }
+  'acp/registry': { params: Record<string, never>; result: AcpRegistryCatalogInfo }
   /**
    * Registers an ACP agent — a known template, or a custom command — writes it
    * to the registry, and brings it up. The new row arrives as `runtime/added`
    * before this resolves; failing to *start* is the runtime's own health to
    * report, exactly as it is for an account that was just added.
    */
-  'agents/register': {
+  'acp/register': {
     params: AgentRegisterRequest
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }
   /**
-   * Unregisters an agent that `agents/register` (or a hand-edited registry)
+   * Unregisters an agent that `acp/register` (or a hand-edited registry)
    * added. The agent's own software, configuration and history are untouched
    * — the registry points at a command, it does not manage software. Refused
    * for runtimes the registry does not own: Codex, and account slots.
    */
-  'agents/remove': { params: { readonly runtime: RuntimeId }; result: null }
+  'acp/remove': { params: { readonly runtime: RuntimeId }; result: null }
   /**
    * Every copy of the agent on this machine, looked for afresh, and which
    * one answers. The same answer rides on `RuntimeInfo.install`; this is the
    * way to ask again after installing or removing something.
    */
-  'agents/installs': { params: { readonly runtime: RuntimeId }; result: InstallInfo }
+  'runtime/installs': { params: { readonly runtime: RuntimeId }; result: InstallInfo }
   /**
    * Pins one copy as the one that answers, or `null` to go back to the
    * newest-wins rule. Takes effect on the next start; a runtime with no turn
    * in flight is restarted onto it at once.
    */
-  'agents/installs/use': {
+  'runtime/installs/use': {
     params: { readonly runtime: RuntimeId; readonly path: string | null }
     result: InstallInfo
   }
@@ -1153,7 +1153,7 @@ export interface HostMethods {
    * belong to the person's package manager, and the interface names the
    * command instead of offering a button.
    */
-  'agents/update': {
+  'acp/update': {
     params: { readonly runtime: RuntimeId }
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }

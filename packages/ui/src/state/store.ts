@@ -1121,7 +1121,7 @@ export class AppStore {
    * about the machine right now — a CLI installed since the last look counts.
    */
   async agentCatalog(): Promise<readonly AgentTemplateInfo[]> {
-    return this.transport.request('agents/catalog', {}).catch(() => [])
+    return this.transport.request('acp/catalog', {}).catch(() => [])
   }
 
   /**
@@ -1130,7 +1130,7 @@ export class AppStore {
    * with the sentence saying so rather than an error.
    */
   async acpRegistry(): Promise<AcpRegistryCatalogInfo> {
-    return this.transport.request('agents/registry', {}).catch(() => ({
+    return this.transport.request('acp/registry', {}).catch(() => ({
       agents: [],
       fetchedAt: null,
       unavailable: 'The ACP registry could not be read.',
@@ -1161,7 +1161,7 @@ export class AppStore {
     request: AgentRegisterRequest,
   ): Promise<{ runtime: RuntimeId } | { error: string }> {
     try {
-      const { runtime } = await this.transport.request('agents/register', request)
+      const { runtime } = await this.transport.request('acp/register', request)
       return { runtime }
     } catch (error) {
       return { error: describe(error) }
@@ -1175,13 +1175,13 @@ export class AppStore {
    * knowledge of this agent, which is what the page says then.
    */
   async installsFor(runtime: RuntimeId): Promise<InstallInfo | null> {
-    return this.transport.request('agents/installs', { runtime }).catch(() => null)
+    return this.transport.request('runtime/installs', { runtime }).catch(() => null)
   }
 
   /** Pins one copy as the one that answers, or clears the pin with null. */
   async useInstall(runtime: RuntimeId, path: string | null): Promise<InstallInfo | null> {
     try {
-      return await this.transport.request('agents/installs/use', { runtime, path })
+      return await this.transport.request('runtime/installs/use', { runtime, path })
     } catch (error) {
       this.notice('error', `The install could not be chosen: ${describe(error)}`)
       return null
@@ -1191,7 +1191,7 @@ export class AppStore {
   /** Replaces a download HarnessDesk made with the registry's current build. */
   async updateAgent(runtime: RuntimeId): Promise<boolean> {
     try {
-      await this.transport.request('agents/update', { runtime })
+      await this.transport.request('acp/update', { runtime })
       return true
     } catch (error) {
       this.notice('error', `The update did not go through: ${describe(error)}`)
@@ -1201,7 +1201,7 @@ export class AppStore {
 
   async removeAgent(runtime: RuntimeId): Promise<boolean> {
     try {
-      await this.transport.request('agents/remove', { runtime })
+      await this.transport.request('acp/remove', { runtime })
       return true
     } catch (error) {
       this.notice('error', describe(error))

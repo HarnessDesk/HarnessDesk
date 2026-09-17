@@ -310,9 +310,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     decision: approvalDecisionValidator,
   }),
 
-  'agents/catalog': isObject,
-  'agents/registry': isObject,
-  'agents/register': shape({
+  'acp/catalog': isObject,
+  'acp/registry': isObject,
+  'acp/register': shape({
     template: optional(isString),
     registry: optional(shape({ id: isString })),
     custom: optional(
@@ -325,10 +325,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
       }),
     ),
   }),
-  'agents/remove': shape({ runtime: isString }),
-  'agents/installs': shape({ runtime: isString }),
-  'agents/installs/use': shape({ runtime: isString, path: nullableString }),
-  'agents/update': shape({ runtime: isString }),
+  'acp/remove': shape({ runtime: isString }),
+  'runtime/installs': shape({ runtime: isString }),
+  'runtime/installs/use': shape({ runtime: isString, path: nullableString }),
+  'acp/update': shape({ runtime: isString }),
 
   'workspace/recent': isObject,
   'workspace/open': shape({ path: isString }),

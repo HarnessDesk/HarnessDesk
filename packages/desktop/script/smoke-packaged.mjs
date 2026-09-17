@@ -7,7 +7,7 @@
  * every test and every dev launch — the workspace serves the bridges as
  * ordinary files. This script is the check that runs against the artifact a
  * user would download: it boots the app with a throwaway home and profile,
- * reads `agents/catalog` through the real renderer, and fails on the one
+ * reads `acp/catalog` through the real renderer, and fails on the one
  * sentence that means the build is missing a bridge: "This build of
  * HarnessDesk does not carry …". Rows that are unavailable because a CLI is
  * not installed on this machine are fine — that is the machine's fact, not

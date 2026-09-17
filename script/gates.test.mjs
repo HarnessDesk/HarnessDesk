@@ -1097,7 +1097,7 @@ test('a repository path in the documentation that resolves nowhere fails (#223)'
 
 test('an allowlisted doc path is held to its own reason (#223)', () => {
   const value = 'rmcp-client/src/oauth/store_lock.rs'
-  const named = new Map([[value, new Set(['docs/agents.md'])]])
+  const named = new Map([[value, new Set(['docs/runtimes.md'])]])
   const allowed = new Map([[value, "DeepSeek Harness's own Rust source"]])
   // The control: a named path that resolves nowhere is exactly what the entry is for.
   assert.deepEqual(docPathProblems(named, () => false, allowed), [])

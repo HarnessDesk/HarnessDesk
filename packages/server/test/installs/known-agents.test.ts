@@ -56,7 +56,7 @@ const machine = (files: Record<string, string | null>, links: Record<string, str
 
 test("the installed copy answers, and the registry's npx line becomes the fallback", async (t) => {
   const store = await tempStore(t, [
-    // What `agents/register` writes for this entry: the registry distributes
+    // What `acp/register` writes for this entry: the registry distributes
     // Copilot as an npx package, so with no knowledge of the agent the desk
     // fetched a second copy of a CLI already on the machine on every start.
     {
