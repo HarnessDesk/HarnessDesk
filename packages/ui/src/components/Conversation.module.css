@@ -16,7 +16,10 @@
      macOS window buttons are drawn over it — so it starts after whatever room
      the shell says this box owes them. See `--titlebar-inset` in
      `app.css`; with the sidebar up, or in the browser, that is nothing. */
-  padding: 0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px)); /* desk: 12/16 → 8, the bar's own padding */
+  /* The controls at the right are boxes and sit at the bar's inset; the title
+     at the left is words with no box, so it states where a composed control's
+     label lands and reads level with them. */
+  padding: 0 var(--hd-bar-pad) 0 max(var(--hd-bar-ink), var(--titlebar-inset, 0px)); /* desk: 16 → 17, level with the bar's own controls */
   border-bottom: 1px solid var(--hd-border);
   /* The plan strip gives way to the session's name by the width of this row,
      not the window's: a narrow centre column on a wide screen is still narrow. */

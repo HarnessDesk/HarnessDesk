@@ -331,7 +331,14 @@ body {
      One pair for every bar in the window, so a control in the title row and a
      control in a pane's header sit on the same rhythm. */
   --hd-bar-gap: var(--hd-space-1-5);
+  /* Where a boxed control's edge sits. */
   --hd-bar-pad: var(--hd-space-2);
+  /* And where a label lands once a control has been composed: that inset, the
+     control's own padding, and the hairline it reserves whether or not it
+     paints one. A thing with no box of its own — a wordmark, a page title, a
+     section label — states this instead, and then everything in the column or
+     the bar shares one x. */
+  --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
 
   /* A row whose trailing action floats over its own label rather than taking

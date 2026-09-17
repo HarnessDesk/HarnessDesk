@@ -7,6 +7,7 @@
 --hd-background = rgb(255, 255, 255)
 --hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-ink = calc(8px + 8px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(9, 12, 17, 0.05)
@@ -429,6 +430,7 @@
 --hd-background = rgb(24, 24, 24)
 --hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-ink = calc(8px + 8px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(255, 255, 255, 0.05)
@@ -851,6 +853,7 @@
 --hd-background = rgb(255, 255, 255)
 --hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-ink = calc(8px + 10px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(9, 12, 17, 0.05)
@@ -1292,6 +1295,7 @@
 --hd-background = rgb(24, 24, 24)
 --hd-bar-gap = 6px
 --hd-bar-h = 46px
+--hd-bar-ink = calc(8px + 10px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
 --hd-border = rgba(255, 255, 255, 0.05)
