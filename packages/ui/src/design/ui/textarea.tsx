@@ -14,7 +14,11 @@ const textareaVariants = cva(
         default: 'border-input bg-transparent dark:bg-input/30',
         editor: 'border-(--hd-border) bg-(--hd-background)',
         inline: 'border-(--hd-accent) bg-(--hd-card)',
-        composer: 'border-transparent bg-transparent focus-visible:shadow-none',
+        /* The composer's shell answers focus for the whole control, so the
+           field inside it draws neither ring. `outline-none` in the base
+           ties with app.css's global `:focus-visible` and loses on source
+           order; the focus-visible variant outranks it. */
+        composer: 'border-transparent bg-transparent focus-visible:shadow-none focus-visible:outline-none',
       },
       size: {
         default: 'min-h-14 resize-y px-2.5 py-1.5',

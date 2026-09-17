@@ -78,7 +78,7 @@ const buttonVariants = cva(
         ghost:
           'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-ring)]',
         destructive:
-          'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover) data-[overlay]:bg-(--hd-solid) data-[overlay]:text-(--hd-solid-foreground) data-[overlay]:hover:bg-(--hd-danger) data-[overlay]:hover:text-(--hd-destructive-foreground)',
+          'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover) data-[overlay]:border-2 data-[overlay]:border-(--hd-card) data-[overlay]:bg-(--hd-solid) data-[overlay]:text-(--hd-solid-foreground) data-[overlay]:hover:bg-(--hd-danger) data-[overlay]:hover:text-(--hd-destructive-foreground)',
         link: 'text-(--hd-primary-ink) underline-offset-4 hover:underline',
         /* Product surfaces select a semantic role; they never redraw the
            control from a screen stylesheet. These roles are deliberately
@@ -116,10 +116,14 @@ const buttonVariants = cva(
         'icon-sm': 'size-(--hd-btn-h-sm) p-0',
         'icon-lg': 'size-8 p-0',
         content: 'h-auto p-0 whitespace-normal',
+        /* A chip: the pill a summary or status strip is made of. Sized
+           from the touch target rather than the control height, so it
+           sits inside running text without setting the line. */
+        chip: 'h-auto min-h-(--hd-target-min) gap-(--hd-space-1) rounded-full px-(--hd-space-2) text-(length:--hd-text-xs)',
         inline: 'h-auto rounded-(--hd-radius-sm) p-1 whitespace-normal',
         panel: 'h-auto w-full p-4 whitespace-normal',
         row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
-        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) data-[density=comfortable]:py-2 data-[density=compact]:py-1',
+        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },

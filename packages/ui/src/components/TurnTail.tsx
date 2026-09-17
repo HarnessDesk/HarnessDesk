@@ -124,7 +124,7 @@ export const TurnTail = ({
           {summary.files.length > 0 && !hideFiles && (
             <Button
               type="button"
-              variant="quiet" size="content" className={styles.turnSummaryItem}
+              variant="quiet" size="chip" className={styles.turnSummaryItem}
               onClick={() => store.setDetailsTab('changes')}
               title={summary.files.join('\n')}
             >
@@ -180,7 +180,7 @@ export const TurnTail = ({
             <Button
               key={`${reference.url}-${index}`}
               type="button"
-              variant="quiet" size="content" className={styles.turnSummaryItem}
+              variant="quiet" size="chip" className={styles.turnSummaryItem}
               onClick={() => openExternal(reference.url)}
               title={reference.title ?? reference.url}
             >

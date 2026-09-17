@@ -95,6 +95,3 @@
     0 0 0 4px var(--hd-ring);
 }
 
-.faceChoice:focus-visible .faceTile {
-  box-shadow: var(--hd-hairline), var(--hd-focus-ring);
-}

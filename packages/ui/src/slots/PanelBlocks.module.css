@@ -42,6 +42,11 @@
 }
 
 .sectionTitleLabel {
+  /* A section head is not one of its own rows: it earns the step down in
+     size and the step up in weight. On the scale — main said 11px, which
+     the type scale has no name for. */
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-semibold);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
