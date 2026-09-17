@@ -131,3 +131,52 @@ for (const [where, width, height] of [
     expect(held.width).toBeGreaterThan(Math.min(448, width - 64))
   })
 }
+
+/**
+ * And a sheet that bleeds still lays itself out.
+ *
+ * `bleed` removes `DialogContent`'s five opinions rather than replacing them,
+ * which is what lets a lightbox be a grid — and it means the sheet owns its
+ * own display. The skill sheet's first version of this leaned on an earlier
+ * `bleed` that imposed `flex flex-col overflow-hidden`, so when `bleed` became
+ * layout-neutral the sheet quietly computed as `display: block` with visible
+ * overflow: its footer stopped short of the bottom, and a long definition grew
+ * past the fixed height instead of scrolling inside the body.
+ *
+ * The two things that says: the foot reaches the foot, and the growing part
+ * scrolls rather than the sheet.
+ */
+test('the skill sheet fills the height it asked for', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/preview.html')
+  await page.evaluate(async () => { await document.fonts.ready })
+  const library = page.locator('section').filter({ has: page.locator('h2:text-is("Settings › Library")') }).first()
+  await expect(library).toBeVisible()
+  await library.scrollIntoViewIfNeeded()
+  await library.locator('button').filter({ hasText: /audit|review|plan/i }).first().click()
+
+  const sheet = page.locator('[data-slot="skill-sheet"]')
+  await expect(sheet).toBeVisible()
+  const held = await sheet.evaluate(node => {
+    const box = node.getBoundingClientRect()
+    // An absolutely positioned child (the close) is not part of the column.
+    const laid = [...node.children].filter(child => getComputedStyle(child).position !== 'absolute')
+    const last = laid[laid.length - 1].getBoundingClientRect()
+    return {
+      display: getComputedStyle(node).display,
+      laid: laid.length,
+      dead: Math.round(box.bottom - last.bottom),
+      scrolls: [...node.querySelectorAll('*')].filter(child => child.scrollHeight > child.clientHeight + 1).length,
+      over: [...node.querySelectorAll('*')]
+        .map(child => child.scrollWidth - node.clientWidth)
+        .reduce((most, past) => Math.max(most, past), 0),
+    }
+  })
+  expect(held.laid).toBeGreaterThan(1)
+  expect(held.display).not.toBe('block')
+  // The foot reaches the foot: a block sheet leaves the rest of the height empty.
+  expect(held.dead).toBeLessThanOrEqual(1)
+  // And the part that grows is the part that scrolls.
+  expect(held.scrolls).toBeGreaterThan(0)
+  expect(held.over).toBeLessThanOrEqual(1)
+})

@@ -394,7 +394,7 @@ export const SkillSheet = ({
       <DialogContent
         data-slot="skill-sheet"
         bleed
-        className="h-[min(84vh,760px)] w-[min(1080px,94vw)]"
+        className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] flex-col overflow-hidden"
       >
         {/* --- the head: what this is ---------------------------------- */}
         <div className="flex items-start gap-3 border-b px-5 py-4">
