@@ -590,10 +590,10 @@ Expected: FAIL — `Cannot find module '../src/agents.js'`.
 Create `packages/server/src/agents.ts`:
 
 ```ts
-import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { digestOf } from '@harnessdesk/agent-inventory'
 import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from './agent-def.js'
@@ -666,7 +666,9 @@ export class Agents {
           definition: agent,
           origin: place.origin,
           path,
-          digest: createHash('sha256').update(source).digest('hex').slice(0, 16),
+          // `digestOf` trims before hashing, so an inline copy of this would
+          // disagree with every other digest in the desk on trailing whitespace.
+          digest: digestOf(source),
           shadows: [],
           problems,
         })
@@ -1082,6 +1084,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import { digestOf } from '@harnessdesk/agent-inventory'
+
 import { Agents } from '../src/agents.js'
 import { agentMethods } from '../src/methods/agents.js'
 
@@ -1137,8 +1141,10 @@ test('the session records the Agent and the brief it ran', async () => {
   const { ctx } = await rig('claude=opus-5/high')
   const session = await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.equal(session.settings.agent, 'reviewer')
-  assert.equal(typeof session.settings.brief, 'string')
-  assert.equal((session.settings.brief as string).length > 0, true)
+  // Asserted as the digest of the real brief, not merely as a non-empty string:
+  // the defect this guards is a hash and prose being swapped, and a length check
+  // cannot see that.
+  assert.equal(session.settings.briefDigest, digestOf('Read the diff.\n'))
 })
 
 test('nothing seatable refuses, names every candidate, and opens nothing', async () => {
@@ -1172,13 +1178,15 @@ In `packages/protocol/src/session.ts`, add to `SessionSettings`:
   /** The Agent this conversation was seated as, when it was seated as one. */
   readonly agent?: string
   /**
-   * Content hash of the brief it was handed, captured at seating.
+   * Content hash of the brief it was handed, captured at seating. Named for the
+   * digest it is: `brief` alone would read as the prose, and the prose goes to
+   * the standing order, not here.
    *
    * A project Agent is versioned by git; a user-level one is versioned by
    * nothing. The hash is what makes "at the version of its brief" answerable
    * either way, and it is the same reason a flow run freezes its flow.
    */
-  readonly brief?: string
+  readonly briefDigest?: string
 ```
 
 - [ ] **Step 4: Declare `agent/seat`**
@@ -1223,7 +1231,7 @@ Add to `packages/server/src/methods/agents.ts`:
       ...(chosen.seat.model ? { model: chosen.seat.model } : {}),
       ...(chosen.seat.effort ? { effort: chosen.seat.effort } : {}),
       agent: entry.definition.id,
-      brief: entry.digest,
+      briefDigest: entry.digest,
     })
     // The brief goes over once, as the standing order. Re-sending it every turn
     // would pay for it every turn and say nothing new.
