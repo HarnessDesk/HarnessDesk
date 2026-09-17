@@ -242,11 +242,19 @@
    it failed to load the rest of itself — the eye keeps travelling right for
    something that is not there. Every other settings window on this desktop
    centres its detail pane; so does the transcript one screen away. */
+/* The same measure the conversation and the composer use.
+   This was 780 against the transcript's 736 — a 44px difference nobody chose,
+   which is the whole of "why do these two pages feel different". One number,
+   and it is the one with a reason behind it: `--hd-column` is a reading
+   measure, about ninety characters at the interface's 14px. */
 .pageInner {
-  max-width: 780px;
+  max-width: var(--hd-column); /* desk: 780 → 736, the measure the conversation already uses */
   margin-inline: auto;
 }
 
+/* Library is the widest thing the app shows: a name, a caption, a reading and
+   twelve agent marks on one line. At 1120 the marks crowded the caption; the
+   step up buys the row its columns without letting any page follow the window. */
 .pageInner[data-wide] {
-  max-width: 1120px;
+  max-width: 1320px; /* desk: 1120 → 1320, room for twelve agent marks beside a caption */
 }
