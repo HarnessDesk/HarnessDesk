@@ -13,7 +13,8 @@
  * it computes what the old text meant and what the new text means **under
  * Desk**, and complains when they differ. A token that varies between the two
  * interfaces must therefore be Studio-only, with the Desk value spelled as the
- * `var()` fallback — which is the convention design/tokens.css documents.
+ * `var()` fallback — which is the convention
+ * design/foundation/tokens.css documents.
  *
  * The second check is the same question asked of the other half of the app.
  * A token defined only in the Studio block resolves to *nothing* under Desk,
@@ -76,7 +77,7 @@ const resolve = (value, tokens) => {
 
 /** Tokens the Studio block introduces, which therefore do not exist on Desk. */
 const studioOnly = (() => {
-  const css = readFileSync('packages/ui/src/design/tokens.css', 'utf8')
+  const css = readFileSync('packages/ui/src/design/foundation/tokens.css', 'utf8')
   /* Anchored on `selector {`, never on the bare selector text. Slicing the
      base block at the first *mention* of the dark selector would end it early
      the day somebody names that selector in a comment above the rule — a

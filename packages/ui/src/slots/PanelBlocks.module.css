@@ -16,7 +16,7 @@
 .section {
   flex: none;
   padding: 8px 10px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -36,21 +36,19 @@
   align-items: center;
   gap: 4px;
   width: 100%;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+
   text-align: left;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
+
 }
 
-.sectionTitle:hover {
-  color: var(--hdp-alias-label-secondary);
+.sectionTitleLabel {
+  /* A section head is not one of its own rows: it earns the step down in
+     size and the step up in weight. On the scale — main said 11px, which
+     the type scale has no name for. */
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .sectionChevron {
@@ -81,7 +79,7 @@
 /* ------------------------------------------------------------------- prose */
 
 .markdown {
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   line-height: 18px;
 }
 
@@ -93,13 +91,13 @@
 }
 
 .keyValueTerm {
-  font-size: 12px;
-  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
 }
 
 .keyValueValue {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   overflow-wrap: anywhere;
 }
 
@@ -113,10 +111,10 @@
 
 .listItem {
   display: flex;
-  gap: 7px;
+  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   align-items: flex-start;
   padding: 2px 0;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   line-height: 17px;
 }
 
@@ -127,7 +125,7 @@
   justify-content: center;
   width: 12px;
   height: 17px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .listLabel {
@@ -141,8 +139,8 @@
 
 .listHint {
   margin-left: 6px;
-  font-size: 11.5px;
-  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
+  color: var(--hd-muted-foreground);
 }
 
 /* ----------------------------------------------------------------- actions */
@@ -153,28 +151,13 @@
   gap: 6px;
 }
 
-.actionButton {
-  height: 24px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--hdp-alias-interactive-bg-hover);
-  font-size: 12px;
-  cursor: pointer;
-  color: inherit;
-}
-
-.actionButton:hover {
-  background: var(--hdp-alias-interactive-bg-active, var(--hdp-alias-interactive-bg-hover));
-}
-
 /* -------------------------------------------------------------------- code */
 
 .code {
-  border: 1px solid var(--hdp-alias-border-l1);
+  border: 1px solid var(--hd-border);
   border-radius: 6px;
   overflow: hidden;
-  background: var(--hdp-alias-bg-base);
+  background: var(--hd-background);
 }
 
 .codeHeader {
@@ -182,9 +165,9 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  font-size: 11px;
-  color: var(--hdp-alias-label-tertiary);
+  border-bottom: 1px solid var(--hd-border);
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
+  color: var(--hd-muted-foreground);
 }
 
 .codePath {
@@ -192,13 +175,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
 }
 
 .codeDirty {
   margin-left: auto;
   flex: none;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /*
@@ -215,8 +198,8 @@
 .codeFallback {
   margin: 0;
   padding: 8px;
-  font-family: var(--hdp-font-family-code);
-  font-size: 12px;
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
   line-height: 1.55;
   overflow-x: auto;
   white-space: pre;
@@ -231,13 +214,13 @@
 }
 
 .documentTitle {
-  font-size: 13px;
+  font-size: var(--hd-text-sm);
   font-weight: 600;
   margin-bottom: 4px;
 }
 
 .documentSection {
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 .documentSection:first-of-type {
@@ -249,21 +232,16 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 5px 0;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+ /* desk: canonical One UI System scale */
+
   text-align: left;
-  cursor: pointer;
+
 }
 
 .documentChevron {
   flex: none;
   display: inline-flex;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   transition: transform 120ms ease;
 }
 
@@ -272,8 +250,8 @@
 }
 
 .documentBody {
-  padding: 0 0 8px 18px;
-  font-size: 12.5px;
+  padding: 0 0 8px var(--hd-space-5); /* desk: canonical One UI System scale */
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   line-height: 18px;
 }
 
@@ -281,39 +259,39 @@
 
 .tableScroll {
   overflow-x: auto;
-  border: 1px solid var(--hdp-alias-border-l1);
+  border: 1px solid var(--hd-border);
   border-radius: 6px;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--hd-text-xs);
 }
 
 .tableCaption {
   caption-side: bottom;
-  padding: 5px 8px;
-  font-size: 11.5px;
-  color: var(--hdp-alias-label-tertiary);
+  padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
+  color: var(--hd-muted-foreground);
   text-align: left;
 }
 
 .tableHeader {
   position: sticky;
   top: 0;
-  padding: 5px 8px;
-  background: var(--hdp-alias-bg-layer-1);
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
+  background: var(--hd-card);
+  border-bottom: 1px solid var(--hd-border);
   font-weight: 600;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   text-align: left;
   white-space: nowrap;
 }
 
 .tableCell {
   padding: 4px 8px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
   vertical-align: top;
   overflow-wrap: anywhere;
 }
@@ -333,28 +311,21 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
 }
 
 .treeChildren {
   margin: 0;
-  padding-left: 14px;
+  padding-left: var(--hd-space-4); /* desk: canonical One UI System scale */
   list-style: none;
 }
 
 .treeRow {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   width: 100%;
-  min-height: 20px;
-  padding: 1px 4px 1px 0;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 12.5px;
+
   text-align: left;
 }
 
@@ -363,7 +334,7 @@
 }
 
 .treeRowAction:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .treeTwisty {
@@ -372,16 +343,12 @@
   align-items: center;
   justify-content: center;
   width: 14px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
-  transition: transform 120ms ease;
+
 }
 
 .treeTwistyOpen {
+  display: inline-flex;
+  transition: transform 120ms ease;
   transform: rotate(90deg);
 }
 
@@ -402,24 +369,24 @@
   flex: none;
   margin-left: auto;
   padding-left: 8px;
-  font-size: 11.5px;
-  color: var(--hdp-alias-label-tertiary);
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
+  color: var(--hd-muted-foreground);
 }
 
 /* -------------------------------------------------------------------- diff */
 
 .diff {
-  border: 1px solid var(--hdp-alias-border-l1);
+  border: 1px solid var(--hd-border);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .diffPath {
   padding: 4px 8px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  font-family: var(--hdp-font-family-code);
-  font-size: 11px;
-  color: var(--hdp-alias-label-tertiary);
+  border-bottom: 1px solid var(--hd-border);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
+  color: var(--hd-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

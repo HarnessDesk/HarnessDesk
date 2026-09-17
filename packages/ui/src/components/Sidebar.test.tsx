@@ -125,8 +125,10 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(newSessionBtn).not.toBeNull()
     expect(newSessionBtn?.disabled).toBe(true)
 
-    const worktreeBtn = container.querySelector<HTMLButtonElement>('button[title*="Connect an agent"]')
-    expect(worktreeBtn).not.toBeNull()
+    const worktreeHelp = container.querySelector<HTMLElement>('[aria-label*="Connect an agent"]')
+    expect(worktreeHelp).not.toBeNull()
+    expect(worktreeHelp?.tabIndex).toBe(0)
+    const worktreeBtn = worktreeHelp?.querySelector<HTMLButtonElement>('button')
     expect(worktreeBtn?.disabled).toBe(true)
 
     const empty = container.querySelector('p[class*="empty"]')

@@ -42,7 +42,7 @@
   overflow: hidden;
   border: var(--hd-border-width) solid var(--hd-border);
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-base);
+  background: var(--hd-background);
 }
 
 .sidebar {
@@ -53,8 +53,8 @@
   min-height: 0;
   overflow: hidden;
   background: var(--hd-sidebar-plate);
-  border-right: var(--hd-border-width) solid var(--hdp-alias-border-l1);
-  transition: width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  border-right: var(--hd-border-width) solid var(--hd-border);
+  transition: width var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .sidebar[data-hidden] {
@@ -264,7 +264,7 @@
 
 .caret {
   display: inline-flex;
-  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .caret[data-collapsed] {
@@ -282,8 +282,8 @@
   border: 2px dashed transparent;
   border-radius: var(--hd-radius);
   transition:
-    background var(--hdp-transition-duration-fast) var(--hdp-ease-in-out),
-    border-color var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+    background var(--hd-duration-fast) var(--hd-ease),
+    border-color var(--hd-duration-fast) var(--hd-ease);
 }
 
 .drop[data-over] {

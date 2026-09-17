@@ -9,9 +9,20 @@ import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
 import { Agents } from './Agents'
 import { DiffView } from './Diff'
-import { FileIcon, ReviewIcon, SearchIcon } from './Icons'
-import { IconBtn } from '../design/primitives/Kit'
-import { Counts, GroupLine, panel, PanelEmpty, PanelRow } from './Panel'
+import { FileIcon, ReviewIcon } from './Icons'
+import { Button } from '../design'
+import {
+  Counts,
+  GroupLine,
+  PanelBody,
+  PanelEmpty,
+  PanelFilter,
+  PanelFooter,
+  PanelFrame,
+  PanelPill,
+  PanelRow,
+  PanelTools,
+} from './Panel'
 import { Trajectory } from './Trajectory'
 import styles from './Details.module.css'
 
@@ -98,20 +109,11 @@ const InspectorFrame = ({
   const store = useStore()
   const session = useActiveSession()
   return (
-    <div className={panel.panel}>
-      <div className={panel.tools}>
-        <label className={panel.findBox}>
-          <SearchIcon size={13} />
-          <input
-            value={query}
-            placeholder={find}
-            spellCheck={false}
-            aria-label={find}
-            onChange={(event) => onQuery(event.target.value)}
-          />
-        </label>
+    <PanelFrame>
+      <PanelTools>
+        <PanelFilter value={query} placeholder={find} onChange={onQuery} />
         {tools}
-        <IconBtn
+        <Button variant="ghost" size="icon-sm"
           disabled={!session}
           aria-label="Export this session as Markdown"
           title="Export this session as Markdown"
@@ -122,17 +124,13 @@ const InspectorFrame = ({
           }}
         >
           <FileIcon size={14} />
-        </IconBtn>
-      </div>
+        </Button>
+      </PanelTools>
 
-      <div className={panel.body}>{children}</div>
+      <PanelBody>{children}</PanelBody>
 
-      <div className={panel.foot}>
-        {foot[0]}
-        <span className={panel.space} />
-        {foot[1]}
-      </div>
-    </div>
+      <PanelFooter left={foot[0]} right={foot[1]} />
+    </PanelFrame>
   )
 }
 
@@ -160,26 +158,24 @@ export const ChangesView = () => {
       foot={foot}
       tools={
         <>
-          <button
-            type="button"
-            className={panel.pill}
+          <PanelPill
             {...(staged ? { 'data-on': '' } : {})}
             title="Show what is staged instead of what is not"
             onClick={() => setStaged((value) => !value)}
           >
             staged
-          </button>
+          </PanelPill>
           {/* Not the panel's expand glyph, which sits directly above this one
               in the panel's own strip. That one gives this panel the room; this
               one leaves the layout entirely for the review workspace. Two ⤢ an
               inch apart, doing different things, is the reader's problem. */}
-          <IconBtn
+          <Button variant="ghost" size="icon-sm"
             aria-label="Review in a full window"
             title="Review in a full window — folders, hunks, and revise-this-hunk"
             onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:review'))}
           >
             <ReviewIcon size={14} />
-          </IconBtn>
+          </Button>
         </>
       }
     >
@@ -199,15 +195,13 @@ export const TrajectoryView = () => {
       onQuery={setQuery}
       foot={foot}
       tools={
-        <button
-          type="button"
-          className={panel.pill}
+        <PanelPill
           {...(timedOnly ? { 'data-on': '' } : {})}
           title="Show only steps the runtime timed"
           onClick={() => setTimedOnly((value) => !value)}
         >
           timed
-        </button>
+        </PanelPill>
       }
     >
       <Trajectory query={query} timedOnly={timedOnly} onFoot={onFoot} />
@@ -234,7 +228,7 @@ export const ActivityView = () => {
       query={query}
       onQuery={setQuery}
       foot={foot}
-      tools={<span className={panel.pill}>this week</span>}
+      tools={<PanelPill as="span">this week</PanelPill>}
     >
       <Activity query={query} onFoot={onFoot} />
     </InspectorFrame>
@@ -439,20 +433,20 @@ const Changes = ({
               {selected === file.path && (
                 <div className={styles.inline}>
                   <div className={styles.fileActions}>
-                    <button
+                    <Button
                       type="button"
-                      className={styles.fileAction}
+                      variant="ghost" size="sm"
                       onClick={() => store.openFile(absolute(file.path))}
                     >
                       Open
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={styles.fileAction}
+                      variant="ghost" size="sm"
                       onClick={() => revise(file.path)}
                     >
                       Revise…
-                    </button>
+                    </Button>
                   </div>
                   {fileDiff ? (
                     <DiffView diff={fileDiff} />

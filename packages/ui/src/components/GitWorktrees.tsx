@@ -8,8 +8,8 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
-import { Dialog } from '../design/primitives/Dialog'
-import { Btn, Input, Toggle } from '../design/primitives/Kit'
+import { Dialog } from '../design'
+import { Button, Input, NativeSelect, Switch } from '../design'
 import {
   BranchIcon,
   CommitIcon,
@@ -189,16 +189,16 @@ export const WorktreeDialog = ({
       onClose={() => onDone(changed)}
       footer={
         <>
-          <Btn variant="primary" disabled={busy !== null} onClick={onAdd}>
+          <Button variant="default" disabled={busy !== null} onClick={onAdd}>
             Add worktree…
-          </Btn>
-          <Btn onClick={() => onDone(changed)}>Done</Btn>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(changed)}>Done</Button>
         </>
       }
       footerAside={
         stale > 0 ? (
-          <Btn
-            small
+          <Button variant="secondary"
+            size="sm"
             disabled={busy !== null}
             title="Drop git's records of the worktrees whose folders are gone"
             onClick={() =>
@@ -207,7 +207,7 @@ export const WorktreeDialog = ({
           >
             <PruneIcon size={13} />
             {busy === 'prune' ? 'Pruning…' : `Prune ${stale} stale`}
-          </Btn>
+          </Button>
         ) : null
       }
     >
@@ -364,8 +364,8 @@ const WorktreeRow = ({
         <div className={styles.verbs}>
           {!gone && (
             <>
-              <Btn
-                small
+              <Button variant="secondary"
+                size="sm"
                 disabled={anyBusy || entry.isCurrent}
                 title={
                   entry.isCurrent
@@ -376,35 +376,35 @@ const WorktreeRow = ({
               >
                 <FolderOpenIcon size={13} />
                 Open
-              </Btn>
-              <Btn small disabled={anyBusy} title="Show the folder in Finder" onClick={onReveal}>
+              </Button>
+              <Button variant="secondary" size="sm" disabled={anyBusy} title="Show the folder in Finder" onClick={onReveal}>
                 Reveal
-              </Btn>
+              </Button>
             </>
           )}
           {!entry.isMain && (
             <>
               {entry.locked ? (
-                <Btn small disabled={anyBusy} onClick={() => onLock(false)}>
+                <Button variant="secondary" size="sm" disabled={anyBusy} onClick={() => onLock(false)}>
                   <UnlockIcon size={13} />
                   Unlock
-                </Btn>
+                </Button>
               ) : (
-                <Btn small disabled={anyBusy} onClick={() => onAsk({ kind: 'lock', reason: '' })}>
+                <Button variant="secondary" size="sm" disabled={anyBusy} onClick={() => onAsk({ kind: 'lock', reason: '' })}>
                   <LockIcon size={13} />
                   Lock…
-                </Btn>
+                </Button>
               )}
               {!gone && (
-                <Btn small disabled={anyBusy} onClick={() => onAsk({ kind: 'move', to: '' })}>
+                <Button variant="secondary" size="sm" disabled={anyBusy} onClick={() => onAsk({ kind: 'move', to: '' })}>
                   <MoveFolderIcon size={13} />
                   Move…
-                </Btn>
+                </Button>
               )}
-              <Btn small disabled={anyBusy} onClick={onLook}>
+              <Button variant="secondary" size="sm" disabled={anyBusy} onClick={onLook}>
                 <TrashIcon size={13} />
                 Remove…
-              </Btn>
+              </Button>
             </>
           )}
           {busy && <span className={styles.working}>Working…</span>}
@@ -434,9 +434,9 @@ const WorktreeRow = ({
             )}
           </span>
           <span className={styles.askDo}>
-            <Btn
-              small
-              variant="danger"
+            <Button
+              size="sm"
+              variant="destructive"
               disabled={busy || (ask.held === null && !gone)}
               onClick={() => onRemove((ask.held?.changeCount ?? 0) > 0, ask.held?.stateId)}
             >
@@ -445,10 +445,10 @@ const WorktreeRow = ({
                 : (ask.held?.changeCount ?? 0) > 0 || (ask.held?.ignoredCount ?? 0) > 0
                   ? 'Remove and discard'
                   : 'Remove'}
-            </Btn>
-            <Btn small disabled={busy} onClick={() => onAsk(null)}>
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onAsk(null)}>
               Cancel
-            </Btn>
+            </Button>
           </span>
         </div>
       ) : ask.kind === 'move' ? (
@@ -464,17 +464,17 @@ const WorktreeRow = ({
             }}
           />
           <span className={styles.askDo}>
-            <Btn
-              small
-              variant="primary"
+            <Button
+              size="sm"
+              variant="default"
               disabled={busy || ask.to.trim().length === 0}
               onClick={() => onMove(ask.to.trim())}
             >
               {busy ? 'Moving…' : 'Move'}
-            </Btn>
-            <Btn small disabled={busy} onClick={() => onAsk(null)}>
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onAsk(null)}>
               Cancel
-            </Btn>
+            </Button>
           </span>
         </div>
       ) : (
@@ -490,12 +490,12 @@ const WorktreeRow = ({
             }}
           />
           <span className={styles.askDo}>
-            <Btn small variant="primary" disabled={busy} onClick={() => onLock(true, ask.reason)}>
+            <Button size="sm" variant="default" disabled={busy} onClick={() => onLock(true, ask.reason)}>
               {busy ? 'Locking…' : 'Lock'}
-            </Btn>
-            <Btn small disabled={busy} onClick={() => onAsk(null)}>
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onAsk(null)}>
               Cancel
-            </Btn>
+            </Button>
           </span>
         </div>
       )}
@@ -603,12 +603,12 @@ export const AddWorktreeDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !ready} onClick={create}>
+          <Button variant="default" disabled={busy || !ready} onClick={create}>
             {busy ? 'Making…' : 'Create worktree'}
-          </Btn>
-          <Btn disabled={busy} onClick={() => onDone(false)}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={() => onDone(false)}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -621,18 +621,18 @@ export const AddWorktreeDialog = ({
               ['detach', 'A commit', 'Read an old state, on no branch.'],
             ] as const
           ).map(([value, label, what]) => (
-            <button
+            <Button
               key={value}
               type="button"
               role="radio"
               aria-checked={kind === value}
-              className={styles.mode}
+              variant="choice" size="row" className={styles.mode}
               {...(kind === value ? { 'data-on': '' } : {})}
               onClick={() => setKind(value)}
             >
               <span className={styles.modeName}>{label}</span>
               <span className={styles.modeWhat}>{what}</span>
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -653,8 +653,8 @@ export const AddWorktreeDialog = ({
             </label>
             <label className={styles.field}>
               <span className={styles.label}>From</span>
-              <select
-                className={styles.select}
+              <NativeSelect
+                variant="filled" controlSize="compact"
                 value={base}
                 aria-label="Where the branch starts"
                 onChange={(event) => setBase(event.target.value)}
@@ -664,7 +664,7 @@ export const AddWorktreeDialog = ({
                     {choice}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
           </>
         )}
@@ -672,8 +672,8 @@ export const AddWorktreeDialog = ({
         {kind === 'existing' && (
           <label className={styles.field}>
             <span className={styles.label}>Branch</span>
-            <select
-              className={styles.select}
+            <NativeSelect
+              variant="filled" controlSize="compact"
               value={pick}
               aria-label="Which branch to check out"
               onChange={(event) => setExisting(event.target.value)}
@@ -687,7 +687,7 @@ export const AddWorktreeDialog = ({
                   </option>
                 )
               })}
-            </select>
+            </NativeSelect>
           </label>
         )}
 
@@ -728,7 +728,7 @@ export const AddWorktreeDialog = ({
         </span>
 
         <div className={styles.switchRow}>
-          <Toggle on={andOpen} onChange={setAndOpen} label="Open it as the workspace once it is made" />
+          <Switch checked={andOpen} onCheckedChange={setAndOpen} aria-label="Open it as the workspace once it is made" />
           <span>Open it here once it is made.</span>
         </div>
 

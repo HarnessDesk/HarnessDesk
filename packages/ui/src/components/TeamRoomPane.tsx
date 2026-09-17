@@ -47,7 +47,7 @@ import {
   Input,
   ListRow,
   ListRows,
-} from '../design/ui'
+} from '../design'
 import styles from './TeamRoomPane.module.css'
 
 /**
@@ -721,9 +721,8 @@ export const TeamRoomPane = ({
               it is off, because a board where agents cannot talk is a state
               worth noticing rather than a setting to find out about later. */}
           <Button
-            variant="ghost"
+            variant={messaging ? 'muted' : 'warning'}
             size="sm"
-            className={messaging ? 'text-(--hd-muted-foreground)' : 'text-(--hd-warning-ink)'}
             title={
               messaging
                 ? 'Agents may message each other. Turn on board-only to stop messages; claims and signals continue.'
@@ -771,7 +770,11 @@ export const TeamRoomPane = ({
               still has a pane of its own for when it is the work, from the Team
               panel and the command palette. */}
           <div className={styles.railPinned}>
+            {/* `as="button"`: these two switch the pane, and nothing else in
+                the row can be tabbed to, so the row itself has to be the stop.
+                The member rows below stay divs — see the note on MemberCard. */}
             <ListRow
+              as="button"
               size="sm"
               nav
               interactive
@@ -787,6 +790,7 @@ export const TeamRoomPane = ({
               trail={<span className={styles.count}>{intents.length}</span>}
             />
             <ListRow
+              as="button"
               size="sm"
               nav
               interactive
@@ -821,15 +825,15 @@ export const TeamRoomPane = ({
           <div className={styles.railLabel}>
             <span>Agents</span>
             <span className={styles.count}>{roster.length}</span>
-            <button
+            <Button
               type="button"
-              className={styles.railAdd}
+              variant="ghost" size="icon-sm" className={styles.railAdd}
               aria-label="Add an agent to the room"
               title="Add an agent to the room"
               onClick={() => setAdding(true)}
             >
               <PlusIcon size={13} />
-            </button>
+            </Button>
           </div>
 
           {/* A filter, once the roster is longer than the eye scans in one go.
@@ -843,18 +847,19 @@ export const TeamRoomPane = ({
                 value={filter}
                 placeholder="Filter agents"
                 aria-label="Filter agents"
-                className="h-7 border-0 bg-transparent px-0 text-sm dark:bg-transparent"
+                variant="quiet"
+                controlSize="bare"
                 onChange={(event) => setFilter(event.target.value)}
               />
               {filter !== '' && (
-                <button
+                <Button
                   type="button"
                   aria-label="Clear the filter"
-                  className={styles.railFilterClear}
+                  variant="ghost" size="icon-sm" className={styles.railFilterClear}
                   onClick={() => setFilter('')}
                 >
                   <CrossIcon size={12} />
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -927,10 +932,12 @@ export const TeamRoomPane = ({
           {/* Only drawn by the narrow-room container query. The label names what
               it goes back to, because "back" alone in a pane with no history is
               a direction, not a destination. */}
-          <button type="button" className={styles.back} onClick={() => setOnRail(true)}>
-            <ArrowLeftIcon />
-            Agents
-          </button>
+          <span className={styles.back}>
+            <Button type="button" variant="quiet" size="content" onClick={() => setOnRail(true)}>
+              <ArrowLeftIcon />
+              Agents
+            </Button>
+          </span>
           {open === 'board' ? (
             <TeamBoardPane room={room} />
           ) : columns.length > 0 ? (
@@ -997,15 +1004,15 @@ export const TeamRoomPane = ({
                         </span>
                       </MemberCard>
                       {columns.length > 1 && (
-                        <button
+                        <Button
                           type="button"
-                          className={styles.columnClose}
+                          variant="ghost" size="icon-sm" className={styles.columnClose}
                           aria-label={`Stop watching ${member?.nickname ?? 'this member'}`}
                           title={`Stop watching ${member?.nickname ?? 'this member'}`}
                           onClick={() => stopWatching(key)}
                         >
                           <CrossIcon size={12} />
-                        </button>
+                        </Button>
                       )}
                     </header>
                     <div className={styles.columnBody}>
@@ -1357,13 +1364,13 @@ const MemberRow = ({
            discover a control that had not existed a moment earlier. It is one
            verb — "put this one up too" — and a verb that appears and
            disappears is a verb nobody learns. */
-        <button
+        <Button variant="reveal" size="content"
           type="button"
           /* Resting here asks about the column a pick will take — the title
              says which — not about the agent, so it summons no card and puts
              an open one away. See `AgentHoverCard`. */
           data-no-card=""
-          className="flex rounded-(--hd-radius-sm) p-1 text-(--hd-muted-foreground) opacity-0 group-hover/member:opacity-100 hover:bg-(--hd-active) hover:text-(--hd-foreground) focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+          className="flex"
           aria-label={
             replaces
               ? `Watch ${peer.nickname} in place of ${replaces}`
@@ -1388,7 +1395,7 @@ const MemberRow = ({
           }}
         >
           <PlusIcon size={13} />
-        </button>
+        </Button>
       }
     />
   )
@@ -1638,7 +1645,7 @@ const Room = ({
              a completion in it takes the plainer word, because a signal is not
              a message and a pill that says it is teaches the reader to distrust
              the count. */
-          <button type="button" className={styles.behind} onClick={toFloor}>
+          <Button type="button" variant="quiet" size="content" className={styles.behind} onClick={toFloor}>
             {behind.onlyMessages
               ? behind.rows === 1
                 ? '1 new message'
@@ -1646,7 +1653,7 @@ const Room = ({
               : behind.rows === 1
                 ? '1 new update'
                 : `${behind.rows} new updates`}
-          </button>
+          </Button>
         )}
       </div>
 

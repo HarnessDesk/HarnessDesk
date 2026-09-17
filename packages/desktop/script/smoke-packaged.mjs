@@ -109,7 +109,17 @@ const home = mkdtempSync(join(tmpdir(), 'hd-smoke-home-'))
 const profile = mkdtempSync(join(tmpdir(), 'hd-smoke-profile-'))
 const child = spawn(
   binary,
-  [`--user-data-dir=${profile}`, `--remote-debugging-port=${PORT}`],
+  [
+    `--user-data-dir=${profile}`,
+    `--remote-debugging-port=${PORT}`,
+    // A newly ad-hoc-signed bundle has a new Keychain identity on every
+    // build. Letting Chromium ask the login Keychain for its Safe Storage key
+    // can suspend app.ready behind an OS prompt before a renderer exists — the
+    // package smoke has an empty, disposable credential store and must never
+    // inspect or modify the developer's real one. Chromium's own test switch
+    // preserves the safeStorage code path with an isolated mock keychain.
+    '--use-mock-keychain',
+  ],
   { env: { ...process.env, HARNESSDESK_HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] },
 )
 let stderr = ''
@@ -168,12 +178,21 @@ try {
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {
+  const waitForExit = (timeout) => {
+    if (exited !== null) return Promise.resolve(true)
+    return Promise.race([
+      new Promise((resolve) => child.once('exit', () => resolve(true))),
+      sleep(timeout).then(() => false),
+    ])
+  }
   if (exited === null) {
     child.kill('SIGTERM')
-    await Promise.race([new Promise((resolve) => child.on('exit', resolve)), sleep(3000)])
-    if (exited === null) child.kill('SIGKILL')
+    if (!(await waitForExit(3000))) {
+      child.kill('SIGKILL')
+      await waitForExit(3000)
+    }
   }
-  rmSync(home, { recursive: true, force: true })
-  rmSync(profile, { recursive: true, force: true })
+  rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 process.exit(process.exitCode ?? 0)

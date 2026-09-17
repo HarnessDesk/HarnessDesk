@@ -36,7 +36,7 @@ body {
   /* The editor's own chrome, distinct from the pane's: a gutter that matched
      the text background made the line numbers look like content. */
   --hd-code-gutter-bg: transparent;
-  --hd-code-gutter-fg: var(--hdp-alias-label-tertiary);
+  --hd-code-gutter-fg: var(--hd-tertiary-foreground);
   --hd-code-active-line: rgba(0, 0, 0, 0.035);
   --hd-code-selection: rgba(0, 92, 197, 0.18);
   --hd-code-cursor: rgb(36, 41, 47);

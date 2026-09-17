@@ -5,11 +5,11 @@
   justify-content: center;
   min-width: 30px;
   height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--hdp-alias-border-l2);
+  padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
+  border: 1px solid var(--hd-border-strong);
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
 }
@@ -25,7 +25,7 @@
  * you read.
  */
 .putAway {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /*
@@ -38,7 +38,7 @@
   max-width: 78ch;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* The accents, as a row of colours; the one in use is ringed, not filled. */
@@ -46,34 +46,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-2);
-}
-
-.swatch {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-full);
-  box-shadow: var(--hd-hairline-soft);
-  cursor: pointer;
-  transition: transform var(--hd-duration-fast) var(--hd-ease);
-}
-
-.swatch:hover {
-  transform: scale(1.1);
-}
-
-.swatch[data-on] {
-  box-shadow:
-    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
-    0 0 0 4px var(--hd-ring);
-}
-
-.swatch:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
-    0 0 0 4px var(--hd-ring);
 }
 
 /* The name field: the width the account nickname field has, so the two Name
@@ -103,12 +75,7 @@
 .faceChoice {
   display: grid;
   place-items: center;
-  height: 56px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius);
-  background: none;
-  cursor: pointer;
+
 }
 
 .faceTile {
@@ -128,10 +95,3 @@
     0 0 0 4px var(--hd-ring);
 }
 
-.faceChoice:focus-visible {
-  outline: none;
-}
-
-.faceChoice:focus-visible .faceTile {
-  box-shadow: var(--hd-hairline), var(--hd-focus-ring);
-}

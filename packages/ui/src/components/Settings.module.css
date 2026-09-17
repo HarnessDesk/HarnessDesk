@@ -1,6 +1,7 @@
 /* What only Settings draws inside the shared window chrome (AppWindow.module.css).
-   Every control here is a Kit primitive; these are the page-specific odds and
-   ends — a model's effort chips, a skill's tile, a note under a section head. */
+   Every generic control comes from the public design API; these are the
+   page-specific odds and ends — a model's effort chips, a skill's tile, a note
+   under a section head. */
 
 /*
  * A skill's own description, as the agent wrote it. Claude Code's run to a
@@ -11,7 +12,7 @@
 .skillDesc {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -25,9 +26,9 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 5px;
+  border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
   color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   font-weight: 600;
   line-height: 1;
 }
@@ -36,14 +37,14 @@
   margin: 6px 0 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .skillActions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 14px;
+  margin-top: var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 /* A page-level search field: the same control as a row's, given the width. */
 .pageSearch {
@@ -60,9 +61,9 @@
   height: 18px;
   margin-left: 8px;
   padding: 0 6px;
-  border-radius: 5px;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
+  border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
 }
 /* A route the selected backend cannot speak: shown, not hidden, with the
@@ -71,7 +72,7 @@
   opacity: 0.55;
 }
 .extTabs {
-  margin-bottom: 14px;
+  margin-bottom: var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 /* Thinking sits among the effort chips because it is the same question asked
    as a switch: it is a property of the model, so it wears the model's accent
@@ -93,8 +94,9 @@
   align-items: center;
   height: 18px; /* desk: 22 → 18, the same tag as the Default badge beside it */
   padding: 0 6px; /* desk: 0 10px → 0 6px, with the height */
-  border-radius: 5px;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
+  border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
 }
+/* @design-owners Extensions */

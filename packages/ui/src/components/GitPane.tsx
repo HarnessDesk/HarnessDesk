@@ -23,15 +23,16 @@ import type {
   GitWorktree,
 } from '@harnessdesk/protocol'
 
-import { laneWindow, layoutGraph, GRAPH_COLORS, type GraphRow, type LaneWindow } from '../lib/git-graph'
+import { laneWindow, layoutGraph, type GraphRow, type LaneWindow } from '../lib/git-graph'
+import { GitGraph } from './GitGraph'
 import { clampColumn, GIT_COLUMNS, type GitColumnName } from '../lib/git-columns'
 import { branchTree, commitDate, inFolder, refChips, shortSha } from '../lib/git-refs'
 import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { Dialog } from '../design/primitives/Dialog'
-import { Btn, Input, Toggle } from '../design/primitives/Kit'
+import { Dialog } from '../design'
+import { Button, Input, NativeSelect, RefusedAction, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
@@ -61,7 +62,7 @@ import {
   UnlockIcon,
   WorktreeIcon,
 } from './Icons'
-import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, useContextMenu } from './Menu'
+import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, useContextMenu } from '../design'
 import { ltr, ToolPaneHeader } from './ToolPaneHeader'
 import {
   CommitDialog,
@@ -676,26 +677,26 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
     <div className={styles.frame} ref={frame}>
       <ToolPaneHeader title={folder ? `History — ${folder}` : 'History'} subtitle={shown} hint={shown}>
         {fit.rail && (
-          <button
-            type="button"
-            className={styles.headerButton}
+          <Button
+            variant={railOpen ? 'secondary' : 'ghost'}
+            size="icon-sm"
             {...(railOpen ? { 'data-on': '' } : {})}
             onClick={() => setRailOpen((value) => !value)}
             title={railOpen ? 'Hide branches, tags and stashes' : 'Show branches, tags and stashes'}
-            aria-label="Toggle the refs rail"
+            aria-label="Switch the refs rail"
           >
             <SidebarIcon size={14} />
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          className={styles.headerButton}
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => setTick((value) => value + 1)}
           title="Read the repository again"
           aria-label="Refresh history"
         >
           <RefreshIcon size={13} />
-        </button>
+        </Button>
       </ToolPaneHeader>
 
       <div className={styles.actionBar} role="toolbar" aria-label="Repository actions">
@@ -784,49 +785,38 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       {conflicted && (
         <div className={styles.troubleBar} role="status">
           <span className={styles.troubleWhat}>{conflicted.said}</span>
-          <Btn small onClick={() => setAsking(conflicted)}>
+          <Button variant="secondary" size="sm" onClick={() => setAsking(conflicted)}>
             <AgentIcon size={13} />
             Ask an agent to fix this
-          </Btn>
-          <Btn small onClick={() => store.openDetailsTab('changes')}>
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => store.openDetailsTab('changes')}>
             Open Changes
-          </Btn>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={styles.troubleClose}
+            variant="ghost" size="icon-sm" className={styles.troubleClose}
             aria-label="Dismiss"
             title="Dismiss — the conflicts stay in the tree either way"
             onClick={() => setConflicted(null)}
           >
             <CrossIcon size={12} />
-          </button>
+          </Button>
         </div>
       )}
 
       <div className={styles.tools}>
-        <div className={styles.scope} role="radiogroup" aria-label="Which branches">
-          {(
-            [
-              ['all', 'All branches'],
-              ['head', 'Current'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={scope === value}
-              className={styles.scopeTab}
-              {...(scope === value ? { 'data-on': '' } : {})}
-              onClick={() => setScope(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented<GitLogScope>
+          label="Which branches"
+          options={[
+            { value: 'all', label: 'All branches' },
+            { value: 'head', label: 'Current' },
+          ]}
+          value={scope}
+          onChange={(next) => { if (next) setScope(next) }}
+        />
         <label className={styles.find}>
           <SearchIcon size={13} />
-          <input
+          <Input
             value={query}
             placeholder="Search history"
             spellCheck={false}
@@ -834,13 +824,13 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             onChange={(event) => setQuery(event.target.value)}
           />
           {query.length > 0 && (
-            <button type="button" className={styles.findClear} aria-label="Clear the search" onClick={() => setQuery('')}>
+            <Button variant="ghost" size="icon-sm" aria-label="Clear the search" onClick={() => setQuery('')}>
               <CrossIcon size={12} />
-            </button>
+            </Button>
           )}
         </label>
-        <select
-          className={styles.searchScope}
+        <NativeSelect
+          variant="filled" controlSize="compact" className={styles.searchScope}
           value={search}
           aria-label="What the search matches"
           onChange={(event) => setSearch(event.target.value as GitLogSearch)}
@@ -849,7 +839,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <option value="author">Author</option>
           <option value="sha">Commit id</option>
           <option value="file">File</option>
-        </select>
+        </NativeSelect>
         <span className={styles.space} />
         <span className={styles.count}>
           {loading ? 'Reading…' : `${total.toLocaleString()}${hasMore ? '+' : ''} commits`}
@@ -871,11 +861,11 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
 
         <div className={styles.main}>
           {dirtyCount > 0 && !searching && (
-            <button type="button" className={styles.dirtyRow} onClick={() => store.setDetailsTab('changes')}>
+            <Button type="button" variant="row" size="row" className={styles.dirtyRow} onClick={() => store.setDetailsTab('changes')}>
               <span className={styles.dirtyDot} />
               Uncommitted changes · {dirtyCount} file{dirtyCount === 1 ? '' : 's'}
               <span className={styles.dirtyHint}>open Changes</span>
-            </button>
+            </Button>
           )}
 
           <div className={styles.head} role="row" onPointerMove={onDragMove} onPointerUp={onRelease}>
@@ -1520,22 +1510,28 @@ const ActionBtn = ({
   disabled?: string | false
   title?: string
   onClick: () => void
-}) => (
-  <button
-    type="button"
-    className={styles.action}
-    disabled={busy || Boolean(disabled)}
-    title={typeof disabled === 'string' ? disabled : (title ?? label)}
-    aria-label={label}
-    onClick={onClick}
-  >
-    {icon}
-    {words && <span>{label}</span>}
-    {badge !== undefined && badge > 0 && (
-      <span className={styles.actionBadge}>{badge > 99 ? '99+' : badge}</span>
-    )}
-  </button>
-)
+}) => {
+  const refusal = typeof disabled === 'string' ? disabled : undefined
+  return (
+    <RefusedAction reason={refusal}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.actionLayout}
+        disabled={busy || Boolean(disabled)}
+        title={refusal ? undefined : (title ?? label)}
+        aria-label={label}
+        onClick={onClick}
+      >
+        {icon}
+        {words && <span>{label}</span>}
+        {badge !== undefined && badge > 0 && (
+          <span className={styles.actionBadge}>{badge > 99 ? '99+' : badge}</span>
+        )}
+      </Button>
+    </RefusedAction>
+  )
+}
 
 /** A local branch's menu — the SourceTree set, minus what the host refuses. */
 const BranchMenu = ({
@@ -1671,7 +1667,7 @@ const CommitRow = ({
       onContextMenu={onMenu}
     >
       <span className={styles.gutter} style={{ width: gutter }}>
-        {row && gutter > 0 && <RowGraph row={row} lanes={lanes} />}
+        {row && gutter > 0 && <GitGraph row={row} lanes={lanes} rowHeight={ROW} laneWidth={LANE_W} className={styles.graph} offGraphClassName={styles.offGraph} />}
       </span>
       <span className={styles.subject}>
         {chips.map((chip) => (
@@ -1707,64 +1703,6 @@ const CommitRow = ({
   )
 }
 
-/**
- * One row's slice of the graph, drawn through the lane window.
- *
- * A lane the window left out is not drawn at all — not clipped, not stubbed.
- * Half a line is worse than no line: it reads as a branch that stops, which
- * is a thing the history could actually mean. A commit whose own lane was
- * left out still gets a mark, a hollow ring in the last column, so the row
- * says "a commit is here, on a branch this width cannot show".
- */
-const RowGraph = ({ row, lanes }: { row: GraphRow; lanes: LaneWindow }) => {
-  const x = (lane: number): number | null => {
-    const column = lanes.columnOf.get(lane)
-    return column === undefined ? null : column * LANE_W + LANE_W / 2
-  }
-  const mid = ROW / 2
-  const dot = x(row.lane)
-  return (
-    <svg className={styles.graph} width={Math.max(lanes.columns, 1) * LANE_W} height={ROW} aria-hidden="true">
-      {row.segments.map((segment, index) => {
-        const from = x(segment.from)
-        const to = x(segment.to)
-        if (from === null || to === null) return null
-        const color = `var(--lane-${segment.color % GRAPH_COLORS})`
-        if (segment.kind === 'pass') {
-          return <line key={index} x1={from} y1={0} x2={to} y2={ROW} stroke={color} />
-        }
-        if (segment.kind === 'in') {
-          return from === to ? (
-            <line key={index} x1={from} y1={0} x2={to} y2={mid} stroke={color} />
-          ) : (
-            <path key={index} d={`M ${from} 0 C ${from} ${mid} ${to} 2 ${to} ${mid}`} stroke={color} fill="none" />
-          )
-        }
-        return from === to ? (
-          <line key={index} x1={from} y1={mid} x2={to} y2={ROW} stroke={color} />
-        ) : (
-          <path
-            key={index}
-            d={`M ${from} ${mid} C ${from} ${ROW - 2} ${to} ${mid} ${to} ${ROW}`}
-            stroke={color}
-            fill="none"
-          />
-        )
-      })}
-      {dot === null ? (
-        <circle
-          className={styles.offGraph}
-          cx={Math.max(lanes.columns - 1, 0) * LANE_W + LANE_W / 2}
-          cy={mid}
-          r={3}
-          fill="none"
-        />
-      ) : (
-        <circle cx={dot} cy={mid} r={3.5} fill={`var(--lane-${row.color % GRAPH_COLORS})`} />
-      )}
-    </svg>
-  )
-}
 
 // ---------------------------------------------------------------- the rail
 
@@ -1830,10 +1768,9 @@ const RefsRail = ({
   }
 
   const branchRow = (branch: GitBranchRef, label: string, indent: boolean) => (
-    <button
+    <Button
       key={branch.name}
-      type="button"
-      className={styles.railRow}
+      type="button" variant="row" size="row" className={styles.railRow}
       {...(indent ? { 'data-indent': '' } : {})}
       {...(branch.current ? { 'data-current': '' } : {})}
       title={`${branch.name} — click to find it, double-click to check it out`}
@@ -1847,14 +1784,14 @@ const RefsRail = ({
       <span className={styles.railName}>{label}</span>
       {branch.current && <span className={styles.railHere}>HEAD</span>}
       {track(branch) && <span className={styles.railTrack}>{track(branch)}</span>}
-    </button>
+    </Button>
   )
 
   return (
     <aside className={styles.rail} aria-label="Branches, remotes, tags and stashes">
       <label className={styles.railFind}>
         <SearchIcon size={12} />
-        <input
+        <Input
           value={filter}
           placeholder="Filter refs"
           spellCheck={false}
@@ -1870,11 +1807,11 @@ const RefsRail = ({
             branchRow(entry.branch, entry.branch.name, false)
           ) : (
             <div key={`folder-${entry.name}`}>
-              <button type="button" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
+              <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
                 <ChevronIcon size={11} style={{ transform: closed.has(`b:${entry.name}`) ? undefined : 'rotate(90deg)' }} />
                 {entry.name}
                 <span className={styles.railCount}>{entry.branches.length}</span>
-              </button>
+              </Button>
               {!closed.has(`b:${entry.name}`) && entry.branches.map((branch) => branchRow(branch, inFolder(branch), true))}
             </div>
           ),
@@ -1883,17 +1820,16 @@ const RefsRail = ({
         {remotes.size > 0 && <div className={styles.railHead}>Remotes</div>}
         {[...remotes.entries()].map(([remote, list]) => (
           <div key={`remote-${remote}`}>
-            <button type="button" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
+            <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
               <ChevronIcon size={11} style={{ transform: closed.has(`r:${remote}`) ? undefined : 'rotate(90deg)' }} />
               {remote}
               <span className={styles.railCount}>{list.length}</span>
-            </button>
+            </Button>
             {!closed.has(`r:${remote}`) &&
               list.map((branch) => (
-                <button
+                <Button
                   key={`${remote}/${branch.name}`}
-                  type="button"
-                  className={styles.railRow}
+                  type="button" variant="row" size="row" className={styles.railRow}
                   data-indent=""
                   title={`${remote}/${branch.name} — click to find it`}
                   onClick={() => onJump(branch.sha)}
@@ -1903,49 +1839,46 @@ const RefsRail = ({
                 >
                   <BranchIcon size={12} />
                   <span className={styles.railName}>{branch.name}</span>
-                </button>
+                </Button>
               ))}
           </div>
         ))}
 
         {tags.length > 0 && <div className={styles.railHead}>Tags · {tags.length}</div>}
         {tags.map((tag) => (
-          <button
+          <Button
             key={`tag-${tag.name}`}
-            type="button"
-            className={styles.railRow}
+            type="button" variant="row" size="row" className={styles.railRow}
             title={`${tag.name} — click to find the commit it marks`}
             onClick={() => onJump(tag.sha)}
             onContextMenu={(event) => onMenu({ kind: 'tag', tag }, event)}
           >
             <TagIcon size={12} />
             <span className={styles.railName}>{tag.name}</span>
-          </button>
+          </Button>
         ))}
 
         {stashes.length > 0 && <div className={styles.railHead}>Stashes · {stashes.length}</div>}
         {stashes.map((stash) => (
-          <button
+          <Button
             key={stash.ref}
-            type="button"
-            className={styles.railRow}
+            type="button" variant="row" size="row" className={styles.railRow}
             title={`${stash.ref} — click to read what it holds`}
             onClick={() => onSelectSha(stash.sha)}
             onContextMenu={(event) => onMenu({ kind: 'stash', stash }, event)}
           >
             <StashIcon size={12} />
             <span className={styles.railName}>{stash.message}</span>
-          </button>
+          </Button>
         ))}
 
         {checkouts.length > 0 && <div className={styles.railHead}>Worktrees · {checkouts.length}</div>}
         {checkouts.map((entry) => {
           const folder = entry.path.split('/').filter(Boolean).at(-1) ?? entry.path
           return (
-            <button
+            <Button
               key={entry.path}
-              type="button"
-              className={styles.railRow}
+              type="button" variant="row" size="row" className={styles.railRow}
               {...(entry.isCurrent ? { 'data-current': '' } : {})}
               title={`${entry.path} — click to find what it has checked out`}
               onClick={() => entry.head && onJump(entry.head)}
@@ -1959,7 +1892,7 @@ const RefsRail = ({
               {entry.dirty !== null && entry.dirty > 0 && (
                 <span className={styles.railTrack}>{entry.dirty}</span>
               )}
-            </button>
+            </Button>
           )
         })}
       </div>
@@ -2071,24 +2004,24 @@ const CommitDetail = ({
         <dt>Commit</dt>
         <dd>
           <code>{detail.sha}</code>
-          <button
+          <Button
             type="button"
-            className={styles.cardCopy}
+            variant="ghost" size="icon-sm" className={styles.cardCopy}
             aria-label="Copy the commit id"
             title="Copy the commit id"
             onClick={() => void navigator.clipboard?.writeText(detail.sha)}
           >
             <CopyIcon size={12} />
-          </button>
+          </Button>
         </dd>
         {detail.parents.length > 0 && (
           <>
             <dt>Parents</dt>
             <dd>
               {detail.parents.map((parent) => (
-                <button key={parent} type="button" className={styles.parentLink} onClick={() => onJump(parent)}>
+                <Button key={parent} type="button" variant="link" size="content" className={styles.parentLink} onClick={() => onJump(parent)}>
                   {shortSha(parent)}
-                </button>
+                </Button>
               ))}
             </dd>
           </>
@@ -2112,10 +2045,10 @@ const CommitDetail = ({
   )
 
   const fileRow = (entry: GitCommitDetail['files'][number]) => (
-    <button
+    <Button
       key={entry.path}
       type="button"
-      className={styles.fileRow}
+      variant="row" size="row" className={styles.fileRow}
       {...(file === entry.path ? { 'data-selected': '' } : {})}
       title={entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path}
       onClick={() => setFile(wide ? entry.path : file === entry.path ? null : entry.path)}
@@ -2132,7 +2065,7 @@ const CommitDetail = ({
           <span className={styles.removed}>−{entry.removed ?? 0}</span>
         </span>
       )}
-    </button>
+    </Button>
   )
 
   return (
@@ -2160,9 +2093,9 @@ const CommitDetail = ({
         <code>{shortSha(sha)}</code>
         <span className={styles.detailTitle}>{subject}</span>
         <span className={styles.space} />
-        <button type="button" className={styles.headerButton} aria-label="Close the commit" onClick={onClose}>
+        <Button variant="ghost" size="icon-sm" aria-label="Close the commit" onClick={onClose}>
           <CrossIcon size={13} />
-        </button>
+        </Button>
       </div>
 
       {failed ? (
@@ -2185,9 +2118,9 @@ const CommitDetail = ({
                   <FileIcon size={12} />
                   <span className={styles.filePath}>{ltr(file)}</span>
                   <span className={styles.space} />
-                  <button type="button" className={styles.fileAction} onClick={() => store.openFile(absolute(file))}>
+                  <Button variant="ghost" size="sm" className={styles.fileAction} onClick={() => store.openFile(absolute(file))}>
                     Open current version
-                  </button>
+                  </Button>
                 </div>
                 {diffs.get(file) === undefined ? (
                   <div className={styles.quiet}>Reading the patch…</div>
@@ -2269,12 +2202,12 @@ const CreateBranch = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" onClick={() => void create()} disabled={busy || !name.trim()}>
+          <Button variant="default" onClick={() => void create()} disabled={busy || !name.trim()}>
             {busy ? 'Creating…' : 'Create'}
-          </Btn>
-          <Btn onClick={() => onDone(false)} disabled={busy}>
+          </Button>
+          <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -2291,7 +2224,7 @@ const CreateBranch = ({
           }}
         />
         <div className={styles.createRow}>
-          <Toggle on={checkout} onChange={setCheckout} label="Check the new branch out" />
+          <Switch checked={checkout} onCheckedChange={setCheckout} aria-label="Check the new branch out" />
           <span>Check it out too — refused if the working tree is dirty.</span>
         </div>
         {error && <div className={styles.createError}>{error}</div>}

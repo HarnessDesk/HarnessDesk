@@ -1,3 +1,4 @@
+import { Button } from '../ui/button'
 import {
   useCallback,
   useEffect,
@@ -321,7 +322,7 @@ export const DockPanelTab = ({
       )}
     </TabsTrigger>
     {onClose && (
-      <button
+      <Button variant="ghost" size="sm"
         type="button"
         aria-label={`Close ${label}`}
         title={`Close ${label}`}
@@ -389,7 +390,7 @@ export const DockPanelTab = ({
         className="relative -ml-5 inline-flex size-4 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) opacity-0 hover:bg-(--hd-hover) hover:text-(--hd-foreground) focus-visible:opacity-100 peer-data-active/tab:opacity-100 group-hover/tab:opacity-100 [&_svg]:size-3.5"
       >
         <CrossIcon />
-      </button>
+      </Button>
     )}
   </span>
 )

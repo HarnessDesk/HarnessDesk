@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Btn, Dialog, Input } from '../design'
+import { Button, Dialog, Input } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { folderName } from '../lib/projects'
 import { slugify } from '../lib/worktree-branch'
@@ -160,12 +160,12 @@ export const NewWorktree = ({
       }
       footer={
         <>
-          <Btn variant="primary" disabled={busy || problem !== null} onClick={() => void create()}>
+          <Button variant="default" disabled={busy || problem !== null} onClick={() => void create()}>
             {busy ? 'Opening…' : 'Start in a new worktree'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -209,8 +209,8 @@ export const NewWorktree = ({
         {branches !== null && branches.length >= FILTER_FROM && (
           <div className={styles.search}>
             <SearchIcon size={13} className={styles.searchIcon} />
-            <input
-              className={styles.filter}
+            <Input
+              variant="quiet" controlSize="compact" className={styles.filter}
               placeholder={`Search ${folder} branches`}
               value={query}
               spellCheck={false}
@@ -226,12 +226,12 @@ export const NewWorktree = ({
             </p>
           )}
           {shown.map((entry) => (
-            <button
+            <Button
               key={entry.name}
               type="button"
               role="radio"
               aria-checked={entry.name === base}
-              className={styles.branch}
+              variant="row" size="row" className={styles.branch}
               {...(entry.name === base ? { 'data-selected': '' } : {})}
               onClick={() => setBase(entry.name)}
             >
@@ -239,7 +239,7 @@ export const NewWorktree = ({
               <span className={styles.branchName}>{entry.name}</span>
               {entry.current && <span className={styles.here}>current</span>}
               {entry.name === base && <CheckIcon size={13} className={styles.tick} />}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

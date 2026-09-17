@@ -7,14 +7,12 @@
  * has already happened, so the drift is a number that can be driven to zero
  * instead of a feeling that things look a bit inconsistent.
  *
- * It reports; it does not fail. The findings below are the state of the app
- * as it stands, and fixing them is a migration to be done deliberately —
- * `--strict` fails on anything worse than the recorded baseline, which is how
- * this becomes a gate once the burn-down starts.
+ * It reports by default. In strict mode every category must be zero; a saved
+ * baseline is schema documentation, never permission to carry design debt.
  *
  *   node script/design-audit.mjs            report
- *   node script/design-audit.mjs --strict   fail if worse than the baseline
- *   node script/design-audit.mjs --baseline rewrite the baseline
+ *   node script/design-audit.mjs --strict   fail on any finding
+ *   node script/design-audit.mjs --baseline record zero only after a clean scan
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -25,10 +23,27 @@ import { resolveTokens } from './design-tokens.mjs'
 import { attributes, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
+import { repositoryFiles } from './lib/repository-files.mjs'
+import { overlayViolations } from './ui-architecture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
 const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
+
+/**
+ * Categories that start above zero and are only allowed to fall.
+ *
+ * The rest of the audit is at zero and stays there, which is right for drift
+ * that has already been paid off. It is the wrong shape for debt being worked
+ * down: a category that starts at 126 cannot be gated on zero without either
+ * failing every build or being left out of the gate entirely, and left out is
+ * how 34 raw type sizes and 126 re-declared patterns accumulated unseen.
+ *
+ * So these carry a recorded ceiling instead. Going up fails. Going *down*
+ * also fails, with the fix being `--baseline` — because a ratchet that is not
+ * tightened is a ceiling nobody is under.
+ */
+const BURN_DOWN = new Set(['rawType', 'patternClass'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -40,16 +55,20 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * a burn-down while nothing had been fixed.
  */
 const UI_SRC = path.join(root, 'packages/ui/src')
+const tracked = new Set(repositoryFiles(root).map((file) => path.join(root, file)))
 
 /**
  * The foundation is not a screen, and must not be audited as one.
  *
- * `styles/` and the `design/` root are where tokens are declared — that is
- * their entire job, and `forkedToken` exists to stop a *screen* doing it. The
- * platform stylesheet in `styles/` is vendored besides, so its raw values are
- * upstream's to spell.
+ * `styles/` and `design/foundation/` are where tokens and theme presets are
+ * declared — that is their entire job. Canonical components, patterns, the
+ * catalog, and showcase are deliberately not excluded: moving a literal into
+ * the design directory must never make a finding disappear.
  */
-const NOT_UI = new Set([path.join(UI_SRC, 'styles'), path.join(UI_SRC, 'design')])
+const NOT_UI = new Set([
+  path.join(UI_SRC, 'styles'),
+  path.join(UI_SRC, 'design', 'foundation'),
+])
 
 /**
  * Found, not listed.
@@ -68,6 +87,7 @@ const uiDirs = (dir) => {
     entries.some(
       (e) =>
         e.isFile() &&
+        tracked.has(path.join(dir, e.name)) &&
         (e.name.endsWith('.module.css') || (e.name.endsWith('.tsx') && !e.name.includes('.test.'))),
     )
   ) {
@@ -83,7 +103,26 @@ const uiDirs = (dir) => {
 
 const DIRS = uiDirs(UI_SRC)
 
-const read = (file) => fs.readFileSync(file, 'utf8')
+/** One source snapshot per audit, including absent optional imports. */
+export const createSourceCache = (readFile = (file) => fs.readFileSync(file, 'utf8')) => {
+  const sources = new Map()
+  return (file) => {
+    if (!sources.has(file)) {
+      try { sources.set(file, readFile(file)) }
+      catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        sources.set(file, null)
+      }
+    }
+    return sources.get(file)
+  }
+}
+const sourceOf = createSourceCache()
+const read = (file) => {
+  const source = sourceOf(file)
+  if (source === null) throw new Error(`Missing source file: ${file}`)
+  return source
+}
 /** Where a finding is, said the way a person would look for it. */
 const label = (file) => path.relative(path.join(root, 'packages/ui/src'), file)
 const filesIn = (suffix, reject = () => false) =>
@@ -92,7 +131,7 @@ const filesIn = (suffix, reject = () => false) =>
       .readdirSync(dir)
       .filter((name) => name.endsWith(suffix) && !reject(name))
       .map((name) => path.join(dir, name)),
-  )
+  ).filter((file) => tracked.has(file))
 const cssFiles = () => filesIn('.css')
 const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 
@@ -128,7 +167,25 @@ const findings = {
   crossImport: [],
   rawColour: [],
   arbitraryUtility: [],
+  rawType: [],
+  patternClass: [],
 }
+
+/**
+ * The shapes a screen keeps re-declaring instead of composing.
+ *
+ * Counted from the tree, not chosen: `.row` in eighteen stylesheets, `.body`
+ * in sixteen, `.list` in fourteen. Each one already has a component in
+ * `design/`, and `.head` beside `.header` is the tell — two spellings of one
+ * idea means nobody could have shared it even if they wanted to.
+ */
+const PATTERN_STEMS = new Set([
+  'row', 'head', 'header', 'note', 'list', 'empty', 'field',
+  'title', 'label', 'body', 'page', 'foot', 'name',
+])
+
+/** A screen's own stylesheet, as opposed to the system's. */
+const isScreenSheet = (file) => /\/(components|slots|panels)\//.test(file)
 
 /**
  * Controls sitting in a slot whose meaning the design system has fixed.
@@ -158,10 +215,28 @@ const findings = {
  * swapping the icon set must not change a chart. The rule this file enforces
  * is "one place decides what a symbol looks like"; a sparkline has no symbol.
  */
-const ICON_MODULES = new Set(['Icons.tsx', 'BrandIcons.tsx', 'spark.tsx'])
+const ICON_MODULES = new Set([
+  'Icons.tsx',
+  'BrandIcons.tsx',
+  'spark.tsx',
+  // Data marks and illustrations are not glyphs. They remain local because
+  // their paths are the content being rendered, not a replaceable icon set.
+  'chart.tsx',
+  'AppearancePreview.tsx',
+  'GitGraph.tsx',
+])
 
-/** Where the primitives live: the one place allowed to define an overlay. */
-const PRIMITIVES = path.join(root, 'packages/ui/src/design/primitives')
+/** Existing screen families only, capped at eleven additional owners. An
+ * annotation documents membership; it cannot grant a new exception. See
+ * AGENTS.md rule 11. Shared generic UI still belongs in design/. */
+export const STYLESHEET_OWNERS = Object.freeze({
+  'components/Conversation.module.css': ['components/TurnTail.tsx'],
+  'components/Items.module.css': ['components/MessageActions.tsx', 'components/StepGroup.tsx'],
+  'components/Plugins.module.css': ['components/PluginsSection.tsx'],
+  'components/Settings.module.css': ['components/Extensions.tsx'],
+  'components/Sidebar.module.css': ['components/SessionTree.tsx'],
+  'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/FilePane.tsx', 'components/PreviewPane.tsx', 'components/TerminalPane.tsx', 'components/ToolPaneHeader.tsx'],
+})
 
 /** The space steps the system offers, as plain numbers. */
 const tokens = resolveTokens({ root })
@@ -181,6 +256,40 @@ const RADIUS = new Set(
 for (const file of cssFiles()) {
   const name = label(file)
   const css = bare(read(file))
+
+  // Type written out rather than named. `offGrid` and `rawRadius` already do
+  // this for space and shape; type had no check at all, which is how 11px,
+  // 11.5px and 12.5px reached the tree while the scale said four steps.
+  if (isScreenSheet(file)) {
+    for (const match of css.matchAll(/font-size:\s*([^;]+);/g)) {
+      const value = match[1].trim()
+      /*
+       * `em` is a ratio, not a size. Inline code inside prose is 0.875 of
+       * whatever it sits in, so it follows a heading down and a caption up; a
+       * fixed step would freeze it against its own paragraph. The scale is for
+       * absolute type, and this is the one place the app is right not to use
+       * it — all three occurrences now agree on the same ratio.
+       */
+      if (/var\(--hd|inherit|100%|em\b|--prose/.test(value)) continue
+      findings.rawType.push(`${name}: font-size: ${value}`)
+    }
+    /*
+     * Once per sheet per pattern, not once per class.
+     *
+     * `.rowWrap`, `.rowHead`, `.rowBody`, `.rowTitle` and `.rowMeta` in one
+     * stylesheet are a single row's anatomy, not five duplicated patterns —
+     * counting each of them would make renaming `.rowTitle` to
+     * `.sessionTitle` read as progress, which is worse than the drift. What
+     * is actually being counted is "this screen declares a row of its own",
+     * and eighteen screens do.
+     */
+    const declared = new Set()
+    for (const match of css.matchAll(/^\.([A-Za-z][A-Za-z0-9]*)/gm)) {
+      const stem = (/^[a-z]+/.exec(match[1]) ?? [])[0]
+      if (stem && PATTERN_STEMS.has(stem)) declared.add(stem)
+    }
+    for (const stem of [...declared].sort()) findings.patternClass.push(`${name}: .${stem}*`)
+  }
 
   // Spacing that is not a step of the scale.
   for (const match of css.matchAll(/(padding|margin|gap)(-[a-z]+)?:\s*([^;]+);/g)) {
@@ -268,9 +377,9 @@ for (const file of cssFiles()) {
 // it styled completely unstyled, silently, with nothing failing. Nobody finds
 // that except by looking at the screen. Every reference is checked against the
 // classes its stylesheet actually declares.
-const classesOf = (cssPath) => {
+const classesOf = (source) => {
   const names = new Set()
-  for (const hit of bare(read(cssPath)).matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)) names.add(hit[1])
+  for (const hit of bare(source).matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)) names.add(hit[1])
   return names
 }
 
@@ -294,10 +403,17 @@ export const sheetsOf = (dir, file, name, source, uiSrc) => {
   // The whole source: `stylesheetImports` strips comments itself, and is the one that has to (review of #183, round 7).
   for (const { binding, file: spec } of stylesheetImports(source, file, { strict: true })) {
     const sheet = resolveStylesheet(dir, spec, uiSrc)
-    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
-    if (!ownsStylesheet(file, sheet)) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
     const target = path.join(dir, sheet)
-    if (fs.existsSync(target)) sheets.set(binding, { file: sheet, classes: classesOf(target) })
+    const css = sourceOf(target)
+    const declaredOwners = css !== null
+      ? /@design-owners\s+([^\n*]+)/.exec(css)?.[1]?.split(',').map((owner) => owner.trim()) ?? []
+      : []
+    const cappedOwners = STYLESHEET_OWNERS[path.relative(uiSrc, target).split(path.sep).join('/')] ?? []
+    const declared = declaredOwners.includes(path.basename(file, path.extname(file)))
+      && cappedOwners.includes(path.relative(uiSrc, file).split(path.sep).join('/'))
+    // As written, so the finding greps back to its line; resolved beside it when an alias made them differ.
+    if (!ownsStylesheet(file, sheet) && !declared) crossImports.push(`${name} imports ${spec}${spec === sheet ? '' : ` (${sheet})`}`)
+    if (css !== null) sheets.set(binding, { file: sheet, classes: classesOf(css) })
   }
   return { sheets, crossImports }
 }
@@ -427,20 +543,11 @@ for (const file of tsxFiles()) {
   const dir = path.dirname(file)
   const source = read(file)
 
-  // An overlay built beside the system rather than out of it.
-  //
-  // This is the rule the audit could not previously catch, and the one that
-  // cost the most: `aria-modal` outside `design/primitives` means a screen has
-  // answered where the buttons go, what Escape does, what a click outside
-  // does and where focus returns — five decisions, made again, and usually at
-  // least one of them made by omission.
-  //
-  // The recorded baseline is the four surfaces that are deliberately not
-  // dialogs. It is a ceiling, not a target: a fifth is new drift.
+  // Shared structural policy covers both raw dialog attributes and low-level
+  // parts, including aliased imports. Canonical patterns own overlay policy;
+  // AppWindow is the exact specialized composition recorded in that policy.
   const code = codeOf(file)
-  if (dir !== PRIMITIVES && /aria-modal/.test(code)) {
-    findings.handRolledOverlay.push(`${name}: aria-modal outside design/primitives`)
-  }
+  for (const detail of overlayViolations(path.relative(root, file).split(path.sep).join('/'), source)) findings.handRolledOverlay.push(`${name}: ${detail}`)
 
   // An icon drawn in place rather than imported.
   if (!ICON_MODULES.has(path.basename(file)) && /<svg[\s>]/.test(code)) {
@@ -501,6 +608,13 @@ const counts = Object.fromEntries(SECTIONS.map(([key]) => [key, findings[key].le
 const total = Object.values(counts).reduce((sum, n) => sum + n, 0)
 
 if (process.argv.includes('--baseline')) {
+  const strictTotal = SECTIONS
+    .filter(([key]) => !BURN_DOWN.has(key))
+    .reduce((sum, [key]) => sum + counts[key], 0)
+  if (strictTotal !== 0) {
+    console.error(`Refusing to record a non-zero design baseline (${strictTotal} findings). Fix the drift first.`)
+    process.exit(1)
+  }
   fs.writeFileSync(BASELINE, `${JSON.stringify(counts, null, 2)}\n`)
   console.log('baseline written:', counts)
   process.exit(0)
@@ -514,9 +628,8 @@ const verbose = process.argv.includes('--verbose')
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 /**
- * Compares current audit counts against baseline counts.
- * Throws or returns validation problems if baseline values are non-numeric,
- * and reports whether any section grew worse.
+ * Validates the zero baseline and reports any current finding. A non-zero
+ * baseline is itself invalid: debt cannot be accepted by editing the ledger.
  */
 export const compareBaseline = (counts, baseline) => {
   const problems = []
@@ -540,7 +653,40 @@ export const compareBaseline = (counts, baseline) => {
       continue
     }
     const current = counts[key] ?? 0
-    if (current > was) {
+    if (BURN_DOWN.has(key)) {
+      if (current > was) {
+        worse = true
+        problems.push({
+          key,
+          title,
+          was,
+          current,
+          fix,
+          message: `${title}: ${was} -> ${current}. This category may only fall.`,
+        })
+      } else if (current < was) {
+        worse = true
+        problems.push({
+          key,
+          title,
+          was,
+          current,
+          fix: 'Record the lower ceiling: node script/design-audit.mjs --baseline',
+          message: `${title}: ${was} -> ${current}. Tighten the ceiling so it cannot drift back.`,
+        })
+      }
+      continue
+    }
+    if (was !== 0) {
+      problems.push({
+        key,
+        title,
+        was,
+        message: `Baseline value for '${key}' must be zero, received ${was}`,
+      })
+      worse = true
+    }
+    if (current > 0) {
       worse = true
       problems.push({
         key,
@@ -548,7 +694,7 @@ export const compareBaseline = (counts, baseline) => {
         was,
         current,
         fix,
-        message: `${title}: ${was} -> ${current}. New drift is not accepted.`,
+        message: `${title}: ${current}. The strict design gate requires zero.`,
       })
     }
   }

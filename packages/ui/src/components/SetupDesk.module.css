@@ -7,7 +7,7 @@
   width: min(520px, 100%);
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--hdp-alias-border-l2);
+  border: 1px solid var(--hd-border-strong);
   border-radius: 10px;
   overflow: hidden;
   text-align: left;
@@ -17,11 +17,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 10px var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 
 .row + .row {
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 .rowMark {
@@ -32,7 +32,7 @@
   width: 24px;
   height: 24px;
   border-radius: 6px;
-  background: var(--hdp-alias-bg-module-platform);
+  background: var(--hd-muted);
 }
 
 .rowText {
@@ -50,7 +50,7 @@
   min-width: 0;
   font-size: var(--hd-text);
   font-weight: 500;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* Only duplicate brands need this identity; a lone agent keeps its plain
@@ -62,8 +62,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-xs);
   font-weight: 400;
   white-space: nowrap;
@@ -71,7 +71,7 @@
 
 .rowState {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   overflow-wrap: anywhere;
 }
 
@@ -81,20 +81,5 @@
 
 .foot {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-}
-
-.footLink {
-  padding: 0;
-  border: none;
-  /* A link, not a box: the radius exists for the focus ring alone. */
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  font: inherit;
-  color: var(--hd-accent);
-  cursor: pointer;
-}
-
-.footLink:hover {
-  text-decoration: underline;
+  color: var(--hd-secondary-foreground);
 }

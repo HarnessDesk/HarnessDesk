@@ -17,26 +17,18 @@
   gap: var(--hd-space-2);
   font-size: var(--hd-text-sm);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .area {
   width: 100%;
-  padding: var(--hd-space-2);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-primary);
-  background: var(--hdp-alias-bg-base);
-  border: 1px solid var(--hdp-alias-border-l1);
-  border-radius: var(--hd-radius-sm);
-  resize: vertical;
+
 }
 
 .hint {
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* What one member will read, shown before anything goes out. */
@@ -45,13 +37,13 @@
   max-height: 12rem;
   overflow: auto;
   padding: var(--hd-space-2);
-  border: 1px solid var(--hdp-alias-border-l1);
+  border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-base);
+  background: var(--hd-background);
   font: inherit;
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   white-space: pre-wrap;
   word-break: break-word;
 }

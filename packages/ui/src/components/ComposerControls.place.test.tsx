@@ -19,7 +19,7 @@ import { PlaceControl } from './ComposerControls'
 
 // PlaceControl renders neither primitive, but ComposerControls imports them
 // through the full design barrel.
-vi.mock('../design', () => ({ Btn: () => null, Dialog: () => null }))
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -174,7 +174,7 @@ it('says why a folder with no repository has no worktree, rather than hiding the
 
   open()
   const unavailable = row('New worktree')
-  expect(unavailable?.disabled).toBe(true)
+  expect(unavailable?.getAttribute('aria-disabled')).toBe('true')
   expect(unavailable?.textContent).toContain('Worktrees need a git repository.')
 })
 
@@ -226,7 +226,7 @@ it('offers the main checkout from a worktree of it, which the managed-only list 
   open()
   const home = row('Main checkout')
   expect(home).toBeDefined()
-  expect(home?.disabled).toBe(false)
+  expect(home?.getAttribute('aria-disabled')).toBe('false')
   click(home!)
 
   expect(store.startDraftIn).toHaveBeenCalledWith({ kind: 'existing', path: MAIN.path, branch: 'main' })
@@ -258,18 +258,18 @@ it('greys a place whose folder the app has proof is gone, rather than dropping i
   rig({ workspace: IN_TREE, worktrees: CHECKOUTS, foldersGone: new Map([[MAIN.path, SAID]]) })
 
   open()
-  expect(row('Main checkout')?.disabled).toBe(true)
+  expect(row('Main checkout')?.getAttribute('aria-disabled')).toBe('true')
   expect(row('Main checkout')?.textContent).toContain(SAID)
   // The control: one question, asked of each row's own folder and no other.
-  expect(row('harnessdesk/promo')?.disabled).toBe(false)
+  expect(row('harnessdesk/promo')?.getAttribute('aria-disabled')).toBe('false')
 })
 
 it('asks that of the worktrees under it too, not only of the main checkout', () => {
   rig({ workspace: IN_TREE, worktrees: CHECKOUTS, foldersGone: new Map([[SIBLING, SAID]]) })
 
   open()
-  expect(row('harnessdesk/promo')?.disabled).toBe(true)
-  expect(row('Main checkout')?.disabled).toBe(false)
+  expect(row('harnessdesk/promo')?.getAttribute('aria-disabled')).toBe('true')
+  expect(row('Main checkout')?.getAttribute('aria-disabled')).toBe('false')
 })
 
 it('calls the main checkout by its own name when it is on a detached HEAD', () => {

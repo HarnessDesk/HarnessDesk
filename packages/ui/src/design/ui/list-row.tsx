@@ -65,6 +65,21 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * beside it filled with the brand, which read as two apps in one window.
    */
   nav?: boolean
+  /*
+   * What the row *is*, which `interactive` deliberately does not say.
+   *
+   * `interactive` is the promise that pressing does something; it is not the
+   * claim that the row is a control in the tab order, and the two come apart.
+   * The room's rail needs the first without the second: its rows sit inside a
+   * hover-card trigger with `openOnFocus={false}`, so a focusable row would be
+   * a stop whose card never opens — `TeamRoomPane.test.tsx` fails the day that
+   * changes, and it is right to.
+   *
+   * A destination list wants both. Saying so is the caller's job, because only
+   * the caller knows whether the keyboard reaches this row here or through
+   * something inside it.
+   */
+  as?: 'div' | 'button'
 }
 
 const ListRow = ({
@@ -78,16 +93,23 @@ const ListRow = ({
   size = 'default',
   selected,
   nav,
+  as = 'div',
   ...props
-}: ListRowProps) => (
-  <div
+}: ListRowProps) => {
+  /* The props are the div's; `button` is the narrower element and JSX
+     cannot resolve the union on its own. */
+  const Element = as as 'div'
+  return (
+  <Element
     data-slot="list-row"
+    {...(as === 'button' ? { type: 'button' as const } : {})}
     /* `aria-current` rather than a class alone: a screen reader moving down a
        roster is told which conversation is open, which is the whole reason the
        row looks different. */
     {...(selected ? { 'aria-current': 'true' as const } : {})}
     className={cn(
       'flex items-center',
+      as === 'button' && 'w-full text-left',
       size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-3 px-4 py-2.5',
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
@@ -150,8 +172,9 @@ const ListRow = ({
         {trail}
       </div>
     )}
-  </div>
-)
+  </Element>
+  )
+}
 
 /**
  * The rows together.

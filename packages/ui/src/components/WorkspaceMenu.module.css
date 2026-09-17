@@ -3,20 +3,20 @@
 
 .confirm {
   width: 250px;
-  padding: 8px 9px 9px;
+  padding: 8px var(--hd-space-2) var(--hd-space-2); /* desk: canonical One UI System scale */
 }
 
 .confirmTitle {
   font-size: var(--hd-text);
   font-weight: 500;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .confirmText {
-  margin-top: 3px;
+  margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .confirmActions {
@@ -24,28 +24,4 @@
   justify-content: flex-end;
   gap: 6px;
   margin-top: 10px;
-}
-
-.button {
-  height: 26px;
-  padding: 0 11px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l3);
-  color: inherit;
-  font-size: var(--hd-text);
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.buttonDanger {
-  background: var(--hd-danger);
-  box-shadow: none;
-  color: var(--hd-destructive-foreground); /* desk: #fff → the ink named for this fill */
-  font-weight: 500;
 }

@@ -10,7 +10,7 @@ import {
   DockPanelTabs,
   PanelSeam,
 } from '../patterns/DockPanel'
-import { Btn } from '../primitives/Kit'
+import { Button } from '..'
 import {
   AgentIcon,
   BranchIcon,
@@ -165,7 +165,7 @@ export const PanelPlayground = () => {
           <span className={styles.hint}>everything is docked</span>
         ) : (
           undocked.map((kind) => (
-            <Btn
+            <Button variant="secondary"
               key={kind}
               onClick={() =>
                 setWorkbench((current) =>
@@ -174,7 +174,7 @@ export const PanelPlayground = () => {
               }
             >
               {STUBS[kind]?.label}
-            </Btn>
+            </Button>
           ))
         )}
         <span className={styles.spacer} />
@@ -182,13 +182,13 @@ export const PanelPlayground = () => {
             because a page for reviewing behaviour should not hide half of it
             behind something you have to be told about. */}
         <span className={styles.hint}>Expand fills</span>
-        <Btn onClick={() => setScope('content')} {...(scope === 'content' ? { 'data-on': '' } : {})}>
+        <Button variant="secondary" onClick={() => setScope('content')} {...(scope === 'content' ? { 'data-on': '' } : {})}>
           the content area
-        </Btn>
-        <Btn onClick={() => setScope('window')} {...(scope === 'window' ? { 'data-on': '' } : {})}>
+        </Button>
+        <Button variant="secondary" onClick={() => setScope('window')} {...(scope === 'window' ? { 'data-on': '' } : {})}>
           the window
-        </Btn>
-        {zoom && <Btn onClick={() => setWorkbench((c) => zoomArea(c, zoom.area, zoom.scope))}>Reset zoom</Btn>}
+        </Button>
+        {zoom && <Button variant="secondary" onClick={() => setWorkbench((c) => zoomArea(c, zoom.area, zoom.scope))}>Reset zoom</Button>}
       </div>
 
       <div className={styles.window} {...(dragging ? { 'data-dragging': '' } : {})}>
@@ -494,7 +494,7 @@ const Stack = ({
               the split rather than to the area. */}
           {shown && stack.views.length > 1 && (
             <>
-              <button
+              <Button variant="ghost" size="sm"
                 type="button"
                 className={styles.action}
                 title="Show this beside the others"
@@ -502,8 +502,8 @@ const Stack = ({
                 onClick={() => setWorkbench((c) => splitDock(c, shown.id, 'row'))}
               >
                 <SplitIcon size={13} />
-              </button>
-              <button
+              </Button>
+              <Button variant="ghost" size="sm"
                 type="button"
                 className={styles.action}
                 title="Show this below the others"
@@ -511,10 +511,10 @@ const Stack = ({
                 onClick={() => setWorkbench((c) => splitDock(c, shown.id, 'column'))}
               >
                 <SplitDownIcon size={13} />
-              </button>
+              </Button>
             </>
           )}
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             className={styles.action}
             title={zoomed ? 'Back to the layout' : `Fill ${scope === 'window' ? 'the window' : 'the content area'}`}
@@ -522,8 +522,8 @@ const Stack = ({
             onClick={() => setWorkbench((c) => zoomArea(c, area, scope))}
           >
             {zoomed ? <RestoreIcon size={13} /> : <ExpandIcon size={13} />}
-          </button>
-          <button
+          </Button>
+          <Button variant="ghost" size="sm"
             type="button"
             className={styles.action}
             title={collapsed ? 'Show this panel' : 'Collapse to the tabs'}
@@ -533,7 +533,7 @@ const Stack = ({
             <span className={styles.caret} data-collapsed={collapsed ? '' : undefined}>
               <CaretIcon size={13} />
             </span>
-          </button>
+          </Button>
         </DockPanelActions>
       </DockPanelBar>
       {!collapsed && (

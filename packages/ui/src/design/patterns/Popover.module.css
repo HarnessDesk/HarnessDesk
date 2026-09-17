@@ -4,16 +4,21 @@
   min-width: 0;
 }
 
+.anchor[data-full-width],
+.anchor[data-full-width] > button {
+  width: 100%;
+}
+
 .trigger {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--hd-space-1);
   height: 26px;
   padding: 0 8px;
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-sm);
   cursor: pointer;
   white-space: nowrap;
@@ -30,12 +35,15 @@
 
 .trigger:hover,
 .trigger[data-open] {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
+}
+
+.positioner {
+  z-index: var(--hd-z-popover);
 }
 
 .panel {
-  position: fixed;
   /* A floating panel is never a handle for moving the window. Electron's
      drag region is geometric, not a matter of ancestry: the pane strip and
      the conversation header each contribute one draggable rectangle, and a
@@ -54,20 +62,20 @@
   max-width: calc(100vw - 2 * var(--hd-space-2));
   /* The height is the window's to give: set at open time from the room under
      the trigger (`Popover.tsx`). Only a window shorter than the menu scrolls. */
+  max-height: max(120px, var(--available-height, calc(100vh - 16px)));
   overflow-y: auto;
   padding: 4px;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-surface-fill);
   box-shadow:
     0 8px 28px rgba(0, 0, 0, 0.18),
-    inset 0 0 0 1px var(--hdp-alias-border-l2);
-  z-index: 60;
+    inset 0 0 0 1px var(--hd-border-strong);
 }
 
 .groupLabel {
   padding: 8px 8px 4px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .option {
@@ -75,7 +83,7 @@
   align-items: flex-start;
   gap: 10px;
   width: 100%;
-  padding: 7px 10px;
+  padding: var(--hd-space-2) 10px;
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
@@ -85,7 +93,7 @@
 }
 
 .option:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 .option:disabled {
@@ -114,7 +122,7 @@
   flex: none;
   display: inline-flex;
   width: 18px;
-  margin-top: 3px;
+  margin-top: var(--hd-space-1);
 }
 
 .optionCheck {
@@ -122,7 +130,7 @@
 }
 
 .optionIcon {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .optionBody {
@@ -140,7 +148,7 @@
   display: block;
   font-size: var(--hd-text-sm);
   line-height: 17px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* A row whose view has something still going — set after the label, on its
@@ -151,7 +159,7 @@
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-left: 7px;
+  margin-left: var(--hd-space-2);
   border-radius: 50%;
   background: var(--hd-success);
   vertical-align: middle;
@@ -169,17 +177,17 @@
 
 .trigger[data-tone='warn']:hover,
 .trigger[data-tone='alert']:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 /* Model reads as the subject, effort as its qualifier. */
 .strong {
   font-weight: 500;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .dim {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .filterInput {
@@ -187,10 +195,10 @@
   width: calc(100% - 20px);
   height: 26px;
   padding: 0 8px;
-  border: 1px solid var(--hdp-alias-border-l1);
+  border: 1px solid var(--hd-border);
   border-radius: 6px;
-  background: var(--hdp-alias-bg-layer-0, var(--hdp-alias-bg-layer-1));
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-background, var(--hd-card));
+  color: var(--hd-foreground);
   font-size: var(--hd-text);
   outline: none;
 }
@@ -203,13 +211,13 @@
    with the command set in the same mono the banners use. */
 .updateNote {
   margin-top: 4px;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .updateNote code {
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   padding: 1px 4px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-skeleton);
+  background: var(--hd-skeleton);
 }

@@ -7,7 +7,7 @@ import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, t
 import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { dismissOverlays } from './Popover'
+import { dismissOverlays } from '../design'
 import { AccountFooter } from './Sidebar'
 
 /**
@@ -118,7 +118,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
 }
 
 const row = (): HTMLButtonElement => {
-  const found = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+  const found = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
   if (!found) throw new Error('no seat row')
   return found
 }
@@ -146,15 +146,15 @@ it('is the desk, wearing the default agent — not the account, and not the conv
 it('ticks the default in the menu, chooses on a seat’s press, and signs out of the default agent', () => {
   const { selectRuntime } = mount()
   click(row())
-  const ticked = container.querySelector('[role="menuitem"][data-current]')
+  const ticked = document.querySelector('[role="menuitem"][data-current]')
   expect(ticked?.textContent).toContain('Shane-Claude')
   // Sign-out is the default agent's, not the focused conversation's.
-  expect(container.textContent).toContain('Sign out of Claude')
-  expect(container.textContent).not.toContain('Sign out of Codex')
+  expect(document.body.textContent).toContain('Sign out of Claude')
+  expect(document.body.textContent).not.toContain('Sign out of Codex')
   if (!ticked) throw new Error('no current seat')
   click(ticked)
 
-  const codexSeat = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+  const codexSeat = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('shane'),
   )
   if (!codexSeat) throw new Error('no Codex seat in the menu')
@@ -166,7 +166,7 @@ it('keeps the menu on the current account until the picker is opened', () => {
   const { selectRuntime } = mount()
   click(row())
 
-  const menu = container.querySelector('[role="menu"]')
+  const menu = document.querySelector('[role="menu"]')
   expect(menu?.textContent).toContain('Shane-Claude')
   expect(menu?.textContent).not.toContain('shane@example.com')
 
@@ -174,8 +174,27 @@ it('keeps the menu on the current account until the picker is opened', () => {
   if (!current) throw new Error('no current account')
   click(current)
 
-  expect(container.querySelector('[role="menu"]')?.textContent).toContain('shane@example.com')
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('shane@example.com')
   expect(selectRuntime).not.toHaveBeenCalled()
+})
+
+it('enters the canonical menu with ArrowDown and returns focus on Escape', () => {
+  mount()
+  const trigger = row()
+  act(() => {
+    trigger.focus()
+  })
+  click(trigger)
+  act(() => {
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  })
+
+  expect(document.activeElement?.getAttribute('role')).toMatch(/^menuitem/)
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.activeElement).toBe(trigger)
 })
 
 it('expands Usage remaining inline and lists the current account windows', () => {
@@ -186,7 +205,7 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   mount({ usage: [report] })
   click(row())
 
-  const usage = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('Usage remaining'),
   )
   if (!usage) throw new Error('no Usage remaining row')
@@ -194,8 +213,8 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   click(usage)
 
   expect(usage.getAttribute('aria-expanded')).toBe('true')
-  expect(container.querySelector('[data-usage-details]')?.textContent).toContain('Session')
-  expect(container.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
+  expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
+  expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
 })
 
 it('resets expanded account and usage state when the trigger closes and reopens the menu', () => {
@@ -206,21 +225,21 @@ it('resets expanded account and usage state when the trigger closes and reopens 
   mount({ usage: [report] })
   click(row())
 
-  const current = container.querySelector('[data-current]')
+  const current = document.querySelector('[data-current]')
   if (!current) throw new Error('no current account')
   click(current)
-  const usage = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('Usage remaining'),
   )
   if (!usage) throw new Error('no Usage remaining row')
   click(usage)
-  expect(container.querySelector('[data-usage-details]')).not.toBeNull()
+  expect(document.querySelector('[data-usage-details]')).not.toBeNull()
 
   click(row())
-  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 
   click(row())
-  const reopened = container.querySelector('[role="menu"]')
+  const reopened = document.querySelector('[role="menu"]')
   expect(reopened?.textContent).not.toContain('shane@example.com')
   expect(reopened?.querySelector('[data-current]')).not.toBeNull()
   const reopenedUsage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
@@ -246,20 +265,20 @@ it.each([
 
   const expand = () => {
     click(row())
-    const current = container.querySelector('[data-current]')
+    const current = document.querySelector('[data-current]')
     if (!current) throw new Error('no current account')
     click(current)
-    const usage = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+    const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
       item.textContent?.includes('Usage remaining'),
     )
     if (!usage) throw new Error('no Usage remaining row')
     click(usage)
-    expect(container.querySelector('[data-usage-details]')).not.toBeNull()
+    expect(document.querySelector('[data-usage-details]')).not.toBeNull()
   }
 
   const reopenCollapsed = () => {
     click(row())
-    const reopened = container.querySelector('[role="menu"]')
+    const reopened = document.querySelector('[role="menu"]')
     expect(reopened?.textContent).not.toContain('shane@example.com')
     expect(reopened?.querySelector('[data-current]')).not.toBeNull()
     const usage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
@@ -270,12 +289,12 @@ it.each([
   }
 
   expand()
-  const item = [...container.querySelectorAll('[role="menuitem"]')].find((candidate) =>
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find((candidate) =>
     candidate.textContent?.includes(_label),
   )
   if (!item) throw new Error(`no ${_label} row`)
   click(item)
-  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
   if (callback === 'settings') expect(onOpenSettings).toHaveBeenCalled()
   if (callback === 'usage') expect(onOpenUsage).toHaveBeenCalled()
   if (callback === 'signIn') expect(onSignIn).toHaveBeenCalled()
@@ -288,20 +307,20 @@ it('closes when something takes the screen, and a sign-out it was asking about i
      confirmed — measured in a real engine. */
   mount()
   click(row())
-  const ask = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+  const ask = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('Sign out of'),
   )
   if (!ask) throw new Error('no sign-out row')
   click(ask)
-  expect(container.textContent).toContain('need to sign in again')
+  expect(document.body.textContent).toContain('need to sign in again')
 
   act(() => dismissOverlays())
-  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 
   click(row())
-  expect(container.querySelector('[role="menu"]')).not.toBeNull()
-  expect(container.textContent).toContain('Sign out of')
-  expect(container.textContent).not.toContain('need to sign in again')
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
+  expect(document.body.textContent).toContain('Sign out of')
+  expect(document.body.textContent).not.toContain('need to sign in again')
 })
 
 it('Escape closes the menu and says so, so a sidebar floating under it stays', () => {
@@ -311,7 +330,7 @@ it('Escape closes the menu and says so, so a sidebar floating under it stays', (
   act(() => {
     document.dispatchEvent(event)
   })
-  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(event.defaultPrevented).toBe(true)
 })
 
@@ -333,6 +352,7 @@ it('opens the account’s card from the badge, and the card offers no switch to 
   if (!trigger) throw new Error('the badge is not a card trigger')
   act(() => {
     trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -360,16 +380,16 @@ it('an agent that keeps its own credential wears no ring and is not dimmed for i
   expect(badge?.hasAttribute('data-off')).toBe(false)
   expect(badge?.hasAttribute('data-tint')).toBe(false)
   click(seat)
-  const current = container.querySelector('[role="menuitem"][data-current]')
+  const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const item = [...container.querySelectorAll('[role="menuitem"]')].find((el) => /^Cline/.test(el.textContent?.trim() ?? ''))
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) => /^Cline/.test(el.textContent?.trim() ?? ''))
   expect(item?.textContent).toContain('Ready')
   const disc = item?.querySelector('[data-slot="hover-card-trigger"] > span')
   expect(disc?.hasAttribute('data-off')).toBe(false)
   expect(disc?.hasAttribute('data-tint')).toBe(false)
   // and an account that is signed in still wears its ring
-  const claudeItem = [...container.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent?.includes('Shane-Claude'))
+  const claudeItem = [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent?.includes('Shane-Claude'))
   expect(claudeItem?.querySelector('[data-slot="hover-card-trigger"] > span')?.getAttribute('data-tint')).toBeTruthy()
 })
 
@@ -380,19 +400,20 @@ it('a card that was open when the menu took the seat does not come back when the
   if (!trigger) throw new Error('the badge is not a card trigger')
   act(() => {
     trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
   })
   expect(document.querySelector('[data-slot="agent-card"]')).not.toBeNull()
   click(row())
-  expect(container.querySelector('[role="menu"]')).not.toBeNull()
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
   expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
   click(row())
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
   expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
 })
 
@@ -419,6 +440,7 @@ it('the badge card’s Usage verb opens the dashboard on that agent', () => {
   const trigger = row().querySelector('[data-slot="hover-card-trigger"]')
   act(() => {
     trigger?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger?.dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -456,16 +478,17 @@ it('a seat inside the menu offers Usage too, on the same account as the badge be
     )
   })
   click(row())
-  const current = container.querySelector('[role="menuitem"][data-current]')
+  const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const codexSeat = [...container.querySelectorAll('[role="menuitem"]')].find((item) =>
+  const codexSeat = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('shane@example.com'),
   )
   const trigger = codexSeat?.querySelector('[data-slot="hover-card-trigger"]')
   if (!trigger) throw new Error('no card trigger on the menu seat')
   act(() => {
     trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -500,13 +523,13 @@ it('draws the house mark until a face is chosen', () => {
 it('opens your profile from the top of the menu', () => {
   const { onOpenSettings } = mount({ profile: { name: 'Jane' } })
   click(row())
-  const you = container.querySelector('[role="menu"] [role="menuitem"]')
+  const you = document.querySelector('[role="menu"] [role="menuitem"]')
   if (!you) throw new Error('no menu')
   expect(you.textContent).toContain('Jane')
   expect(you.textContent).toContain('Local')
   click(you)
   expect(onOpenSettings).toHaveBeenCalledWith('profile')
-  expect(container.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
 /** jsdom lays nothing out, so a width is whatever the test says it is. */
@@ -537,7 +560,7 @@ it('says your whole name on hover only where the row cuts it', () => {
   expect(row().getAttribute('title')).toMatch(/^New sessions run as /)
 
   click(row())
-  const menu = container.querySelector<HTMLElement>('[role="menu"] [class*="youLabel"]')
+  const menu = document.querySelector<HTMLElement>('[role="menu"] [class*="youLabel"]')
   if (!menu) throw new Error('no menu label')
   sized(menu, 320, 120)
   hover(menu)

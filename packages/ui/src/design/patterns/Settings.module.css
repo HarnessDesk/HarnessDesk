@@ -16,7 +16,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--hdp-alias-label-tertiary);
+  background: var(--hd-muted-foreground);
 }
 
 .dot[data-state='ready'] {
@@ -39,7 +39,7 @@
    would claim there was. */
 .dot[data-state='available'] {
   background: none;
-  box-shadow: inset 0 0 0 1.5px var(--hdp-alias-border-l3);
+  box-shadow: inset 0 0 0 1.5px var(--hd-border-emphasis);
 }
 
 .chip {
@@ -48,13 +48,13 @@
   align-items: center;
   gap: 6px;
   height: var(--hd-chip-h);
-  padding: 0 9px 0 7px;
+  padding: 0 var(--hd-space-2) 0 var(--hd-space-2);
   border-radius: var(--hd-chip-radius);
   font-size: var(--hd-text-xs);
   line-height: 1;
   white-space: nowrap;
   background: var(--hd-chip-fill);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .chip[data-state='ready'] {
@@ -93,9 +93,9 @@
   min-width: 0;
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
   padding: 0 var(--hd-space-2-5);
-  border: var(--hd-border-width) solid var(--hdp-alias-border-l2); /* desk: border-strong → border-l2, the field's own edge */
+  border: var(--hd-border-width) solid var(--hd-border-strong); /* desk: border-strong → border-l2, the field's own edge */
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
-  background: var(--hdp-alias-bg-layer-1); /* desk: --hd-input → layer-1, the field's own ground */
+  background: var(--hd-card); /* desk: --hd-input → layer-1, the field's own ground */
   box-shadow: var(--hd-input-shadow);
   color: var(--hd-foreground);
   font-family: inherit;
@@ -107,7 +107,7 @@
 }
 
 .input::placeholder {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* `:focus`, not `:focus-visible` — a text field earns its ring from a click
@@ -168,10 +168,10 @@
    works on every variant. */
 .btn:hover:not(:disabled) {
   background-image: linear-gradient(
-    var(--hdp-alias-interactive-bg-hover),
-    var(--hdp-alias-interactive-bg-hover)
+    var(--hd-hover),
+    var(--hd-hover)
   );
-  border-color: var(--hdp-alias-border-l3);
+  border-color: var(--hd-border-emphasis);
 }
 
 .btn:disabled {
@@ -224,11 +224,11 @@
   border-color: transparent;
   background-color: transparent;
   box-shadow: none;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .btn[data-variant='quiet']:hover:not(:disabled) {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* The destructive button, reading the same two names the shadcn spelling
@@ -264,13 +264,13 @@
   border: none;
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
   background: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   cursor: pointer;
 }
 
 .iconBtn:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-hover);
+  color: var(--hd-secondary-foreground);
 }
 
 /* The picker wears the input; only the caret and the room for it are its own. */
@@ -283,7 +283,7 @@
 .select {
   appearance: none;
   width: auto;
-  padding-right: 28px;
+  padding-right: var(--hd-space-8);
   cursor: pointer;
 }
 
@@ -293,7 +293,7 @@
   right: 9px;
   transform: translateY(-50%);
   pointer-events: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   display: inline-grid;
   place-items: center;
 }
@@ -312,7 +312,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .search > svg {
@@ -322,7 +322,7 @@
 }
 
 .search .input {
-  padding-left: calc(var(--hd-space-2-5) * 2 + 14px);
+  padding-left: calc(var(--hd-space-2-5) * 2 + var(--hd-space-4));
 }
 
 .search input::-webkit-search-cancel-button {
@@ -353,13 +353,13 @@
 .formLabel {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .formHint {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .formError {
@@ -374,7 +374,7 @@
   max-width: 62ch;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .formStack + .note {
@@ -393,7 +393,7 @@
   display: inline-flex;
   padding: var(--hd-seg-pad);
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
-  background: var(--hdp-alias-bg-module-platform);
+  background: var(--hd-muted);
 }
 
 /*
@@ -418,18 +418,18 @@
  */
 .segItem {
   height: calc(var(--hd-field-h) - var(--hd-seg-trim, var(--hd-seg-pad))); /* desk: 24 → 26 */
-  padding: 0 11px;
+  padding: 0 var(--hd-space-3);
   border: none;
   border-radius: calc(var(--hd-radius-md) - 2px); /* desk: 4 → 6, with the track */
   background: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-seg-text); /* desk: 13 → 12, the small rung's label */
   cursor: pointer;
 }
 
-.segItem[data-on] {
-  background: var(--hdp-alias-bg-layer-1);
-  color: var(--hdp-alias-label-primary);
+.segItem[data-pressed] {
+  background: var(--hd-card);
+  color: var(--hd-foreground);
   box-shadow: var(--hd-shadow-sm);
 }
 
@@ -454,7 +454,7 @@
  * greys and a track a pixel short of a pill. The 2026-08-29 pass consolidated
  * them to one; the 2026-08-30 pass moved that one to `design/ui/switch.tsx`,
  * where it is the shadcn Base UI switch wearing the app's own measured sizes.
- * `Kit.Switch` and `Kit.Toggle` are now the two mountings and nothing else.
+ * `Switch` and `Toggle` are the two canonical mountings and nothing else.
  *
  * The off-state grey survived the move as `--hd-toggle-track`, which is what
  * the consolidation had settled on; the knob was already `--hd-toggle-knob`.
@@ -466,7 +466,7 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 26px;
+  margin-bottom: var(--hd-space-6);
 }
 
 .pageHeadText {
@@ -491,7 +491,7 @@
   max-width: 62ch; /* desk: none → 62ch, a reading measure */
   font-size: var(--hd-text-sm); /* desk: 14 → 13, the support size */
   line-height: var(--hd-line-sm); /* desk: 21 → 18, with the size */
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .pageCtl {
@@ -522,7 +522,7 @@
   flex: 1;
   font-size: var(--hd-text-sm); /* desk: 16 → 13, a label over a card */
   font-weight: var(--hd-weight-medium);
-  color: var(--hdp-alias-label-secondary); /* desk: primary → secondary ink */
+  color: var(--hd-secondary-foreground); /* desk: primary → secondary ink */
 }
 
 /*
@@ -565,6 +565,7 @@
    adds the affordance. */
 .rowButton {
   width: 100%;
+  border-radius: 0;
   border: none;
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
   background: none;
@@ -575,7 +576,7 @@
 }
 
 .rowButton:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  background: var(--hd-hover);
 }
 
 /* Column, not row: the title and its description are two lines, and a flex
@@ -595,11 +596,22 @@
   font-weight: var(--hd-weight-medium);
 }
 
+/* One line, always.
+   A row's second line is a caption, not content: at two lines the rows stop
+   scanning as a list and a page of twelve settings becomes a page of prose.
+   Clamping here rather than shortening each string is what also holds for the
+   descriptions this app did not write — a plugin's summary comes from its own
+   manifest, and three of them ran to two lines whatever we do to our own copy.
+   The full text stays reachable: the row's `title` carries it on hover, and a
+   plugin's page has room for the paragraph. */
 .rowDesc {
   margin-top: 1px;
+  overflow: hidden;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rowCtl {
@@ -613,7 +625,7 @@
    nothing to decide. */
 .rowFixed {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowMark {
@@ -622,15 +634,15 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l1);
+  border-radius: var(--hd-radius-md);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+  box-shadow: inset 0 0 0 1px var(--hd-border);
 }
 
 .rowChev {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   display: inline-grid;
   place-items: center;
 }
@@ -642,29 +654,29 @@
 .backLink {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--hd-space-2);
   height: 26px;
-  margin: 0 0 14px -8px;
-  padding: 0 9px;
+  margin: 0 0 var(--hd-space-4) -8px;
+  padding: 0 var(--hd-space-2);
   border: none;
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
   background: none;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   font: inherit;
   font-size: var(--hd-text-sm);
   cursor: pointer;
 }
 
 .backLink:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
 }
 
 .detailHead {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
-  margin-bottom: 26px;
+  gap: var(--hd-space-4);
+  margin-bottom: var(--hd-space-6);
 }
 
 .detailMark {
@@ -673,10 +685,10 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l1);
+  border-radius: var(--hd-radius-lg);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+  box-shadow: inset 0 0 0 1px var(--hd-border);
 }
 
 .detailText {
@@ -687,7 +699,7 @@
 .detailName {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: var(--hd-space-2);
   font-size: var(--hd-heading); /* desk: 24 → 20, the same step as a page title */
   line-height: 26px; /* desk: 30 → 26, with the size */
   font-weight: 600;
@@ -697,7 +709,7 @@
 .detailOwner {
   font-size: var(--hd-text-sm);
   font-weight: 400;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .detailBlurb {
@@ -705,7 +717,7 @@
   max-width: 62ch; /* desk: 68ch → 62ch, the page blurb's measure */
   font-size: var(--hd-text-sm); /* desk: 14 → 13, the support size */
   line-height: var(--hd-line-sm); /* desk: 21 → 18 */
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .detailCtl {
@@ -723,7 +735,7 @@
   align-items: center;
   gap: 8px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .mono {
@@ -736,18 +748,18 @@
 .wire {
   font-family: var(--hd-font-code);
   font-size: 12px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .field {
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
   min-width: 0;
   padding: 0 10px;
-  border: 1px solid var(--hdp-alias-border-l2);
+  border: 1px solid var(--hd-border-strong);
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow: var(--hd-input-shadow);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   font: inherit;
   font-size: var(--hd-text);
   outline: none;
@@ -770,9 +782,9 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
 .avatar[data-tint='blue'] {
@@ -823,7 +835,7 @@
 .avatar[data-shape='square'] {
   overflow: hidden;
   border-radius: var(--hd-radius-sm);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .avatar[data-shape='square'][data-size='m'] {

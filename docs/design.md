@@ -7,7 +7,7 @@ generated from the code; this document holds the reasoning behind the rules no
 token can capture.
 
 The tokens live in
-[`packages/ui/src/design/tokens.css`](../packages/ui/src/design/tokens.css), the
+[`packages/ui/src/design/foundation/tokens.css`](../packages/ui/src/design/foundation/tokens.css), the
 foundation layer; `app.css` is bundled last and keeps only the brand globals.
 Use them. A raw `font-size: 12.5px` or literal colour in a component is how the
 app ended up with ten sizes and no scale.
@@ -125,21 +125,20 @@ Horizontal button padding is solved against cap height (1.1–1.35 × cap):
 controls (inputs and selects) share the 30px rung via `--hd-field-h:
 var(--hd-btn-h)` so form rows line up across buttons and fields.
 
-Two button idioms exist, and they share one set of numbers: the shadcn `Button`
-in `design/ui/button.tsx` for new and rebuilt surfaces, and `Btn` in
-`design/primitives/Kit.tsx` for settings-surface primitives. Both read the same
-`--hd-btn-*` tokens, pinned by `button.test.tsx`. The variants speak shadcn's
-vocabulary, with Kit's older names aliased:
+One button implementation exists: `Button` in `design/ui/button.tsx`. Every
+surface, including Settings, consumes it through `design/index.ts`; its
+`--hd-btn-*` contracts are pinned by `button.test.tsx`. The retired Kit aliases
+do not remain as a second public vocabulary:
 
 | variant | where |
 | --- | --- |
-| `secondary` / *(none)* | the ordinary action, and the default answer (grey frame) |
-| `default` / `primary` | the one action a group exists for — at most one per group (ink fill) |
+| `secondary` | the ordinary action (grey frame) |
+| `default` | the one action a group exists for — at most one per group (ink fill) |
 | `outline` | bordered action on a transparent ground |
-| `ghost` / `quiet` | no frame until hover, for an action that repeats down a list |
-| `destructive` / `danger` | does the irreversible thing, red on the label only |
+| `ghost` | no frame until hover, for an action that repeats down a list |
+| `destructive` | does the irreversible thing, red on the label only |
 
-Two rules keep `destructive` / `danger` meaning something:
+Two rules keep `destructive` meaning something:
 
 1. A button that only opens a confirmation is ordinary — the red belongs on the
    step that cannot be taken back.
@@ -208,7 +207,8 @@ read in the interface's face. They are names, whatever produced them.
 Two uses of the code face survive in components, and both are the rule rather
 than an exception to it:
 
-1. A JSON value in `SchemaForm` (rendered with `kit.wire`), which is output.
+1. A JSON value in `SchemaForm` (rendered with the canonical `WireText` pattern),
+   which is output.
 2. A slash command in `TriggerMenu` (`.nameMono`), which is something you type.
 
 Inline code inside a sentence is a `<code>` element, not `.mono`, so it picks up
@@ -372,7 +372,7 @@ view menus. One string, one edit, multiple surfaces.
 
 Two of this app's row vocabularies are involved:
 
-- `MenuItem` in `packages/ui/src/components/Menu.tsx` takes `hint` and `title`
+- `MenuItem` in `packages/ui/src/design/patterns/Menu.tsx` takes `hint` and `title`
   as separate props. `MenuToggle` takes `hint` (and populates `title` from
   `disabled` when given a refusal string).
 - Older popover rows in `Conversation.tsx` and `Composer.tsx` build the same
@@ -456,3 +456,25 @@ When adding a control, row or surface to HarnessDesk:
   design usually breaks. Watch for opaque hover fills in particular — the
   platform's solid hover equals the raised-control fill in dark mode, so a hover
   painted with it does nothing at night.
+
+### Where a change belongs
+
+One place per kind of change. If a change needs two of these rows, it is two
+changes.
+
+| change | canonical source |
+| --- | --- |
+| Every button and icon-button contract | `packages/ui/src/design/ui/button.tsx` |
+| Every Settings row/group/page contract | `packages/ui/src/design/patterns/Settings.tsx` and its CSS module |
+| All density, spacing, typography, radius, focus, and semantic colours | `packages/ui/src/design/foundation/tokens.css` |
+| Generic dialog mechanics and focus/portal behaviour | `packages/ui/src/design/ui/dialog.tsx` |
+| Modal, confirmation, approval and lightbox policy | `packages/ui/src/design/patterns/ModalDialog.tsx`, `ConfirmDialog.tsx`, `ApprovalDialog.tsx` and `Lightbox.tsx` |
+| Disabled or refused actions and their focusable explanation | `packages/ui/src/design/patterns/RefusedAction.tsx` |
+| Menus and popovers | `packages/ui/src/design/patterns/Menu.tsx` and `Popover.tsx`, over `design/ui` |
+| CodeMirror and xterm theme integration | `packages/ui/src/design/adapters/` |
+| Public imports | `packages/ui/src/design/index.ts` |
+| The live component catalogue | `packages/ui/src/design/catalog/` and `packages/ui/src/design/explorer/` |
+
+`pnpm design` serves `/design.html`, where foundation, primitives, patterns and
+the product surfaces are all rendered from the production modules — so the page
+is the check on whether a change actually landed everywhere it claims to.

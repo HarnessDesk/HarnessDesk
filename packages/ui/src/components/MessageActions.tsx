@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 
 import { instant } from '../lib/clock'
 import { useSessionKey, useStore } from '../state/context'
+import { Button } from '../design'
 import { CheckIcon, CopyIcon, RetryIcon, ThumbsDownIcon, ThumbsUpIcon } from './Icons'
 import styles from './Items.module.css'
 
@@ -52,44 +53,40 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
 
   return (
     <div className={styles.actions} {...(copied || vote ? { 'data-sticky': '' } : {})}>
-      <button
-        type="button"
-        className={styles.action}
+      <Button
+        variant="quiet" size="content" className={styles.action}
         onClick={copy}
         aria-label="Copy this message"
         title="Copy"
       >
         {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-      </button>
-      <button
-        type="button"
-        className={styles.action}
+      </Button>
+      <Button
+        variant="quiet" size="content" className={styles.action}
         {...(vote === 'up' ? { 'data-on': '' } : {})}
         onClick={() => setVote(vote === 'up' ? null : 'up')}
         aria-label="Mark this response as good"
         title="Good response"
       >
         <ThumbsUpIcon size={13} />
-      </button>
-      <button
-        type="button"
-        className={styles.action}
+      </Button>
+      <Button
+        variant="quiet" size="content" className={styles.action}
         {...(vote === 'down' ? { 'data-on': '' } : {})}
         onClick={() => setVote(vote === 'down' ? null : 'down')}
         aria-label="Mark this response as poor"
         title="Poor response"
       >
         <ThumbsDownIcon size={13} />
-      </button>
-      <button
-        type="button"
-        className={styles.action}
+      </Button>
+      <Button
+        variant="quiet" size="content" className={styles.action}
         onClick={retry}
         aria-label="Ask the agent to try again"
         title="Try again"
       >
         <RetryIcon size={13} />
-      </button>
+      </Button>
       {copied && <span className={styles.actionLabel}>Copied</span>}
       {vote === 'down' && <span className={styles.actionLabel}>Marked for review</span>}
       {!copied && vote !== 'down' && when !== null && (

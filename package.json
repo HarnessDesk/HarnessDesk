@@ -58,6 +58,9 @@
     "design:audit": "node script/design-audit.mjs",
     "design:doc": "node script/design-doc.mjs",
     "design": "pnpm --filter @harnessdesk/ui run dev",
+    "test:ui-system": "playwright test -c playwright.ui-system.config.ts",
+    "test:ui-system:install": "playwright install chromium",
+    "test:ui-system:native": "node e2e/ui-system/native-smoke.mjs",
     "layering": "node script/check-layering.mjs",
     "check:fixes": "node script/check-half-applied-fixes.mjs",
     "icons": "node script/build-icons.mjs",
@@ -65,6 +68,8 @@
     "dsh:compare": "node script/dsh-compare.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
     "@types/node": "^22.13.0",
     "typescript": "^5.7.3"
   },

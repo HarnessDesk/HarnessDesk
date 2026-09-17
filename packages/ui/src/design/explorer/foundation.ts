@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import tokensCss from '../tokens.css?raw'
+import tokensCss from '../foundation/tokens.css?raw'
 
 /**
  * A foundation is a set of token overrides — and so is a theme.

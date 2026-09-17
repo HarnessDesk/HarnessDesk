@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
@@ -47,15 +48,15 @@ export const GoalBar = () => {
       <span className={styles.goalStatus} data-status={goal.status}>
         {STATUS_LABEL[goal.status] ?? goal.status}
       </span>
-      <button
+      <Button
         type="button"
-        className={styles.goalClear}
+        variant="ghost" size="icon-sm" className={styles.goalClear}
         aria-label="Clear goal"
         title="Clear this goal"
         onClick={() => void store.setGoal(null)}
       >
         <CrossIcon size={11} />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -170,10 +171,10 @@ export const Deliverables = () => {
       <DiffIcon size={12} />
       {files.length} file{files.length === 1 ? '' : 's'} changed
       {files.slice(0, 8).map((file) => (
-        <button
+        <Button
           key={file.path}
           type="button"
-          className={styles.deliverable}
+          variant="row" size="row" className={styles.deliverable}
           title={file.path}
           onClick={() => {
             if (snapshot.detailsTab !== 'changes') store.setDetailsTab('changes')
@@ -183,7 +184,7 @@ export const Deliverables = () => {
           {relative(file.path).split('/').pop()}
           {file.added > 0 && <span className={styles.deliverableAdded}>+{file.added}</span>}
           {file.removed > 0 && <span className={styles.deliverableRemoved}>−{file.removed}</span>}
-        </button>
+        </Button>
       ))}
       {files.length > 8 && <span>and {files.length - 8} more</span>}
     </div>

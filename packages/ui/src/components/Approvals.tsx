@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
@@ -6,6 +7,7 @@ import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } fr
 import { wholeFileOf } from '../lib/diff'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
+import { ApprovalDialog, type ApprovalDialogAction } from '../design'
 import styles from './Approvals.module.css'
 
 /**
@@ -135,10 +137,9 @@ const UserInputBody = ({
         <p className={styles.questionText}>{question.question}</p>
         <div className={styles.choices}>
           {question.options.map((option) => (
-            <button
+            <Button
               key={option.id}
-              type="button"
-              className={styles.choice}
+              type="button" variant="choice" size="row" className={styles.choice}
               {...(answers[question.id]?.includes(option.id) ? { 'data-selected': '' } : {})}
               onClick={() => onAnswer(question.id, option.id)}
             >
@@ -148,7 +149,7 @@ const UserInputBody = ({
                   <span className={styles.choiceHint}>{option.description}</span>
                 )}
               </span>
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -177,33 +178,11 @@ export const Approvals = () => {
   const TITLES = titles(runtime.presentation.name)
   const title = approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
+  const scope = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setAnswers({})
   }, [approval?.id])
-
-  const surface = useRef<HTMLDivElement>(null)
-
-  // An approval interrupts, so the window's attention moves onto the card and
-  // goes back to whatever the user was doing once it is answered.
-  //
-  // Not for the shortcuts — those are answered on the window below and never
-  // depended on this. It is for Tab and the screen reader, which until now
-  // started at the top of the window rather than at the question; and it takes
-  // the caret out of a composer the user has stopped looking at, where the
-  // digit they typed next would have answered the approval instead.
-  //
-  // Only in the focused pane. A background pane renders its approval too, and
-  // an agent asking over there must not pull the caret out of the conversation
-  // you are typing in.
-  useEffect(() => {
-    if (!approval || !focused) return
-    const returnTo = document.activeElement as HTMLElement | null
-    // The surface, not a button: landing on one means a stray Return answers
-    // a question nobody read — and here the answer runs a command.
-    surface.current?.focus()
-    return () => returnTo?.focus?.()
-  }, [approval?.id, focused])
 
   const options: readonly ApprovalOption[] = useMemo(
     () =>
@@ -261,7 +240,7 @@ export const Approvals = () => {
       // window makes the pane inert, and the keys are the sidebar's then —
       // Escape puts it away rather than denying a command nobody can see, and
       // a digit typed into its filter is a digit, not an answer.
-      if (surface.current?.closest('[inert]')) return
+      if (scope.current?.closest('[inert]')) return
       if (event.key === 'Escape') {
         event.preventDefault()
         const deny = options.find((option) => option.intent === 'deny') ?? options[options.length - 1]
@@ -281,16 +260,32 @@ export const Approvals = () => {
 
   if (!approval) return null
 
-  return (
-    <div className={styles.backdrop} role="dialog" aria-modal="true" aria-label={title}>
-      <div className={styles.dialog} ref={surface} tabIndex={-1}>
-        <div className={styles.header}>
-          <AlertIcon className={styles.headerIcon} />
-          <span className={styles.title}>{title}</span>
-          {mine.length > 1 && <span className={styles.queue}>1 of {mine.length}</span>}
-        </div>
+  const actions: ApprovalDialogAction[] = [
+    ...options.filter((option) => option.intent === 'deny' || option.intent === 'cancel'),
+    ...options
+      .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
+      .sort(approvingLast),
+  ].map((option) => ({
+    id: option.id,
+    label: option.label,
+    description: option.description,
+    icon: INTENT_ICON[option.intent],
+    shortcut: options.indexOf(option) + 1,
+    placement: option.intent === 'deny' || option.intent === 'cancel' ? 'safe' : 'proceed',
+    tone: option.intent === 'deny' ? 'destructive' : 'default',
+    onSelect: () => choose(option),
+  }))
 
-        <div className={styles.body}>
+  return (
+    <ApprovalDialog
+      ref={scope}
+      title={title}
+      icon={<AlertIcon />}
+      queue={mine.length > 1 ? `1 of ${mine.length}` : undefined}
+      focused={focused}
+      focusKey={approval.id}
+      actions={actions}
+    >
           {approval.type === 'command' && <CommandBody approval={approval} />}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
           {approval.type === 'permission' && <PermissionBody approval={approval} />}
@@ -319,45 +314,6 @@ export const Approvals = () => {
               <pre className={styles.command}>{JSON.stringify(approval.schema, null, 2)}</pre>
             </>
           )}
-        </div>
-
-        <div className={styles.footer}>
-          {options
-            .filter((option) => option.intent === 'deny' || option.intent === 'cancel')
-            .map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={styles.button}
-                data-intent={option.intent}
-                onClick={() => choose(option)}
-                title={option.description}
-              >
-                {INTENT_ICON[option.intent]}
-                {option.label}
-                <span className={styles.shortcut}>{options.indexOf(option) + 1}</span>
-              </button>
-            ))}
-          <span className={styles.spacer} />
-          {options
-            .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
-            .sort(approvingLast)
-            .map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={styles.button}
-                data-intent={option.intent === 'approve' ? 'approve' : undefined}
-                onClick={() => choose(option)}
-                title={option.description}
-              >
-                {INTENT_ICON[option.intent]}
-                {option.label}
-                <span className={styles.shortcut}>{options.indexOf(option) + 1}</span>
-              </button>
-            ))}
-        </div>
-      </div>
-    </div>
+    </ApprovalDialog>
   )
 }

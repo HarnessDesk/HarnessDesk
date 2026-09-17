@@ -146,7 +146,7 @@ const BoardColumn = ({
          than how wide the pane is. The two are the same question on a board
          of one column and a very different one on a board of five inside a
          room's right half. */
-      '@container/board-column flex w-[280px] min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
+      '@container/board-column flex w-(--hd-board-column-width) min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
       'border border-(--hd-border-strong) bg-(--hd-muted) p-2.5',
       className,
     )}

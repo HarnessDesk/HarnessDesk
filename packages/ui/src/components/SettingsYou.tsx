@@ -16,19 +16,19 @@ import {
 } from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
-  Btn,
+  Button,
   DetailHead,
   Face,
   Input,
-  kit,
+  RowValue,
   PageHead,
   Row,
   Rows,
   SectionHead,
   Segmented,
-  Select,
-  Toggle,
-} from '../design/primitives/Kit'
+  NativeSelect,
+  Switch,
+} from '../design'
 import styles from './SettingsYou.module.css'
 
 /**
@@ -125,9 +125,9 @@ export const ProfileSection = () => {
         blurb="Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."
         actions={
           isDefaultProfile(live) ? undefined : (
-            <Btn variant="outline" onClick={reset}>
+            <Button variant="outline" onClick={reset}>
               Reset to default
-            </Btn>
+            </Button>
           )
         }
       />
@@ -263,7 +263,7 @@ const FacePicker = ({
       {FACE_CHOICES.map((choice, index) => {
         const on = index === current
         return (
-          <button
+          <Button
             key={choice.id ?? 'default'}
             ref={(node) => {
               buttons.current[index] = node
@@ -274,7 +274,7 @@ const FacePicker = ({
             aria-label={choice.label}
             title={`${choice.label} — ${choice.about}`}
             tabIndex={index === stop ? 0 : -1}
-            className={styles.faceChoice}
+            variant="ghost" size="inline" className={styles.faceChoice}
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}
             onKeyDown={(event) => {
@@ -290,7 +290,7 @@ const FacePicker = ({
             }}
           >
             <Face avatar={choice.id} size={44} className={styles.faceTile} />
-          </button>
+          </Button>
         )
       })}
     </div>
@@ -314,8 +314,8 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
     <Rows>
       <Row
         title="Everything stays on this Mac"
-        desc="Settings, registered agents and transcripts live in ~/.harnessdesk. Nothing syncs or uploads."
-        control={<span className={kit.rowFixed}>Local</span>}
+        desc="Everything lives in ~/.harnessdesk; nothing syncs or uploads."
+        control={<RowValue>Local</RowValue>}
       />
       <Row
         title="Agent sign-ins belong to the agents"
@@ -368,14 +368,15 @@ const AccentSwatches = () => {
   return (
     <span className={styles.swatches} role="radiogroup" aria-label="Accent">
       {ACCENTS.map((entry) => (
-        <button
+        <Button
           key={entry.value}
           type="button"
           role="radio"
           aria-checked={accent === entry.value}
           aria-label={entry.label}
           title={entry.label}
-          className={styles.swatch}
+          variant="ghost" size="icon-circle"
+          data-swatch=""
           {...(accent === entry.value ? { 'data-on': '' } : {})}
           style={{
             background:
@@ -461,7 +462,7 @@ export const AppearanceSection = () => {
           /* Earned under the second-line rule: the accent used to be every
              filled control in the app and is now the marks that say where you
              are, so the label alone would over-promise. */
-          desc="The row you are on, a switch that is on, a focus ring, a link. Buttons are ink in every accent."
+          desc="The selected row, a switch that is on, a focus ring, a link."
           control={<AccentSwatches />}
         />
         <Row
@@ -488,12 +489,13 @@ export const AppearanceSection = () => {
           title="Font"
           desc={faces.length === 0 ? 'No coding fonts were found on this Mac.' : 'Only fonts installed on this Mac are listed.'}
           control={
-            <Select
-              label="Code font"
+            <NativeSelect
+              aria-label="Code font"
               value={current}
-              options={faceOptions}
-              onChange={(next) => store.setEditorPrefs({ fontFamily: next })}
-            />
+              onChange={(event) => store.setEditorPrefs({ fontFamily: event.target.value })}
+            >
+              {faceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </NativeSelect>
           }
         />
         <Row
@@ -510,20 +512,20 @@ export const AppearanceSection = () => {
         <Row
           title="Line numbers"
           control={
-            <Toggle
-              label="Line numbers"
-              on={snapshot.editorPrefs.lineNumbers}
-              onChange={(lineNumbers) => store.setEditorPrefs({ lineNumbers })}
+            <Switch
+              aria-label="Line numbers"
+              checked={snapshot.editorPrefs.lineNumbers}
+              onCheckedChange={(lineNumbers) => store.setEditorPrefs({ lineNumbers })}
             />
           }
         />
         <Row
           title="Wrap long lines"
           control={
-            <Toggle
-              label="Wrap long lines"
-              on={snapshot.editorPrefs.wrap}
-              onChange={(wrap) => store.setEditorPrefs({ wrap })}
+            <Switch
+              aria-label="Wrap long lines"
+              checked={snapshot.editorPrefs.wrap}
+              onCheckedChange={(wrap) => store.setEditorPrefs({ wrap })}
             />
           }
         />
@@ -611,14 +613,14 @@ export const NotificationsSection = () => {
         blurb="What HarnessDesk tells you outside a conversation."
         actions={
           silenced.length > 0 ? (
-            <Btn
+            <Button
               variant="outline"
               onClick={() => {
                 for (const entry of silenced) store.setNoticeMuted(entry.kind, false)
               }}
             >
               Turn all back on
-            </Btn>
+            </Button>
           ) : undefined
         }
       />
@@ -629,10 +631,10 @@ export const NotificationsSection = () => {
           title="System notifications"
           desc="Through macOS, when the window is not in front."
           control={
-            <Toggle
-              label="System notifications"
-              on={snapshot.systemNotifications['enabled'] !== false}
-              onChange={(next) => store.setSystemNotification('enabled', next)}
+            <Switch
+              aria-label="System notifications"
+              checked={snapshot.systemNotifications['enabled'] !== false}
+              onCheckedChange={(next) => store.setSystemNotification('enabled', next)}
             />
           }
         />
@@ -643,10 +645,10 @@ export const NotificationsSection = () => {
               title={entry.title}
               desc={entry.detail}
               control={
-                <Toggle
-                  label={`Notify for ${entry.title}`}
-                  on={systemNotificationOn(snapshot.systemNotifications, entry.kind)}
-                  onChange={(next) => store.setSystemNotification(entry.kind, next)}
+                <Switch
+                  aria-label={`Notify for ${entry.title}`}
+                  checked={systemNotificationOn(snapshot.systemNotifications, entry.kind)}
+                  onCheckedChange={(next) => store.setSystemNotification(entry.kind, next)}
                 />
               }
             />
@@ -680,10 +682,10 @@ export const NotificationsSection = () => {
                 </>
               }
               control={
-                <Toggle
-                  label={`Show "${entry.title}"`}
-                  on={!muted}
-                  onChange={(next) => store.setNoticeMuted(entry.kind, !next)}
+                <Switch
+                  aria-label={`Show "${entry.title}"`}
+                  checked={!muted}
+                  onCheckedChange={(next) => store.setNoticeMuted(entry.kind, !next)}
                 />
               }
             />

@@ -7,6 +7,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **UI migration regressions repaired** — menus show their contents again,
+  Settings rows grow around descriptions, avatar artwork keeps its size, and
+  selected, current, running, failed and drop-target states retain their cues.
 - **Antigravity session names use the opening prompt** — ACP no longer lets the
   agent's `Session <id>` placeholder hide the first ask in the session tree.
 - **Cline ACP auto-approval is honored** — Cline's auto-approve setting now

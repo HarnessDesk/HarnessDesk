@@ -11,7 +11,7 @@ import { ModelControl } from './ComposerControls'
 // ModelControl does not render either primitive, but ComposerControls imports
 // them through the full design barrel. Keep this focused test from loading
 // unrelated design-preview dependencies.
-vi.mock('../design', () => ({ Btn: () => null, Dialog: () => null }))
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
@@ -95,7 +95,7 @@ it('offers only the models Settings left visible, and always the one the draft i
      shows the model's name and a trigger with visible words keeps them as its
      accessible name (WCAG 2.5.3). `title` becomes the accessible *description*
      in that case, which is where "Model and reasoning" belongs. */
-  const trigger = document.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+  const trigger = document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
   expect(trigger).not.toBeNull()
   expect(trigger!.getAttribute('title')).toBe('Model and reasoning')
   expect(trigger!.textContent?.trim()).not.toBe('')

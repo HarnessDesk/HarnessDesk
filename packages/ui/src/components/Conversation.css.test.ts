@@ -34,7 +34,7 @@ const blockAfter = (opening: string): string => {
 describe("a phone's header", () => {
   it('folds only the doors marked as having a ⋯ to fold into', () => {
     const phone = blockAfter('@container hd-header (max-width: 400px)')
-    expect(phone).toMatch(/\.headerButton\[data-folds\]/)
+    expect(phone).toMatch(/\.headerButtonWrap\[data-folds\]/)
     // Not every header button.
     expect(phone).not.toMatch(/\.headerButton\s*[,{]/)
   })

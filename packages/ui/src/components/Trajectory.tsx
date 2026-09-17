@@ -199,7 +199,7 @@ export const Trajectory = ({
                 className={styles.segment}
                 style={{
                   width: `${segment.share * 100}%`,
-                  background: KIND_COLOUR[segment.kind] ?? 'var(--hdp-alias-label-tertiary)',
+                  background: KIND_COLOUR[segment.kind] ?? 'var(--hd-muted-foreground)',
                 }}
                 title={`${KIND_LABEL[segment.kind] ?? segment.kind}: ${formatMs(segment.ms)}`}
               />
@@ -210,7 +210,7 @@ export const Trajectory = ({
               <span key={segment.kind} className={styles.legendItem}>
                 <span
                   className={styles.swatch}
-                  style={{ background: KIND_COLOUR[segment.kind] ?? 'var(--hdp-alias-label-tertiary)' }}
+                  style={{ background: KIND_COLOUR[segment.kind] ?? 'var(--hd-muted-foreground)' }}
                 />
                 {KIND_LABEL[segment.kind] ?? segment.kind}
                 <span>{formatMs(segment.ms)}</span>

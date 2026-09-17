@@ -9,8 +9,7 @@ import {
   type SessionKey,
 } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Toggle } from '../design'
-import { NativeSelect } from '../design/ui/native-select'
+import { Button, Dialog, NativeSelect, RadioGroup, RadioGroupItem, Switch } from '../design'
 import { groupByProject } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
@@ -177,16 +176,16 @@ export const AddMember = ({
       onClose={onClose}
       footer={
         <>
-          <Btn
-            variant="primary"
+          <Button
+            variant="default"
             disabled={busy || (mode === 'new' ? !runtime : !choice)}
             onClick={() => void (mode === 'new' ? add() : join())}
           >
             {busy ? (mode === 'new' ? 'Starting…' : 'Adding…') : 'Add to room'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -194,21 +193,22 @@ export const AddMember = ({
         <div className={styles.field}>
           <span className={styles.label}>Which agent</span>
           <div className={styles.modes} role="radiogroup" aria-label="Which agent">
-            <button
+            <Button
               type="button"
               role="radio"
               aria-checked={mode === 'new'}
-              className={styles.mode}
+              variant="choice" size="row" className={styles.mode}
               onClick={() => setMode('new')}
             >
               Start a new one
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               role="radio"
               aria-checked={mode === 'running'}
-              className={styles.mode}
+              variant="choice" size="row" className={styles.mode}
               disabled={loose.length === 0}
+              aria-describedby={loose.length === 0 ? 'running-agent-unavailable' : undefined}
               title={
                 loose.length === 0
                   ? 'Every conversation in this project is already in a room.'
@@ -218,25 +218,31 @@ export const AddMember = ({
             >
               One already running
               {loose.length > 0 && <span className={styles.count}>{loose.length}</span>}
-            </button>
+            </Button>
           </div>
+          {loose.length === 0 && (
+            <span id="running-agent-unavailable" className={styles.note}>
+              Every conversation in this project is already in a room.
+            </span>
+          )}
         </div>
 
         {mode === 'running' ? (
           <div className={styles.field}>
             <span className={styles.label}>In this project, in no room</span>
-            <div className={styles.picker}>
+            <RadioGroup
+              className={styles.picker}
+              value={choice ?? ''}
+              onValueChange={(value) => setPicked(value as SessionKey)}
+            >
               {loose.map((one) => {
                 const key = sessionKey(one.runtime, one.id)
                 const agent = snapshot.runtimes.find((each) => each.id === one.runtime)
                 return (
                   <label key={String(key)} className={styles.candidate}>
-                    <input
-                      type="radio"
-                      name="member"
+                    <RadioGroupItem
+                      value={key}
                       aria-label={sessionLabel(one.title, one.preview)}
-                      checked={choice === key}
-                      onChange={() => setPicked(key)}
                     />
                     {agent && <RuntimeMark runtime={agent} size={14} />}
                     <span className={styles.candidateName}>
@@ -246,7 +252,7 @@ export const AddMember = ({
                   </label>
                 )
               })}
-            </div>
+            </RadioGroup>
             {/* Joining does not interrupt it: the conversation keeps its
                 transcript and whatever it was doing, and gains a board. */}
             <p className={styles.note}>
@@ -288,11 +294,11 @@ export const AddMember = ({
                 {option.disabled ? <span className={styles.why}>{option.disabled}</span> : null}
               </span>
               {option.type === 'boolean' ? (
-                <Toggle
-                  label={option.label}
-                  on={option.currentValue}
+                <Switch
+                  aria-label={option.label}
+                  checked={option.currentValue}
                   disabled={Boolean(option.disabled)}
-                  onChange={(next) => pick(option.id, next)}
+                  onCheckedChange={(next) => pick(option.id, next)}
                 />
               ) : (
                 <NativeSelect

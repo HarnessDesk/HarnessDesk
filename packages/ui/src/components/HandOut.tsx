@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 
 import type { Intent, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Textarea } from '../design'
+import { Button, Dialog, Textarea } from '../design'
 import { useStore } from '../state/context'
 import styles from './HandOut.module.css'
 
@@ -151,12 +151,12 @@ export const HandOut = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || pairs.length === 0 || template.trim() === ''} onClick={() => void send()}>
+          <Button variant="default" disabled={busy || pairs.length === 0 || template.trim() === ''} onClick={() => void send()}>
             {busy ? 'Handing out…' : `Hand out ${pairs.length} ${pairs.length === 1 ? 'card' : 'cards'}`}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -177,7 +177,7 @@ export const HandOut = ({
           <span className={styles.label}>What every member is told</span>
           <Textarea
             aria-label="What every member is told"
-            className={styles.area}
+            variant="editor" controlSize="compact" className={styles.area}
             rows={7}
             value={template}
             onChange={(event) => setTemplate(event.target.value)}

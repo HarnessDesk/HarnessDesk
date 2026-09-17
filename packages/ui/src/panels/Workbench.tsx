@@ -13,7 +13,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { ResizeHandle } from '../design/ui'
+import { ResizeHandle } from '../design'
 import {
   DockPanel,
   DockPanelActions,
@@ -22,9 +22,8 @@ import {
   DockPanelTab,
   DockPanelTabs,
   PanelSeam,
-} from '../design/patterns/DockPanel'
-import { Menu, MenuItem, MenuLabel } from '../components/Menu'
-import { Popover, dismissOverlays } from '../components/Popover'
+} from '../design'
+import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'

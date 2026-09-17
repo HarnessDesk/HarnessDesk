@@ -4,6 +4,7 @@ import { editorLook } from '../lib/editor-prefs'
 import { useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { useTheme } from '../state/theme'
+import { Button } from '../design'
 import { AlertIcon } from './Icons'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -173,15 +174,15 @@ export const FilePane = () => {
     <div className={styles.pane}>
       <ToolPaneHeader title={path.split('/').pop() ?? path} subtitle={path}>
         {loaded && draft === null && editable && (
-          <button type="button" className={styles.headerButton} onClick={() => setDraft(loaded.content)}>
+          <Button variant="ghost" size="sm" onClick={() => setDraft(loaded.content)}>
             Edit
-          </button>
+          </Button>
         )}
         {draft !== null && (
           <>
-            <button
-              type="button"
-              className={styles.headerButton}
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setDraft(null)
                 setConflict(null)
@@ -189,16 +190,14 @@ export const FilePane = () => {
               }}
             >
               {dirty ? 'Discard' : 'Done'}
-            </button>
-            <button
-              type="button"
-              className={styles.headerButton}
-              data-primary=""
+            </Button>
+            <Button
+              size="sm"
               disabled={!dirty || saving || !loaded}
               onClick={() => loaded && void save(loaded.hash)}
             >
               {saving ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </>
         )}
       </ToolPaneHeader>
@@ -209,9 +208,9 @@ export const FilePane = () => {
           <span>
             This file changed on disk since you loaded it — your save was refused so nothing was lost.
           </span>
-          <button
-            type="button"
-            className={styles.action}
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setLoaded({ content: conflict.content, hash: conflict.hash, truncated: false })
               setDraft(null)
@@ -219,19 +218,19 @@ export const FilePane = () => {
             }}
           >
             Take theirs
-          </button>
-          <button type="button" className={styles.action} onClick={() => void save(conflict.hash)}>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void save(conflict.hash)}>
             Overwrite with mine
-          </button>
+          </Button>
         </div>
       )}
       {changedOnDisk && !conflict && (
         <div className={styles.banner} data-tone="warn">
           <AlertIcon size={13} />
           <span>Changed on disk while you were editing.</span>
-          <button type="button" className={styles.action} onClick={() => void load().then(() => setDraft(null))}>
+          <Button variant="outline" size="sm" onClick={() => void load().then(() => setDraft(null))}>
             Reload
-          </button>
+          </Button>
         </div>
       )}
 
@@ -240,9 +239,9 @@ export const FilePane = () => {
           missing ? (
             <div className={styles.message}>
               <p style={{ margin: '0 0 10px' }}>{path.split('/').pop()} does not exist yet.</p>
-              <button
-                type="button"
-                className={styles.action}
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   // An empty file with an empty hash: the host treats a save
                   // of a file it cannot read as a creation, so the ordinary
@@ -253,7 +252,7 @@ export const FilePane = () => {
                 }}
               >
                 Create this file
-              </button>
+              </Button>
             </div>
           ) : (
             <p className={styles.message}>{error}</p>

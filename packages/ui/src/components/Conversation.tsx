@@ -37,9 +37,22 @@ import {
   NewWorktreeIcon,
 } from './Icons'
 import { worktreeBranch } from '../lib/worktree-branch'
-import { Menu, MenuItem, MenuLabel, Submenu } from './Menu'
-import { Popover, popoverStyles } from './Popover'
-import { Badge } from '../design/ui/badge'
+import {
+  Button,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  Popover,
+  PopoverGroupLabel,
+  PopoverOption,
+  PopoverOptionBody,
+  PopoverOptionHint,
+  PopoverOptionLabel,
+  PopoverOptionLive,
+  PopoverOptionMark,
+  Submenu,
+} from '../design'
+import { Badge } from '../design'
 import { STATUS_LABEL, paneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
@@ -122,9 +135,9 @@ const EmptyState = ({
         {driveable ? (
           /* This pane's agent, by name: an empty member column on another
              agent must not open the default's sign-in. */
-          <button type="button" className={styles.emptyAction} onClick={() => onSignIn(runtime.id)}>
+          <Button type="button" variant="quiet" size="content" onClick={() => onSignIn(runtime.id)}>
             Sign in
-          </button>
+          </Button>
         ) : (
           <p className={styles.emptyBody}>
             {external?.description ??
@@ -171,9 +184,9 @@ const EmptyState = ({
            join without anyone hand-editing a file. */
         <p className={styles.emptyBody}>
           {words.name} is the only agent here.{' '}
-          <button type="button" className={styles.emptyLink} onClick={onOpenAgents}>
+          <Button type="button" variant="link" size="content" onClick={onOpenAgents}>
             Add another agent…
-          </button>
+          </Button>
         </p>
       )}
     </div>
@@ -208,9 +221,7 @@ const ConversationMenu = () => {
       {(close) => (
         <>
           {capabilities.memory && (
-            <button
-              type="button"
-              className={popoverStyles.option}
+            <PopoverOption
               role="menuitemcheckbox"
               aria-checked={memoryOn}
               onClick={() => {
@@ -218,48 +229,45 @@ const ConversationMenu = () => {
                 close()
               }}
             >
-              <span className={popoverStyles.optionCheck}>{memoryOn && <CheckIcon size={13} />}</span>
-              <span className={popoverStyles.optionBody}>
-                <span className={popoverStyles.optionLabel}>Remember this conversation</span>
-                <span className={popoverStyles.optionHint}>
+              <PopoverOptionMark checked>{memoryOn && <CheckIcon size={13} />}</PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Remember this conversation</PopoverOptionLabel>
+                <PopoverOptionHint>
                   Let {runtime.presentation.name} carry what it learns here into new ones.
-                </span>
-              </span>
-            </button>
+                </PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
           )}
           {capabilities.compaction && (
-            <button
-              type="button"
-              className={popoverStyles.option}
+            <PopoverOption
               onClick={() => {
                 void store.compact()
                 close()
               }}
             >
-              <span className={popoverStyles.optionIcon}>
+              <PopoverOptionMark>
                 <CompactIcon size={13} />
-              </span>
-              <span className={popoverStyles.optionBody}>
-                <span className={popoverStyles.optionLabel}>Compact now</span>
-                <span className={popoverStyles.optionHint}>Summarise older turns to free up context.</span>
-              </span>
-            </button>
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Compact now</PopoverOptionLabel>
+                <PopoverOptionHint>Summarise older turns to free up context.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
           )}
           {capabilities.undo &&
             (confirmUndo ? (
-              <div className={popoverStyles.option} style={{ cursor: 'default', display: 'block' }}>
-                <div className={popoverStyles.optionLabel}>Undo the last turn?</div>
-                <div className={popoverStyles.optionHint} style={{ margin: '2px 0 6px' }}>
+              <PopoverOption as="div" style={{ cursor: 'default', display: 'block' }}>
+                <PopoverOptionLabel>Undo the last turn?</PopoverOptionLabel>
+                <PopoverOptionHint className="my-0.5 mb-1.5">
                   Drops it from history. Files it changed on disk are <strong>not</strong> reverted.
-                </div>
+                </PopoverOptionHint>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button type="button" className={styles.headerButton} onClick={() => setConfirmUndo(false)}>
+                  <Button variant="secondary" size="sm" onClick={() => setConfirmUndo(false)}>
                     Keep
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.headerButton}
-                    data-active=""
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
                     onClick={() => {
                       void store.rollback(1)
                       setConfirmUndo(false)
@@ -267,23 +275,21 @@ const ConversationMenu = () => {
                     }}
                   >
                     Undo turn
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </PopoverOption>
             ) : (
-              <button
-                type="button"
-                className={popoverStyles.option}
+              <PopoverOption
                 onClick={() => setConfirmUndo(true)}
               >
-                <span className={popoverStyles.optionIcon}>
+                <PopoverOptionMark>
                   <UndoIcon size={13} />
-                </span>
-                <span className={popoverStyles.optionBody}>
-                  <span className={popoverStyles.optionLabel}>Undo the last turn</span>
-                  <span className={popoverStyles.optionHint}>History only — files are left as they are.</span>
-                </span>
-              </button>
+                </PopoverOptionMark>
+                <PopoverOptionBody>
+                  <PopoverOptionLabel>Undo the last turn</PopoverOptionLabel>
+                  <PopoverOptionHint>History only — files are left as they are.</PopoverOptionHint>
+                </PopoverOptionBody>
+              </PopoverOption>
             ))}
           {/* Every view of this conversation, so the panel's own tab row is
               not the only way to reach one — it cannot be seen until the panel
@@ -295,7 +301,7 @@ const ConversationMenu = () => {
               view is one click away and one click back, so guessing wrong
               costs nothing, and three lines of prose under three names is
               what turned this group into a wall. */}
-          <div className={popoverStyles.groupLabel}>View</div>
+          <PopoverGroupLabel>View</PopoverGroupLabel>
           {summonable()
             /* Changes is the exception: it belongs to the workspace chip beside
                this menu, which carries the file count with it, and a second
@@ -305,10 +311,8 @@ const ConversationMenu = () => {
               const Glyph = definition.icon
               const open = shownView(snapshot.workbench, definition.kind)
               return (
-                <button
+                <PopoverOption
                   key={definition.kind}
-                  type="button"
-                  className={popoverStyles.option}
                   role="menuitemcheckbox"
                   aria-checked={open}
                   /* The description the comment above promises. It rode on a
@@ -322,45 +326,38 @@ const ConversationMenu = () => {
                     close()
                   }}
                 >
-                  <span className={open ? popoverStyles.optionCheck : popoverStyles.optionIcon}>
+                  <PopoverOptionMark checked={open}>
                     {open ? <CheckIcon size={13} /> : <Glyph size={13} />}
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <div className={popoverStyles.optionLabel}>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>
                       {definition.label}
                       {/* The view has something still going — a task in the
                           background. A dot on its door, so the menu says
                           there is something to look at before it is opened. */}
                       {definition.live?.(snapshot) === true && (
-                        <span
-                          className={popoverStyles.optionLive}
-                          role="img"
-                          aria-label="Something is still running"
-                          title="Something is still running"
-                        />
+                        <PopoverOptionLive />
                       )}
-                    </div>
-                  </span>
-                </button>
+                    </PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
               )
             })}
           {pane && several && (
-            <button
-              type="button"
-              className={popoverStyles.option}
+            <PopoverOption
               onClick={() => {
                 store.closePane(pane.paneId)
                 close()
               }}
             >
-              <span className={popoverStyles.optionIcon}>
+              <PopoverOptionMark>
                 <CrossIcon size={13} />
-              </span>
-              <span className={popoverStyles.optionBody}>
-                <div className={popoverStyles.optionLabel}>Close this pane</div>
-                <div className={popoverStyles.optionHint}>⌘W. The conversation stays in the sidebar.</div>
-              </span>
-            </button>
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Close this pane</PopoverOptionLabel>
+                <PopoverOptionHint>⌘W. The conversation stays in the sidebar.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
           )}
         </>
       )}
@@ -388,9 +385,7 @@ const TasksChip = () => {
   const live = split.running.length > 0
   const open = shownView(snapshot.workbench, 'tasks')
   return (
-    <button
-      type="button"
-      className={`${styles.tasksChip} hd-no-drag`}
+    <Button variant="quiet" size="inline" className={`${styles.tasksChip} hd-no-drag`}
       data-testid="tasks-chip"
       {...(live ? { 'data-live': '' } : {})}
       aria-pressed={open}
@@ -405,7 +400,7 @@ const TasksChip = () => {
     >
       {live ? <span className={styles.tasksSpinner} aria-hidden="true" /> : <CheckIcon size={11} />}
       <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
-    </button>
+    </Button>
   )
 }
 
@@ -427,9 +422,9 @@ export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
   // runtime has answered reads the dock as empty and opens a second shell.
   const on = terminals(snapshot.workbench).length > 0 || opening
   return (
-    <button
-      type="button"
-      className={`${styles.headerButton} hd-no-drag`}
+    <span className={styles.headerButtonWrap} {...(folds ? { 'data-folds': '' } : {})}>
+      <Button
+      variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
       {...(folds ? { 'data-folds': '' } : {})}
       {...(on ? { 'data-active': '' } : {})}
       onClick={() => {
@@ -449,9 +444,10 @@ export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
           : 'Open a terminal beside this conversation, in its directory and under its permissions'
       }
       aria-label={on ? 'Close terminal' : 'Open terminal'}
-    >
+      >
       <TerminalIcon size={14} />
-    </button>
+      </Button>
+    </span>
   )
 }
 
@@ -580,16 +576,17 @@ export const Conversation = ({
             there is a ⋯ to fold into. A draft has none, so its browser button
             stays: folded, it was a door closed with nothing in its place. */}
         {pane && (
-          <button
-            type="button"
-            className={`${styles.headerButton} hd-no-drag`}
+          <span className={styles.headerButtonWrap} {...(session ? { 'data-folds': '' } : {})}>
+            <Button
+            variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
             {...(session ? { 'data-folds': '' } : {})}
             onClick={() => store.openBrowser()}
             title="Open the browser beside this conversation — the page agents' browser tools drive"
             aria-label="Open browser"
           >
             <GlobeIcon size={14} />
-          </button>
+            </Button>
+          </span>
         )}
         {pane && session && <TerminalToggle folds />}
         {session && <ConversationMenu />}
@@ -667,9 +664,11 @@ export const Conversation = ({
         )}
 
         {!pinned && items.length > 0 && (
-          <button type="button" className={styles.jumpButton} onClick={jumpToBottom}>
-            Jump to latest
-          </button>
+          <span className={styles.jumpButton}>
+            <Button type="button" variant="ghost" size="sm" onClick={jumpToBottom}>
+              Jump to latest
+            </Button>
+          </span>
         )}
       </div>
 

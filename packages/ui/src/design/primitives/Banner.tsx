@@ -1,8 +1,9 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
 import { AlertIcon, BellOffIcon, CrossIcon, InfoIcon } from '../../components/Icons'
-import { ContextMenu, MenuItem, type MenuPoint } from '../../components/Menu'
+import { ContextMenu, MenuItem, type MenuPoint } from '../patterns/Menu'
 import { Alert, AlertContent, AlertDescription, AlertTitle } from '../ui/alert'
+import { Button } from '../ui/button'
 import styles from './Banner.module.css'
 
 /**
@@ -91,7 +92,7 @@ export const Banner = ({
       </AlertContent>
       {actions && <div className={styles.actions}>{actions}</div>}
       {onDismiss && (
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           className={styles.dismiss}
           aria-label="Dismiss"
@@ -111,7 +112,7 @@ export const Banner = ({
           }}
         >
           <CrossIcon size={compact ? 11 : 13} />
-        </button>
+        </Button>
       )}
       {onDismiss && onMute && (
         <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)}>
@@ -139,7 +140,9 @@ export const BannerAction = ({
   variant = 'primary',
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' }) => (
-  <button type="button" className={styles.action} data-variant={variant} {...rest} />
+  <Button type="button" variant={variant === 'primary' ? 'default' : 'secondary'} {...rest} />
 )
 
-export { styles as bannerStyles }
+export const BannerStack = ({ children }: { children: ReactNode }) => (
+  <div className={styles.stack}>{children}</div>
+)

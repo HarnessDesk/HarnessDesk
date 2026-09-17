@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 
 import type { UiAction, UiBlock, UiPanelData, UiTreeNode } from '@harnessdesk/protocol'
@@ -124,9 +125,9 @@ const DocumentSection = ({
   const [open, setOpen] = useState(collapsed !== true)
   return (
     <section className={styles.documentSection}>
-      <button
+<Button
         type="button"
-        className={styles.documentHeading}
+        variant="row" size="row" className={styles.documentHeading}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
@@ -134,7 +135,7 @@ const DocumentSection = ({
           <ChevronIcon size={12} />
         </span>
         {heading}
-      </button>
+      </Button>
       {open && (
         <div className={styles.documentBody}>
           <Markdown text={text} />
@@ -157,9 +158,9 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
     <li>
       <div className={`${styles.treeRow} ${actionable ? styles.treeRowAction : ''}`}>
         {hasChildren ? (
-          <button
+<Button
             type="button"
-            className={`${styles.treeTwisty} ${open ? styles.treeTwistyOpen : ''}`}
+            variant="ghost" size="icon-sm" className={styles.treeTwisty}
             aria-expanded={open}
             aria-label={open ? `Collapse ${node.label}` : `Expand ${node.label}`}
             // A node that both folds and acts has two controls in one row, so
@@ -169,16 +170,18 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
               setOpen((value) => !value)
             }}
           >
-            <ChevronIcon size={12} />
-          </button>
+            <span className={open ? styles.treeTwistyOpen : undefined} aria-hidden="true">
+              <ChevronIcon size={12} />
+            </span>
+          </Button>
         ) : (
           <span className={styles.treeSpacer} aria-hidden="true" />
         )}
         {actionable ? (
-          <button type="button" className={styles.treeRow} onClick={() => run(node.action)}>
+          <Button type="button" variant="row" size="row" className={styles.treeRow} onClick={() => run(node.action)}>
             <span className={styles.treeLabel}>{node.label}</span>
             {node.hint && <span className={styles.treeHint}>{node.hint}</span>}
-          </button>
+          </Button>
         ) : (
           <>
             <span className={styles.treeLabel}>{node.label}</span>
@@ -245,14 +248,14 @@ export const Block = ({ block }: { block: UiBlock }) => {
       return (
         <div className={styles.actions}>
           {block.actions.map((action, index) => (
-            <button
+<Button
               key={index}
               type="button"
-              className={styles.actionButton}
+              variant="ghost" size="icon-sm"
               onClick={() => run(action)}
             >
               {action.label}
-            </button>
+            </Button>
           ))}
         </div>
       )
@@ -366,9 +369,9 @@ export const PanelSection = ({
   return (
     <section className={styles.section} aria-label={title}>
       {title && (
-        <button
+<Button
           type="button"
-          className={styles.sectionTitle}
+          variant="row" size="row" className={styles.sectionTitle}
           aria-expanded={open}
           title={open ? `Hide ${title}` : `Show ${title}`}
           onClick={toggle}
@@ -379,8 +382,8 @@ export const PanelSection = ({
           >
             <ChevronIcon size={11} />
           </span>
-          {title}
-        </button>
+          <span className={styles.sectionTitleLabel}>{title}</span>
+        </Button>
       )}
       {/* A title-less panel has no way to unfold itself, so it never folds. */}
       {(open || !title) && <div className={styles.sectionBody}>{children}</div>}

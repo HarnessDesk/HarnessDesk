@@ -10,11 +10,11 @@ import type {
 
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { Badge, Separator } from '../design/ui'
+import { Badge, Separator } from '../design'
 import { ChannelMessage, ChannelNotice, ChannelSignal, type ChannelDensity } from '../design'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
-import { Face } from '../design/primitives/Kit'
+import { Face } from '../design'
 
 /**
  * The channel: what the conversations on one board said, in order.

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Menu } from './Menu'
+import { Menu } from '../design'
 import { BranchSwitcher } from './BranchSwitcher'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -69,7 +69,7 @@ it('disables the in-flight branch and prevents duplicate checkouts (#391)', asyn
 
   const alphaBtn = items.find((btn) => btn.textContent?.includes('feature/alpha'))!
   expect(alphaBtn).toBeDefined()
-  expect(alphaBtn.disabled).toBe(false)
+  expect(alphaBtn.getAttribute('aria-disabled')).not.toBe('true')
 
   // Click feature/alpha to start checkout
   act(() => {
@@ -80,7 +80,7 @@ it('disables the in-flight branch and prevents duplicate checkouts (#391)', asyn
   expect(checkoutBranch).toHaveBeenCalledWith('/repo', 'feature/alpha', { create: false })
 
   // While in flight, feature/alpha itself must be disabled!
-  expect(alphaBtn.disabled).toBe(true)
+  expect(alphaBtn.getAttribute('aria-disabled')).toBe('true')
   expect(alphaBtn.textContent).toContain('…')
 
   // Clicking it again while in flight must not trigger another checkout

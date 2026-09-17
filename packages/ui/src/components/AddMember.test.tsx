@@ -181,7 +181,7 @@ it('says so, and stays open, when the room will not take it', async () => {
   })
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('outside /repo')
+  expect(document.body.textContent).toContain('outside /repo')
 })
 
 const running = (over: { id: string; title?: string; runtime?: string }) => ({
@@ -244,6 +244,9 @@ it('does not offer a conversation that is already in a room', async () => {
   ) as HTMLButtonElement
   expect(choice.disabled).toBe(true)
   expect(choice.getAttribute('title')).toContain('already in a room')
+  const reasonId = choice.getAttribute('aria-describedby')
+  expect(reasonId).toBe('running-agent-unavailable')
+  expect(document.getElementById(reasonId!)?.textContent).toContain('already in a room')
 })
 
 it('offers every loose conversation, even when the sidebar is filtered to one agent', async () => {
@@ -325,7 +328,7 @@ it('a pick that stops being eligible stops being actionable', async () => {
 it('says so when an agent declares nothing to pre-set', async () => {
   const { store } = rig([])
   await render(store)
-  expect(container.textContent).toContain('declares its controls once a session exists')
+  expect(document.body.textContent).toContain('declares its controls once a session exists')
 })
 
 it('keeps the dialog open and says why when the agent will not start', async () => {
@@ -339,5 +342,5 @@ it('keeps the dialog open and says why when the agent will not start', async () 
   })
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('signed in')
+  expect(document.body.textContent).toContain('signed in')
 })

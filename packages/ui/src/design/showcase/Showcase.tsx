@@ -126,7 +126,7 @@ const Knob = <T extends string | boolean>({
     <span className={styles.knobLabel}>{label}</span>
     <div className={styles.knobChoices}>
       {options.map((option) => (
-        <button
+        <Button variant="ghost" size="sm"
           key={String(option.value)}
           type="button"
           className={styles.knobChoice}
@@ -134,7 +134,7 @@ const Knob = <T extends string | boolean>({
           onClick={() => onChange(option.value)}
         >
           {option.label}
-        </button>
+        </Button>
       ))}
     </div>
   </div>

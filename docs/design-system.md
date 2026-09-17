@@ -10,37 +10,21 @@ Import UI from here, not from a sibling screen's stylesheet. Everything
 exported is unaware of the app — no store, no session, no context — so it
 works on the sign-in screen, in a dialog, and in the design explorer alike.
 
-  Foundation   design/tokens.css — every value the system decides
-  Primitives   the pieces below, and the shadcn layer in ./ui
-  Patterns     compositions that encode a rule (ConfirmDialog)
+  Foundation   ./foundation/tokens.css — every editable design decision
+  Primitives   ./ui — the only generic control vocabulary, on Base UI
+  Patterns     ./patterns — typed HarnessDesk presentation contracts
   Screens      product code, which composes these and adds nothing shared
 
 Changes flow down and never up. A screen may not reach sideways into
 another screen; that is what `pnpm design:audit` checks.
 
-Three sources now, still one answer per question. `./ui` holds two kinds of
-file — vendored registry components, and compositions of our own — and as of
-2026-08-30 eleven of the vendored ones were *adopted to replace* something
-this app had written for itself. The pattern that adoption followed is worth
-stating, because it is the one to repeat: **take the registry's anatomy and
-behaviour, keep the app's rule on top.** `Kit.Segmented` kept its segmented
-look and gained a real radio group's arrow keys; `Banner` kept its neutral
-card and gained `role="alert"`; `ConfirmDialog` kept "nothing is focused"
-and gained an overlay that cannot be dismissed by a stray click. A component
-is not a set of opinions to swallow whole. See design/ui/index.ts for the
-ledger and the two that were taken as capability rather than code.
-
-Two component layers, one answer per question. `./ui` is the shadcn/ui
-layer — vendored component source, styled by Tailwind utilities that
-resolve to the same tokens (styles/shadcn.css is the bridge) — and it is
-the idiom new and rebuilt surfaces are written in; the Team channel and
-its patterns already are. `Kit` remains the settings-surface primitives
-(rows, page furniture, the controls twelve settings pages share) until a
-surface is rebuilt, at which point the shadcn spelling wins. What stays
-forbidden is the thing that was always forbidden: a THIRD spelling, or a
-screen answering "what is a button here" for itself. An earlier pass
-wrote a private second set and the result was two answers on one screen —
-the exact failure this system exists to prevent.
+There is one answer per generic UI question. `./ui` is shadcn-authored
+component source backed only by Base UI, styled through semantic utilities
+that resolve to the foundation. `./patterns` preserves product-specific
+contracts such as SettingsRow, Menu, Composer, and ApprovalDialog without
+creating a second Button, Input, Switch, or overlay engine. The retired Kit,
+local Menu/Popover, and hand-built Dialog APIs have no production consumers
+and the architecture gate rejects their return.
 
 One rule the system holds that no token can hold: **a row's second line is
 earned, not default**. That small grey line under a label costs height on
@@ -101,6 +85,9 @@ Measured from the app rather than invented: a 4px base with half-steps, which is
 | `--hd-space-6` | `24px` |
 | `--hd-space-8` | `32px` |
 | `--hd-space-10` | `40px` |
+| `--hd-space-12` | `48px` |
+| `--hd-space-16` | `64px` |
+| `--hd-space-18` | `72px` |
 
 ### Shape
 
@@ -108,10 +95,13 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 
 | token | value |
 | --- | --- |
+| `--hd-radius-2xs` | `2px` |
+| `--hd-radius-xs` | `4px` |
 | `--hd-radius-sm` | `6px` |
 | `--hd-radius-md` | `8px` |
 | `--hd-radius` | `10px` |
 | `--hd-radius-lg` | `14px` |
+| `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
 
 ### Type
@@ -120,6 +110,8 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 
 | token | value |
 | --- | --- |
+| `--hd-text-3xs` | `9px` |
+| `--hd-text-2xs` | `10px` |
 | `--hd-text-xs` | `12px` |
 | `--hd-text-sm` | `13px` |
 | `--hd-text` | `14px` |
@@ -137,7 +129,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 
 | token | value |
 | --- | --- |
-| `--hd-control-h` | `26px` |
+| `--hd-control-h` | `<cycle>` |
+| `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
 
 ### Motion
@@ -233,12 +226,10 @@ different treatments:
     Agents           quiet · primary
 
 Nobody was careless. The vocabulary was short of a word: `outline` existed
-only in the shadcn layer, so a screen built on Kit could not draw a bordered
-action even when that was plainly what it wanted, and fell back to the grey
-default. And the two spellings disagreed about the default itself — an
-unqualified `Btn` painted grey while an unqualified `Button` painted ink —
-so "I did not say" meant two different things depending on which file you
-were in.
+only in the shadcn layer, while the retired Kit API could not draw a bordered
+action and fell back to the grey default. The two spellings also disagreed
+about the default. That measured failure is why every consumer now uses the
+canonical `Button` vocabulary below.
 
 ### Why this is data rather than a document
 
@@ -371,201 +362,15 @@ A button in a banner's action row.
 One filled button per card. A banner that offers two equal-looking choices
 makes the user read both before they can ignore it.
 
-### `Dialog`
-
-`packages/ui/src/design/primitives/Dialog.tsx`
-
-A surface that takes the window's attention until it is answered.
-
-The behaviour is the point, not the box: Escape closes, focus moves into
-the dialog when it opens and returns where it came from when it leaves, and
-a click on the ground behind it dismisses. Ten hand-rolled dialogs in this
-app each decided those separately, and most decided at least one of them by
-omission.
-
-Deliberately unaware of the app: no store, no session, no context. A dialog
-has to work on the sign-in screen, before there is an app to be aware of.
-
-### `Chip`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The state, said out loud. Pass `label` only to say something more specific
-than the state's own name — "Out of weekly credit until Thursday" rather
-than "Limit reached".
-
-### `Switch`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The switch as a picture, for a row that is itself the switch.
-
-### `Toggle`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The switch as the control: a `role="switch"` button that owns the change.
-
-### `Input`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A line of text you type.
-
-Counted rather than chosen: the app already drew this input four times —
-`--hd-control-h` tall, `--hd-radius-sm` cornered, `0 10px` in, one hairline
-of `border-l2` around it — in the settings sheet, the sign-in sheet, the
-hand-off sheet and the install dialog. This is that input, once.
-
-### `Select`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A picker: a real `<select>`, dressed as the input beside it.
-
-The platform's own element rather than a menu built from buttons, because a
-picker on a settings row is plumbing, not presentation: it has to answer to
-a form, a test and a screen reader without a library between them. What
-this adds is only the look — the input's own border, height and ring — and
-the caret, drawn once here so no page draws its own.
-
-### `Textarea`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-More than a line of text: the input, allowed to grow.
-
-### `Search`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A search field: the input with the glass inside it.
-
-Every list on a settings page that grows past a screen gets one of these,
-and before this each drew its own — some with the glyph, some without, at
-three heights. One shape, so "this narrows the list below" reads the same
-on every page.
-
-### `Field`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A control with its name over it, for a form in a dialog.
-
-A settings *row* names its control in the row; a *form* names it here. The
-label is a real `<label>`, so clicking the word focuses the field and a
-screen reader reads them as one thing. The hint is the one line allowed
-under a field — what to type, or what will happen — and an error takes its
-place rather than stacking under it. Both are handed to the control as
-`aria-describedby`, so what the eye reads under the field is what a reader
-hears with it; the caller spreads the whole object onto the control rather
-than picking the id out of it, which is how that wiring stops being a thing
-anyone has to remember.
-
-### `FormStack`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-Fields, stacked — the body of a dialog that asks for more than one thing.
-
-### `Note`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The short paragraph that belongs to a group of rows rather than to one of them.
-
-### `Segmented`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-One question, a handful of answers, all of them on screen.
-
-The shape is this app's own and stays: a filled track with the chosen answer
-lifted out of it, which reads as a set in a way a column of radios does not
-and fits in a settings row's control slot.
-
-The *behaviour* is no longer this app's own. It was a row of hand-rolled
-`role="radio"` buttons, and every one of them was a tab stop &mdash; so a
-keyboard reaching the fourth choice pressed Tab four times, where a real
-radio group is one press to enter and arrows to choose. It now sits on
-`design/ui/radio-group`, the shadcn Base UI build, which brings the roving
-focus, the arrow keys, Home/End, and the form value with it.
-
-`RadioGroupItem` is deliberately not used: its indicator is a dot, and the
-indicator here is the whole segment lighting up. Base UI's `Radio.Root` is
-the part that carries the behaviour, and it is happy to look like anything.
-
-### `PageHead`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The page's name, one line saying what it is for, and anything it acts on.
-
-### `Rows`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A card of rows. Every settings page is made of these and nothing else.
-
-### `RowButton`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The same row, when the whole line opens something.
-
-### `RowChoice`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A row that is one of several answers to the same question.
-
-The tick sits on the left, where a list of choices reads as a list rather
-than as a column of unrelated switches — and the chosen row is the only one
-carrying ink, so the answer is findable without reading all of them.
-
-### `BackLink`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-The way back out of a detail page. It names where it goes rather than saying
-"Back", so it reads the same whether you arrived from the list or from a
-link somewhere else.
-
-### `Face`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-A person's face: the picture they chose, or the house mark when they have
-not.
-
-It is the avatar above — the plate and the hairline the account marks wear —
-squared, because a person is not an account: account marks are rings, the
-avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
-seat reads as "you, and the pen you will pick up" because the two differ.
-The corner steps up the radius scale with the size, so the seat's 24px and
-the profile page's 44px read as one object at two sizes.
-
-Without a `size` it fills the box it is put in and takes that box's corner:
-a room's message rows draw a tile for every sender, and a person's face
-belongs in the same tile as the agents' marks beside it.
-
-`avatar` is whatever the profile stores. Anything this build does not ship —
-a face a later build added, a picture it keeps — draws the house mark. It is
-not dropped: keeping what it cannot draw is the profile's job
-(`lib/profile.ts`), so a later build finds it where it left it.
-
-### `Clipped`
-
-`packages/ui/src/design/primitives/Kit.tsx`
-
-One line of text that ellipsises, and says itself whole on hover — only
-while it is cut. A title on text that is not cut repeats what you are
-reading and hides the tooltip of whatever holds it (the seat's "New
-sessions run as …"), so the title is decided as the pointer arrives, from
-whether the text overflows its box right then. The ellipsis is the
-caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
-
 ## Patterns
+
+### `ApprovalDialog`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+The pane-local approval surface. Base UI owns focus containment, Escape,
+dismissal semantics, and screen-reader dialog behavior; this pattern keeps
+the safety policy explicit and keeps the portal inside its conversation.
 
 ### `ChannelSignal`
 
@@ -705,6 +510,57 @@ a caller that does not re-render mid-drag has been passing this component
 the *committed* size all along, and committing that put the panel straight
 back where it started.
 
+### `Lightbox`
+
+`packages/ui/src/design/patterns/Lightbox.tsx`
+
+The canonical full-window image viewer. Base UI owns the modal lifecycle,
+focus containment/return, outside press, portal and topmost Escape policy;
+this pattern owns gallery navigation and image metadata.
+
+### `Menu`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+A HarnessDesk menu level. Base UI owns item collection, roving focus,
+selection, Escape and submenu coordination; this wrapper carries the
+product-level close callback used by async actions.
+
+### `MenuToggle`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
+
+### `Dialog`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+The application dialog pattern: Base UI owns focus, dismissal, stacking,
+the portal and accessibility; this layer owns HarnessDesk's header, body,
+footer and measured sizes.
+
+### `useDismissOverlays`
+
+`packages/ui/src/design/patterns/Popover.tsx`
+
+Closes this floating thing when something takes the screen.
+
+Every menu owes this, and a menu that does not is a panel drawn over a window
+that cannot be clicked through it — the board's card menu, until it took part
+(#214). The handler is read fresh each time, so a caller may write it inline.
+
+### `useEscapeSurface`
+
+`packages/ui/src/design/patterns/Popover.tsx`
+
+Answers Escape while it is the surface on top.
+
+Orders screen-level surfaces after nested menus and dialogs have had the
+key. AppWindow uses canonical dialog modality but explicitly delegates
+Escape here, retaining the window stack's ordering and approval boundary.
+Other dialogs consume Escape themselves; see `lib/overlays.ts`.
+
 ### `publicationVerb`
 
 `packages/ui/src/design/patterns/PublicationCard.tsx`
@@ -740,6 +596,143 @@ and the opening of its description exactly as GitHub holds them, which is
 how the signature at the end of a short description appears here — as part
 of the text, not as a claim the desk makes about it.
 
+### `Chip`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The state, said out loud. Pass `label` only to say something more specific
+than the state's own name — "Out of weekly credit until Thursday" rather
+than "Limit reached".
+
+### `Search`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A search field: the input with the glass inside it.
+
+Every list on a settings page that grows past a screen gets one of these,
+and before this each drew its own — some with the glyph, some without, at
+three heights. One shape, so "this narrows the list below" reads the same
+on every page.
+
+### `Field`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A control with its name over it, for a form in a dialog.
+
+A settings *row* names its control in the row; a *form* names it here. The
+label is a real `<label>`, so clicking the word focuses the field and a
+screen reader reads them as one thing. The hint is the one line allowed
+under a field — what to type, or what will happen — and an error takes its
+place rather than stacking under it. Both are handed to the control as
+`aria-describedby`, so what the eye reads under the field is what a reader
+hears with it; the caller spreads the whole object onto the control rather
+than picking the id out of it, which is how that wiring stops being a thing
+anyone has to remember.
+
+### `FormStack`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Fields, stacked — the body of a dialog that asks for more than one thing.
+
+### `Note`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The short paragraph that belongs to a group of rows rather than to one of them.
+
+### `Segmented`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One question, a handful of answers, all of them on screen.
+
+The shape is this app's own and stays: a filled track with the chosen answer
+lifted out of it, which reads as a set in a way a column of radios does not
+and fits in a settings row's control slot.
+
+The *behaviour* is no longer this app's own. It was a row of hand-rolled
+`role="radio"` buttons, and every one of them was a tab stop &mdash; so a
+keyboard reaching the fourth choice pressed Tab four times, where a real
+radio group is one press to enter and arrows to choose. It now sits on
+`design/ui/radio-group`, the shadcn Base UI build, which brings the roving
+focus, the arrow keys, Home/End, and the form value with it.
+
+The canonical toggle group supplies radio semantics and roving focus while
+this pattern supplies the settings-specific segmented appearance.
+
+### `PageHead`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The page's name, one line saying what it is for, and anything it acts on.
+
+### `Rows`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A card of rows. Every settings page is made of these and nothing else.
+
+### `RowButton`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The same row, when the whole line opens something.
+
+### `RowChoice`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A row that is one of several answers to the same question.
+
+The tick sits on the left, where a list of choices reads as a list rather
+than as a column of unrelated switches — and the chosen row is the only one
+carrying ink, so the answer is findable without reading all of them.
+
+### `BackLink`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The way back out of a detail page. It names where it goes rather than saying
+"Back", so it reads the same whether you arrived from the list or from a
+link somewhere else.
+
+### `Face`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A person's face: the picture they chose, or the house mark when they have
+not.
+
+It is the avatar above — the plate and the hairline the account marks wear —
+squared, because a person is not an account: account marks are rings, the
+avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
+seat reads as "you, and the pen you will pick up" because the two differ.
+The corner steps up the radius scale with the size, so the seat's 24px and
+the profile page's 44px read as one object at two sizes.
+
+Without a `size` it fills the box it is put in and takes that box's corner:
+a room's message rows draw a tile for every sender, and a person's face
+belongs in the same tile as the agents' marks beside it.
+
+`avatar` is whatever the profile stores. Anything this build does not ship —
+a face a later build added, a picture it keeps — draws the house mark. It is
+not dropped: keeping what it cannot draw is the profile's job
+(`lib/profile.ts`), so a later build finds it where it left it.
+
+### `Clipped`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One line of text that ellipsises, and says itself whole on hover — only
+while it is cut. A title on text that is not cut repeats what you are
+reading and hides the tooltip of whatever holds it (the seat's "New
+sessions run as …"), so the title is decided as the pointer arrives, from
+whether the text overflows its box right then. The ellipsis is the
+caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -749,16 +742,18 @@ list only goes down, except when the audit learns to see something it was blind 
 
 | finding | count | what it costs |
 | --- | --- | --- |
+| `rawType` | 2 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
+| `patternClass` | 126 | Nineteen screens drawing their own header is why pages stop looking alike; the shared component already exists. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |
 | `forkedToken` | 0 | Forks the source of truth: the generated doc and the token snapshot both miss it. |
-| `handRolledOverlay` | 4 | Five decisions — buttons, Escape, focus, click-outside, surface — made again, usually one by omission. |
-| `looseTarget` | 11 | A 20px close button is a miss on a trackpad, and WCAG 2.2 asks for 24 unless it has clearance. |
-| `looseIcon` | 3 | Makes "change the icon set" a search across the app instead of one edit. |
+| `handRolledOverlay` | 0 | Five decisions — buttons, Escape, focus, click-outside, surface — made again, usually one by omission. |
+| `looseTarget` | 0 | A 20px close button is a miss on a trackpad, and WCAG 2.2 asks for 24 unless it has clearance. |
+| `looseIcon` | 0 | Makes "change the icon set" a search across the app instead of one edit. |
 | `danglingToken` | 0 | A silent no-op: the declaration does nothing. |
-| `crossImport` | 11 | Rebuilding one screen changes another. |
-| `rawRadius` | 49 | Will not follow a shape change. |
-| `offGrid` | 185 | Will not follow a density change. |
-| `rawColour` | 8 | Will not follow a palette or theme change. |
-| `arbitraryUtility` | 6 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
+| `crossImport` | 0 | Rebuilding one screen changes another. |
+| `rawRadius` | 0 | Will not follow a shape change. |
+| `offGrid` | 0 | Will not follow a density change. |
+| `rawColour` | 0 | Will not follow a palette or theme change. |
+| `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 

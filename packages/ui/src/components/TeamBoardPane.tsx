@@ -7,14 +7,14 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Input } from '../design'
+import { Dialog, Input } from '../design'
 import { runtimeTint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { HandOut } from './HandOut'
 import { SessionHoverCard } from './AgentCards'
-import { useDismissOverlays } from './Popover'
+import { useDismissOverlays } from '../design'
 import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
@@ -40,7 +40,7 @@ import {
   ToolPaneBody,
   ToolPaneHeader,
   type Tint,
-} from '../design/ui'
+} from '../design'
 
 /**
  * The team board, as a board.
@@ -544,9 +544,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       a reader is already thinking about that goal, and the only
                       way `plan` gets set without typing an id. */}
                   <Button
-                    variant="ghost"
+                    variant="muted"
                     size="xs"
-                    className="text-(--hd-muted-foreground)"
                     title={`Add work to “${plan.goal}”`}
                     onClick={() => openAdd(plan.id)}
                   >
@@ -554,9 +553,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                     Add
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="muted"
                     size="xs"
-                    className="text-(--hd-muted-foreground)"
                     disabled={live > 0}
                     title={
                       live > 0
@@ -791,10 +789,10 @@ const StopWork = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" onClick={() => onStop(reason)}>
+          <Button variant="default" onClick={() => onStop(reason)}>
             Stop it
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -862,8 +860,8 @@ const IntentCard = ({
   const snapshot = useSnapshot()
 
   /*
-   * The menu's open state is held here rather than left to Radix, because
-   * something other than the menu has to be able to close it. Radix closes on
+   * The menu's open state is held here rather than left to Base UI, because
+   * something other than the menu has to be able to close it. Base UI closes on
    * Escape and on a press outside, and a window taking the screen is neither:
    * Settings, Usage and — in a narrow window — the floating sidebar announce
    * themselves instead, and a menu drawn at `--hd-z-popover` outranks all
@@ -1000,7 +998,7 @@ const IntentCard = ({
       note={note}
       cover={
         intent.claim ? (
-          <button
+          <Button variant="subtle" size="row"
             type="button"
             onClick={onOpenHolder}
             /* Said once. With the conversation loaded, the card on the names
@@ -1017,7 +1015,7 @@ const IntentCard = ({
             {...(session
               ? { 'aria-description': `Open the conversation ${holderName} is holding this in` }
               : { title: `Open the conversation ${holderName} is holding this in` })}
-            className="flex w-full items-center gap-1.5 rounded-(--hd-radius-sm) bg-(--hd-muted) px-1.5 py-1 text-left hover:bg-(--hd-hover)"
+            className="flex w-full items-center gap-1.5 text-left"
           >
             {/* The face and the names, as one trigger: the holder is who a
                 reader rests on, and the name is where they rest. A *session*
@@ -1079,7 +1077,7 @@ const IntentCard = ({
                 </span>
               )}
             </SessionHoverCard>
-          </button>
+          </Button>
         ) : undefined
       }
       /* The paths a claim owns. Shown because they are what makes parallel
@@ -1161,15 +1159,15 @@ const IntentCard = ({
       actions={
         verbs.length > 0 ? (
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <BoardMenuButton aria-label={`What to do with #${intent.id}`} />
-            </DropdownMenuTrigger>
+            <DropdownMenuTrigger
+              render={<BoardMenuButton aria-label={`What to do with #${intent.id}`} />}
+            />
             <DropdownMenuContent align="end">
               {verbs.map((one) => (
                 <DropdownMenuItem
                   key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
                   variant={one.danger ? 'destructive' : 'default'}
-                  onSelect={() => onAct(one.verb, one.outcome)}
+                  onClick={() => onAct(one.verb, one.outcome)}
                 >
                   {one.label}
                 </DropdownMenuItem>

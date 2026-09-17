@@ -41,9 +41,11 @@
  * passes.
  */
 import { homedir } from 'node:os'
+import { isAbsolute, resolve, sep } from 'node:path'
 
 import { offendersIn } from '../check-secrets.mjs'
 import { STORE } from '../lib/desk.mjs'
+import { CAST, rigRuntimeId } from './cast.mjs'
 
 /**
  * The username this machine runs as.
@@ -104,7 +106,12 @@ export const COLLECT = `(() => {
   for (const element of document.querySelectorAll('[title], [alt]')) {
     for (const name of ['title', 'alt']) {
       const value = element.getAttribute(name)
-      if (value) attributes.push([name, value])
+      if (value) attributes.push([
+        name,
+        value,
+        element.tagName?.toLowerCase?.() ?? 'unknown',
+        typeof element.className === 'string' ? element.className : '',
+      ])
     }
   }
   return {
@@ -123,7 +130,10 @@ export const COLLECT = `(() => {
  */
 export const SEEN = `(() => {
   const seen = ${COLLECT}
-  seen.accounts = ${STORE}.getSnapshot().accountsByRuntime ?? {}
+  const snapshot = ${STORE}.getSnapshot()
+  seen.accounts = snapshot.accountsByRuntime ?? {}
+  seen.history = [...(snapshot.history ?? []), ...(snapshot.sessions?.values() ?? [])]
+    .map(({ runtime, id, cwd }) => ({ runtime, id, cwd }))
   return seen
 })()`
 
@@ -154,13 +164,20 @@ export const textReasons = ({ text, documentTitle, attributes }, { user } = {}) 
     // The article is picked rather than fixed: these names are read by whoever
     // is holding up a take, and "a alt attribute" reads as a broken message
     // about a broken frame.
-    ...(attributes ?? []).map(([name, value]) => [`${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} attribute`, value]),
+    ...(attributes ?? []).map(([name, value, tag, className]) => [
+      `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} attribute` +
+        (tag ? ` on ${tag}${className ? `.${String(className).trim().replace(/\s+/g, '.')}` : ''}` : ''),
+      value,
+    ]),
   ]
   const reasons = []
   for (const [where, value] of places) {
     reasons.push(...askTheGate(where, value ?? ''))
     if (user && String(value ?? '').includes(user)) {
       reasons.push(`${where}: this machine's username is in it`)
+    }
+    if (/(?:~|[/\\])[/\\]?\.(?:codex|claude|harnessdesk)[/\\]worktrees(?:[/\\]|\b)/i.test(String(value ?? ''))) {
+      reasons.push(`${where}: a personal agent worktree path is in it`)
     }
   }
   return reasons
@@ -195,10 +212,26 @@ export const accountReasons = (accountsByRuntime = {}, { vouched } = {}) => {
   return reasons
 }
 
+/** Check the store too: a collapsed sidebar can hide history a later scene reveals. */
+export const historyReasons = (history = [], { roots = [], nativeCodex = false } = {}) => {
+  const runtimes = new Set(CAST.map(agent => rigRuntimeId(agent.id)))
+  const allowedRoots = roots.map(root => resolve(root))
+  return history.flatMap(row => {
+    // These four rows are authored in fake-codex.mjs, not a machine store.
+    const nativeFixture = nativeCodex && row.runtime === 'codex' && row.cwd === '/w'
+      && ['thread-e2e', 'thread-2', 'thread-3', 'thread-4'].includes(row.id)
+    const stagedPath = typeof row.cwd === 'string' && isAbsolute(row.cwd)
+      && allowedRoots.some(root => resolve(row.cwd) === root || resolve(row.cwd).startsWith(root + sep))
+    return runtimes.has(row.runtime) && (stagedPath || nativeFixture)
+      ? [] : ['history: a conversation is outside this rig’s staged runtimes or repositories']
+  })
+}
+
 /** Everything wrong with this frame, in the order a person would look at it. */
 export const reasonsFor = (seen, options = {}) => [
   ...textReasons(seen, options),
   ...accountReasons(seen.accounts ?? {}, options),
+  ...historyReasons(seen.history ?? [], options),
 ]
 
 /**
@@ -212,9 +245,9 @@ export const reasonsFor = (seen, options = {}) => [
  * errors would still record a real seat. Reading the map back is the only
  * thing that knows.
  */
-export const refuseUnpublishable = async (cdp, { name, user, vouched, subject = 'frame' }) => {
+export const refuseUnpublishable = async (cdp, { name, user, vouched, roots, nativeCodex, subject = 'frame' }) => {
   const seen = await cdp.json(SEEN)
-  const reasons = reasonsFor(seen ?? {}, { user, vouched })
+  const reasons = reasonsFor(seen ?? {}, { user, vouched, roots, nativeCodex })
   if (reasons.length > 0) {
     throw new Error(`${name}: this ${subject} is not publishable —\n    ${reasons.join('\n    ')}`)
   }

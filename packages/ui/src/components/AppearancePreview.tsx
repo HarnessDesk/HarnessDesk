@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { editorLook } from '../lib/editor-prefs'
@@ -129,18 +130,18 @@ export const ThemeCards = () => {
   return (
     <div className={styles.cards} role="radiogroup" aria-label="Theme">
       {THEMES.map((entry) => (
-        <button
+        <Button
           key={entry.value}
           type="button"
           role="radio"
           aria-checked={theme === entry.value}
-          className={styles.card}
+          variant="choice" size="row" className={styles.card}
           {...(theme === entry.value ? { 'data-on': '' } : {})}
           onClick={() => store.setTheme(entry.value)}
         >
           <Mini dark={entry.dark} both={entry.both} />
           <span className={styles.cardLabel}>{entry.label}</span>
-        </button>
+        </Button>
       ))}
     </div>
   )

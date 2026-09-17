@@ -32,8 +32,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  padding: var(--hd-space-4) 16px; /* desk: canonical One UI System scale */
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .headTitle {
@@ -60,14 +60,14 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--hdp-alias-border-l1);
+  border-right: 1px solid var(--hd-border);
   background: var(--hd-sidebar-plate);
 }
 
 .railHead {
   flex: none;
-  padding: 12px 12px 11px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  padding: 12px 12px var(--hd-space-3); /* desk: canonical One UI System scale */
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .railTitle {
@@ -78,21 +78,21 @@
 
 .spineCount {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  margin-bottom: 7px;
+  color: var(--hd-secondary-foreground);
+  margin-bottom: var(--hd-space-2); /* desk: canonical One UI System scale */
 }
 
 /* One bar per agent: the roster's answer before you have read the roster. */
 .segs {
   display: flex;
-  gap: 3px;
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 .seg {
   flex: 1;
   height: 4px;
-  border-radius: 2px;
-  background: var(--hdp-alias-border-l2);
+  border-radius: var(--hd-radius-2xs);
+  background: var(--hd-border-strong);
 }
 
 .seg[data-state='ready'] {
@@ -123,33 +123,20 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 8px;
-  border: none;
-  border-radius: var(--hd-radius);
-  background: none;
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
+
   text-align: left;
-  cursor: pointer;
-}
 
-.rosterRow:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-}
-
-.rosterRow[data-selected] {
-  background: var(--hd-accent-dim);
 }
 
 .rosterMark {
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .rosterRow[data-selected] .rosterMark {
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .rosterText {
@@ -171,7 +158,7 @@
 .rosterDetail {
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,15 +177,15 @@
 .railSection {
   margin: 16px 8px 4px;
   padding-top: 10px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
   font-size: var(--hd-text-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
-/* The look is the Kit field's; this only sits it in the rail. */
+/* The look belongs to the canonical field; this only sits it in the rail. */
 .railFilter {
   width: 100%;
   margin: 2px 0 6px;
@@ -209,33 +196,33 @@
   padding: 4px 8px 6px;
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* An entry this machine cannot run stays listed — its pane says why — but
    the rail already tells you not to expect much of it. */
 .rosterRow[data-blocked] .rosterName {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-weight: 400;
 }
 
 .whoMeta {
   margin-left: auto;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   white-space: nowrap;
 }
 
 .rosterFoot {
   flex: none;
   padding: 10px 12px;
-  border-top: 1px solid var(--hdp-alias-border-l1);
+  border-top: 1px solid var(--hd-border);
 }
 
 .rosterFootText {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- detail -------------------------------------------------------------- */
@@ -259,7 +246,7 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .whoName {
@@ -268,11 +255,11 @@
 }
 
 .blurb {
-  margin: 0 0 18px;
+  margin: 0 0 var(--hd-space-5); /* desk: canonical One UI System scale */
   max-width: 66ch;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .groupLabel {
@@ -282,7 +269,7 @@
   min-height: 22px;
   margin-bottom: 8px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- the ways in --------------------------------------------------------- */
@@ -297,28 +284,19 @@
 .method {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: var(--hd-space-3); /* desk: canonical One UI System scale */
   width: 100%;
-  padding: 11px 13px;
-  border: 1px solid var(--hdp-alias-border-l2);
-  border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
+ /* desk: canonical One UI System scale */
 
-.method:hover {
-  border-color: var(--hd-accent);
-  background: var(--hd-accent-dim);
+  text-align: left;
+
 }
 
 .methodIcon {
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .method:hover .methodIcon {
@@ -341,29 +319,29 @@
 .methodHint {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .methodGo {
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .note {
-  margin: 14px 0 0;
+  margin: var(--hd-space-4) 0 0; /* desk: canonical One UI System scale */
   max-width: 66ch;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .note code {
   padding: 1px 4px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  font-family: var(--hdp-font-family-code);
+  background: var(--hd-muted);
+  font-family: var(--hd-font-code);
   font-size: 0.875em;
   /* A credential home is an absolute path with no spaces in it. Left to the
      normal rules it sets as one word, overruns the column and is clipped
@@ -384,18 +362,18 @@
 
 .whereLabel {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .wherePath {
   max-width: 100%;
   padding: 4px 8px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
+  background: var(--hd-muted);
   /* Metadata, not a headline: a path is here to be checked and copied, and
      at full ink a long one is the loudest thing on a card about an account. */
-  color: var(--hdp-alias-label-secondary);
-  font-family: var(--hdp-font-family-code);
+  color: var(--hd-secondary-foreground);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   /* See `.note code`: paths wrap where they must rather than run out. */
@@ -406,7 +384,7 @@
 .whereNote {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /*
@@ -429,7 +407,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 
 .stateIcon {
@@ -439,8 +417,8 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
 }
 
 .stateIcon[data-tone='wait'] {
@@ -473,15 +451,15 @@
 .stateHint {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .code {
-  margin: 4px 0 14px;
-  padding: 14px;
+  margin: 4px 0 var(--hd-space-4); /* desk: canonical One UI System scale */
+  padding: var(--hd-space-4); /* desk: canonical One UI System scale */
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-module-platform);
-  font-family: var(--hdp-font-family-code);
+  background: var(--hd-muted);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-heading);
   line-height: 28px;
   font-weight: 600;
@@ -494,7 +472,7 @@
   display: inline-block;
   width: 12px;
   height: 12px;
-  border: 1.5px solid var(--hdp-alias-border-l2);
+  border: 1.5px solid var(--hd-border-strong);
   border-top-color: var(--hd-accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -532,21 +510,7 @@
   flex: 1;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
-}
-
-.link {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--hd-accent);
-  font: inherit;
-  cursor: pointer;
-  word-break: break-all;
-}
-
-.link:hover {
-  text-decoration: underline;
+  color: var(--hd-secondary-foreground);
 }
 
 /* The hand-off: the agent you have not signed in yet, offered once this one
@@ -555,11 +519,11 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 22px;
-  padding: 12px 13px;
+  margin-top: var(--hd-space-6); /* desk: canonical One UI System scale */
+  padding: 12px var(--hd-space-3); /* desk: canonical One UI System scale */
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-module-platform);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-muted);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
   max-width: 520px;
 }
 
@@ -567,7 +531,7 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .nextText {
@@ -586,7 +550,7 @@
 .nextHint {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- the key field ------------------------------------------------------- */
@@ -599,28 +563,17 @@
 
 .keyIcon {
   position: absolute;
-  margin-left: 9px;
+  margin-left: var(--hd-space-2); /* desk: canonical One UI System scale */
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   pointer-events: none;
 }
 
 .keyInput {
   flex: 1;
   min-width: 0;
-  height: var(--hd-control-h);
-  padding: 0 10px 0 28px;
-  border: 1px solid var(--hdp-alias-border-l2);
-  border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
-  color: var(--hdp-alias-label-primary);
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text);
-  letter-spacing: 0.04em;
-}
 
-.keyInput:focus {
-  outline: none;
-  border-color: var(--hd-accent);
+ /* desk: canonical One UI System scale */
+
 }

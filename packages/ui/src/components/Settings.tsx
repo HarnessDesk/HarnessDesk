@@ -17,15 +17,16 @@ import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
 import {
   AppWindow,
-  appWindow,
   WindowGroup,
   WindowNav,
   WindowNavEmpty,
+  WindowNavCount,
   WindowNavIdentity,
   WindowNavItem,
+  WindowNavStateMark,
   WindowPage,
 } from './AppWindow'
-import { dismissOverlays, useEscapeSurface } from './Popover'
+import { dismissOverlays, useEscapeSurface } from '../design'
 import {
   AgentIcon,
   ArchiveIcon,
@@ -75,27 +76,30 @@ import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
-  Btn,
+  Button,
   Chip,
+  DetailMark,
   DetailHead,
   Dot,
   Field,
   FormStack,
   Input,
-  kit as kitStyles,
+  FileButton,
   Note,
   PageHead,
   Row,
   RowButton,
   RowChoice,
+  RowValue,
   Rows,
   Search,
   SectionHead,
-  Select,
-  Toggle,
-} from '../design/primitives/Kit'
-import { Dialog } from '../design/primitives/Dialog'
-import { ConfirmDialog } from '../design/patterns/ConfirmDialog'
+  SectionToggle,
+  NativeSelect,
+  Switch,
+  WireText,
+} from '../design'
+import { Dialog, ConfirmDialog } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { ProfileFace } from './ProfileFace'
@@ -203,10 +207,10 @@ const AddRouteDialog = ({ onClose }: { onClose: () => void }) => {
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !ready} onClick={() => void save()}>
+          <Button variant="default" disabled={busy || !ready} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Add endpoint'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -272,10 +276,10 @@ const RoutesRows = () => {
       <SectionHead
         name={withCount('Custom endpoints', snapshot.routes.length)}
         action={
-          <Btn variant="outline" small onClick={() => setAdding(true)}>
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
             Add endpoint
-          </Btn>
+          </Button>
         }
       />
       <Rows>
@@ -297,9 +301,9 @@ const RoutesRows = () => {
                 : `${route.endpoint}${route.model ? ` · ${route.model}` : ''}`
             }
             control={
-              <Btn small variant="quiet" onClick={() => setRemoving(route)}>
+              <Button size="sm" variant="ghost" onClick={() => setRemoving(route)}>
                 Remove…
-              </Btn>
+              </Button>
             }
           />
         ))}
@@ -410,9 +414,9 @@ const KeysRows = () => {
                   : `No endpoint uses it · stored ${storedOn(key.createdAt)}`
               }
               control={
-                <Btn small variant="quiet" onClick={() => setRemoving(key)}>
+                <Button size="sm" variant="ghost" onClick={() => setRemoving(key)}>
                   Remove…
-                </Btn>
+                </Button>
               }
             />
           )
@@ -524,10 +528,10 @@ const AddRuleDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !ready} onClick={() => void add()}>
+          <Button variant="default" disabled={busy || !ready} onClick={() => void add()}>
             {busy ? 'Adding…' : 'Add rule'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -545,7 +549,9 @@ const AddRuleDialog = ({
         </Field>
         <Field label="Applies to">
           {(control) => (
-            <Select {...control} label="Applies to" value={type} options={RULE_KINDS} onChange={setType} />
+            <NativeSelect {...control} aria-label="Applies to" value={type} onChange={(event) => setType(event.target.value as (typeof RULE_KINDS)[number]['value'])}>
+              {RULE_KINDS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </NativeSelect>
           )}
         </Field>
         <Field
@@ -564,16 +570,15 @@ const AddRuleDialog = ({
         </Field>
         <Field label="Then">
           {(control) => (
-            <Select
+            <NativeSelect
               {...control}
-              label="What the rule does"
+              aria-label="What the rule does"
               value={action}
-              options={[
-                { value: 'deny', label: 'Deny it' },
-                { value: 'approve', label: 'Approve it without asking' },
-              ]}
-              onChange={setAction}
-            />
+              onChange={(event) => setAction(event.target.value as 'approve' | 'deny')}
+            >
+              <option value="deny">Deny it</option>
+              <option value="approve">Approve it without asking</option>
+            </NativeSelect>
           )}
         </Field>
       </FormStack>
@@ -658,10 +663,10 @@ const PermissionsSection = () => {
       <SectionHead
         name={withCount('Rules', rules?.length ?? 0)}
         action={
-          <Btn variant="outline" small onClick={() => setAdding(true)}>
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
             Add rule
-          </Btn>
+          </Button>
         }
       />
       <Note>
@@ -684,9 +689,9 @@ const PermissionsSection = () => {
                 rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
               }.`}
               control={
-                <Btn small variant="quiet" onClick={() => setRemoving(rule)}>
+                <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
                   Remove…
-                </Btn>
+                </Button>
               }
             />
           ))
@@ -756,10 +761,10 @@ const SavePresetDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={!ready || busy} onClick={() => void save()}>
+          <Button variant="default" disabled={!ready || busy} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save preset'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -809,10 +814,10 @@ const PresetsRows = () => {
       <SectionHead
         name={withCount('Presets', presets.length)}
         action={
-          <Btn variant="outline" small disabled={!options} onClick={() => setSaving(true)}>
+          <Button variant="outline" size="sm" disabled={!options} onClick={() => setSaving(true)}>
             <PlusIcon size={13} />
             Save current session
-          </Btn>
+          </Button>
         }
       />
       <Note>A preset is a session’s model, effort and permissions saved under a name, for the composer to apply in one click.</Note>
@@ -828,12 +833,12 @@ const PresetsRows = () => {
             desc={preset.description || 'Saved preset'}
             control={
               <>
-                <Btn small disabled={!session} onClick={() => void store.applyPreset(preset)}>
+                <Button variant="secondary" size="sm" disabled={!session} onClick={() => void store.applyPreset(preset)}>
                   Apply
-                </Btn>
-                <Btn small variant="quiet" onClick={() => setRemoving(preset)}>
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setRemoving(preset)}>
                   Remove…
-                </Btn>
+                </Button>
               </>
             }
           />
@@ -903,22 +908,22 @@ const ModelsSection = () => {
         action={
           <>
             {total > 0 && (
-              <span className={kitStyles.sectionToggle}>
+              <SectionToggle>
                 {shown === total ? 'All in the composer' : `${shown} of ${total} in the composer`}
-              </span>
+              </SectionToggle>
             )}
             {total > 4 && shown > 0 && (
-              <Btn small variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, true)}>
+              <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, true)}>
                 Hide all
-              </Btn>
+              </Button>
             )}
             {hidden.length > 0 && (
-              <Btn small variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, false)}>
+              <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, false)}>
                 Show all
-              </Btn>
+              </Button>
             )}
-            <Btn
-              small
+            <Button
+              size="sm"
               variant="outline"
               disabled={snapshot.catalogRefreshing}
               title="Ask the agent for its models again"
@@ -926,7 +931,7 @@ const ModelsSection = () => {
             >
               <RetryIcon size={13} />
               {snapshot.catalogRefreshing ? 'Refreshing…' : 'Refresh'}
-            </Btn>
+            </Button>
           </>
         }
       />
@@ -982,10 +987,10 @@ const ModelsSection = () => {
             }
             desc={model.description}
             control={
-              <Toggle
-                label={`Show ${model.displayName} in the composer`}
-                on={!hidden.includes(model.id)}
-                onChange={(next) => store.setModelHidden(runtime.id, model.id, !next)}
+              <Switch
+                aria-label={`Show ${model.displayName} in the composer`}
+                checked={!hidden.includes(model.id)}
+                onCheckedChange={(next) => store.setModelHidden(runtime.id, model.id, !next)}
               />
             }
           />
@@ -1106,13 +1111,13 @@ const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
   return skill.toggleable === false ? (
     // Nothing to switch: the agent declares what it offers and keeps the
     // on/off to itself, so the row is a list entry.
-    <span className={kitStyles.rowFixed}>Always on</span>
+    <RowValue>Always on</RowValue>
   ) : (
     <span onClick={(event) => event.stopPropagation()}>
-      <Toggle
-        label={skill.name}
-        on={skill.enabled}
-        onChange={(next) =>
+      <Switch
+        aria-label={skill.name}
+        checked={skill.enabled}
+        onCheckedChange={(next) =>
           void store.setSkillEnabled({ name: skill.name, path: skill.path }, next)
         }
       />
@@ -1139,9 +1144,9 @@ const SkillPage = ({
       <BackLink to={listLabel} onClick={onBack} />
       <DetailHead
         mark={
-          <span className={kitStyles.detailMark}>
+          <DetailMark>
             <SkillMark skill={skill} size={20} />
-          </span>
+          </DetailMark>
         }
         name={skillTitle(skill)}
         owner={`${runtime.presentation.name}${scope ? ` · ${scope}` : ''}`}
@@ -1158,18 +1163,18 @@ const SkillPage = ({
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<span className={kitStyles.wire}>{skill.name}</span>} />
+        <Row title="Identifier" control={<WireText>{skill.name}</WireText>} />
         {skill.path && (
           <Row
             title="Where it lives"
-            control={<span className={kitStyles.rowFixed}>{skill.path}</span>}
+            control={<RowValue>{skill.path}</RowValue>}
           />
         )}
       </Rows>
 
       <div className={styles.skillActions}>
-        <Btn
-          variant="primary"
+        <Button
+          variant="default"
           onClick={() => {
             window.dispatchEvent(
               new CustomEvent('harnessdesk:compose', { detail: `@${skill.name} ` }),
@@ -1178,7 +1183,7 @@ const SkillPage = ({
           }}
         >
           Use in composer
-        </Btn>
+        </Button>
       </div>
     </>
   )
@@ -1264,7 +1269,7 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                   }
                   control={
                     <>
-                      {scope && <span className={kitStyles.rowFixed}>{scope}</span>}
+                      {scope && <RowValue>{scope}</RowValue>}
                       <SkillToggle skill={skill} />
                     </>
                   }
@@ -1382,10 +1387,10 @@ const BrowserSection = () => {
                   : 'A fresh profile each time; nothing survives the session.'
               }
               control={
-                <Toggle
-                  label="Keep the agent’s browser profile"
-                  on={prefs.keepExternalProfile}
-                  onChange={(next) => store.setBrowserPrefs({ keepExternalProfile: next })}
+                <Switch
+                  aria-label="Keep the agent’s browser profile"
+                  checked={prefs.keepExternalProfile}
+                  onCheckedChange={(next) => store.setBrowserPrefs({ keepExternalProfile: next })}
                 />
               }
             />
@@ -1401,10 +1406,10 @@ const BrowserSection = () => {
               title="Open links in the pane"
               desc="Otherwise a page’s new windows go to your default browser."
               control={
-                <Toggle
-                  label="Open links in the pane"
-                  on={prefs.linksInPane}
-                  onChange={(next) => store.setBrowserPrefs({ linksInPane: next })}
+                <Switch
+                  aria-label="Open links in the pane"
+                  checked={prefs.linksInPane}
+                  onCheckedChange={(next) => store.setBrowserPrefs({ linksInPane: next })}
                 />
               }
             />
@@ -1416,10 +1421,10 @@ const BrowserSection = () => {
                   : 'Pages reload signed out.'
               }
               control={
-                <Toggle
-                  label="Keep sessions"
-                  on={prefs.persistSession}
-                  onChange={(next) => store.setBrowserPrefs({ persistSession: next })}
+                <Switch
+                  aria-label="Keep sessions"
+                  checked={prefs.persistSession}
+                  onCheckedChange={(next) => store.setBrowserPrefs({ persistSession: next })}
                 />
               }
             />
@@ -1427,8 +1432,8 @@ const BrowserSection = () => {
               title="Browsing data"
               desc="Cookies, storage and caches for the pane’s pages."
               control={
-                <Btn
-                  small
+                <Button variant="secondary"
+                  size="sm"
                   disabled={clearing || !hasInlineBrowser()}
                   onClick={() => {
                     setClearing(true)
@@ -1444,7 +1449,7 @@ const BrowserSection = () => {
                   }}
                 >
                   {clearing ? 'Clearing…' : 'Clear'}
-                </Btn>
+                </Button>
               }
             />
           </Rows>
@@ -1489,17 +1494,17 @@ const WorkspacesSection = () => {
                   <Chip state="ready" label="Current" />
                 ) : (
                   <>
-                    <Btn small onClick={() => store.openWorkspace(workspace.path)}>
+                    <Button variant="secondary" size="sm" onClick={() => store.openWorkspace(workspace.path)}>
                       Open
-                    </Btn>
-                    <Btn
-                      small
-                      variant="quiet"
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       title="Drop it from this list. The folder is untouched."
                       onClick={() => void store.forgetWorkspace(workspace.path)}
                     >
                       Forget
-                    </Btn>
+                    </Button>
                   </>
                 )
               }
@@ -1528,7 +1533,7 @@ export const GeneralSectionRows = () => (
     <Rows>
       <Row
         title="Diagnostics"
-        desc="Versions, agent health, plugin state and the recent log, with secrets and personal paths removed."
+        desc="Versions, agent health, plugin state and the recent log, scrubbed."
         control={<DiagnosticsButton />}
       />
     </Rows>
@@ -1588,32 +1593,24 @@ const BackupRows = () => {
     <Rows>
       <Row
         title="Back up this Mac’s HarnessDesk"
-        desc="Agents, preferences and transcripts in one file. Sign-ins are not included; sign in again after restoring."
+        desc="Agents, preferences and transcripts in one file — sign in again after restoring."
         control={
-          <Btn small disabled={busy !== false} onClick={() => void exportBackup()}>
+          <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
             <DownloadIcon size={13} />
             {busy === 'export' ? 'Exporting…' : 'Export…'}
-          </Btn>
+          </Button>
         }
       />
       <Row
         title="Restore from a backup"
         desc={outcome ?? 'Adds what the file holds. Nothing here is replaced or deleted.'}
         control={
-          <label className={`${kitStyles.btn} ${kitStyles.btnSm}`} aria-disabled={busy !== false}>
-            {busy === 'restore' ? 'Restoring…' : 'Restore…'}
-            <input
-              type="file"
-              accept="application/json,.json"
-              style={{ display: 'none' }}
-              disabled={busy !== false}
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ''
-                if (file) void restoreBackup(file)
-              }}
-            />
-          </label>
+          <FileButton
+            label={busy === 'restore' ? 'Restoring…' : 'Restore…'}
+            accept="application/json,.json"
+            disabled={busy !== false}
+            onFile={(file) => void restoreBackup(file)}
+          />
         }
       />
     </Rows>
@@ -1646,10 +1643,10 @@ const DiagnosticsButton = () => {
     }
   }
   return (
-    <Btn small disabled={busy} onClick={() => void save()}>
+    <Button variant="secondary" size="sm" disabled={busy} onClick={() => void save()}>
       <DownloadIcon size={13} />
       {busy ? 'Collecting…' : 'Save bundle…'}
-    </Btn>
+    </Button>
   )
 }
 
@@ -1684,9 +1681,9 @@ const WorktreeRows = () => {
             title={worktree.branch ?? '(detached)'}
             desc={worktree.path}
             control={
-              <Btn small variant="quiet" onClick={() => setRemoving(worktree)}>
+              <Button size="sm" variant="ghost" onClick={() => setRemoving(worktree)}>
                 Remove…
-              </Btn>
+              </Button>
             }
           />
         ))}
@@ -1822,12 +1819,11 @@ export const Settings = ({
   )
 
   const scoped = (page: string): ReactNode => (
-    <span
-      className={appWindow.winNavCount}
+    <WindowNavCount
       title={`${page} belongs to ${runtime.presentation.name}, the agent the active conversation is with.`}
     >
       {runtime.presentation.name}
-    </span>
+    </WindowNavCount>
   )
 
   const groups: readonly NavGroup[] = [
@@ -2013,7 +2009,7 @@ export const Settings = ({
                 onClick={() => onSection(entry.id)}
                 {...(entry.count !== undefined ? { count: entry.count } : {})}
                 {...(entry.state
-                  ? { trail: <Dot state={entry.state} className={appWindow.winNavDot} /> }
+                  ? { trail: <WindowNavStateMark><Dot state={entry.state} /></WindowNavStateMark> }
                   : entry.trail
                     ? { trail: entry.trail }
                     : {})}

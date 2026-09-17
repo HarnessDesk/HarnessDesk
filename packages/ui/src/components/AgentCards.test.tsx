@@ -5,12 +5,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 import { sessionKey, type SessionSummary, type TeamPeerInfo } from '@harnessdesk/protocol'
 
-import { AgentCard } from '../design/patterns/AgentCard'
+import { AgentCard } from '../design'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_SIDE_OFFSET,
   HOVER_CARD_WIDTH_REM,
-} from '../design/ui'
+} from '../design'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentHoverCard, MemberHoverCard, SessionHoverCard, type MemberCardFacts } from './AgentCards'
@@ -146,15 +146,21 @@ it('draws no card at all for a conversation the renderer has not loaded', () => 
 /* ── And what an *open* one does ──────────────────────────────────────── */
 
 /**
- * Radix opens on a real `pointerover` after its delay, and jsdom will deliver
- * one — so the rest of this file drives the card the way a pointer does rather
- * than reaching into its state. Review asked for exactly this: the lazy
- * footprint was covered and the behaviour was not.
+ * A browser sends both pointer and mouse compatibility events for a mouse.
+ * Base UI opens the preview card from the mouse sequence, while HarnessDesk's
+ * control exclusion is pointer-aware, so the test sends both halves instead
+ * of depending on jsdom to synthesize one from the other.
  */
-const rest = (trigger: Element): void => {
+const arrive = (trigger: Element): void => {
   act(() => {
     trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    const rootTrigger = trigger.closest('[data-slot="hover-card-trigger"]') ?? trigger
+    rootTrigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
+}
+
+const rest = (trigger: Element): void => {
+  arrive(trigger)
   act(() => {
     vi.advanceTimersByTime(1000)
   })
@@ -198,7 +204,7 @@ it('a verb dismisses the card that offered it', () => {
 
   expect(open).toHaveBeenCalledOnce()
   // The verb opened something behind this card; the card does not stay over it.
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
@@ -231,7 +237,7 @@ it('reading the card does not dismiss it', () => {
     d.textContent === '~/code-shane/checkout-api · main',
   )
   act(() => path?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -291,12 +297,7 @@ it('starts exactly one clock when a card opens, and stops it when it closes', ()
   expect(openCard()).not.toBeNull()
   expect(live.size).toBe(1)
 
-  act(() => {
-    trigger().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
+  leave(trigger())
   // Not merely "no longer counting up": the handle is cleared, so a card
   // opened and closed a hundred times leaves nothing behind.
   expect(live.size).toBe(0)
@@ -389,6 +390,11 @@ const press = (target: Element, pointerType = 'mouse'): void => {
 const leave = (target: Element, pointerType = 'mouse'): void => {
   act(() => {
     target.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType }))
+    const rootTrigger = target.closest('[data-slot="hover-card-trigger"]') ?? target
+    rootTrigger.dispatchEvent(
+      new MouseEvent('mouseleave', { relatedTarget: document.body, clientX: -1, clientY: -1 }),
+    )
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: -1, clientY: -1 }))
   })
   act(() => {
     vi.advanceTimersByTime(1000)
@@ -514,11 +520,11 @@ it('a row’s own controls take focus without opening its card — or closing it
   // And the other way: a card the pointer is resting on stays when Tab moves on
   // out of the row. The pointer has not moved, and nothing would reopen it.
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   tabTo(control)
   focusElsewhere()
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -530,11 +536,11 @@ it('a chip — one thing to focus — opens its card for a keyboard, and closes 
 
   tabTo(link)
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   focusElsewhere()
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
@@ -548,7 +554,7 @@ it('opens for a keyboard whatever element the trigger is', () => {
 
   tabTo(link)
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -692,7 +698,7 @@ it('a press on a chip holds its card shut, even against the focus the press leav
   if (!link) throw new Error('no link inside the chip')
 
   rest(link)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   // A click focuses the link it lands on, and focus opens a chip's card — so
   // without the hold the card would be back 420ms after the click.
   press(link)
@@ -700,11 +706,11 @@ it('a press on a chip holds its card shut, even against the focus the press leav
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
 
   leave(link)
   rest(link)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -723,10 +729,10 @@ it('a control marked data-no-card opens no card, and reaching one puts an open c
   // Resting on the name opens the card; moving on to the control puts it away,
   // and it stays away while the pointer is on the control.
   rest(name)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   move(name, control)
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
@@ -747,13 +753,13 @@ it('a pointer that arrives on a data-no-card control gets its card once it moves
   // a pointer passing over the name on its way elsewhere opens nothing.
   move(control, name)
   wait(200)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(800)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // And back on to the control puts it away again.
   move(name, control)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
@@ -766,15 +772,13 @@ it('an open cancels the re-ask that was pending, so it cannot land on the card l
 
   // In over the name, which starts Radix's own delay, then on to the control
   // and back before it runs out — which leaves a re-ask pending as well.
-  act(() => {
-    name.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-  })
+  arrive(name)
   wait(100)
   move(name, control)
   wait(100)
   move(control, name)
   wait(250)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   /* Radix's request opened the card, and the re-ask comes due later. Left
      pending, it lands on whatever the card is by then: an open card has its
@@ -785,9 +789,9 @@ it('an open cancels the re-ask that was pending, so it cannot land on the card l
   act(() => {
     container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(400)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
@@ -795,7 +799,7 @@ it('a press takes the card away, and it stays away until the pointer leaves', ()
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The press is the row's: it opened something, and the card must not float
   // over that — not now, and not a beat later off the focus the press gave the
@@ -805,12 +809,12 @@ it('a press takes the card away, and it stays away until the pointer leaves', ()
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
 
   // Leaving and coming back is a new rest, and a new rest opens it.
   leave(trigger())
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   vi.useRealTimers()
 })
 
@@ -819,9 +823,7 @@ it('a press inside the open delay means the card never opens', () => {
   act(() => root.render(withAControl()))
   // A pass and then a click, quicker than the delay: the timer Radix started
   // on the way in must not open a card over whatever the click opened.
-  act(() => {
-    trigger().dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-  })
+  arrive(trigger())
   act(() => {
     vi.advanceTimersByTime(200)
   })
@@ -877,7 +879,7 @@ it('opens no card while something is being dragged, in the order a browser sends
   })
   leave(name)
   rest(name)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   leave(name)
 
   // A drag whose source went away mid-gesture ends with neither `dragend` nor
@@ -887,7 +889,7 @@ it('opens no card while something is being dragged, in the order a browser sends
     window.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', buttons: 0 }))
   })
   rest(name)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   leave(name)
 
   // …and so is the pointer let go.
@@ -896,7 +898,7 @@ it('opens no card while something is being dragged, in the order a browser sends
     window.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'mouse' }))
   })
   rest(name)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   elsewhere.remove()
 })
 
@@ -988,7 +990,7 @@ it('closes when the window narrows until it no longer fits, and comes back where
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // Narrowed until the row is all of it: the card goes at once…
   viewport(400)
@@ -996,12 +998,12 @@ it('closes when the window narrows until it no longer fits, and comes back where
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
 
   // …and the pointer, still resting, has it back after the delay of any rest,
   // under the row.
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   expect(side()).toBe('bottom')
 
   // A pointer that has gone by then gets nothing back.
@@ -1016,7 +1018,7 @@ it('closes when the window narrows until it no longer fits, and comes back where
     window.dispatchEvent(new Event('resize'))
   })
   leave(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
 
@@ -1036,9 +1038,9 @@ it('keeps the side it opened on: closes when that side stops fitting though the 
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   expect(side()).toBe('right')
 
   /* Settled there, it is watched afresh: a resize it fits through, then the
@@ -1047,12 +1049,12 @@ it('keeps the side it opened on: closes when that side stops fitting though the 
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   spans(1024 - 60, 1024 - 20)
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(1000)
   expect(side()).toBe('left')
   vi.useRealTimers()
@@ -1069,18 +1071,17 @@ it('keeps the side it opened on: closes when that side stops fitting though the 
  * its animation's name changes as it closes, and no `animationend` comes.
  */
 it('takes a card that lost the room on its side away at once, where one put away by the pointer or a scroll fades', () => {
-  const realStyle = window.getComputedStyle.bind(window)
-  vi.spyOn(window, 'getComputedStyle').mockImplementation((element: Element, pseudo?: string | null) => {
-    const style = realStyle(element, pseudo)
-    if (!(element instanceof HTMLElement) || element.dataset['slot'] !== 'hover-card-content') return style
-    return new Proxy(style, {
-      get: (target, key) => {
-        if (key === 'animationName') return element.dataset['state'] === 'closed' ? 'exit' : 'enter'
-        const value: unknown = Reflect.get(target, key)
-        return typeof value === 'function' ? value.bind(target) : value
-      },
-    })
-  })
+  const realGetAnimations = HTMLElement.prototype.getAnimations
+  HTMLElement.prototype.getAnimations = function getAnimations(): Animation[] {
+    if (this.dataset['slot'] !== 'hover-card-content' || !this.hasAttribute('data-ending-style')) return []
+    return [
+      {
+        finished: new Promise(() => {}),
+        pending: true,
+        playState: 'running',
+      } as unknown as Animation,
+    ]
+  }
   const content = (): Element | null => document.querySelector('[data-slot="hover-card-content"]')
   vi.useFakeTimers()
   act(() => root.render(<div data-testid="list">{withAControl()}</div>))
@@ -1092,17 +1093,17 @@ it('takes a card that lost the room on its side away at once, where one put away
   // The controls: put away by the pointer leaving, the card stays mounted to
   // fade, which is what makes the case below a difference…
   leave(trigger())
-  expect(content()?.getAttribute('data-state')).toBe('closed')
+  expect(content()?.hasAttribute('data-open')).toBe(false)
 
   // …and so does one its list's scroll put away.
   rest(trigger())
   act(() => {
     container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
   })
-  expect(content()?.getAttribute('data-state')).toBe('closed')
+  expect(content()?.hasAttribute('data-open')).toBe(false)
 
   rest(trigger())
-  expect(content()?.getAttribute('data-state')).toBe('open')
+  expect(content()?.hasAttribute('data-open')).toBe(true)
   viewport(400)
   spans(0, 400)
   act(() => {
@@ -1113,10 +1114,11 @@ it('takes a card that lost the room on its side away at once, where one put away
   // Back for the reader still resting, below the row — and put away by the
   // pointer from there, it fades again like any other.
   wait(1000)
-  expect(content()?.getAttribute('data-state')).toBe('open')
+  expect(content()?.hasAttribute('data-open')).toBe(true)
   expect(side()).toBe('bottom')
   leave(trigger())
-  expect(content()?.getAttribute('data-state')).toBe('closed')
+  expect(content()?.hasAttribute('data-open')).toBe(false)
+  HTMLElement.prototype.getAnimations = realGetAnimations
   vi.useRealTimers()
 })
 
@@ -1128,12 +1130,12 @@ it('closes when the trigger itself narrows under it, as when a panel opens besid
     viewport(1024)
     spans(20, 60)
     rest(trigger())
-    expect(trigger().getAttribute('data-state')).toBe('open')
+    expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
     // The window has not changed; the row has, and it is the whole window now.
     spans(0, 1024)
     hand.resized(trigger())
-    expect(trigger().getAttribute('data-state')).toBe('closed')
+    expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   } finally {
     vi.unstubAllGlobals()
     vi.useRealTimers()
@@ -1148,7 +1150,7 @@ it('follows a trigger drawn again while its card is open, for that trigger’s o
     viewport(1024)
     spans(20, 60)
     rest(trigger())
-    expect(trigger().getAttribute('data-state')).toBe('open')
+    expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
     // The same card with a new element under it — nothing does this today —
     // which then widens to the whole window.
@@ -1156,7 +1158,7 @@ it('follows a trigger drawn again while its card is open, for that trigger’s o
     expect(trigger().tagName).toBe('DIV')
     spans(0, 1024)
     hand.resized(trigger())
-    expect(trigger().getAttribute('data-state')).toBe('closed')
+    expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   } finally {
     vi.unstubAllGlobals()
     vi.useRealTimers()
@@ -1188,13 +1190,13 @@ it('checks its side again when the positioner moves it, and closes when that sid
   const wrapper = document.querySelector('[data-slot="hover-card-content"]')?.parentElement
   if (!wrapper) throw new Error('no wrapper around the card')
   // The element the watch observes is the positioner's own wrapper.
-  expect(wrapper.hasAttribute('data-radix-popper-content-wrapper')).toBe(true)
+  expect(wrapper.getAttribute('data-slot') === 'hover-card-positioner').toBe(true)
 
   // The control: placed again with nothing moved, and it stays.
   await act(async () => {
     wrapper.style.transform = 'translate(668px, 100px)'
   })
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The row slides to the window's other edge at the same width — no resize
   // anywhere — and the positioner follows it.
@@ -1202,7 +1204,7 @@ it('checks its side again when the positioner moves it, and closes when that sid
   await act(async () => {
     wrapper.style.transform = 'translate(68px, 100px)'
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(1000)
   expect(side()).toBe('right')
   expect(errors).not.toHaveBeenCalled()
@@ -1220,7 +1222,7 @@ it('closes when the positioner trades its side, whatever moved', async () => {
   await act(async () => {
     document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   expect(errors).not.toHaveBeenCalled()
 })
 
@@ -1249,18 +1251,18 @@ it('asks once more for a card the positioner traded, under the trigger, and that
   await act(async () => {
     document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
 
   // The control: nothing brings it back before the delay of a rest, and the
   // trigger measured again in the meantime brings it back no sooner.
   hand.resized(trigger())
   wait(400)
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
 
   // Then it comes back under the trigger — not on the side this code measured
   // and lost, and not on the side the positioner took it to.
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   expect(side()).toBe('bottom')
 
   // And that is the end of it. Nothing watches a card under its trigger, so a
@@ -1269,12 +1271,12 @@ it('asks once more for a card the positioner traded, under the trigger, and that
     document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'top')
   })
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // A new visit asks afresh, on the side this code measures.
   leave(trigger())
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   expect(side()).toBe('right')
   expect(errors).not.toHaveBeenCalled()
 })
@@ -1314,9 +1316,9 @@ it('a card that settled below, then came back beside its trigger, is still asked
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   expect(side()).toBe('bottom')
 })
 
@@ -1428,9 +1430,9 @@ it('brings back a card a keyboard opened, on the side that fits now', () => {
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   wait(1000)
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   expect(side()).toBe('bottom')
   vi.useRealTimers()
 })
@@ -1462,7 +1464,7 @@ it('reads what a rem is once per open, and measures the whole of that open by it
   act(() => {
     window.dispatchEvent(new Event('resize'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The next open reads it afresh, and there is no longer room on the right.
   leave(trigger())
@@ -1553,13 +1555,13 @@ it('reads the side the positioner drew a card on as its watch starts, not only t
 
   // The control: the watch started again over the side the card opened on.
   act(() => root.render(chip('div')))
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The positioner's answer, where no observer reports it; the watch, started
   // again, reads it — and closes the card it was drawn on.
   document.querySelector('[data-slot="hover-card-content"]')?.setAttribute('data-side', 'left')
   act(() => root.render(chip('span')))
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   // What comes back is under the trigger, never the same measurement again.
   wait(1000)
   expect(side()).toBe('bottom')
@@ -1614,29 +1616,29 @@ it('stays open through a scroll elsewhere, and closes when its own list or the p
   document.body.appendChild(elsewhere)
   act(() => root.render(<div data-testid="list">{withAControl()}</div>))
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The chat following a new message: a scroller the trigger is not inside.
   act(() => {
     elsewhere.dispatchEvent(new Event('scroll'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The control: the list the trigger sits in scrolls, and the card goes.
   act(() => {
     container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
 
   // And the page: the document holds every trigger, so its scroll moves this
   // one too — it needs no case of its own.
   leave(trigger())
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
   act(() => {
     document.dispatchEvent(new Event('scroll'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   elsewhere.remove()
   vi.useRealTimers()
 })
@@ -1646,18 +1648,18 @@ it('reads its trigger as it is now, so a trigger drawn again while open still cl
   const inList = (as: 'span' | 'div'): React.ReactNode => <div data-testid="list">{chip(as)}</div>
   act(() => root.render(inList('span')))
   rest(trigger())
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   // The same card with a new element under it — nothing does this today, and
   // a trigger read once as the card opened would be a detached node here,
   // contained by nothing.
   act(() => root.render(inList('div')))
   expect(trigger().tagName).toBe('DIV')
-  expect(trigger().getAttribute('data-state')).toBe('open')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
   act(() => {
     container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
   })
-  expect(trigger().getAttribute('data-state')).toBe('closed')
+  expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })

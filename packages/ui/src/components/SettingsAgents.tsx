@@ -51,30 +51,33 @@ import {
   SignOutIcon,
 } from './Icons'
 import {
+  AccountMark,
   BackLink,
-  Btn,
+  Button,
   Chip,
+  CodeText,
+  DetailMark,
   DetailHead,
   Dot,
   Field,
   FormStack,
   Input,
-  kit,
   Note,
   Search,
-  Select,
+  NativeSelect,
   Textarea,
   PageHead,
   Row,
   RowButton,
+  RowMark,
+  RowValue,
   Rows,
   SectionHead,
   Segmented,
-  Toggle,
-} from '../design/primitives/Kit'
+  Switch,
+} from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Dialog } from '../design/primitives/Dialog'
-import { ConfirmDialog } from '../design/patterns/ConfirmDialog'
+import { Dialog, ConfirmDialog } from '../design'
 import styles from './SettingsAgents.module.css'
 
 /**
@@ -293,19 +296,19 @@ const RingPicker = ({
 }) => (
   <span className={styles.rings} role="radiogroup" aria-label="Ring colour">
     {TINTS.map((tint) => (
-      <button
+      <AccountMark
+        as="button"
         key={tint}
-        type="button"
         role="radio"
         aria-checked={tint === value}
         aria-label={tint}
-        className={`${kit.avatar} ${styles.ring}`}
+        className={styles.ring}
         data-tint={tint}
         {...(tint === value ? { 'data-on': '' } : {})}
         onClick={() => onChange(tint)}
       >
         <RuntimeMark runtime={info} size={14} />
-      </button>
+      </AccountMark>
     ))}
   </span>
 )
@@ -315,9 +318,9 @@ const Prose = ({ text }: { text: string }) => (
   <>
     {codeSpans(text).map((span, index) =>
       span.code ? (
-        <code key={index} className={kit.mono}>
+        <CodeText as="code" key={index}>
           {span.text}
-        </code>
+        </CodeText>
       ) : (
         <span key={index}>{span.text}</span>
       ),
@@ -450,7 +453,7 @@ const AgentBlock = ({
   }
 
   return (
-    <section className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
+    <Rows className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
       {/* Two targets, not one: the agent's name opens what belongs to the
           runtime — health, version, behaviour — and the caret only decides
           whether its accounts are on screen. Nesting them would make one of
@@ -462,31 +465,21 @@ const AgentBlock = ({
             was set to nowrap, so a longer one arrived cut. It still shows in
             full where choosing is the actual task — the Add agent list below,
             first run, and sign-in. */}
-        <button
-          type="button"
+        <RowButton
           className={styles.headOpen}
-          title={info.presentation.tagline}
           onClick={onOpenAgent}
-        >
-          <span className={kit.rowMark}>
-            <RuntimeMark runtime={info} size={17} />
-          </span>
-          <span className={styles.headText}>
-            <span className={styles.headName}>
+          chevron={false}
+          mark={<RuntimeMark runtime={info} size={17} />}
+          title={
+            <span className={styles.headName} title={info.presentation.tagline}>
               {info.presentation.name}
               {build && <span className={styles.headBuild}>{build}</span>}
               {connection && <span className={styles.tag}>{connection}</span>}
             </span>
-          </span>
-          {/* Inside the name's button, not beside it: how many accounts there
-              are and whether they work is what the agent's own page answers,
-              so the whole sentence is one target and the caret is the only
-              thing on this row that means something else. */}
-          {/* One vocabulary, and only when it has something to say: which
-              agent the composer points at, how many accounts there are, and
-              the state — as a chip that names itself, never as a bare dot the
-              reader has to decode. A healthy agent shows none of the three. */}
-          <span className={styles.headMeta}>
+          }
+          control={<span className={styles.headMeta}>
+            {/* Counts and state belong to the name's target; only the separate
+                caret expands the account list. A healthy agent needs no chip. */}
             {/* The default's chip wears the agent's own state: a default that
                 has crashed is not a green one — nor is one that is signed out
                 or out of credit. `state` is `agentReadiness` over this agent's
@@ -495,17 +488,17 @@ const AgentBlock = ({
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
             {count !== null && <span className={styles.headCount}>{count}</span>}
             {state !== 'ready' && <Chip state={state} />}
-          </span>
-        </button>
-        <button
+          </span>}
+        />
+        <Button
           type="button"
-          className={styles.headToggle}
+          variant="quiet" size="content" className={styles.headToggle}
           aria-expanded={open}
           aria-label={`${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`}
           onClick={onToggle}
         >
-          <CaretIcon size={15} />
-        </button>
+          <span className={styles.headToggleIcon} aria-hidden="true"><CaretIcon size={15} /></span>
+        </Button>
       </div>
 
       {open && (
@@ -536,12 +529,12 @@ const AgentBlock = ({
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
               mark={
-                <span
-                  className={`${kit.avatar} ${styles.rowAvatar}`}
+                <AccountMark
+                  className={styles.rowAvatar}
                   data-tint={tintOf(key, snapshot.accountPrefs)}
                 >
                   <RuntimeMark runtime={info} size={14} />
-                </span>
+                </AccountMark>
               }
               title={
                 <span className={styles.rowName}>
@@ -585,9 +578,9 @@ const AgentBlock = ({
           <Row
             key={entry.id}
             mark={
-              <span className={`${kit.avatar} ${styles.rowAvatar}`}>
+              <AccountMark className={styles.rowAvatar}>
                 <RuntimeMark runtime={info} size={14} />
-              </span>
+              </AccountMark>
             }
             title={
               <span className={styles.rowName}>
@@ -597,9 +590,9 @@ const AgentBlock = ({
             }
             desc={entry.slot?.gateway?.endpoint}
             control={
-              <Btn small variant="quiet" onClick={() => void store.removeAccount(entry.id)}>
+              <Button size="sm" variant="ghost" onClick={() => void store.removeAccount(entry.id)}>
                 Remove
-              </Btn>
+              </Button>
             }
           />
         ))}
@@ -611,16 +604,16 @@ const AgentBlock = ({
           <Row
             key={entry.id}
             title="Waiting to be signed in"
-            desc="This account was added but the sign-in never finished. Sign in to use it, or remove it."
+            desc="Added, but the sign-in never finished."
             control={
               <>
-                <Btn small variant="primary" onClick={() => void store.signInAgent(entry.id)}>
+                <Button size="sm" variant="default" onClick={() => void store.signInAgent(entry.id)}>
                   <SignInIcon size={13} />
                   Sign in
-                </Btn>
-                <Btn small onClick={() => void store.removeAccount(entry.id)}>
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => void store.removeAccount(entry.id)}>
                   Remove
-                </Btn>
+                </Button>
               </>
             }
           />
@@ -667,14 +660,14 @@ const AgentBlock = ({
                  job and was already done there. */
               control={
                 info.capabilities.account && canSignIn ? (
-                  <Btn
-                    small
-                    variant="primary"
+                  <Button
+                    size="sm"
+                    variant="default"
                     onClick={() => (needsField ? onSignIn(info.id) : void store.signInAgent(info.id))}
                   >
                     <SignInIcon size={13} />
                     Sign in
-                  </Btn>
+                  </Button>
                 ) : undefined
               }
             />
@@ -687,9 +680,9 @@ const AgentBlock = ({
       {(info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn)) && (
         <div className={styles.foot}>
           {info.capabilities.account && canSignIn && (
-            <Btn
-              small
-              variant="quiet"
+            <Button
+              size="sm"
+              variant="ghost"
               title={
                 info.slot?.canAdd
                   ? `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
@@ -702,26 +695,26 @@ const AgentBlock = ({
             >
               <PlusIcon size={13} />
               {adding ? 'Adding…' : 'Add account'}
-            </Btn>
+            </Button>
           )}
           {/* Offered even with no plan account signed in: paying your own way
               is a first-class way to run this agent, not a fallback. */}
           {info.slot?.canAdd && (
-            <Btn
-              small
-              variant="quiet"
+            <Button
+              size="sm"
+              variant="ghost"
               title={`Run ${info.presentation.name} against your own endpoint — an API key or a gateway — instead of the plan it signs into.`}
               onClick={() => setAddingGateway(true)}
             >
               <PlusIcon size={13} />
               Add gateway account…
-            </Btn>
+            </Button>
           )}
         </div>
       )}
       </div>
       )}
-    </section>
+    </Rows>
   )
 }
 
@@ -770,10 +763,10 @@ const GatewayDialog = ({ info, onClose }: { info: RuntimeInfo; onClose: () => vo
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !ready} onClick={() => void save()}>
+          <Button variant="default" disabled={busy || !ready} onClick={() => void save()}>
             {busy ? 'Adding…' : 'Add account'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -870,10 +863,10 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !ready} onClick={() => void add()}>
+          <Button variant="default" disabled={busy || !ready} onClick={() => void add()}>
             {busy ? 'Adding…' : 'Add agent'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
     >
@@ -986,7 +979,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                page and on the list it comes back to. A template has no
                account yet, so it can only be the square. */
             mark={
-              <span className={kit.rowMark}>
+              <RowMark>
                 <RuntimeMark
                   runtime={{
                     id: template.key,
@@ -997,7 +990,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                   }}
                   size={17}
                 />
-              </span>
+              </RowMark>
             }
             title={template.name}
             desc={
@@ -1028,7 +1021,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                     <>
                       {' '}
                       Install it with{' '}
-                      <span className={kit.mono}>{template.requires.installCommand}</span>, then
+                      <CodeText>{template.requires.installCommand}</CodeText>, then
                       come back.
                     </>
                   )}
@@ -1039,15 +1032,15 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
               template.registered ? (
                 <Chip state="ready" label="Added" />
               ) : (
-                <Btn
-                  small
-                  variant="primary"
+                <Button
+                  size="sm"
+                  variant="default"
                   disabled={!template.available || busy !== null}
                   onClick={() => void add(template.key)}
                 >
                   <PlusIcon size={13} />
                   {busy === template.key ? 'Adding…' : 'Add'}
-                </Btn>
+                </Button>
               )
             }
           />
@@ -1082,12 +1075,12 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                 className={styles.registryCell}
                 {...(agent.available ? {} : { 'data-blocked': '' })}
               >
-                <span className={kit.rowMark}>
+                <RowMark>
                   <RuntimeMark
                     runtime={{ id: agent.id, presentation: { name: agent.name } }}
                     size={17}
                   />
-                </span>
+                </RowMark>
                 <span className={styles.registryCellText}>
                   <span className={styles.registryCellName}>
                     {agent.name}
@@ -1105,15 +1098,15 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                 {agent.registered ? (
                   <Chip state="ready" label="Added" />
                 ) : agent.available ? (
-                  <Btn
-                    small
-                    variant="primary"
+                  <Button
+                    size="sm"
+                    variant="default"
                     disabled={busy !== null}
                     onClick={() => void addFromRegistry(agent.id)}
                   >
                     <PlusIcon size={13} />
                     {registryAddLabel(agent, busy === agent.id)}
-                  </Btn>
+                  </Button>
                 ) : null}
               </div>
             )
@@ -1144,10 +1137,10 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           title="A command of your own"
           desc="Any agent that speaks the protocol: name it and say how to start it."
           control={
-            <Btn small onClick={() => setCustomOpen(true)}>
+            <Button variant="secondary" size="sm" onClick={() => setCustomOpen(true)}>
               <PlusIcon size={13} />
               Set up…
-            </Btn>
+            </Button>
           }
         />
       </Rows>
@@ -1210,12 +1203,12 @@ const AccountDetail = ({
       <BackLink to="Agents" onClick={onBack} />
       <DetailHead
         mark={
-          <span
-            className={`${kit.avatar} ${kit.avatarLg}`}
+          <AccountMark
+            size="lg"
             data-tint={tintOf(key, snapshot.accountPrefs)}
           >
             <RuntimeMark runtime={info} size={20} />
-          </span>
+          </AccountMark>
         }
         name={accountName(account, prefs, info.presentation.name)}
         owner={info.presentation.name}
@@ -1258,13 +1251,14 @@ const AccountDetail = ({
           title="Primary usage window"
           desc="Which limit appears first in the tray, account summary and menu."
           control={
-            <Select
-              label="Primary usage window"
+            <NativeSelect
+              aria-label="Primary usage window"
               value={pinLaneId}
-              options={usageOptions}
               disabled={usageOptions.length <= 1}
-              onChange={(laneId) => store.setAccountPrefs(key, { pinLaneId: laneId || undefined })}
-            />
+              onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
+            >
+              {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </NativeSelect>
           }
         />
       </Rows>
@@ -1282,17 +1276,17 @@ const AccountDetail = ({
           }
           control={
             <>
-              {planLabel && <span className={kit.rowFixed}>{planLabel}</span>}
+              {planLabel && <RowValue>{planLabel}</RowValue>}
               {isKey ? (
-                <Btn small onClick={() => onSignIn(info.id)}>
+                <Button variant="secondary" size="sm" onClick={() => onSignIn(info.id)}>
                   <SignInIcon size={13} />
                   Manage key…
-                </Btn>
+                </Button>
               ) : (
-                <Btn small onClick={() => setConfirmingSignOut(true)}>
+                <Button variant="secondary" size="sm" onClick={() => setConfirmingSignOut(true)}>
                   <SignOutIcon size={13} />
                   {info.slot?.removable ? 'Remove…' : 'Sign out…'}
-                </Btn>
+                </Button>
               )}
             </>
           }
@@ -1300,7 +1294,7 @@ const AccountDetail = ({
         {credentialHome(info) && (
           <Row
             title="Where its credential lives"
-            desc={<span className={kit.mono}>{credentialHome(info)}</span>}
+            desc={<CodeText>{credentialHome(info)}</CodeText>}
           />
         )}
       </Rows>
@@ -1316,9 +1310,9 @@ const AccountDetail = ({
             snapshot.activeRuntime === info.id ? (
               <Chip state={defaultChipState(info, snapshot)} label="Default" />
             ) : (
-              <Btn small onClick={() => void store.selectRuntime(info.id)}>
+              <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
                 Make default
-              </Btn>
+              </Button>
             )
           }
         />
@@ -1368,11 +1362,11 @@ const OptionRows = ({
           desc={option.description ?? option.disabled}
           control={
             option.type === 'boolean' ? (
-              <Toggle
-                label={option.label}
-                on={option.currentValue}
+              <Switch
+                aria-label={option.label}
+                checked={option.currentValue}
                 disabled={Boolean(option.disabled)}
-                onChange={(next) => ask(option, next, () => onSet(option.id, next))}
+                onCheckedChange={(next) => ask(option, next, () => onSet(option.id, next))}
               />
             ) : (
               <Segmented
@@ -1555,9 +1549,9 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
           desc={rule}
           control={
             install.policy === 'pinned' ? (
-              <Btn small disabled={busy !== null} onClick={() => void choose(null)}>
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void choose(null)}>
                 {busy === 'auto' ? 'Unpinning…' : 'Use newest'}
-              </Btn>
+              </Button>
             ) : undefined
           }
         />
@@ -1579,13 +1573,13 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
               desc={reason ? <Prose text={reason} /> : undefined}
               control={
                 updatable ? (
-                  <Btn small variant="primary" disabled={busy !== null} onClick={() => void update()}>
+                  <Button size="sm" variant="default" disabled={busy !== null} onClick={() => void update()}>
                     {busy === 'update' ? 'Updating…' : `Update to ${install.registryUpdate?.version}`}
-                  </Btn>
+                  </Button>
                 ) : pinnable ? (
-                  <Btn small disabled={busy !== null} onClick={() => void choose(copy.path)}>
+                  <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void choose(copy.path)}>
                     {busy === copy.path ? 'Pinning…' : 'Pin'}
-                  </Btn>
+                  </Button>
                 ) : undefined
               }
             />
@@ -1605,9 +1599,9 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
             desc={fallbackLine}
             control={
               install.fallback?.managed && install.registryUpdate ? (
-                <Btn small variant="primary" disabled={busy !== null} onClick={() => void update()}>
+                <Button size="sm" variant="default" disabled={busy !== null} onClick={() => void update()}>
                   {busy === 'update' ? 'Updating…' : `Update to ${install.registryUpdate.version}`}
-                </Btn>
+                </Button>
               ) : undefined
             }
           />
@@ -1617,7 +1611,7 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
             title="Install it on this machine"
             desc={
               <>
-                <span className={kit.mono}>{install.installCommand}</span>
+                <CodeText>{install.installCommand}</CodeText>
                 {install.fallback ? ' — optional while the fallback answers.' : ''}
               </>
             }
@@ -1628,11 +1622,11 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
             title="Its own home"
             desc={
               <>
-                <span className={kit.mono}>{install.home.path}</span>
+                <CodeText>{install.home.path}</CodeText>
                 {install.home.env ? (
                   <>
                     {' '}
-                    (moved by <span className={kit.mono}>{install.home.env}</span>)
+                    (moved by <CodeText>{install.home.env}</CodeText>)
                   </>
                 ) : null}
                 {install.home.note ? <> <Prose text={install.home.note} /></> : ''}
@@ -1649,7 +1643,7 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
                 {install.signIn.terminal ? (
                   <>
                     {' '}
-                    Run <code className={kit.mono}>{install.signIn.terminal}</code> in a terminal.
+                    Run <CodeText as="code">{install.signIn.terminal}</CodeText> in a terminal.
                   </>
                 ) : null}
               </>
@@ -1699,9 +1693,9 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
       <BackLink to="Agents" onClick={onBack} />
       <DetailHead
         mark={
-          <span className={kit.detailMark}>
+          <DetailMark>
             <RuntimeMark runtime={info} size={22} />
-          </span>
+          </DetailMark>
         }
         name={info.presentation.name}
         owner={build ?? undefined}
@@ -1716,10 +1710,10 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
           ) : (
             /* Never disabled for a down agent: choosing one is how it is
                restarted, which is what its own health advises. */
-            <Btn variant="outline" onClick={() => void store.selectRuntime(info.id)}>
+            <Button variant="outline" onClick={() => void store.selectRuntime(info.id)}>
               <CheckIcon size={14} />
               Use for new sessions
-            </Btn>
+            </Button>
           )
         }
       />
@@ -1745,7 +1739,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
                   {update.command && (
                     <>
                       {' '}
-                      <span className={kit.mono}>{update.command}</span>
+                      <CodeText>{update.command}</CodeText>
                     </>
                   )}
                 </>
@@ -1774,9 +1768,9 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
               title="Remove from HarnessDesk"
               desc="Its account, configuration and history stay where the agent keeps them."
               control={
-                <Btn small onClick={() => setConfirmingRemove(true)}>
+                <Button variant="secondary" size="sm" onClick={() => setConfirmingRemove(true)}>
                   Remove…
-                </Btn>
+                </Button>
               }
             />
           </Rows>
@@ -1887,14 +1881,14 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
           <>
             {/* Hidden while filtering, which force-opens every hit anyway. */}
             {groups.length > 1 && !filtering && (
-              <Btn variant="outline" onClick={() => setAll(!allOpen)}>
+              <Button variant="outline" onClick={() => setAll(!allOpen)}>
                 {allOpen ? 'Collapse all' : 'Expand all'}
-              </Btn>
+              </Button>
             )}
-            <Btn variant="default" onClick={() => setView({ kind: 'add' })}>
+            <Button variant="default" onClick={() => setView({ kind: 'add' })}>
               <PlusIcon size={14} />
               Add agent
-            </Btn>
+            </Button>
           </>
         }
       />
@@ -1909,18 +1903,17 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
             placeholder="Search agents or accounts"
             onChange={setQuery}
           />
-          <Select
-            label="Filter by status"
+          <NativeSelect
+            aria-label="Filter by status"
             value={status}
-            options={[
-              { value: 'all', label: 'Any status' },
-              { value: 'ready', label: 'Ready' },
-              { value: 'signin', label: 'Needs sign-in' },
-              { value: 'limit', label: 'Limit reached' },
-              { value: 'broken', label: 'Unavailable' },
-            ]}
-            onChange={setStatus}
-          />
+            onChange={(event) => setStatus(event.target.value as StatusFilter)}
+          >
+            <option value="all">Any status</option>
+            <option value="ready">Ready</option>
+            <option value="signin">Needs sign-in</option>
+            <option value="limit">Limit reached</option>
+            <option value="broken">Unavailable</option>
+          </NativeSelect>
         </div>
       )}
 
@@ -1935,20 +1928,20 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
             }
             control={
               groups.length === 0 ? (
-                <Btn small variant="primary" onClick={() => setView({ kind: 'add' })}>
+                <Button size="sm" variant="default" onClick={() => setView({ kind: 'add' })}>
                   <PlusIcon size={13} />
                   Add agent
-                </Btn>
+                </Button>
               ) : (
-                <Btn
-                  small
+                <Button variant="secondary"
+                  size="sm"
                   onClick={() => {
                     setQuery('')
                     setStatus('all')
                   }}
                 >
                   Clear filters
-                </Btn>
+                </Button>
               )
             }
           />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { FlowDryRun, FlowFile } from '@harnessdesk/protocol'
 
-import { Banner, Field, Input, Select } from '../design'
+import { Banner, Field, Input, NativeSelect } from '../design'
 import { useStore } from '../state/context'
 import styles from './FlowStart.module.css'
 
@@ -145,20 +145,18 @@ export const FlowStart = ({
         hint="A flow declares who does what and what moves work between them, so a loop of agents runs without you routing every card."
       >
         {(control) => (
-          <Select
+          <NativeSelect
             {...control}
-            label="Flow"
+            aria-label="Flow"
             value={path}
             disabled={disabled || files === null}
-            onChange={(next) => void choose(next)}
-            options={[
-              { value: NONE, label: files === null ? 'Looking…' : 'No flow — an ordinary room' },
-              ...(files ?? []).map((file) => ({
-                value: file.path,
-                label: file.problem ? `${file.name} — will not run` : file.name,
-              })),
-            ]}
-          />
+            onChange={(event) => void choose(event.target.value)}
+          >
+            <option value={NONE}>{files === null ? 'Looking…' : 'No flow — an ordinary room'}</option>
+            {(files ?? []).map((file) => (
+              <option key={file.path} value={file.path}>{file.problem ? `${file.name} — will not run` : file.name}</option>
+            ))}
+          </NativeSelect>
         )}
       </Field>
 

@@ -38,7 +38,7 @@
   justify-content: center;
   width: 12px;
   height: var(--hd-line);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /*
@@ -61,25 +61,9 @@
      the panel a horizontal scrollbar — which is the one thing `.sectionBody`
      cannot show, because the column it sits in cannot scroll sideways. */
   margin: calc(-1 * var(--hd-space-0-5)) 0;
-  padding: var(--hd-space-0-5) var(--hd-space-1);
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  font: inherit;
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
-  color: inherit;
+
   text-align: left;
-  cursor: text;
-}
 
-.label:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-}
-
-.label:focus-visible {
-  outline: 2px solid var(--hd-accent);
-  outline-offset: -1px;
 }
 
 .doneLabel {
@@ -90,14 +74,14 @@
 .hint {
   margin-left: var(--hd-space-1-5);
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* Says the panel is showing something the conversation does not say. */
 .edited {
   margin-left: var(--hd-space-1-5);
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-style: italic;
 }
 
@@ -109,26 +93,18 @@
   width: 100%;
   flex: 1;
   margin: calc(-1 * var(--hd-space-0-5)) 0;
-  padding: var(--hd-space-0-5) var(--hd-space-1);
-  border: none;
-  border-radius: var(--hd-radius-sm);
+
   /* The field's own ground, which is what `design/`'s Input uses too. Not
      `bg-base`: in dark that is the page itself (neutral-950), so the field
      had no fill to be seen by and rested entirely on its focus ring. Layer 1
      is a step above the page in dark and the same white in light, so this
      costs the light theme nothing and gives the dark one a field. */
-  background: var(--hdp-alias-bg-layer-1);
+
   /* Inset, so the ring is drawn inside the field rather than 2px outside it —
      an outline is not part of the box and would overhang the column too. */
-  outline: 1px solid var(--hd-accent);
-  outline-offset: -1px;
-  font: inherit;
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
-  color: inherit;
+
   /* A textarea, so a sentence-long step keeps the height it had rather than
      collapsing the row to one line and jumping every row below it. Its own
      handle would be a second way to size it, and the content already does. */
-  resize: none;
   overflow: hidden;
 }

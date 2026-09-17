@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SelectOption } from '@harnessdesk/protocol'
 import { optionsIn } from '@harnessdesk/protocol'
 
-import { Btn, Dialog } from '../design'
-import { Badge } from '../design/ui/badge'
+import { Button, Dialog } from '../design'
+import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
 import { worktreeBranch } from '../lib/worktree-branch'
@@ -40,9 +40,9 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Submenu } from './Menu'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Popover, popoverStyles as styles } from './Popover'
+import { Popover, PopoverDim, PopoverFilterInput, PopoverStrong, PopoverUpdateNote } from '../design'
 import sheet from './ComposerControls.module.css'
 
 /**
@@ -278,10 +278,9 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      <input
+      <PopoverFilterInput
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
-        className={styles.filterInput}
         placeholder={`Type to filter ${option.choices.length} choices…`}
         value={query}
         spellCheck={false}
@@ -463,8 +462,8 @@ export const ModelControl = () => {
             ) : (
               <ModelIcon size={13} />
             )}
-            {!narrow && <span className={styles.strong}>{name}</span>}
-            {effort && !narrow && <span className={styles.dim}>{effort}</span>}
+            {!narrow && <PopoverStrong>{name}</PopoverStrong>}
+            {effort && !narrow && <PopoverDim>{effort}</PopoverDim>}
             {!tight && <Chevron />}
           </>
         }
@@ -617,11 +616,11 @@ const RuntimeBuildNote = () => {
         {version && (
           <div data-testid="runtime-build">
             {version}
-            {checked && <span className={styles.dim}> · {checked}</span>}
+            {checked && <PopoverDim> · {checked}</PopoverDim>}
           </div>
         )}
         {update && (
-          <div className={styles.updateNote} data-testid="runtime-update">
+          <PopoverUpdateNote data-testid="runtime-update">
             {update.text}
             {update.command && (
               <>
@@ -629,7 +628,7 @@ const RuntimeBuildNote = () => {
                 <code>{update.command}</code>
               </>
             )}
-          </div>
+          </PopoverUpdateNote>
         )}
       </MenuNote>
     </>
@@ -735,7 +734,7 @@ export const AgentControl = () => {
         label={
           <>
             <RuntimeMark runtime={owner} size={13} />
-            {!narrow && <span className={styles.strong}>{brandOf(owner.presentation.name)}</span>}
+            {!narrow && <PopoverStrong>{brandOf(owner.presentation.name)}</PopoverStrong>}
             {!tight && <Chevron />}
           </>
         }
@@ -836,10 +835,10 @@ const HandoffSheet = ({
       onClose={onCancel}
       footer={
         <>
-          <Btn variant="primary" onClick={() => onConfirm(carry)}>
+          <Button variant="default" onClick={() => onConfirm(carry)}>
             Hand off to {to}
-          </Btn>
-          <Btn onClick={onCancel}>Stay here</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onCancel}>Stay here</Button>
         </>
       }
     >
@@ -849,7 +848,7 @@ const HandoffSheet = ({
       </p>
       <div className={sheet.choices} role="radiogroup" aria-label="What to carry">
         {CARRY_OPTIONS.map((option) => (
-          <button
+          <Button variant="ghost" size="sm"
             key={option.id}
             type="button"
             role="radio"
@@ -872,7 +871,7 @@ const HandoffSheet = ({
               </div>
               <div className={sheet.choiceHint}>{option.hint}</div>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
     </Dialog>
@@ -1013,7 +1012,7 @@ export const PlaceControl = () => {
             ) : (
               <LocalIcon size={13} />
             )}
-            {!narrow && <span className={`${sheet.word} ${armed ? sheet.armed : styles.strong}`}>{word}</span>}
+            {!narrow && <PopoverStrong className={`${sheet.word} ${armed ? sheet.armed : ''}`}>{word}</PopoverStrong>}
             {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
             <Chevron />
           </>

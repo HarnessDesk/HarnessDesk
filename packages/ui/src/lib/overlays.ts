@@ -10,9 +10,8 @@
  * where they were and where they disagreed.
  *
  * Deliberately free of React and of the app: the primitives are a subscribe and
- * a push, so a component anywhere can take part — including the vendored Radix
- * menus in `design/ui`, which cannot reach `components/`.
- * `components/Popover.tsx` wraps both as hooks.
+ * a push, so a component anywhere can take part — including the canonical Base
+ * UI menus and popovers in `design/`, which cannot reach feature components.
  */
 
 /**
@@ -26,9 +25,9 @@ export interface DismissDetail {
   /**
    * For a caller that gives focus back, when it goes, to what had it when it
    * came: a menu holding focus hands it to its trigger first. The floating
-   * sidebar asks; Settings and Usage do not, because they take no focus of
-   * their own and focus handed to a trigger behind them answered Enter by
-   * opening the menu again, above the window.
+   * sidebar asks; Settings and Usage do not, because their modal AppWindow
+   * now takes and contains focus itself. Returning focus to a covered menu
+   * trigger would race that transfer.
    */
   readonly returnFocus?: boolean
 }

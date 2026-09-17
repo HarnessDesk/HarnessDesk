@@ -6,10 +6,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  padding: var(--hd-space-2) 12px; /* desk: canonical One UI System scale */
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-module-platform);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-muted);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
   font-size: var(--hd-text-sm);
 }
 
@@ -29,8 +29,8 @@
 .goalStatus {
   flex: none;
   height: 18px;
-  padding: 0 7px;
-  border-radius: 9px;
+  padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
+  border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   line-height: 18px;
   background: var(--hd-accent-dim);
@@ -52,7 +52,7 @@
 .goalBudget {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -60,18 +60,10 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 50%;
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
-}
 
-.goalClear:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  width: var(--hd-target-min); /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
+
 }
 
 /* --- jobs -------------------------------------------------------------- */
@@ -86,12 +78,12 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .jobsHead {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .job {
@@ -103,7 +95,7 @@
 
 .jobIcon {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .jobCommand {
@@ -112,14 +104,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
 }
 
 .jobElapsed {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -128,7 +120,7 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l3);
+  border: 1.5px solid var(--hd-border-emphasis);
   border-top-color: var(--hd-accent);
   animation: spin 0.7s linear infinite;
 }
@@ -149,28 +141,16 @@
   align-items: center;
   gap: 6px;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .deliverable {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 11px;
-  background: var(--hdp-alias-bg-module-platform);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-sm);
-}
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 
-.deliverable:hover {
-  background: var(--hdp-alias-interactive-bg-hover-solid);
-  color: var(--hdp-alias-label-primary);
+ /* desk: canonical One UI System scale */
+
 }
 
 .deliverableAdded {

@@ -2,7 +2,7 @@
  * The worktree dialogs. A few shapes here rhyme with GitDialogs.module.css
  * (the stacked body, the inline refusal, the mode cards) rather than
  * importing them: a screen's stylesheet is not a library, and what deserves
- * promotion goes to design/primitives instead.
+ * promotion goes to design/ui or a named design/patterns contract instead.
  */
 
 .body {
@@ -15,18 +15,18 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: 1.5;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
   line-height: 1.5;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .quiet {
   padding: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-sm);
 }
 
@@ -55,7 +55,7 @@
   gap: 6px;
   padding: 10px;
   border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
 /* The checkout you are looking at gets the accent edge, not a background:
@@ -66,7 +66,7 @@
 
 .row[data-gone] .rowName,
 .row[data-gone] .rowPath {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   text-decoration: line-through;
 }
 
@@ -80,7 +80,7 @@
 .rowIcon {
   flex: none;
   display: inline-flex;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .rowName {
@@ -90,7 +90,7 @@
   white-space: nowrap;
   font-size: var(--hd-text-sm);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 /* The path is the row's earned second line: two checkouts of one branch are
@@ -101,9 +101,9 @@
   white-space: nowrap;
   direction: rtl;
   text-align: left;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .chip {
@@ -142,9 +142,9 @@
 }
 
 .chip[data-kind='dirty'] {
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
 .chip[data-kind='gone'] {
@@ -163,7 +163,7 @@
 
 .working {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* The question a row asks, in place of its buttons: one dialog, never two. */
@@ -174,7 +174,7 @@
   flex-wrap: wrap;
   padding: 8px;
   border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
+  background: var(--hd-muted);
 }
 
 .ask[data-tone='destructive'] {
@@ -186,7 +186,7 @@
   min-width: 0;
   font-size: var(--hd-text-sm);
   line-height: 1.4;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .ask input {
@@ -213,29 +213,21 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  background: none;
-  text-align: left;
-  cursor: pointer;
-}
 
-.mode[data-on] {
-  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
+  text-align: left;
+
 }
 
 .modeName {
   font-size: var(--hd-text-sm);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .modeWhat {
   font-size: var(--hd-text-xs);
   line-height: 1.4;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .field {
@@ -248,7 +240,7 @@
   flex: none;
   width: 56px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .field input,
@@ -257,22 +249,12 @@
   min-width: 0;
 }
 
-.select {
-  height: 28px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-primary);
-  font-size: var(--hd-text-sm);
-  padding: 0 6px;
-}
-
 .switchRow {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* The ignored contents a removal would take, named rather than counted: the
@@ -281,7 +263,7 @@
 .askList {
   display: block;
   margin-top: 4px;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   color: var(--hd-danger);
   overflow-wrap: anywhere;

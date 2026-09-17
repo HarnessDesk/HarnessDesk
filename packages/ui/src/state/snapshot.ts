@@ -446,7 +446,7 @@ export interface AppSnapshot {
    * shadcn-dashboard idiom — selection filled with the brand, cards as a
    * tinted block with no line, and settings-like pages standing a step
    * taller. Both are entirely token values; see the STUDIO block in
-   * design/tokens.css.
+   * design/foundation/tokens.css.
    */
   /*
    * Spelled `look`, not `interface`, and the reason is a language one:

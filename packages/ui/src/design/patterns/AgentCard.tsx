@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
-import { Segmented } from '../primitives/Kit'
+import { Segmented } from './Settings'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { Progress } from '../ui/progress'

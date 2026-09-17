@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 import { CheckIcon, FileIcon, SessionIcon, SlashIcon, SparkIcon } from './Icons'
@@ -64,12 +65,11 @@ export const TriggerMenu = ({
       {title && <div className={styles.header}>{title}</div>}
       {items.length === 0 && <div className={styles.empty}>{emptyLabel ?? 'No matches'}</div>}
       {items.map((item, index) => (
-        <button
+        <Button
           key={item.id}
           type="button"
           role="option"
-          aria-selected={index === activeIndex}
-          className={styles.row}
+          aria-selected={index === activeIndex} variant="navigation" size="navigation" className={styles.row}
           {...(index === activeIndex ? { 'data-selected': '' } : {})}
           onMouseEnter={() => onHover(index)}
           onClick={() => onPick(item)}
@@ -100,7 +100,7 @@ export const TriggerMenu = ({
               {item.badge}
             </span>
           )}
-        </button>
+        </Button>
       ))}
     </div>
   )

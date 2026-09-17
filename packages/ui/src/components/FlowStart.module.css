@@ -8,7 +8,7 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* The report, not a preview: what this is about to cost and do, above the
@@ -18,8 +18,8 @@
   flex-direction: column;
   gap: var(--hd-space-2);
   padding: var(--hd-space-3);
-  background: var(--hdp-alias-bg-layer-1);
-  border: 1px solid var(--hdp-alias-border-l1);
+  background: var(--hd-card);
+  border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius);
 }
 
@@ -32,7 +32,7 @@
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .head + .head {
@@ -41,7 +41,7 @@
 
 .cost {
   font-weight: 400;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .seats,
@@ -56,7 +56,7 @@
   list-style: none;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .problems {
@@ -79,7 +79,7 @@
   flex: none;
   min-width: 5.5rem;
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .seat,
@@ -93,7 +93,7 @@
 .count,
 .next {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .next {
@@ -107,8 +107,8 @@
   border-radius: var(--hd-radius-sm);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
 }
 
 /* Publishing and merging are what an unattended agent must never drift into
@@ -127,7 +127,7 @@
   min-width: 0;
   overflow-x: auto;
   font-family: var(--hd-font-code);
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .note {

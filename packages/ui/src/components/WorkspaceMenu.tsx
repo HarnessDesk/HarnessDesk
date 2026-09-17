@@ -17,7 +17,7 @@ import {
   TrashIcon,
   UnpinIcon,
 } from './Icons'
-import { ContextMenu, MenuItem, MenuSeparator, useMenuClose, type MenuPoint } from './Menu'
+import { Button, ContextMenu, MenuItem, MenuSeparator, useMenuClose, type MenuPoint } from '../design'
 import styles from './WorkspaceMenu.module.css'
 
 /**
@@ -104,17 +104,15 @@ const WorkspaceRows = ({
             : 'They leave this list but stay in the agent’s history.'}
         </div>
         <div className={styles.confirmActions}>
-          <button
-            type="button"
-            className={styles.button}
+          <Button
+            variant="ghost" size="sm"
             disabled={busy}
             onClick={() => setConfirming(null)}
           >
             Cancel
-          </button>
-          <button
-            type="button"
-            className={`${styles.button} ${styles.buttonDanger}`}
+          </Button>
+          <Button
+            variant="destructive" size="sm"
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -124,7 +122,7 @@ const WorkspaceRows = ({
             }
           >
             {busy ? 'Working…' : remove ? 'Remove' : 'Archive'}
-          </button>
+          </Button>
         </div>
       </div>
     )

@@ -6,10 +6,21 @@
   display: block;
 }
 
+.levelHost {
+  display: block;
+}
+
+/* The anchored Popover owns placement. The embedded menu still needs a real
+   anchor to finish Base UI's positioning lifecycle; without one its children
+   remain at opacity: 0 even though they are focusable and have layout boxes. */
+.embeddedPositioner {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+}
+
 .surface,
 .flyout {
-  position: fixed;
-  z-index: 70;
   /* A floating panel is never a handle for moving the window. Electron's
      drag region is geometric, not a matter of ancestry: the pane strip and
      the conversation header each contribute one draggable rectangle, and a
@@ -26,14 +37,17 @@
   overflow-y: auto;
   padding: 4px;
   border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-layer-1);
+  background: var(--hd-card);
   box-shadow:
     0 10px 30px rgba(0, 0, 0, 0.2),
-    inset 0 0 0 1px var(--hdp-alias-border-l2);
+    inset 0 0 0 1px var(--hd-border-strong);
+}
+
+.contextPositioner {
+  z-index: var(--hd-z-popover);
 }
 
 .flyout {
-  z-index: 71;
   min-width: 200px;
 }
 
@@ -50,11 +64,11 @@
   gap: 10px;
   width: 100%;
   min-height: var(--hd-row-h);
-  padding: 5px 10px;
+  padding: var(--hd-space-1) 10px;
   border: none;
   border-radius: var(--hd-radius-sm);
   background: none;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   cursor: pointer;
   text-align: left;
   font-size: var(--hd-text);
@@ -63,14 +77,15 @@
 
 .row:hover,
 .row:focus-visible,
-.row[data-open] {
-  background: var(--hdp-alias-interactive-bg-hover);
+.row[data-open],
+.row[data-popup-open] {
+  background: var(--hd-hover);
   outline: none;
 }
 
 .row:disabled {
   cursor: default;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .row:disabled:hover {
@@ -91,7 +106,7 @@
   display: inline-flex;
   width: 18px;
   justify-content: center;
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .row[data-danger] .icon {
@@ -109,23 +124,23 @@
 .title {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--hd-space-2);
   min-width: 0;
 }
 
 .hint {
   font-size: var(--hd-text-sm);
   line-height: 17px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   white-space: normal;
 }
 
 .badge {
   flex: none;
   padding: 0 6px;
-  border-radius: 5px;
-  background: var(--hdp-alias-bg-layer-2, var(--hdp-alias-interactive-bg-hover));
-  color: var(--hdp-alias-label-secondary);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-card-raised, var(--hd-hover));
+  color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-xs);
   line-height: 18px;
   font-weight: 500;
@@ -135,7 +150,7 @@
 .value {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -161,13 +176,13 @@
 
 .chevron {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .separator {
   height: 1px;
   margin: 4px 6px;
-  background: var(--hdp-alias-border-l1);
+  background: var(--hd-border);
 }
 
 /* Section headers read as words, not as a filing cabinet: sentence case at
@@ -175,18 +190,18 @@
    "Organize sidebar" over its own list controls. Uppercase, bold and
    letter-spacing all shouted over the rows, which are the text that matters. */
 .label {
-  padding: 8px 10px 3px;
+  padding: 8px 10px var(--hd-space-1);
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .note {
   padding: 6px 10px 8px;
   font-size: var(--hd-text-sm);
   line-height: 17px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
-/* The switch is the primitive's, drawn small — see `Kit.Switch`. A menu row
+/* The switch is the canonical primitive's compact mounting. A menu row
    is itself the control, so it wears the shape rather than nesting a button
    inside a button, and nothing about its appearance is spelled here. */

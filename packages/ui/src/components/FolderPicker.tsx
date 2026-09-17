@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { Btn, Dialog } from '../design'
+import { Button, Dialog } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { FolderIcon } from './Icons'
 import styles from './FolderPicker.module.css'
@@ -79,9 +79,9 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
                 {index === all.length - 1 ? (
                   <span className={styles.crumbCurrent}>{crumb.name}</span>
                 ) : (
-                  <button type="button" className={styles.crumb} onClick={() => browse(crumb.path)}>
+                  <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
                     {crumb.name}
-                  </button>
+                  </Button>
                 )}
               </span>
             ))
@@ -92,8 +92,8 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
       }
       footer={
         <>
-          <Btn
-            variant="primary"
+          <Button
+            variant="default"
             disabled={!listing}
             onClick={() => {
               if (!listing) return
@@ -102,8 +102,8 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
             }}
           >
             Open {listing ? `“${crumbsOf(listing.path).at(-1)?.name ?? listing.path}”` : 'folder'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
       footerAside="Click a folder to enter it; open the one you are in."
@@ -114,15 +114,15 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
           <p className={styles.empty}>No sub-folders here.</p>
         )}
         {listing?.entries.map((entry) => (
-          <button
+          <Button
             key={entry.path}
             type="button"
-            className={styles.entry}
+            variant="row" size="row" className={styles.entry}
             onClick={() => browse(entry.path)}
           >
             <FolderIcon size={13} />
             {entry.name}
-          </button>
+          </Button>
         ))}
       </div>
     </Dialog>

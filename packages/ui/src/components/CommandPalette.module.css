@@ -31,39 +31,30 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
+  padding: 0 var(--hd-space-4); /* desk: canonical One UI System scale */
   height: 48px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .inputIcon {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .input {
   flex: 1;
   min-width: 0;
-  border: none;
-  background: none;
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
-  font-size: var(--hd-text);
-  outline: none;
-}
 
-.input::placeholder {
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .kbd {
   flex: none;
   padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--hdp-alias-bg-module-platform);
+  border-radius: var(--hd-radius-xs);
+  background: var(--hd-muted);
   font: inherit;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .list {
@@ -76,7 +67,7 @@
 .group {
   padding: 8px 10px 4px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .row {
@@ -84,26 +75,15 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 34px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
-  font-size: var(--hd-text);
-  text-align: left;
-  cursor: pointer;
-}
 
-.row[data-active] {
-  background: var(--hdp-alias-interactive-bg-hover-solid);
+  text-align: left;
+
 }
 
 .rowIcon {
   flex: none;
   display: inline-flex;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowLabel {
@@ -121,14 +101,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .empty {
-  padding: 28px 10px;
+  padding: var(--hd-space-8) 10px; /* desk: canonical One UI System scale */
   text-align: center;
   font-size: var(--hd-text);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .rowMatch {
@@ -138,12 +118,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .mark {
-  background: var(--hdp-alias-interactive-bg-hover-solid);
-  color: var(--hdp-alias-label-primary);
-  border-radius: 2px;
+  background: var(--hd-hover-solid);
+  color: var(--hd-foreground);
+  border-radius: var(--hd-radius-2xs);
   padding: 0 1px;
 }

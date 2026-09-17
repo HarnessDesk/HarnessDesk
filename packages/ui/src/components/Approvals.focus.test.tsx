@@ -104,7 +104,7 @@ const mount = (focusedPane: string) => {
 }
 
 const card = (): HTMLElement | null =>
-  container.querySelector<HTMLElement>('[role="dialog"] > [tabindex="-1"]')
+  container.querySelector<HTMLElement>('[role="dialog"][tabindex="-1"]')
 
 it('takes focus when the approval is in the pane you are looking at', () => {
   const elsewhere = document.createElement('textarea')

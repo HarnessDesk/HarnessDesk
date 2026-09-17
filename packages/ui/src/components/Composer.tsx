@@ -11,7 +11,7 @@ import {
 
 import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Input } from '../design'
+import { Button, Dialog, Input, Textarea } from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -49,8 +49,16 @@ import {
 } from './Icons'
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
-import { Lightbox } from './Lightbox'
-import { Popover, popoverStyles } from './Popover'
+import { Lightbox } from '../design'
+import {
+  Popover,
+  PopoverGroupLabel,
+  PopoverOption,
+  PopoverOptionBody,
+  PopoverOptionHint,
+  PopoverOptionLabel,
+  PopoverOptionMark,
+} from '../design'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import styles from './Composer.module.css'
 
@@ -934,25 +942,26 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               <div
                 key={image.id}
                 role="listitem"
-                className={`${styles.tile}${acceptsImages ? '' : ` ${styles.tileRefused}`}`}
+                className={styles.tile}
                 title={acceptsImages ? image.name : `${image.name} — ${agentName} does not accept images`}
               >
-                <button
+                <Button
                   type="button"
-                  className={styles.tileOpen}
+                  variant="ghost" size="fill"
+                  {...(!acceptsImages ? { 'data-refused': '' } : {})}
                   aria-label={`View ${image.name}`}
                   onClick={() => setPreview(index)}
                 >
                   <img className={styles.thumb} src={image.path} alt={image.name} draggable={false} />
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.tileRemove}
+                  variant="destructive" size="icon-circle" data-overlay="" className={styles.tileRemove}
                   aria-label={`Remove ${image.name}`}
                   onClick={() => setAttachments((current) => current.filter((entry) => entry.id !== image.id))}
                 >
                   <CrossIcon size={11} />
-                </button>
+                </Button>
                 {!acceptsImages && (
                   <span className={styles.tileBadge}>
                     <AlertIcon size={11} />
@@ -970,9 +979,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                 className={`${styles.chip} ${styles.chipHandoff}`}
                 title={`${CARRY_LABEL[handoff.carry]} of “${handoff.title}” will be sent first. Click to read the original — the hand-off waits for the next new conversation.`}
               >
-                <button
+                <Button
                   type="button"
-                  className={styles.chipLink}
+                  variant="link" size="content" className={styles.chipLink}
                   onClick={() => void store.openSession(handoff.sessionId, { runtime: handoff.runtime })}
                 >
                   <HandoffIcon size={12} />
@@ -980,15 +989,15 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                     From {brandOf(handoff.agentName)} — {handoff.title}
                   </span>
                   <span className={styles.chipMeta}>{CARRY_LABEL[handoff.carry]}</span>
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.chipRemove}
+                  variant="ghost" size="icon-sm" className={styles.chipRemove}
                   aria-label="Remove the hand-off"
                   onClick={() => store.clearDraftHandoff()}
                 >
                   <CrossIcon size={10} />
-                </button>
+                </Button>
               </span>
             )}
             {attachments.filter((entry) => entry.kind !== 'image').map((attachment) => (
@@ -1013,24 +1022,24 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   <FileIcon size={12} />
                 )}
                 <span className={styles.chipText}>{attachment.name}</span>
-                <button
+                <Button
                   type="button"
-                  className={styles.chipRemove}
+                  variant="ghost" size="icon-sm" className={styles.chipRemove}
                   aria-label={`Remove ${attachment.name}`}
                   onClick={() =>
                     setAttachments((current) => current.filter((entry) => entry.id !== attachment.id))
                   }
                 >
                   <CrossIcon size={10} />
-                </button>
+                </Button>
               </span>
             ))}
           </div>
         )}
 
-        <textarea
+        <Textarea
           ref={textarea}
-          className={styles.input}
+          variant="composer" controlSize="composer" className={styles.input}
           value={text}
           rows={1}
           placeholder={placeholder}
@@ -1053,7 +1062,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         />
 
         <div className={styles.toolbar}>
-          <input
+          <Input
             ref={filePicker}
             type="file"
             accept="image/png,image/jpeg,image/gif,image/webp"
@@ -1067,9 +1076,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           <Popover title="Add" drop="up" align="left" label={<PlusIcon size={14} />}>
             {(close) => (
               <>
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                <PopoverOption
                   disabled={!acceptsImages}
                   // The other ways in ride on hover: they are a shortcut for
                   // the row, not a thing to know before taking it. The refusal
@@ -1081,94 +1088,86 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <ImageIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Attach images…</span>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Attach images…</PopoverOptionLabel>
                     {!acceptsImages && (
-                      <div className={popoverStyles.optionHint}>{agentName} does not accept images.</div>
+                      <PopoverOptionHint>{agentName} does not accept images.</PopoverOptionHint>
                     )}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                  </PopoverOptionBody>
+                </PopoverOption>
+                <PopoverOption
                   onClick={() => {
                     onChange(text.length > 0 && !text.endsWith(' ') ? `${text} @` : `${text}@`)
                     textarea.current?.focus()
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <AtIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Add a file — @</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Add a file — @</PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
+                <PopoverOption
                   onClick={() => {
                     onChange('/')
                     textarea.current?.focus()
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <SlashIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Slash commands — /</span>
-                  </span>
-                </button>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Slash commands — /</PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
                 {chipProviders.length > 0 && (
                   <>
-                    <div className={popoverStyles.groupLabel}>Add context</div>
+                    <PopoverGroupLabel>Add context</PopoverGroupLabel>
                     {chipProviders.map((provider) => (
-                      <button
+                      <PopoverOption
                         key={provider.id}
-                        type="button"
-                        className={popoverStyles.option}
                         onClick={() => {
                           close()
                           if (provider.chip?.prompt) setRefPrompt(provider)
                           else addContext(provider)
                         }}
                       >
-                        <span className={popoverStyles.optionIcon}>
+                        <PopoverOptionMark>
                           <PaperclipIcon size={13} />
-                        </span>
-                        <span className={popoverStyles.optionBody}>
-                          <span className={popoverStyles.optionLabel}>
+                        </PopoverOptionMark>
+                        <PopoverOptionBody>
+                          <PopoverOptionLabel>
                             {provider.label}
                             {provider.chip?.prompt ? '…' : ''}
-                          </span>
+                          </PopoverOptionLabel>
                           {provider.chip?.description && (
-                            <div className={popoverStyles.optionHint}>{provider.chip.description}</div>
+                            <PopoverOptionHint>{provider.chip.description}</PopoverOptionHint>
                           )}
-                        </span>
-                      </button>
+                        </PopoverOptionBody>
+                      </PopoverOption>
                     ))}
-                    <div className={popoverStyles.groupLabel}>Project</div>
+                    <PopoverGroupLabel>Project</PopoverGroupLabel>
                   </>
                 )}
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                <PopoverOption
                   onClick={() => {
                     onChooseProject()
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <FolderOpenIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Change project folder…</span>
-                  </span>
-                </button>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Change project folder…</PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
               </>
             )}
           </Popover>
@@ -1195,9 +1194,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               Two saturated coins side by side read as two competing primary
               buttons, which is what this replaces. */}
           {(!busy || canSend) && (
-            <button
+            <Button
               type="button"
-              className={styles.send}
+              variant="action" size="icon-circle" className="flex-none"
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
               disabled={!canSend}
               onClick={() => void submit()}
@@ -1205,18 +1204,18 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               {...(sendTitle ? { title: sendTitle } : {})}
             >
               <SendIcon size={15} />
-            </button>
+            </Button>
           )}
           {busy && (
-            <button
+            <Button
               type="button"
-              className={`${styles.send} ${styles.stop}`}
+              variant="action" size="icon-circle" className={styles.send}
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
               title="Stop this turn"
             >
               <StopIcon size={12} />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -1266,10 +1265,10 @@ const RefPrompt = ({
       onClose={onCancel}
       footer={
         <>
-          <Btn variant="primary" disabled={!value.trim()} onClick={() => onConfirm(value)}>
+          <Button variant="default" disabled={!value.trim()} onClick={() => onConfirm(value)}>
             Attach
-          </Btn>
-          <Btn onClick={onCancel}>Don&rsquo;t attach</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onCancel}>Don&rsquo;t attach</Button>
         </>
       }
       footerAside="⏎ to attach"

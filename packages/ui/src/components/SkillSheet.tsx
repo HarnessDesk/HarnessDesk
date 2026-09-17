@@ -20,11 +20,11 @@ import {
   TrashIcon,
 } from './Icons'
 import { Markdown } from './Markdown'
-import { kit } from '../design/primitives/Kit'
+import { CodeText } from '../design'
 import {
   Badge,
   Button,
-  Dialog,
+  DialogRoot,
   DialogContent,
   DialogDescription,
   DialogTitle,
@@ -33,7 +33,7 @@ import {
   Switch,
   ToggleGroup,
   ToggleGroupItem,
-} from '../design/ui'
+} from '../design'
 import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryActions'
 import { shortPath } from '../lib/paths'
 import { REACH_SENTENCE } from '../lib/reach-states'
@@ -390,7 +390,7 @@ export const SkillSheet = ({
   const hollowCopies = entry.copies.filter((one) => one.hollow && !one.readOnly)
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
+    <DialogRoot open onOpenChange={(next) => !next && onClose()}>
       <DialogContent
         data-slot="skill-sheet"
         className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
@@ -411,9 +411,9 @@ export const SkillSheet = ({
                 on-disk identity and the invocation are two different
                 strings, and only showing the first leaves the second to
                 guesswork. */}
-            <code className={`${kit.mono} text-xs text-(--hd-muted-foreground)`}>
+            <CodeText as="code" className="text-xs text-(--hd-muted-foreground)">
               {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
-            </code>
+            </CodeText>
             {entry.description && (
               <DialogDescription className="mt-0.5 text-sm leading-relaxed text-(--hd-secondary-foreground)">
                 {entry.description}
@@ -449,13 +449,13 @@ export const SkillSheet = ({
               >
                 <ToggleGroupItem
                   value="rendered"
-                  className="h-full rounded-sm px-2 text-xs text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs"
+                  className="h-full rounded-sm px-2 text-xs text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
                 >
                   Rendered
                 </ToggleGroupItem>
                 <ToggleGroupItem
                   value="source"
-                  className="h-full rounded-sm px-2 text-xs text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs"
+                  className="h-full rounded-sm px-2 text-xs text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
                 >
                   Source
                 </ToggleGroupItem>
@@ -492,11 +492,9 @@ export const SkillSheet = ({
                   </span>
                 </p>
               ) : view === 'source' ? (
-                <pre
-                  className={`${kit.mono} m-0 text-xs leading-relaxed whitespace-pre-wrap text-(--hd-secondary-foreground)`}
-                >
+                <CodeText as="pre" className="m-0 text-xs leading-relaxed whitespace-pre-wrap text-(--hd-secondary-foreground)">
                   {definition.text}
-                </pre>
+                </CodeText>
               ) : (
                 <>
                   {front !== null && (
@@ -507,11 +505,9 @@ export const SkillSheet = ({
                       >
                         Frontmatter
                       </p>
-                      <pre
-                        className={`${kit.mono} m-0 text-xs leading-relaxed whitespace-pre-wrap text-(--hd-secondary-foreground)`}
-                      >
+                      <CodeText as="pre" className="m-0 text-xs leading-relaxed whitespace-pre-wrap text-(--hd-secondary-foreground)">
                         {front}
-                      </pre>
+                      </CodeText>
                     </div>
                   )}
                   <Markdown text={body} document />
@@ -690,11 +686,9 @@ export const SkillSheet = ({
                           when it has to, so `/home/u/.claude/skills/…` keeps
                           its segments instead of being cut mid-word at the
                           column edge. */}
-                      <code
-                        className={`${kit.mono} min-w-0 flex-1 text-xs [overflow-wrap:anywhere]`}
-                      >
+                      <CodeText as="code" className="min-w-0 flex-1 text-xs [overflow-wrap:anywhere]">
                         {shortPath(one.path, home)}
-                      </code>
+                      </CodeText>
                       {!one.readOnly && (
                         <Button
                           variant="ghost"
@@ -942,6 +936,6 @@ export const SkillSheet = ({
           )}
         </div>
       </DialogContent>
-    </Dialog>
+    </DialogRoot>
   )
 }

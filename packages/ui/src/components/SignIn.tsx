@@ -31,7 +31,8 @@ import {
   KeyboardIcon,
   TerminalIcon,
 } from './Icons'
-import { Btn, Dot, IconBtn, Search } from '../design/primitives/Kit'
+import { Button, Dot, Input, Search } from '../design'
+import { DialogContent, DialogRoot, DialogTitle } from '../design'
 import own from './SignIn.module.css'
 
 /**
@@ -191,32 +192,20 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
     onClose()
   }
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        close()
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  })
-
   return (
-    <div className={own.backdrop} onPointerDown={close}>
-      <div
+    <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
+      <DialogContent
         className={own.dialog}
-        role="dialog"
-        aria-modal="true"
+        portalled={false}
         aria-label="Sign in"
-        onPointerDown={(event) => event.stopPropagation()}
+        showCloseButton={false}
       >
         <div className={own.head}>
-          <div className={own.headTitle}>Sign in</div>
+          <DialogTitle className={own.headTitle}>Sign in</DialogTitle>
           <span className={own.fill} />
-          <IconBtn onClick={close} aria-label="Close">
+          <Button variant="ghost" size="icon-sm" onClick={close} aria-label="Close">
             <CrossIcon size={16} />
-          </IconBtn>
+          </Button>
         </div>
 
         <div className={own.split}>
@@ -235,7 +224,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
             <div className={own.railScroll}>
               {rows.map((entry) => (
-                <button
+                <Button variant="ghost" size="sm"
                   key={entry.info.id}
                   type="button"
                   className={own.rosterRow}
@@ -256,7 +245,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   ) : (
                     <Dot state={entry.state} />
                   )}
-                </button>
+                </Button>
               ))}
 
               {registryRows.length > 0 && (
@@ -273,7 +262,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                     />
                   )}
                   {listedRegistry.map((agent) => (
-                    <button
+                    <Button variant="ghost" size="sm"
                       key={agent.id}
                       type="button"
                       className={own.rosterRow}
@@ -293,7 +282,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                           <span className={own.rosterDetail}>Unverified</span>
                         )}
                       </span>
-                    </button>
+                    </Button>
                   ))}
                   {listedRegistry.length === 0 && (
                     <div className={own.railNote}>Nothing in the registry matches.</div>
@@ -346,18 +335,18 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                       : 'Nothing left to sign in — close this and start a conversation.'}
                   </span>
                 </span>
-                <Btn
-                  variant="primary"
+                <Button
+                  variant="default"
                   onClick={() => (nextUp ? setSelected(nextUp.info.id) : close())}
                 >
                   {nextUp ? 'Sign in' : 'Done'}
-                </Btn>
+                </Button>
               </div>
             ) : null}
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   )
 }
 
@@ -500,7 +489,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
             </span>
           </div>
           <div className={own.row}>
-            <Btn onClick={() => store.dismissLogin(info.id)}>Try again</Btn>
+            <Button variant="secondary" onClick={() => store.dismissLogin(info.id)}>Try again</Button>
           </div>
         </div>
       ) : signedIn ? (
@@ -521,8 +510,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
             runtime={info.id}
             lead={
               info.slot?.canAdd ? (
-                <Btn
-                  variant="primary"
+                <Button
+                  variant="default"
                   disabled={adding}
                   onClick={() => {
                     // A second identity needs a second credential home, or the
@@ -543,7 +532,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
                   }}
                 >
                   {adding ? 'Adding…' : 'Add another account'}
-                </Btn>
+                </Button>
               ) : null
             }
           />
@@ -565,7 +554,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
             {driveable.map((method) => {
               const Glyph = METHOD_ICON[method.flow]
               return (
-                <button
+                <Button variant="ghost" size="sm"
                   key={method.id}
                   type="button"
                   className={own.method}
@@ -586,7 +575,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
                   <span className={own.methodGo}>
                     <ChevronIcon size={16} />
                   </span>
-                </button>
+                </Button>
               )
             })}
           </div>
@@ -597,9 +586,9 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
               describes. */}
           {info.slot?.removable ? (
             <div className={own.actions}>
-              <Btn variant="quiet" onClick={() => void store.removeAccount(info.id)}>
+              <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
                 Remove this account
-              </Btn>
+              </Button>
             </div>
           ) : null}
         </div>
@@ -640,9 +629,9 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
               {broken.remediation ? <p className={own.note}>{broken.remediation}</p> : null}
               {info.slot?.removable ? (
                 <div className={own.actions}>
-                  <Btn variant="quiet" onClick={() => void store.removeAccount(info.id)}>
+                  <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
                     Remove this account
-                  </Btn>
+                  </Button>
                 </div>
               ) : null}
             </div>
@@ -729,13 +718,13 @@ const RegistryAgent = ({
             {registryRunSentence(agent)}
           </p>
           <div className={own.row}>
-            <Btn variant="primary" disabled={busy} onClick={() => void add()}>
+            <Button variant="default" disabled={busy} onClick={() => void add()}>
               {registryAddLabel(agent, busy)}
-            </Btn>
+            </Button>
             {agent.website ? (
-              <Btn variant="quiet" onClick={() => openExternal(agent.website!)}>
+              <Button variant="ghost" onClick={() => openExternal(agent.website!)}>
                 Its website
-              </Btn>
+              </Button>
             ) : null}
           </div>
           <p className={own.note}>
@@ -757,9 +746,9 @@ const RegistryAgent = ({
           </div>
           {agent.website ? (
             <div className={own.row}>
-              <Btn variant="quiet" onClick={() => openExternal(agent.website!)}>
+              <Button variant="ghost" onClick={() => openExternal(agent.website!)}>
                 Its website
-              </Btn>
+              </Button>
             </div>
           ) : null}
         </div>
@@ -822,9 +811,9 @@ const KeyField = ({
       <div className={own.groupLabel}>
         <span className={own.fill}>{label}</span>
         {onBack ? (
-          <Btn variant="quiet" small onClick={onBack}>
+          <Button variant="ghost" size="sm" onClick={onBack}>
             Other ways in
-          </Btn>
+          </Button>
         ) : null}
       </div>
 
@@ -849,9 +838,10 @@ const KeyField = ({
             <span className={own.keyIcon} aria-hidden="true">
               <KeyIcon size={13} />
             </span>
-            <input
+            <Input
               ref={field}
               type="password"
+              variant="code"
               className={own.keyInput}
               value={value}
               autoFocus
@@ -864,10 +854,10 @@ const KeyField = ({
                 if (event.key === 'Enter') void save()
               }}
             />
-            <Btn variant="primary" disabled={!value.trim() || busy} onClick={() => void save()}>
+            <Button variant="default" disabled={!value.trim() || busy} onClick={() => void save()}>
               {busy ? 'Saving…' : 'Save'}
-            </Btn>
-            {stored ? <Btn onClick={() => setReplacing(false)}>Cancel</Btn> : null}
+            </Button>
+            {stored ? <Button variant="secondary" onClick={() => setReplacing(false)}>Cancel</Button> : null}
           </div>
           <p className={own.note}>
             {method.description ? `${method.description} ` : ''}
@@ -876,13 +866,13 @@ const KeyField = ({
             {method.helpUrl ? (
               <>
                 {' '}
-                <button
+                <Button variant="ghost" size="sm"
                   type="button"
-                  className={own.link}
+                  className={`break-all`}
                   onClick={() => openExternal(method.helpUrl!)}
                 >
                   Where do I get one?
-                </button>
+                </Button>
               </>
             ) : null}
           </p>
@@ -902,17 +892,17 @@ const KeyField = ({
             </span>
           </div>
           <div className={own.row}>
-            <Btn
+            <Button variant="secondary"
               onClick={() => {
                 setReplacing(true)
                 queueMicrotask(() => field.current?.focus())
               }}
             >
               Replace
-            </Btn>
-            <Btn variant="danger" onClick={() => void store.clearApiKey(runtime, method.id)}>
+            </Button>
+            <Button variant="destructive" onClick={() => void store.clearApiKey(runtime, method.id)}>
               Remove
-            </Btn>
+            </Button>
           </div>
         </>
       )}
@@ -933,23 +923,23 @@ const SignOut = ({ runtime, lead }: { runtime: RuntimeId; lead?: ReactNode }) =>
           <span className={own.rowNote}>
             Sign out? Running conversations keep going until they finish.
           </span>
-          <Btn onClick={() => setConfirming(false)}>Keep</Btn>
-          <Btn
-            variant="danger"
+          <Button variant="secondary" onClick={() => setConfirming(false)}>Keep</Button>
+          <Button
+            variant="destructive"
             onClick={() => {
               setConfirming(false)
               void store.signOutAgent(runtime)
             }}
           >
             Sign out
-          </Btn>
+          </Button>
         </>
       ) : (
         <>
           {lead}
-          <Btn variant="quiet" onClick={() => setConfirming(true)}>
+          <Button variant="ghost" onClick={() => setConfirming(true)}>
             Sign out
-          </Btn>
+          </Button>
         </>
       )}
     </div>
@@ -1003,12 +993,12 @@ const Pending = ({
       )}
 
       <div className={own.row}>
-        <Btn onClick={() => openExternal(start.url)}>
+        <Button variant="secondary" onClick={() => openExternal(start.url)}>
           {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
-        </Btn>
-        <Btn variant="quiet" onClick={() => void store.cancelLogin(runtime)}>
+        </Button>
+        <Button variant="ghost" onClick={() => void store.cancelLogin(runtime)}>
           Cancel
-        </Btn>
+        </Button>
       </div>
 
       {alreadyAs ? (

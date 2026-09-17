@@ -77,7 +77,7 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   // BrandIcons.tsx is the one other module allowed an <svg>: it wraps
   // lobe-icons' company marks on the same terms, and has its own tests.
   const sources = import.meta.glob<string>('../**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true })
-  // GitPane draws the commit graph, and spark.tsx and chart.tsx draw the
+  // GitGraph draws the commit graph, and spark.tsx and chart.tsx draw the
   // charts — per the audit's own carve-out these are drawings, not icons: a
   // path computed from an array of numbers has no place in a glyph set, there
   // is no icon set it could be imported from, and swapping the icon set must
@@ -89,7 +89,7 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   const others = Object.entries(sources).filter(
     ([path]) =>
       !/\/(Brand)?Icons\.tsx$/.test(path) &&
-      !/\/GitPane\.tsx$/.test(path) &&
+      !/\/GitGraph\.tsx$/.test(path) &&
       !/\/AppearancePreview\.tsx$/.test(path) &&
       !/\/design\/ui\/(spark|chart)\.tsx$/.test(path) &&
       !/\.test\.tsx?$/.test(path),

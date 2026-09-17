@@ -1,14 +1,14 @@
-import { useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
-
-import { Radio } from '@base-ui/react/radio'
+import { Button } from '../ui/button'
+import { createElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { ArrowLeftIcon, CaretIcon, CheckIcon, ChevronIcon, SearchIcon } from '../../components/Icons'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, SearchIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
-import { RadioGroup } from '../ui/radio-group'
-import { Switch as UiSwitch, SwitchShape } from '../ui/switch'
-import styles from './Kit.module.css'
+import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
+import { buttonVariants } from '../ui/button'
+import { Input } from '../ui/input'
+import styles from './Settings.module.css'
 
 /**
  * The parts every settings surface is assembled from.
@@ -21,9 +21,6 @@ import styles from './Kit.module.css'
 
 const cx = (...parts: readonly (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(' ')
-
-/** Present when true, absent when false — the shape React needs for `[data-x]`. */
-const flag = (on: boolean | undefined): Record<string, string> => (on ? { 'data-on': '' } : {})
 
 /* --- readiness ----------------------------------------------------------- */
 
@@ -49,208 +46,6 @@ export const Chip = ({
     <Dot state={state} />
     {label ?? READINESS_LABEL[state]}
   </span>
-)
-
-/* --- controls ------------------------------------------------------------ */
-
-/**
- * One vocabulary, spoken by both buttons.
- *
- * The two spellings agreed about every *number* — `button.test.tsx` has pinned
- * that from both sides for a while — and disagreed about every *word*, which
- * turned out to matter more. Measured across the app: `primary` here was
- * `default` there, `quiet` was `ghost`, `danger` was `destructive`, an
- * unqualified `Btn` came out grey while an unqualified `Button` came out ink,
- * and `outline` existed **only** in the shadcn layer.
- *
- * That last one is not a naming quibble, it is why the app looks the way it
- * does. A screen built on Kit could not draw a bordered action even if it
- * wanted one, so it fell back to the grey default — which is how three
- * "add a thing" buttons in one settings window ended up ink, grey and
- * outline. The screens were not careless; the vocabulary was short of a word.
- *
- * So the names are shadcn's, because that is the wider vocabulary and the one
- * a vendored component already speaks, and the three Kit names stay as
- * aliases: ~90 call sites say `primary`, `quiet` or `danger` today and none of
- * them is wrong. `secondary` is the unqualified look, named so a reader can
- * write what they mean instead of relying on an absence.
- */
-export type BtnVariant =
-  | 'default'
-  | 'secondary'
-  | 'outline'
-  | 'ghost'
-  | 'destructive'
-  /* The older spellings, kept working. Same paint, same tokens. */
-  | 'primary'
-  | 'quiet'
-  | 'danger'
-
-/** The alias table, in one place rather than in a `data-variant` per call. */
-const VARIANT: Readonly<Record<BtnVariant, string>> = {
-  default: 'primary',
-  primary: 'primary',
-  secondary: 'secondary',
-  outline: 'outline',
-  ghost: 'quiet',
-  quiet: 'quiet',
-  destructive: 'danger',
-  danger: 'danger',
-}
-
-type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className'> & {
-  readonly variant?: BtnVariant
-  readonly small?: boolean
-  readonly className?: string
-}
-
-export const Btn = ({ variant, small, className, children, ...rest }: ButtonProps) => (
-  <button
-    type="button"
-    className={cx(styles.btn, small && styles.btnSm, className)}
-    /* `secondary` is the base rule, so it carries no attribute — writing the
-       word and writing nothing have to paint identically or the vocabulary is
-       a lie. */
-    {...(variant && VARIANT[variant] !== 'secondary' ? { 'data-variant': VARIANT[variant] } : {})}
-    {...rest}
-  >
-    {children}
-  </button>
-)
-
-export const IconBtn = ({ className, children, ...rest }: ButtonProps) => (
-  <button type="button" className={cx(styles.iconBtn, className)} {...rest}>
-    {children}
-  </button>
-)
-
-/**
- * A switch. It is a button, not a checkbox, because every one of these takes
- * effect the moment it is pressed — there is no form to submit.
- */
-/**
- * The switch as a shape, with no behaviour of its own.
- *
- * Exists because a switch is mounted two ways: as its own control, which is
- * `Toggle` below, and as the far end of a row that is *itself* the control —
- * a menu row, where a nested button would be invalid markup and would take
- * the click the row wants. Both wear this, so there is one switch in the app
- * rather than one per place that needed one.
- */
-/*
- * The switch, in both of its mountings.
- *
- * Neither of these draws anything any more: the shape moved to
- * `design/ui/switch.tsx`, which is the shadcn Base UI switch on the app's own
- * measured sizes. What is left here is the two ways this app mounts it, and
- * the names twelve settings surfaces already call them by.
- *
- * Why the split survives the move: a menu row IS the switch — it carries
- * `role="switch"` and its own handler — so it can only take the picture.
- * Everywhere else the switch is the control, and takes the real one.
- */
-
-/** The switch as a picture, for a row that is itself the switch. */
-export const Switch = ({
-  on,
-  small,
-  disabled,
-}: {
-  on: boolean
-  small?: boolean
-  /** Greyed with the control that carries it, wherever that control lives. */
-  disabled?: boolean
-}) => <SwitchShape checked={on} size={small ? 'sm' : 'default'} disabled={disabled} />
-
-/** The switch as the control: a `role="switch"` button that owns the change. */
-export const Toggle = ({
-  on,
-  onChange,
-  disabled,
-  label,
-}: {
-  on: boolean
-  onChange?: (next: boolean) => void
-  disabled?: boolean
-  /** What the switch is for, for anyone not looking at the row beside it. */
-  label: string
-}) => (
-  <UiSwitch
-    checked={on}
-    aria-label={label}
-    disabled={disabled ?? !onChange}
-    onCheckedChange={(next) => onChange?.(next)}
-  />
-)
-
-/**
- * A line of text you type.
- *
- * Counted rather than chosen: the app already drew this input four times —
- * `--hd-control-h` tall, `--hd-radius-sm` cornered, `0 10px` in, one hairline
- * of `border-l2` around it — in the settings sheet, the sign-in sheet, the
- * hand-off sheet and the install dialog. This is that input, once.
- */
-export const Input = ({
-  className,
-  ...rest
-}: Omit<InputHTMLAttributes<HTMLInputElement>, 'className'> & { readonly className?: string }) => (
-  <input type="text" spellCheck={false} className={cx(styles.input, className)} {...rest} />
-)
-
-/**
- * A picker: a real `<select>`, dressed as the input beside it.
- *
- * The platform's own element rather than a menu built from buttons, because a
- * picker on a settings row is plumbing, not presentation: it has to answer to
- * a form, a test and a screen reader without a library between them. What
- * this adds is only the look — the input's own border, height and ring — and
- * the caret, drawn once here so no page draws its own.
- */
-export const Select = <T extends string>({
-  value,
-  options,
-  onChange,
-  label,
-  disabled,
-  className,
-  ...control
-}: {
-  value: T
-  options: readonly { readonly value: T; readonly label: string }[]
-  onChange: (next: T) => void
-  /** What is being chosen, for anyone not looking at the row beside it. */
-  label: string
-  disabled?: boolean
-  className?: string
-} & Partial<FieldControl>) => (
-  <span className={cx(styles.selectWrap, className)}>
-    <select
-      className={cx(styles.input, styles.select)}
-      aria-label={label}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value as T)}
-      {...control}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-    <span className={styles.selectChev} aria-hidden="true">
-      <CaretIcon size={13} />
-    </span>
-  </span>
-)
-
-/** More than a line of text: the input, allowed to grow. */
-export const Textarea = ({
-  className,
-  ...rest
-}: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'className'> & { readonly className?: string }) => (
-  <textarea spellCheck={false} className={cx(styles.input, styles.textarea, className)} {...rest} />
 )
 
 /**
@@ -279,7 +74,7 @@ export const Search = ({
 }) => (
   <span className={cx(styles.search, className)}>
     <SearchIcon size={14} />
-    <input
+    <Input
       type="search"
       spellCheck={false}
       className={styles.input}
@@ -382,9 +177,8 @@ export const Note = ({ children, tone }: { children: ReactNode; tone?: 'warn' | 
  * `design/ui/radio-group`, the shadcn Base UI build, which brings the roving
  * focus, the arrow keys, Home/End, and the form value with it.
  *
- * `RadioGroupItem` is deliberately not used: its indicator is a dot, and the
- * indicator here is the whole segment lighting up. Base UI's `Radio.Root` is
- * the part that carries the behaviour, and it is happy to look like anything.
+ * The canonical toggle group supplies radio semantics and roving focus while
+ * this pattern supplies the settings-specific segmented appearance.
  */
 export const Segmented = <T extends string>({
   options,
@@ -397,7 +191,8 @@ export const Segmented = <T extends string>({
   onChange: (next: T) => void
   label: string
 }) => (
-  <RadioGroup
+  <ToggleGroup
+    type="single"
     /*
      * `inline-flex gap-0` is not decoration: it is how the look wins.
      *
@@ -420,25 +215,15 @@ export const Segmented = <T extends string>({
     onValueChange={(next) => onChange(next as T)}
   >
     {options.map((option) => (
-      <Radio.Root
+      <ToggleGroupItem
         key={option.value}
         value={option.value}
-        /* Base UI renders a `span` by default. These are pressable controls and
-           the app has always spelled them as buttons &mdash; which keeps the
-           disabled state native, keeps the cursor right, and keeps every test
-           that looks for a button honest. `render` is how Base UI is told, and
-           `nativeButton` is how it is told the element really is one &mdash;
-           without it the library assumes it has to add the button behaviour
-           itself, and warns that it is about to duplicate the browser. */
-        render={<button type="button" />}
-        nativeButton
         className={styles.segItem}
-        {...flag(option.value === value)}
       >
         {option.label}
-      </Radio.Root>
+      </ToggleGroupItem>
     ))}
-  </RadioGroup>
+  </ToggleGroup>
 )
 
 /* --- page furniture ------------------------------------------------------ */
@@ -455,7 +240,7 @@ export const PageHead = ({
 }) => (
   <div className={styles.pageHead}>
     <div className={styles.pageHeadText}>
-      <div className={styles.pageTitle}>{title}</div>
+      <div className={styles.pageTitle} data-slot="page-title">{title}</div>
       {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
     </div>
     {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
@@ -470,8 +255,12 @@ export const SectionHead = ({ name, action }: { name: ReactNode; action?: ReactN
 )
 
 /** A card of rows. Every settings page is made of these and nothing else. */
-export const Rows = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={cx(styles.rows, className)}>{children}</div>
+export const Rows = ({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string }) => (
+  <div className={cx(styles.rows, className)} {...props}>{children}</div>
 )
 
 export const Row = ({
@@ -523,7 +312,7 @@ export const RowButton = ({
    * makes every one of them a last child and the list loses every rule.
    */
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'className'>) => (
-  <button
+  <Button variant="row" size="content"
     type="button"
     className={cx(styles.row, styles.rowButton, className)}
     onClick={onClick}
@@ -540,7 +329,7 @@ export const RowButton = ({
         <ChevronIcon size={15} />
       </span>
     ) : null}
-  </button>
+  </Button>
 )
 
 /**
@@ -563,7 +352,7 @@ export const RowChoice = ({
   disabled?: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button variant="row" size="content"
     type="button"
     role="radio"
     aria-checked={selected}
@@ -576,7 +365,7 @@ export const RowChoice = ({
       <span className={styles.rowTitle}>{title}</span>
       {desc ? <span className={styles.rowDesc}>{desc}</span> : null}
     </span>
-  </button>
+  </Button>
 )
 
 /* --- drill-down ---------------------------------------------------------- */
@@ -587,10 +376,10 @@ export const RowChoice = ({
  * link somewhere else.
  */
 export const BackLink = ({ to, onClick }: { to: string; onClick: () => void }) => (
-  <button type="button" className={styles.backLink} onClick={onClick}>
+  <Button variant="ghost" size="sm" type="button" className={styles.backLink} onClick={onClick}>
     <ArrowLeftIcon size={14} />
     {to}
-  </button>
+  </Button>
 )
 
 export const DetailHead = ({
@@ -693,4 +482,82 @@ export const Clipped = ({ className, children }: { readonly className?: string; 
   </span>
 )
 
-export { styles as kit }
+export const PageDescription = ({ children }: { children: ReactNode }) => (
+  <p className={styles.pageBlurb}>{children}</p>
+)
+
+export const RowValue = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={cx(styles.rowFixed, className)}>{children}</span>
+)
+
+export const RowMark = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={cx(styles.rowMark, className)}>{children}</span>
+)
+
+export const DetailMark = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={cx(styles.detailMark, className)}>{children}</span>
+)
+
+export const SectionToggle = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={cx(styles.sectionToggle, className)}>{children}</span>
+)
+
+export const CodeText = ({
+  as = 'span',
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLElement> & {
+  as?: 'span' | 'code' | 'pre'
+  children: ReactNode
+}) => createElement(as, { ...props, className: cx(styles.mono, className) }, children)
+
+export const WireText = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span className={cx(styles.wire, className)}>{children}</span>
+)
+
+export const AccountMark = ({
+  as = 'span',
+  size,
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLElement> & {
+  as?: 'span' | 'button'
+  size?: 'sm' | 'lg'
+  children: ReactNode
+}) => createElement(as, {
+  ...props,
+  ...(as === 'button' ? { type: 'button' } : {}),
+  className: cx(styles.avatar, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, className),
+}, children)
+
+export const FileButton = ({
+  label,
+  accept,
+  disabled,
+  onFile,
+}: {
+  label: ReactNode
+  accept?: string
+  disabled?: boolean
+  onFile: (file: File) => void
+}) => (
+  <label
+    className={buttonVariants({ variant: 'secondary', size: 'sm' })}
+    aria-disabled={disabled || undefined}
+  >
+    {label}
+    <Input
+      type="file"
+      accept={accept}
+      hidden
+      disabled={disabled}
+      onChange={(event) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) onFile(file)
+      }}
+    />
+  </label>
+)

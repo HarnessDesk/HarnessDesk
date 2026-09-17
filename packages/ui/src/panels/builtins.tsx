@@ -28,7 +28,7 @@ import {
 import { offeredHere } from '../lib/contributions'
 import { useSnapshot } from '../state/context'
 import { resolveComponent } from '../slots/registry'
-import { EmptyState } from '../design/ui'
+import { EmptyState } from '../design'
 import { useMount } from './mount'
 import { registerView, useShell } from './views'
 

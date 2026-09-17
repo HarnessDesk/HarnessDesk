@@ -65,6 +65,7 @@ export const DESCRIBED_AS = new Map([
   ['third-party notices', /third-party notices/i],
   ['design tokens', /design-system gates/i],
   ['design drift', /design-system gates/i],
+  ['UI system', /UI-system architecture/i],
   ['design doc', /design-system gates/i],
   ['interface drift', /interface drift/i],
   ['recorded claims', /recorded-claims/i],

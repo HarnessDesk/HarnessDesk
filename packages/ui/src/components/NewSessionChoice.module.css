@@ -11,24 +11,9 @@
   align-items: flex-start;
   gap: var(--hd-space-3);
   width: 100%;
-  padding: var(--hd-space-3);
+
   text-align: left;
-  background: var(--hdp-alias-bg-base);
-  border: 1px solid var(--hdp-alias-border-l1);
-  border-radius: var(--hd-radius);
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
 
-.choice:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-hover);
-  border-color: var(--hdp-alias-border-l2);
-}
-
-.choice:disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 
 .mark {
@@ -57,13 +42,13 @@
 
 .name {
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .naming {

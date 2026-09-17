@@ -5,34 +5,11 @@
  * sideways dependency `pnpm design:audit` exists to catch.
  */
 
-.action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  /* 24px, the target SC 2.5.8 asks: these sit side by side in the strip, so
-     the clearance exception is not open to them (#181). The playground's copy
-     and the panel's own change together. */
-  width: 24px; /* desk: 22 → 24 */
-  height: 24px; /* desk: 22 → 24 */
-  padding: 0;
-  border: 0;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hd-muted-foreground);
-  cursor: pointer;
-}
-
-.action:hover {
-  background: var(--hd-hover);
-  color: var(--hd-foreground);
-}
-
 .caret {
   display: inline-flex;
-  transition: transform var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
+  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .caret[data-collapsed] {
   transform: rotate(180deg);
 }
-

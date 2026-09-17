@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { useMount } from '../panels/mount'
+import { Button } from '../design'
 import { Markdown } from './Markdown'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -113,17 +114,17 @@ export const PreviewPane = () => {
   return (
     <div className={styles.pane}>
       <ToolPaneHeader title={`Preview · ${path.split('/').pop() ?? path}`} subtitle={path}>
-        <button
-          type="button"
-          className={styles.headerButton}
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setGeneration((tick) => tick + 1)}
           title="Reload the preview from disk"
         >
           Reload
-        </button>
-        <button type="button" className={styles.headerButton} onClick={() => store.openFile(path, { split: null })}>
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => store.openFile(path, { split: null })}>
           Source
-        </button>
+        </Button>
       </ToolPaneHeader>
       <div className={styles.body} data-preview="">
         {error ? (

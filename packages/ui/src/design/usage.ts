@@ -15,12 +15,10 @@
  *     Agents           quiet · primary
  *
  * Nobody was careless. The vocabulary was short of a word: `outline` existed
- * only in the shadcn layer, so a screen built on Kit could not draw a bordered
- * action even when that was plainly what it wanted, and fell back to the grey
- * default. And the two spellings disagreed about the default itself — an
- * unqualified `Btn` painted grey while an unqualified `Button` painted ink —
- * so "I did not say" meant two different things depending on which file you
- * were in.
+ * only in the shadcn layer, while the retired Kit API could not draw a bordered
+ * action and fell back to the grey default. The two spellings also disagreed
+ * about the default. That measured failure is why every consumer now uses the
+ * canonical `Button` vocabulary below.
  *
  * ---------------------------------------------------------------------------
  * Why this is data rather than a document
@@ -45,7 +43,7 @@ export type Slot = 'pageAction' | 'sectionAction' | 'dialogFooter'
 export type UsageRule = {
   /** The family this rule governs. */
   readonly family: string
-  /** The variant, in the one vocabulary both spellings now speak. */
+  /** The variant in the canonical button vocabulary. */
   readonly variant: string
   /** The single sentence a reader needs: when do I reach for this? */
   readonly when: string
@@ -56,10 +54,9 @@ export type UsageRule = {
 }
 
 /**
- * The button vocabulary. Both spellings speak it — `design/ui/button.tsx` by
- * these names, `design/primitives/Kit.tsx` by these names plus three older
- * aliases (`primary`, `quiet`, `danger`) that ~90 call sites still use and
- * none of which is wrong.
+ * The button vocabulary implemented once by `design/ui/button.tsx`. Retired
+ * Kit aliases are intentionally absent so new feature code cannot revive a
+ * parallel API.
  */
 export const BUTTONS: readonly UsageRule[] = [
   {

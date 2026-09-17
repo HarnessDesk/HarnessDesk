@@ -28,8 +28,17 @@ import {
   ToolPaneTabs,
   Tabs,
   TabsContent,
+  TabsList,
+  TabsTrigger,
 } from '../ui'
 import styles from './tools-page.module.css'
+
+const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'] as const
+const BADGE_CATALOG_SIZES = ['default'] as const
+const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
+const TABS_CATALOG_VARIANTS = ['default', 'line'] as const
+const TABS_CATALOG_SIZES = ['default'] as const
+const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
 /**
  * The tools, in the frame they share.
@@ -55,7 +64,28 @@ import styles from './tools-page.module.css'
  */
 
 export const ToolsPage = () => (
-  <div className={styles.paneGrid}>
+  <div
+    className={styles.paneGrid}
+    data-badge-catalog-variants={BADGE_CATALOG_VARIANTS.join(' ')}
+    data-badge-catalog-sizes={BADGE_CATALOG_SIZES.join(' ')}
+    data-badge-catalog-states={BADGE_CATALOG_STATES.join(' ')}
+    data-tabs-catalog-variants={TABS_CATALOG_VARIANTS.join(' ')}
+    data-tabs-catalog-sizes={TABS_CATALOG_SIZES.join(' ')}
+    data-tabs-catalog-states={TABS_CATALOG_STATES.join(' ')}
+  >
+    <div className="col-span-full flex flex-wrap items-start gap-3">
+      {BADGE_CATALOG_VARIANTS.map((variant) => (
+        <Badge key={variant} variant={variant} data-catalog-variant={variant}>{variant}</Badge>
+      ))}
+      {TABS_CATALOG_VARIANTS.map((variant) => (
+        <Tabs key={variant} defaultValue="one">
+          <TabsList variant={variant} data-catalog-variant={variant}>
+            <TabsTrigger value="one">One</TabsTrigger>
+            <TabsTrigger value="two">Two</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ))}
+    </div>
     {/* --- the browser ---------------------------------------------------- */}
     <ToolPane className={styles.paneTall}>
       <ToolPaneHeader

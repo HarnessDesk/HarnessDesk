@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react'
+import { Button, Input } from '../design'
+import { createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+
+import { SearchIcon } from './Icons'
 
 import styles from './Panel.module.css'
 
@@ -85,9 +88,9 @@ export const PanelRow = ({
     ...(tooltip ? { title: tooltip } : {}),
   }
   return onClick ? (
-    <button type="button" {...attrs} onClick={onClick}>
+    <Button variant="ghost" size="sm" type="button" {...attrs} onClick={onClick}>
       {inner}
-    </button>
+    </Button>
   ) : (
     <div {...attrs}>{inner}</div>
   )
@@ -107,4 +110,52 @@ export const RowTime = ({ children }: { children: ReactNode }) => (
 
 export const RunDot = () => <span className={styles.runDot} />
 
-export { styles as panel }
+export const PanelFrame = ({ children, testId }: { children: ReactNode; testId?: string }) => (
+  <div className={styles.panel} data-testid={testId}>{children}</div>
+)
+
+export const PanelTools = ({ children }: { children: ReactNode }) => (
+  <div className={styles.tools}>{children}</div>
+)
+
+export const PanelBody = ({ children }: { children: ReactNode }) => (
+  <div className={styles.body}>{children}</div>
+)
+
+export const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
+  <div className={styles.foot}>{left}<span className={styles.space} />{right}</div>
+)
+
+export const PanelFilter = ({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: string
+  placeholder: string
+  onChange: (next: string) => void
+}) => (
+  <label className={styles.findBox}>
+    <SearchIcon size={13} />
+    <Input
+      value={value}
+      placeholder={placeholder}
+      spellCheck={false}
+      aria-label={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  </label>
+)
+
+export const PanelPill = ({
+  as = 'button',
+  children,
+  ...props
+}: {
+  as?: 'button' | 'span'
+  children: ReactNode
+} & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLSpanElement>) => createElement(
+  as,
+  { ...props, ...(as === 'button' ? { type: props.type ?? 'button' } : {}), className: styles.pill },
+  children,
+)

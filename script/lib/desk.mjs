@@ -18,6 +18,17 @@ const run = promisify(execFile)
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Poll the rendered fact, not an earlier store update; fail closed at the deadline. */
+export const waitForSnapshot = async (read, matches, { attempts = 120, sleepImpl = sleep } = {}) => {
+  let snapshot
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    snapshot = await read()
+    if (matches(snapshot)) return snapshot
+    if (attempt + 1 < attempts) await sleepImpl(100)
+  }
+  throw new Error(`snapshot did not converge: ${JSON.stringify(snapshot)}`)
+}
+
 /**
  * The separator inside a SessionKey: the runtime id, a NUL, the session id.
  *
@@ -68,6 +79,7 @@ export class Cdp {
       const seat = this.#waiting.get(message.id)
       this.#waiting.delete(message.id)
       if (!seat) return
+      clearTimeout(seat.timer)
       if (message.error) seat.reject(new Error(String(message.error.message)))
       else seat.resolve(message.result)
     }
@@ -76,11 +88,11 @@ export class Cdp {
   send(method, params = {}, timeout = 30_000) {
     const id = (this.#id += 1)
     return new Promise((resolve, reject) => {
-      this.#waiting.set(id, { resolve, reject })
-      this.#ws.send(JSON.stringify({ id, method, params }))
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.#waiting.delete(id)) reject(new Error(`${method} timed out after ${timeout}ms`))
       }, timeout)
+      this.#waiting.set(id, { resolve, reject, timer })
+      this.#ws.send(JSON.stringify({ id, method, params }))
     })
   }
 
@@ -157,6 +169,18 @@ export const deskInUse = async (home) => {
 }
 
 /**
+ * Pick the first-party renderer and never a webview or auxiliary window.
+ * During a cold launch Chromium may expose the renderer before its document
+ * has set the title; the token-gated host URL is the stable identity then.
+ */
+export const selectMainPage = (targets) =>
+  targets.find((target) => target.type === 'page' && target.title === 'HarnessDesk')
+  ?? targets.find((target) =>
+    target.type === 'page'
+    && /^https?:\/\/127\.0\.0\.1:\d+\/\?(?:[^#]*&)?token=/.test(target.url),
+  )
+
+/**
  * Launch the app with the debugger open, and hand back the renderer's socket.
  *
  * The user-data directory is ours, never the default one: Electron keys its
@@ -164,8 +188,8 @@ export const deskInUse = async (home) => {
  * already has open would make this launch quit silently — and steal the focus
  * of their window on the way out.
  */
-export const launchDesk = async ({ app, home, port, userDataDir, logPath }) => {
-  const electron = `${app}/packages/desktop/node_modules/.bin/electron`
+export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, executable, env = process.env }) => {
+  const electron = executable ?? `${app}/packages/desktop/node_modules/.bin/electron`
   if (!existsSync(electron)) {
     throw new Error(`no electron at ${electron} — run pnpm install in ${app}`)
   }
@@ -174,13 +198,15 @@ export const launchDesk = async ({ app, home, port, userDataDir, logPath }) => {
   }
   const child = spawn(
     electron,
-    ['.', `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`],
+    // Like smoke-packaged.mjs, a disposable profile must not prompt for or
+    // read the developer's login Keychain after each ad-hoc-signed rebuild.
+    [...(executable ? ['--use-mock-keychain'] : ['.']), `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`],
     {
       cwd: `${app}/packages/desktop`,
       env: {
-        ...process.env,
+        ...env,
         HARNESSDESK_HOME: home,
-        HARNESSDESK_LOG_LEVEL: process.env.HARNESSDESK_LOG_LEVEL ?? 'error',
+        HARNESSDESK_LOG_LEVEL: env.HARNESSDESK_LOG_LEVEL ?? 'error',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -189,47 +215,126 @@ export const launchDesk = async ({ app, home, port, userDataDir, logPath }) => {
   child.stdout.on('data', (chunk) => sink?.write(chunk))
   child.stderr.on('data', (chunk) => sink?.write(chunk))
 
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    await sleep(1000)
-    let page
-    try {
-      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-      page = list.find((tab) => tab.type === 'page' && !tab.url.startsWith('devtools://'))
-    } catch {
-      continue /* the debugger is not up yet */
-    }
-    if (!page?.webSocketDebuggerUrl) continue
-    // The port could belong to somebody else's Chrome. Driving that would
-    // review the wrong window, and silently. A page with no title yet is this
-    // app still booting, though — only a title that says something else is a
-    // refusal.
-    if (!page.title) continue
-    if (!/HarnessDesk/i.test(page.title)) {
-      child.kill('SIGKILL')
-      throw new Error(`port ${port} is serving "${page.title}", which is not HarnessDesk`)
-    }
-    const cdp = await Cdp.open(page.webSocketDebuggerUrl)
-    // The store is what everything below talks to; a renderer that has not
-    // finished booting has none yet.
-    for (let ready = 0; ready < 60; ready += 1) {
-      if (await cdp.eval('Boolean(window.__hdStore)').catch(() => false)) return { child, cdp }
-      await sleep(1000)
-    }
-    throw new Error('the renderer came up without a store')
+  let browserUrl
+  try {
+    browserUrl = await waitForDebugger(child)
+  } catch (error) {
+    await closeDesk({ child, sink })
+    throw error
   }
-  child.kill('SIGKILL')
-  throw new Error(`no renderer appeared on port ${port} in 90s`)
+  const ownedPort = Number(new URL(browserUrl).port)
+  return connectDesk({ child, sink, port: ownedPort, browserUrl, ...(executable ? { discoveryAttempts: 300 } : {}) })
 }
 
-export const closeDesk = async ({ child, cdp }) => {
+/** Read the endpoint from this child's stderr, never from a guessed port. */
+export const waitForDebugger = (child, timeoutMs = 30_000) => new Promise((resolve, reject) => {
+  let output = ''
+  const finish = (error, endpoint) => {
+    clearTimeout(timer)
+    child.stderr.off('data', onData)
+    child.off('exit', onExit)
+    child.off('error', onError)
+    if (error) reject(error)
+    else resolve(endpoint)
+  }
+  const onData = chunk => {
+    output = (output + chunk.toString()).slice(-8192)
+    const match = /DevTools listening on (ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[^\s]+)\s/.exec(output)
+    if (match) finish(null, match[1])
+  }
+  const onExit = () => finish(new Error('Electron exited before announcing its debugger'))
+  const onError = error => finish(error)
+  const timer = setTimeout(() => finish(new Error('Electron did not announce its own debugger')), timeoutMs)
+  child.stderr.on('data', onData)
+  child.once('exit', onExit)
+  child.once('error', onError)
+})
+
+/**
+ * Finish a spawned launch. Kept separate so the failure path can be exercised
+ * without starting Electron: once a process exists, every later error must
+ * close CDP, stop the process, await its exit, and finish the log stream.
+ */
+export const connectDesk = async ({
+  child,
+  sink = null,
+  port,
+  browserUrl,
+  fetchImpl = fetch,
+  openCdp = Cdp.open,
+  sleepImpl = sleep,
+  discoveryAttempts = 90,
+  storeAttempts = 60,
+}) => {
+  let cdp
+  try {
+    if (!browserUrl) throw new Error('debugger ownership requires the spawned child endpoint')
+    for (let attempt = 0; attempt < discoveryAttempts; attempt += 1) {
+      await sleepImpl(1000)
+      let page
+      let list, version
+      try {
+        version = await (await fetchImpl(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) })).json()
+        list = await (await fetchImpl(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json()
+      } catch {
+        continue /* the debugger is not up yet */
+      }
+      if (version.webSocketDebuggerUrl !== browserUrl) throw new Error('debugger ownership mismatch: refusing a foreign process')
+      // Auxiliary windows (the native About panel) are pages too. Prefer the
+      // exact main-window title so a verification run that deliberately opens
+      // one does not wait for an app store that auxiliary HTML does not own.
+      page = selectMainPage(list)
+      if (!page?.webSocketDebuggerUrl) continue
+      // A non-HarnessDesk debugger target is ignored by selectMainPage; only a
+      // target with the app's exact title or token-gated renderer URL arrives.
+      cdp = await openCdp(page.webSocketDebuggerUrl)
+      // The store is what everything below talks to; a renderer that has not
+      // finished booting has none yet.
+      for (let ready = 0; ready < storeAttempts; ready += 1) {
+        if (await cdp.eval('Boolean(window.__hdStore)').catch(() => false)) return { child, cdp, sink, port, browserUrl }
+        await sleepImpl(1000)
+      }
+      throw new Error('the renderer came up without a store')
+    }
+    throw new Error(`no renderer appeared on port ${port} in ${discoveryAttempts}s`)
+  } catch (error) {
+    await closeDesk({ child, cdp, sink })
+    throw error
+  }
+}
+
+export const closeDesk = async ({ child, cdp, sink }) => {
   try {
     cdp?.close()
   } catch {
     /* already gone */
   }
-  child?.kill('SIGTERM')
-  await sleep(2500)
-  child?.kill('SIGKILL')
+  if (child && child.exitCode === null && child.signalCode === null) {
+
+  /** Wait for the process, not just the grace period. Electron can still be
+   * writing its profile between `kill` and the `exit` event; deleting the
+   * isolated home in that interval races those final writes. */
+  const waitForExit = (timeout) => new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      child.off('exit', done)
+      resolve(false)
+    }, timeout)
+    child.once('exit', done)
+  })
+
+    child.kill('SIGTERM')
+    if (!(await waitForExit(2500))) {
+      child.kill('SIGKILL')
+      await waitForExit(2500)
+    }
+  }
+  if (sink && !sink.writableEnded) {
+    await new Promise((resolve) => sink.end(resolve))
+  }
 }
 
 /** `window.__hdStore`, spelled once. */

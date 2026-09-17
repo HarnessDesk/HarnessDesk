@@ -12,7 +12,7 @@
   margin: 0;
   padding: var(--hd-space-2) 0;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .loading,
@@ -20,7 +20,7 @@
 .blurb {
   margin: 0;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   line-height: var(--hd-line);
 }
 
@@ -53,17 +53,9 @@
   align-items: baseline;
   gap: var(--hd-space-2);
   width: 100%;
-  padding: var(--hd-space-2) 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 
-.opHead:disabled {
-  cursor: default;
+  text-align: left;
+
 }
 
 .opMark {
@@ -73,7 +65,7 @@
   justify-content: center;
   width: 16px;
   align-self: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .opMark[data-state='refuse'] {
@@ -113,7 +105,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /*
@@ -134,7 +126,7 @@
   direction: rtl;
   text-align: right;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /*
@@ -159,7 +151,7 @@
 .opChev {
   flex: none;
   align-self: center;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   transition: transform var(--hd-duration-fast) var(--hd-ease);
 }
 
@@ -174,7 +166,7 @@
 .opFiles {
   margin: var(--hd-space-2) 0 0;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- picking agents ------------------------------------------------------- */
@@ -194,7 +186,7 @@
 
 .pickLabel {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- the import candidate list -------------------------------------------- */
@@ -231,7 +223,7 @@
 .candidateKind {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius-full);
   padding: 0 var(--hd-space-1-5);
@@ -244,7 +236,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- resolving copies ------------------------------------------------------ */
@@ -263,19 +255,9 @@
   align-items: baseline;
   gap: var(--hd-space-2);
   width: 100%;
-  padding: var(--hd-space-2);
-  border: 1px solid var(--hd-border);
-  border-radius: var(--hd-radius);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: var(--hd-text-xs);
-  text-align: left;
-  cursor: pointer;
-}
 
-.choice[data-on] {
-  border-color: var(--hd-foreground);
+  text-align: left;
+
 }
 
 .choiceDot {
@@ -283,7 +265,7 @@
   align-self: center;
   width: 8px;
   height: 8px;
-  border: 1px solid var(--hdp-alias-label-tertiary);
+  border: 1px solid var(--hd-muted-foreground);
   border-radius: var(--hd-radius-full);
 }
 
@@ -295,7 +277,7 @@
 .choiceNote {
   flex: none;
   margin-left: auto;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .hollowLine {
@@ -304,7 +286,7 @@
   gap: var(--hd-space-2);
   margin-top: var(--hd-space-3);
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- authoring ------------------------------------------------------------- */
@@ -335,31 +317,13 @@
 
 .fieldLabel {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .fieldNote {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   line-height: var(--hd-line-sm);
-}
-
-.textarea {
-  padding: var(--hd-space-2);
-  border: 1px solid var(--hd-border);
-  border-radius: var(--hd-radius);
-  background: var(--hd-background);
-  color: inherit;
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line);
-  resize: vertical;
-}
-
-.textarea:focus-visible {
-  outline: none;
-  border-color: var(--hd-ring);
-  box-shadow: 0 0 0 1px var(--hd-ring);
 }
 
 /* A refusal's sentence is the row's content, not its decoration. */
@@ -406,7 +370,7 @@
 .historyWhen {
   flex: none;
   width: 132px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .historyWhat {
@@ -415,7 +379,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--hd-space-2);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .historyPath {
@@ -425,5 +389,5 @@
   white-space: nowrap;
   direction: rtl;
   text-align: left;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }

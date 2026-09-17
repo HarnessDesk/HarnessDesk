@@ -15,9 +15,9 @@ import { cn } from '@/lib/utils'
  * the difference between a settings page a keyboard can move through and one it
  * has to wade through.
  *
- * `Kit.Segmented` is now this component wearing the segmented shape (see
- * Kit.tsx). The two are not two answers: one owns the behaviour, the other
- * owns the look.
+ * The settings `Segmented` pattern is this component wearing the segmented
+ * shape. This primitive owns the behaviour; the pattern owns the product
+ * composition.
  */
 
 const RadioGroup = ({ className, ...props }: RadioGroupPrimitive.Props) => (

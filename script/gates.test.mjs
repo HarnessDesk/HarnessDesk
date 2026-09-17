@@ -4,17 +4,18 @@ import { test } from 'node:test'
 import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { codeOf, compareBaseline, sheetsOf, squaresOf } from './design-audit.mjs'
+import { codeOf, compareBaseline, createSourceCache, sheetsOf, squaresOf, STYLESHEET_OWNERS } from './design-audit.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
-import { ALLOWED, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
+import { ALLOWED, basesFor as docPathBasesFor, pathsIn, problemsWith as docPathProblems } from './check-doc-paths.mjs'
 import { checkNotices, installedLicence } from './check-notices.mjs'
 import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
+import { removeTemporaryDirectory } from './lib/temporary-directory.mjs'
 import { leadComment } from './design-doc.mjs'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -23,6 +24,54 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+test('audit source cache reads each present or missing stylesheet once and preserves IO failures', () => {
+  const calls = []
+  const read = createSourceCache((file) => {
+    calls.push(file)
+    if (file === 'missing') throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+    if (file === 'denied') throw Object.assign(new Error('denied'), { code: 'EACCES' })
+    return '.row { display: flex }'
+  })
+  assert.equal(read('sheet'), read('sheet'))
+  assert.equal(read('missing'), null)
+  assert.equal(read('missing'), null)
+  assert.deepEqual(calls, ['sheet', 'missing'])
+  assert.throws(() => read('denied'), /denied/)
+})
+
+test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
+  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
+  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+})
+
+test('the browser integration job builds workspace package entries before Vite', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')
+  const browserJob = workflow.match(/^  ui-system-browser:[\s\S]*?(?=^  [a-z][a-z-]+:|\Z)/m)?.[0] ?? ''
+  assert.match(browserJob, /run: pnpm run build:node[\s\S]*run: pnpm test:ui-system/)
+})
+
+test('UI system gates do not depend on an external ripgrep binary', () => {
+  for (const file of ['ui-architecture.mjs', 'ui-catalog.mjs']) {
+    const source = fs.readFileSync(path.join(repoRoot, 'script', file), 'utf8')
+    assert.doesNotMatch(source, /execFileSync\(['"]rg['"]/, file)
+  }
+})
+
+test('native evidence cleanup cannot turn a completed run red for a late helper write', () => {
+  const busy = Object.assign(new Error('busy'), { code: 'ENOTEMPTY' })
+  let warning = ''
+  assert.equal(removeTemporaryDirectory('/temporary-rig', {
+    remove: () => { throw busy },
+    warn: (message) => { warning = message },
+  }), false)
+  assert.match(warning, /remained busy/)
+
+  const denied = Object.assign(new Error('denied'), { code: 'EACCES' })
+  assert.throws(() => removeTemporaryDirectory('/temporary-rig', {
+    remove: () => { throw denied },
+  }), denied)
+})
 
 /**
  * The gates' own parsers, tested — because both of them were silently wrong
@@ -330,39 +379,83 @@ test("a comment's divider becomes a heading rather than a rule and a stray line"
   assert.doesNotMatch(out, /^-{10,}$/m)
 })
 
-test('compareBaseline catches non-numeric baseline values and prevents vacuous pass (#400)', () => {
-  const mockCounts = {
+test('compareBaseline requires a complete numeric zero baseline and zero current drift (#400)', () => {
+  const cleanCounts = {
     wrongVariant: 0,
     missingClass: 0,
     forkedToken: 0,
-    handRolledOverlay: 4,
-    looseTarget: 11,
-    looseIcon: 3,
+    handRolledOverlay: 0,
+    looseTarget: 0,
+    looseIcon: 0,
     danglingToken: 0,
-    crossImport: 11,
-    rawRadius: 49,
-    offGrid: 185,
-    rawColour: 8,
-    arbitraryUtility: 6,
+    crossImport: 0,
+    rawRadius: 0,
+    offGrid: 0,
+    rawColour: 0,
+    arbitraryUtility: 0,
+    rawType: 0,
+    patternClass: 0,
   }
 
   // A malformed baseline with string/non-numeric values
-  const malformedBaseline = { ...mockCounts, offGrid: 'nan' }
-  const result = compareBaseline(mockCounts, malformedBaseline)
+  const malformedBaseline = { ...cleanCounts, offGrid: 'nan' }
+  const result = compareBaseline(cleanCounts, malformedBaseline)
   assert.equal(result.worse, true)
   assert.ok(result.problems.some((p) => p.message.includes('not a valid number')))
 
   // Missing entry in baseline
-  const missingBaseline = { ...mockCounts }
+  const missingBaseline = { ...cleanCounts }
   delete missingBaseline.offGrid
-  const missingResult = compareBaseline(mockCounts, missingBaseline)
+  const missingResult = compareBaseline(cleanCounts, missingBaseline)
   assert.equal(missingResult.worse, true)
   assert.ok(missingResult.problems.some((p) => p.message.includes('Missing baseline entry')))
 
-  // Valid baseline with no drift passes
-  const validResult = compareBaseline(mockCounts, mockCounts)
+  // Editing the baseline cannot accept existing debt.
+  const raisedBaseline = { ...cleanCounts, offGrid: 1 }
+  const raisedResult = compareBaseline(cleanCounts, raisedBaseline)
+  assert.equal(raisedResult.worse, true)
+  assert.ok(raisedResult.problems.some((p) => p.message.includes('must be zero')))
+
+  // A zero baseline still fails any current finding.
+  const driftResult = compareBaseline({ ...cleanCounts, offGrid: 1 }, cleanCounts)
+  assert.equal(driftResult.worse, true)
+  assert.ok(driftResult.problems.some((p) => p.message.includes('requires zero')))
+
+  // Only a complete zero baseline with a clean scan passes.
+  const validResult = compareBaseline(cleanCounts, cleanCounts)
   assert.equal(validResult.worse, false)
   assert.equal(validResult.problems.length, 0)
+})
+
+
+test('a burn-down category is gated on a ceiling that may only fall', () => {
+  const clean = {
+    wrongVariant: 0, missingClass: 0, forkedToken: 0, handRolledOverlay: 0,
+    looseTarget: 0, looseIcon: 0, danglingToken: 0, crossImport: 0,
+    rawRadius: 0, offGrid: 0, rawColour: 0, arbitraryUtility: 0,
+    rawType: 0, patternClass: 0,
+  }
+  const ceiling = { ...clean, rawType: 34, patternClass: 126 }
+
+  // At the ceiling: the debt is recorded, so the gate is quiet.
+  const held = compareBaseline({ ...clean, rawType: 34, patternClass: 126 }, ceiling)
+  assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
+
+  // Above it: a screen just wrote another literal.
+  const grown = compareBaseline({ ...clean, rawType: 35, patternClass: 126 }, ceiling)
+  assert.equal(grown.worse, true)
+  assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+
+  // Below it: the work was done and the ceiling has to follow, or the debt can
+  // silently come back to 34 without the gate ever noticing.
+  const paid = compareBaseline({ ...clean, rawType: 33, patternClass: 126 }, ceiling)
+  assert.equal(paid.worse, true)
+  assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+
+  // A non-zero ceiling is still refused for every other category.
+  const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
+  assert.equal(smuggled.worse, true)
+  assert.ok(smuggled.problems.some((p) => p.message.includes('must be zero')))
 })
 
 
@@ -811,6 +904,29 @@ test('the audit reads a stylesheet imported from another folder, and one behind 
   ])
 })
 
+test('a stylesheet cannot grant itself a new co-owner', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-owner-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const dir = path.join(root, 'components')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'Family.module.css'), '/* @design-owners Child */\n.row { display: flex; }\n')
+  const allowed = sheetsOf(dir, path.join(dir, 'Child.tsx'), 'components/Child.tsx', "import styles from './Family.module.css'", root)
+  const refused = sheetsOf(dir, path.join(dir, 'Stranger.tsx'), 'components/Stranger.tsx', "import styles from './Family.module.css'", root)
+  assert.equal(allowed.crossImports.length, 1)
+  assert.equal(refused.crossImports.length, 1)
+})
+
+test('a recorded stylesheet family accepts only its capped owner and declared annotation', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-cap-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const dir = path.join(root, 'components')
+  fs.mkdirSync(dir)
+  fs.writeFileSync(path.join(dir, 'Sidebar.module.css'), '/* @design-owners SessionTree, NewOwner */\n.row { display: flex; }')
+  const inspect = (name) => sheetsOf(dir, path.join(dir, `${name}.tsx`), `components/${name}.tsx`, "import styles from './Sidebar.module.css'", root)
+  assert.deepEqual(inspect('SessionTree').crossImports, [])
+  assert.equal(inspect('NewOwner').crossImports.length, 1)
+})
+
 test('a glob that ends in a double star takes the rest of the path (#263)', () => {
   const deep = globToRegExp('packages/**')
   assert.ok(deep.test('packages/ui'), 'one segment under it')
@@ -991,6 +1107,12 @@ test('an allowlisted doc path is held to its own reason (#223)', () => {
      DESCRIBED_AS entry for a step the gate no longer runs. */
   assert.match(docPathProblems(named, () => true, allowed)[0], /it resolves now/)
   assert.match(docPathProblems(new Map(), () => false, allowed)[0], /no document names it/)
+})
+
+test('documented repository paths resolve only through tracked files', () => {
+  const value = 'docs/architecture.md'
+  assert.equal(docPathBasesFor(repoRoot, new Set())(value, 'README.md'), false)
+  assert.equal(docPathBasesFor(repoRoot, new Set([value]))(value, 'README.md'), true)
 })
 
 test('what counts as a documented repository path (#223)', () => {
@@ -1292,12 +1414,21 @@ test('distSegments refuses a wildcard where it reads a fixed segment (#269)', ()
 
 test('tracked text files contain no raw NUL bytes (#360)', () => {
   const extensions = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|css|html|yml|yaml|sh|py|toml)$/
-  const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
+  const files = execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard'],
+    { cwd: repoRoot, encoding: 'utf8' },
+  )
     .split('\n')
     .filter((file) => extensions.test(file))
   const withNul = []
   for (const file of files) {
-    const buf = fs.readFileSync(path.resolve(repoRoot, file))
+    const resolved = path.resolve(repoRoot, file)
+    // The index still names a deletion until it is staged. That file is not
+    // part of the working tree being verified; conversely, new untracked
+    // source is, and is included by the command above.
+    if (!fs.existsSync(resolved)) continue
+    const buf = fs.readFileSync(resolved)
     if (buf.includes(0)) withNul.push(file)
   }
   assert.deepEqual(withNul, [])

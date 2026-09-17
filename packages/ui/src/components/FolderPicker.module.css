@@ -20,29 +20,14 @@
 }
 
 .crumbSep {
-  color: var(--hdp-alias-label-quaternary, var(--hdp-alias-label-tertiary));
+  color: var(--hd-placeholder-foreground, var(--hd-muted-foreground));
   padding: 0 2px;
 }
 
-.crumb {
-  padding: 1px 5px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  font: inherit;
-  cursor: pointer;
-}
-
-.crumb:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
-}
-
 .crumbCurrent {
-  padding: 1px 5px;
+  padding: 1px var(--hd-space-1); /* desk: canonical One UI System scale */
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .list {
@@ -57,24 +42,15 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 7px 8px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  font-size: var(--hd-text);
-}
+ /* desk: canonical One UI System scale */
 
-.entry:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  text-align: left;
+
 }
 
 .empty {
   padding: 24px 10px;
   text-align: center;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
-

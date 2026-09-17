@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Face } from './Kit'
+import { Face } from './Settings'
 
 /**
  * A person's face. Pinned: a face this build ships draws its picture;

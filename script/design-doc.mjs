@@ -79,7 +79,7 @@ export const prose = (comment) =>
 
 /** Every section of the token file, as its comment plus its declarations. */
 const tokenSections = () => {
-  const css = read(path.join(DESIGN, 'tokens.css'))
+  const css = read(path.join(DESIGN, 'foundation/tokens.css'))
   const sections = []
   const header = /\/\* --- ([a-z ]+) -+\n([\s\S]*?)\*\//g
   let match

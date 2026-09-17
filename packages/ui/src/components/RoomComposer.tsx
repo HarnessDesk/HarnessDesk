@@ -28,11 +28,10 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
-} from '../design/ui'
+} from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle } from './Menu'
-import { Popover } from './Popover'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
 /**

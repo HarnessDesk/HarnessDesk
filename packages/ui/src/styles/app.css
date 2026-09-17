@@ -4,7 +4,7 @@
  * The raw palette comes from the DeepSeek Harness design platform (see
  * design-platform.css) and wears the `--hdp-` prefix; the design system's own
  * foundation — space, shape, type, motion and the semantic colour vocabulary,
- * all `--hd-` — is ../design/tokens.css, imported after it so it wins over
+ * all `--hd-` — is ../design/foundation/tokens.css, imported after it so it wins over
  * both vendored files. The palette overlays come after that again, because
  * varying the foundation is their entire job: editorial.css repaints it and
  * editor.css adds the code-face tokens on top.
@@ -18,7 +18,7 @@
 @import '../assets/fonts/fonts.css';
 @import './base.css';
 @import './design-platform.css';
-@import '../design/tokens.css';
+@import '../design/foundation/tokens.css';
 @import './editorial.css';
 @import './editor.css';
 @import './scrollbar.css';
@@ -28,12 +28,6 @@
 @import './shadcn-themes.css';
 
 body {
-  /* Tertiary carries more here than a design system usually gives it —
-     counts, times, keyboard hints — so it sits a step darker than the
-     platform default in both themes; a label nobody can read is not quiet,
-     it is missing. */
-  --hdp-alias-label-tertiary: rgb(112, 117, 125);
-
   /* macOS window chrome: the traffic lights sit in an inset title bar, so
      whichever row lands in the window's top-left reserves room for them. */
   /* 44: room for a 20px title line with 12px above and below, the band the
@@ -65,10 +59,6 @@ body {
   --titlebar-inset: 0px;
 }
 
-body[data-hd-dark-theme] {
-  --hdp-alias-label-tertiary: rgb(186, 190, 197);
-}
-
 * {
   box-sizing: border-box;
 }
@@ -85,8 +75,8 @@ body {
   font-family: var(--hd-font-family);
   font-size: var(--hd-text);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-primary);
-  background: var(--hdp-alias-bg-base);
+  color: var(--hd-foreground);
+  background: var(--hd-background);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
@@ -100,7 +90,7 @@ button {
 code,
 pre,
 kbd {
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-variant-ligatures: none;
 }
 
@@ -158,6 +148,7 @@ a:hover {
 }
 
 .hd-shellBody {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
@@ -182,6 +173,7 @@ a:hover {
   gap: 10px;
   padding: 0 16px;
   pointer-events: none;
+  transition: left var(--hd-duration-slow) var(--hd-ease);
 }
 
 .hd-floatingNotices > * {

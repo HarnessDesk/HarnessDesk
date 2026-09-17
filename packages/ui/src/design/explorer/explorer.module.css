@@ -46,29 +46,39 @@
    `min-height`, not `height`: a board whose name needs two lines used to
    overflow its row and eat the gap under it, which is a silent way for this
    page to look broken as the system grows. */
-.navItem {
-  display: flex;
-  align-items: center;
+.navControl {
+  width: 100%;
+  height: auto;
   min-height: var(--hd-row-h);
-  padding-block: var(--hd-space-0-5);
-  padding: 0 var(--hd-space-2-5);
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hd-secondary-foreground);
-  font-family: inherit;
-  font-size: var(--hd-text);
+  justify-content: flex-start;
+  white-space: normal;
   text-align: left;
-  cursor: pointer;
 }
 
-.navItem:hover {
-  background: var(--hd-hover);
+.navSearch {
+  flex: none;
+  width: 100%;
 }
 
-.navItem[data-selected] {
-  background: var(--hd-selected);
-  color: var(--hd-foreground);
+.coverage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.coverageRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) 120px minmax(240px, 1fr) minmax(200px, 0.8fr) auto;
+  gap: var(--hd-space-3);
+  align-items: baseline;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  font-size: var(--hd-text-sm);
+}
+
+.coverageStates {
+  color: var(--hd-muted-foreground);
+  overflow-wrap: anywhere;
 }
 
 .main {

@@ -25,16 +25,16 @@
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE } from '../lib/desk.mjs'
-import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
+import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
-import { REPOS } from './cast.mjs'
-import { HOME, WORK } from './seed.mjs'
+import { CAST, REPOS, rigRuntimeId } from './cast.mjs'
+import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 /**
@@ -59,7 +59,7 @@ const CHATTER = [
   'The webhook one is independent; starting on it now.',
 ]
 
-const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const APP = process.env['HD_SHOTS_APP'] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const argv = process.argv.slice(2)
 const flag = (name, fallback = null) => {
   const at = argv.indexOf(`--${name}`)
@@ -87,10 +87,11 @@ say(`frame  ${WIDTH}x${HEIGHT} @2x`)
 
 const desk = await launchDesk({
   app: APP,
+  executable: process.env['HD_SHOTS_EXECUTABLE'],
   home: HOME,
-  port: 9840 + Math.floor(Math.random() * 100),
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
+  env: SHOT_ENV,
 })
 const { cdp } = desk
 const q = (value) => JSON.stringify(value)
@@ -127,6 +128,21 @@ try {
           'usage/reports': ${q(USAGE)},
           'usage/ledger': ${q(LEDGER)},
           'usage/scan': ${q(SCAN)},
+          'runtime/skills': [
+            { name: 'review', description: 'Review the current changes and report actionable findings with reproducible checks.', enabled: true, toggleable: false },
+            { name: 'plan', description: 'Plan the implementation, identify the affected components, and wait for approval before changing files.', enabled: true, toggleable: false },
+          ],
+          'library/read': {
+            generatedAt: 1, home: '/home/user', runtimes: ${q(['codex', rigRuntimeId('claude-code')])}, gaps: [],
+            locations: ${q(['codex', rigRuntimeId('claude-code')])}.map(runtime => ({ runtime, kind: 'skill', path: '/home/user/.agents/skills', scope: 'user', scanned: true, exists: true, readOnly: true })),
+            entries: ['Accessibility audit', 'Review changes', 'Run project tests', 'Write release notes', 'Inspect workspace'].map((name, index) => ({
+              kind: 'skill', name: name.toLowerCase().replaceAll(' ', '-'), title: name,
+              description: 'Inspect the workspace and report actionable findings with reproducible checks and clear evidence.',
+              copies: [{ path: '/home/user/.agents/skills/demo-' + index, scope: 'user', readBy: ${q(['codex', rigRuntimeId('claude-code')])}, hollow: false, digest: 'demo', readOnly: true }],
+              reach: ${q(['codex', rigRuntimeId('claude-code')])}.map(runtime => ({ runtime, state: 'reaches', basis: 'scanned' })),
+            })),
+          },
+          'library/usage': { generatedAt: 1, sessionsScanned: 0, skills: {} },
         }
         const accounts = ${q(ACCOUNTS)}
         const anonymous = ${q(ANONYMOUS)}
@@ -162,15 +178,32 @@ try {
    * Nothing is written until this passes. See `audit.mjs` for what it asks and
    * which way it errs; asked from here because only the driver has the window.
    */
-  const audit = (name) => refuseUnpublishable(cdp, { name, user: USER, vouched: VOUCHED })
+  const audit = (name) => refuseUnpublishable(cdp, {
+    name, user: USER, vouched: VOUCHED,
+    roots: REPOS.map(repo => join(WORK, repo.dir)),
+    nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1',
+  })
 
   /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
     await cdp.eval(TILDIFY(homedir()))
+    // Native verification repositories may live in a unique temporary root.
+    // Normalize that synthetic path too so concurrency-safe random suffixes
+    // never become public screenshot content.
+    await cdp.eval(TILDIFY(WORK))
     await sleep(150)
   }
 
-  const shoot = async (name, expect = null) => {
+  const shoot = async (name, expect = null, verify = null) => {
+    // This is a normal first-run offer, not a transient snapshot.notice.
+    // Dismiss it through the same persisted policy as "Not now"; leave error
+    // notices alone, because an error is evidence that a scene is not ready.
+    await cdp.eval(`${STORE}.dismissStanding({ key: 'import:offer', kind: 'import:offer', lifetime: 'once' }); true`)
+    await waitForSnapshot(
+      () => cdp.eval(`document.body.innerText.includes('Your other agents have skills and servers this machine could share')`),
+      shown => !shown,
+    )
+    await verify?.()
     /* Prove the app is showing what the filename claims. Staging a pane and
        photographing whatever happens to be in front of it is how a dashboard
        ends up saved as `git-dark.png`. */
@@ -180,6 +213,141 @@ try {
     }
     await tildify()
     await audit(name)
+    // Numeric/style facts accompany comparisons without recording user text.
+    if (has('measure')) {
+      const metrics = await cdp.json(`(() => {
+        const selectors = {
+          body: 'body', pageTitle: '[class*="pageTitle"]', pageBlurb: '[class*="pageBlurb"]',
+          row: 'button[class*="rowButton"], button[class*="rowChoice"]',
+          rowTitle: 'button[class*="rowButton"] [class*="rowTitle"]', rowDescription: '[class*="rowDesc"]', rowMark: '[class*="rowMark"]',
+          faceChoice: '[class*="faceChoice"]', faceTile: '[class*="faceTile"]',
+          agentHeader: '[class*="headOpen"]', agentName: '[class*="headName"]',
+          footer: '[class*="accountRow"]', footerName: '[class*="accountLabel"]',
+          agentBadge: '[class*="seatAvatar"]', agentGlyph: '[class*="seatAvatar"] svg', statusDot: '[class*="statusDot"]',
+          menu: '[role="menu"]', menuItem: '[role="menuitem"]',
+          popover: '[data-slot="popover-popup"]', accountMenu: '[class*="accountMenu_"]',
+          usageAccount: 'button[class*="acct_"]', usageName: '[class*="acctName"]', usageTrack: '[class*="acctTrack"]',
+          usageCards: '[class*="cards_"]', usageCard: '[class*="card_"]',
+          segmentedItem: '[data-slot="toggle-group-item"]',
+        }
+        const measure = node => {
+          const css = getComputedStyle(node), rect = node.getBoundingClientRect()
+          let opacity = 1
+          for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) opacity *= Number(getComputedStyle(ancestor).opacity)
+          return { width: rect.width, height: rect.height, font: css.fontFamily, size: css.fontSize,
+            weight: css.fontWeight, lineHeight: css.lineHeight, padding: css.padding, gap: css.gap,
+            radius: css.borderRadius, shadow: css.boxShadow, border: css.borderWidth, opacity }
+        }
+        const output = {}
+        for (const [key, selector] of Object.entries(selectors)) {
+          const node = [...document.querySelectorAll(selector)].find(node => node.getBoundingClientRect().height > 0)
+          if (node) output[key] = measure(node)
+        }
+        output.reviewerOptions = [...document.querySelectorAll('[data-slot="toggle-group-item"]')]
+          .filter(node => ['You', 'Automatic review', 'Guardian sub-agent'].includes(node.textContent.trim()))
+          .map(node => ({ label: node.textContent.trim(), ...measure(node) }))
+        const menu = document.querySelector('[role="menu"]')
+        if (menu) {
+          output.menuAncestors = []
+          for (let node = menu; node && node !== document.body; node = node.parentElement) {
+            if (getComputedStyle(node).boxShadow !== 'none') output.menuAncestors.push(measure(node))
+          }
+        }
+        return output
+      })()`)
+      metrics.provenance = { runtimeIds: Object.fromEntries(CAST.map(agent => [agent.id, rigRuntimeId(agent.id)])), nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1' }
+      writeFileSync(`${OUT}/${name}.metrics.json`, JSON.stringify(metrics, null, 2) + '\n')
+    }
+    if (has('assert-layout')) {
+      const faults = await cdp.json(`(() => {
+        const faults = []
+        const visible = node => node.getBoundingClientRect().height > 0
+        const sidebar = document.querySelector('nav[aria-label="Workspace actions"]')?.parentElement
+        if (sidebar && visible(sidebar)) {
+          for (const node of [sidebar, ...sidebar.querySelectorAll('*')]) {
+            if (['auto', 'scroll'].includes(getComputedStyle(node).overflowX) && node.scrollWidth > node.clientWidth + 1) {
+              faults.push('horizontal sidebar overflow: ' + node.className)
+            }
+          }
+          const footer = sidebar.querySelector('button[class*="accountRow"]')
+          if (footer) {
+            const row = footer.getBoundingClientRect(), column = sidebar.getBoundingClientRect()
+            if (column.right - row.right > 8) faults.push('sidebar footer no longer fills its column')
+          }
+        }
+        for (const row of document.querySelectorAll('button[class*="rowButton"], button[class*="rowChoice"]')) {
+          if (!visible(row)) continue
+          const box = row.getBoundingClientRect()
+          for (const child of row.querySelectorAll('[class*="rowTitle"], [class*="rowDesc"], [class*="rowMark"]')) {
+            const rect = child.getBoundingClientRect()
+            if (rect.top < box.top - 1 || rect.bottom > box.bottom + 1) faults.push('row overflow: ' + row.textContent.slice(0, 80))
+          }
+        }
+        for (const header of document.querySelectorAll('button[class*="headOpen"]')) {
+          const mark = header.querySelector('[class*="rowMark"]')
+          if (!mark || !visible(header)) continue
+          const box = header.getBoundingClientRect(), icon = mark.getBoundingClientRect()
+          const padding = parseFloat(getComputedStyle(header).getPropertyValue('--hd-space-3'))
+          if (icon.top - box.top < padding || box.bottom - icon.bottom < padding) faults.push('agent header lost its Settings row padding')
+        }
+        for (const row of document.querySelectorAll('button[class*="acct_"]')) {
+          if (!visible(row)) continue
+          const box = row.getBoundingClientRect(), css = getComputedStyle(row)
+          if (parseFloat(css.paddingTop) < 4 || parseFloat(css.paddingBottom) < 4 || box.height < 26) faults.push('Dashboard account row collapsed')
+          const meter = row.querySelector('[class*="acctTrack"]')?.getBoundingClientRect()
+          const name = row.querySelector('[class*="acctName"]')?.getBoundingClientRect()
+          if (meter && (meter.width < box.width / 2 || meter.top - name.bottom < 3)) faults.push('Dashboard meter lost its grid track')
+        }
+        for (const option of document.querySelectorAll(':is(section, [role="dialog"])[aria-label="Settings"] [data-slot="toggle-group-item"]')) {
+          if (!visible(option)) continue
+          const box = option.getBoundingClientRect(), css = getComputedStyle(option)
+          const range = document.createRange()
+          range.selectNodeContents(option)
+          const text = range.getBoundingClientRect()
+          if (text.left - box.left < parseFloat(css.paddingLeft) - 1 || box.right - text.right < parseFloat(css.paddingRight) - 1) faults.push('Settings segment label overflows its option')
+        }
+        for (const row of document.querySelectorAll('[class*="groupHead"]:hover, [class*="rowWrap"]:hover')) {
+          const action = row.querySelector('[class*="groupAdd"], button[aria-haspopup="menu"]')
+          if (!action || !visible(action)) continue
+          for (const mark of row.querySelectorAll('[class*="groupPin"], [class*="groupCount"], [class*="rowGone"], [class*="rowWorktree"]')) {
+            if (mark.getBoundingClientRect().right > action.getBoundingClientRect().left) faults.push('sidebar hover action overlaps metadata')
+          }
+        }
+        for (const popup of document.querySelectorAll('[data-slot="popover-popup"]')) {
+          const box = popup.getBoundingClientRect()
+          if (box.top < 0 || box.bottom > innerHeight + 1 || box.left < 0 || box.right > innerWidth + 1) {
+            faults.push('popup extends outside the viewport: ' + JSON.stringify(box.toJSON()))
+          }
+        }
+        for (const item of document.querySelectorAll('[role="menuitem"]')) {
+          if (!visible(item)) continue
+          let opacity = 1
+          for (let node = item; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity)
+          if (opacity < 0.99) faults.push('invisible menu item: ' + item.textContent.slice(0, 80))
+          // A DOM-visible, opaque item can still sit outside a zero-height
+          // popup and be clipped away. Check the painted/hit-tested center.
+          const rect = item.getBoundingClientRect()
+          const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2
+          const popup = item.closest('[data-slot="popover-popup"]')
+          if (popup) {
+            const box = popup.getBoundingClientRect()
+            const contentX = x - box.left + popup.scrollLeft, contentY = y - box.top + popup.scrollTop
+            if (box.height < Math.min(rect.height, 24)
+              || contentY < 0 || contentY > popup.scrollHeight
+              || contentX < 0 || contentX > popup.scrollWidth) {
+              faults.push('menu item clipped outside popup: ' + item.textContent.slice(0, 80))
+            } else if (y >= box.top && y <= box.bottom && x >= box.left && x <= box.right
+              && !item.contains(document.elementFromPoint(x, y))) {
+              faults.push('menu item cannot receive a pointer: ' + item.textContent.slice(0, 80)
+                + ' ' + JSON.stringify({ x, y, hit: document.elementFromPoint(x, y)?.outerHTML.slice(0, 160),
+                  popup: box.toJSON(), viewport: { width: innerWidth, height: innerHeight } }))
+            }
+          }
+        }
+        return faults
+      })()`)
+      if (faults.length) throw new Error(name + ': ' + faults.join('; '))
+    }
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     writeFileSync(`${OUT}/${name}.png`, Buffer.from(data, 'base64'))
     say(`✓ ${name}.png`)
@@ -198,7 +366,12 @@ try {
         if (!scope) return false
         const wanted = ${q(text)}
         const all = [...scope.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], li, summary')]
-        const hits = all.filter((e) => (e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)
+        const hits = all.filter((e) => {
+          if (!((e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)) return false
+          if (e.closest('[aria-hidden="true"], [inert]')) return false
+          const rect = e.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0 && e.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
+        })
         /* The smallest match: once a word is on screen twice the outer one is
            usually a container that happens to contain the row you wanted. */
         const el = hits.sort((a, b) => (a.textContent ?? '').length - (b.textContent ?? '').length)[0]
@@ -236,14 +409,14 @@ inputs:
 roles:
   fixer:
     kind: agent
-    seat: codex=gpt-5.6-sol
+    seat: ${process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? `${rigRuntimeId('claude-code')}=opus` : 'codex=gpt-5.6-sol'}
     permission: publish
     outcomes: [published, cannot]
     order: |
       Make the change, run the tests, and open a pull request for it.
   reviewer:
     kind: agent
-    seat: cursor=gemini-3.8-flash
+    seat: ${rigRuntimeId('cursor')}=gemini-3.8-flash
     count: 3
     permission: read
     outcomes: [approve, request-changes]
@@ -286,8 +459,16 @@ rules:
   const stageRoom = async () => {
     if (roomId) return roomId
     const keys = []
-    for (const runtime of ['codex', 'claude-code', 'cursor', 'gemini-cli']) {
-      keys.push(await seat(cdp, { work: REPO, runtime, picks: {} }))
+    // The fake Codex app-server deliberately reports `/w` as its transcript
+    // cwd. That is useful adapter coverage, but a real room correctly refuses
+    // a conversation outside its project. Use four of the camera rig's ACP
+    // agents for room scenes while the native run reserves Codex for the
+    // conversation and integrated-terminal checks.
+    const roomRuntimes = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
+      ? ['claude-code', 'cursor', 'gemini-cli', 'copilot']
+      : ['codex', 'claude-code', 'cursor', 'gemini-cli']
+    for (const runtime of roomRuntimes) {
+      keys.push(await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} }))
     }
     roomId = await makeRoom(cdp, { work: REPO, name: 'Checkout hardening', members: keys.map(splitKey) })
 
@@ -322,7 +503,13 @@ rules:
    * no picture, because it is evidence.
    */
   const leaveOverlay = async () => {
-    await click('Back to app').catch(() => {})
+    // Scene changes must dismiss floating menus as well as full-screen pages.
+    // Otherwise the expanded account menu survives into the hover photographs.
+    await cdp.eval(`document.dispatchEvent(new CustomEvent('hd:dismiss-overlays', { detail: { returnFocus: true } })); true`)
+    await sleep(200)
+    for (let remaining = 0; remaining < 4; remaining += 1) {
+      if (!await click('Back to app')) break
+    }
     await sleep(600)
   }
 
@@ -343,8 +530,12 @@ rules:
     } },
 
     /** One conversation, mid-work: reasoning, a plan and tool calls. */
-    conversation: { expect: 'Worked for', run: async () => {
-      const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+    conversation: { leaveOverlay: true, expect: 'Worked for', run: async () => {
+      // Native Codex remains available for the terminal smoke. Its adapter
+      // fixture deliberately reports /w, so the camera conversation uses ACP
+      // and the real staged repository instead.
+      const runtime = process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? rigRuntimeId('claude-code') : 'codex'
+      const key = await seat(cdp, { work: REPO, runtime, picks: {} })
       await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
       // Long enough for the scripted turn to reach its summary.
       await sleep(6500)
@@ -362,10 +553,72 @@ rules:
       await sleep(1600)
     } },
 
+    /** The rebuilt settings patterns, reached through the same store request features use. */
+    settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
+      await cdp.eval(`${STORE}.askSettings('appearance'); true`)
+      await sleep(1400)
+    } },
+
     /** The repository pane: a real graph over real git objects. */
     git: { leaveOverlay: true, expect: 'History', run: async () => {
       await cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`)
       await sleep(2200)
+    } },
+
+    /** CodeMirror behind the canonical editor theme bridge. */
+    editor: { leaveOverlay: true, expect: 'package.json', run: async () => {
+      const path = join(REPO, 'package.json')
+      const content = readFileSync(path, 'utf8')
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') {
+        await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+        // fake-codex serves an in-memory filesystem, not host disk. Copy only
+        // the rig-authored file through its ordinary save/read protocol.
+        const saved = await cdp.json(`${STORE}.transport.request('file/save', ${q({ runtime: 'codex', path, content, expectedHash: '' })})`)
+        if (!saved?.saved) throw new Error('editor: the synthetic file was not seeded into fake Codex')
+      }
+      await cdp.eval(`${STORE}.openFile(${q(path)}); true`)
+    }, verify: async () => {
+      const path = join(REPO, 'package.json')
+      const expected = JSON.stringify(JSON.parse(readFileSync(path, 'utf8')))
+      // A tab title passed while the pane held an error. Verify the actual
+      // CodeMirror document, in each theme, before allowing a frame to leave.
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const editor = [...document.querySelectorAll('.cm-content')].find(node => node.getAttribute('aria-label') === ${q(path)})
+        const text = editor?.textContent
+        if (!text || !editor.getBoundingClientRect().height) return null
+        try { return JSON.stringify(JSON.parse(text)) } catch { return null }
+      })()`), content => content === expected)
+    } },
+
+    /** xterm behind the canonical terminal option bridge. */
+    terminal: { leaveOverlay: true, run: async () => {
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+      // Use the system's plain POSIX shell rather than the runner's configured
+      // interactive shell. The latter may print a personal prompt from a real
+      // dotfile; `/bin/sh -i` still exercises the process and xterm bridges
+      // while keeping the evidence deterministic and publishable.
+      await cdp.eval(
+        `(async () => { await ${STORE}.openTerminal({ command: ['/bin/sh', '-i'] }); return true })()`,
+        120_000,
+      )
+      await sleep(2200)
+      const opened = await cdp.eval(
+        `JSON.stringify(${STORE}.getSnapshot().workbench).includes('"kind":"terminal"')`,
+      )
+      if (!opened) {
+        const diagnostic = await cdp.json(`(() => {
+          const snapshot = ${STORE}.getSnapshot()
+          return {
+            activeRuntime: snapshot.activeRuntime,
+            runtimes: snapshot.runtimes.map((runtime) => ({ id: runtime.id, health: runtime.health })),
+            notices: snapshot.notices.map((notice) => notice.message),
+            workbench: snapshot.workbench,
+          }
+        })()`)
+        throw new Error(`the terminal view did not enter the native workbench: ${JSON.stringify(diagnostic)}`)
+      }
     } },
 
     /** A room of agents, and the board they claim work from. */
@@ -477,11 +730,147 @@ rules:
     } },
 
     /** The browser pane — a real `<webview>`, driven by the agent's tools. */
-    browser: { leaveOverlay: true, expect: 'harnessdesk', run: async () => {
-      await cdp.eval(`${STORE}.openBrowser('https://harnessdesk.app'); true`)
-      await sleep(3500)
+    browser: { leaveOverlay: true, run: async () => {
+      const fixture = join(WORK, 'browser-fixture.html')
+      writeFileSync(fixture, `<!doctype html>
+<meta charset="utf-8">
+<title>HarnessDesk browser fixture</title>
+<style>body{font:16px system-ui;margin:4rem;color:#253047;background:#f7f9fc}h1{font-size:2rem}</style>
+<h1>Storefront preview</h1><p>A deterministic local page inside the production Electron webview.</p>`)
+      const url = pathToFileURL(fixture).href
+      await cdp.eval(`${STORE}.openBrowser(${q(url)}); true`)
+      let title = ''
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        title = await cdp.eval(`document.querySelector('webview')?.getTitle?.() ?? ''`).catch(() => '')
+        if (title === 'HarnessDesk browser fixture') break
+        await sleep(100)
+      }
+      const opened = await cdp.eval(
+        `JSON.stringify(${STORE}.getSnapshot().workbench).includes('"kind":"browser"')`,
+      )
+      if (!opened || title !== 'HarnessDesk browser fixture') {
+        throw new Error(`the inline browser did not load its local fixture (title ${q(title)})`)
+      }
     } },
   }
+
+  // The review sweep records every Settings destination, including the rich
+  // rows that a single Appearance frame cannot exercise.
+  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'agents', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
+    SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
+      await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
+      await sleep(1200)
+      if (!await cdp.eval(`Boolean(document.querySelector(':is(section, [role="dialog"])[aria-label="Settings"]')) && !document.querySelector(':is(section, [role="dialog"])[aria-label="Dashboard"]')`)) {
+        throw new Error('Settings did not become the visible window for ' + section)
+      }
+      if (section === 'agents') {
+        // Keep an account in the frame so header and nested-row containment
+        // are both exercised, not just the collapsed list's card outlines.
+        await cdp.eval(`document.querySelector('button[aria-label^="Show the accounts under"]')?.click(); true`)
+        await sleep(250)
+      }
+    } }
+  }
+  SCENES['composer-menu'] = { leaveOverlay: true, run: async () => {
+    await SCENES.conversation.run()
+    const opened = await cdp.eval(`(() => {
+      const button = [...document.querySelectorAll('button')].find(e => /model and reasoning/i.test(e.title))
+      if (!button) return false
+      button.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('composer model trigger missing: ' + await cdp.eval(`JSON.stringify([...document.querySelectorAll('button')].map(e => e.title).filter(Boolean))`))
+    await sleep(600)
+  } }
+  SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
+    await SCENES.conversation.run()
+    const opened = await cdp.eval(`(() => {
+      const button = [...document.querySelectorAll('button')].find(e => /^(This conversation is with|Which agent starts this conversation)/.test(e.title))
+      if (!button) return false
+      button.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('composer agent trigger missing')
+    await sleep(700)
+  } }
+  SCENES['sidebar-menu'] = { leaveOverlay: true, run: async () => {
+    const opened = await cdp.eval(`(() => {
+      const button = document.querySelector('button[class*="accountRow"]')
+      if (!button) return false
+      button.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('sidebar account trigger missing')
+    await sleep(700)
+  } }
+  SCENES['sidebar-accounts'] = { leaveOverlay: true, run: async () => {
+    const triggerOpen = await cdp.eval(`document.querySelector('button[class*="accountRow"]')?.getAttribute('aria-expanded') === 'true'`)
+    if (!triggerOpen) await SCENES['sidebar-menu'].run()
+    const expanded = await cdp.eval(`(() => {
+      const row = document.querySelector('[role="menuitem"][aria-expanded="false"]')
+      if (!row) return false
+      row.click()
+      return true
+    })()`)
+    if (!expanded) throw new Error('sidebar account disclosure missing')
+    await sleep(700)
+  } }
+  // The ordinary desk has no worktree/deleted-folder marks. Supply invented
+  // history facts through the rig's wire seam so hover screenshots exercise
+  // the crowded right rail rather than an empty row that could not regress.
+  const stageSidebarMarks = async () => {
+    await SCENES.desk.run()
+    await cdp.eval(`(() => {
+      const store = ${STORE}, root = ${q(REPO)}
+      if (!store.__shotsSidebarMarks) {
+        const real = store.transport.request.bind(store.transport)
+        store.transport.request = async (method, params) => {
+          const result = await real(method, params)
+          if (method !== 'session/list') return result
+          return { ...result, data: result.data.map((row, index) => row.cwd !== root || index > 1 ? row : {
+            ...row, cwd: root + '/.worktrees/sidebar-' + index,
+            repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+          }) }
+        }
+        store.__shotsSidebarMarks = true
+      }
+      store.setListPrefs({ pinned: [root] })
+      return store.loadHistory({ reset: true })
+    })()`)
+    await sleep(700)
+  }
+  const hover = async (selector) => {
+    // Hover-only actions have no box until their row is entered.
+    const rowPoint = await cdp.json(`(() => {
+      const node = document.querySelector(${q(selector)})?.closest('[class*="groupHead"], [class*="rowWrap"]')
+      if (!node) throw new Error('missing hover row')
+      const rect = node.getBoundingClientRect()
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    })()`)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...rowPoint })
+    await sleep(100)
+    const point = await cdp.json(`(() => {
+      const node = document.querySelector(${q(selector)})
+      if (!node) throw new Error('missing hover target')
+      const rect = node.getBoundingClientRect()
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    })()`)
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await sleep(250)
+  }
+  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[class*="groupHead"] button[aria-haspopup="menu"]', run: async () => {
+    await stageSidebarMarks()
+    await hover('[class*="groupHead"] button[aria-haspopup="menu"]')
+  } }
+  SCENES['session-hover'] = { leaveOverlay: true, hover: '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]', run: async () => {
+    await stageSidebarMarks()
+    const selector = '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]'
+    await hover(selector)
+  } }
+  SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
+    await cdp.eval(`${STORE}.askSettings('extensions'); true`)
+    await sleep(1200)
+  } }
 
   /* Every `--scene` on the line, not just the first: a take is usually two or
      three scenes, and silently shooting only one of them is the kind of miss
@@ -510,8 +899,23 @@ rules:
     await scene.run()
     for (const theme of THEMES) {
       await setTheme(theme)
-      await shoot(`${name}-${theme}`, scene.expect ?? null)
+      if (!scene.hover) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
+      if (scene.hover) {
+        await hover(scene.hover)
+        if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
+          throw new Error(name + ': pointer did not hover the target: ' + await cdp.eval(`(() => {
+            const node = document.querySelector(${q(scene.hover)}), r = node.getBoundingClientRect()
+            return JSON.stringify({ rect: r.toJSON(), hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.className, pointer: getComputedStyle(node).pointerEvents, hovered: [...document.querySelectorAll(':hover')].map(node => node.className), scale: visualViewport.scale })
+          })()`))
+        }
+      }
+      await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
     }
+  }
+  if (has('interactive')) {
+    say('Isolated app ready for native interaction. Press Return here to close it.')
+    await new Promise(resolve => process.stdin.once('data', resolve))
+    process.stdin.pause()
   }
 } finally {
   await closeDesk(desk).catch(() => {})

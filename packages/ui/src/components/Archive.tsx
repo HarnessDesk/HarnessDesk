@@ -8,7 +8,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { Btn, PageHead, Row, Rows, Search, SectionHead, kit } from '../design/primitives/Kit'
+import { Button, PageDescription, PageHead, RefusedAction, Row, Rows, Search, SectionHead } from '../design'
 import styles from './Archive.module.css'
 
 /**
@@ -120,15 +120,15 @@ export const ArchiveSection = () => {
       />
 
       {unreachable.length > 0 && (
-        <p className={kit.pageBlurb}>
+        <PageDescription>
           {unreachable.length === 1
             ? unreachable[0]
             : `${unreachable.slice(0, -1).join(', ')} and ${unreachable[unreachable.length - 1]}`}{' '}
           could not be asked, so nothing of {unreachable.length === 1 ? 'its' : 'theirs'} is listed here.
-        </p>
+        </PageDescription>
       )}
 
-      {loading && <p className={kit.pageBlurb}>Reading every agent’s archive…</p>}
+      {loading && <PageDescription>Reading every agent’s archive…</PageDescription>}
 
       {!loading && sessions.length > 0 && (
         <Search
@@ -173,23 +173,26 @@ export const ArchiveSection = () => {
                     })}`}
                     control={
                       <>
-                        <Btn small onClick={() => void restore(summary)}>
+                        <Button variant="secondary" size="sm" onClick={() => void restore(summary)}>
                           <UndoIcon size={13} />
                           Restore
-                        </Btn>
-                        <Btn
-                          small
-                          variant="danger"
-                          disabled={!deletable}
-                          title={
+                        </Button>
+                        <RefusedAction
+                          reason={
                             deletable
                               ? undefined
                               : `${runtime.presentation.name} keeps no way to delete one.`
                           }
-                          onClick={() => setDeleting(summary)}
                         >
-                          Delete…
-                        </Btn>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={!deletable}
+                            onClick={() => setDeleting(summary)}
+                          >
+                            Delete…
+                          </Button>
+                        </RefusedAction>
                       </>
                     }
                   />
@@ -242,7 +245,7 @@ const Empty = ({ query }: { query: string }) => {
       <Row
         mark={<ArchiveIcon size={15} />}
         title="Nothing is archived"
-        desc="Archive a conversation from its ⋯ menu in the sidebar. It leaves the list and waits here; nothing about it is lost, and Restore puts it back."
+        desc="Archive one from its ⋯ menu in the sidebar; Restore puts it back."
       />
     </Rows>
   )

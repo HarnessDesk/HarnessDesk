@@ -50,19 +50,6 @@
  * thumb tuned for the base reads as a smudge on any of them; each rebinds the
  * pair on its own container, and both paths below pick the rebinding up.
  */
-body {
-  --hdp-scrollbar-thumb: var(--hdp-alias-scrollbar-bg-l1);
-  --hdp-scrollbar-thumb-hover: var(--hdp-alias-scrollbar-hover-l1);
-
-  /* The gutter, and what the pill gives back to it at rest and under the
-     pointer. Read by anything that has to line up beside a bar which takes
-     space: the transcript's docked composer adds the gutter back, because the
-     scroller reserves it and the dock does not. */
-  --hdp-scrollbar-width: 8px;
-  --hdp-scrollbar-inset: 2px;
-  --hdp-scrollbar-inset-hover: 1px;
-}
-
 /*
  * One path or the other, and never both.
  *
@@ -92,7 +79,7 @@ body {
   body,
   body * {
     scrollbar-width: thin;
-    scrollbar-color: var(--hdp-scrollbar-thumb) transparent;
+    scrollbar-color: var(--hd-scrollbar-fill) transparent; /* desk: the private scrollbar contract moved into public foundation names */
   }
 }
 
@@ -101,8 +88,8 @@ body {
    are absent the whole rule fails to match and is dropped, which is the gate
    already, written by the selector. */
 ::-webkit-scrollbar {
-  width: var(--hdp-scrollbar-width);
-  height: var(--hdp-scrollbar-width);
+  width: var(--hd-scrollbar-width); /* desk: the private scrollbar contract moved into public foundation names */
+  height: var(--hd-scrollbar-width); /* desk: the private scrollbar contract moved into public foundation names */
 }
 
 /* Nothing behind the pill: the track is whichever surface is scrolling under
@@ -123,14 +110,14 @@ body {
  * corners dial, and this layer does not read the app's semantic names.
  */
 ::-webkit-scrollbar-thumb {
-  border: var(--hdp-scrollbar-inset) solid transparent;
+  border: var(--hd-scrollbar-inset) solid transparent; /* desk: the private scrollbar contract moved into public foundation names */
   border-radius: 9999px; /* desk: 4 → a pill at whatever the inset leaves */
-  background: var(--hdp-scrollbar-thumb);
+  background: var(--hd-scrollbar-fill); /* desk: the private scrollbar contract moved into public foundation names */
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  border-width: var(--hdp-scrollbar-inset-hover);
-  background: var(--hdp-scrollbar-thumb-hover);
+  border-width: var(--hd-scrollbar-inset-hover); /* desk: the private scrollbar contract moved into public foundation names */
+  background: var(--hd-scrollbar-fill-hover); /* desk: the private scrollbar contract moved into public foundation names */
   background-clip: padding-box;
 }

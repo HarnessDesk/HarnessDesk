@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import kitSheet from '../primitives/Kit.module.css?raw'
-import tokenSheet from '../tokens.css?raw'
+import tokenSheet from '../foundation/tokens.css?raw'
 import checkboxSource from './checkbox.tsx?raw'
 import radioSource from './radio-group.tsx?raw'
 import switchSource from './switch.tsx?raw'
@@ -9,19 +8,11 @@ import buttonSource from './button.tsx?raw'
 import { buttonVariants } from './button'
 
 /**
- * One button, two spellings, one source of numbers.
- *
- * While surfaces migrate from Kit to the shadcn layer, the app carries two
- * button implementations — and the contract (AGENTS.md, design/index.ts) is
- * that they may never disagree about what a button *is*: both read the
- * `--hd-btn-*` component tokens, so a foundation that remaps them (Pill,
- * Squared) restyles every button at once, and a sizing or focus fix is a
- * token edit rather than a hunt across idioms. This pins the coupling from
- * both sides; the failure mode it exists for is someone vendoring a fresh
- * copy of button.tsx and shipping its stock `h-9` back in.
+ * One button implementation, with every visual decision sourced from the
+ * shared component tokens.
  */
 
-describe('the button, in both spellings', () => {
+describe('the canonical button', () => {
   it('the shadcn Button draws every number from the component tokens', () => {
     const base = buttonVariants({})
     expect(base).toContain('h-(--hd-btn-h)')
@@ -67,25 +58,6 @@ describe('the button, in both spellings', () => {
     }
   })
 
-  it('Kit’s Btn reads the same tokens, so neither spelling owns the numbers', () => {
-    for (const token of [
-      '--hd-btn-h',
-      '--hd-btn-h-sm',
-      '--hd-btn-padding',
-      '--hd-btn-radius',
-      '--hd-btn-text',
-      '--hd-btn-text-sm',
-      '--hd-btn-weight',
-      '--hd-btn-border',
-      '--hd-btn-primary-fill',
-      '--hd-btn-primary-foreground',
-      '--hd-btn-primary-hover',
-      '--hd-btn-danger-ink',
-      '--hd-btn-danger-hover',
-    ]) {
-      expect(kitSheet, `Kit.module.css stopped reading ${token}`).toContain(`var(${token})`)
-    }
-  })
 })
 
 /**
@@ -145,53 +117,6 @@ describe('the on-states follow the accent dial', () => {
 })
 
 
-/**
- * `outline` means one thing, and two files have to agree about it.
- *
- * This is the coupling the usage layer exists to create, and it was the one
- * thing about it with no test: Kit had no `outline` at all until recently, so
- * a screen built on it fell back to grey and three "add a thing" buttons in
- * one settings window came out three different ways. Adding the variant fixed
- * the screens; nothing stopped the two definitions drifting apart again.
- *
- * The comparison is the *tokens*, not the syntax, because the two spellings
- * cannot share syntax — one is a CSS rule and the other a string of Tailwind
- * utilities. Both are read as raw text, so the CSS is the real stylesheet
- * rather than the empty string Vitest hands back for an imported `.css`.
- */
-describe('outline is the same variant in both spellings', () => {
-  /** Every `--hd-` token a chunk of styling names. */
-  const tokensIn = (text: string) => new Set([...text.matchAll(/--hd-[a-z0-9-]+/g)].map((hit) => hit[0]))
-
-  /** The declarations of every rule whose selector mentions `selector`. */
-  const rulesFor = (sheet: string, selector: string) =>
-    [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter((rule) => (rule[1] ?? '').includes(selector))
-      .map((rule) => rule[2])
-      .join('\n')
-
-  it('names the same tokens on both sides', () => {
-    const kit = tokensIn(rulesFor(kitSheet, "[data-variant='outline']"))
-    const shadcn = tokensIn(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '')
-
-    /* Not vacuous in either direction: both sides have to have been found. */
-    expect(kit.size).toBeGreaterThan(0)
-    expect(shadcn.size).toBeGreaterThan(0)
-    expect([...kit].sort()).toEqual([...shadcn].sort())
-
-    /* And they are these, so a drift that happened to move both together
-       still has to be a deliberate edit here. */
-    expect([...kit].sort()).toEqual(['--hd-background', '--hd-btn-border', '--hd-foreground', '--hd-hover'])
-  })
-
-  it('does not move its border on hover in either spelling', () => {
-    /* The rest-state comparison above passed while the two hovered
-       differently: Kit's base `.btn:hover` moves the border to a darker
-       platform step, and the outline rule did not override it, so the same
-       semantic variant hovered one way in Kit and another in shadcn. A parity
-       check that reads only the outline-specific rules cannot see an
-       inherited declaration, so the invariant is stated directly. */
-    expect(rulesFor(kitSheet, "[data-variant='outline']:hover")).toContain('border-color: var(--hd-btn-border)')
-    expect(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '').not.toMatch(/hover:border-/)
-  })
+it('keeps the outline border stable on hover', () => {
+  expect(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '').not.toMatch(/hover:border-/)
 })

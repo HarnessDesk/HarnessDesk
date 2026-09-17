@@ -1,3 +1,4 @@
+import { Button } from '../design'
 import { useState } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
@@ -40,9 +41,9 @@ export const StepGroup = ({
   return (
     <div className={styles.item}>
       <div className={styles.group}>
-        <button
+        <Button
           type="button"
-          className={styles.groupHeader}
+          variant="quiet" size="row" className={styles.groupHeader}
           aria-expanded={expanded}
           onClick={() => {
             setPinned(true)
@@ -57,7 +58,7 @@ export const StepGroup = ({
           <ToolIcon size={13} />
           <span className={styles.groupSummary}>{describeGroup(items)}</span>
           {running && <span className={styles.spinner} />}
-        </button>
+        </Button>
         {expanded && (
           <div className={styles.groupBody}>
             {items.map((item) => (

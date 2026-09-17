@@ -2,8 +2,7 @@ import { useState } from 'react'
 
 import type { Intent, Plan, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Input } from '../design'
-import { NativeSelect } from '../design/ui/native-select'
+import { Button, Checkbox, Dialog, Input, NativeSelect, Textarea } from '../design'
 import { useStore } from '../state/context'
 import styles from './AddWork.module.css'
 
@@ -119,12 +118,12 @@ export const AddWork = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || title.trim() === ''} onClick={() => void add()}>
+          <Button variant="default" disabled={busy || title.trim() === ''} onClick={() => void add()}>
             {busy ? 'Adding…' : 'Add to board'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
@@ -143,9 +142,9 @@ export const AddWork = ({
           <span className={styles.label}>
             Detail <span className={styles.optional}>optional</span>
           </span>
-          <textarea
+          <Textarea
             aria-label="Detail"
-            className={styles.area}
+            variant="editor" controlSize="compact" className={styles.area}
             rows={2}
             value={detail}
             placeholder="Anything whoever takes it needs to know before starting."
@@ -157,9 +156,9 @@ export const AddWork = ({
           <span className={styles.label}>
             Files it will own <span className={styles.optional}>one per line</span>
           </span>
-          <textarea
+          <Textarea
             aria-label="Files it will own"
-            className={styles.area}
+            variant="editor" controlSize="compact" className={styles.area}
             rows={2}
             value={files}
             placeholder={'src/limiter.js\nsrc/api/**'}
@@ -235,11 +234,10 @@ export const AddWork = ({
             <div className={styles.deps}>
               {blockers.map((one) => (
                 <label key={one.id} className={styles.dep}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label={`Waits for #${one.id}`}
                     checked={dependsOn.includes(one.id)}
-                    onChange={() => toggle(one.id)}
+                    onCheckedChange={() => toggle(one.id)}
                   />
                   <span className={styles.depId}>#{one.id}</span>
                   <span className={styles.depTitle}>{one.title}</span>

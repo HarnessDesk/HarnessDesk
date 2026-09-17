@@ -62,8 +62,7 @@ import {
   ZoomOutIcon,
 } from './Icons'
 import { RuntimeMark } from './BrandIcons'
-import { ContextMenu, Menu, MenuItem, MenuSeparator, MenuToggle, useContextMenu } from './Menu'
-import { Popover } from './Popover'
+import { Button, ContextMenu, Input, Menu, MenuItem, MenuSeparator, MenuToggle, Popover, useContextMenu } from '../design'
 import { stripEdges, useTabStrip } from './TabStrip'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -1304,7 +1303,7 @@ export const BrowserPane = () => {
                 return (
                   <span
                     key={entry.id}
-                    className={styles.tab}
+                    className={`${styles.tab} group/tab`}
                     role="tab"
                     id={`browser-tab-${entry.id}`}
                     aria-controls={`browser-page-${entry.id}`}
@@ -1371,9 +1370,9 @@ export const BrowserPane = () => {
                         {namedDriver?.presentation.name ?? 'Agents'}
                       </span>
                     )}
-                    <button
+                    <Button
                       type="button"
-                      className={styles.tabClose}
+                      variant="reveal" size="icon-sm"
                       onClick={(event) => {
                         event.stopPropagation()
                         store.closeBrowserTab(paneId, entry.id)
@@ -1382,27 +1381,26 @@ export const BrowserPane = () => {
                       aria-label={`Close ${name}`}
                     >
                       <CrossIcon size={11} />
-                    </button>
+                    </Button>
                   </span>
                 )
               })}
             </div>
-            <button
+            <Button
               type="button"
-              className={styles.tabAdd}
+              variant="ghost" size="icon-sm" className={styles.tabAdd}
               onClick={() => store.newBrowserTab(paneId)}
               title="New tab"
               aria-label="New tab"
             >
               <PlusIcon size={12} />
-            </button>
+            </Button>
           </div>
         }
       >
         <Popover
           label={<MoreIcon size={14} />}
           title="Browser settings"
-          triggerClassName={styles.headerButton}
           align="right"
         >
           {(close) => (
@@ -1501,38 +1499,35 @@ export const BrowserPane = () => {
         </Popover>
       </ToolPaneHeader>
       <form className={styles.addressBar} onSubmit={go}>
-        <button
+        <Button variant="ghost"
           type="button"
-          className={styles.headerButton}
           onClick={() => act((element) => element.goBack())}
           disabled={!arrows.back}
           title="Back"
           aria-label="Back"
         >
           <ArrowLeftIcon size={14} />
-        </button>
-        <button
+        </Button>
+        <Button variant="ghost"
           type="button"
-          className={styles.headerButton}
           onClick={() => act((element) => element.goForward())}
           disabled={!arrows.forward}
           title="Forward"
           aria-label="Forward"
         >
           <ArrowRightIcon size={14} />
-        </button>
-        <button
+        </Button>
+        <Button variant="ghost"
           type="button"
-          className={styles.headerButton}
           onClick={() => act((element) => (busy ? element.stop() : element.reload()))}
           title={busy ? 'Stop loading' : 'Reload'}
           aria-label={busy ? 'Stop' : 'Reload'}
         >
           {busy ? <CrossIcon size={14} /> : <RetryIcon size={14} />}
-        </button>
-        <input
+        </Button>
+        <Input
           ref={addressBox}
-          className={styles.address}
+          variant="chrome" className={styles.address}
           value={address === BLANK ? '' : address}
           placeholder="Enter a URL, or something to search for"
           spellCheck={false}
@@ -1548,19 +1543,18 @@ export const BrowserPane = () => {
         {/* Chrome shows the level in the omnibox while a page is not at
             100%, and offers the way back in one click. So does this. */}
         {(zoom[view.active] ?? 0) !== 0 && (
-          <button
+          <Button
             type="button"
-            className={styles.zoomLevel}
+            variant="quiet" size="content" className={styles.zoomLevel}
             onClick={() => changeZoom('reset')}
             title="Back to actual size"
           >
             {zoomPercent(zoom[view.active] ?? 0)}%
-          </button>
+          </Button>
         )}
         <Popover
           label={<DeviceGlyph size={14} />}
           title={`Size: ${spec.label}`}
-          triggerClassName={styles.headerButton}
           align="right"
         >
           {(close) => (
@@ -1584,10 +1578,8 @@ export const BrowserPane = () => {
         {/* Point at the thing you mean. Both incumbents have this; ours puts
             it beside the device sizes, because it is the same kind of switch
             — a way of looking at the page rather than a place to go. */}
-        <button
+        <Button variant={annotating ? 'secondary' : 'ghost'}
           type="button"
-          className={styles.headerButton}
-          {...(annotating ? { 'data-primary': '' } : {})}
           onClick={() => setAnnotate(annotating ? null : 'comment')}
           disabled={!inline || tab.url === BLANK}
           title={
@@ -1601,7 +1593,7 @@ export const BrowserPane = () => {
           aria-pressed={annotating}
         >
           <AnnotateIcon size={14} />
-        </button>
+        </Button>
       </form>
       {/*
         The annotating bar, under the address row for the same reason the
@@ -1611,26 +1603,26 @@ export const BrowserPane = () => {
       {annotate && (
         <div className={styles.annotateBar}>
           <div className={styles.annotateTools} role="group" aria-label="Annotation tool">
-            <button
+            <Button
               type="button"
-              className={styles.annotateTool}
+              variant="quiet" size="content" className={styles.annotateTool}
               {...(annotate === 'comment' ? { 'data-on': '' } : {})}
               aria-pressed={annotate === 'comment'}
               onClick={() => setAnnotate('comment')}
             >
               <AnnotateIcon size={13} />
               Comment
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className={styles.annotateTool}
+              variant="quiet" size="content" className={styles.annotateTool}
               {...(annotate === 'draw' ? { 'data-on': '' } : {})}
               aria-pressed={annotate === 'draw'}
               onClick={() => setAnnotate('draw')}
             >
               <PencilIcon size={13} />
               Draw
-            </button>
+            </Button>
           </div>
           <span className={styles.annotateHint}>
             {annotate === 'comment'
@@ -1640,35 +1632,31 @@ export const BrowserPane = () => {
           <span className={styles.findCount} aria-live="polite">
             {marks === 0 ? '' : `${marks} mark${marks === 1 ? '' : 's'}`}
           </span>
-          <button
+          <Button variant="ghost"
             type="button"
-            className={styles.headerButton}
             onClick={clearAnnotations}
             disabled={marks === 0}
             title="Clear the marks"
             aria-label="Clear the marks"
           >
             <TrashIcon size={14} />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={styles.headerButton}
-            data-primary=""
             onClick={() => void addAnnotations()}
             disabled={marks === 0}
             title="Add the marks and a picture of them to your message"
           >
             Add to message
-          </button>
-          <button
+          </Button>
+          <Button variant="ghost"
             type="button"
-            className={styles.headerButton}
             onClick={() => setAnnotate(null)}
             title="Stop annotating"
             aria-label="Stop annotating"
           >
             <CrossIcon size={14} />
-          </button>
+          </Button>
         </div>
       )}
       {/*
@@ -1679,9 +1667,9 @@ export const BrowserPane = () => {
       */}
       {find && (
         <div className={styles.findBar}>
-          <input
+          <Input
             ref={findBox}
-            className={styles.address}
+            variant="chrome" className={styles.address}
             value={find.query}
             placeholder="Find in page"
             spellCheck={false}
@@ -1705,35 +1693,32 @@ export const BrowserPane = () => {
           <span className={styles.findCount} aria-live="polite">
             {find.query === '' ? '' : find.total === 0 ? 'No results' : `${find.active}/${find.total}`}
           </span>
-          <button
+          <Button variant="ghost"
             type="button"
-            className={styles.headerButton}
             onClick={() => search(find.query, { next: true, forward: false })}
             disabled={find.total === 0}
             title="Previous match"
             aria-label="Previous match"
           >
             <ArrowLeftIcon size={14} />
-          </button>
-          <button
+          </Button>
+          <Button variant="ghost"
             type="button"
-            className={styles.headerButton}
             onClick={() => search(find.query, { next: true, forward: true })}
             disabled={find.total === 0}
             title="Next match"
             aria-label="Next match"
           >
             <ArrowRightIcon size={14} />
-          </button>
-          <button
+          </Button>
+          <Button variant="ghost"
             type="button"
-            className={styles.headerButton}
             onClick={closeFind}
             title="Close find"
             aria-label="Close find"
           >
             <CrossIcon size={14} />
-          </button>
+          </Button>
         </div>
       )}
       {/*
@@ -1885,13 +1870,13 @@ export const BrowserPane = () => {
                 interrupts whichever conversation was opened first is worse
                 than no button — you would not know it had happened. */}
             {driving.key !== null && (
-              <button
+              <Button
                 type="button"
-                className={styles.doingStop}
+                variant="action" size="sm" className={styles.doingStop}
                 onClick={() => void store.interrupt(driving.key as SessionKey)}
               >
                 Stop
-              </button>
+              </Button>
             )}
           </div>
         )}

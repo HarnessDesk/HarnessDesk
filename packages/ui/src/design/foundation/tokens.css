@@ -166,6 +166,9 @@ body {
   --hd-space-6: 24px;
   --hd-space-8: 32px;
   --hd-space-10: 40px;
+  --hd-space-12: 48px;
+  --hd-space-16: 64px;
+  --hd-space-18: 72px;
 
   /* --- shape ---------------------------------------------------------------
      Four radii carry the whole interface, and a fifth name says "pill". `sm`
@@ -193,10 +196,13 @@ body {
      rung apart, which is what stops a row of controls reading as a row of
      labels. Everything that was on `sm` and is a *control* moves up a
      rung; everything that is a mark stays. */
+  --hd-radius-2xs: 2px;
+  --hd-radius-xs: 4px;
   --hd-radius-sm: 6px;
   --hd-radius-md: 8px;
   --hd-radius: 10px;
   --hd-radius-lg: 14px;
+  --hd-radius-xl: 16px;
   --hd-radius-full: 9999px;
 
   /* A hairline is one device pixel, not one CSS pixel, so it stays a hairline
@@ -208,6 +214,8 @@ body {
      default answer and the rest are exceptions that have to earn it. The full
      reasoning, and the rule for choosing between steps, is
      docs/design.md. */
+  --hd-text-3xs: 9px;
+  --hd-text-2xs: 10px;
   --hd-text-xs: 12px;
   --hd-text-sm: 13px;
   --hd-text: 14px;
@@ -241,6 +249,7 @@ body {
      may open a comment of its own: doing that dropped both the token below and
      `--hd-column` out of the generated table without failing anything. */
   --hd-control-h: 26px;
+  --hd-target-min: 24px;
   --hd-control-h-sm: 24px;
   /*
    * The text-control rung, and why it is not `--hd-control-h`.
@@ -327,6 +336,14 @@ body {
   --hd-composer-min: 52px;
   --hd-composer-max: 320px;
   --hd-composer-line: 22px;
+
+  /* Native-looking scrollbar geometry and paint. The global adapter consumes
+     only these public names; the private platform palette ends here. */
+  --hd-scrollbar-width: 8px;
+  --hd-scrollbar-inset: 2px;
+  --hd-scrollbar-inset-hover: 1px;
+  --hd-scrollbar-fill: var(--hdp-alias-scrollbar-bg-l1);
+  --hd-scrollbar-fill-hover: var(--hdp-alias-scrollbar-hover-l1);
 
   /* --- motion --------------------------------------------------------------
      One curve, three durations. Fast is a state change the finger caused —
@@ -422,7 +439,17 @@ body {
   /* Quiet ground for something present but not being read — a disabled
      control, a filled input, a code block. */
   --hd-muted: var(--hdp-alias-bg-module-platform);
-  --hd-muted-foreground: var(--hdp-alias-label-tertiary);
+  /* Counts, times and keyboard hints use the platform palette's quiet ink,
+     exposed here so product CSS never reaches into the private tier. */
+  --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
+  --hd-muted-foreground: var(--hd-tertiary-foreground);
+
+  /* A nested sheet, a loading placeholder, and the quietest legible label.
+     These names keep product CSS on the semantic contract instead of reaching
+     through it into the platform palette's private `--hdp-*` tiers. */
+  --hd-card-raised: var(--hdp-alias-bg-layer-2, var(--hd-card));
+  --hd-skeleton: var(--hdp-alias-bg-skeleton);
+  --hd-placeholder-foreground: var(--hdp-alias-label-quaternary, var(--hd-muted-foreground));
 
   /* Secondary text: present, readable, not the point of the sentence. */
   --hd-secondary-foreground: var(--hdp-alias-label-secondary);
@@ -517,6 +544,8 @@ body {
      that has to read as its own object. */
   --hd-border: var(--hdp-alias-border-l1);
   --hd-border-strong: var(--hdp-alias-border-l2);
+  --hd-border-emphasis: var(--hdp-alias-border-l3);
+  --hd-border-heavy: var(--hdp-alias-border-l4, var(--hd-border-emphasis));
 
   /* A control that accepts typing, and the ring that says it has focus. */
   --hd-input: var(--hdp-alias-bg-layer-1);
@@ -525,6 +554,9 @@ body {
   /* Interactive ground: what a row or a ghost button turns when a pointer is
      over it, and when it is pressed. */
   --hd-hover: var(--hdp-alias-interactive-bg-hover);
+  --hd-hover-solid: var(--hdp-alias-interactive-bg-hover-solid, var(--hd-muted));
+  --hd-tooltip-fill: var(--hdp-alias-tooltip-bg);
+  --hd-tooltip-foreground: var(--hdp-alias-label-primary-inverted);
   --hd-active: var(--hdp-alias-interactive-bg-active);
   /*
    * The row you are *on*, which is a different question from the row you are
@@ -741,7 +773,7 @@ body {
    * already falls back to it.
    */
   --hd-sidebar-selected: var(--hd-selected); /* desk: three different greys → the selection token */
-  --hd-sidebar-muted-foreground: var(--hdp-alias-label-tertiary);
+  --hd-sidebar-muted-foreground: var(--hd-tertiary-foreground);
   --hd-sidebar-border: var(--hd-border);
   --hd-sidebar-hover: var(--hdp-alias-interactive-bg-hover);
   /* 256px is the reference's `--sidebar-width: 16rem`, and 48px its icon
@@ -892,12 +924,24 @@ body {
   --hd-toggle-knob-on: var(--hd-primary-foreground); /* desk: the solid's ink → the accent's */
   --hd-toggle-track: var(--hdp-alias-border-l3);
   --hd-toggle-on: var(--hd-accent); /* desk: ink → the accent, so the dial reaches it */
+  --hd-toggle-width: 34px;
+  --hd-toggle-width-sm: 30px;
+  --hd-toggle-height-sm: 18px;
+  --hd-board-column-width: 280px;
 
   /* The floating surface every dialog, menu and popover is cut from. */
   --hd-surface-fill: var(--hd-popover);
   --hd-surface-radius: var(--hd-radius-lg);
   --hd-surface-shadow: var(--hd-shadow-lg), var(--hd-hairline);
   --hd-scrim: var(--hdp-alias-bg-mask-1);
+  --hd-lightbox-scrim: rgba(0, 0, 0, 0.78);
+  --hd-lightbox-canvas: rgb(255, 255, 255);
+  --hd-lightbox-foreground: rgba(255, 255, 255, 0.92);
+  --hd-lightbox-muted: rgba(255, 255, 255, 0.6);
+  --hd-lightbox-control: rgba(255, 255, 255, 0.12);
+  --hd-lightbox-control-hover: rgba(255, 255, 255, 0.24);
+  --hd-lightbox-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --hd-external-canvas: rgb(255, 255, 255);
 }
 
 /*
@@ -1042,7 +1086,7 @@ body[data-hd-interface='studio'] {
   /* Defined here and nowhere else — see the note in the Desk block. These two
      lines are what make the sidebar, the settings window and the room's rail
      head their groups identically. */
-  --hd-label-ink: var(--hdp-alias-label-tertiary);
+  --hd-label-ink: var(--hd-tertiary-foreground);
   --hd-label-space: var(--hd-space-5);
 
   /* 3 — the card. 4% of the brand over white is a visible wash and nothing

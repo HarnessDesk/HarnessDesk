@@ -1,14 +1,16 @@
 import type { ReactNode } from 'react'
 
 import { AlertIcon, TrashIcon } from '../../components/Icons'
-import { Btn } from '../primitives/Kit'
-import { dialogStyles } from '../primitives/Dialog'
+import { Button } from '../ui/button'
 import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog'
+import styles from './ConfirmDialog.module.css'
 
 /**
  * "Are you sure?" — asked the same way every time.
@@ -81,22 +83,22 @@ export const ConfirmDialog = ({
    * the one that deletes.
    */
   <AlertDialog open onOpenChange={(next) => { if (!next) onCancel() }}>
-    <AlertDialogContent className={dialogStyles.dialog} initialFocus={false}>
-      <div
-        className={dialogStyles.header}
+    <AlertDialogContent className={styles.content} initialFocus={false}>
+      <AlertDialogHeader
+        className={styles.header}
         data-tone={tone === 'destructive' ? 'destructive' : undefined}
       >
-        <span className={dialogStyles.icon}>
+        <span className={styles.icon}>
           {icon ?? (tone === 'destructive' ? <TrashIcon size={16} /> : <AlertIcon size={16} />)}
         </span>
-        <AlertDialogTitle className={dialogStyles.title}>{title}</AlertDialogTitle>
-      </div>
+        <AlertDialogTitle className={styles.title}>{title}</AlertDialogTitle>
+      </AlertDialogHeader>
       {/* A `div`, not the primitive's default `p`. Every caller passes block
           content &mdash; `RemoveWorktree` passes a `section` and a `ul` &mdash;
           and a `p` wrapping those is invalid nesting: React warns, and the
           browser closes the paragraph early, which strands the rest of the body
           outside the element `aria-describedby` points at. */}
-      <AlertDialogDescription render={<div />} className={dialogStyles.body}>
+      <AlertDialogDescription render={<div />} className={styles.body}>
         {children}
       </AlertDialogDescription>
       {/* The proceeding action is written first. The footer is `row-reverse`,
@@ -107,18 +109,18 @@ export const ConfirmDialog = ({
           and a Return keep things as they are. Written the other way round,
           every confirm in the app put the verb for leaving things alone where
           the pointer goes to proceed, and a Tab and a Return confirmed. */}
-      <div className={dialogStyles.footer}>
-        <Btn
-          variant={tone === 'destructive' ? 'danger' : 'primary'}
+      <AlertDialogFooter className={styles.footer}>
+        <Button
+          variant={tone === 'destructive' ? 'destructive' : 'default'}
           onClick={onConfirm}
           disabled={busy || pending}
         >
           {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
-        </Btn>
-        <Btn variant="quiet" onClick={onCancel} disabled={busy}>
+        </Button>
+        <Button variant="ghost" onClick={onCancel} disabled={busy}>
           {cancelLabel}
-        </Btn>
-      </div>
+        </Button>
+      </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>
 )

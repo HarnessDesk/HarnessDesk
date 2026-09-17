@@ -112,12 +112,12 @@ describe('HandOut', () => {
         </StoreProvider>,
       )
     })
-    expect(container.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe(
+    expect(document.body.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe(
       '2 open cards to 2 idle members, one each; 1 more card stays open.',
     )
-    expect(container.querySelector('[data-slot="handout-preview"]')?.textContent).toContain('Take card #1 — Audit /.')
+    expect(document.body.querySelector('[data-slot="handout-preview"]')?.textContent).toContain('Take card #1 — Audit /.')
 
-    const go = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Hand out 2 cards')
+    const go = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Hand out 2 cards')
     expect(go).toBeDefined()
     await act(async () => {
       go?.click()
@@ -143,8 +143,8 @@ describe('HandOut', () => {
         </StoreProvider>,
       )
     })
-    expect(container.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe('Nobody in the room is idle right now.')
-    const go = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Hand out'))
+    expect(document.body.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe('Nobody in the room is idle right now.')
+    const go = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Hand out'))
     expect((go as HTMLButtonElement | undefined)?.disabled).toBe(true)
   })
 })

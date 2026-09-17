@@ -153,7 +153,7 @@ const menu = (): HTMLElement | null => container.querySelector('[role="listbox"]
    it is looked for there rather than in the composer. */
 const anchor = (): HTMLButtonElement =>
   container.querySelector(
-    '[data-slot="composer-tools"] button[aria-haspopup="menu"]',
+    '[data-slot="composer-tools"] button[aria-haspopup="dialog"]',
   ) as HTMLButtonElement
 
 const audienceMenu = (): HTMLElement | null => document.body.querySelector('[role="menu"]')
@@ -527,7 +527,7 @@ it('Shift+Enter is a newline, not a send', () => {
 it('an audience of one names it on the anchor; three name two and a count', () => {
   rig()
   const anchor = (): string =>
-    container.querySelector('[data-slot="composer-tools"] button[aria-haspopup="menu"]')
+    container.querySelector('[data-slot="composer-tools"] button[aria-haspopup="dialog"]')
       ?.textContent ?? ''
   expect(anchor()).toContain('Everyone')
 

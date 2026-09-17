@@ -2,7 +2,7 @@
  * The history pane's dialogs. A few small rules mirror GitPane.module.css
  * (the stacked body, the inline refusal) rather than importing it — a
  * screen's stylesheet is not a library, and the shared shapes that deserve
- * promotion live in design/primitives.
+ * promotion live in design/ui or a named design/patterns contract.
  */
 
 .body {
@@ -16,7 +16,7 @@
   align-items: center;
   gap: 10px;
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .error {
@@ -30,51 +30,23 @@
 
 .note {
   font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
   line-height: 1.5;
 }
 
 .quiet {
   padding: 16px;
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
   font-size: var(--hd-text-sm);
-}
-
-.select {
-  height: 28px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-primary);
-  font-size: var(--hd-text-sm);
-  padding: 0 6px;
 }
 
 /* --- commit -------------------------------------------------------------- */
-
-.message {
-  resize: vertical;
-  min-height: 56px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  background: none;
-  outline: none;
-  font-family: inherit;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-primary);
-}
-
-.message:focus {
-  box-shadow: inset 0 0 0 1px var(--hd-ring);
-}
 
 .files {
   max-height: 220px;
   overflow-y: auto;
   border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l1);
+  box-shadow: inset 0 0 0 1px var(--hd-border);
   padding: 4px 0;
 }
 
@@ -83,17 +55,9 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 2px 10px;
-  border: none;
-  background: none;
-  text-align: left;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-}
 
-.file:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  text-align: left;
+
 }
 
 .check {
@@ -104,7 +68,7 @@
   width: 14px;
   height: 14px;
   border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
+  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
   color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
 }
 
@@ -125,7 +89,7 @@
 .status {
   flex: none;
   width: 14px;
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   font-weight: 600;
 }
@@ -149,18 +113,16 @@
 }
 
 .status[data-status='nothing'] {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* A row whose commit records nothing: shown, so the path is accounted for,
    but with no box to check and nothing that answers a click. */
-.file[data-moot] {
+.fileStatic {
+  min-height: var(--hd-btn-h);
+  padding: var(--hd-space-1) var(--hd-space-2);
+  color: var(--hd-muted-foreground);
   cursor: default;
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.file[data-moot]:hover {
-  background: none;
 }
 
 /* The checkbox's slot, held open so the paths line up under those that have one. */
@@ -172,7 +134,7 @@
 .records {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- reset --------------------------------------------------------------- */
@@ -188,27 +150,15 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  background: none;
+
   text-align: left;
-  cursor: pointer;
-}
 
-.mode[data-on] {
-  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
-}
-
-.mode[data-on][data-hard] {
-  box-shadow: inset 0 0 0 1.5px var(--hd-danger);
 }
 
 .modeName {
   font-size: var(--hd-text-sm);
   font-weight: 600;
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
 }
 
 .mode[data-hard] .modeName {
@@ -217,7 +167,7 @@
 
 .modeWhat {
   font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 /* --- the range diff ------------------------------------------------------ */

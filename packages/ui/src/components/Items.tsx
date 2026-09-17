@@ -22,6 +22,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
+import { Button } from '../design'
 import { instant } from '../lib/clock'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf } from '../lib/diff'
@@ -62,7 +63,7 @@ import {
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
-import { Lightbox, type LightboxImage } from './Lightbox'
+import { Lightbox, type LightboxImage } from '../design'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
 import styles from './Items.module.css'
@@ -144,9 +145,8 @@ const Row = ({
 
   return (
     <div className={styles.row}>
-      <button
-        type="button"
-        className={styles.rowHeader}
+      <Button
+        type="button" variant="quiet" size="row" className={styles.rowHeader}
         onClick={() => collapsible && setOpen((value) => !value)}
         aria-expanded={collapsible ? open : undefined}
         style={collapsible ? undefined : { cursor: 'default' }}
@@ -166,7 +166,7 @@ const Row = ({
             {...(open ? { 'data-open': '' } : {})}
           />
         )}
-      </button>
+      </Button>
       {collapsible && open && <div className={styles.rowBody}>{children}</div>}
     </div>
   )
@@ -217,9 +217,8 @@ const CopyButton = ({
   const store = useStore()
   const [copied, setCopied] = useState(false)
   return (
-    <button
-      type="button"
-      className={className ?? styles.action}
+    <Button
+      variant="quiet" size="content" className={className ?? styles.action}
       title="Copy"
       aria-label={label}
       onClick={() =>
@@ -233,7 +232,7 @@ const CopyButton = ({
       }
     >
       {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-    </button>
+    </Button>
   )
 }
 
@@ -243,9 +242,8 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
     <div className={styles.userFooter}>
       {when && <span className={styles.userTime}>{when}</span>}
       <CopyButton text={text} label="Copy this message" />
-      <button
-        type="button"
-        className={styles.action}
+      <Button
+        variant="quiet" size="content" className={styles.action}
         title="Edit — puts this message in the composer"
         aria-label="Edit this message"
         onClick={() =>
@@ -253,7 +251,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
         }
       >
         <PencilIcon size={13} />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -312,17 +310,17 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
       {images.length > 0 && (
         <div className={styles.images} role="list" aria-label="Attached images">
           {images.map(({ index, image }, position) => (
-            <button
+            <Button
               key={index}
               type="button"
               role="listitem"
-              className={styles.imageTile}
+              variant="quiet" size="content" className={styles.imageTile}
               title={image.name}
               aria-label={`View ${image.name}`}
               onClick={() => setPreview(position)}
             >
               <img className={styles.imageThumb} src={image.url} alt={image.name} loading="lazy" draggable={false} />
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -426,12 +424,12 @@ const ContextInjection = ({
       {...(open ? { 'data-open': '' } : {})}
       {...(fromAgent ? { 'data-peer': '' } : {})}
     >
-      <button type="button" className={styles.injection} onClick={() => setOpen((value) => !value)}>
+      <Button type="button" variant={fromAgent ? 'quiet' : 'row'} size="row" className={styles.injection} onClick={() => setOpen((value) => !value)}>
         <ChevronIcon size={11} {...(open ? { 'data-open': '' } : {})} className={styles.chevron} />
         {fromAgent ? <TeamIcon size={12} /> : <FileIcon size={12} />}
         {fromAgent ? 'From another agent' : origin === 'agent' ? 'Sent with your message' : 'Context added'}
         <span className={styles.injectionLabel}>{fromAgent ? label.replace(/^Message from /, '') : label}</span>
-      </button>
+      </Button>
       {/* The body is prose, not terminal output: a git note, a hand-off
           packet, a plugin's summary — all written in Markdown by whoever
           composed them. A <pre> here printed that authoring as source. */}
@@ -606,14 +604,14 @@ const FileEntry = ({
 
   return (
     <div className={styles.fileEntry}>
-      <button type="button" className={styles.fileHeader} onClick={() => setOpen((v) => !v)}>
+      <Button type="button" variant="quiet" size="content" className={styles.fileHeader} onClick={() => setOpen((v) => !v)}>
         <ChevronIcon className={styles.chevron} size={12} {...(open ? { 'data-open': '' } : {})} />
         <span className={styles.filePath} title={change.path}>
           {relativeTo(change.path, root)}
         </span>
         <span className={`${styles.stat} ${styles.statAdd}`}>+{added}</span>
         <span className={`${styles.stat} ${styles.statRemove}`}>−{counts.removed}</span>
-      </button>
+      </Button>
       {open && (
         <div className={styles.fileBody}>
           <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
@@ -877,10 +875,10 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
             // button that fails after the press is worse than a row.
             const openable = member.openable !== false
             return (
-              <button
+              <Button
                 key={member.sessionId}
                 type="button"
-                className={styles.fileHeader}
+                variant="quiet" size="content" className={styles.fileHeader}
                 {...(openable
                   ? {
                       title: `Open ${member.sessionId}`,
@@ -909,7 +907,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                     {formatTokensWithFloor(member.usage)} tokens
                   </span>
                 )}
-              </button>
+              </Button>
             )
           })}
         </div>
