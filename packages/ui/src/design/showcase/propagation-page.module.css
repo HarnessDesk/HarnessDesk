@@ -7,7 +7,7 @@
 .heading {
   margin: 0 0 var(--hd-space-2);
   font-size: var(--hd-heading);
-  line-height: var(--hd-line);
+  line-height: var(--hd-line-heading); /* desk: 21 → 28, the line the 20px step is set on */
 }
 
 .actions {

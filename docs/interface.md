@@ -76,11 +76,13 @@ its own command, because "open *what*" is not a question a list can answer.
 
 ### The window's edge rows
 
-`--hd-bar-h` (44px) is the height of every row that touches the top or bottom of
+`--hd-bar-h` (46px) is the height of every row that touches the top or bottom of
 the window: the conversation's header, a tool's header, a panel's tab strip, a
 panel's status line, the account row. They meet across column borders, and a
-rule that steps by 14px where two of them touch is the first thing the eye
-finds.
+rule that steps where two of them touch is the first thing the eye finds. Their
+contents share `--hd-bar-gap` and `--hd-bar-pad`, and the words in them — a
+title, a wordmark — sit at `--hd-bar-ink`, which is that padding plus what a
+control composes around its own label.
 
 ### Splitting a panel
 
@@ -551,8 +553,8 @@ same card, compacted.
 
 ## Type and rhythm
 
-Four sizes carry the whole interface and 14px is the default answer; ink has
-three levels and the faintest is for facts, not for text. The tokens live in
+Two sizes carry nearly all of it: 13px is the chrome and 14px is what is read.
+Ink has three levels and the faintest is for facts, not for text. The tokens live in
 `packages/ui/src/design/foundation/tokens.css`, the foundation layer recorded in
 [design-system.md](design-system.md); the guideline is
 [design.md](design.md). A raw `font-size` in a component is how an app ends

@@ -35,68 +35,126 @@ SimSun from there.
 
 ### The sizes
 
-Four steps carry the entire interface, plus one heading step:
+The rule is a split: **13px is the chrome, 14px is what is read.** The counts
+are a different fact and worth keeping separate from it — by volume the app is
+12px and 13px, because a screen is nearly all furniture and most of the
+furniture is smaller than a row's own title.
 
-| token | value | what it carries |
-| --- | --- | --- |
-| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, small button labels |
-| `--hd-text-sm` | 13px | the line that supports a row, section headings, hints, notes, button labels |
-| `--hd-text` | **14px** | **the interface**: sidebar rows, project rows, nav, menu rows, settings rows, chips, inputs |
-| `--hd-text-lg` | 16px | the transcript, and the name of the thing on screen |
-| `--hd-heading` | 20px | the app's own name; a settings page's title |
+| token | value | what it carries | rules |
+| --- | --- | --- | --- |
+| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label | 217 |
+| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
+| `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
+| `--hd-text-lg` | 16px | a dialog's title | 16 |
+| `--hd-heading` | 20px | a section's own name | 11 |
+| `--hd-title` | 24px | a page's title | 2 |
+| `--hd-display` | 36px | a figure that fills a card | 1 |
 
-**14px is the default answer.** If a new surface or row shows text, it is 14px
-until there is a reason it is not. This was a claim before it was true: the app
-once had 115 rules at 12px and 102 at 13px against 51 at 14px, so the default
-answer was the rarest one on screen. A row is a thing you read, and interface
-rows are 14px; 12px was pushed back to what the table above says it carries —
-counts, badges, tags, timestamps — and to code, which keeps its own smaller
-measure. Buttons step down to 13px (`--hd-btn-text`) and 12px (`--hd-btn-text-sm`)
-to hold the proportion between their box and the cap height of the label inside.
-Most of the app is one size, and that is what makes the exceptions legible: a
-13px line reads as support because it sits under something bigger, and a 12px
-number reads as a count because everything around it is larger.
+The counts are measured, not aspirational. The sizes above 14 are rare because
+each names one thing — a dialog asks one question, a page has one title, a card
+carries one figure — and a step that names one thing is a step you can pick
+without thinking.
 
-**16px is for reading, not for chrome.** The transcript is the one column a
-person reads rather than scans, so it is a step above the furniture around it.
-The conversation's name in the pane header shares that step, because it names
-what you are reading. Nothing else does.
+**There is nothing below 12px.** Nine- and ten-pixel steps existed once and had
+three call sites between them; the one that looked as if it really needed nine
+was measured, and the string it was shrinking for fitted at twelve with three
+pixels to spare on each side. If something needs to feel smaller, it needs
+less prominence, not less type: change its ink, not its size.
+
+**The interface reads a step below the thing it is about.** A sidebar row, a
+settings row and a menu item are all 13px; the transcript and the composer are
+14. That is a step, not a whim: the furniture is scanned and the column is
+read, and one step is enough to say which is which without either of them
+shouting. Buttons are on the chrome side, at 13px (`--hd-btn-text`) and 12px
+(`--hd-btn-text-sm`), which is also what holds the proportion between a button's
+box and the cap height of the label inside it.
 
 Prose keeps its own scale, in `Markdown.module.css` rather than here, and it is
-the one place allowed to exceed this table. It is four ratios of the
-transcript's 16px body — 1.5, 1.25, 1.125, 1 — so `h1` is 24px, `h2` is 20px
-and lands on `--hd-heading` exactly, `h3` is 18px, and `h4` is the body's own
-size in semibold with no gap under it.
+the one place allowed off this table. It is four ratios of the transcript's own
+14px body — 1.5, 1.25, 1.125, 1 — so `h1` is 21px, `h2` is 17.5px, `h3` is
+15.75px, and `h4` is the body's own size in semibold with no gap under it.
+Multiplying rather than naming pixels is what keeps the ladder true if the body
+ever moves, which it has: the ladder followed the body down a step without a
+line of it being edited.
 
 Every prose heading is therefore at or above the body size. Anchoring the
-ladder's *top* rung on `--hd-heading` instead keeps the scale inside the
-interface's four steps, which reads as a tidy rule and produces a flat
-document: `##`, the heading an agent actually writes, comes out at 18px
-against a 16px body. Furniture stays inside the table; a document does not
-have to.
+ladder's *top* rung on a step of this table instead would keep the scale tidy
+and produce a flat document: `##`, the heading an agent actually writes, would
+come out barely above the paragraph under it. Furniture stays inside the table;
+a document does not have to.
 
 ### Line and row rhythm
 
+A size and its line are one decision, so every step names its pair and a surface
+picks the pair rather than the size. Before that rule the 13px step was set on
+eight different line-heights across the tree and the 12px step on five — ten
+line values serving six sizes, which is what an inconsistency looks like before
+anybody has counted it.
+
+The pair is the default, not the only legal answer, and the deviation that is
+allowed has a direction. **Text that wraps may take the next line up; nothing
+takes a line tighter than its own.** Counted today: 119 rules on the pair, 20 a
+step looser, none tighter. The 20 are almost all a 12px caption set on the 13px
+step's 18px line, which is the same trade prose makes at the other end of the
+scale and for the same reason — a paragraph needs air between its lines and a
+row does not. A tighter line is not a trade, it is a crush, and the three that
+existed are gone.
+
+| step | line | ratio |
+| --- | --- | --- |
+| 12px | `--hd-line-xs` 16px | 1.33 |
+| 13px | `--hd-line-sm` 18px | 1.385 |
+| 14px | `--hd-line` 21px | 1.5 |
+| 16px | `--hd-line-lg` 24px | 1.5 |
+| 20px | `--hd-line-heading` 28px | 1.4 |
+| 24px | `--hd-line-title` 30px | 1.25 |
+| 36px | `--hd-line-display` 40px | 1.11 |
+
+Larger type wants a tighter ratio, which is why the column falls from 1.5 to
+1.11 rather than holding one number. Prose is the exception in the other
+direction: the transcript is set on 1.625, because a paragraph wraps and a row
+does not.
+
+Rows:
+
 | token | value | note |
 | --- | --- | --- |
-| `--hd-line` | 21px | 14px at 1.5 — the line height for interface text |
-| `--hd-line-sm` | 18px | the line for 13px support text: hints, blurbs, notes |
-| `--hd-row-h` | 30px | a one-line row: 21px of line plus 4–5px of padding |
-| `--hd-nav-h` | 31px | a nav row: carries an icon and no second line |
+| `--hd-row-h` | 30px | a one-line row |
+| `--hd-nav-h` | `calc(--hd-text * 1.5 + --hd-space-1 * 2)` | a navigation row — solved, not written |
 | `--hd-control-h` | 26px | dense toolbar targets and icon buttons |
 | `--hd-field-h` | 30px | inputs and selects: matches `--hd-btn-h` |
+| `--hd-bar-h` | 46px | the window's own bar, and a pane's |
 
-Support text has its own line (18px) because it is the thing that wraps. A hint
-under a label, a blurb under a page title and a note under a group heading are
-the same 13px doing the same job, so they share one line and stack to the same
-rhythm.
-
-A nav row is 31px (`--hd-nav-h`), one pixel taller than a list row, because it
-carries an icon and no second line. A list row that shows a supporting line
-grows; it does not shrink its title to fit.
+A navigation row's height is solved from **the reading size**, not from the size
+the row itself is set in: `--hd-text` times 1.5, plus one step of padding above
+and below. The row's own text is a step smaller than that, which is the point —
+every row in every column stands the same height whatever it happens to carry,
+and a row of 13px labels does not end up shorter than a row of 14px ones. It is
+also what lets the density or the reading size move every one of them without a
+second edit, and it is how the two heights that column used to have became one.
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
+
+### Where a label lands
+
+One inset for a whole column or bar, and one derived place for the words in it.
+
+| token | value | what it is |
+| --- | --- | --- |
+| `--hd-bar-pad` | 8px | where a **boxed** control's edge sits |
+| `--hd-bar-ink` | `calc(--hd-bar-pad + --hd-nav-inset + --hd-border-width)` | where a **label** lands once a control has been composed |
+
+A control's glyph is at the inset, plus the control's own padding, plus the
+hairline it reserves whether or not it paints one. Anything with no box of its
+own — a wordmark, a section label, a page title — states the sum instead, and
+then everything in the column shares one x.
+
+Getting this wrong is not subtle and is easy to do: handing the box inset to
+things that have no box put the sidebar's wordmark, its section labels and the
+conversation's title nine pixels left of everything they were meant to line up
+with. An inset token is ambiguous unless it says *whose* edge it is, which is
+why there are two of them.
 
 ### Controls and buttons
 
@@ -430,12 +488,15 @@ What stayed, and why:
 
 When adding a control, row or surface to HarnessDesk:
 
-- Reach for `--hd-text` (14px) first, then justify anything else. Buttons and
-  form fields use `--hd-btn-text` (13px, `--hd-text-sm`) to preserve the
-  box-to-cap ratio (~3.2).
-- Never introduce a fifth size. If something needs to feel smaller, ask whether
-  it needs to be on screen at all; if it needs to feel bigger, it is probably a
-  title, and titles have a step already.
+- Chrome is 13px and what is read is 14px. A row, a menu item, a settings line
+  and a button label are furniture; the transcript, the composer and an input
+  are not. Reach for the side you are on and justify anything else.
+- Never add a step. There are seven and each names one thing; a new one is
+  either a step you already have or a sign that the thing wants less prominence
+  rather than less type — in which case change its ink.
+- Never pick a size without its line. Every step names its pair; take the next
+  line up when the text wraps, and never a tighter one. A size set on somebody
+  else's line is how the 13px step came to have eight of them.
 - Set an explicit `line-height` only when the row's height depends on it.
 - The code face marks a face, never a size. `.mono` sets `font-family` and
   nothing else, so a row whose title happens to be an identifier stays the size

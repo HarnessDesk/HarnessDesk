@@ -358,9 +358,20 @@ try {
     await sleep(900)
   }
 
-  /** Click by what it says, not by where it is — a coordinate is one build's layout. */
-  const click = async (text, within = null) => {
-    const hit = await cdp.json(
+  /**
+   * Click by what it says, not by where it is — a coordinate is one build's
+   * layout.
+   *
+   * It waits for what it is looking for rather than assuming the sleep before
+   * it was long enough. Every scene reaches a control through a fixed pause,
+   * and a fixed pause is a bet: the flow scene lost it once, failing on the
+   * dialog's second door 700ms after opening the dialog and finding it on the
+   * next run with nothing changed. Waiting turns each of those pauses into a
+   * floor rather than a wager, and costs nothing on a take that was going to
+   * pass anyway.
+   */
+  const click = async (text, within = null, { wait = 4000 } = {}) => {
+    const find = () => cdp.json(
       `(() => {
         const scope = ${within ? `document.querySelector(${q(within)})` : 'document'}
         if (!scope) return false
@@ -380,6 +391,11 @@ try {
         return true
       })()`,
     )
+    let hit = await find()
+    for (let waited = 0; !hit && waited < wait; waited += 200) {
+      await sleep(200)
+      hit = await find()
+    }
     await sleep(1400)
     return hit
   }
