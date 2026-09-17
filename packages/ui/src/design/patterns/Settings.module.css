@@ -596,11 +596,22 @@
   font-weight: var(--hd-weight-medium);
 }
 
+/* One line, always.
+   A row's second line is a caption, not content: at two lines the rows stop
+   scanning as a list and a page of twelve settings becomes a page of prose.
+   Clamping here rather than shortening each string is what also holds for the
+   descriptions this app did not write — a plugin's summary comes from its own
+   manifest, and three of them ran to two lines whatever we do to our own copy.
+   The full text stays reachable: the row's `title` carries it on hover, and a
+   plugin's page has room for the paragraph. */
 .rowDesc {
   margin-top: 1px;
+  overflow: hidden;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   color: var(--hd-secondary-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rowCtl {

@@ -855,13 +855,12 @@ const cards = (): readonly HTMLElement[] => [
   ...document.body.querySelectorAll<HTMLElement>('[data-slot="skill-row"]'),
 ]
 
-it('opens on a list, one row per entry, named and reachable at a glance', async () => {
-  // This reverses an earlier claim — that the description is content and
-  // belongs on the row — and the reversal is deliberate. That reasoning was
-  // done against a fixture of six; a real machine holds 125, and two clamped
-  // lines on every one of them is a page you scroll rather than scan. The
-  // description did not go anywhere: the row opens the sheet, which is where
-  // a paragraph is read. What the row owes is identity and reach.
+it('opens on a list, one row per entry, each carrying what the thing is for', async () => {
+  // The description stays on the row and is clamped to one line, which is the
+  // shape every settings row in the app now takes. Two lines was the earlier
+  // reading, done against a fixture of six; a real machine holds 125, and two
+  // lines on each is a page you scroll rather than scan. One line scans and
+  // still says what the skill is for; the sheet holds the paragraph.
   await mount(
     library([
       entry('code-review', ['reaches', 'reaches'], {
@@ -871,7 +870,7 @@ it('opens on a list, one row per entry, named and reachable at a glance', async 
   )
   expect(cards()).toHaveLength(1)
   expect(cards()[0]?.textContent).toContain('code-review')
-  expect(cards()[0]?.textContent).not.toContain('Review the current diff for correctness bugs.')
+  expect(cards()[0]?.textContent).toContain('Review the current diff for correctness bugs.')
 })
 
 it('writes a skill’s name as the command that fires it', async () => {

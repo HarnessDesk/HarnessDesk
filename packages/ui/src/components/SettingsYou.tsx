@@ -314,7 +314,7 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
     <Rows>
       <Row
         title="Everything stays on this Mac"
-        desc="Settings, registered agents and transcripts live in ~/.harnessdesk. Nothing syncs or uploads."
+        desc="Everything lives in ~/.harnessdesk; nothing syncs or uploads."
         control={<RowValue>Local</RowValue>}
       />
       <Row
@@ -462,7 +462,7 @@ export const AppearanceSection = () => {
           /* Earned under the second-line rule: the accent used to be every
              filled control in the app and is now the marks that say where you
              are, so the label alone would over-promise. */
-          desc="The row you are on, a switch that is on, a focus ring, a link. Buttons are ink in every accent."
+          desc="The selected row, a switch that is on, a focus ring, a link."
           control={<AccentSwatches />}
         />
         <Row

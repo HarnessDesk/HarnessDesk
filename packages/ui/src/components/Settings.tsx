@@ -1533,7 +1533,7 @@ export const GeneralSectionRows = () => (
     <Rows>
       <Row
         title="Diagnostics"
-        desc="Versions, agent health, plugin state and the recent log, with secrets and personal paths removed."
+        desc="Versions, agent health, plugin state and the recent log, scrubbed."
         control={<DiagnosticsButton />}
       />
     </Rows>
@@ -1593,7 +1593,7 @@ const BackupRows = () => {
     <Rows>
       <Row
         title="Back up this Mac’s HarnessDesk"
-        desc="Agents, preferences and transcripts in one file. Sign-ins are not included; sign in again after restoring."
+        desc="Agents, preferences and transcripts in one file — sign in again after restoring."
         control={
           <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
             <DownloadIcon size={13} />

@@ -604,7 +604,7 @@ const AgentBlock = ({
           <Row
             key={entry.id}
             title="Waiting to be signed in"
-            desc="This account was added but the sign-in never finished. Sign in to use it, or remove it."
+            desc="Added, but the sign-in never finished."
             control={
               <>
                 <Button size="sm" variant="default" onClick={() => void store.signInAgent(entry.id)}>

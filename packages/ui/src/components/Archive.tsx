@@ -245,7 +245,7 @@ const Empty = ({ query }: { query: string }) => {
       <Row
         mark={<ArchiveIcon size={15} />}
         title="Nothing is archived"
-        desc="Archive a conversation from its ⋯ menu in the sidebar. It leaves the list and waits here; nothing about it is lost, and Restore puts it back."
+        desc="Archive one from its ⋯ menu in the sidebar; Restore puts it back."
       />
     </Rows>
   )

@@ -44,7 +44,7 @@ import styles from './SkillRow.module.css'
  *
  * The information design is unchanged — that part was right:
  *
- *   the description belongs to the sheet, not the row   one line per skill
+ *   the description is a caption, not content            one line, clamped
  *   the name is also a command                    `/name`, beside the title
  *   who loads it is the thing only we know        agent marks, in the control
  *   reading it is one press                       the chevron, into the sheet
@@ -229,6 +229,7 @@ export const SkillRow = ({
           </CodeText>
         </span>
       }
+      desc={entry.description ?? 'No description in its frontmatter'}
       control={
         <>
           {finding && (
