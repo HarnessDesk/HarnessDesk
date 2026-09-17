@@ -304,9 +304,14 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
     source: agentName,
     kind: {
       type: 'action' as const,
+      /* Queued, like every other message from that box. A skill is typed into
+         the composer, and the composer's plain text waits for a running turn
+         to end — a `/skill` that instead tried to start a second turn beside
+         it asked the agent two things at once, which is a thing an agent
+         cannot be asked. */
       run: async (store: AppStore, argument: string) => {
         const text = argument ? `/${skill.name} ${argument}` : `/${skill.name}`
-        await store.send([{ type: 'text', text }])
+        await store.queue([{ type: 'text', text }])
       },
     },
   }))

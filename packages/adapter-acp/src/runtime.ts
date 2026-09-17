@@ -2725,7 +2725,32 @@ class AcpSession implements AgentSession {
     this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
   }
 
+  /**
+   * One prompt at a time.
+   *
+   * ACP's `session/update` carries a session id and nothing else — there is no
+   * field tying a chunk to the prompt that caused it — so with two prompts in
+   * flight on one session nothing can say which turn a chunk belongs to. The
+   * single `#currentTurn` slot is that fact written down, and a second `send`
+   * used to overwrite it: the first turn was stranded `inProgress` for ever
+   * (`#finishTurn` bails on the id mismatch) and *both* answers folded into
+   * the newest turn's one message item, spliced end to end with no separator.
+   * That is what put an agent's reply in a room twice, reading
+   * "…alerting on.Idempotent on the…" — one answer's tail against the other's
+   * head, with the word boundary as the only sign of a seam.
+   *
+   * Refused rather than held: waiting for a turn to end is the host's message
+   * queue one layer up, which already single-flights a send and knows what the
+   * person meant by typing two things. A second queue down here could only
+   * disagree with it. `busy` is false while a loaded session's history is
+   * being replayed, which is a turn re-read rather than one in flight.
+   */
   async send(input: readonly UserContent[]): Promise<TurnId> {
+    if (this.busy) {
+      throw new Error(
+        `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
+      )
+    }
     const id = turnId(`turn-${++this.#counter}`)
     const userItem: AgentItem = {
       id: itemId(`${id}-user`),
