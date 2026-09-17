@@ -17,6 +17,13 @@
  * hue, converted to sRGB. That is the whole method, and it buys three things
  * the previous palette did not have:
  *
+ *   No hue at all.     `neutral-bluish` is neutral: every step is a grey, and
+ *                       the name is what it was called before it was, which a
+ *                       rename will fix once these values are what main holds
+ *                       — `check-interface-drift.mjs` resolves a renamed token
+ *                       against the branch's table, so a rename is free only
+ *                       when the base already agrees on the value.
+ *
  *   One hue per ramp.   `neutral-bluish` used to drift from 240° to 286° and
  *                       lose its chroma entirely below step 800 — a ramp
  *                       named "bluish" whose dark half, which is the whole
@@ -113,25 +120,25 @@ body {
   --hdp-static-neutral-800: rgb(43, 43, 43);
   --hdp-static-neutral-850: rgb(34, 34, 34);
   --hdp-static-neutral-900: rgb(18, 18, 18);
-  --hdp-static-neutral-bluish-00: rgb(255, 255, 255);
-  --hdp-static-neutral-bluish-1000: rgb(15, 17, 20);
-  --hdp-static-neutral-bluish-100: rgb(236, 237, 239);
-  --hdp-static-neutral-bluish-150: rgb(229, 231, 234);
-  --hdp-static-neutral-bluish-200: rgb(222, 224, 227);
-  --hdp-static-neutral-bluish-300: rgb(206, 208, 211);
-  --hdp-static-neutral-bluish-400: rgb(174, 176, 180);
-  --hdp-static-neutral-bluish-500: rgb(153, 155, 159);
-  --hdp-static-neutral-bluish-50: rgb(248, 249, 250);
-  --hdp-static-neutral-bluish-600: rgb(129, 132, 135);
-  --hdp-static-neutral-bluish-60: rgb(244, 245, 246);
-  --hdp-static-neutral-bluish-700: rgb(97, 99, 103);
-  --hdp-static-neutral-bluish-750: rgb(69, 71, 74);
-  --hdp-static-neutral-bluish-75: rgb(240, 242, 244);
-  --hdp-static-neutral-bluish-800: rgb(47, 49, 52);
-  --hdp-static-neutral-bluish-850: rgb(39, 40, 43);
-  --hdp-static-neutral-bluish-875: rgb(31, 33, 36);
-  --hdp-static-neutral-bluish-900: rgb(25, 27, 30);
-  --hdp-static-neutral-bluish-950: rgb(22, 24, 27);
+  --hdp-static-neutral-bluish-00: rgb(255, 255, 255); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-1000: rgb(17, 17, 17); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-100: rgb(237, 237, 237); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-150: rgb(231, 231, 231); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-200: rgb(224, 224, 224); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-300: rgb(208, 208, 208); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-400: rgb(177, 177, 177); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-500: rgb(156, 156, 156); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-50: rgb(249, 249, 249); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-600: rgb(132, 132, 132); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-60: rgb(245, 245, 245); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-700: rgb(100, 100, 100); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-750: rgb(71, 71, 71); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-75: rgb(242, 242, 242); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-800: rgb(49, 49, 49); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-850: rgb(41, 41, 41); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-875: rgb(33, 33, 33); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-900: rgb(27, 27, 27); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-950: rgb(24, 24, 24); /* desk: the grey ramp is neutral */
   --hdp-static-red-100: rgb(255, 227, 223);
   --hdp-static-red-400: rgb(238, 90, 80);
   --hdp-static-red-500: rgb(228, 68, 62);
@@ -189,25 +196,25 @@ body[data-hd-dark-theme] {
   --hdp-static-neutral-800: rgb(43, 43, 43);
   --hdp-static-neutral-850: rgb(34, 34, 34);
   --hdp-static-neutral-900: rgb(18, 18, 18);
-  --hdp-static-neutral-bluish-00: rgb(255, 255, 255);
-  --hdp-static-neutral-bluish-1000: rgb(15, 17, 20);
-  --hdp-static-neutral-bluish-100: rgb(236, 237, 239);
-  --hdp-static-neutral-bluish-150: rgb(229, 231, 234);
-  --hdp-static-neutral-bluish-200: rgb(222, 224, 227);
-  --hdp-static-neutral-bluish-300: rgb(206, 208, 211);
-  --hdp-static-neutral-bluish-400: rgb(174, 176, 180);
-  --hdp-static-neutral-bluish-500: rgb(153, 155, 159);
-  --hdp-static-neutral-bluish-50: rgb(248, 249, 250);
-  --hdp-static-neutral-bluish-600: rgb(129, 132, 135);
-  --hdp-static-neutral-bluish-60: rgb(244, 245, 246);
-  --hdp-static-neutral-bluish-700: rgb(97, 99, 103);
-  --hdp-static-neutral-bluish-750: rgb(69, 71, 74);
-  --hdp-static-neutral-bluish-75: rgb(240, 242, 244);
-  --hdp-static-neutral-bluish-800: rgb(47, 49, 52);
-  --hdp-static-neutral-bluish-850: rgb(39, 40, 43);
-  --hdp-static-neutral-bluish-875: rgb(31, 33, 36);
-  --hdp-static-neutral-bluish-900: rgb(25, 27, 30);
-  --hdp-static-neutral-bluish-950: rgb(22, 24, 27);
+  --hdp-static-neutral-bluish-00: rgb(255, 255, 255); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-1000: rgb(17, 17, 17); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-100: rgb(237, 237, 237); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-150: rgb(231, 231, 231); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-200: rgb(224, 224, 224); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-300: rgb(208, 208, 208); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-400: rgb(177, 177, 177); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-500: rgb(156, 156, 156); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-50: rgb(249, 249, 249); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-600: rgb(132, 132, 132); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-60: rgb(245, 245, 245); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-700: rgb(100, 100, 100); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-750: rgb(71, 71, 71); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-75: rgb(242, 242, 242); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-800: rgb(49, 49, 49); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-850: rgb(41, 41, 41); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-875: rgb(33, 33, 33); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-900: rgb(27, 27, 27); /* desk: the grey ramp is neutral */
+  --hdp-static-neutral-bluish-950: rgb(24, 24, 24); /* desk: the grey ramp is neutral */
   --hdp-static-red-100: rgb(255, 227, 223);
   --hdp-static-red-400: rgb(246, 113, 102);
   --hdp-static-red-500: rgb(228, 68, 62);
