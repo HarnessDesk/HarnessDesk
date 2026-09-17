@@ -433,19 +433,11 @@
   inset-inline: 0;
   bottom: var(--hd-space-2);
   margin-inline: auto;
+  /* Only where it sits. Floating over somebody's sentence means it needs a
+     surface of its own, and that surface is the control's: `outline` on the
+     chip rung. Drawn here it was bare words on the transcript, unreadable
+     against the line it was covering. */
   width: fit-content;
-  /* Floating means it is over somebody's sentence, so it needs a surface of
-     its own: it was bare words on the transcript, unreadable against the line
-     it was covering, and the press it offers was invisible. `size="content"`
-     is a button that says it has no box, so the box is this rule's job. */
-  min-height: var(--hd-target-min);
-  padding: 0 var(--hd-space-3);
-  border: var(--hd-border-width) solid var(--hd-border);
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-surface-fill);
-  box-shadow: var(--hd-surface-shadow);
-  font-size: var(--hd-text-sm);
-  color: var(--hd-foreground);
 }
 
 /* In the column with the words it is about: a line that runs the full pane

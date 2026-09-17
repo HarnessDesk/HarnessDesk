@@ -160,7 +160,7 @@
     "radius": 8
   },
   "button/button/size/icon-xs": {
-    "h": 20,
+    "h": 24,
     "text": 13,
     "weight": "500",
     "line": 13,
@@ -280,6 +280,14 @@
     "radius": 8
   },
   "button/button/variant/outline": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/primary": {
     "h": 30,
     "text": 13,
     "weight": "500",

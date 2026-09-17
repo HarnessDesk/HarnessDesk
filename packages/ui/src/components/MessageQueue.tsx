@@ -123,7 +123,7 @@ export const MessageQueue = () => {
         </span>
         {paused && (
           <Button
-            variant="quiet" size="content" className={styles.action}
+            variant="quiet" size="sm" className={styles.action}
             onClick={() => void store.flushQueue(key ?? undefined)}
             title="Send the first waiting message now"
           >
@@ -131,7 +131,7 @@ export const MessageQueue = () => {
           </Button>
         )}
         <Button
-          variant="quiet" size="content" className={styles.action}
+          variant="quiet" size="sm" className={styles.action}
           onClick={() => void store.clearQueue(key ?? undefined)}
           title="Throw away everything waiting"
         >

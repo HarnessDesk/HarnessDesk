@@ -99,6 +99,14 @@ const buttonVariants = cva(
           'rounded-(--hd-radius-sm) bg-transparent p-1 text-(--hd-muted-foreground) opacity-0 group-hover/member:opacity-100 group-hover/tab:opacity-70 group-data-[active]/tab:opacity-70 group-hover/copy:opacity-100 hover:bg-(--hd-active) hover:text-(--hd-foreground) hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
         subtle:
           'bg-(--hd-muted) text-(--hd-foreground) hover:bg-(--hd-hover)',
+        /* `subtle` in the accent tone: a chip that is tinted because pressing
+           it is the next thing to do. The plan strip's sign-in chip was drawn
+           this way in a screen stylesheet, and when its box moved onto the
+           canonical control there was no role here carrying the tint, so it
+           came out looking like the ambient strip around it. The ink is the
+           step solved for AA on a dim ground, not the accent itself. */
+        primary:
+          'bg-(--hd-accent-dim) text-(--hd-primary-ink) hover:bg-(--hd-btn-primary-fill) hover:text-(--hd-btn-primary-foreground)',
         action:
           'bg-(--hd-solid) text-(--hd-solid-foreground) transition-[background,box-shadow,transform] hover:bg-(--hd-solid-hover) active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100 data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)] data-[when=later]:hover:bg-[color-mix(in_srgb,var(--hd-accent)_32%,transparent)] data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hd-foreground))] data-[when=later]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--hd-accent)_78%,transparent)] data-[when=nothing]:bg-(--hd-muted) data-[when=nothing]:text-(--hd-muted-foreground) data-[when=nothing]:active:scale-100',
       },
@@ -117,7 +125,11 @@ const buttonVariants = cva(
         xs: "h-5 gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
         icon: 'size-(--hd-btn-h) p-0',
-        'icon-xs': 'size-5 p-0',
+        /* The floor, not a literal. This was `size-5` — 20px, four under the
+           target the system declares and names twice (`--hd-target-min`,
+           `--hd-icon-target`), so the one icon size small enough to be used
+           in a dense row was the one that could not be reliably hit. */
+        'icon-xs': 'size-(--hd-icon-target) p-0',
         'icon-sm': 'size-(--hd-btn-h-sm) p-0',
         content: 'h-auto p-0 whitespace-normal',
         /* A chip: the pill a summary or status strip is made of. Sized

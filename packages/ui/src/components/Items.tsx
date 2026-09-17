@@ -208,17 +208,26 @@ const sentAt = (at: number | undefined): string | null => {
 const CopyButton = ({
   text,
   label,
-  className,
+  inShellRow = false,
 }: {
   text: string
   label: string
-  className?: string
+  /**
+   * Where it sits, rather than a class to sit by.
+   *
+   * It used to take a `className`, which is how a screen hands a canonical
+   * control its own look — and `ui-architecture` cannot read a prop, so the
+   * one class passed in this way carried a width, a height, a border and a
+   * hover fill past every check. The square is the size's now, and the only
+   * thing left to say is that a shell row pulls it out to its own padding.
+   */
+  inShellRow?: boolean
 }) => {
   const store = useStore()
   const [copied, setCopied] = useState(false)
   return (
     <Button
-      variant="quiet" size="content" className={className ?? styles.action}
+      variant="quiet" size="icon-xs" className={inShellRow ? styles.shellCopy : ''}
       title="Copy"
       aria-label={label}
       onClick={() =>
@@ -243,7 +252,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
       {when && <span className={styles.userTime}>{when}</span>}
       <CopyButton text={text} label="Copy this message" />
       <Button
-        variant="quiet" size="content" className={styles.action}
+        variant="quiet" size="icon-xs"
         title="Edit — puts this message in the composer"
         aria-label="Edit this message"
         onClick={() =>
@@ -514,7 +523,7 @@ const ShellLine = ({ command }: { command: string }) => (
       $
     </span>
     <code className={styles.shellCommand}>{command}</code>
-    <CopyButton text={command} label="Copy this command" className={styles.shellCopy} />
+    <CopyButton text={command} label="Copy this command" inShellRow />
   </div>
 )
 

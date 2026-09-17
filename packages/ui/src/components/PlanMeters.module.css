@@ -377,18 +377,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* The tint is the control's — `primary` on the chip rung — not this file's.
+     Drawn here it had no ground, no corner and no ink, which left the one
+     fact that stops the next Send looking like the ambient strip around it. */
   max-width: 140px;
-  /* `size="content"` is a button with no box, so the box is here — and it had
-     none: no ground, no corner, no ink, which left the one fact that stops the
-     next Send looking like the ambient strip around it. It is the chip every
-     other pressable chip in the app is, wearing the accent it says it wears.
-     `--hd-primary-ink` rather than the accent itself: that is the step this
-     palette solved for AA on a dim ground. */
-  min-height: var(--hd-target-min);
-  padding: 0 var(--hd-space-2);
-  border-radius: var(--hd-chip-radius);
-  background: var(--hd-accent-dim);
-  color: var(--hd-primary-ink);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
 }

@@ -1364,15 +1364,13 @@ const MemberRow = ({
            discover a control that had not existed a moment earlier. It is one
            verb — "put this one up too" — and a verb that appears and
            disappears is a verb nobody learns. */
-        <Button variant="reveal" size="content"
+        <Button variant="reveal" size="icon-xs"
           type="button"
           /* Resting here asks about the column a pick will take — the title
              says which — not about the agent, so it summons no card and puts
              an open one away. See `AgentHoverCard`. */
           data-no-card=""
-          /* `size="content"` is a button with no box, so the box is here: a
-             13px glyph made a 15px target. */
-          className="flex min-h-(--hd-target-min) min-w-(--hd-target-min) items-center justify-center"
+          className="flex"
           aria-label={
             replaces
               ? `Watch ${peer.nickname} in place of ${replaces}`
@@ -1647,7 +1645,7 @@ const Room = ({
              a completion in it takes the plainer word, because a signal is not
              a message and a pill that says it is teaches the reader to distrust
              the count. */
-          <Button type="button" variant="quiet" size="content" className={styles.behind} onClick={toFloor}>
+          <Button type="button" variant="outline" size="chip" className={styles.behind} onClick={toFloor}>
             {behind.onlyMessages
               ? behind.rows === 1
                 ? '1 new message'

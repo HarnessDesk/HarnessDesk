@@ -46,12 +46,8 @@
   white-space: nowrap;
 }
 
-/* `size="content"` is a button with no box of its own, so this one is the
-   box: it was 15px tall, which is the height of its own words. */
 .action {
   flex: none;
-  min-height: var(--hd-target-min);
-  padding: 0 var(--hd-space-1-5);
 }
 
 .list {
