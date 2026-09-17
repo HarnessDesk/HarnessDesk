@@ -161,9 +161,9 @@
   },
   "button/size/navigation": {
     "h": 29,
-    "text": 14,
+    "text": 13,
     "weight": "400",
-    "line": 21,
+    "line": 18,
     "pad": "0 8 0 8",
     "radius": 10
   },
@@ -176,10 +176,10 @@
     "radius": 8
   },
   "button/size/row": {
-    "h": 31,
-    "text": 14,
+    "h": 30,
+    "text": 13,
     "weight": "400",
-    "line": 21,
+    "line": 18,
     "pad": "4 8 4 8",
     "radius": 8
   },

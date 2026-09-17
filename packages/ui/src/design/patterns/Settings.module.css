@@ -591,8 +591,8 @@
 /* The title carries the weight and the description the colour, so a row
    reads as a name with a note under it rather than two grey lines. */
 .rowTitle {
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
+  font-size: var(--hd-text-sm); /* desk: 14 → 13, the chrome size */
+  line-height: var(--hd-line-sm); /* desk: 21 → 18, the line the 13px step is set on */
   font-weight: var(--hd-weight-medium);
 }
 
