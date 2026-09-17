@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { ACCOUNTS, ANONYMOUS, VOUCHED, accountFor } from './shots/accounts.mjs'
 import {
   COLLECT,
+  SEEN,
   TILDIFY,
   accountReasons,
   reasonsFor,
@@ -106,6 +107,42 @@ test('an address or a home path hidden in a title or an alt is refused (#296)', 
     textReasons(frame('Storefront', [['title', '~/work/storefront'], ['alt', 'Codex']]), { user: USER }),
     [],
   )
+})
+
+test('tildifying a personal agent worktree does not make it publishable', () => {
+  for (const path of ['~/.codex/worktrees/demo/private-repo', '~/.claude/worktrees/private-repo', '~/.harnessdesk/worktrees/private-repo']) {
+    const refused = textReasons(frame('Nothing to see', [['title', path]]), { user: USER })
+    assert.ok(refused.some(reason => /worktree/.test(reason)), path)
+    assert.ok(refused.every(reason => !reason.includes('private-repo')), 'refusal must not repeat private text')
+  }
+  assert.deepEqual(textReasons(frame('~/work/storefront/.worktrees/sidebar-1'), { user: USER }), [])
+})
+
+test('history outside the staged repositories is refused even when its row is not visible', () => {
+  const history = [{ runtime: 'shots-opencode', id: 'unvouched', cwd: '/home/someone/private-repo' }]
+  const refused = reasonsFor({ ...frame('Storefront'), history }, { roots: ['/tmp/rig/work/storefront'] })
+  assert.ok(refused.some(reason => /history/.test(reason)))
+  assert.ok(refused.every(reason => !reason.includes('private-repo')))
+  assert.deepEqual(reasonsFor({ ...frame('Storefront'), history: [{ ...history[0], cwd: '/tmp/rig/work/storefront/.worktrees/sidebar-1' }] }, { roots: ['/tmp/rig/work/storefront'] }), [])
+})
+
+test('only the exact native fake-Codex history is allowed outside staged repositories', () => {
+  const options = { roots: ['/tmp/rig/work/storefront'], nativeCodex: true }
+  const fixture = { runtime: 'codex', id: 'thread-e2e', cwd: '/w' }
+  assert.deepEqual(reasonsFor({ ...frame('Storefront'), history: [fixture] }, options), [])
+  for (const row of [{ ...fixture, id: 'other' }, { ...fixture, runtime: 'opencode' }, { ...fixture, cwd: '/tmp/private-repo' }]) {
+    assert.ok(reasonsFor({ ...frame('Storefront'), history: [row] }, options).some(reason => /history/.test(reason)))
+  }
+  assert.ok(reasonsFor({ ...frame('Storefront'), history: [fixture] }, { roots: options.roots }).some(reason => /history/.test(reason)))
+})
+
+test('the frame audit collects both hidden history and loaded conversations from the same snapshot', () => {
+  const history = { runtime: 'shots-opencode', id: 'old', cwd: '/tmp/rig/work/storefront' }
+  const loaded = { runtime: 'shots-cursor', id: 'open', cwd: '/tmp/rig/work/atlas-api', turns: [{ text: 'not needed by the audit' }] }
+  const document = { title: 'HarnessDesk', body: { innerText: 'Storefront' }, querySelectorAll: () => [] }
+  const window = { __hdStore: { getSnapshot: () => ({ history: [history], sessions: new Map([['open', loaded]]), accountsByRuntime: {} }) } }
+  const seen = new Function('document', 'window', `return ${SEEN}`)(document, window)
+  assert.deepEqual(seen.history, [history, { runtime: loaded.runtime, id: loaded.id, cwd: loaded.cwd }])
 })
 
 test("this machine's username is refused, and the reason does not quote it (#296)", () => {

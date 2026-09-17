@@ -31,10 +31,10 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../lib/desk.mjs'
-import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
+import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable, refuseUnvouchedAccounts } from './audit.mjs'
 import { REPOS } from './cast.mjs'
-import { HOME, WORK } from './seed.mjs'
+import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 const run = promisify(execFile)
@@ -75,6 +75,7 @@ const desk = await launchDesk({
   home: HOME,
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
+  env: SHOT_ENV,
 })
 const { cdp } = desk
 
@@ -150,7 +151,7 @@ try {
    * early refusal is why the full audit runs here and only the account half
    * runs during the recording.
    */
-  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, subject: 'recording' })
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), subject: 'recording' })
 
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1 })
   const startedAt = Date.now()
@@ -170,7 +171,7 @@ try {
   /* And once more before a single frame reaches the disk. Account state can
      change mid-take, and the frames are written below — so this is the last
      moment at which refusing still costs nothing but the take. */
-  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, subject: 'recording' })
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), subject: 'recording' })
 
   say(`frames ${collected.length}`)
   if (collected.length === 0) throw new Error('the screencast delivered no frames')

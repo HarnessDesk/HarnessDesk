@@ -25,7 +25,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS } from './cast.mjs'
+import { CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 /* `agent.mjs`, not the repository's `fake-acp-agent.mjs` fixture: that one is
@@ -50,6 +50,14 @@ export const HOME = process.env['HD_SHOTS_HOME'] ?? join(homedir(), '.harnessdes
  * as a rig.
  */
 export const WORK = process.env['HD_SHOTS_WORK'] ?? join(homedir(), 'work')
+
+// The built-in adapter is constructed even when a camera ACP row replaces it.
+// Both capture drivers therefore isolate its home and executable before boot.
+export const SHOT_ENV = {
+  ...process.env,
+  CODEX_HOME: join(HOME, 'codex-home'),
+  HARNESSDESK_CODEX_BINARY: join(APP, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
+}
 
 const say = (line) => process.stdout.write(`  ${line}\n`)
 
@@ -80,6 +88,7 @@ if (process.argv.includes('--clean')) {
 }
 
 mkdirSync(join(HOME, 'stores'), { recursive: true })
+mkdirSync(SHOT_ENV.CODEX_HOME, { recursive: true })
 mkdirSync(WORK, { recursive: true })
 
 // ------------------------------------------------------------ the repositories
@@ -180,7 +189,7 @@ writeFileSync(
   `${JSON.stringify(
     {
       agents: REGISTERED_CAST.map((agent, n) => ({
-        id: agent.id,
+        id: rigRuntimeId(agent.id),
         name: agent.name,
         brand: agent.brand,
         tagline: agent.tagline,

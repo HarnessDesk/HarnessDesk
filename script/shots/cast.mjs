@@ -24,6 +24,14 @@ export const OLIVIA = person('Olivia')
 export const PRIMARY = SHANE
 
 /**
+ * A known vendor id opts into installed-CLI discovery and vendor disk stores.
+ * Camera ACP seats must never do either. Codex stays the reserved id so the
+ * camera row replaces the built-in adapter, except in the native terminal rig
+ * where that adapter runs the repository's isolated fake app-server instead.
+ */
+export const rigRuntimeId = (id) => id === 'codex' ? id : `shots-${id}`
+
+/**
  * The cast.
  *
  * Twelve agents rather than the three a working desk usually holds, because

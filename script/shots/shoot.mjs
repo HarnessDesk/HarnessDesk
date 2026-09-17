@@ -25,16 +25,16 @@
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE } from '../lib/desk.mjs'
-import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
+import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
-import { REPOS } from './cast.mjs'
-import { HOME, WORK } from './seed.mjs'
+import { CAST, REPOS, rigRuntimeId } from './cast.mjs'
+import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 /**
@@ -91,6 +91,7 @@ const desk = await launchDesk({
   home: HOME,
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
+  env: SHOT_ENV,
 })
 const { cdp } = desk
 const q = (value) => JSON.stringify(value)
@@ -132,13 +133,13 @@ try {
             { name: 'plan', description: 'Plan the implementation, identify the affected components, and wait for approval before changing files.', enabled: true, toggleable: false },
           ],
           'library/read': {
-            generatedAt: 1, home: '/home/user', runtimes: ['codex', 'claude-code'], gaps: [],
-            locations: ['codex', 'claude-code'].map(runtime => ({ runtime, kind: 'skill', path: '/home/user/.agents/skills', scope: 'user', scanned: true, exists: true, readOnly: true })),
+            generatedAt: 1, home: '/home/user', runtimes: ${q(['codex', rigRuntimeId('claude-code')])}, gaps: [],
+            locations: ${q(['codex', rigRuntimeId('claude-code')])}.map(runtime => ({ runtime, kind: 'skill', path: '/home/user/.agents/skills', scope: 'user', scanned: true, exists: true, readOnly: true })),
             entries: ['Accessibility audit', 'Review changes', 'Run project tests', 'Write release notes', 'Inspect workspace'].map((name, index) => ({
               kind: 'skill', name: name.toLowerCase().replaceAll(' ', '-'), title: name,
               description: 'Inspect the workspace and report actionable findings with reproducible checks and clear evidence.',
-              copies: [{ path: '/home/user/.agents/skills/demo-' + index, scope: 'user', readBy: ['codex', 'claude-code'], hollow: false, digest: 'demo', readOnly: true }],
-              reach: ['codex', 'claude-code'].map(runtime => ({ runtime, state: 'reaches', basis: 'scanned' })),
+              copies: [{ path: '/home/user/.agents/skills/demo-' + index, scope: 'user', readBy: ${q(['codex', rigRuntimeId('claude-code')])}, hollow: false, digest: 'demo', readOnly: true }],
+              reach: ${q(['codex', rigRuntimeId('claude-code')])}.map(runtime => ({ runtime, state: 'reaches', basis: 'scanned' })),
             })),
           },
           'library/usage': { generatedAt: 1, sessionsScanned: 0, skills: {} },
@@ -177,7 +178,11 @@ try {
    * Nothing is written until this passes. See `audit.mjs` for what it asks and
    * which way it errs; asked from here because only the driver has the window.
    */
-  const audit = (name) => refuseUnpublishable(cdp, { name, user: USER, vouched: VOUCHED })
+  const audit = (name) => refuseUnpublishable(cdp, {
+    name, user: USER, vouched: VOUCHED,
+    roots: REPOS.map(repo => join(WORK, repo.dir)),
+    nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1',
+  })
 
   /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
@@ -189,7 +194,16 @@ try {
     await sleep(150)
   }
 
-  const shoot = async (name, expect = null) => {
+  const shoot = async (name, expect = null, verify = null) => {
+    // This is a normal first-run offer, not a transient snapshot.notice.
+    // Dismiss it through the same persisted policy as "Not now"; leave error
+    // notices alone, because an error is evidence that a scene is not ready.
+    await cdp.eval(`${STORE}.dismissStanding({ key: 'import:offer', kind: 'import:offer', lifetime: 'once' }); true`)
+    await waitForSnapshot(
+      () => cdp.eval(`document.body.innerText.includes('Your other agents have skills and servers this machine could share')`),
+      shown => !shown,
+    )
+    await verify?.()
     /* Prove the app is showing what the filename claims. Staging a pane and
        photographing whatever happens to be in front of it is how a dashboard
        ends up saved as `git-dark.png`. */
@@ -241,6 +255,7 @@ try {
         }
         return output
       })()`)
+      metrics.provenance = { runtimeIds: Object.fromEntries(CAST.map(agent => [agent.id, rigRuntimeId(agent.id)])), nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1' }
       writeFileSync(`${OUT}/${name}.metrics.json`, JSON.stringify(metrics, null, 2) + '\n')
     }
     if (has('assert-layout')) {
@@ -394,14 +409,14 @@ inputs:
 roles:
   fixer:
     kind: agent
-    seat: codex=gpt-5.6-sol
+    seat: ${process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? `${rigRuntimeId('claude-code')}=opus` : 'codex=gpt-5.6-sol'}
     permission: publish
     outcomes: [published, cannot]
     order: |
       Make the change, run the tests, and open a pull request for it.
   reviewer:
     kind: agent
-    seat: cursor=gemini-3.8-flash
+    seat: ${rigRuntimeId('cursor')}=gemini-3.8-flash
     count: 3
     permission: read
     outcomes: [approve, request-changes]
@@ -453,7 +468,7 @@ rules:
       ? ['claude-code', 'cursor', 'gemini-cli', 'copilot']
       : ['codex', 'claude-code', 'cursor', 'gemini-cli']
     for (const runtime of roomRuntimes) {
-      keys.push(await seat(cdp, { work: REPO, runtime, picks: {} }))
+      keys.push(await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} }))
     }
     roomId = await makeRoom(cdp, { work: REPO, name: 'Checkout hardening', members: keys.map(splitKey) })
 
@@ -516,18 +531,14 @@ rules:
 
     /** One conversation, mid-work: reasoning, a plan and tool calls. */
     conversation: { leaveOverlay: true, expect: 'Worked for', run: async () => {
-      const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+      // Native Codex remains available for the terminal smoke. Its adapter
+      // fixture deliberately reports /w, so the camera conversation uses ACP
+      // and the real staged repository instead.
+      const runtime = process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? rigRuntimeId('claude-code') : 'codex'
+      const key = await seat(cdp, { work: REPO, runtime, picks: {} })
       await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
       // Long enough for the scripted turn to reach its summary.
       await sleep(6500)
-      // The native UI-system run uses the repository's fake Codex app-server,
-      // whose representative turn pauses at a real approval. Answer it through
-      // the same store verb as the Approvals surface so the scene reaches the
-      // completed-turn state the camera is meant to inspect.
-      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') {
-        await answerApprovals(cdp)
-        await sleep(1800)
-      }
       /* Unfold the steps. The app folds a finished turn down to one line, which
          is the right default for somebody scrolling a day's work and the wrong
          one for a photograph — folded, this pane is two paragraphs and a great
@@ -556,14 +567,34 @@ rules:
 
     /** CodeMirror behind the canonical editor theme bridge. */
     editor: { leaveOverlay: true, expect: 'package.json', run: async () => {
+      const path = join(REPO, 'package.json')
+      const content = readFileSync(path, 'utf8')
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
-      await cdp.eval(`${STORE}.openFile(${q(join(REPO, 'package.json'))}); true`)
-      await sleep(2200)
+      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') {
+        await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+        // fake-codex serves an in-memory filesystem, not host disk. Copy only
+        // the rig-authored file through its ordinary save/read protocol.
+        const saved = await cdp.json(`${STORE}.transport.request('file/save', ${q({ runtime: 'codex', path, content, expectedHash: '' })})`)
+        if (!saved?.saved) throw new Error('editor: the synthetic file was not seeded into fake Codex')
+      }
+      await cdp.eval(`${STORE}.openFile(${q(path)}); true`)
+    }, verify: async () => {
+      const path = join(REPO, 'package.json')
+      const expected = JSON.stringify(JSON.parse(readFileSync(path, 'utf8')))
+      // A tab title passed while the pane held an error. Verify the actual
+      // CodeMirror document, in each theme, before allowing a frame to leave.
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const editor = [...document.querySelectorAll('.cm-content')].find(node => node.getAttribute('aria-label') === ${q(path)})
+        const text = editor?.textContent
+        if (!text || !editor.getBoundingClientRect().height) return null
+        try { return JSON.stringify(JSON.parse(text)) } catch { return null }
+      })()`), content => content === expected)
     } },
 
     /** xterm behind the canonical terminal option bridge. */
     terminal: { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
       // Use the system's plain POSIX shell rather than the runner's configured
       // interactive shell. The latter may print a personal prompt from a real
       // dotfile; `/bin/sh -i` still exercises the process and xterm bridges
@@ -878,7 +909,7 @@ rules:
           })()`))
         }
       }
-      await shoot(`${name}-${theme}`, scene.expect ?? null)
+      await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
     }
   }
   if (has('interactive')) {

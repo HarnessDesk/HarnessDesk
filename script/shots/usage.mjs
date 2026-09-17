@@ -19,7 +19,7 @@
  * with no window at all, and one plain error. A dashboard of six identical
  * healthy bars photographs as a mock-up.
  */
-import { CAST, PRIMARY, SHANE, OLIVIA } from './cast.mjs'
+import { CAST, PRIMARY, SHANE, OLIVIA, rigRuntimeId } from './cast.mjs'
 
 const MINUTE = 60_000
 const ago = (minutes) => Date.now() - minutes * MINUTE
@@ -158,7 +158,7 @@ export const REPORTS = [
 
 /** Only report on agents the desk actually has, so a rename cannot orphan a card. */
 const known = new Set(CAST.map((one) => one.id))
-export const USAGE = REPORTS.filter((one) => known.has(one.runtime))
+export const USAGE = REPORTS.filter((one) => known.has(one.runtime)).map(one => ({ ...one, runtime: rigRuntimeId(one.runtime) }))
 
 /**
  * The token ledger, fabricated — and this one is not optional.
@@ -203,8 +203,8 @@ export const LEDGER = {
   totalTokens: TOTAL_TOKENS,
   provenance: 'priced',
   coverage: { priced: 118, unpriced: 6, unmetered: 0, estimated: 9, daysCovered: 30, daysRequested: 30 },
-  rows: LEDGER_ROWS,
-  daily: DAILY,
+  rows: LEDGER_ROWS.map(row => ({ ...row, key: rigRuntimeId(row.key), runtime: rigRuntimeId(row.runtime) })),
+  daily: DAILY.map(row => ({ ...row, runtime: rigRuntimeId(row.runtime) })),
   scannedAt: Date.now() - 12 * MINUTE,
 }
 
