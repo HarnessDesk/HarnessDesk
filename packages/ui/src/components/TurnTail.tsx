@@ -137,7 +137,7 @@ export const TurnTail = ({
             </Button>
           )}
           {summary.commands > 0 && (
-            <span className={styles.turnSummaryItem} data-static="">
+            <span className={styles.turnSummaryFact}>
               <TerminalIcon size={12} />
               <span className={styles.turnSummaryLabel}>
                 {summary.commands} command{summary.commands === 1 ? '' : 's'}
@@ -146,8 +146,7 @@ export const TurnTail = ({
           )}
           {summary.tests && (
             <span
-              className={styles.turnSummaryItem}
-              data-static=""
+              className={styles.turnSummaryFact}
               data-tone={summary.tests.failed > 0 ? 'bad' : 'good'}
             >
               {summary.tests.failed > 0 ? <AlertIcon size={12} /> : <CheckIcon size={12} />}
@@ -165,8 +164,7 @@ export const TurnTail = ({
               went on from, and colouring it as a failure misreads the turn. */}
           {summary.failures.length > 0 && (
             <span
-              className={styles.turnSummaryItem}
-              data-static=""
+              className={styles.turnSummaryFact}
               {...(turn.status === 'completed' ? {} : { 'data-tone': 'bad' })}
               title={failuresTitle}
             >
@@ -199,7 +197,7 @@ export const TurnTail = ({
             </Button>
           ))}
           {summary.question && (
-            <span className={styles.turnSummaryItem} data-static="" data-tone="ask">
+            <span className={styles.turnSummaryFact} data-tone="ask">
               <QuestionIcon size={12} />
               <span className={styles.turnSummaryLabel}>waiting for your answer</span>
             </span>

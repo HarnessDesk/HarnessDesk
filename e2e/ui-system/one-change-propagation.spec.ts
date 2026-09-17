@@ -81,6 +81,12 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   await page.getByRole('button', { name: 'Open menu' }).click()
   const popup = page.locator('[data-slot="popover-popup"]')
   await expect(popup).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Open workspace' })).toBeVisible()
+  await expect.poll(() => page.getByRole('menuitem', { name: 'Open workspace' }).evaluate(node => {
+    let opacity = 1
+    for (let element: Element | null = node; element; element = element.parentElement) opacity *= Number(getComputedStyle(element).opacity)
+    return opacity
+  })).toBe(1)
   expect(await popup.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe('rgb(225, 235, 245)')
   expect(await popup.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('2px')
   await page.mouse.click(10, 890)

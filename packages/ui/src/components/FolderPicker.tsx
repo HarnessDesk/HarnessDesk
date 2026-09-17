@@ -79,7 +79,7 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
                 {index === all.length - 1 ? (
                   <span className={styles.crumbCurrent}>{crumb.name}</span>
                 ) : (
-                  <Button type="button" variant="row" size="row" className={styles.crumb} onClick={() => browse(crumb.path)}>
+                  <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
                     {crumb.name}
                   </Button>
                 )}

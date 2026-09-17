@@ -54,15 +54,8 @@
   gap: var(--hd-space-2);
   width: 100%;
 
-
-
-
-
   text-align: left;
 
-}
-
-.opHead:disabled {
 }
 
 .opMark {
@@ -263,17 +256,8 @@
   gap: var(--hd-space-2);
   width: 100%;
 
-
-
-
-
-
-
   text-align: left;
 
-}
-
-.choice[data-on] {
 }
 
 .choiceDot {
@@ -340,21 +324,6 @@
   font-size: var(--hd-text-xs);
   color: var(--hd-muted-foreground);
   line-height: var(--hd-line-sm);
-}
-
-.textarea {
-
-
-
-
-
-
-
-}
-
-.textarea:focus-visible {
-
-
 }
 
 /* A refusal's sentence is the row's content, not its decoration. */

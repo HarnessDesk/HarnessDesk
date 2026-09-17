@@ -99,23 +99,6 @@
   align-items: center;
   gap: 6px;
 
-
-
-
-
-
-
-
-
-}
-
-.action:hover {
-}
-
-.action:disabled {
-}
-
-.actionPrimary {
 }
 
 .files {
@@ -132,13 +115,8 @@
 
  /* desk: canonical One UI System scale */
 
-
-
   text-align: left;
 
-}
-
-.file:hover {
 }
 
 .path {

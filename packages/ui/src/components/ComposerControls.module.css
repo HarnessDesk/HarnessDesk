@@ -17,18 +17,7 @@
   gap: 10px;
   width: 100%;
 
-
-
-
-
   text-align: left;
-
-}
-
-.choice:hover {
-}
-
-.choice[data-selected] {
 
 }
 
@@ -63,7 +52,6 @@
   line-height: 16px;
   color: var(--hd-muted-foreground);
 }
-
 
 /*
  * The place control. A worktree armed for the draft is something that will

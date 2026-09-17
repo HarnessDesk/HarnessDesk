@@ -184,11 +184,6 @@
   display: block;
   width: 120px;
 
-
-
-
-
-
   overflow: hidden;
 
 }
@@ -283,13 +278,8 @@
  /* desk: 34 → 30, the app's rung for a one-line row */
  /* desk: 6px 10px → 4px 10px, so 21px of line lands on the rung */
 
-
-
   text-align: left;
 
-}
-
-.rowHeader:hover {
 }
 
 .rowIcon {
@@ -445,12 +435,7 @@
   width: 100%;
  /* desk: 7 → 6 */
 
-
-
   text-align: left;
-}
-
-.fileHeader:hover {
 }
 
 .filePath {
@@ -618,19 +603,6 @@
   place-items: center;
   width: var(--hd-icon-target);
 
-
-
-
-
-
-
-}
-
-.action:hover {
-
-}
-
-.action[data-on] {
 }
 
 .actionLabel {
@@ -664,18 +636,8 @@
 
  /* desk: 3 → 2 */
 
-
-
   text-align: left;
 
-
-
-}
-
-.injectionWrap[data-open] .injection {
-}
-
-.injection:hover {
 }
 
 .injectionLabel {
@@ -690,9 +652,6 @@
 .injectionWrap[data-peer] {
   box-shadow: inset 2px 0 0 0 var(--hd-primary);
   background: var(--hd-primary-muted);
-}
-
-.injectionWrap[data-peer] .injection {
 }
 
 .injectionBody {
@@ -738,14 +697,8 @@
  /* desk: 32 → 30, the app's rung for a one-line row */
  /* desk: 5 → 4 */
 
-
-
   text-align: left;
 
-
-}
-
-.groupHeader:hover {
 }
 
 .groupSummary {
@@ -871,13 +824,6 @@
   border-radius: var(--hd-radius-sm);
   background: none;
   box-shadow: none;
-}
-
-[data-register='light'] .rowHeader,
-[data-register='light'] .groupHeader {
- /* desk: 3 → 2 */
-
-
 }
 
 [data-register='light'] .rowTitle {

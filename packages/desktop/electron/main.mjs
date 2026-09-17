@@ -270,6 +270,13 @@ const showAbout = async () => {
     return
   }
   const preferences = await host?.call('app/state/get', {}).catch(() => ({})) ?? {}
+  // Another request can finish while preferences are in flight. Recheck at
+  // the creation boundary so both menu entries still address one window.
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    aboutWindow.show()
+    aboutWindow.focus()
+    return
+  }
   const palette = ['editorial', 'shadcn'].includes(preferences['palette']) ? preferences['palette'] : ''
   const accent = ['violet', 'green', 'rose', 'orange', 'mono'].includes(preferences['accent']) ? preferences['accent'] : ''
   const corners = ['square', 'round'].includes(preferences['corners']) ? preferences['corners'] : ''

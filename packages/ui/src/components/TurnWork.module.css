@@ -18,15 +18,10 @@
   gap: 6px;
   width: 100%;
 
-
   /* The head paints nothing of its own — hovering moves colour, not fill —
      so the radius is here for the focus ring to follow. */
 
-
-
   text-align: left;
-
-
 
 }
 

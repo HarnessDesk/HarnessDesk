@@ -53,12 +53,6 @@
 
  /* desk: canonical One UI System scale */
 
-
-
-
-}
-
-.action:hover {
 }
 
 .list {
@@ -192,19 +186,6 @@
   place-items: center;
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
-
-
-
-
-
-
-}
-
-.control:hover:not(:disabled) {
-
-}
-
-.control:disabled {
 
 }
 

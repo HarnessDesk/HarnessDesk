@@ -29,15 +29,8 @@
   align-items: center;
   gap: 12px;
 
-
-
-
-
   text-align: left;
 
-}
-
-.headOpen:hover {
 }
 
 .headText {
@@ -84,16 +77,6 @@
   display: inline-grid;
   place-items: center;
   width: 26px;
-
-
-
-
-
-
-
-}
-
-.headToggle:hover {
 
 }
 
@@ -403,8 +386,6 @@
 .note[data-tone='bad'] {
   color: var(--hd-danger);
 }
-
-
 
 /* The ACP registry, as a grid of compact cells: forty agents belong side by
    side, not stacked as forty full rows — that page measured 3,500px. Each

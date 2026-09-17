@@ -32,7 +32,7 @@ const inputVariants = cva(
       },
       size: {
         default: 'h-(--hd-field-h)',
-        compact: 'h-6 px-1.5',
+        compact: 'h-6 px-1.5 data-[icon=leading]:pl-6',
         bare: 'h-7 px-0',
       },
     },

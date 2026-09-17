@@ -105,14 +105,14 @@ const WorkspaceRows = ({
         </div>
         <div className={styles.confirmActions}>
           <Button
-            variant="ghost" size="icon-sm" className={styles.button}
+            variant="ghost" size="sm"
             disabled={busy}
             onClick={() => setConfirming(null)}
           >
             Cancel
           </Button>
           <Button
-            variant="ghost" size="icon-sm" className={`${styles.button} ${styles.buttonDanger}`}
+            variant="destructive" size="sm"
             disabled={busy}
             onClick={() =>
               void run(async () => {

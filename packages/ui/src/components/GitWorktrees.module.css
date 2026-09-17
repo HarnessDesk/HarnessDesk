@@ -214,15 +214,8 @@
   align-items: flex-start;
   gap: 2px;
 
-
-
-
-
   text-align: left;
 
-}
-
-.mode[data-on] {
 }
 
 .modeName {
@@ -254,15 +247,6 @@
 .field select {
   flex: 1;
   min-width: 0;
-}
-
-.select {
-
-
-
-
-
-
 }
 
 .switchRow {

@@ -25,24 +25,3 @@
   gap: 6px;
   margin-top: 10px;
 }
-
-.button {
- /* desk: canonical One UI System scale */
-
-
-
-
-
-
-
-}
-
-.button:disabled {
-
-}
-
-.buttonDanger {
-
- /* desk: #fff → the ink named for this fill */
-
-}

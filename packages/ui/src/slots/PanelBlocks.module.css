@@ -37,22 +37,13 @@
   gap: 4px;
   width: 100%;
 
-
-
-
-
-
   text-align: left;
-
 
 }
 
 .sectionTitleLabel {
   letter-spacing: 0.05em;
   text-transform: uppercase;
-}
-
-.sectionTitle:hover {
 }
 
 .sectionChevron {
@@ -155,19 +146,6 @@
   gap: 6px;
 }
 
-.actionButton {
-
-
-
-
-
-
-
-}
-
-.actionButton:hover {
-}
-
 /* -------------------------------------------------------------------- code */
 
 .code {
@@ -250,11 +228,6 @@
   gap: 6px;
   width: 100%;
  /* desk: canonical One UI System scale */
-
-
-
-
-
 
   text-align: left;
 
@@ -348,13 +321,6 @@
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   width: 100%;
 
-
-
-
-
-
-
-
   text-align: left;
 }
 
@@ -372,11 +338,6 @@
   align-items: center;
   justify-content: center;
   width: 14px;
-
-
-
-
-
 
 }
 

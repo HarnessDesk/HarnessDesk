@@ -3,6 +3,22 @@ import test from 'node:test'
 
 import { scanUiArchitecture } from './ui-architecture.mjs'
 
+test('rejects emptied feature rules but permits nested container rules', () => {
+  const findings = scanUiArchitecture([{ path: 'packages/ui/src/components/Example.module.css', source: `
+    .row[data-current] { /* the state must not silently disappear */ }
+    .container { @media (width > 30rem) { color: inherit; } }
+  ` }])
+  assert.deepEqual(findings, [{ path: 'packages/ui/src/components/Example.module.css', rule: 'empty-feature-rule', detail: '.row[data-current]' }])
+})
+
+test('rejects text labels squeezed into icon-only Button sizes', () => {
+  const findings = scanUiArchitecture([{ path: 'packages/ui/src/components/Example.tsx', source: `
+    <><Button size="icon-sm">Cancel</Button><Button size="icon-circle"><CloseIcon /></Button></>
+  ` }])
+  assert.equal(findings[0]?.rule, 'text-in-icon-button')
+  assert.equal(findings.length, 1)
+})
+
 test('rejects legacy Kit imports and non-Base headless primitives', () => {
   const findings = scanUiArchitecture([
     {

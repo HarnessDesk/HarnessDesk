@@ -52,16 +52,8 @@
 
  /* desk: canonical One UI System scale */
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.backRow:hover {
 }
 
 .backIcon {
@@ -145,7 +137,6 @@
   color: var(--hd-label-ink, var(--hd-muted-foreground));
 }
 
-
 .winNavItem {
   display: flex;
   align-items: center;
@@ -155,16 +146,8 @@
 
  /* desk: canonical One UI System scale */
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.winNavItem:hover {
 }
 
 /*
@@ -177,10 +160,6 @@
  * read. Both interfaces now take the sidebar's answer to the question, and
  * Studio's is the brand.
  */
-.winNavItem[data-selected] {
-
-
-}
 
 .winNavIcon {
   flex: none;

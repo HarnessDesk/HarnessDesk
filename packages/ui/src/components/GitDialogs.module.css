@@ -40,32 +40,7 @@
   font-size: var(--hd-text-sm);
 }
 
-.select {
-
-
-
-
-
-
-}
-
 /* --- commit -------------------------------------------------------------- */
-
-.message {
-
-
-
-
-
-
-
-
-
-
-}
-
-.message:focus {
-}
 
 .files {
   max-height: 220px;
@@ -81,15 +56,8 @@
   gap: 8px;
   width: 100%;
 
-
-
   text-align: left;
 
-
-
-}
-
-.file:hover {
 }
 
 .check {
@@ -150,11 +118,11 @@
 
 /* A row whose commit records nothing: shown, so the path is accounted for,
    but with no box to check and nothing that answers a click. */
-.file[data-moot] {
-
-}
-
-.file[data-moot]:hover {
+.fileStatic {
+  min-height: var(--hd-btn-h);
+  padding: var(--hd-space-1) var(--hd-space-2);
+  color: var(--hd-muted-foreground);
+  cursor: default;
 }
 
 /* The checkbox's slot, held open so the paths line up under those that have one. */
@@ -183,18 +151,8 @@
   align-items: flex-start;
   gap: 2px;
 
-
-
-
-
   text-align: left;
 
-}
-
-.mode[data-on] {
-}
-
-.mode[data-on][data-hard] {
 }
 
 .modeName {

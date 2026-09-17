@@ -177,8 +177,8 @@ export const selectMainPage = (targets) =>
  * already has open would make this launch quit silently — and steal the focus
  * of their window on the way out.
  */
-export const launchDesk = async ({ app, home, port, userDataDir, logPath, env = process.env }) => {
-  const electron = `${app}/packages/desktop/node_modules/.bin/electron`
+export const launchDesk = async ({ app, home, port, userDataDir, logPath, executable, env = process.env }) => {
+  const electron = executable ?? `${app}/packages/desktop/node_modules/.bin/electron`
   if (!existsSync(electron)) {
     throw new Error(`no electron at ${electron} — run pnpm install in ${app}`)
   }
@@ -187,7 +187,9 @@ export const launchDesk = async ({ app, home, port, userDataDir, logPath, env = 
   }
   const child = spawn(
     electron,
-    ['.', `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`],
+    // Like smoke-packaged.mjs, a disposable profile must not prompt for or
+    // read the developer's login Keychain after each ad-hoc-signed rebuild.
+    [...(executable ? ['--use-mock-keychain'] : ['.']), `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`],
     {
       cwd: `${app}/packages/desktop`,
       env: {
@@ -202,7 +204,7 @@ export const launchDesk = async ({ app, home, port, userDataDir, logPath, env = 
   child.stdout.on('data', (chunk) => sink?.write(chunk))
   child.stderr.on('data', (chunk) => sink?.write(chunk))
 
-  return connectDesk({ child, sink, port })
+  return connectDesk({ child, sink, port, ...(executable ? { discoveryAttempts: 300 } : {}) })
 }
 
 /**
@@ -226,7 +228,7 @@ export const connectDesk = async ({
       await sleepImpl(1000)
       let page
       try {
-        const list = await (await fetchImpl(`http://127.0.0.1:${port}/json/list`)).json()
+        const list = await (await fetchImpl(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json()
         // Auxiliary windows (the native About panel) are pages too. Prefer the
         // exact main-window title so a verification run that deliberately opens
         // one does not wait for an app store that auxiliary HTML does not own.

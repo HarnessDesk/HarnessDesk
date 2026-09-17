@@ -118,12 +118,6 @@
   flex: 1;
   min-width: 0;
 
-
-
-
-
-
-
 }
 
 /* The list scrolls rather than growing: a repository with forty branches
@@ -141,19 +135,8 @@
   gap: var(--hd-space-2);
   width: 100%;
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.branch:hover {
-}
-
-.branch[data-selected] {
 }
 
 .branchIcon {

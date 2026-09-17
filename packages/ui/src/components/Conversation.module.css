@@ -103,19 +103,7 @@
 
  /* desk: canonical One UI System scale */
 
-
-
-
-
   white-space: nowrap;
-}
-
-.tasksChip:hover,
-.tasksChip[aria-pressed='true'] {
-}
-
-.tasksChip[data-live] {
-
 }
 
 /* The turn of the chip's mark; `spin` is declared once, further down. */
@@ -176,21 +164,10 @@
 
  /* desk: 7 → 8, onto the control rung */
 
-
-
-
 }
 
 .headerButtonWrap {
   display: inline-flex;
-}
-
-.headerButton:hover {
-
-}
-
-.headerButton[data-active] {
-
 }
 
 /* --- a narrow header ------------------------------------------------------
@@ -332,33 +309,6 @@
   line-height: 22px;
 }
 
-.emptyAction {
- /* desk: canonical One UI System scale */
-
- /* desk: canonical One UI System scale */
-
- /* desk: #fff → the ink named for a brand fill */
-
-
-
-}
-
-.emptyAction:hover {
-}
-
-.emptyLink {
-
-  /* A link, not a box: the radius exists for the focus ring alone. */
-
-
-
-
-
-}
-
-.emptyLink:hover {
-}
-
 .jumpButton {
   position: absolute;
   bottom: calc(var(--composer-h, 150px) + 14px);
@@ -368,13 +318,7 @@
   align-items: center;
   gap: 6px;
 
-
-
  /* desk: canonical One UI System scale */
-
-
-
-
 
   z-index: 3;
 }
@@ -488,7 +432,8 @@
   gap: 6px;
 }
 
-.turnSummaryItem {
+.turnSummaryItem,
+.turnSummaryFact {
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
@@ -496,12 +441,7 @@
   min-width: 0;
   max-width: 100%;
 
-
  /* desk: canonical One UI System scale */
-
-
-
-
 
   white-space: nowrap;
 
@@ -521,20 +461,26 @@
   white-space: nowrap;
 }
 
-.turnSummaryItem[data-static] {
+.turnSummaryFact {
+  min-height: var(--hd-target-min);
+  padding: 0 var(--hd-space-2);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground); /* desk: static turn facts keep secondary ink, not a button hover's primary ink */
+  font-size: var(--hd-text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
-.turnSummaryItem:not([data-static]):hover {
-
+.turnSummaryFact[data-tone='good'] {
+  color: var(--hd-success-ink); /* desk: restore the success state with contrast-safe semantic ink */
 }
 
-.turnSummaryItem[data-tone='good'] {
+.turnSummaryFact[data-tone='bad'] {
+  color: var(--hd-danger);
+  background: var(--hd-danger-dim);
 }
 
-.turnSummaryItem[data-tone='bad'] {
-
-}
-
-.turnSummaryItem[data-tone='ask'] { /* desk: the platform ramp → the app’s own semantic ink */
+.turnSummaryFact[data-tone='ask'] {
+  color: var(--hd-warning-ink);
 }
 /* @design-owners TurnTail */

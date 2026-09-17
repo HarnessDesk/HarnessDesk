@@ -135,7 +135,7 @@ const EmptyState = ({
         {driveable ? (
           /* This pane's agent, by name: an empty member column on another
              agent must not open the default's sign-in. */
-          <Button type="button" variant="quiet" size="content" className={styles.emptyAction} onClick={() => onSignIn(runtime.id)}>
+          <Button type="button" variant="quiet" size="content" onClick={() => onSignIn(runtime.id)}>
             Sign in
           </Button>
         ) : (
@@ -184,7 +184,7 @@ const EmptyState = ({
            join without anyone hand-editing a file. */
         <p className={styles.emptyBody}>
           {words.name} is the only agent here.{' '}
-          <Button type="button" variant="link" size="content" className={styles.emptyLink} onClick={onOpenAgents}>
+          <Button type="button" variant="link" size="content" onClick={onOpenAgents}>
             Add another agent…
           </Button>
         </p>
@@ -385,7 +385,7 @@ const TasksChip = () => {
   const live = split.running.length > 0
   const open = shownView(snapshot.workbench, 'tasks')
   return (
-    <Button variant="quiet" size="content" className={`${styles.tasksChip} hd-no-drag`}
+    <Button variant="quiet" size="inline" className={`${styles.tasksChip} hd-no-drag`}
       data-testid="tasks-chip"
       {...(live ? { 'data-live': '' } : {})}
       aria-pressed={open}
@@ -665,7 +665,7 @@ export const Conversation = ({
 
         {!pinned && items.length > 0 && (
           <span className={styles.jumpButton}>
-            <Button type="button" variant="ghost" size="icon-sm" onClick={jumpToBottom}>
+            <Button type="button" variant="ghost" size="sm" onClick={jumpToBottom}>
               Jump to latest
             </Button>
           </span>

@@ -834,7 +834,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             onChange={(event) => setQuery(event.target.value)}
           />
           {query.length > 0 && (
-            <Button variant="ghost" size="icon-sm" className={styles.findClear} aria-label="Clear the search" onClick={() => setQuery('')}>
+            <Button variant="ghost" size="icon-sm" aria-label="Clear the search" onClick={() => setQuery('')}>
               <CrossIcon size={12} />
             </Button>
           )}
@@ -2186,7 +2186,7 @@ const CommitDetail = ({
                   <FileIcon size={12} />
                   <span className={styles.filePath}>{ltr(file)}</span>
                   <span className={styles.space} />
-                  <Button variant="ghost" size="icon-sm" className={styles.fileAction} onClick={() => store.openFile(absolute(file))}>
+                  <Button variant="ghost" size="sm" className={styles.fileAction} onClick={() => store.openFile(absolute(file))}>
                     Open current version
                   </Button>
                 </div>

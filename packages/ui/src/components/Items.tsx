@@ -146,7 +146,7 @@ const Row = ({
   return (
     <div className={styles.row}>
       <Button
-        type="button" variant="quiet" size="content" className={styles.rowHeader}
+        type="button" variant="quiet" size="row" className={styles.rowHeader}
         onClick={() => collapsible && setOpen((value) => !value)}
         aria-expanded={collapsible ? open : undefined}
         style={collapsible ? undefined : { cursor: 'default' }}
@@ -424,7 +424,7 @@ const ContextInjection = ({
       {...(open ? { 'data-open': '' } : {})}
       {...(fromAgent ? { 'data-peer': '' } : {})}
     >
-      <Button type="button" variant="row" size="row" className={styles.injection} onClick={() => setOpen((value) => !value)}>
+      <Button type="button" variant={fromAgent ? 'quiet' : 'row'} size="row" className={styles.injection} onClick={() => setOpen((value) => !value)}>
         <ChevronIcon size={11} {...(open ? { 'data-open': '' } : {})} className={styles.chevron} />
         {fromAgent ? <TeamIcon size={12} /> : <FileIcon size={12} />}
         {fromAgent ? 'From another agent' : origin === 'agent' ? 'Sent with your message' : 'Context added'}

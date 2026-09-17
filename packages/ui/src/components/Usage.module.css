@@ -22,19 +22,8 @@
   width: 100%;
  /* desk: canonical One UI System scale */
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.acct:hover {
-}
-
-.acct[data-selected] {
 }
 
 .acctMark {

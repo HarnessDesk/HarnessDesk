@@ -96,17 +96,7 @@
 
 .scopeTab {
 
-
-
-
-
-
   white-space: nowrap;
-}
-
-.scopeTab[data-on] {
-
-
 }
 
 .find {
@@ -137,20 +127,8 @@
   color: var(--hd-foreground);
 }
 
-.findClear {
-}
-
-.findClear:hover {
-}
-
 .searchScope {
   flex: none;
-
-
-
-
-
-
 
 }
 
@@ -205,12 +183,6 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-
-
-
-
-
-
 
   text-align: left;
 }
@@ -534,22 +506,7 @@
   gap: 6px;
   width: 100%;
 
-
-
   text-align: left;
-
-
-
-}
-
-.railRow:hover,
-.railFolder:hover {
-}
-
-.railRow[data-indent] {
-}
-
-.railRow[data-current] {
 
 }
 
@@ -577,9 +534,6 @@
   font-size: var(--hd-text-xs);
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
-}
-
-.railFolder {
 }
 
 .railCount {
@@ -723,26 +677,12 @@
   vertical-align: -2px;
   margin-left: 6px;
 
-
-
-
-
-}
-
-.cardCopy:hover {
 }
 
 .parentLink {
 
-
   margin-right: 8px;
 
-
-
-
-}
-
-.parentLink:hover {
 }
 
 .fileHead {
@@ -763,18 +703,7 @@
   gap: 8px;
   width: 100%;
 
-
-
   text-align: left;
-
-
-
-}
-
-.fileRow:hover {
-}
-
-.fileRow[data-selected] {
 
 }
 
@@ -910,11 +839,4 @@
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
-
-
-}
-
-.troubleClose:hover {
 }

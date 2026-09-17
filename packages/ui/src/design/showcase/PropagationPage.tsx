@@ -16,6 +16,7 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
+  Input,
   Switch,
 } from '../ui'
 import styles from './propagation-page.module.css'
@@ -71,6 +72,17 @@ export const PropagationPage = () => {
             </Menu>
           )}
         </Popover>
+      </section>
+
+      <section className={styles.actions} data-testid="state-contracts">
+        <Button variant="navigation" size="navigation" data-selected="">Selected page</Button>
+        <Button variant="row" size="row" data-insert="into">Drop target</Button>
+        <Button variant="action" size="icon-circle" data-when="later" aria-label="Queue message"><SendIcon /></Button>
+        <Input aria-label="Icon input" variant="quiet" controlSize="compact" data-icon="leading" />
+        <Button variant="ghost" size="content" data-on="" aria-label="Avatar mark"><FolderIcon size={32} /></Button>
+        <Button variant="row" size="row" data-current="" data-indent="">Current branch</Button>
+        <Button variant="quiet" size="inline" aria-pressed>Background tasks</Button>
+        <span data-register="light"><Button variant="quiet" size="row">Transcript step</Button></span>
       </section>
 
       {dialogOpen && (

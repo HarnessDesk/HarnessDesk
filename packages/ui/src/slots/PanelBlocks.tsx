@@ -251,7 +251,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
 <Button
               key={index}
               type="button"
-              variant="ghost" size="icon-sm" className={styles.actionButton}
+              variant="ghost" size="icon-sm"
               onClick={() => run(action)}
             >
               {action.label}

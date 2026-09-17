@@ -133,14 +133,8 @@
   gap: var(--hd-nav-gap);
   width: 100%;
 
-
-
-
   text-align: left;
 
-}
-
-.navItem:hover:not(:disabled) {
 }
 
 .navIcon {
@@ -235,38 +229,10 @@
   width: 100%;
   min-width: 0;
 
-
-
-
-
-
-
-
-
-}
-
-.filterInput:hover {
-}
-
-.sectionLabel[data-filtering] .filterInput { /* desk: canonical One UI System scale */
-
-
-}
-
-.filterInput:focus {
-
-
-}
-
-.filterInput::placeholder {
 }
 
 /* Narrower than the word, the placeholder would read as a clipped letter or
    two — "F" — which looks like a bug. Nothing but the funnel, then. */
-@container (max-width: 66px) {
-  .filterInput::placeholder {
-  }
-}
 
 .sectionLabel[data-filtering] .sectionTitle {
   display: none;
@@ -278,17 +244,7 @@
   gap: 6px;
   width: 100%;
 
-
-
-
-
-
-
   text-align: left;
-
-}
-
-.groupRow:hover {
 
 }
 
@@ -373,14 +329,7 @@
   gap: 8px;
   width: 100%;
 
-
-
-
-
   text-align: left;
-}
-
-.row:hover {
 }
 
 /*
@@ -398,11 +347,6 @@
  * intensities of one idea that have to be told apart, and the row you are on
  * can be found without reading a word of the column.
  */
-.row[data-active],
-.row[data-open],
-.row[data-active]:hover,
-.row[data-open]:hover {
-}
 
 .row[data-active] .rowTitle,
 .row[data-open] .rowTitle {
@@ -575,15 +519,8 @@
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
   /* Sits over a hovered row, so it takes the plate it covers. */
 
-
-
-}
-
-.rowMenuButton:hover {
 }
 
 .menuItemDanger {
@@ -593,30 +530,13 @@
 .renameInput {
   width: 100%;
 
-
-
-
-
-
-
-
-
 }
 
 .showMore {
   display: block;
   width: 100%;
 
-
-
-
-
-
   text-align: left;
-
-}
-
-.showMore:hover {
 
 }
 
@@ -1026,10 +946,6 @@
 
 /* Compact is one line — the title — in a 28px row: the height Codex and
    Claude Code give theirs. Tighter than this and the titles run together. */
-.row[data-density='compact'] { /* desk: canonical One UI System scale */
- /* desk: canonical One UI System scale */
-}
-
 
 .iconButton {
   flex: none;
@@ -1039,18 +955,6 @@
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
-
-
-
-}
-
-.iconButton:hover:not(:disabled) {
-
-}
-
-.iconButton:disabled {
 }
 
 /*
@@ -1087,15 +991,6 @@
   justify-content: center;
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
-
-
-
-
-
-
-}
-
-.groupAdd:hover {
 
 }
 
@@ -1144,11 +1039,6 @@
      put the branch glyph 2px outside the rail the counts below it sit on. */
   margin-right: var(--hd-space-0-5);
 
-
-
-
-
-
 }
 
 .navSecondaryHelp {
@@ -1160,13 +1050,6 @@
 .navSecondaryHelp:focus-visible {
   box-shadow: var(--hd-focus-ring);
   outline: none;
-}
-
-.navSecondary:hover:not(:disabled) {
-
-}
-
-.navSecondary:disabled {
 }
 
 /* The live trace: the glyph and the meta word agree on colour. */
@@ -1240,16 +1123,8 @@
 
   margin-top: 4px;
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.otherProjects:hover {
 }
 
 .otherProjects .groupCount {
@@ -1289,14 +1164,8 @@
   opacity: 0.4;
 }
 
-.groupHead[draggable='true'] .groupRow {
-}
-
 /* Dropping onto the fold hands a project back to the sort, so the fold says
    it will take one while a drag is in the air. */
-.otherProjects[data-insert='into'] {
-
-}
 
 /* Said to a screen reader, drawn to nobody. */
 .srOnly {
@@ -1595,7 +1464,6 @@
   background: var(--hd-hover);
 }
 
-
 /* A held message is the team's "needs you": it goes nowhere until somebody
    releases it, so the row that leads to it is warm rather than quiet. */
 .roomRow[data-held] .roomIcon,
@@ -1611,14 +1479,6 @@
   width: 24px; /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
-
-
-
-}
-
-.roomTwisty:hover {
 }
 
 .roomIcon {

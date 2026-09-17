@@ -565,6 +565,7 @@
    adds the affordance. */
 .rowButton {
   width: 100%;
+  border-radius: 0;
   border: none;
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
   background: none;

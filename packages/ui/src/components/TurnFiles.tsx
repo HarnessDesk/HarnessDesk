@@ -124,7 +124,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
               </>
             ))}
           <Button
-            variant="quiet" size="content" className={`${styles.action} ${styles.actionPrimary}`}
+            variant="quiet" size="content" className={styles.action}
             onClick={() => store.setDetailsTab('changes')}
             title="Open the Changes panel"
           >

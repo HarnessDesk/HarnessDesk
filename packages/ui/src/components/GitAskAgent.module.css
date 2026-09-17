@@ -45,14 +45,6 @@
   align-items: center;
   gap: 6px;
 
-
-
-
-
-
-}
-
-.agent[data-on] {
 }
 
 .agentName {
@@ -82,19 +74,7 @@
    is a path nobody can check against the repository. */
 .prompt {
 
-
-
-
-
-
-
-
-
-
   overflow-wrap: anywhere;
-}
-
-.prompt:focus {
 }
 
 /* --- the refusal block --------------------------------------------------- */

@@ -868,7 +868,7 @@ const KeyField = ({
                 {' '}
                 <Button variant="ghost" size="sm"
                   type="button"
-                  className={`${own.link} break-all`}
+                  className={`break-all`}
                   onClick={() => openExternal(method.helpUrl!)}
                 >
                   Where do I get one?

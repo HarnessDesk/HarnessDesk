@@ -435,14 +435,14 @@ const Changes = ({
                   <div className={styles.fileActions}>
                     <Button
                       type="button"
-                      variant="ghost" size="icon-sm" className={styles.fileAction}
+                      variant="ghost" size="sm"
                       onClick={() => store.openFile(absolute(file.path))}
                     >
                       Open
                     </Button>
                     <Button
                       type="button"
-                      variant="ghost" size="icon-sm" className={styles.fileAction}
+                      variant="ghost" size="sm"
                       onClick={() => revise(file.path)}
                     >
                       Revise…

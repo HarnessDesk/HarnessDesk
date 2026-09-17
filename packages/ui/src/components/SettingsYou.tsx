@@ -274,7 +274,7 @@ const FacePicker = ({
             aria-label={choice.label}
             title={`${choice.label} — ${choice.about}`}
             tabIndex={index === stop ? 0 : -1}
-            variant="choice" size="row" className={styles.faceChoice}
+            variant="ghost" size="inline" className={styles.faceChoice}
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}
             onKeyDown={(event) => {
@@ -375,7 +375,8 @@ const AccentSwatches = () => {
           aria-checked={accent === entry.value}
           aria-label={entry.label}
           title={entry.label}
-          variant="choice" size="row" className={styles.swatch}
+          variant="ghost" size="icon-circle"
+          data-swatch=""
           {...(accent === entry.value ? { 'data-on': '' } : {})}
           style={{
             background:

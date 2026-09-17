@@ -124,19 +124,8 @@
   gap: 8px;
   width: 100%;
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.rosterRow:hover {
-}
-
-.rosterRow[data-selected] {
 }
 
 .rosterMark {
@@ -299,15 +288,7 @@
   width: 100%;
  /* desk: canonical One UI System scale */
 
-
-
-
-
   text-align: left;
-
-}
-
-.method:hover {
 
 }
 
@@ -532,17 +513,6 @@
   color: var(--hd-secondary-foreground);
 }
 
-.link {
-
-
-
-
-
-}
-
-.link:hover {
-}
-
 /* The hand-off: the agent you have not signed in yet, offered once this one
    is done, so four sign-ins are one errand rather than four visits. */
 .next {
@@ -605,14 +575,5 @@
   min-width: 0;
 
  /* desk: canonical One UI System scale */
-
-
-
-
-
-
-}
-
-.keyInput:focus {
 
 }

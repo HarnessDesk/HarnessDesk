@@ -10,19 +10,6 @@
   justify-content: center;
   width: 26px;
 
-
-
-
-
-
-
-}
-
-.button:hover:not(:disabled) {
-
-}
-
-.button:disabled {
 }
 
 /* A narrow header keeps the toggle and folds the arrows: they are on the

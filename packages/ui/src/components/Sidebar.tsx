@@ -181,6 +181,7 @@ export const Sidebar = ({
           <FilterIcon className={styles.filterIcon} size={12} />
           <Input
             variant="quiet" controlSize="compact" className={styles.filterInput}
+            data-icon="leading"
             placeholder={filtering ? 'Filter sessions' : ''}
             aria-label="Filter sessions"
             title="Narrow the list below. ⌘K searches everything."

@@ -57,26 +57,9 @@
   gap: var(--hd-space-2);
   flex: 1;
 
-
-
-
   /* Both read as choices. At secondary the unselected one looked disabled
      beside its neighbour, next to a third button that genuinely is. Selection
      is carried by the border and the weight. */
-
-
-
-
-}
-
-.mode:hover:not(:disabled) {
-}
-
-.mode[aria-checked='true'] {
-
-}
-
-.mode:disabled {
 
 }
 

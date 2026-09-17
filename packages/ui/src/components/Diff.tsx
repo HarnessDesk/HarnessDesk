@@ -140,7 +140,7 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
       {hidden > 0 && (
         <div className={styles.truncated}>
           {hidden.toLocaleString()} more lines
-          <Button variant="ghost" size="icon-sm" className={styles.expand} onClick={() => setExpanded(true)}>
+          <Button variant="ghost" size="sm" className={styles.expand} onClick={() => setExpanded(true)}>
             Show all
           </Button>
         </div>

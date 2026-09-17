@@ -12,15 +12,6 @@
   align-items: center;
   gap: var(--hd-space-2);
 
-
-
-
-
-
-
-}
-
-.card[data-on] {
 }
 
 .mini {
@@ -38,9 +29,6 @@
 
 .card[data-on] .mini {
   box-shadow: inset 0 0 0 2px var(--hd-ring);
-}
-
-.card:focus-visible {
 }
 
 .card:focus-visible .mini {

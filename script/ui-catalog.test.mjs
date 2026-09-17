@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { catalogCoverage, catalogIntegrity, cvaContract, declarationStrings, importGraph, isReachable, renderedDeclarationStrings } from './ui-catalog.mjs'
+import { catalogCoverage, catalogIntegrity, cvaContract, declarationStrings, importGraph, isReachable, renderedDeclarationStrings, exportedModules } from './ui-catalog.mjs'
+
+test('discovers canonical modules through star, named and namespace exports', () => {
+  assert.deepEqual(exportedModules(`
+    export * from './button'
+    export { ProbeWidget, type ProbeProps } from "./probe-widget"
+    export * as Widgets from './widgets'
+    // export * from './not-a-module'
+    export { Other } from './button'
+  `), ['button', 'probe-widget', 'widgets'])
+})
 
 test('reads declared coverage from the example that renders the cases', () => {
   assert.deepEqual(

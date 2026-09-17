@@ -262,10 +262,6 @@
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
-
-
   opacity: 0;
 
 }
@@ -285,16 +281,6 @@
   display: inline-grid;
   place-items: center;
   width: 26px;
-
-
-
-
-
-
-
-}
-
-.tabAdd:hover {
 
 }
 
@@ -318,18 +304,6 @@
 .address {
   flex: 1;
   min-width: 0;
-
-
-
-
-
-
-
-
-
-}
-
-.address:focus {
 
 }
 
@@ -568,22 +542,6 @@
   align-items: center;
   gap: 4px;
 
-
-
-
-
-
-
-
-
-}
-
-.annotateTool:hover {
-}
-
-.annotateTool[data-on] {
-
-
 }
 
 /* The sentence that says what the pointer will do. First to go when the pane
@@ -602,19 +560,6 @@
    button: a person who notices the page is at 150% wants it back. */
 .zoomLevel {
   flex: none;
-
-
-
-
-
-
-
-
-
-
-}
-
-.zoomLevel:hover {
 
 }
 
@@ -679,16 +624,6 @@
   flex: none;
 
  /* desk: canonical One UI System scale */
-
-
-
-
-
-
-
-}
-
-.doingStop:hover {
 
 }
 

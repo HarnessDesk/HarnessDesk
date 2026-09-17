@@ -214,14 +214,6 @@
   display: flex;
   flex: none;
 
-
-
-
-
-
-}
-
-.railFilterClear:hover {
 }
 
 .railList {
@@ -443,15 +435,6 @@
   margin-inline: auto;
   width: fit-content;
 
-
-
-
-
-
-
-
-
-
 }
 
 /* In the column with the words it is about: a line that runs the full pane
@@ -510,16 +493,6 @@
   gap: var(--hd-space-1);
   flex-shrink: 0;
 
-
-
-
-
-
-
-
-}
-
-.back:hover {
 }
 
 /* --- one column at a time -------------------------------------------------
@@ -670,14 +643,6 @@
   display: flex;
   flex: none;
 
-
-
-
-
-
-}
-.columnClose:hover {
-
 }
 
 .columnBody {
@@ -706,13 +671,6 @@
   align-items: center;
   justify-content: center;
 
-
  /* desk: 6 → 8, with the target */
 
-
 }
-
-.railAdd:hover {
-
-}
-

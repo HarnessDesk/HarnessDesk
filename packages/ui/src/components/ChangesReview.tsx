@@ -233,7 +233,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                     </span>
                     <Counts added={count.added} removed={count.removed} />
                     <span className={styles.space} />
-                    <Button variant="quiet" size="content" className={styles.action} onClick={() => store.openFile(absolute(file.path))}>
+                    <Button variant="quiet" size="content" onClick={() => store.openFile(absolute(file.path))}>
                       Open
                     </Button>
                   </div>
@@ -252,7 +252,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                           <code className={styles.hunkRange}>{hunk.header}</code>
                           <span className={styles.space} />
                           <Button
-                            variant="quiet" size="content" className={styles.action}
+                            variant="quiet" size="content"
                             title="Quote this hunk into the composer as a revision request"
                             onClick={() => reviseHunk(file.path, hunk)}
                           >

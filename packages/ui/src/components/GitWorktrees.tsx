@@ -654,7 +654,7 @@ export const AddWorktreeDialog = ({
             <label className={styles.field}>
               <span className={styles.label}>From</span>
               <NativeSelect
-                variant="filled" controlSize="compact" className={styles.select}
+                variant="filled" controlSize="compact"
                 value={base}
                 aria-label="Where the branch starts"
                 onChange={(event) => setBase(event.target.value)}
@@ -673,7 +673,7 @@ export const AddWorktreeDialog = ({
           <label className={styles.field}>
             <span className={styles.label}>Branch</span>
             <NativeSelect
-              variant="filled" controlSize="compact" className={styles.select}
+              variant="filled" controlSize="compact"
               value={pick}
               aria-label="Which branch to check out"
               onChange={(event) => setExisting(event.target.value)}

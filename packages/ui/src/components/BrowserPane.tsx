@@ -1872,7 +1872,7 @@ export const BrowserPane = () => {
             {driving.key !== null && (
               <Button
                 type="button"
-                variant="action" size="icon-circle" className={styles.doingStop}
+                variant="action" size="sm" className={styles.doingStop}
                 onClick={() => void store.interrupt(driving.key as SessionKey)}
               >
                 Stop

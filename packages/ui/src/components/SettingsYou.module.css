@@ -48,26 +48,6 @@
   gap: var(--hd-space-2);
 }
 
-.swatch {
-  width: var(--hd-target-min); /* desk: canonical One UI System scale */
- /* desk: canonical One UI System scale */
-
-
-
-
-
-}
-
-.swatch:hover {
-}
-
-.swatch[data-on] {
-}
-
-.swatch:focus-visible {
-
-}
-
 /* The name field: the width the account nickname field has, so the two Name
    rows line up from one page to the other. */
 .nameField {
@@ -96,11 +76,6 @@
   display: grid;
   place-items: center;
 
-
-
-
-
-
 }
 
 .faceTile {
@@ -118,9 +93,6 @@
     var(--hd-hairline),
     0 0 0 2px var(--hd-card-fill, var(--hd-card)),
     0 0 0 4px var(--hd-ring);
-}
-
-.faceChoice:focus-visible {
 }
 
 .faceChoice:focus-visible .faceTile {

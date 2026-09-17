@@ -86,7 +86,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
       >
         <ScopeContext.Provider value={scope}>
           <DropdownMenuPortal container={host}>
-            <DropdownMenuPositioner className={styles.embeddedPositioner}>
+            <DropdownMenuPositioner anchor={host} className={styles.embeddedPositioner}>
               <DropdownMenuPopup ref={level} className={styles.level} finalFocus={false}>
                 {children}
               </DropdownMenuPopup>

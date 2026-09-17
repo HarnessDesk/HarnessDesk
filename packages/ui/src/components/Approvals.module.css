@@ -143,18 +143,8 @@
   align-items: flex-start;
   gap: 8px;
 
-
-
-
-
-
-
   text-align: left;
 
-}
-
-.choice:hover,
-.choice[data-selected] {
 }
 
 .choiceHint {

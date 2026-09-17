@@ -169,7 +169,7 @@ const cssRules = (rawSource) => {
             : parents.flatMap((parent) => own.map((selector) => selector.includes('&')
               ? selector.replaceAll('&', parent)
               : `${parent} ${selector}`))
-          rules.push({ selector: selectors.join(', '), declarations: directDeclarations(cursor + 1, close) })
+          rules.push({ selector: selectors.join(', '), declarations: directDeclarations(cursor + 1, close), empty: source.slice(cursor + 1, close).trim() === '' })
           walk(cursor + 1, close, selectors)
         }
         cursor = close
@@ -259,6 +259,9 @@ export const scanUiArchitecture = (files) => {
         findings.push({ path: file.path, rule: 'private-platform-token', detail: 'only explicit foundation and theme files may read or define --hdp-*' })
       }
       if (!file.path.startsWith('packages/ui/src/design/')) {
+        for (const rule of cssRules(file.source)) {
+          if (rule.empty) findings.push({ path: file.path, rule: 'empty-feature-rule', detail: rule.selector })
+        }
         for (const block of file.source.matchAll(/[^{}]+\{([^{}]+)\}/g)) {
           const body = block[1]
           const copiedButtonTokens = [
@@ -309,6 +312,10 @@ export const scanUiArchitecture = (files) => {
           if (tag === 'Button') {
             const variant = jsxAttribute(node, 'variant', ast)
             const size = jsxAttribute(node, 'size', ast)
+            if (size?.initializer && ts.isStringLiteral(size.initializer) && size.initializer.text.startsWith('icon') && ts.isJsxElement(node.parent)) {
+              const textLabel = node.parent.children.some((child) => ts.isJsxText(child) && child.text.trim())
+              if (textLabel) findings.push({ path: file.path, rule: 'text-in-icon-button', detail: 'text labels need a content-width Button size, not an icon-only square' })
+            }
             if (isNullJsxAttribute(variant) || isNullJsxAttribute(size)) {
               findings.push({ path: file.path, rule: 'nullable-button-contract', detail: 'Button variants and sizes must be named canonical contracts' })
             }

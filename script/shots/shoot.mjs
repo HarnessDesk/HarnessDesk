@@ -59,7 +59,7 @@ const CHATTER = [
   'The webhook one is independent; starting on it now.',
 ]
 
-const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const APP = process.env['HD_SHOTS_APP'] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const argv = process.argv.slice(2)
 const flag = (name, fallback = null) => {
   const at = argv.indexOf(`--${name}`)
@@ -87,6 +87,7 @@ say(`frame  ${WIDTH}x${HEIGHT} @2x`)
 
 const desk = await launchDesk({
   app: APP,
+  executable: process.env['HD_SHOTS_EXECUTABLE'],
   home: HOME,
   port: 9840 + Math.floor(Math.random() * 100),
   userDataDir: `${HOME}/electron`,
@@ -127,6 +128,21 @@ try {
           'usage/reports': ${q(USAGE)},
           'usage/ledger': ${q(LEDGER)},
           'usage/scan': ${q(SCAN)},
+          'runtime/skills': [
+            { name: 'review', description: 'Review the current changes and report actionable findings with reproducible checks.', enabled: true, toggleable: false },
+            { name: 'plan', description: 'Plan the implementation, identify the affected components, and wait for approval before changing files.', enabled: true, toggleable: false },
+          ],
+          'library/read': {
+            generatedAt: 1, home: '/home/user', runtimes: ['codex', 'claude-code'], gaps: [],
+            locations: ['codex', 'claude-code'].map(runtime => ({ runtime, kind: 'skill', path: '/home/user/.agents/skills', scope: 'user', scanned: true, exists: true, readOnly: true })),
+            entries: ['Accessibility audit', 'Review changes', 'Run project tests', 'Write release notes', 'Inspect workspace'].map((name, index) => ({
+              kind: 'skill', name: name.toLowerCase().replaceAll(' ', '-'), title: name,
+              description: 'Inspect the workspace and report actionable findings with reproducible checks and clear evidence.',
+              copies: [{ path: '/home/user/.agents/skills/demo-' + index, scope: 'user', readBy: ['codex', 'claude-code'], hollow: false, digest: 'demo', readOnly: true }],
+              reach: ['codex', 'claude-code'].map(runtime => ({ runtime, state: 'reaches', basis: 'scanned' })),
+            })),
+          },
+          'library/usage': { generatedAt: 1, sessionsScanned: 0, skills: {} },
         }
         const accounts = ${q(ACCOUNTS)}
         const anonymous = ${q(ANONYMOUS)}
@@ -184,6 +200,36 @@ try {
     }
     await tildify()
     await audit(name)
+    if (has('assert-layout')) {
+      const faults = await cdp.json(`(() => {
+        const faults = []
+        const visible = node => node.getBoundingClientRect().height > 0
+        const sidebar = document.querySelector('nav[aria-label="Workspace actions"]')?.parentElement
+        if (sidebar && visible(sidebar)) {
+          for (const node of [sidebar, ...sidebar.querySelectorAll('*')]) {
+            if (['auto', 'scroll'].includes(getComputedStyle(node).overflowX) && node.scrollWidth > node.clientWidth + 1) {
+              faults.push('horizontal sidebar overflow: ' + node.className)
+            }
+          }
+        }
+        for (const row of document.querySelectorAll('button[class*="rowButton"], button[class*="rowChoice"]')) {
+          if (!visible(row)) continue
+          const box = row.getBoundingClientRect()
+          for (const child of row.querySelectorAll('[class*="rowTitle"], [class*="rowDesc"], [class*="rowMark"]')) {
+            const rect = child.getBoundingClientRect()
+            if (rect.top < box.top - 1 || rect.bottom > box.bottom + 1) faults.push('row overflow: ' + row.textContent.slice(0, 80))
+          }
+        }
+        for (const item of document.querySelectorAll('[role="menuitem"]')) {
+          if (!visible(item)) continue
+          let opacity = 1
+          for (let node = item; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity)
+          if (opacity < 0.99) faults.push('invisible menu item: ' + item.textContent.slice(0, 80))
+        }
+        return faults
+      })()`)
+      if (faults.length) throw new Error(name + ': ' + faults.join('; '))
+    }
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
     writeFileSync(`${OUT}/${name}.png`, Buffer.from(data, 'base64'))
     say(`✓ ${name}.png`)
@@ -395,9 +441,9 @@ rules:
     } },
 
     /** CodeMirror behind the canonical editor theme bridge. */
-    editor: { leaveOverlay: true, expect: 'README.md', run: async () => {
+    editor: { leaveOverlay: true, expect: 'package.json', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
-      await cdp.eval(`${STORE}.openFile(${q(join(REPO, 'README.md'))}); true`)
+      await cdp.eval(`${STORE}.openFile(${q(join(REPO, 'package.json'))}); true`)
       await sleep(2200)
     } },
 
@@ -563,6 +609,30 @@ rules:
     } },
   }
 
+  // The review sweep records every Settings destination, including the rich
+  // rows that a single Appearance frame cannot exercise.
+  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'agents', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
+    SCENES[`settings-${section}`] = { run: async () => {
+      await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
+      await sleep(1200)
+    } }
+  }
+  SCENES['composer-menu'] = { leaveOverlay: true, run: async () => {
+    await SCENES.conversation.run()
+    const opened = await cdp.eval(`(() => {
+      const button = [...document.querySelectorAll('button')].find(e => /model and reasoning/i.test(e.title))
+      if (!button) return false
+      button.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('composer model trigger missing: ' + await cdp.eval(`JSON.stringify([...document.querySelectorAll('button')].map(e => e.title).filter(Boolean))`))
+    await sleep(600)
+  } }
+  SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
+    await cdp.eval(`${STORE}.askSettings('extensions'); true`)
+    await sleep(1200)
+  } }
+
   /* Every `--scene` on the line, not just the first: a take is usually two or
      three scenes, and silently shooting only one of them is the kind of miss
      you find after the app has been shut down. */
@@ -592,6 +662,11 @@ rules:
       await setTheme(theme)
       await shoot(`${name}-${theme}`, scene.expect ?? null)
     }
+  }
+  if (has('interactive')) {
+    say('Isolated app ready for native interaction. Press Return here to close it.')
+    await new Promise(resolve => process.stdin.once('data', resolve))
+    process.stdin.pause()
   }
 } finally {
   await closeDesk(desk).catch(() => {})

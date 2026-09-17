@@ -24,19 +24,6 @@
   padding: 0 2px;
 }
 
-.crumb { /* desk: canonical One UI System scale */
-
-
-
-
-
-
-}
-
-.crumb:hover {
-
-}
-
 .crumbCurrent {
   padding: 1px var(--hd-space-1); /* desk: canonical One UI System scale */
   font-weight: 600;
@@ -57,15 +44,8 @@
   width: 100%;
  /* desk: canonical One UI System scale */
 
-
-
-
-
   text-align: left;
 
-}
-
-.entry:hover {
 }
 
 .empty {

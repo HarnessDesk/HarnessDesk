@@ -45,14 +45,6 @@
   flex: 1;
   min-width: 0;
 
-
-
-
-
-
-}
-
-.input::placeholder {
 }
 
 .kbd {
@@ -84,18 +76,8 @@
   gap: 10px;
   width: 100%;
 
-
-
-
-
-
-
-
   text-align: left;
 
-}
-
-.row[data-active] {
 }
 
 .rowIcon {

@@ -60,18 +60,6 @@
   box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
-.tileOpen {
-  display: block;
-  width: 100%;
-
-
-
-
-
-  overflow: hidden;
-
-}
-
 .thumb {
   display: block;
   width: 100%;
@@ -85,18 +73,6 @@
   right: -6px;
   display: grid;
   place-items: center;
-  width: var(--hd-target-min); /* desk: canonical One UI System scale */
- /* desk: canonical One UI System scale */
-
-
-
-
-
-
-}
-
-.tileRemove:hover {
- /* desk: #fff → the ink named for this fill */
 }
 
 /* The chosen agent cannot look at this image: the tile says so rather than
@@ -156,13 +132,6 @@
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
-
-
-}
-
-.chipRemove:hover { /* desk: a forked literal → the token it was a copy of */
 }
 
 .input {
@@ -171,22 +140,11 @@
   /* Named in the token layer because the room's box is the same box drawn from
      utilities, and `composer.parity.test.ts` holds the two to these three. */
 
-
  /* desk: canonical One UI System scale */
-
-
-
-
-
 
 }
 
 /* The shell is the focus indication; the global ring would draw a second box. */
-.input:focus-visible {
-}
-
-.input::placeholder {
-}
 
 /* The controls give way before the send button does: every anchor may
    shrink (its label ellipsises), the send button never, so a narrow pane
@@ -272,14 +230,9 @@
 
   width: 30px;
 
-
-
  /* desk: accent → ink, with every filled control */
  /* desk: #fff → the ink's own foreground */
 
-}
-
-.send:hover { /* desk: accent → ink */
 }
 
 /* Waiting on the turn, not refused: the fill goes tinted and the glyph stays
@@ -294,31 +247,14 @@
    the shell in the dark one — a button you could see but not read, and then a
    button you could read but not find. Both now clear 3:1, the floor WCAG sets
    for a graphic that carries meaning. */
-.send[data-when='later'] {
-
-
-}
-
-.send[data-when='later']:hover {
-}
 
 /* Nothing typed yet. Not `not-allowed` — the button is not refusing the
    click, there is simply nothing in the box, and a crossed-out cursor over
    your own primary action reads as breakage. */
-.send[data-when='nothing'] {
-
-
-}
 
 /* Stop reads the same two names the send coin does, so the app has one ink
    and not two that happen to look alike. The values it drew before are what
    `--hd-solid` resolves to. */
-.stop { /* desk: the platform's label ink → the app's one solid */
- /* desk: the page ground → the solid's own foreground */
-}
-
-.stop:hover { /* desk: the secondary label → the solid's own hover */
-}
 
 /* --- @-mention picker ---------------------------------------------------- */
 
@@ -385,10 +321,6 @@
   color: var(--hd-accent);
 }
 
-
-
-
-
 /* The hand-off chip: the lineage of a draft that came from another agent. */
 .chipHandoff {
   max-width: 100%;
@@ -408,16 +340,8 @@
   gap: 6px;
   min-width: 0;
 
-
   /* No fill to round — the radius is what the focus ring traces. */
 
-
-
-
-
-}
-
-.chipLink:hover {
 }
 
 .chipMeta {

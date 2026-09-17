@@ -9,15 +9,64 @@ repository-wide UI migration. The architectural decision is recorded in
 
 - Starting commit: `9f2d6dec1d8e7534c83a4c8d23d7b7d280fb3422`
 - Branch: `codex/one-ui-system`
-- Verification tree: uncommitted working tree on the starting commit; no
-  commit, push, merge, publication, or release was authorized or performed
+- Original verification tree: an uncommitted working tree on the starting
+  commit. The work was subsequently published as PR #748 at the user's request.
 - Environment: macOS arm64, Node 25.9.0, pnpm 10.4.1
 - Baseline: unmodified `pnpm verify`, exit 0
 - Starting design debt: 271 findings accepted by the former historical
   baseline; 410 inventoried entries with 191 unresolved production entries
 
-No unrelated checkout was reset, and no commit, push, publication, release, or
-real account/session was used by this work.
+No unrelated checkout was reset. Public evidence uses only an isolated fake
+desk; the user's supplied screenshots of their real desk stay local.
+
+## September 16 regression correction
+
+The first migration was not visually ready. The user reproduced overlapping
+Settings rows, blank menus, undersized avatar artwork, and sidebar overflow in
+the real app. The earlier green gate and sampled native frames did not justify
+the previous claim that no unexplained regressions remained. This section
+supersedes that readiness claim, not the architectural intent.
+
+Three builds were captured with the same synthetic data: original `9f2d6dec`,
+broken PR head `b8962d50`, and the repair. Original/broken comparisons cover
+Profile, Agents, Library, Skills & commands, and the model menu. The repaired
+app is also built as a macOS arm64 package and exercised in its real window.
+
+| Regression | Cause | Repair and regression check |
+| --- | --- | --- |
+| Overlapping rows | Settings row buttons inherited a fixed small-button height | Content-sized rows; browser and native child-bounds containment checks |
+| Blank menus | The embedded Base UI positioner had no anchor and retained opacity zero | Real host anchor; effective ancestor-opacity assertion, selection, Escape and focus checks |
+| Squashed artwork and duplicate selection rings | Blanket descendant SVG sizing and overlapping generic/avatar selection styles | Icons retain explicit dimensions; one avatar ring; computed-size and shadow tests |
+| Lost state cues | Mechanical CSS removal outpaced the canonical variants | Restore current/indented Git rows, selected navigation, drop targets, deferred send hover, live/pressed tasks, warning/danger/success facts, attachment removal and light-register spacing |
+| Text in square buttons | Text actions inherited icon-only size variants | Use text-sized actions; architecture gate rejects literal text in icon-only buttons |
+| Duplicate About windows (#750) | Concurrent calls passed the guard before awaiting preferences | Recheck after the await; concurrent-call regression test |
+| Catalog bypass (#751) | Export-star-only discovery missed named exports and plain TypeScript patterns | TypeScript export parsing and both pattern extensions; negative tests |
+| Empty CSS (#752) | Stripped declarations left misleading empty selectors | Remove empty feature rules and reject new ones in the architecture gate |
+
+The remaining emptied state selectors were reconciled against their owners:
+choice selection and danger modes use `choice`; selected/active rows and
+remote indentation use `row`; navigation selection/density use `navigation`;
+pressed, active and live feedback use `quiet`; send states use `action`;
+filter icon clearance uses `Input`; peer-message framing stays on its static
+wrapper; noninteractive Git and turn facts keep their static presentation.
+The original focus-test race and dependency on an unavailable `rg` binary were
+already fixed before this repair and remain covered by the repository gate.
+
+The six browser integration tests include checks that actually failed before
+the repair: row bounds, menu effective opacity, current-branch weight, icon
+dimensions, drop feedback, deferred-send hover, pressed feedback, and transcript
+padding. Role presence and focus alone had allowed invisible menus to pass.
+
+Real packaged-app interaction checks include model/mode selection, opening the
+agent and sidebar menus, Escape and focus return, account expansion, Library
+search and detail dismissal, command details, theme switching, and the
+new-session chooser. Fake definitions may deliberately be unavailable; this
+does not test vendor authentication or real skill execution.
+
+The PR embeds immutable, privacy-reviewed screenshot evidence for every main
+page and Settings destination, in both themes where supported by the rig,
+plus native Extensions, terminal and About frames. Screenshot checks do not
+constitute exhaustive coverage of every data-dependent state or VoiceOver.
 
 ## Finished architecture
 
@@ -133,7 +182,7 @@ guardrails.
 
 ### Browser and catalog
 
-`pnpm test:ui-system` runs four Playwright tests against the live
+`pnpm test:ui-system` runs six Playwright tests against the live
 `design.html` production catalog:
 
 - one test-only foundation perturbation changes actual computed height,
@@ -145,6 +194,8 @@ guardrails.
 - keyboard entry, safe Enter handling, topmost Escape, and focus return are
   exercised on the real dialog and menu contracts;
 - dark mode, reduced motion, and 1024x768 rendering are captured.
+- Settings row containment and canonical state/icon geometry are measured,
+  and menu checks include effective opacity through every ancestor.
 
 The run writes its generated artifacts under `output/playwright/ui-system/`:
 `propagation-light.png`, `propagation-dark-1024x768.png`, and the `report/`
@@ -179,7 +230,10 @@ No real profile, credential store, repository, account, path, or transcript is
 used. Each frame is rejected before writing if the privacy audit cannot vouch
 for its visible text, attributes, or accounts.
 
-### Current command record
+### Original migration command record (historical)
+
+These results preceded the user-reported regressions. They are not a current
+readiness claim; the repair's exact-head results and images accompany PR #748.
 
 | command | result |
 | --- | --- |
@@ -212,8 +266,9 @@ starting commit and 127.71 seconds on the migrated tree. That end-to-end number
 includes fixture startup, a real Electron launch, the deterministic wait policy,
 privacy inspection, capture, and runtime shutdown; it is a regression sentinel,
 not a claim about interactive latency in isolation. Streaming, board, room,
-resize, focus, and overlay behavior are exercised by the UI contracts, browser
-suite, and nine-scene native sweep. No unexplained regression was observed.
+resize, focus, and overlay behavior were sampled by the UI contracts, browser
+suite, and nine-scene native sweep. That sample missed the regressions recorded
+above and must not be read as an exhaustive visual acceptance result.
 
 ## Boundaries and verification limits
 

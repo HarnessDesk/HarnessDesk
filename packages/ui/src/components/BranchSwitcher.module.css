@@ -21,16 +21,6 @@
 
  /* desk: canonical One UI System scale */
 
-
-
-
-
-
-
-
-}
-
-.filter:focus {
 }
 
 .list {
@@ -66,16 +56,6 @@
 .createButton {
   flex: none;
 
-
-
-
-
  /* desk: #fff → the ink named for a brand fill */
-
-
-
-}
-
-.createButton:disabled {
 
 }

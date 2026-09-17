@@ -956,7 +956,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.tileRemove}
+                  variant="destructive" size="icon-circle" data-overlay="" className={styles.tileRemove}
                   aria-label={`Remove ${image.name}`}
                   onClick={() => setAttachments((current) => current.filter((entry) => entry.id !== image.id))}
                 >
@@ -1209,7 +1209,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           {busy && (
             <Button
               type="button"
-              variant="action" size="icon-circle" className={`${styles.send} ${styles.stop}`}
+              variant="action" size="icon-circle" className={styles.send}
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
               title="Stop this turn"

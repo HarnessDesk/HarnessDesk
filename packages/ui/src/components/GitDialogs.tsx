@@ -242,7 +242,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
     >
       <div className={styles.body}>
         <Textarea
-          variant="editor" controlSize="compact" className={styles.message}
+          variant="editor" controlSize="compact"
           value={message}
           rows={3}
           placeholder="What this commit does"
@@ -281,7 +281,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
                    the Changes panel, so a row missing here reads as an
                    oversight instead of an answer. */
                 return (
-                  <div key={file.path} className={styles.file} data-moot="">
+                  <div key={file.path} className={`${styles.file} ${styles.fileStatic}`} data-moot="">
                     <span className={styles.blank} />
                     <span className={styles.status} data-status="nothing">
                       {STATUS_LETTER.nothing}
@@ -296,7 +296,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
                    is not a choice this commit has to offer. Greyed rather
                    than withdrawn, so the row still accounts for the path. */
                 return (
-                  <div key={file.path} className={styles.file} data-moot="">
+                  <div key={file.path} className={`${styles.file} ${styles.fileStatic}`} data-moot="">
                     <span className={styles.check} data-on="">
                       <CheckIcon size={11} />
                     </span>
@@ -400,7 +400,7 @@ export const MergeDialog = ({
     >
       <div className={styles.body}>
         <NativeSelect
-          variant="filled" controlSize="compact" className={styles.select}
+          variant="filled" controlSize="compact"
           value={ref}
           aria-label="What to merge"
           onChange={(event) => setRef(event.target.value)}

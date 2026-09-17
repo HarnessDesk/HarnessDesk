@@ -44,7 +44,7 @@ import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
   [
-    'group/button inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap',
+    'group/button inline-flex min-w-0 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap',
     'rounded-(--hd-btn-radius) border border-transparent bg-clip-padding',
     /* `leading-none` because the height token owns the box: Tailwind's
        `text-sm` used to bring a line-height with it, and swapping in the
@@ -52,7 +52,7 @@ const buttonVariants = cva(
        button. It centred anyway — but a line box taller than its control is
        the thing that makes a two-line label overflow instead of wrap, and
        Kit's `.btn` has always said `line-height: 1`. */
-    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors outline-none select-none',
+    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors outline-none select-none data-[draggable]:cursor-grab',
     /* The focus mark. `outline-none` above kills the document's, and until
        now nothing put one back: a button in this app could be focused with
        no way to tell. The reference's answer is two marks at once — the ring
@@ -62,7 +62,9 @@ const buttonVariants = cva(
     'active:not-aria-[haspopup]:translate-y-px',
     'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
     'aria-invalid:border-(--hd-destructive)',
-    "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+    // Icons carry their own dimensions through the app's icon facade. A
+    // descendant-wide size override also shrank avatar marks and nested art.
+    '[&_svg]:pointer-events-none [&_svg]:shrink-0',
   ].join(' '),
   {
     variants: {
@@ -74,21 +76,21 @@ const buttonVariants = cva(
         secondary:
           'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover)',
         ghost:
-          'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
+          'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-ring)]',
         destructive:
-          'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover)',
+          'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover) data-[overlay]:bg-(--hd-solid) data-[overlay]:text-(--hd-solid-foreground) data-[overlay]:hover:bg-(--hd-danger) data-[overlay]:hover:text-(--hd-destructive-foreground)',
         link: 'text-(--hd-primary-ink) underline-offset-4 hover:underline',
         /* Product surfaces select a semantic role; they never redraw the
            control from a screen stylesheet. These roles are deliberately
            opinionated rather than an `unstyled` escape hatch. */
         row:
-          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[done]:opacity-60 data-[done]:line-through aria-expanded:bg-(--hd-active)',
+          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:font-semibold data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through aria-expanded:bg-(--hd-active)',
         navigation:
-          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))]',
+          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))]',
         choice:
-          'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-accent-dim) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring)',
+          'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-accent-dim) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) aria-checked:border-(--hd-ring) aria-checked:font-semibold data-[hard]:data-[on]:border-(--hd-danger)',
         quiet:
-          'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover)',
+          'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-pressed:bg-(--hd-hover) data-[on]:bg-(--hd-active) data-[on]:text-(--hd-foreground) data-[active]:bg-(--hd-accent-dim) data-[active]:text-(--hd-accent) data-[live]:bg-(--hd-success-dim) data-[live]:text-(--hd-success-ink)',
         muted:
           'bg-transparent text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover)',
         warning:
@@ -98,7 +100,7 @@ const buttonVariants = cva(
         subtle:
           'bg-(--hd-muted) text-(--hd-foreground) hover:bg-(--hd-hover)',
         action:
-          'bg-(--hd-solid) text-(--hd-solid-foreground) transition-[background,box-shadow,transform] hover:bg-(--hd-solid-hover) active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100 data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)] data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hd-foreground))] data-[when=later]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--hd-accent)_78%,transparent)] data-[when=nothing]:bg-(--hd-muted) data-[when=nothing]:text-(--hd-muted-foreground) data-[when=nothing]:active:scale-100',
+          'bg-(--hd-solid) text-(--hd-solid-foreground) transition-[background,box-shadow,transform] hover:bg-(--hd-solid-hover) active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100 data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)] data-[when=later]:hover:bg-[color-mix(in_srgb,var(--hd-accent)_32%,transparent)] data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hd-foreground))] data-[when=later]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--hd-accent)_78%,transparent)] data-[when=nothing]:bg-(--hd-muted) data-[when=nothing]:text-(--hd-muted-foreground) data-[when=nothing]:active:scale-100',
       },
       size: {
         default:
@@ -116,8 +118,8 @@ const buttonVariants = cva(
         content: 'h-auto p-0 whitespace-normal',
         inline: 'h-auto rounded-(--hd-radius-sm) p-1 whitespace-normal',
         panel: 'h-auto w-full p-4 whitespace-normal',
-        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 whitespace-normal',
-        navigation: 'h-(--hd-nav-h) p-(--hd-nav-padding)',
+        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
+        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) data-[density=comfortable]:py-2 data-[density=compact]:py-1',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },
@@ -143,6 +145,7 @@ const Button = ({
 }: ButtonProps) => (
   <ButtonPrimitive
     data-slot="button"
+    data-variant={variant}
     className={cn(buttonVariants({ variant, size, className }))}
     /* A bare <button> submits the form around it; nothing in this app means
        that, so the default is the safe one — the same rule Kit's Btn holds.

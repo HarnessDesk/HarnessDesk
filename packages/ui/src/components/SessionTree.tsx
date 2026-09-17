@@ -502,6 +502,7 @@ const GroupHead = ({
       <Button
         type="button"
         variant="navigation" size="navigation" className={styles.groupRow}
+        data-draggable=""
         {...(current ? { 'data-current': '' } : {})}
         onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
         title={`${current ? 'The folder this app is working in.\n' : ''}${group.root}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}

@@ -43,7 +43,7 @@ export const StepGroup = ({
       <div className={styles.group}>
         <Button
           type="button"
-          variant="quiet" size="content" className={styles.groupHeader}
+          variant="quiet" size="row" className={styles.groupHeader}
           aria-expanded={expanded}
           onClick={() => {
             setPinned(true)

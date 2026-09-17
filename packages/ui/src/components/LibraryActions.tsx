@@ -779,7 +779,7 @@ export const AuthorDialog = ({
         <label className={styles.field}>
           <span className={styles.fieldLabel}>Instructions</span>
           <Textarea
-            variant="editor" controlSize="compact" className={styles.textarea}
+            variant="editor" controlSize="compact"
             value={body}
             rows={6}
             placeholder="What the agent should do when this skill fires."

@@ -7,11 +7,12 @@
 }
 
 .levelHost {
-  display: contents;
+  display: block;
 }
 
-/* The anchored Popover already owns placement. This Base UI positioner exists
-   to supply the menu collection/keyboard context inside that surface. */
+/* The anchored Popover owns placement. The embedded menu still needs a real
+   anchor to finish Base UI's positioning lifecycle; without one its children
+   remain at opacity: 0 even though they are focusable and have layout boxes. */
 .embeddedPositioner {
   position: static !important;
   inset: auto !important;

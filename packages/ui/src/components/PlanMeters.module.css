@@ -196,14 +196,7 @@
   align-items: center;
   gap: 6px;
 
-
-
-
-
   text-align: left;
-}
-
-.panelHead:hover {
 }
 
 .panelName {
@@ -335,16 +328,8 @@
   align-items: center;
   gap: 8px;
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.rosterRow:hover {
 }
 
 .rosterName {
@@ -393,11 +378,4 @@
 
  /* desk: canonical One UI System scale */
 
-
-
-
-}
-
-.signInChip:hover {
- /* desk: #fff → the ink named for a brand fill */
 }

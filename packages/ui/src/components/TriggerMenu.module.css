@@ -26,17 +26,8 @@
   gap: 8px;
   width: 100%;
 
-
-
-
-
-
   text-align: left;
 
-}
-
-.row[data-selected],
-.row:hover {
 }
 
 .name {

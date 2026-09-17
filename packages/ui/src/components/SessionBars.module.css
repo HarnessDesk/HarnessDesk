@@ -64,13 +64,6 @@
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
  /* desk: canonical One UI System scale */
 
-
-
-
-
-}
-
-.goalClear:hover {
 }
 
 /* --- jobs -------------------------------------------------------------- */
@@ -156,18 +149,7 @@
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 
-
-
  /* desk: canonical One UI System scale */
-
-
-
-
-
-
-}
-
-.deliverable:hover {
 
 }
 

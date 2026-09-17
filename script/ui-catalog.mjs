@@ -397,14 +397,24 @@ export const catalogIntegrity = ({ entries, existingPaths, ledgerPaths = existin
 
 const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
+/** Public module coverage must not depend on the spelling of its re-export. */
+export const exportedModules = (source) => {
+  const ast = ts.createSourceFile('index.ts', source, ts.ScriptTarget.Latest, true)
+  return [...new Set(ast.statements.flatMap(statement =>
+    ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text.startsWith('./')
+      ? [statement.moduleSpecifier.text.slice(2)] : [],
+  ))]
+}
+
 if (isMain) {
   const existingPathList = repositoryFiles(root)
   const uiIndex = fs.readFileSync(path.join(root, 'packages/ui/src/design/ui/index.ts'), 'utf8')
-  const uiModules = [...uiIndex.matchAll(/^export \* from '\.\/([^']+)'/gm)].map((match) => match[1])
+  const uiModules = exportedModules(uiIndex)
   const patternModules = existingPathList
-    .filter((file) => file.startsWith('packages/ui/src/design/patterns/') && file.endsWith('.tsx'))
-    .filter((file) => file && !file.endsWith('.test.tsx'))
-    .map((file) => path.basename(file, '.tsx'))
+    .filter((file) => file.startsWith('packages/ui/src/design/patterns/') && /\.tsx?$/.test(file))
+    .filter((file) => file && !/\.(?:test|spec)\.tsx?$/.test(file))
+    .map((file) => path.basename(file).replace(/\.tsx?$/, ''))
   const manifest = fs.readFileSync(path.join(root, 'packages/ui/src/design/catalog/manifest.ts'), 'utf8')
   const coverage = catalogCoverage({
     uiModules,

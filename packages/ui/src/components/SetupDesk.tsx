@@ -98,7 +98,7 @@ export const SetupDesk = ({
       </div>
       <p className={styles.foot}>
         Another agent on this machine?{' '}
-        <Button variant="link" size="content" className={styles.footLink} onClick={onOpenAgents}>
+        <Button variant="link" size="content" onClick={onOpenAgents}>
           Add an agent…
         </Button>
       </p>
