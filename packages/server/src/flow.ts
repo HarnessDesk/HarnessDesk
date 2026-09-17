@@ -88,7 +88,7 @@ const SIMULATION_ROUNDS = 24
  */
 const OUTCOME_CEILING = 12
 
-const problem = (level: 'error' | 'warning', at: string, text: string): FlowProblem => ({
+export const problem = (level: 'error' | 'warning', at: string, text: string): FlowProblem => ({
   level,
   at,
   text,
@@ -190,14 +190,21 @@ export const ROUND_SLOTS = ['from', 'answered'] as const
 
 // -------------------------------------------------------------------- reading
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
+/* These four read plain data out of parsed YAML, and they are exported because
+   `AGENT.md` is read by the same grammar: the spec says an Agent's `prefer`
+   uses the seat form a role's `seats` uses, "parsed by the same code", and two
+   copies of `asText` are how the two formats begin disagreeing about one file. */
+
+export const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
 
-const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
+/** Whether this *is* a list. Null for everything else — it does not wrap. */
+export const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
 
-const asText = (value: unknown): string | null =>
+/** A scalar as it was written. Null for a map or a list, which is not text. */
+export const asText = (value: unknown): string | null =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
 
 /**
@@ -259,7 +266,17 @@ export const seatSpec = (seat: FlowSeat): string =>
   }`
 
 const KINDS: readonly FlowRoleKind[] = ['agent', 'person', 'check']
-const PERMISSIONS: readonly FlowPermission[] = ['read', 'publish', 'merge']
+
+/**
+ * The permissions, written against the union rather than beside it: a record
+ * keyed by `FlowPermission` stops compiling the day a fourth one is added, the
+ * way `GIT_RULES` does, where a hand-kept list would go on compiling and go on
+ * refusing the new word — in two files, since `AGENT.md` reads the same field.
+ */
+const PERMISSION_WORDS: Readonly<Record<FlowPermission, true>> = { read: true, publish: true, merge: true }
+
+/** Whether a written word is a permission. Own keys only, so `toString` is not. */
+export const isPermission = (word: string): word is FlowPermission => Object.hasOwn(PERMISSION_WORDS, word)
 
 const readGuard = (value: unknown, at: string, problems: FlowProblem[]): FlowGuard | null => {
   if (value === null || value === undefined) return null
@@ -418,8 +435,8 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
       problems.push(problem('error', `${at}.kind`, `"${kind}" is not a kind — it is agent, person or check`))
       continue
     }
-    const permission = (asText(record['permission']) ?? 'read') as FlowPermission
-    if (!PERMISSIONS.includes(permission)) {
+    const permission = asText(record['permission']) ?? 'read'
+    if (!isPermission(permission)) {
       problems.push(
         problem('error', `${at}.permission`, `"${permission}" is not a permission — it is read, publish or merge`),
       )

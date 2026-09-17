@@ -55,8 +55,15 @@ export interface AgentEntry {
   readonly id: AgentId
   readonly origin: AgentOrigin
   readonly path: string
-  /** Content hash of the file, captured so a Seat can record which brief it ran. */
-  readonly brief: string
+  /**
+   * Content hash of the file, captured so a Seat can record which brief it ran.
+   *
+   * Called a digest, the word `agent-inventory` uses for the same thing, and
+   * deliberately *not* `brief`: `AgentDefinition.brief` is the prose twenty
+   * lines above, both are strings, and a reader who fetched the wrong one would
+   * get a hash where a paragraph belongs with nothing to catch it.
+   */
+  readonly digest: string
   /** Same id, lower precedence. Listed and marked, never hidden. */
   readonly shadows: readonly { readonly origin: AgentOrigin; readonly path: string }[]
   readonly problems: readonly AgentProblem[]

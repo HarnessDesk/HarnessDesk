@@ -1,6 +1,6 @@
 import type { AgentDefinition, AgentProblem, FlowPermission, FlowSeat } from '@harnessdesk/protocol'
 
-import { parseSeat, seatFromMap } from './flow.js'
+import { asList, asRecord, asText, isPermission, parseSeat, problem, seatFromMap } from './flow.js'
 import { parseYaml, YamlError } from './yaml.js'
 
 /**
@@ -12,41 +12,63 @@ import { parseYaml, YamlError } from './yaml.js'
  * It reports problems and never throws. A listing is drawn while somebody is
  * still typing in one of these files, and one unparseable Agent must cost that
  * Agent rather than the roster.
+ *
+ * Every coercion is `flow.ts`'s own, imported and not copied: an Agent's
+ * `prefer` is the seat form a role's `seats` is, "parsed by the same code", and
+ * a private `String(…)` here is how the two formats start reading one file two
+ * ways — `prefer: [[a, b]]` as the runtime "a,b" on this side and as a refusal
+ * on that one.
  */
 
-const PERMISSIONS: readonly FlowPermission[] = ['read', 'publish', 'merge']
-
-const problem = (level: 'error' | 'warning', at: string, text: string): AgentProblem => ({ level, at, text })
-
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
-
 /**
- * One value or a list of them, the way a flow role's `seat` is read: a lone
+ * One value or a list of them, the way a flow role reads its `seat`: a lone
  * `skills: review-checklist` is what somebody meant, and dropping it silently
  * because it lacked brackets is a quieter wrong than reading it.
- */
-const asList = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : value === undefined || value === null ? [] : [value]
-
-const asWords = (value: unknown): string[] => asList(value).map((one) => String(one).trim()).filter(Boolean)
-
-/**
- * Splits `---` front matter from the body. A file with neither is all body.
  *
- * `line` is where the front matter starts in the file, so a YAML refusal can
- * point at the line somebody has open rather than at the line of the slice.
+ * Named apart from the `asList` it calls, because the two answer different
+ * questions — `asList` says whether a value *is* a list and never wraps one —
+ * and one name over two contracts is a trap for whoever reaches for the wrong
+ * import.
  */
-const split = (source: string): { front: string; body: string; line: number } => {
-  if (!source.startsWith('---')) return { front: '', body: source, line: 1 }
-  const end = source.indexOf('\n---', 3)
-  if (end < 0) return { front: '', body: source, line: 1 }
-  const after = source.indexOf('\n', end + 1)
-  return {
-    front: source.slice(source.indexOf('\n', 0) + 1, end),
-    body: after < 0 ? '' : source.slice(after + 1),
-    line: 2,
-  }
+const oneOrMore = (value: unknown): unknown[] =>
+  asList(value) ?? (value === undefined || value === null ? [] : [value])
+
+/** The words in a field. A map or a nested list is not a word, so it is dropped. */
+const asWords = (value: unknown): string[] =>
+  oneOrMore(value)
+    .map((one) => (asText(one) ?? '').trim())
+    .filter(Boolean)
+
+/** Front matter opens on a line of exactly `---`, so `--- draft` opens nothing. */
+const OPENS = /^---[ \t]*(?:\r?\n|$)/
+
+/** …and closes on another one. The body between them may be empty. */
+const FENCED = /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/
+
+/** What `split` found: front matter, the body under it, and how it went wrong. */
+interface Split {
+  readonly front: string
+  readonly body: string
+  /**
+   * Where the front matter starts in the file, so a YAML refusal can point at
+   * the line somebody has open rather than at the line of the slice.
+   */
+  readonly line: number
+  /**
+   * A fence that opened and never closed — the likeliest mistake in a file
+   * edited by hand. Read as a brief it drops every field silently, a declared
+   * `permission: merge` with them, and then blames the file for having no name,
+   * so it is worth an error of its own rather than a wrong Agent.
+   */
+  readonly unclosed: boolean
+}
+
+/** Splits `---` front matter from the body. A file with neither is all body. */
+const split = (source: string): Split => {
+  if (!OPENS.test(source)) return { front: '', body: source, line: 1, unclosed: false }
+  const fenced = FENCED.exec(source)
+  if (!fenced) return { front: '', body: source, line: 1, unclosed: true }
+  return { front: fenced[1] ?? '', body: source.slice(fenced[0].length), line: 2, unclosed: false }
 }
 
 export const parseAgentDefinition = (
@@ -54,7 +76,20 @@ export const parseAgentDefinition = (
   id: string,
 ): { agent: AgentDefinition | null; problems: AgentProblem[] } => {
   const problems: AgentProblem[] = []
-  const { front, body, line } = split(source)
+  const { front, body, line, unclosed } = split(source)
+
+  if (unclosed) {
+    return {
+      agent: null,
+      problems: [
+        problem(
+          'error',
+          'front matter',
+          'the front matter opens with "---" and is never closed — close it with a line of "---" under the last field, because unclosed it is read as a brief and every field in it is discarded',
+        ),
+      ],
+    }
+  }
 
   let head: Record<string, unknown> = {}
   if (front.trim()) {
@@ -88,11 +123,15 @@ export const parseAgentDefinition = (
   let permission: FlowPermission = 'read'
   const declared = head['permission']
   if (declared !== undefined) {
-    const word = String(declared).trim()
-    if (!PERMISSIONS.includes(word as FlowPermission)) {
-      problems.push(problem('error', 'permission', `“${word}” is not a permission: read, publish or merge`))
+    const word = asText(declared)?.trim() ?? ''
+    if (!word) {
+      /* `permission:` with nothing after it parses to null, and quoting "null"
+         at somebody who wrote no word at all diagnoses the wrong thing. */
+      problems.push(problem('error', 'permission', 'the permission field is empty — write read, publish or merge'))
+    } else if (!isPermission(word)) {
+      problems.push(problem('error', 'permission', `"${word}" is not a permission — it is read, publish or merge`))
     } else {
-      permission = word as FlowPermission
+      permission = word
     }
   }
 
@@ -101,9 +140,9 @@ export const parseAgentDefinition = (
      refusal as a string. A model id with a `/` in it can only be written as a
      map, which is why both forms are read here as well as in a flow. */
   const prefer: FlowSeat[] = []
-  asList(head['prefer']).forEach((one, index) => {
+  oneOrMore(head['prefer']).forEach((one, index) => {
     const map = asRecord(one)
-    const seat = map ? seatFromMap(map) : parseSeat(String(one).trim())
+    const seat = map ? seatFromMap(map) : parseSeat(asText(one) ?? '')
     if (typeof seat === 'string') {
       problems.push(problem('error', `prefer[${index}]`, seat))
       return
