@@ -784,7 +784,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       )}
 
       {loading && library === null ? (
-        <p className={styles.empty}>Reading every agent’s directories…</p>
+        <p className="hd-empty-line">Reading every agent’s directories…</p>
       ) : rows.length === 0 ? (
         /*
          * An empty list is two different situations and the old sentence

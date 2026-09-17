@@ -411,12 +411,13 @@
 
 /* --- the page's own asides ----------------------------------------------- */
 
-.empty,
 .failed {
   margin: 0;
-  padding: var(--hd-space-5) 0;
+  padding: var(--hd-space-6) var(--hd-space-2-5); /* desk: 20 0 → 24 10, the one shape a "nothing here" line has */
   color: var(--hd-muted-foreground);
   font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  text-align: center;
 }
 
 .failed {

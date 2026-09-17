@@ -556,7 +556,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           <kbd className={styles.kbd}>esc</kbd>
         </div>
         <div className={styles.list} ref={list} role="listbox">
-          {shown.length === 0 && <div className={styles.empty}>Nothing matches “{query}”.</div>}
+          {shown.length === 0 && <div className="hd-empty-line">Nothing matches “{query}”.</div>}
           {shown.map((entry, index) => {
             const header = entry.group !== lastGroup ? entry.group : null
             lastGroup = entry.group

@@ -48,9 +48,3 @@
 
 }
 
-.empty {
-  padding: 24px 10px;
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
