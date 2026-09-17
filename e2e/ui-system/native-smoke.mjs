@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { Cdp, closeDesk, launchDesk, sleep, STORE } from '../../script/lib/desk.mjs'
+import { Cdp, closeDesk, launchDesk, sleep, STORE, waitForSnapshot } from '../../script/lib/desk.mjs'
 import { removeTemporaryDirectory } from '../../script/lib/temporary-directory.mjs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
@@ -26,6 +26,9 @@ const shootArgs = explicitScenes
       ...args,
       '--scene', 'desk',
       '--scene', 'settings',
+      '--scene', 'settings-agents',
+      '--scene', 'settings-library',
+      '--scene', 'settings-skills',
       '--scene', 'conversation',
       '--scene', 'git',
       '--scene', 'editor',
@@ -64,7 +67,7 @@ try {
   mkdirSync(frames, { recursive: true })
 
   run('script/shots/seed.mjs', ['--clean'])
-  run('script/shots/shoot.mjs', [...shootArgs, '--out', frames])
+  run('script/shots/shoot.mjs', [...shootArgs, '--assert-layout', '--out', frames])
 
   // Exercise a non-default combination on relaunch. This is written through
   // the same persisted state the host reads, inside the disposable rig only.
@@ -104,7 +107,7 @@ try {
     if (theme === chosenTheme) break
     await sleep(250)
   }
-  relaunch = await desk.cdp.json(`(() => ({
+  const readRelaunch = () => desk.cdp.json(`(() => ({
     theme: ${STORE}.getSnapshot().theme,
     dark: document.body.hasAttribute('data-hd-dark-theme'),
     dragRegions: [...document.querySelectorAll('.hd-drag')].length,
@@ -119,6 +122,7 @@ try {
     corners: document.body.dataset.hdCorners ?? '',
     interface: document.body.dataset.hdInterface ?? '',
   }))()`)
+  relaunch = await readRelaunch()
   assert.equal(relaunch.theme, chosenTheme, 'appearance did not persist through a real app relaunch')
   assert.equal(relaunch.dark, chosenTheme === 'dark', 'the persisted theme was not applied to the native renderer root')
   assert.ok(relaunch.dragRegions > 0, 'the native window has no draggable chrome')
@@ -156,6 +160,21 @@ try {
     assert.equal(about.title, 'About HarnessDesk')
     assert.equal(about.heading, 'HarnessDesk')
     assert.equal(about.foundationLoaded, true, 'the About window did not load generated foundation output')
+    // Store hydration and the rendered CSS cascade are distinct readiness
+    // points. On CI the first renderer sample still had the initial white
+    // ground although its saved theme/attributes were already dark. Re-read
+    // the rendered facts; a persistent mismatch still fails at the deadline.
+    relaunch = await waitForSnapshot(readRelaunch, current =>
+      current.theme === chosenTheme
+      && current.dark === (chosenTheme === 'dark')
+      && current.background === about.background
+      && current.foreground === about.foreground
+      && current.radius === about.radius
+      && current.palette === about.palette
+      && current.accent === about.accent
+      && current.corners === about.corners
+      && current.interface === about.interface,
+    )
     assert.equal(about.background, relaunch.background, 'the About window forked the app background token')
     assert.equal(about.foreground, relaunch.foreground, 'the About window forked the app foreground token')
     assert.equal(about.radius, relaunch.radius, 'the About window forked the app corner preference')

@@ -465,31 +465,21 @@ const AgentBlock = ({
             was set to nowrap, so a longer one arrived cut. It still shows in
             full where choosing is the actual task — the Add agent list below,
             first run, and sign-in. */}
-        <Button
-          type="button"
-          variant="quiet" size="content" className={styles.headOpen}
-          title={info.presentation.tagline}
+        <RowButton
+          className={styles.headOpen}
           onClick={onOpenAgent}
-        >
-          <RowMark>
-            <RuntimeMark runtime={info} size={17} />
-          </RowMark>
-          <span className={styles.headText}>
-            <span className={styles.headName}>
+          chevron={false}
+          mark={<RuntimeMark runtime={info} size={17} />}
+          title={
+            <span className={styles.headName} title={info.presentation.tagline}>
               {info.presentation.name}
               {build && <span className={styles.headBuild}>{build}</span>}
               {connection && <span className={styles.tag}>{connection}</span>}
             </span>
-          </span>
-          {/* Inside the name's button, not beside it: how many accounts there
-              are and whether they work is what the agent's own page answers,
-              so the whole sentence is one target and the caret is the only
-              thing on this row that means something else. */}
-          {/* One vocabulary, and only when it has something to say: which
-              agent the composer points at, how many accounts there are, and
-              the state — as a chip that names itself, never as a bare dot the
-              reader has to decode. A healthy agent shows none of the three. */}
-          <span className={styles.headMeta}>
+          }
+          control={<span className={styles.headMeta}>
+            {/* Counts and state belong to the name's target; only the separate
+                caret expands the account list. A healthy agent needs no chip. */}
             {/* The default's chip wears the agent's own state: a default that
                 has crashed is not a green one — nor is one that is signed out
                 or out of credit. `state` is `agentReadiness` over this agent's
@@ -498,8 +488,8 @@ const AgentBlock = ({
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
             {count !== null && <span className={styles.headCount}>{count}</span>}
             {state !== 'ready' && <Chip state={state} />}
-          </span>
-        </Button>
+          </span>}
+        />
         <Button
           type="button"
           variant="quiet" size="content" className={styles.headToggle}

@@ -200,6 +200,43 @@ try {
     }
     await tildify()
     await audit(name)
+    // Numeric/style facts accompany comparisons without recording user text.
+    if (has('measure')) {
+      const metrics = await cdp.json(`(() => {
+        const selectors = {
+          body: 'body', pageTitle: '[class*="pageTitle"]', pageBlurb: '[class*="pageBlurb"]',
+          row: 'button[class*="rowButton"], button[class*="rowChoice"]',
+          rowTitle: 'button[class*="rowButton"] [class*="rowTitle"]', rowDescription: '[class*="rowDesc"]', rowMark: '[class*="rowMark"]',
+          faceChoice: '[class*="faceChoice"]', faceTile: '[class*="faceTile"]',
+          agentHeader: '[class*="headOpen"]', agentName: '[class*="headName"]',
+          footer: '[class*="accountRow"]', footerName: '[class*="accountLabel"]',
+          agentBadge: '[class*="seatAvatar"]', agentGlyph: '[class*="seatAvatar"] svg', statusDot: '[class*="statusDot"]',
+          menu: '[role="menu"]', menuItem: '[role="menuitem"]',
+        }
+        const measure = node => {
+          const css = getComputedStyle(node), rect = node.getBoundingClientRect()
+          let opacity = 1
+          for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) opacity *= Number(getComputedStyle(ancestor).opacity)
+          return { width: rect.width, height: rect.height, font: css.fontFamily, size: css.fontSize,
+            weight: css.fontWeight, lineHeight: css.lineHeight, padding: css.padding, gap: css.gap,
+            radius: css.borderRadius, shadow: css.boxShadow, border: css.borderWidth, opacity }
+        }
+        const output = {}
+        for (const [key, selector] of Object.entries(selectors)) {
+          const node = [...document.querySelectorAll(selector)].find(node => node.getBoundingClientRect().height > 0)
+          if (node) output[key] = measure(node)
+        }
+        const menu = document.querySelector('[role="menu"]')
+        if (menu) {
+          output.menuAncestors = []
+          for (let node = menu; node && node !== document.body; node = node.parentElement) {
+            if (getComputedStyle(node).boxShadow !== 'none') output.menuAncestors.push(measure(node))
+          }
+        }
+        return output
+      })()`)
+      writeFileSync(`${OUT}/${name}.metrics.json`, JSON.stringify(metrics, null, 2) + '\n')
+    }
     if (has('assert-layout')) {
       const faults = await cdp.json(`(() => {
         const faults = []
@@ -219,6 +256,13 @@ try {
             const rect = child.getBoundingClientRect()
             if (rect.top < box.top - 1 || rect.bottom > box.bottom + 1) faults.push('row overflow: ' + row.textContent.slice(0, 80))
           }
+        }
+        for (const header of document.querySelectorAll('button[class*="headOpen"]')) {
+          const mark = header.querySelector('[class*="rowMark"]')
+          if (!mark || !visible(header)) continue
+          const box = header.getBoundingClientRect(), icon = mark.getBoundingClientRect()
+          const padding = parseFloat(getComputedStyle(header).getPropertyValue('--hd-space-3'))
+          if (icon.top - box.top < padding || box.bottom - icon.bottom < padding) faults.push('agent header lost its Settings row padding')
         }
         for (const item of document.querySelectorAll('[role="menuitem"]')) {
           if (!visible(item)) continue
@@ -615,6 +659,12 @@ rules:
     SCENES[`settings-${section}`] = { run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
+      if (section === 'agents') {
+        // Keep an account in the frame so header and nested-row containment
+        // are both exercised, not just the collapsed list's card outlines.
+        await cdp.eval(`document.querySelector('button[aria-label^="Show the accounts under"]')?.click(); true`)
+        await sleep(250)
+      }
     } }
   }
   SCENES['composer-menu'] = { leaveOverlay: true, run: async () => {
@@ -627,6 +677,17 @@ rules:
     })()`)
     if (!opened) throw new Error('composer model trigger missing: ' + await cdp.eval(`JSON.stringify([...document.querySelectorAll('button')].map(e => e.title).filter(Boolean))`))
     await sleep(600)
+  } }
+  SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
+    await SCENES.conversation.run()
+    const opened = await cdp.eval(`(() => {
+      const button = [...document.querySelectorAll('button')].find(e => /^(This conversation is with|Which agent starts this conversation)/.test(e.title))
+      if (!button) return false
+      button.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('composer agent trigger missing')
+    await sleep(700)
   } }
   SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
     await cdp.eval(`${STORE}.askSettings('extensions'); true`)

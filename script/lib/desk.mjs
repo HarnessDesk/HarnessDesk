@@ -18,6 +18,17 @@ const run = promisify(execFile)
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Poll the rendered fact, not an earlier store update; fail closed at the deadline. */
+export const waitForSnapshot = async (read, matches, { attempts = 120, sleepImpl = sleep } = {}) => {
+  let snapshot
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    snapshot = await read()
+    if (matches(snapshot)) return snapshot
+    if (attempt + 1 < attempts) await sleepImpl(100)
+  }
+  throw new Error(`snapshot did not converge: ${JSON.stringify(snapshot)}`)
+}
+
 /**
  * The separator inside a SessionKey: the runtime id, a NUL, the session id.
  *

@@ -2,7 +2,28 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
 
-import { closeDesk, connectDesk, selectMainPage } from './lib/desk.mjs'
+import { closeDesk, connectDesk, selectMainPage, waitForSnapshot } from './lib/desk.mjs'
+
+test('waitForSnapshot re-reads rendered appearance after the store has hydrated', async () => {
+  const snapshots = [
+    { theme: 'dark', background: 'rgb(255, 255, 255)' },
+    { theme: 'dark', background: 'rgb(38, 38, 36)' },
+  ]
+  let reads = 0
+  const result = await waitForSnapshot(
+    async () => snapshots[reads++],
+    snapshot => snapshot.background === 'rgb(38, 38, 36)',
+    { attempts: 2, sleepImpl: async () => {} },
+  )
+  assert.deepEqual(result, snapshots[1])
+  assert.equal(reads, 2)
+})
+
+test('waitForSnapshot fails on persistent appearance divergence rather than accepting it', async () => {
+  await assert.rejects(waitForSnapshot(async () => ({ theme: 'light' }), snapshot => snapshot.theme === 'dark', {
+    attempts: 2, sleepImpl: async () => {},
+  }), /snapshot did not converge.*light/)
+})
 
 const page = (title, url, id) => ({ type: 'page', title, url, webSocketDebuggerUrl: `ws://${id}` })
 

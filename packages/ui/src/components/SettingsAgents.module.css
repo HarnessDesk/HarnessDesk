@@ -33,13 +33,6 @@
 
 }
 
-.headText {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 .headName {
   display: flex;
   align-items: baseline;
