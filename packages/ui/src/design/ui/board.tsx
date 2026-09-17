@@ -171,7 +171,7 @@ const BoardColumn = ({
           onClick={onAdd}
           title={addLabel}
           aria-label={addLabel}
-          className="inline-flex size-5 shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
+          className="inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
         >
           <PlusIcon />
         </button>
@@ -491,7 +491,10 @@ const BoardMenuButton = forwardRef<HTMLButtonElement, React.ComponentProps<'butt
       type="button"
       aria-label="More"
       className={cn(
-        'inline-flex size-5 shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
+        /* `--hd-icon-target`, not `size-5`: this was 20px, four under the floor
+           the system declares, on the one control a card's whole menu hangs
+           from. The corner of a card is empty, so it grows into nothing. */
+        'inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
         className,
       )}
       {...props}

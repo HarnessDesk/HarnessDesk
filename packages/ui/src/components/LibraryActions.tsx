@@ -346,7 +346,14 @@ export const PlanDialog = ({
  * pixels today and are two things to keep in step forever. Three copies is
  * where that stops being survivable.
  */
-export const SWITCH_TRACK = 'h-(--hd-control-h) rounded-(--hd-radius-sm) bg-(--hd-muted) p-0.5'
+/* `p-px`, not `p-0.5`.
+
+   The trough is `--hd-control-h` and the segment inside it is `h-full`, so
+   the padding is the only thing deciding how tall the pressable part is. Two
+   pixels a side left it at 22 — under the 24 the system declares as its
+   target floor — and one leaves it exactly on the floor without the track,
+   the row or anything beside it moving a pixel. */
+export const SWITCH_TRACK = 'h-(--hd-control-h) rounded-(--hd-radius-sm) bg-(--hd-muted) p-px'
 export const SWITCH_ITEM =
   'h-full gap-1.5 rounded-(--hd-radius-sm) px-2 text-sm font-medium whitespace-nowrap text-(--hd-muted-foreground) hover:bg-transparent hover:text-(--hd-foreground) data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm)'
 

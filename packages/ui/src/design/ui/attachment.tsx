@@ -182,7 +182,7 @@ const AttachmentAction = ({
     type="button"
     data-slot="attachment-action"
     className={cn(
-      'inline-flex size-5 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3',
+      'inline-flex size-(--hd-icon-target) items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3',
       className,
     )}
     {...props}

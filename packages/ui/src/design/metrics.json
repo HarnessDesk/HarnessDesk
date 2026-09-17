@@ -604,7 +604,7 @@
     "text": 14,
     "weight": "400",
     "line": 21,
-    "pad": "2 2 2 2",
+    "pad": "1 1 1 1",
     "radius": 6
   },
   "tools/tabs-list/variant/line": {
