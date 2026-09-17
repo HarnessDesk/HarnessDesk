@@ -224,7 +224,7 @@ body[data-hd-dark-theme] {
 }
 
 body {
-  --hdp-alias-bg-base: var(--hdp-static-neutral-bluish-00);
+  --hdp-alias-bg-base: var(--hdp-static-neutral-bluish-60); /* desk: white → 245, the ground a pane sits on */
   --hdp-alias-bg-layer-1: var(--hdp-static-neutral-bluish-00);
   --hdp-alias-bg-layer-2: var(--hdp-static-neutral-bluish-00);
   --hdp-alias-bg-layer-3: var(--hdp-static-neutral-bluish-00);
