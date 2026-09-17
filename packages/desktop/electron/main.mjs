@@ -74,14 +74,18 @@ const uiRoot = app.isPackaged
 
 /** Rendered from assets/brand/svgs by `pnpm run icons`; packaged alongside the shell. */
 const assetsDir = join(here, 'assets')
-const avatarRoot = app.isPackaged
-  ? join(process.resourcesPath, 'avatars', '128')
-  : resolve(here, '../../../assets/avatars/128')
+// A face goes on the Dock at the size the Dock draws: 128pt, doubled on a
+// Retina screen, so 384 — the avatars' master — rather than the 128 the
+// renderer bundles for a 44px tile. The mark's colourways come from the brand
+// folder, the whales from theirs (`packages/ui/src/lib/avatars.ts`).
+const avatarRoots = app.isPackaged
+  ? { marks: join(process.resourcesPath, 'faces', '384'), whales: join(process.resourcesPath, 'avatars', '384') }
+  : { marks: resolve(here, '../../../assets/brand/faces/384'), whales: resolve(here, '../../../assets/avatars/384') }
 const setDockIcon = createDockIconSetter({
   platform: process.platform,
   app,
   nativeImage,
-  avatarRoot,
+  avatarRoots,
   defaultIcon: defaultIconPath(assetsDir),
 })
 const sessionUrl = () => (running ? `${running.url}/?token=${running.token}` : null)

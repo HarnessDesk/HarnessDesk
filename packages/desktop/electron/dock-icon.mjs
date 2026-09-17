@@ -3,9 +3,24 @@ import { join } from 'node:path'
 /**
  * The desktop shell cannot import the renderer's Vite module, so this is the
  * one deliberately duplicated catalogue of profile pictures it may load.
- * Keeping the allowlist here means an IPC value can never become a path.
+ * Keeping the allowlist here means an IPC value can never become a path, and
+ * `dock-icon.test.mjs` holds it to the renderer's table so the two lists cannot
+ * drift into a face that draws on the seat and does nothing on the Dock.
+ *
+ * Two families, two folders: the house mark's colourways are rendered from the
+ * brand vectors by `pnpm run icons`, the whales are cut from generated sheets
+ * by `pnpm run avatars`.
  */
-export const AVATAR_IDS = Object.freeze([
+export const MARK_IDS = Object.freeze([
+  'mark-paper',
+  'mark-ink',
+  'mark-steel',
+  'mark-blueprint',
+  'mark-blueline',
+  'mark-plain',
+])
+
+export const WHALE_IDS = Object.freeze([
   'blue',
   'violet',
   'reviewer',
@@ -31,11 +46,21 @@ export const AVATAR_IDS = Object.freeze([
   'beach',
 ])
 
+/** Every face, in the order the picker reads them. */
+export const AVATAR_IDS = Object.freeze([...MARK_IDS, ...WHALE_IDS])
+
+const MARKS = new Set(MARK_IDS)
+
 const AVATARS = new Set(AVATAR_IDS)
 
-/** Resolves a shipped avatar id to a resource, or refuses it as an IPC value. */
-export const avatarResourcePath = (avatar, root) =>
-  typeof avatar === 'string' && AVATARS.has(avatar) ? join(root, `${avatar}.png`) : null
+/**
+ * Resolves a shipped avatar id to a resource, or refuses it as an IPC value.
+ * `roots` is one directory per family: `{ marks, whales }`.
+ */
+export const avatarResourcePath = (avatar, roots) =>
+  typeof avatar === 'string' && AVATARS.has(avatar)
+    ? join(MARKS.has(avatar) ? roots.marks : roots.whales, `${avatar}.png`)
+    : null
 
 /**
  * The file the app's own face is read back from — what goes on the Dock when a
@@ -61,12 +86,12 @@ export const createDockIconSetter = ({
   platform,
   app,
   nativeImage,
-  avatarRoot,
+  avatarRoots,
   defaultIcon,
 }) => {
   return (avatar) => {
     if (platform !== 'darwin' || !app?.dock || typeof app.dock.setIcon !== 'function') return
-    const path = avatar === null ? defaultIcon : avatarResourcePath(avatar, avatarRoot)
+    const path = avatar === null ? defaultIcon : avatarResourcePath(avatar, avatarRoots)
     if (!path) return
     const image = nativeImage.createFromPath(path)
     // Empty means the file is missing or in a format Chromium cannot decode —

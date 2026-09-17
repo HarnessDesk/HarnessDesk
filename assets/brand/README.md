@@ -68,7 +68,12 @@ renders everything the desktop app needs from these SVGs:
 - `packages/desktop/electron/assets/trayTemplate.png` and `@2x` — the menu-bar
   status item, 18 pt tall, as a template image;
 - `packages/desktop/electron/assets/mark.svg` — the mark for the app's own About
-  window, where it is drawn as a CSS mask so it follows light and dark.
+  window, where it is drawn as a CSS mask so it follows light and dark;
+- `packages/desktop/electron/assets/dockIcon.png` — the same face as `icon.icns`,
+  as a raster, for the one moment the shell has to hand the Dock its own icon
+  back (see below);
+- `faces/384/*.png` and `faces/128/*.png` — the mark's colourways, the faces
+  someone can wear instead of a whale.
 
 Needs `rsvg-convert` (`brew install librsvg`); `iconutil` ships with macOS. The
 rendered files are checked in so a build machine does not need librsvg.
@@ -80,6 +85,32 @@ icon itself from the bundle. So `script/brand-dev-electron.mjs` copies
 `icon.icns` into the Electron bundle `electron .` runs out of (and names it),
 and the About window draws `mark.svg` as a CSS mask so it follows the theme.
 Both faces now come from the same two files as the packaged app's.
+
+The shell does set one icon at runtime, and only one: the face you pick, and the
+app's own face again when you clear it. That last one cannot come from
+`icon.icns` — Chromium has no .icns decoder and reads it as an empty image, so
+the reset used to do nothing at all — which is what `dockIcon.png` is for. It is
+the .icns's own 512 slot, to the pixel. On macOS 26 the tile differs from the
+bundle icon by the corner curve LaunchServices applies to a legacy icon, until
+the app is next launched and the Dock reads the bundle again.
+
+## The mark as a face
+
+Settings › You offers the whales in `assets/avatars` and, before them, the app's
+own face in six colourways — paper, ink, steel, blueprint, blueline, and the
+mark with no plate at all. Whichever is chosen goes on the seat *and* on the
+Dock, so they are cut the way an app icon is cut: this same plate on the same
+824-of-1024 grid, with the same baked shadow. Full-bleed artwork would read fine
+in the picker and arrive on the Dock as the one hard-edged square in the row.
+
+Every one is generated from `harnessdesk-dock-icon-light.svg` with its plate and
+its ink swapped, and the swapped-in colours are read back out of the files above
+— the near-black from the dark dock icon, the blue from the blue mark — so a
+recolour here carries to all six. Nothing is a hand-kept copy of the mark.
+
+The one that carries no plate takes the blue: a PNG cannot follow the theme, and
+blue is the one ink that holds on a light surface and a dark one. It is the same
+reason the black whale is not in the picker.
 
 ## Provenance
 

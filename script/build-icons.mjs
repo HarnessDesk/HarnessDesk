@@ -83,6 +83,91 @@ for (const { svg, icns } of icons) {
 render('harnessdesk-dock-icon-light.svg', 512, 512, join(assetsDir, 'dockIcon.png'))
 console.log('harnessdesk-dock-icon-light.svg -> packages/desktop/electron/assets/dockIcon.png')
 
+// --- The mark's colourways: the faces someone can wear instead of a whale.
+//
+// Settings › You offers the twenty-three whales in `assets/avatars` and, before
+// them, the app's own face in a few colourways — and whichever is chosen goes on
+// the Dock as well as on the seat. The whales are cut from generated sheets and
+// are somebody *using* the product; these are the product's own mark, so they
+// belong to the brand folder and are rendered here.
+//
+// They are cut on the Apple icon grid, plate and shadow and all, rather than
+// full-bleed: on the Dock a face sits beside Finder and Mail, and a hard square
+// at full size would be the one icon in the row that is not an icon. The picker
+// clips them into its own tile, where an app icon is exactly what they should
+// look like.
+//
+// Nothing is transcribed: each variant is the light dock icon with its plate and
+// its ink swapped, and the colours are read back out of the brand's own files —
+// the dark plate from the dark dock icon, the blue from the blue mark — so a
+// recolour there carries to every face here. `swap` refuses a marker that has
+// moved rather than rendering the unchanged icon six times.
+const dockLight = readFileSync(join(svgs, 'harnessdesk-dock-icon-light.svg'), 'utf8')
+const dockDark = readFileSync(join(svgs, 'harnessdesk-dock-icon-dark.svg'), 'utf8')
+const blueMark = readFileSync(join(svgs, 'harnessdesk-icon-blue-transparent.svg'), 'utf8')
+
+const swap = (source, from, to) => {
+  if (!source.includes(from)) throw new Error(`build-icons: \`${from}\` is not in the source any more`)
+  return source.replace(from, to)
+}
+
+/** The stop colours of a vector's one gradient, top first. */
+const stops = (source, file) => {
+  const found = [...source.matchAll(/stop-color="(#[0-9A-Fa-f]{6})"/g)].map((match) => match[1])
+  if (found.length < 2) throw new Error(`build-icons: no gradient stops in ${file}`)
+  return [found[0], found[found.length - 1]]
+}
+
+const [darkTop, darkBottom] = stops(dockDark, 'harnessdesk-dock-icon-dark.svg')
+const [blueTop, blueBottom] = stops(blueMark, 'harnessdesk-icon-blue-transparent.svg')
+
+/** What the blue mark defines, so a blue-inked face is painted with the real gradient. */
+const blueGradient = blueMark.slice(blueMark.indexOf('<defs>') + '<defs>'.length, blueMark.indexOf('</defs>'))
+if (!blueGradient.includes('brandBlue')) throw new Error('build-icons: the blue mark no longer defines brandBlue')
+
+/** The light dock icon with a different plate under the mark. */
+const plated = (top, bottom) =>
+  swap(
+    swap(dockLight, '<stop offset="0" stop-color="#F2F2F4"/>', `<stop offset="0" stop-color="${top}"/>`),
+    '<stop offset="1" stop-color="#D9D9DE"/>',
+    `<stop offset="1" stop-color="${bottom}"/>`,
+  )
+
+/** …and with a different ink in it. `opacity` is how silver is made: white, held back. */
+const inked = (source, fill, opacity) =>
+  swap(
+    source,
+    '<path id="mark" fill="#000000"',
+    `<path id="mark" fill="${fill}"${opacity === undefined ? '' : ` fill-opacity="${opacity}"`}`,
+  )
+
+/** Blue ink means carrying its gradient over into the icon's own `<defs>`. */
+const blueInked = (source) => inked(swap(source, '</defs>', `${blueGradient}</defs>`), 'url(#brandBlue)')
+
+const FACES = [
+  ['mark-paper', inked(plated('#FFFFFF', '#FFFFFF'), '#000000')],
+  ['mark-ink', inked(plated(darkTop, darkBottom), '#FFFFFF')],
+  // 0.62 is where white on this plate reads as the plate's own silver rather
+  // than as a mark someone has dimmed by mistake.
+  ['mark-steel', inked(plated(darkTop, darkBottom), '#FFFFFF', '0.62')],
+  ['mark-blueprint', inked(plated(blueTop, blueBottom), '#FFFFFF')],
+  ['mark-blueline', blueInked(plated('#FFFFFF', '#FFFFFF'))],
+  // No plate at all: the mark alone, the way the whales are alone, which on the
+  // Dock is a shape and not a tile. It takes the blue because a PNG cannot
+  // follow the theme and blue is the one ink that holds on both surfaces — the
+  // same reason the black whale is not in the picker (`lib/avatars.ts`).
+  ['mark-plain', blueMark],
+]
+
+// Two sizes, the avatars' own: 384 for the Dock and any large tile, 128 for the
+// working size the renderer bundles (`assets/avatars/README.md` says why those).
+for (const size of [384, 128]) {
+  const out = join(root, 'assets/brand/faces', String(size))
+  mkdirSync(out, { recursive: true })
+  for (const [id, source] of FACES) renderSource(source, size, join(out, `${id}.png`))
+}
+console.log(`${FACES.length} mark faces at 384 and 128 px -> assets/brand/faces`)
+
 // --- Menu-bar status item. A template image is black + alpha; macOS recolours it for
 // light and dark menu bars and for the highlighted state. 18pt tall, the menu-bar norm.
 render('harnessdesk-menubar-template.svg', 25, 18, join(assetsDir, 'trayTemplate.png'))
