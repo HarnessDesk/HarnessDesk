@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **This plan is phase 1 of 8.** It ships Agents only: no Goal, no Evidence, no flow-engine change, no binding. The other plans are listed at the bottom; do not reach into them.
+- **This plan is phase 1 of 10.** It ships Agents only: no Goal, no Evidence, no flow-engine change, no binding. The other plans are listed at the bottom; do not reach into them.
 - **Design source:** `docs/superpowers/specs/2026-09-17-agents-and-goals-design.md`. Where this plan and the spec disagree, the spec is right and the plan is a bug.
 - **No competitor or third-party product names** in code, comments, commit messages, PR titles or PR bodies. Prior-art reasoning lives outside the repository.
 - **`permission` is a ceiling, never a grant.** A Seat gets `min(agent ceiling, step grant)` and a step grants `read` by default. Nothing in this plan may widen an Agent's permission.
@@ -1254,7 +1254,7 @@ Checked each section of `docs/superpowers/specs/2026-09-17-agents-and-goals-desi
 
 ## The plans after this one
 
-This is phase 1 of 8. Each produces working software on its own; none may be started before the one above it lands, except where noted.
+This is phase 1 of 10. Each produces working software on its own; none may be started before the one above it lands, except where noted.
 
 1. **Agents foundation** — this plan.
 2. **The evidence ledger** — the `Evidence` type and store, staleness at a revision, the producers (check, diff, pr, ci), the immutable Seat record, and the board's columns derived from facts rather than dragged.
@@ -1264,6 +1264,8 @@ This is phase 1 of 8. Each produces working software on its own; none may be sta
 6. **Intake** — bindings on the Project, the dedupe key, concurrency, budget, and named stop reasons.
 7. **Provenance** — the ref observer independent of turns, patch-id reconciliation through rewrites, and capture health per Project. Can run in parallel with 4 and 5; needs 2.
 8. **The interface** — the common shapes reachable without writing a file, and the file it wrote shown afterwards. This is the phase that stops the answer to "have three reviewers look at this" being *write YAML*.
+9. **Insight** — what a wrapped Goal cost, broken down by Agent, by seat, by what was loaded and by delegation. Mostly a join rather than new plumbing once 2 lands, because `spend` is evidence, evidence carries its Seat, and the Library already prices every skill and MCP server per turn. Gives comparison a second axis — same Goal, and now which Agent got there for fewer tokens — and eventually lets an Agent's `prefer` be answered from its own record instead of guessed once by its author.
+10. **Cross-Agent memory, skills and MCP** — per-Agent allowlists actually driving each runtime's own loading mechanism, and shared knowledge living on the Project where it can be diffed and cited by revision. Cross-agent *tools* already work through the one MCP surface, so this narrows rather than widens.
 
 ## Documentation each phase owes
 

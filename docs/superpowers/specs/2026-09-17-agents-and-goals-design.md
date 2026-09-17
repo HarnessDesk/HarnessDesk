@@ -277,7 +277,9 @@ export type Evidence =
   | { kind: 'pr';      number: number; head: Sha; state: 'open' | 'merged' | 'closed' }
   | { kind: 'diff';    files: number; added: number; removed: number; from: Sha; to: Sha }
   | { kind: 'finding'; id: string; state: 'open' | 'repaired' | 'withdrawn'; at: Sha }
-  | { kind: 'spend';   usd: number; turns: number }
+  | { kind: 'spend';   usd: number; turns: number
+                     /** False when a count is a stream floor rather than a settled total. */
+                     ; exact: boolean }
 
 export interface EvidenceRecord {
   readonly fact: Evidence
@@ -997,22 +999,87 @@ rewrite, and the nouns are what this document is for. But a foundation that
 only a YAML author can reach is half a product, and the second phase is not
 optional polish.
 
-## Not in this design
+## What a wrapped Goal can answer
 
-- Sources beyond `pull-request`, `issue` and `schedule`. Those three are one
-  shape; anything else — an inbound mention, a failing check, a webhook — is
-  shaped to fit but not specified here.
-- A capability taxonomy that resolves "a strong reasoning model" to a seat.
-  Ordered candidates plus an honest refusal covers it without inventing a
-  classification we would then have to defend per model.
-- An orchestrator Agent that assigns work on the merits. The person is the
-  referee, and a flow is their policy written down. Nothing in this design
+A receipt is not only a record of what happened; it is the first honest dataset
+this desk has ever had. Because `spend` is evidence, evidence carries the Seat
+that produced it, and a Seat carries its Agent and the brief it ran, **the
+breakdown is a join rather than a new collection path**:
+
+- **By Agent.** What did the reviewer cost on this Goal, against what the
+  implementer cost.
+- **By seat.** The same Agent on two different models, with the work held
+  constant — which is the only comparison of models that means anything.
+- **By what was loaded.** The Library already measures what each skill and each
+  MCP server costs per turn in catalogue lines, and knows which runtimes
+  actually load each one. Joining that to a Goal's turns answers *what did
+  carrying this tool cost us this week*, which nobody can currently ask.
+- **By delegation.** Already kept apart per child rather than summed into its
+  parent, so "the Agent was cheap but its subagents were not" stays visible.
+
+Two things follow that are worth building toward rather than stumbling into.
+
+**Comparison gains a second axis.** UC2 compares two diffs today. With the
+receipt it also compares what each cost to reach — same Goal, same brief, and
+now *Agent A got there for a third of the tokens*. That is a fairer contest than
+either diff quality or wall-clock alone, and for UC6's mechanical contest it is
+a tiebreak a program can compute.
+
+**And an Agent's seating becomes answerable from evidence.** After ten Goals,
+the desk knows which seat gets *this* Agent's work done for less — so `prefer`
+can stop being a guess the author wrote once. This is the strongest argument yet
+for the Agent being durable: a preference list attached to a routing string
+learns nothing, and one attached to a named worker accumulates a record.
+
+The one discipline this needs: **a number the desk cannot attribute is shown as
+unattributed, never spread evenly.** A bridge that reports a turn's cost but not
+its delegations' has a gap, and a pie chart that hides the gap is the same lie
+as a green check from before the change.
+
+## Later, and where each one attaches
+
+Deferred, not refused. Each names the seam it hangs on, so a later phase is an
+addition rather than a rewrite.
+
+- **Sources beyond `pull-request`, `issue` and `schedule`.** An inbound mention,
+  a failing check, a webhook. One shape: a fact fires, a dedupe key stops it
+  firing twice. The seam is the binding.
+- **Cross-Agent memory.** An Agent's `NOTES.md` is its own; what several Agents
+  should share belongs to the **Project**, beside the code, where it can be
+  diffed and cited by revision like everything else here. The seam is the Agent
+  folder for private notes and the Project for shared ones, and the rule that
+  keeps it honest is the one the rest of this document already applies: a fact
+  with a revision beats a summary without one.
+- **Skill management, per Agent.** `AGENT.md`'s `skills` allowlist is the seam
+  and the Library is the other half — it already knows every skill on the
+  machine, which runtimes load each one, and what its catalogue line costs. What
+  is missing is the allowlist actually driving each runtime's own loading
+  mechanism, which differs per vendor and is therefore capability-negotiated
+  rather than normalised.
+- **MCP servers scoped per Agent.** Same seam, same allowlist. Note that
+  *cross-agent tools already work*: a plugin's tools reach every runtime through
+  the one MCP surface the desk offers, so the open part is narrowing that per
+  Agent, not widening it.
+- **A shared semantic index.** A real gain, and a separate decision from the
+  noun model. It attaches to the Project, not to an Agent, for the same reason
+  shared memory does.
+
+## Refused, and why
+
+Not deferred. These are choices, and a later phase that wants one of them is
+changing this document first.
+
+- **An orchestrator Agent that assigns work on the merits.** The person is the
+  referee and a flow is their policy written down. Nothing in this design
   summarises, judges or decides — a judging *step* like UC2's is a seated Agent
-  the author chose, not the engine.
-- Expressions in rule templates. One level of the finished round's evidence, and
-  no more, so "can this rule ever fire?" stays answerable by reading.
-- Line-level attribution. A commit or a diff resolves; a line would need blame
-  intersected with the diff evidence.
-- Per-Agent credentials or session stores. Both already have a plane.
-- A shared semantic index across Agents. It is a real gain and a separate
-  decision from this noun model.
+  the author chose, not the engine. The zero-configuration front door that other
+  products get from a coordinator, this one has to earn from its interface.
+- **A capability taxonomy** that resolves "a strong reasoning model" to a seat.
+  Ordered candidates plus an honest refusal cover it without inventing a
+  classification we would then have to defend per model, per release.
+- **Expressions in rule templates.** One level of the finished round's evidence
+  and no more, so "can this rule ever fire?" stays answerable by reading.
+- **Line-level attribution.** A commit or a diff resolves; a line would need
+  blame intersected with the diff evidence.
+- **Per-Agent credentials or session stores.** Both already have a plane, and
+  two planes holding one fact are two planes that will disagree.
