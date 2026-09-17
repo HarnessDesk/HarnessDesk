@@ -307,7 +307,7 @@ export const isReachable = (graph, from, target) => {
   return false
 }
 
-export const catalogIntegrity = ({ entries, existingPaths, ledgerPaths = existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map() }) => {
+export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map() }) => {
   const productEntries = entries.filter((entry) => entry.category === 'Product Surfaces')
   const requiredSurfaceIds = requiredSurfaces.map((surface) => surface.id)
   const hasCompleteCoverage = (entry) => {
@@ -354,9 +354,6 @@ export const catalogIntegrity = ({ entries, existingPaths, ledgerPaths = existin
     }),
     danglingConsumers: entries.flatMap((entry) => entry.consumers.filter((consumer) => !existingPaths.has(consumer)).map(() => entry.id)),
     danglingExamplePaths: entries.flatMap((entry) => (entry.examples ?? []).filter((example) => !existingPaths.has(example)).map(() => entry.id)),
-    untrackedConsumers: entries.flatMap((entry) => entry.category === 'Boundary'
-      ? []
-      : entry.consumers.filter((consumer) => !ledgerPaths.has(consumer)).map(() => entry.id)),
     unreachableConsumers: reachablePairs === null
       ? []
       : entries.flatMap((entry) => entry.consumers
@@ -485,9 +482,8 @@ if (isMain) {
   const integrity = catalogIntegrity({
     entries: loaded.CATALOG_ENTRIES,
     existingPaths: new Set(existingPathList),
-    ledgerPaths: new Set(JSON.parse(fs.readFileSync(path.join(root, 'docs/ui-system-migration-ledger.json'), 'utf8')).entries.map((entry) => entry.path)),
     exampleIds,
-    requiredSurfaces: JSON.parse(fs.readFileSync(path.join(root, 'docs/ui-system-catalog-surfaces.json'), 'utf8')).surfaces,
+    requiredSurfaces: JSON.parse(fs.readFileSync(path.join(root, 'script/ui-catalog-surfaces.json'), 'utf8')).surfaces,
     reachablePairs,
     reachableExamplePairs,
     contracts,

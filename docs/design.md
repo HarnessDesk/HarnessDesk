@@ -456,3 +456,25 @@ When adding a control, row or surface to HarnessDesk:
   design usually breaks. Watch for opaque hover fills in particular — the
   platform's solid hover equals the raised-control fill in dark mode, so a hover
   painted with it does nothing at night.
+
+### Where a change belongs
+
+One place per kind of change. If a change needs two of these rows, it is two
+changes.
+
+| change | canonical source |
+| --- | --- |
+| Every button and icon-button contract | `packages/ui/src/design/ui/button.tsx` |
+| Every Settings row/group/page contract | `packages/ui/src/design/patterns/Settings.tsx` and its CSS module |
+| All density, spacing, typography, radius, focus, and semantic colours | `packages/ui/src/design/foundation/tokens.css` |
+| Generic dialog mechanics and focus/portal behaviour | `packages/ui/src/design/ui/dialog.tsx` |
+| Modal, confirmation, approval and lightbox policy | `packages/ui/src/design/patterns/ModalDialog.tsx`, `ConfirmDialog.tsx`, `ApprovalDialog.tsx` and `Lightbox.tsx` |
+| Disabled or refused actions and their focusable explanation | `packages/ui/src/design/patterns/RefusedAction.tsx` |
+| Menus and popovers | `packages/ui/src/design/patterns/Menu.tsx` and `Popover.tsx`, over `design/ui` |
+| CodeMirror and xterm theme integration | `packages/ui/src/design/adapters/` |
+| Public imports | `packages/ui/src/design/index.ts` |
+| The live component catalogue | `packages/ui/src/design/catalog/` and `packages/ui/src/design/explorer/` |
+
+`pnpm design` serves `/design.html`, where foundation, primitives, patterns and
+the product surfaces are all rendered from the production modules — so the page
+is the check on whether a change actually landed everywhere it claims to.

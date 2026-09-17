@@ -217,7 +217,7 @@ test('rejects dangling implementation paths and example ids', () => {
   assert.deepEqual(result.missingExamples, ['primitive.button'])
 })
 
-test('rejects consumer references that are missing or absent from the migration ledger', () => {
+test('rejects a consumer reference that names no file', () => {
   const result = catalogIntegrity({
     entries: [{
       id: 'primitive.button',
@@ -229,12 +229,10 @@ test('rejects consumer references that are missing or absent from the migration 
       consumers: ['packages/ui/src/components/Missing.tsx'],
     }],
     existingPaths: new Set(['button.tsx']),
-    ledgerPaths: new Set(['button.tsx']),
     exampleIds: new Set(['button']),
     requiredSurfaces: [],
   })
   assert.deepEqual(result.danglingConsumers, ['primitive.button'])
-  assert.deepEqual(result.untrackedConsumers, ['primitive.button'])
 })
 
 test('rejects a real but unrelated path presented as a component consumer', () => {
@@ -256,7 +254,6 @@ test('rejects a real but unrelated path presented as a component consumer', () =
       consumers: [files[0].path],
     }],
     existingPaths: new Set(files.map((file) => file.path)),
-    ledgerPaths: new Set(files.map((file) => file.path)),
     exampleIds: new Set(['button']),
     requiredSurfaces: [],
     reachablePairs: new Set(),

@@ -52,7 +52,7 @@ test('the browser integration job builds workspace package entries before Vite',
 })
 
 test('UI system gates do not depend on an external ripgrep binary', () => {
-  for (const file of ['ui-inventory.mjs', 'ui-architecture.mjs', 'ui-catalog.mjs']) {
+  for (const file of ['ui-architecture.mjs', 'ui-catalog.mjs']) {
     const source = fs.readFileSync(path.join(repoRoot, 'script', file), 'utf8')
     assert.doesNotMatch(source, /execFileSync\(['"]rg['"]/, file)
   }

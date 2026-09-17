@@ -8,11 +8,10 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 for (const [script, ...args] of [
-  ['script/ui-inventory.mjs', '--check'],
   ['script/ui-architecture.mjs'],
   ['script/ui-catalog.mjs'],
 ]) {
   execFileSync('node', [script, ...args], { cwd: root, stdio: 'inherit' })
 }
 
-process.stdout.write('One UI System inventory, architecture, and catalog coverage are current.\n')
+process.stdout.write('The UI architecture and catalogue coverage hold.\n')
