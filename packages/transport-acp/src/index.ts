@@ -33,13 +33,44 @@ export interface AcpAgentCapabilities {
     readonly audio?: boolean
     readonly embeddedContext?: boolean
   }
-  /** Observed live from Claude Code 0.16.2: presence of a key means support. */
+  /**
+   * Observed live from Claude Code 0.16.2: an object means support.
+   *
+   * `null` is spelled out because it is on the wire and means the same as an
+   * omission — see `auth` below, where admitting it was a defect. Every read
+   * of these is a `Boolean(…)` or a `!…`, which answers `null` correctly.
+   */
   readonly sessionCapabilities?: {
-    readonly list?: object
-    readonly resume?: object
-    readonly fork?: object
+    readonly list?: object | null
+    readonly resume?: object | null
+    readonly fork?: object | null
+  }
+  /**
+   * Sign-out, the protocol's own. Read off Google Antigravity's ACP server
+   * 1.1.1, which answers `initialize` with `"auth":{"logout":{}}` beside an
+   * `authMethods` list — the one agent the desk drives that has no CLI able
+   * to sign it out (#749).
+   *
+   * **`{}` is the only yes.** ACP v1: "If `agentCapabilities.auth.logout` is
+   * omitted or `null`, the Agent does not support `logout`", and a client
+   * **MUST NOT** call it in either case. The two spellings are not
+   * interchangeable and `null` is not "present", which is why the type says
+   * so rather than leaving a reader to infer it from `?`.
+   */
+  readonly auth?: {
+    readonly logout?: object | null
   }
 }
+
+/** ACP's sign-out request, declared by `agentCapabilities.auth.logout`. */
+export const ACP_LOGOUT = 'logout'
+
+/**
+ * ACP's sign-in request: `{ methodId }`, one of `initialize`'s `authMethods`.
+ * It answers nothing — the agent does whatever signing in means for it, a
+ * browser it opens itself included, and the reply is the flow's completion.
+ */
+export const ACP_AUTHENTICATE = 'authenticate'
 
 /** One row of `session/list`, as Claude Code 0.16.2 serves it. */
 export interface AcpSessionRow {
@@ -551,16 +582,27 @@ export class AcpError extends Error {
 /**
  * `error.data`, flattened to a line worth showing.
  *
- * Agents put a string here, or an object with `details` (Claude Code does);
- * anything else is kept as JSON rather than dropped, because a clue that
- * reads badly still beats no clue at all.
+ * Agents put a string here, or an object with `details` (Claude Code does)
+ * or `message` (Antigravity's server does — its `auth_required` carries
+ * `{"message":"No authentication method selected. Call `authenticate` with
+ * one of: …"}`); anything else is kept as JSON rather than dropped, because
+ * a clue that reads badly still beats no clue at all.
+ *
+ * `message` was the shape that fell through to the JSON branch, and the
+ * account pane showed the brace: the sign-in offer under each of
+ * Antigravity's four methods read `Authentication required: {"message":"No
+ * authentication method selected.` — cut mid-record, because the sentence it
+ * is trimmed to ended inside the JSON (#749). `said` is the error's own
+ * message, so a `data.message` that only repeats it is not said twice.
  */
-const detailOf = (data: unknown): string | undefined => {
+const detailOf = (data: unknown, said?: string): string | undefined => {
   if (data === null || data === undefined) return undefined
   if (typeof data === 'string') return data.trim() || undefined
   if (typeof data === 'object') {
-    const details = (data as { details?: unknown })['details']
-    if (typeof details === 'string' && details.trim()) return details.trim()
+    for (const key of ['details', 'message'] as const) {
+      const value = (data as Record<string, unknown>)[key]
+      if (typeof value === 'string' && value.trim() && value.trim() !== said?.trim()) return value.trim()
+    }
   }
   try {
     const json = JSON.stringify(data)
@@ -1083,7 +1125,8 @@ export class AcpConnection {
       this.#pending.delete(id)
       if ('error' in message && message['error']) {
         const error = message['error'] as { message?: string; code?: number; data?: unknown }
-        pending.reject(new AcpError(error.message ?? 'agent error', error.code, detailOf(error['data'])))
+        const said = error.message ?? 'agent error'
+        pending.reject(new AcpError(said, error.code, detailOf(error['data'], said)))
       } else {
         pending.resolve(message['result'])
       }

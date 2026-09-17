@@ -205,7 +205,7 @@ Measured across agent CLIs, installer packages, and help outputs on
 | pi | `pi-acp` adapter over `pi --mode rpc` | pi 0.80.4 | npm `@earendil-works/pi-coding-agent` | `~/.pi/agent` (`PI_CODING_AGENT_DIR`) | `/login` in UI; `pi-acp --terminal-login` |
 | Grok Build | `grok agent stdio` | — | npm `@xai-official/grok` (trampoline to `~/.grok/bin`); `grok update` | `~/.grok` (`GROK_HOME`) | `grok login --device-auth`; accepts `XAI_API_KEY` |
 | GitHub Copilot | `copilot --acp` | — | brew cask `copilot-cli`, npm `@github/copilot`; `copilot update` | `~/.copilot` (`COPILOT_HOME`) | `copilot login` in terminal; accepts `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` |
-| Antigravity | `agy_acp_server` | — | Registry download from dl.google.com | `~/.gemini/antigravity-acp` (`GEMINI_HOME`) | Google browser authentication, its own — not the IDE's, not `agy`'s |
+| Antigravity | `agy_acp_server` | — | Registry download from dl.google.com | `~/.gemini/antigravity-acp` (`GEMINI_HOME`); token in the macOS keychain | Google browser sign-in, its own — not the IDE's, not `agy`'s; driven over ACP's `authenticate` and `logout` |
 | Claude Code | `claude-acp` bridge | — | npm `@anthropic-ai/claude-code`, `~/.local/bin/claude`; `claude update` | `~/.claude` (`CLAUDE_CONFIG_DIR`) | `claude auth login` in browser |
 | Cursor | `cursor-acp` bridge | — | `~/.local/bin/cursor-agent`; `cursor-agent update` | `~/.cursor` | `cursor-agent login` (with `NO_OPEN_BROWSER=1`) |
 | Codex | `codex app-server` | 0.145.0 | brew `codex`, npm `@openai/codex`, `~/.local/bin/codex` | `~/.codex` (`CODEX_HOME`) | Browser sign-in, device code, or `codex login --with-api-key` |
@@ -261,6 +261,32 @@ form rather than an automatic template. See
   (Gemini, Kimi, CodeBuddy, and pi), the desk directs you to run the
   vendor's terminal sign-in command and exposes API key inputs where
   supported.
+- **A CLI that is not the agent:** Antigravity's ACP server is a registry
+  download of its own, and the `agy` CLI installed beside it is a different
+  program with a different Google session. Neither of `agy`'s candidate
+  verbs can serve the desk: `agy --print /help` prints the command list and
+  exits 0 without starting any sign-in, and `agy --print /logout` exits 2
+  always, because print mode refuses a slash command whose effect outlives
+  the run — and clearing credentials is exactly that (measured on agy 1.2.4,
+  2026-09-17). The desk therefore declares no sign-in or sign-out command
+  for Antigravity, and uses the protocol instead: `authenticate` with one of
+  the ids from `initialize`'s `authMethods` to sign in, and `logout`, which
+  the server declares as `agentCapabilities.auth.logout`, to sign out. The
+  sign-in hands back no URL — the server calls `webbrowser.open` on its own
+  auth URL from inside the call — so the window waits for the flow to finish
+  rather than offering a link.
+- **A home that does not hold the account:** On macOS, Antigravity's OAuth
+  token lives in the keychain, not under `GEMINI_HOME`. Pointing
+  `GEMINI_HOME` at an empty folder still opens a session as the previous
+  account — the server refreshes the keychain token silently — so a second
+  home is not a second account there.
+- **A listing that is not a status:** `opencode auth list` names the
+  providers OpenCode holds a credential for and counts them; it carries no
+  account, no address and no `--json`. Read as a status it says "signed
+  out" always, and because a declared status replaces the desk's own
+  observation, OpenCode showed a sign-in wall while running perfectly
+  (measured on opencode 1.18.30, 2026-09-17). The desk asks it nothing and
+  reads `auth.json` under `XDG_DATA_HOME` instead, naming the providers.
 
 ## Where the model list comes from
 

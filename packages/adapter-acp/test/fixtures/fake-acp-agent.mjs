@@ -632,6 +632,25 @@ const TASKS = process.env.FAKE_ACP_TASKS === '1'
 
 /** Whether this agent serves `_harnessdesk/session/delete`. Off by default. */
 const DELETES = process.env.FAKE_ACP_DELETE === '1'
+
+/**
+ * Whether this agent answers ACP's own `logout` and declares it in
+ * `agentCapabilities.auth`, the way Google Antigravity's server does. Off by
+ * default: most ACP agents hold no credentials of their own, and an agent
+ * that declares nothing must never be asked. FAKE_ACP_LOGOUT_FAILS=1 plays
+ * one that declares it and then refuses the call.
+ */
+const LOGS_OUT = process.env.FAKE_ACP_LOGOUT === '1' || process.env.FAKE_ACP_LOGOUT_FAILS === '1'
+/**
+ * FAKE_ACP_LOGOUT_NULL=1 plays the other half of ACP's rule: the capability
+ * is *present and null*, which means exactly what omitting it means — the
+ * agent does not support `logout`, and a client MUST NOT call it. Such an
+ * agent still refuses the request, which is how a client that ignores the
+ * rule is caught.
+ */
+const LOGOUT_NULL = process.env.FAKE_ACP_LOGOUT_NULL === '1'
+/** Set by a served `logout`, after which this agent opens nothing. */
+let signedOut = false
 const tasks = new Map()
 let taskCounter = 0
 
@@ -692,6 +711,9 @@ const handlers = {
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
         ...(STORE ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
+        /* `{}` is the only yes; `null` is a no that is spelled out rather
+           than omitted, and both are on the wire. */
+        ...(LOGS_OUT ? { auth: { logout: {} } } : LOGOUT_NULL ? { auth: { logout: null } } : {}),
       },
       authMethods: process.env.FAKE_ACP_AUTH_METHODS
         ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
@@ -711,6 +733,37 @@ const handlers = {
           }
         : {}),
     })
+  },
+  /* ACP's own sign-in. Answers nothing, as the schema has it, and takes
+     however long the sign-in takes — the real ones open a browser inside
+     this call. FAKE_ACP_AUTH_MS delays the reply so a test can watch the
+     pending state and cancel it; FAKE_ACP_AUTH_FAILS=1 refuses it. */
+  authenticate: (id, params) => {
+    const known = (process.env.FAKE_ACP_AUTH_METHODS
+      ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
+      : [{ id: 'device' }]
+    ).map((m) => m.id)
+    if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
+    const answer = () => {
+      if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
+      // Signed in, so the sessions this agent was refusing now open.
+      signedOut = false
+      delete process.env.FAKE_ACP_AUTH_REQUIRED
+      reply(id, {})
+    }
+    const wait = Number(process.env.FAKE_ACP_AUTH_MS ?? 0)
+    if (wait > 0) setTimeout(answer, wait)
+    else answer()
+  },
+  // ACP's own sign-out. Served only when it was declared: an agent that
+  // never put `auth.logout` in its capabilities and is asked anyway should
+  // answer the way any agent answers a method it does not have.
+  logout: (id) => {
+    // Including the `null` form: declaring it null is declaring no support.
+    if (!LOGS_OUT) return fail(id, 'Method not found: logout')
+    if (process.env.FAKE_ACP_LOGOUT_FAILS === '1') return fail(id, 'the keychain refused to give up the token')
+    signedOut = true
+    reply(id, {})
   },
   'session/new': (id, params) => {
     // FAKE_ACP_SLOW_OPEN_MS=<n> answers an open that carries no tool server n ms
@@ -737,7 +790,7 @@ const handlers = {
       send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Internal server error', data: { details: 'the model backend timed out' } } })
       return
     }
-    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed) {
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut) {
       send({
         jsonrpc: '2.0',
         id,

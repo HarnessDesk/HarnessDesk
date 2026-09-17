@@ -121,7 +121,22 @@ export type ReviewRequest =
 
 /** What starting a sign-in produced, and therefore what the shell has to show. */
 export type LoginStart =
-  | { readonly type: 'browser'; readonly loginId: string; readonly url: string }
+  | {
+      readonly type: 'browser'
+      readonly loginId: string
+      /**
+       * The page to open, where the runtime has one to hand over — a CLI
+       * that printed its link, Codex's own flow.
+       *
+       * Absent when the *agent* opened the browser: ACP's `authenticate`
+       * takes a method id and returns nothing at all, and Antigravity's
+       * server calls `webbrowser.open` on its own auth URL inside that call
+       * (#749). The flow is under way either way, and the only thing left is
+       * its completion; a shell with no URL says so instead of offering a
+       * link it has not got.
+       */
+      readonly url?: string
+    }
   | {
       readonly type: 'deviceCode'
       readonly loginId: string
