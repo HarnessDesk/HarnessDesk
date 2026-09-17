@@ -1,0 +1,47 @@
+{
+  "command": "node e2e/ui-system/native-smoke.mjs --width 1024 --height 768 --scene desk --scene settings-library --scene settings-skills --scene settings-extensions --scene terminal --assert-layout",
+  "platform": "darwin",
+  "arch": "arm64",
+  "isolatedHome": "temporary isolated profile",
+  "isolatedWork": "temporary synthetic repositories",
+  "screenshots": [
+    "output/native-ui-system/frames/desk-dark.png",
+    "output/native-ui-system/frames/desk-light.png",
+    "output/native-ui-system/frames/settings-extensions-dark.png",
+    "output/native-ui-system/frames/settings-extensions-light.png",
+    "output/native-ui-system/frames/settings-library-dark.png",
+    "output/native-ui-system/frames/settings-library-light.png",
+    "output/native-ui-system/frames/settings-skills-dark.png",
+    "output/native-ui-system/frames/settings-skills-light.png",
+    "output/native-ui-system/frames/terminal-dark.png",
+    "output/native-ui-system/frames/terminal-light.png",
+    "output/native-ui-system/about-dark.png"
+  ],
+  "relaunch": {
+    "theme": "dark",
+    "dark": true,
+    "dragRegions": 2,
+    "noDragControls": 13,
+    "searchNamed": true,
+    "title": "HarnessDesk",
+    "background": "rgb(38, 38, 36)",
+    "foreground": "rgb(245, 244, 238)",
+    "radius": "16px",
+    "palette": "editorial",
+    "accent": "violet",
+    "corners": "round",
+    "interface": "studio"
+  },
+  "about": {
+    "title": "About HarnessDesk",
+    "heading": "HarnessDesk",
+    "foundationLoaded": true,
+    "background": "rgb(38, 38, 36)",
+    "foreground": "rgb(245, 244, 238)",
+    "radius": "16px",
+    "palette": "editorial",
+    "accent": "violet",
+    "corners": "round",
+    "interface": "studio"
+  }
+}
