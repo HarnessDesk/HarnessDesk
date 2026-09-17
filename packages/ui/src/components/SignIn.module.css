@@ -16,14 +16,10 @@
   background: var(--hd-scrim);
 }
 
-/* The width is on the element, not here: `DialogContent`'s base sets `w-full`
-   and caps at `sm:max-w-md`, and app.css is bundled after the modules, so a
-   `width` stated in this file lost to both. This sheet asked for 980 and was
-   drawn at 448 at every window size — which is what squeezed its two columns
-   into one column and a gutter. */
 .dialog {
   display: flex;
   flex-direction: column;
+  width: min(980px, 100%);
   height: min(820px, 100%);
   border-radius: var(--hd-surface-radius);
   background: var(--hd-surface-fill);

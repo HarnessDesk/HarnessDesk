@@ -196,7 +196,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
     <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
         bleed
-        className={`${own.dialog} w-[min(980px,100%)]`}
+        className={own.dialog}
         portalled={false}
         aria-label="Sign in"
         showCloseButton={false}

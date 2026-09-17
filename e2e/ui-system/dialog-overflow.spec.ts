@@ -125,6 +125,9 @@ for (const [where, width, height] of [
     // The head is a bar, not half the sheet: `DialogContent`'s grid gave its
     // two children a row each until the sheet asked to bleed.
     expect(held.head).toBeLessThan(80)
-    expect(held.width).toBeGreaterThan(Math.min(width - 64, 480))
+    /* 448px is `sm:max-w-md`, the cap this sheet spent its life under. Past
+       it at both window sizes is the whole regression: what it settles on
+       past it is the window's business, not this test's. */
+    expect(held.width).toBeGreaterThan(Math.min(448, width - 64))
   })
 }

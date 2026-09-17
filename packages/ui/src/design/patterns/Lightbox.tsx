@@ -61,6 +61,7 @@ export const Lightbox = ({
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
+        bleed
         initialFocus={close}
         showCloseButton={false}
         overlayClassName={styles.overlay}
