@@ -58,7 +58,7 @@
 
 .backIcon {
   flex: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   display: inline-grid;
   place-items: center;
 }
@@ -80,7 +80,7 @@
   border-radius: var(--hd-page-search-radius, 16px);
   background: var(--hd-card);
   box-shadow: var(--hd-input-shadow);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   transition:
     border-color var(--hd-duration-fast) var(--hd-ease),
     box-shadow var(--hd-duration-fast) var(--hd-ease);
@@ -96,14 +96,14 @@
   min-width: 0;
   border: 0;
   background: none;
-  color: var(--hd-foreground);
+  color: var(--hd-sidebar-foreground);
   font: inherit;
   font-size: var(--hd-text-sm);
   outline: none;
 }
 
 .winSearch input::placeholder {
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* A column, so a rail's last child can take `margin-top: auto` and sit at the
@@ -134,7 +134,7 @@
   font-weight: var(--hd-label-weight, var(--hd-weight-normal));
   letter-spacing: var(--hd-label-tracking, 0);
   text-transform: var(--hd-label-transform, none);
-  color: var(--hd-label-ink, var(--hd-muted-foreground));
+  color: var(--hd-label-ink, var(--hd-sidebar-muted-foreground));
 }
 
 .winNavItem {
@@ -163,7 +163,7 @@
 
 .winNavIcon {
   flex: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   display: inline-grid;
   place-items: center;
 }
@@ -186,7 +186,7 @@
   margin-left: auto;
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -214,7 +214,7 @@
 .winNavEmpty {
   padding: 10px var(--hd-space-2); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* --- the content page ----------------------------------------------------

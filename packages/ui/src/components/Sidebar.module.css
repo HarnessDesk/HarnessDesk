@@ -92,7 +92,7 @@
 }
 
 .workspace:hover {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 /* The app's name is the sidebar's title — Codex's heading step over its own
@@ -109,7 +109,7 @@
 
 .workspaceChevron {
   flex: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   transform: rotate(90deg);
 }
 
@@ -145,7 +145,7 @@
 .navCount {
   margin-left: auto;
   font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -216,13 +216,13 @@
 .filterIcon {
   position: absolute;
   left: 6px;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   pointer-events: none;
 }
 
 .filter:hover .filterIcon,
 .sectionLabel[data-filtering] .filterIcon {
-  color: var(--hd-foreground);
+  color: var(--hd-sidebar-foreground);
 }
 
 .filterInput {
@@ -250,7 +250,7 @@
 
 .groupChevron {
   flex: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
@@ -260,7 +260,7 @@
 
 .groupIcon {
   flex: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 /*
@@ -314,13 +314,13 @@
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 .groupCount {
   flex: none;
   font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -368,7 +368,7 @@
 
 .row[data-active] .rowTitle,
 .row[data-open] .rowTitle {
-  color: var(--hd-sidebar-selected-foreground, var(--hd-foreground));
+  color: var(--hd-sidebar-selected-foreground, var(--hd-sidebar-foreground));
   font-weight: var(--hd-nav-weight-selected, var(--hd-weight-normal));
 }
 
@@ -411,7 +411,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text);
-  color: var(--hd-foreground);
+  color: var(--hd-sidebar-foreground);
   line-height: var(--hd-line);
 }
 
@@ -420,7 +420,7 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 .row[data-active] .rowWorktree,
@@ -437,7 +437,7 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 .rowWorktree + .rowGone {
@@ -454,7 +454,7 @@
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   min-width: 0;
   line-height: 15px;
 }
@@ -478,7 +478,7 @@
   padding: 4px 8px 8px var(--hd-space-8); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   line-height: 16px;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 .dot {
@@ -502,7 +502,7 @@
   padding: 24px 12px;
   text-align: center;
   font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   line-height: 18px;
 }
 
@@ -587,7 +587,7 @@
 
 .accountRow:hover,
 .accountRow[data-open] {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 .accountMenuMark {
@@ -624,7 +624,7 @@
 .accountMeta {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -641,7 +641,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--hd-muted-foreground);
+  background: var(--hd-sidebar-muted-foreground);
 }
 
 .statusDot[data-state='ready'] {
@@ -678,7 +678,7 @@
 
 .accountMenuPlan {
   font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   text-transform: capitalize;
 }
 
@@ -705,11 +705,11 @@
 }
 
 .accountMenuRow:not([data-static]):hover {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 .accountMenuRowOpen {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 .accountMenuCaret {
@@ -738,7 +738,7 @@
 }
 
 .usageLaneReset {
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -770,7 +770,7 @@
 }
 
 .accountMenuAction > svg {
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 .accountMenuRow:hover .accountMenuAction > svg {
@@ -792,7 +792,7 @@
 .accountMenuMeta {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -834,14 +834,14 @@
   padding: 0 10px;
   border: none;
   border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
   color: inherit;
   font-size: var(--hd-text-sm);
   cursor: pointer;
 }
 
 .accountMenuButton:hover:not(:disabled) {
-  background: var(--hd-active, var(--hd-hover));
+  background: var(--hd-active, var(--hd-sidebar-hover));
 }
 
 .accountMenuButtonDanger {
@@ -873,15 +873,15 @@
   background: none;
   padding: 2px 4px;
   border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
 }
 
 .listControls button:hover {
-  background: var(--hd-hover);
-  color: var(--hd-foreground);
+  background: var(--hd-sidebar-hover);
+  color: var(--hd-sidebar-foreground);
 }
 
 .listControls[data-filtered]::after {
@@ -920,7 +920,7 @@
      lines tall and the glyph belongs to the first. */
   margin-top: var(--hd-space-2); /* desk: canonical One UI System scale */
   border-radius: 50%;
-  border: 1.5px solid var(--hd-muted-foreground);
+  border: 1.5px solid var(--hd-sidebar-muted-foreground);
   opacity: 0.55;
 }
 
@@ -1022,7 +1022,7 @@
   display: block;
   font-size: var(--hd-text-sm);
   line-height: 14px;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* A nav row with a secondary action at its end: the option, not a second verb. */
@@ -1144,7 +1144,7 @@
    hover buttons showing, so the menu does not appear to float from nothing. */
 .groupPin {
   flex: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* --- arranging projects by hand ------------------------------------------ */
@@ -1203,7 +1203,7 @@
 .menuLabel {
   padding: var(--hd-space-1) var(--hd-space-2) 4px; /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* You: the seat a HarnessDesk account will take. There is no such account
@@ -1229,7 +1229,7 @@
 }
 
 .you:hover {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 .youText {
@@ -1272,7 +1272,7 @@
   padding: 0 6px;
   border-radius: var(--hd-radius-sm);
   background: var(--hd-muted);
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   font-size: var(--hd-text-xs);
   font-weight: 400;
   white-space: nowrap;
@@ -1296,7 +1296,7 @@
 }
 
 .seat:hover {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 .seat[data-current] {
@@ -1327,7 +1327,7 @@
 /* The row's badge for a default agent nobody has signed in to: no ring,
    because the ring is the account's, and there is no account. */
 .seatAvatar[data-off] {
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
 }
 
 .seatAvatar[data-tint='blue'] {
@@ -1375,7 +1375,7 @@
 .seatSub {
   font-size: var(--hd-text-xs);
   line-height: 16px;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-sidebar-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1444,7 +1444,7 @@
   /* The row's own gap is 2px, which is the spacing between two buttons, not
      between a mark and the word it belongs to. */
   margin-right: var(--hd-space-2); /* desk: canonical One UI System scale */
-  color: var(--hd-foreground);
+  color: var(--hd-sidebar-foreground);
 }
 
 /* --- rooms in the tree --------------------------------------------------- */
@@ -1463,14 +1463,14 @@
   height: var(--hd-row-h);
   padding: 0 8px 0 2px;
   border-radius: 8px;
-  color: var(--hd-foreground);
+  color: var(--hd-sidebar-foreground);
   cursor: pointer;
   text-align: left;
   font-size: var(--hd-text);
 }
 
 .roomRow:hover {
-  background: var(--hd-hover);
+  background: var(--hd-sidebar-hover);
 }
 
 /* A held message is the team's "needs you": it goes nowhere until somebody
