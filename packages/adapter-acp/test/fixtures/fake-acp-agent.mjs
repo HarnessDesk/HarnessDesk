@@ -641,6 +641,14 @@ const DELETES = process.env.FAKE_ACP_DELETE === '1'
  * one that declares it and then refuses the call.
  */
 const LOGS_OUT = process.env.FAKE_ACP_LOGOUT === '1' || process.env.FAKE_ACP_LOGOUT_FAILS === '1'
+/**
+ * FAKE_ACP_LOGOUT_NULL=1 plays the other half of ACP's rule: the capability
+ * is *present and null*, which means exactly what omitting it means — the
+ * agent does not support `logout`, and a client MUST NOT call it. Such an
+ * agent still refuses the request, which is how a client that ignores the
+ * rule is caught.
+ */
+const LOGOUT_NULL = process.env.FAKE_ACP_LOGOUT_NULL === '1'
 /** Set by a served `logout`, after which this agent opens nothing. */
 let signedOut = false
 const tasks = new Map()
@@ -703,8 +711,9 @@ const handlers = {
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
         ...(STORE ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
-        // Presence is the flag, as it is for sessionCapabilities above.
-        ...(LOGS_OUT ? { auth: { logout: {} } } : {}),
+        /* `{}` is the only yes; `null` is a no that is spelled out rather
+           than omitted, and both are on the wire. */
+        ...(LOGS_OUT ? { auth: { logout: {} } } : LOGOUT_NULL ? { auth: { logout: null } } : {}),
       },
       authMethods: process.env.FAKE_ACP_AUTH_METHODS
         ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
@@ -750,6 +759,7 @@ const handlers = {
   // never put `auth.logout` in its capabilities and is asked anyway should
   // answer the way any agent answers a method it does not have.
   logout: (id) => {
+    // Including the `null` form: declaring it null is declaring no support.
     if (!LOGS_OUT) return fail(id, 'Method not found: logout')
     if (process.env.FAKE_ACP_LOGOUT_FAILS === '1') return fail(id, 'the keychain refused to give up the token')
     signedOut = true

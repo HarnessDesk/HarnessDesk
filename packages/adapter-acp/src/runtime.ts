@@ -1458,11 +1458,19 @@ export class AcpRuntime implements AgentRuntime {
    * server is a download of its own, the `agy` CLI beside it is a different
    * program, and `agy --print /logout` is refused by print mode — clearing
    * credentials is exactly the effect print mode will not let outlive a run
-   * (#749). Presence is the flag; an agent that declares nothing is never
-   * asked.
+   * (#749).
+   *
+   * `{}` is the only yes. ACP v1 makes an omitted capability and a `null`
+   * one mean the same thing — the agent does not support `logout` — and says
+   * a client **MUST NOT** call it in either case. This read was `!==
+   * undefined`, which let a `null` through and sent the forbidden request;
+   * the agent answered "Method not found", which is the desk breaking the
+   * protocol and then reporting the agent's complaint about it. Found in
+   * review of this PR, with a control that declares `logout: null`.
    */
   #logsOutOverAcp(): boolean {
-    return this.#initialized?.agentCapabilities?.auth?.logout !== undefined
+    const declared = this.#initialized?.agentCapabilities?.auth?.logout
+    return declared !== undefined && declared !== null
   }
 
   async logout(): Promise<void> {

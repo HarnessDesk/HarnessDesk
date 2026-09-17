@@ -551,6 +551,39 @@ test('a sign-out the agent refuses leaves the account standing, in the agent’s
  * are driven by. ACP's own is the fallback for an agent whose CLI cannot be
  * asked, never a replacement.
  */
+/**
+ * The other half of ACP's rule, and the defect review caught in this PR.
+ *
+ * "If `agentCapabilities.auth.logout` is omitted or `null`, the Agent does
+ * not support `logout`" — and the client **MUST NOT** call it in either
+ * case. The capability read was `!== undefined`, which let the null form
+ * through: the desk sent the forbidden request and surfaced the agent's
+ * "Method not found" as if the agent had failed, when it was the desk that
+ * broke the rule. The fake refuses `logout` in this mode for exactly that
+ * reason — a client that obeys never reaches the refusal.
+ */
+test('a logout capability of null is no capability, and the request is never sent', async () => {
+  const runtime = bare({ FAKE_ACP_LOGOUT_NULL: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await assert.rejects(
+      runtime.logout(),
+      /declares no sign-out command/,
+      'refused here, rather than by the agent after the desk broke the rule',
+    )
+    assert.deepEqual(
+      (await runtime.getAccount()).accounts,
+      [{ kind: 'agent', label: 'Signed in', anonymous: true }],
+      'nothing was attempted, so nothing about the account changed',
+    )
+    // And the session the agent had open is still open, since it never signed out.
+    await runtime.createSession({ cwd: process.cwd() })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a declared logout command outranks the agent’s ACP logout', async () => {
   const calls = mkdtempSync(join(tmpdir(), 'hd-logout-'))
   const marker = join(calls, 'logged-out')

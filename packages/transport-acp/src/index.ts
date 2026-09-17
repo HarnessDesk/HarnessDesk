@@ -33,22 +33,32 @@ export interface AcpAgentCapabilities {
     readonly audio?: boolean
     readonly embeddedContext?: boolean
   }
-  /** Observed live from Claude Code 0.16.2: presence of a key means support. */
+  /**
+   * Observed live from Claude Code 0.16.2: an object means support.
+   *
+   * `null` is spelled out because it is on the wire and means the same as an
+   * omission — see `auth` below, where admitting it was a defect. Every read
+   * of these is a `Boolean(…)` or a `!…`, which answers `null` correctly.
+   */
   readonly sessionCapabilities?: {
-    readonly list?: object
-    readonly resume?: object
-    readonly fork?: object
+    readonly list?: object | null
+    readonly resume?: object | null
+    readonly fork?: object | null
   }
   /**
-   * Sign-out, the protocol's own. A `logout` key means the agent answers the
-   * `logout` request and clears its stored credentials on it; presence is
-   * the flag, as with `sessionCapabilities` above. Read off Google
-   * Antigravity's ACP server 1.1.1, which answers `initialize` with
-   * `"auth":{"logout":{}}` beside an `authMethods` list — the one agent the
-   * desk drives that has no CLI able to sign it out (#749).
+   * Sign-out, the protocol's own. Read off Google Antigravity's ACP server
+   * 1.1.1, which answers `initialize` with `"auth":{"logout":{}}` beside an
+   * `authMethods` list — the one agent the desk drives that has no CLI able
+   * to sign it out (#749).
+   *
+   * **`{}` is the only yes.** ACP v1: "If `agentCapabilities.auth.logout` is
+   * omitted or `null`, the Agent does not support `logout`", and a client
+   * **MUST NOT** call it in either case. The two spellings are not
+   * interchangeable and `null` is not "present", which is why the type says
+   * so rather than leaving a reader to infer it from `?`.
    */
   readonly auth?: {
-    readonly logout?: object
+    readonly logout?: object | null
   }
 }
 
