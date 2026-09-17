@@ -115,6 +115,7 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-text` | `14px` |
 | `--hd-text-lg` | `16px` |
 | `--hd-heading` | `20px` |
+| `--hd-title` | `24px` |
 | `--hd-display` | `36px` |
 
 ### Measure

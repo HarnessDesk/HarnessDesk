@@ -219,6 +219,7 @@ body {
   --hd-text: 14px;
   --hd-text-lg: 16px;
   --hd-heading: 20px;
+  --hd-title: 24px;
   --hd-display: 36px;
   /* One line per step, and nothing else. Before this the 13px step was set on
      eight different line-heights across the tree and the 12px step on five;
@@ -229,6 +230,7 @@ body {
   --hd-line: 21px;
   --hd-line-lg: 24px;
   --hd-line-heading: 28px;
+  --hd-line-title: 30px;
   --hd-line-display: 40px;
 
   --hd-weight-normal: 400;

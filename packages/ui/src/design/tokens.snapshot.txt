@@ -106,6 +106,7 @@
 --hd-line-heading = 28px
 --hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-muted = rgb(244, 245, 246)
 --hd-muted-foreground = rgb(129, 132, 135)
@@ -218,6 +219,7 @@
 --hd-tint-violet-edge = rgba(155, 92, 215, 0.55)
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(133, 77, 187)
+--hd-title = 24px
 --hd-titlebar-height = 44px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
@@ -521,6 +523,7 @@
 --hd-line-heading = 28px
 --hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-muted = rgb(47, 49, 52)
 --hd-muted-foreground = rgb(174, 176, 180)
@@ -633,6 +636,7 @@
 --hd-tint-violet-edge = rgba(155, 92, 215, 0.55)
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(184, 132, 240)
+--hd-title = 24px
 --hd-titlebar-height = 44px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
@@ -947,6 +951,7 @@
 --hd-line-heading = 28px
 --hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-muted = rgb(244, 245, 246)
 --hd-muted-foreground = rgb(129, 132, 135)
@@ -1067,6 +1072,7 @@
 --hd-tint-violet-edge = rgba(155, 92, 215, 0.55)
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(133, 77, 187)
+--hd-title = 24px
 --hd-titlebar-height = 44px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
@@ -1381,6 +1387,7 @@
 --hd-line-heading = 28px
 --hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-muted = rgb(47, 49, 52)
 --hd-muted-foreground = rgb(174, 176, 180)
@@ -1501,6 +1508,7 @@
 --hd-tint-violet-edge = rgba(155, 92, 215, 0.55)
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(184, 132, 240)
+--hd-title = 24px
 --hd-titlebar-height = 44px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px

@@ -126,11 +126,11 @@
 }
 
 .markdown h1 {
-  font-size: var(--prose-h1, 24px); /* desk: 21 → 24, the ladder's top rung */
+  font-size: var(--prose-h1, var(--hd-title)); /* desk: 21 → 24, the ladder's top rung */
 }
 
 .markdown h2 {
-  font-size: var(--prose-h2, 20px); /* desk: 18 → 20, one rung up */
+  font-size: var(--prose-h2, var(--hd-heading)); /* desk: 18 → 20, one rung up */
 }
 
 .markdown h3 {
@@ -147,7 +147,7 @@
  * fourth level, where it reads as a caption on the third.
  */
 .markdown h4 {
-  font-size: var(--prose-h4, 16px);
+  font-size: var(--prose-h4, var(--hd-text-lg));
   margin-bottom: 0; /* desk: 8 → 0, so it sits on its own paragraph */
 }
 
