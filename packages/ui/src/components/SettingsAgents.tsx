@@ -453,7 +453,7 @@ const AgentBlock = ({
   }
 
   return (
-    <section className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
+    <Rows className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
       {/* Two targets, not one: the agent's name opens what belongs to the
           runtime — health, version, behaviour — and the caret only decides
           whether its accounts are on screen. Nesting them would make one of
@@ -714,7 +714,7 @@ const AgentBlock = ({
       )}
       </div>
       )}
-    </section>
+    </Rows>
   )
 }
 

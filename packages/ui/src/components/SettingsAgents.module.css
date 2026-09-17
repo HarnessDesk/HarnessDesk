@@ -4,11 +4,10 @@
    the account. */
 
 /* Same card contract as the canonical Settings Rows pattern. */
+/* The card itself comes from `Rows` — this was a byte-for-byte copy of it.
+   An agent stands a little further from the next one than a plain row does,
+   because it opens to hold its own accounts, and that is all this says now. */
 .agent {
-  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
-  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hd-card));
-  overflow: hidden;
   margin-bottom: var(--hd-space-2-5);
 }
 

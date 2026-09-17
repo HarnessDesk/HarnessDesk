@@ -255,8 +255,12 @@ export const SectionHead = ({ name, action }: { name: ReactNode; action?: ReactN
 )
 
 /** A card of rows. Every settings page is made of these and nothing else. */
-export const Rows = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={cx(styles.rows, className)}>{children}</div>
+export const Rows = ({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string }) => (
+  <div className={cx(styles.rows, className)} {...props}>{children}</div>
 )
 
 export const Row = ({
