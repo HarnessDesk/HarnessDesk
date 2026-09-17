@@ -12,8 +12,8 @@
 
 .headline {
   margin: 0;
-  font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold);
+  font-size: var(--hd-text);
+  font-weight: var(--hd-weight-medium);
   line-height: var(--hd-line);
   color: var(--hd-foreground);
 }
@@ -66,7 +66,8 @@
 }
 
 .label {
-  font-size: var(--hd-text-xs);
+  font-size: var(--hd-text-sm);
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-secondary-foreground);
 }
 

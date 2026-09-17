@@ -116,6 +116,28 @@ ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
 and `text-xl` included: those two agreed with the table by coincidence across
 a hundred and fifty call sites, and a coincidence does not follow a change.
 
+## Four steps and nothing else
+
+A size and a weight together name a *role*, and there are four:
+
+| role | spelling | what wears it |
+| --- | --- | --- |
+| page | 24 / normal | the name of a place — a settings page, a review |
+| subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
+| row | 13 / medium | the name of one thing in a list, and the word above a control |
+| muted | 13 / normal | a description under a name, and chrome that labels rather than names |
+
+Counted before this rule was written down: eight. A dialog's title was 16/600
+in one pattern and 14/600 in another; a label above a field was 13/600 in three
+screens, 13 at whatever weight it inherited in three more, and 12 in a seventh.
+The design system's own head slots said 600 in five components and 500 in the
+sixth — so a screen that composed the system got a heavier title than a screen
+that drew its own, which is the opposite of what a design system is for.
+
+Nothing is 16 any more. A step between the subject and the page turned out to
+be a way of avoiding the choice between them: a dialog names one question and a
+page names a place, and 16 said neither.
+
 | step | line | ratio |
 | --- | --- | --- |
 | 12px | `--hd-line-xs` 16px | 1.33 |

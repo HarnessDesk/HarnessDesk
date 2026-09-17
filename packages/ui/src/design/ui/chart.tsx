@@ -89,7 +89,7 @@ const ChartHead = ({ className, ...props }: React.ComponentProps<'div'>) => (
 const ChartTitle = ({ className, ...props }: React.ComponentProps<'h3'>) => (
   <h3
     data-slot="chart-title"
-    className={cn('text-sm leading-(--hd-line-sm) font-semibold', className)}
+    className={cn('text-sm leading-(--hd-line-sm) font-medium', className)}
     {...props}
   />
 )

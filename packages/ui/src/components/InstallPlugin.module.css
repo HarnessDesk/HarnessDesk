@@ -37,7 +37,7 @@
 }
 
 .name {
-  font-size: var(--hd-text-lg);
+  font-size: var(--hd-text);
   font-weight: var(--hd-weight-medium);
 }
 

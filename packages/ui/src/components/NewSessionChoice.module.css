@@ -41,7 +41,7 @@
 }
 
 .name {
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 

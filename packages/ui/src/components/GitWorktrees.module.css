@@ -237,6 +237,7 @@
 }
 
 .label {
+  font-weight: var(--hd-weight-medium);
   flex: none;
   width: 56px;
   font-size: var(--hd-text-sm);

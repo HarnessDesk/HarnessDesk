@@ -37,9 +37,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: var(--hd-weight-medium);
-  font-size: var(--hd-text-lg);
-  line-height: var(--hd-line-lg); /* desk: 22 → 24, the line the 16px step is set on */
-  letter-spacing: -0.01em;
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
 }
 
 .status {

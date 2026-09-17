@@ -190,6 +190,7 @@
    "Organize sidebar" over its own list controls. Uppercase, bold and
    letter-spacing all shouted over the rows, which are the text that matters. */
 .label {
+  font-weight: var(--hd-weight-medium);
   padding: 8px 10px var(--hd-space-1);
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);

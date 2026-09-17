@@ -14,8 +14,9 @@
 
 .title {
   margin: 0;
-  font-size: var(--hd-heading);
-  font-weight: var(--hd-weight-semibold);
+  font-size: var(--hd-title);
+  line-height: var(--hd-line-title);
+  font-weight: var(--hd-weight-normal);
   letter-spacing: -0.01em;
   color: var(--hd-foreground);
 }
