@@ -214,6 +214,38 @@ it('asks for the log, the refs and the status together, and shows the walk', asy
   expect(document.body.textContent).toContain('2 commits')
 })
 
+it('uses padded canonical segments for the branch scope', async () => {
+  await mount({})
+  const group = container.querySelector('[role="radiogroup"][aria-label="Which branches"]')!
+  const options = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+
+  expect(group.getAttribute('data-slot')).toBe('toggle-group')
+  expect(options.map((option) => option.textContent)).toEqual(['All branches', 'Current'])
+  for (const option of options) {
+    expect(option.getAttribute('data-slot')).toBe('toggle-group-item')
+    // The canonical default size owns horizontal padding; a content-sized
+    // Button has none and made these two labels read as one phrase.
+    expect(option.classList.contains('px-2')).toBe(true)
+  }
+  expect(options[0]!.getAttribute('aria-checked')).toBe('true')
+  expect(options[1]!.getAttribute('aria-checked')).toBe('false')
+})
+
+it('changes branch scope through the canonical radio group without clearing its selection', async () => {
+  const { request } = await mount({})
+  const group = container.querySelector('[role="radiogroup"][aria-label="Which branches"]')!
+  const [all, current] = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  await act(async () => current!.click())
+  expect(current!.getAttribute('aria-checked')).toBe('true')
+  expect(all!.getAttribute('aria-checked')).toBe('false')
+  expect(request).toHaveBeenCalledWith('git/log', expect.objectContaining({ scope: 'head' }))
+
+  request.mockClear()
+  await act(async () => current!.click())
+  expect(current!.getAttribute('aria-checked')).toBe('true')
+  expect(request).not.toHaveBeenCalled()
+})
+
 it('says in words when the folder is outside git', async () => {
   await mount({ refs: null })
   expect(document.body.textContent).toContain('not a git repository')

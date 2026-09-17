@@ -101,6 +101,13 @@
       "evidence": "documentation-only rendered asset"
     },
     {
+      "path": "e2e/ui-system/git-scope.spec.ts",
+      "scope": "test",
+      "owner": "verification",
+      "disposition": "verified-boundary",
+      "evidence": "covered by the repository test gates"
+    },
+    {
       "path": "e2e/ui-system/usage-segmented.spec.ts",
       "scope": "test",
       "owner": "verification",
@@ -3267,10 +3274,10 @@
   ],
   "unresolved": [],
   "summary": {
-    "total": 430,
+    "total": 431,
     "byScope": {
       "asset": 15,
-      "test": 130,
+      "test": 131,
       "fixture": 20,
       "production": 252,
       "catalog": 6,
@@ -3278,7 +3285,7 @@
     },
     "byDisposition": {
       "specialized-boundary": 22,
-      "verified-boundary": 163,
+      "verified-boundary": 164,
       "migrated": 163,
       "canonical": 82
     }

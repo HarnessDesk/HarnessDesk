@@ -97,6 +97,7 @@ try {
 // preference store, rather than a catalog-only or renderer-local cache.
   const desk = await launchDesk({
   app: root,
+  executable: process.env['HD_SHOTS_EXECUTABLE'],
   home: rigHome,
   userDataDir: join(rigHome, 'electron'),
   logPath: join(output, 'relaunch.log'),

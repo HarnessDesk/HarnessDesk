@@ -32,7 +32,7 @@ import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { Dialog } from '../design'
-import { Button, Input, NativeSelect, RefusedAction, Switch } from '../design'
+import { Button, Input, NativeSelect, RefusedAction, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
@@ -805,26 +805,15 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       )}
 
       <div className={styles.tools}>
-        <div className={styles.scope} role="radiogroup" aria-label="Which branches">
-          {(
-            [
-              ['all', 'All branches'],
-              ['head', 'Current'],
-            ] as const
-          ).map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={scope === value}
-              variant="quiet" size="content" className={styles.scopeTab}
-              {...(scope === value ? { 'data-on': '' } : {})}
-              onClick={() => setScope(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
+        <Segmented<GitLogScope>
+          label="Which branches"
+          options={[
+            { value: 'all', label: 'All branches' },
+            { value: 'head', label: 'Current' },
+          ]}
+          value={scope}
+          onChange={(next) => { if (next) setScope(next) }}
+        />
         <label className={styles.find}>
           <SearchIcon size={13} />
           <Input

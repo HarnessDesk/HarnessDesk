@@ -86,19 +86,6 @@
   border-bottom: 1px solid var(--hd-border);
 }
 
-.scope {
-  flex: none;
-  display: inline-flex;
-  padding: 2px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-muted);
-}
-
-.scopeTab {
-
-  white-space: nowrap;
-}
-
 .find {
   flex: 1;
   min-width: 60px;

@@ -14,6 +14,12 @@ import { USAGE, LEDGER } from './shots/usage.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
+test('native appearance relaunch keeps the packaged executable selected for the sweep', () => {
+  const native = readFileSync(join(root, 'e2e/ui-system/native-smoke.mjs'), 'utf8')
+  const relaunch = native.slice(native.indexOf('const desk = await launchDesk({'))
+  assert.match(relaunch, /executable: process\.env\['HD_SHOTS_EXECUTABLE'\]/)
+})
+
 test('every capture dismisses only the normal import offer before auditing the frame', () => {
   const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
   const capture = shoot.slice(shoot.indexOf('const shoot = async'), shoot.indexOf('const setTheme = async'))
