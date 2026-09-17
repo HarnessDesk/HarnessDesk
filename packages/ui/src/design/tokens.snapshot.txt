@@ -186,8 +186,6 @@
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(129, 132, 135)
 --hd-text = 14px
---hd-text-2xs = 10px
---hd-text-3xs = 9px
 --hd-text-lg = 16px
 --hd-text-sm = 13px
 --hd-text-xs = 12px
@@ -598,8 +596,6 @@
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(174, 176, 180)
 --hd-text = 14px
---hd-text-2xs = 10px
---hd-text-3xs = 9px
 --hd-text-lg = 16px
 --hd-text-sm = 13px
 --hd-text-xs = 12px
@@ -1029,8 +1025,6 @@
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(129, 132, 135)
 --hd-text = 14px
---hd-text-2xs = 10px
---hd-text-3xs = 9px
 --hd-text-lg = 16px
 --hd-text-sm = 13px
 --hd-text-xs = 12px
@@ -1460,8 +1454,6 @@
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(174, 176, 180)
 --hd-text = 14px
---hd-text-2xs = 10px
---hd-text-3xs = 9px
 --hd-text-lg = 16px
 --hd-text-sm = 13px
 --hd-text-xs = 12px

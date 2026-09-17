@@ -214,8 +214,6 @@ body {
      default answer and the rest are exceptions that have to earn it. The full
      reasoning, and the rule for choosing between steps, is
      docs/design.md. */
-  --hd-text-3xs: 9px;
-  --hd-text-2xs: 10px;
   --hd-text-xs: 12px;
   --hd-text-sm: 13px;
   --hd-text: 14px;

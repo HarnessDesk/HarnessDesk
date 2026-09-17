@@ -110,8 +110,6 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 
 | token | value |
 | --- | --- |
-| `--hd-text-3xs` | `9px` |
-| `--hd-text-2xs` | `10px` |
 | `--hd-text-xs` | `12px` |
 | `--hd-text-sm` | `13px` |
 | `--hd-text` | `14px` |
