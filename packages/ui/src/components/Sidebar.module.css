@@ -287,14 +287,21 @@
   white-space: nowrap;
 }
 
-/* Reserve the actions in the content layout, leaving the navigation
-   button's canonical padding and full-width interaction surface intact. */
+/* The actions are absolute and only drawn on hover, on focus and while the
+   menu is open, so the room for them is only owed in those states. Reserved
+   unconditionally, every row in a still sidebar carried a gap at its right
+   edge for buttons that were not there. */
 .groupBody {
   display: flex;
   align-items: center;
   flex: 1;
   min-width: 0;
   gap: var(--hd-space-1-5);
+}
+
+.groupHead:hover .groupBody,
+.groupHead:focus-within .groupBody,
+.groupHead[data-menu-open] .groupBody {
   padding-right: calc(var(--hd-btn-h-sm) * 2);
 }
 
@@ -939,6 +946,14 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+/* Same trade as the group head: the ⋯ takes its room from the title only
+   while it is showing. The conditions are the menu's own, so the title can
+   never re-flow out from under a button that is already drawn. */
+.rowWrap:hover .rowBody,
+.rowWrap:focus-within .rowBody,
+.rowWrap[data-menu-open] .rowBody {
   padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
 }
 
