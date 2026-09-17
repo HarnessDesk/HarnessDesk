@@ -83,7 +83,7 @@
 
 .rowLine {
   font-size: var(--hd-text);
-  line-height: var(--hd-line-sm);
+  line-height: var(--hd-line); /* desk: 18 → 21, the line the 14px step is set on */
   color: var(--hd-secondary-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -239,7 +239,7 @@
   gap: 1px;
   padding: var(--hd-space-1) 0; /* desk: canonical One UI System scale */
   font-size: var(--hd-text);
-  line-height: var(--hd-line-sm);
+  line-height: var(--hd-line); /* desk: 18 → 21, the line the 14px step is set on */
   color: var(--hd-foreground);
 }
 

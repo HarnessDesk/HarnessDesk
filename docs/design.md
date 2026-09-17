@@ -35,8 +35,10 @@ SimSun from there.
 
 ### The sizes
 
-Two of them carry the app, and the split is the whole rule: **13px is the
-chrome, 14px is what is read.**
+The rule is a split: **13px is the chrome, 14px is what is read.** The counts
+are a different fact and worth keeping separate from it — by volume the app is
+12px and 13px, because a screen is nearly all furniture and most of the
+furniture is smaller than a row's own title.
 
 | token | value | what it carries | rules |
 | --- | --- | --- | --- |
@@ -48,11 +50,10 @@ chrome, 14px is what is read.**
 | `--hd-title` | 24px | a page's title | 2 |
 | `--hd-display` | 36px | a figure that fills a card | 1 |
 
-The counts are measured, not aspirational, and they say what the table means: a
-screen is nearly all chrome, so nearly all of it is 12 and 13. The sizes above
-14 are rare because each names one thing — a dialog asks one question, a page
-has one title, a card carries one figure — and a step that names one thing is
-a step you can pick without thinking.
+The counts are measured, not aspirational. The sizes above 14 are rare because
+each names one thing — a dialog asks one question, a page has one title, a card
+carries one figure — and a step that names one thing is a step you can pick
+without thinking.
 
 **There is nothing below 12px.** Nine- and ten-pixel steps existed once and had
 three call sites between them; the one that looked as if it really needed nine
@@ -84,11 +85,20 @@ a document does not have to.
 
 ### Line and row rhythm
 
-A size and its line are one decision, so every step names its pair and a
-surface picks the pair rather than the size. Before that rule the 13px step was
-set on eight different line-heights across the tree and the 12px step on five —
-ten line values serving six sizes, which is what an inconsistency looks like
-before anybody has counted it.
+A size and its line are one decision, so every step names its pair and a surface
+picks the pair rather than the size. Before that rule the 13px step was set on
+eight different line-heights across the tree and the 12px step on five — ten
+line values serving six sizes, which is what an inconsistency looks like before
+anybody has counted it.
+
+The pair is the default, not the only legal answer, and the deviation that is
+allowed has a direction. **Text that wraps may take the next line up; nothing
+takes a line tighter than its own.** Counted today: 119 rules on the pair, 20 a
+step looser, none tighter. The 20 are almost all a 12px caption set on the 13px
+step's 18px line, which is the same trade prose makes at the other end of the
+scale and for the same reason — a paragraph needs air between its lines and a
+row does not. A tighter line is not a trade, it is a crush, and the three that
+existed are gone.
 
 | step | line | ratio |
 | --- | --- | --- |
@@ -115,10 +125,13 @@ Rows:
 | `--hd-field-h` | 30px | inputs and selects: matches `--hd-btn-h` |
 | `--hd-bar-h` | 46px | the window's own bar, and a pane's |
 
-A navigation row's height is its line of text plus one step of padding above and
-below. Stating it that way rather than as a number is what lets the reading size
-or the density move every row in every column without a second edit — and it is
-how the two heights that column used to have became one.
+A navigation row's height is solved from **the reading size**, not from the size
+the row itself is set in: `--hd-text` times 1.5, plus one step of padding above
+and below. The row's own text is a step smaller than that, which is the point —
+every row in every column stands the same height whatever it happens to carry,
+and a row of 13px labels does not end up shorter than a row of 14px ones. It is
+also what lets the density or the reading size move every one of them without a
+second edit, and it is how the two heights that column used to have became one.
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
@@ -481,8 +494,9 @@ When adding a control, row or surface to HarnessDesk:
 - Never add a step. There are seven and each names one thing; a new one is
   either a step you already have or a sign that the thing wants less prominence
   rather than less type — in which case change its ink.
-- Never pick a size without its line. Every step names its pair, and a size set
-  on somebody else's line is how the 13px step came to have eight of them.
+- Never pick a size without its line. Every step names its pair; take the next
+  line up when the text wraps, and never a tighter one. A size set on somebody
+  else's line is how the 13px step came to have eight of them.
 - Set an explicit `line-height` only when the row's height depends on it.
 - The code face marks a face, never a size. `.mono` sets `font-family` and
   nothing else, so a row whose title happens to be an identifier stays the size
