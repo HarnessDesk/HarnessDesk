@@ -99,6 +99,6 @@
 }
 
 .initial {
-  font-size: var(--hd-text-xs);
+  font-size: var(--hd-text-xs); /* desk: 9 → 12, the scale's floor */
   font-weight: var(--hd-weight-semibold);
 }

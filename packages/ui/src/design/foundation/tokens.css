@@ -317,7 +317,7 @@ body {
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
   --hd-bar-h: 44px;
-  --hd-column: 736px;
+  --hd-column: 768px; /* desk: 736 → 768, 48rem — a measure with an arithmetic rather than a residue */
 
   /* The text well of the composer: where it rests, where it stops growing, and
      the line it is set on.

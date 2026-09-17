@@ -298,7 +298,7 @@
 
 .emptyTitle {
   font-family: var(--hd-font-display);
-  font-size: var(--hd-heading);
+  font-size: var(--hd-heading); /* desk: 22 → 20, the step every page title uses */
   font-weight: 500;
   color: var(--hd-foreground);
 }
