@@ -1953,6 +1953,16 @@ export class AppStore {
     return carried ? { cwd: carried } : {}
   }
 
+  /**
+   * Starts a turn now — for a conversation that cannot already be running one.
+   *
+   * `turn/send` does not wait, and an agent asked two things at once cannot
+   * answer both: one prompt at a time is all an ACP session has, so a second
+   * is refused. Anything that might find the conversation *working* wants
+   * `queue` instead, which is the door the composer uses in both states and
+   * lets the host decide whether to hold it. This one is for a conversation
+   * this gesture just created.
+   */
   async send(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     // Typing into an empty workspace is how a session starts: create it, then
     // send, so the first message is one gesture rather than two.

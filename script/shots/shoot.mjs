@@ -495,14 +495,26 @@ rules:
        the same calls the interface makes when a person types them. */
     const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
     for (const job of BOARD) await ask('team/add', { room: roomId, title: job.title, detail: job.detail })
-    for (const line of CHATTER) await ask('team/post', { room: roomId, text: line })
 
-    /* All four work, not two: four agents on one piece of work is the thing a
+    /* The work first, then the chatter — the order it happens in, and the only
+       order that photographs as one.
+
+       An agent can be asked one thing at a time, so a post to the room and a
+       prompt into the same conversation in the same breath is two prompts in
+       flight: one is refused now, and before the adapter refused it the room
+       showed the two answers spliced into one message. Asking first and
+       talking over the work also leaves each seat's opening message as what
+       it was asked, which is the line the sidebar reads.
+
+       All four work, not two: four agents on one piece of work is the thing a
        room is for, and two idle columns read as two agents that failed to
        start. */
     for (const key of keys) {
       await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000).catch(() => {})
     }
+    /* Queued by the room, one per member per turn: every seat is working by
+       now, and the board's own queue drains each post as a turn ends. */
+    for (const line of CHATTER) await ask('team/post', { room: roomId, text: line })
     await sleep(7000)
     return roomId
   }

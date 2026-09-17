@@ -992,6 +992,59 @@ test('interrupt cancels a slow turn as interrupted, not failed', async () => {
   }
 })
 
+/**
+ * The splice that put an agent's answer in a room twice.
+ *
+ * ACP's `session/update` names a session and not a prompt, so two prompts in
+ * flight are unattributable: the second `send` overwrote the one turn slot,
+ * stranded the first turn `inProgress` for ever, and folded both answers into
+ * the newest turn's single message item — end to end, no separator. The room
+ * shows the last thing a woken conversation said, so it showed both.
+ *
+ * A turn in flight and a second send is all it takes, which is a room post and
+ * a prompt typed in the same second.
+ */
+test('one prompt at a time: a second send is refused, never spliced onto the turn in flight', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    // `slow` holds its turn open until something interrupts it.
+    await session.send([{ type: 'text', text: 'slow' }])
+    await tape.until((event) => event.type === 'turn/started')
+
+    await assert.rejects(
+      () => session.send([{ type: 'text', text: 'hello there' }]),
+      /still working on the last message/,
+    )
+    // Refused before the wire: no second turn to strand, and nothing of the
+    // second prompt for the first turn's message to absorb.
+    assert.equal(
+      tape.events.filter((event) => event.type === 'turn/started').length,
+      1,
+      'the refused prompt started no turn',
+    )
+
+    await session.interrupt()
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.equal(turn.status, 'interrupted')
+    const said = turn.items
+      .filter((item) => item.type === 'assistantMessage')
+      .map((item) => (item.type === 'assistantMessage' ? item.text : ''))
+      .join('')
+    assert.ok(!said.includes('hearing: hello there'), `one turn, one answer: ${JSON.stringify(said)}`)
+    assert.equal(
+      tape.events.filter((event) => event.type === 'turn/completed').length,
+      1,
+      'the turn that was in flight is the one that ended',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an agent dying mid-turn fails the turn cleanly — never hangs', async () => {
   const runtime = make()
   await runtime.start()

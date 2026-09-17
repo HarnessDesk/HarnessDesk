@@ -81,6 +81,47 @@ test('assistant text deltas accumulate and item/completed wins', () => {
   assert.equal(allItems(session).length, 1, 'completed replaces rather than appends')
 })
 
+/**
+ * The fold every runtime ends a turn with: chunks while it speaks, then the
+ * whole turn again when it finishes. The completion *replaces* — a turn whose
+ * items were built delta by delta must not come back with the final text
+ * appended to what it already holds, or one answer reads as two spliced end to
+ * end — which is how a room's message looked when two prompts shared one turn.
+ */
+test('a turn completing over its own deltas replaces the text rather than doubling it', () => {
+  const streaming: AgentItem = { id: itemId('a1'), type: 'assistantMessage', text: '' }
+  const body = 'Idempotent on the delivery id.\n\nWorth noting for #5: the provider resets its backoff.'
+  let session = reduceAll(baseSession(), [
+    openTurn(),
+    { type: 'item/started', sessionId: SESSION, turnId: TURN, item: streaming },
+    ...body.split(' ').map((word, index): AgentEvent => ({
+      type: 'item/delta',
+      sessionId: SESSION,
+      turnId: TURN,
+      itemId: itemId('a1'),
+      delta: { kind: 'assistantText', text: index === 0 ? word : ` ${word}` },
+    })),
+  ])
+  const streamed = allItems(session)[0]
+  assert.equal(streamed?.type === 'assistantMessage' && streamed.text, body)
+
+  session = reduceSession(session, {
+    type: 'turn/completed',
+    sessionId: SESSION,
+    turn: {
+      id: TURN,
+      items: [{ ...streaming, text: body }],
+      status: 'completed',
+      completedAt: 10,
+      durationMs: 10,
+    },
+  })
+  const items = allItems(session)
+  assert.equal(items.length, 1, 'one message, not one per source of the same words')
+  const final = items[0]
+  assert.equal(final?.type === 'assistantMessage' && final.text, body)
+})
+
 test('reasoning deltas fill sparse indices without losing earlier parts', () => {
   const item: AgentItem = { id: itemId('r1'), type: 'reasoning', summary: [], content: [] }
   const session = reduceAll(baseSession(), [
