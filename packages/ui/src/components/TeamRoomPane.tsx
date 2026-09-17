@@ -770,7 +770,11 @@ export const TeamRoomPane = ({
               still has a pane of its own for when it is the work, from the Team
               panel and the command palette. */}
           <div className={styles.railPinned}>
+            {/* `as="button"`: these two switch the pane, and nothing else in
+                the row can be tabbed to, so the row itself has to be the stop.
+                The member rows below stay divs — see the note on MemberCard. */}
             <ListRow
+              as="button"
               size="sm"
               nav
               interactive
@@ -786,6 +790,7 @@ export const TeamRoomPane = ({
               trail={<span className={styles.count}>{intents.length}</span>}
             />
             <ListRow
+              as="button"
               size="sm"
               nav
               interactive
