@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Clearing your profile picture puts the app's own face back on the Dock** —
+  picking a picture changed the Dock icon, but picking the default again left
+  that face there: the icon it went back to was in a format the app cannot
+  read, so nothing happened at all.
 - **UI migration regressions repaired** — menus show their contents again,
   Settings rows grow around descriptions, avatar artwork keeps its size, and
   selected, current, running, failed and drop-target states retain their cues.

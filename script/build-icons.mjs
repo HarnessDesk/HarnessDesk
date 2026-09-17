@@ -7,6 +7,7 @@
 // librsvg installed.
 //
 //   packages/desktop/build/icon.icns, icon-dark.icns   bundle icon (electron-builder)
+//   packages/desktop/electron/assets/dockIcon.png      the same face as a raster, for the Dock
 //   packages/desktop/electron/assets/trayTemplate*.png menu-bar status item (template image)
 //   packages/desktop/electron/assets/mark.svg          the About window's mark (masked with currentColor)
 //   packages/desktop/electron/assets/menu/*.png        the status item's menu: Lucide glyphs, template images
@@ -70,6 +71,17 @@ for (const { svg, icns } of icons) {
   rmSync(work, { recursive: true, force: true })
   console.log(`${svg} -> packages/desktop/build/${icns}`)
 }
+
+// --- The Dock's way back to the app's own face.
+//
+// Choosing a profile picture puts that avatar on the Dock, and choosing the
+// default has to put this back. The bundle icon cannot be the image that does
+// it: `nativeImage` has no .icns decoder and hands back an empty image, so the
+// shell needs the same artwork as a raster Chromium can read. 512 is room to
+// spare over the largest tile macOS draws — 128pt, doubled on a Retina screen —
+// and the same pixels as the .icns slot of that size, so nothing shifts.
+render('harnessdesk-dock-icon-light.svg', 512, 512, join(assetsDir, 'dockIcon.png'))
+console.log('harnessdesk-dock-icon-light.svg -> packages/desktop/electron/assets/dockIcon.png')
 
 // --- Menu-bar status item. A template image is black + alpha; macOS recolours it for
 // light and dark menu bars and for the highlighted state. 18pt tall, the menu-bar norm.

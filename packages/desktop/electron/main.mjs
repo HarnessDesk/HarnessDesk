@@ -82,7 +82,7 @@ const setDockIcon = createDockIconSetter({
   app,
   nativeImage,
   avatarRoot,
-  defaultIcon: defaultIconPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, here }),
+  defaultIcon: defaultIconPath(assetsDir),
 })
 const sessionUrl = () => (running ? `${running.url}/?token=${running.token}` : null)
 

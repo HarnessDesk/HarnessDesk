@@ -37,9 +37,20 @@ const AVATARS = new Set(AVATAR_IDS)
 export const avatarResourcePath = (avatar, root) =>
   typeof avatar === 'string' && AVATARS.has(avatar) ? join(root, `${avatar}.png`) : null
 
-/** The immutable bundle icon used in development and by a packaged app. */
-export const defaultIconPath = ({ packaged, resourcesPath, here }) =>
-  packaged ? join(resourcesPath, 'icon.icns') : join(here, '../build/icon.icns')
+/**
+ * The file the app's own face is read back from — what goes on the Dock when a
+ * profile picture is cleared.
+ *
+ * It cannot be the bundle's `icon.icns`, which is the same artwork and the
+ * obvious candidate: `nativeImage` has no .icns decoder and hands back an empty
+ * image, so a reset would be dropped by the guard below and the Dock would keep
+ * the avatar. `pnpm run icons` renders the same vector to this PNG, beside the
+ * shell's other assets so the path is one thing in development and packaged.
+ */
+export const DEFAULT_ICON_FILE = 'dockIcon.png'
+
+/** The app's own face, in the shell's assets directory. */
+export const defaultIconPath = (assetsDir) => join(assetsDir, DEFAULT_ICON_FILE)
 
 /**
  * Creates the small native side effect behind the renderer's optional bridge.
@@ -58,6 +69,8 @@ export const createDockIconSetter = ({
     const path = avatar === null ? defaultIcon : avatarResourcePath(avatar, avatarRoot)
     if (!path) return
     const image = nativeImage.createFromPath(path)
+    // Empty means the file is missing or in a format Chromium cannot decode —
+    // and a Dock icon set from an empty image is a blank tile.
     if (image.isEmpty()) return
     app.dock.setIcon(image)
   }
