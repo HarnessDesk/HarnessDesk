@@ -126,7 +126,15 @@ const buttonVariants = cva(
         chip: 'h-auto min-h-(--hd-target-min) gap-(--hd-space-1) rounded-full px-(--hd-space-2) text-(length:--hd-text-xs)',
         inline: 'h-auto rounded-(--hd-radius-sm) p-1 text-(length:--hd-text) font-normal whitespace-normal',
         panel: 'h-auto w-full p-4 whitespace-normal',
-        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
+        /* The same row as `navigation`, in a different palette — so the same
+           floor, corner, gap and inset. It had four of its own: it stood on
+           `--hd-btn-h`, which is a *control* height solved for box over cap
+           and happens to be one pixel taller; it wore the button's 8px corner
+           beside the rail's 10px one; it kept the base's 6px gap; and it said
+           its inset as `px-2`. The vertical padding stays, because unlike a
+           rail row this one regularly carries a name over a description and
+           the floor alone would crowd it. */
+        row: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) px-(--hd-nav-inset) py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
         /* Two spellings on purpose: a session row carries `data-density`
            itself, while an app window's rail inherits `data-hd-density`
            from the <nav> around it. Dropping either leaves those rows with

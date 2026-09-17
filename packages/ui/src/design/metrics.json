@@ -192,12 +192,12 @@
     "radius": 8
   },
   "button/button/size/row": {
-    "h": 30,
+    "h": 29,
     "text": 13,
     "weight": "400",
     "line": 18,
     "pad": "4 8 4 8",
-    "radius": 8
+    "radius": 10
   },
   "button/button/size/sm": {
     "h": 28,
