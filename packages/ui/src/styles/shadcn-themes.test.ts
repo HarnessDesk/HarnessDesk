@@ -66,9 +66,18 @@ describe('shadcn-themes.css', () => {
  * component, and both blocks had to be told.
  */
 describe('the Corners dial', () => {
+  /* A rung is a radius stated as a length. One stated as a `calc` over
+     another rung is derived — a matted card's inner corner is whatever keeps
+     it concentric with the frame around it — and a dial that redefined it
+     would be overriding an answer rather than asking the question again. So
+     the ladder is read by value, not only by name: a derived radius follows
+     the dial through the rung it is built on, and a new *rung* is still
+     caught here on the day it is written. */
   const ladder = [
     ...new Set(
-      [...tokens.matchAll(/^\s*(--hd-radius(?:-[a-z]+)?)\s*:/gm)].map((hit) => hit[1] ?? ''),
+      [...tokens.matchAll(/^\s*(--hd-radius(?:-[a-z]+)?)\s*:\s*([^;]+);/gm)]
+        .filter((hit) => !/var\(--hd-radius/.test(hit[2] ?? ''))
+        .map((hit) => hit[1] ?? ''),
     ),
   ].filter((name) => name !== '--hd-radius-full')
 

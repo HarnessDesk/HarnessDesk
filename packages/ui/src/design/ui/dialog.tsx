@@ -61,8 +61,22 @@ const DialogContent = forwardRef<
     showCloseButton?: boolean
     portalled?: boolean
     overlayClassName?: string
+    /**
+     * A sheet rather than a prompt: the content reaches the edges and states
+     * its own width.
+     *
+     * The default below is opinionated in five ways at once — a grid, a gap, a
+     * padding, a full width and a medium cap — and every one of them is a
+     * utility, so `app.css` being bundled last means a stylesheet cannot
+     * override any of them however specific it is. A screen that laid out its
+     * own sheet had to un-set all five by name to be drawn at all, and the two
+     * that tried disagreed: one un-set them and one did not, and the one that
+     * did not was capped at 448px at every window size while its own
+     * stylesheet asked for 980.
+     */
+    bleed?: boolean
   }
->(({ className, children, showCloseButton = true, portalled = true, overlayClassName, ...props }, ref) => {
+>(({ className, children, showCloseButton = true, portalled = true, overlayClassName, bleed = false, ...props }, ref) => {
   const [inlineHost, setInlineHost] = useState<HTMLDivElement | null>(null)
   const content = (
     <>
@@ -73,6 +87,7 @@ const DialogContent = forwardRef<
         data-slot="dialog-content"
         className={cn(
           'bg-popover data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl p-5 shadow-(--hd-surface-shadow) duration-200 outline-none sm:max-w-md',
+          bleed && 'flex max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none',
           className,
         )}
         {...props}

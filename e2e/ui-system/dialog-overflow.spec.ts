@@ -66,3 +66,65 @@ test('the hand-off dialog holds its choices', async ({ page }) => {
   )
   expect(Math.max(...spill)).toBeLessThanOrEqual(1)
 })
+
+/**
+ * And the sheet that is a whole screen holds it at both window widths.
+ *
+ * The sign-in sheet's stylesheet asked for 980px and it was drawn at 448 —
+ * `DialogContent`'s base caps a dialog at `sm:max-w-md`, and `app.css` is
+ * bundled after the modules, so a `width` in a stylesheet loses to a
+ * `max-width` in a utility however specific it is. At 448 the fixed 244px
+ * rail left 172 for the pane beside it: the agent's address was cut
+ * mid-word, and the closing card's sentence came out one word per line with
+ * its button on top of the text. The rows were the hand-off dialog's bug
+ * again, a two-line name in a `sm` control's fixed 28px box.
+ *
+ * Both widths, because each caught something the other did not.
+ */
+for (const [where, width, height] of [
+  ['a narrow window', 520, 820],
+  ['a wide one', 1280, 900],
+] as const) {
+  test(`the sign-in sheet holds its agents at ${where}`, async ({ page }) => {
+    await page.setViewportSize({ width, height })
+    await page.goto('/preview.html')
+    await page.evaluate(async () => { await document.fonts.ready })
+    await page.getByLabel('dialog').selectOption('sign in')
+    const dialog = page.getByRole('dialog').first()
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Your agents')).toBeVisible()
+
+    const held = await dialog.evaluate(node => {
+      const box = node.getBoundingClientRect()
+      const rows = [...node.querySelectorAll('[class*="rosterRow"]')]
+      return {
+        rows: rows.length,
+        // A row whose own words stand outside it is a fixed-height control
+        // holding two lines, which is what makes the list read as overlapping.
+        spill: rows.flatMap(row => {
+          const r = row.getBoundingClientRect()
+          return [...row.querySelectorAll('span')]
+            .filter(child => child.textContent?.trim())
+            .map(child => Math.round(child.getBoundingClientRect().bottom - r.bottom))
+        }),
+        // Nothing crushed to nothing: a flex child with `min-width: 0` and no
+        // floor beside two `flex: none` siblings reaches zero.
+        narrowest: Math.min(...[...node.querySelectorAll('[class*="nextText"], [class*="rosterText"]')]
+          .map(child => Math.round(child.getBoundingClientRect().width))),
+        over: [...node.querySelectorAll('*')]
+          .map(child => child.scrollWidth - node.clientWidth)
+          .reduce((most, past) => Math.max(most, past), 0),
+        head: Math.round((node.children[0] as HTMLElement).getBoundingClientRect().height),
+        width: Math.round(box.width),
+      }
+    })
+    expect(held.rows).toBeGreaterThan(0)
+    expect(Math.max(...held.spill)).toBeLessThanOrEqual(1)
+    expect(held.narrowest).toBeGreaterThan(80)
+    expect(held.over).toBeLessThanOrEqual(1)
+    // The head is a bar, not half the sheet: `DialogContent`'s grid gave its
+    // two children a row each until the sheet asked to bleed.
+    expect(held.head).toBeLessThan(80)
+    expect(held.width).toBeGreaterThan(Math.min(width - 64, 480))
+  })
+}

@@ -393,7 +393,8 @@ export const SkillSheet = ({
     <DialogRoot open onOpenChange={(next) => !next && onClose()}>
       <DialogContent
         data-slot="skill-sheet"
-        className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
+        bleed
+        className="h-[min(84vh,760px)] w-[min(1080px,94vw)]"
       >
         {/* --- the head: what this is ---------------------------------- */}
         <div className="flex items-start gap-3 border-b px-5 py-4">
