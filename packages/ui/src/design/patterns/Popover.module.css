@@ -147,7 +147,7 @@
 .optionHint {
   display: block;
   font-size: var(--hd-text-sm);
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
 }
 

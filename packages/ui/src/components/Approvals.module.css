@@ -67,7 +67,7 @@
 .reason {
   margin: 0 0 12px;
   font-size: var(--hd-text-sm);
-  line-height: 20px;
+  line-height: var(--hd-line-sm); /* desk: 2 → 18, the line the 13px step is set on */
   color: var(--hd-secondary-foreground);
 }
 
@@ -79,7 +79,7 @@
   box-shadow: inset 0 0 0 1px var(--hd-border-strong);
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-sm);
-  line-height: 19px;
+  line-height: var(--hd-line-sm); /* desk: 19 → 18, the line the 13px step is set on */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -118,7 +118,7 @@
   margin: 0 0 12px;
   padding-left: var(--hd-space-5); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  line-height: 21px;
+  line-height: var(--hd-line-sm); /* desk: 21 → 18, the line the 13px step is set on */
   color: var(--hd-secondary-foreground);
 }
 

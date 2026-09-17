@@ -111,14 +111,14 @@
 .title {
   font-size: var(--hd-text);
   font-weight: 600;
-  line-height: 20px;
+  line-height: var(--hd-line); /* desk: 2 → 21, the line the 14px step is set on */
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
 .body {
   font-size: var(--hd-text);
-  line-height: 19px;
+  line-height: var(--hd-line); /* desk: 19 → 21, the line the 14px step is set on */
   color: var(--hd-secondary-foreground);
   overflow-wrap: anywhere;
 }

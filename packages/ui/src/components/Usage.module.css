@@ -280,7 +280,7 @@
 
 .figure {
   font-size: var(--hd-display); /* desk: 34 → 36, the display step */
-  line-height: 40px; /* desk: 36 → 40, room for the figure's descender */
+  line-height: var(--hd-line-display); /* desk: 36 → 40, room for the figure's descender */
   font-weight: 600;
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;

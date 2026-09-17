@@ -64,7 +64,7 @@
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
   font-size: var(--hd-text-xs);
-  line-height: 17px;
+  line-height: var(--hd-line-xs); /* desk: 17 → 16, the line the 12px step is set on */
 }
 
 .check {

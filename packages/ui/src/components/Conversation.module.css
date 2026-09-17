@@ -35,7 +35,7 @@
   white-space: nowrap;
   font-weight: 500;
   font-size: var(--hd-text-lg);
-  line-height: 22px;
+  line-height: var(--hd-line-lg); /* desk: 22 → 24, the line the 16px step is set on */
   letter-spacing: -0.01em;
 }
 
@@ -124,7 +124,7 @@
   white-space: nowrap;
   padding: 0 8px;
   height: 22px;
-  line-height: 22px;
+  line-height: var(--hd-line-sm); /* desk: 22 → 18, the line the 13px step is set on */
   border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
@@ -216,7 +216,7 @@
   background: var(--hd-danger-dim);
   color: var(--hd-danger);
   font-size: var(--hd-text-sm);
-  line-height: 18px;
+  line-height: var(--hd-line-sm);
   overflow-wrap: anywhere;
 }
 
@@ -306,7 +306,7 @@
 .emptyBody {
   max-width: 460px;
   font-size: var(--hd-text);
-  line-height: 22px;
+  line-height: var(--hd-line); /* desk: 22 → 21, the line the 14px step is set on */
 }
 
 .jumpButton {

@@ -80,7 +80,7 @@
 
 .markdown {
   font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  line-height: 18px;
+  line-height: var(--hd-line-sm);
 }
 
 .keyValue {
@@ -115,7 +115,7 @@
   align-items: flex-start;
   padding: 2px 0;
   font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
 }
 
 .listBullet {
@@ -252,7 +252,7 @@
 .documentBody {
   padding: 0 0 8px var(--hd-space-5); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  line-height: 18px;
+  line-height: var(--hd-line-sm);
 }
 
 /* ------------------------------------------------------------------- table */

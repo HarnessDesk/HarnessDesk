@@ -116,11 +116,6 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-text-lg` | `16px` |
 | `--hd-heading` | `20px` |
 | `--hd-display` | `36px` |
-| `--hd-line` | `21px` |
-| `--hd-line-sm` | `18px` |
-| `--hd-weight-normal` | `400` |
-| `--hd-weight-medium` | `500` |
-| `--hd-weight-semibold` | `600` |
 
 ### Measure
 

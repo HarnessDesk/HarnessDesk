@@ -453,7 +453,7 @@
   font-size: var(--hd-text-xs);
   color: var(--hd-sidebar-muted-foreground);
   min-width: 0;
-  line-height: 15px;
+  line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
 }
 
 /* The agent and the time are short and always shown whole; only the branch —
@@ -474,7 +474,7 @@
 .emptyGroup {
   padding: 4px 8px 8px var(--hd-space-8); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  line-height: 16px;
+  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
   color: var(--hd-sidebar-muted-foreground);
 }
 
@@ -500,7 +500,7 @@
   text-align: center;
   font-size: var(--hd-text-sm);
   color: var(--hd-sidebar-muted-foreground);
-  line-height: 18px;
+  line-height: var(--hd-line-sm);
 }
 
 /* The row's menu sits at the right edge, centred on a compact row and on
@@ -815,7 +815,7 @@
 
 .accountMenuConfirmText {
   font-size: var(--hd-text-sm);
-  line-height: 16px;
+  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
   color: var(--hd-secondary-foreground);
   margin-bottom: 8px;
 }
@@ -1010,7 +1010,7 @@
 .accountMenuHint {
   display: block;
   font-size: var(--hd-text-sm);
-  line-height: 14px;
+  line-height: var(--hd-line-sm); /* desk: 14 → 18, the line the 13px step is set on */
   color: var(--hd-sidebar-muted-foreground);
 }
 
@@ -1363,7 +1363,7 @@
 
 .seatSub {
   font-size: var(--hd-text-xs);
-  line-height: 16px;
+  line-height: var(--hd-line-xs);
   color: var(--hd-sidebar-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;

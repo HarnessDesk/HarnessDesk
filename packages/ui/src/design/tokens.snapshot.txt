@@ -102,7 +102,11 @@
 --hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
 --hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
+--hd-line-display = 40px
+--hd-line-heading = 28px
+--hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-xs = 16px
 --hd-muted = rgb(244, 245, 246)
 --hd-muted-foreground = rgb(129, 132, 135)
 --hd-nav-gap = 8px
@@ -513,7 +517,11 @@
 --hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
 --hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
+--hd-line-display = 40px
+--hd-line-heading = 28px
+--hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-xs = 16px
 --hd-muted = rgb(47, 49, 52)
 --hd-muted-foreground = rgb(174, 176, 180)
 --hd-nav-gap = 8px
@@ -935,7 +943,11 @@
 --hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
 --hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
+--hd-line-display = 40px
+--hd-line-heading = 28px
+--hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-xs = 16px
 --hd-muted = rgb(244, 245, 246)
 --hd-muted-foreground = rgb(129, 132, 135)
 --hd-nav-gap = 8px
@@ -1365,7 +1377,11 @@
 --hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
 --hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
+--hd-line-display = 40px
+--hd-line-heading = 28px
+--hd-line-lg = 24px
 --hd-line-sm = 18px
+--hd-line-xs = 16px
 --hd-muted = rgb(47, 49, 52)
 --hd-muted-foreground = rgb(174, 176, 180)
 --hd-nav-gap = 8px

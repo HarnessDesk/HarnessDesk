@@ -32,7 +32,7 @@
   padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
   border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  line-height: 18px;
+  line-height: var(--hd-line-sm);
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
 }

@@ -220,8 +220,16 @@ body {
   --hd-text-lg: 16px;
   --hd-heading: 20px;
   --hd-display: 36px;
-  --hd-line: 21px;
+  /* One line per step, and nothing else. Before this the 13px step was set on
+     eight different line-heights across the tree and the 12px step on five;
+     a size and its line are one decision, so they are named together and a
+     surface picks the pair. */
+  --hd-line-xs: 16px;
   --hd-line-sm: 18px;
+  --hd-line: 21px;
+  --hd-line-lg: 24px;
+  --hd-line-heading: 28px;
+  --hd-line-display: 40px;
 
   --hd-weight-normal: 400;
   --hd-weight-medium: 500;
