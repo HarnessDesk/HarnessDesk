@@ -16,6 +16,13 @@ import {
   type McpFileSpec,
 } from './locations.js'
 
+/**
+ * The one digest, exported so that everything in the desk that records "which
+ * text did this run" hashes it the same way. Reached through `internals` it
+ * would be a test hook, and a second `createHash` somewhere else would be a
+ * second answer about trailing whitespace.
+ */
+export { digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
 export {
