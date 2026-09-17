@@ -79,7 +79,7 @@
 /* ------------------------------------------------------------------- prose */
 
 .markdown {
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   line-height: 18px;
 }
 
@@ -97,7 +97,7 @@
 
 .keyValueValue {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   overflow-wrap: anywhere;
 }
 
@@ -114,7 +114,7 @@
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   align-items: flex-start;
   padding: 2px 0;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   line-height: 17px;
 }
 
@@ -139,7 +139,7 @@
 
 .listHint {
   margin-left: 6px;
-  font-size: 11.5px;
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
 }
 
@@ -166,7 +166,7 @@
   gap: 8px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--hd-border);
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
 }
 
@@ -251,7 +251,7 @@
 
 .documentBody {
   padding: 0 0 8px var(--hd-space-5); /* desk: canonical One UI System scale */
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   line-height: 18px;
 }
 
@@ -272,7 +272,7 @@
 .tableCaption {
   caption-side: bottom;
   padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
-  font-size: 11.5px;
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
   text-align: left;
 }
@@ -311,7 +311,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
 }
 
 .treeChildren {
@@ -369,7 +369,7 @@
   flex: none;
   margin-left: auto;
   padding-left: 8px;
-  font-size: 11.5px;
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
 }
 
@@ -385,7 +385,7 @@
   padding: 4px 8px;
   border-bottom: 1px solid var(--hd-border);
   font-family: var(--hd-font-code);
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;

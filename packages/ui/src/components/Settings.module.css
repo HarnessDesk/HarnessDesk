@@ -28,7 +28,7 @@
   height: 20px;
   border-radius: var(--hd-radius-sm); /* desk: canonical One UI System scale */
   color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   font-weight: 600;
   line-height: 1;
 }

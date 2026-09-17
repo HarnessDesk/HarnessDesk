@@ -21,7 +21,7 @@
 /* The letters on the pattern's neutral mark. The pattern owns the tile,
    ground and inset hairline; only the type is ours. */
 .monogram {
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   font-weight: var(--hd-weight-semibold);
   letter-spacing: -0.01em;
 }
@@ -46,29 +46,6 @@
 .command {
   flex: none;
   font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
-
-/* --- the description ----------------------------------------------------- */
-
-/*
- * Two lines, clamped.
- *
- * A plugin's description is ours and fits; a skill's belongs to whoever wrote
- * it, and a real machine holds several whose frontmatter runs to a paragraph.
- * One of those unclamped is taller than six rows, which turns a scannable
- * list into a scroll.
- */
-.desc {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
-
-.blank {
-  font-style: italic;
   color: var(--hd-muted-foreground);
 }
 

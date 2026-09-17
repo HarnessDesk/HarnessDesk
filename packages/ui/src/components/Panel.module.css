@@ -250,14 +250,14 @@ button.row:hover {
 
 .rowMeta {
   margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .rowTime {
   flex: none;
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }

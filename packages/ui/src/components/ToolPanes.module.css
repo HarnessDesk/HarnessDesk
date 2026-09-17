@@ -460,7 +460,7 @@
   border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   line-height: 1;
 }
 

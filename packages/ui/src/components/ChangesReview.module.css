@@ -64,7 +64,7 @@
 .folderName {
   margin: 0 0 8px;
   font-family: var(--hd-font-code);
-  font-size: 11.5px;
+  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
   font-weight: 500;
   color: var(--hd-muted-foreground);
 }
@@ -90,7 +90,7 @@
 
 .filePath {
   font-family: var(--hd-font-code);
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   font-weight: 550;
   color: var(--hd-foreground);
 }
@@ -99,7 +99,7 @@
   display: inline-flex;
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   font-family: var(--hd-font-code);
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
 }
 
 .added {
@@ -116,7 +116,7 @@
 
 .quiet {
   padding: 12px;
-  font-size: 12.5px;
+  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
 }
 
@@ -137,6 +137,6 @@
 
 .hunkRange {
   font-family: var(--hd-font-code);
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   color: var(--hd-muted-foreground);
 }

@@ -159,7 +159,7 @@
   background: var(--hd-background);
   box-shadow: var(--hd-hairline-soft);
   font-family: var(--hd-font-code);
-  font-size: 0.86em;
+  font-size: 0.875em; /* desk: 0.86 → 0.875em, one ratio for inline code */
   overflow-wrap: anywhere;
 }
 

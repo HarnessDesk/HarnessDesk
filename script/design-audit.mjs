@@ -263,7 +263,14 @@ for (const file of cssFiles()) {
   if (isScreenSheet(file)) {
     for (const match of css.matchAll(/font-size:\s*([^;]+);/g)) {
       const value = match[1].trim()
-      if (/var\(--hd|inherit|100%|1em|--prose/.test(value)) continue
+      /*
+       * `em` is a ratio, not a size. Inline code inside prose is 0.875 of
+       * whatever it sits in, so it follows a heading down and a caption up; a
+       * fixed step would freeze it against its own paragraph. The scale is for
+       * absolute type, and this is the one place the app is right not to use
+       * it — all three occurrences now agree on the same ratio.
+       */
+      if (/var\(--hd|inherit|100%|em\b|--prose/.test(value)) continue
       findings.rawType.push(`${name}: font-size: ${value}`)
     }
     /*

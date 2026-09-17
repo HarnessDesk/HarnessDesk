@@ -456,7 +456,7 @@ details[open] > .gapsFold {
 /* The cost footer: quiet, grid-aligned, and visibly not a data row. */
 .foot .footHead {
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   font-weight: 500;
   color: var(--hd-muted-foreground);
   text-align: left;
@@ -465,7 +465,7 @@ details[open] > .gapsFold {
 
 .footCell {
   padding: 8px 6px;
-  font-size: 11px;
+  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
   font-variant-numeric: tabular-nums;
   color: var(--hd-muted-foreground);
   text-align: center;
