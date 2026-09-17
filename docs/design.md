@@ -574,6 +574,59 @@ changes.
 | Public imports | `packages/ui/src/design/index.ts` |
 | The live component catalogue | `packages/ui/src/design/catalog/` and `packages/ui/src/design/explorer/` |
 
-`pnpm design` serves `/design.html`, where foundation, primitives, patterns and
-the product surfaces are all rendered from the production modules — so the page
-is the check on whether a change actually landed everywhere it claims to.
+| The stacking order, and which shadow a surface wears | the `--hd-z-*` and `--hd-shadow-*` ladders in `tokens.css` |
+| Mounting a shipped screen outside the app | `packages/ui/src/preview/harness.tsx`, used by both `/preview.html` and the catalogue's surfaces |
+
+### The catalogue shows the screen, not a picture of it
+
+`pnpm design` serves `/design.html`. Foundation, primitives and patterns render
+from the production modules, and so do the whole-screen surfaces: Conversation,
+Composer, Left bar, Git history and Group project mount `components/*` through
+`preview/harness.tsx`, the same store stub `/preview.html` uses.
+
+This is a rule rather than an arrangement, because the alternative was tried.
+Five of those surfaces used to be pages in `design/showcase` built to look like
+the screen — 1,072 lines of CSS that shared nothing with the app but its shape.
+They were right on the day each was drawn and wrong every day after, and there
+was no way to tell by looking: the catalogue is exactly where you go *because*
+you do not already know what the screen looks like. Edit
+`components/Sidebar.module.css` now and the Left bar surface moves with it,
+because it is that sidebar.
+
+`script/check-ui-system.mjs` keeps it true. Every surface row in
+`design/catalog/manifest.ts` names the module it mounts, and the check walks the
+import graph twice: the explorer must reach that module, and the app must ship
+it. A row naming something the app does not ship fails, and so does a surface
+that quietly stops mounting what it claims.
+
+Three surfaces are marked `catalogOnly` and are honest about it: a dashboard
+assembled to put unrelated parts in one frame, the panel model driven by nothing
+but itself, and the propagation fixture the browser suite reads. There is no
+shipped screen for those to point at.
+
+### What the audit refuses
+
+`pnpm design:audit --strict` holds fifteen categories at a baseline. Fourteen
+are at zero; `patternClass` sits at 3, which is three screens still drawing
+their own empty state.
+
+Two of those categories spent a long time reporting zero while they were simply
+unable to see:
+
+- `rawColour` named five properties and `box-shadow` was not one of them, so ten
+  hand-written shadows sat outside a count that said there were none. It reads
+  every colour-bearing property now.
+- `rawZIndex` did not exist. The ladder in `tokens.css` had said in prose since
+  it was written that stacking "never writes a number", and twenty-four places
+  wrote a number. Single digits are ordering inside one component's own stacking
+  context and are not counted; from 10 up is the band two components can
+  genuinely collide in, and that is what the ladder is for.
+
+Both failures have the same shape as the line-height ratios before them: name
+the spellings you happen to remember, and everything else is invisible —
+confidently, at zero. When adding a rule, the question is not "does this catch
+the case I am thinking of" but "what spelling of this would it miss".
+
+A new category is only worth having if it can fail. Add it, then put the defect
+back and watch it go red; a check that has never been seen red is a check that
+has never been tested.
