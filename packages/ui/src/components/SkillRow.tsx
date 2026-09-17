@@ -44,7 +44,7 @@ import styles from './SkillRow.module.css'
  *
  * The information design is unchanged — that part was right:
  *
- *   the description is content, not a subtitle    it gets two full lines
+ *   the description belongs to the sheet, not the row   one line per skill
  *   the name is also a command                    `/name`, beside the title
  *   who loads it is the thing only we know        agent marks, in the control
  *   reading it is one press                       the chevron, into the sheet
@@ -227,14 +227,6 @@ export const SkillRow = ({
           <CodeText as="code" className={styles.command}>
             {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
           </CodeText>
-        </span>
-      }
-      desc={
-        /* Clamped at two lines, unlike a plugin's description, because these
-           are not ours: a real machine holds skills whose frontmatter runs to
-           a paragraph, and one of them unclamped is taller than six rows. */
-        <span className={styles.desc}>
-          {entry.description ?? <span className={styles.blank}>No description in its frontmatter</span>}
         </span>
       }
       control={
