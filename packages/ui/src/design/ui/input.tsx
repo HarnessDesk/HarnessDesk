@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
  */
 
 const inputVariants = cva(
-  'placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground flex w-full min-w-0 rounded-md border px-2.5 py-0 text-sm transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 shadow-(--hd-input-shadow) focus-visible:border-(--hd-ring) focus-visible:shadow-(--hd-focus-ring) file:text-foreground file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium aria-invalid:border-destructive',
+  'placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground flex w-full min-w-0 rounded-md border px-2.5 py-0 text-base transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 shadow-(--hd-input-shadow) focus-visible:border-(--hd-ring) focus-visible:shadow-(--hd-focus-ring) file:text-foreground file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium aria-invalid:border-destructive',
   {
     variants: {
       variant: {

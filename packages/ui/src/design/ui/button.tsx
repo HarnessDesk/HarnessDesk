@@ -86,7 +86,7 @@ const buttonVariants = cva(
         row:
           'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:font-semibold data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through aria-expanded:bg-(--hd-active)',
         navigation:
-          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))]',
+          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))] data-[active]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))] data-[current]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))] data-[open]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))]',
         choice:
           'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-accent-dim) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) aria-checked:border-(--hd-ring) aria-checked:font-semibold data-[hard]:data-[on]:border-(--hd-danger)',
         quiet:
@@ -103,6 +103,15 @@ const buttonVariants = cva(
           'bg-(--hd-solid) text-(--hd-solid-foreground) transition-[background,box-shadow,transform] hover:bg-(--hd-solid-hover) active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100 data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)] data-[when=later]:hover:bg-[color-mix(in_srgb,var(--hd-accent)_32%,transparent)] data-[when=later]:text-[color-mix(in_srgb,var(--hd-accent)_74%,var(--hd-foreground))] data-[when=later]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--hd-accent)_78%,transparent)] data-[when=nothing]:bg-(--hd-muted) data-[when=nothing]:text-(--hd-muted-foreground) data-[when=nothing]:active:scale-100',
       },
       size: {
+      /* Type follows the kind, not the component: a row, a navigation item
+         and an inline chip carry the interface's 14px content step, and the
+         button sizes carry `--hd-btn-text`. That is the split main had —
+         `.rowTitle`, `.navItem`, `.winNavItem` at `--hd-text`, `Kit .btn` at
+         the button token — and it belongs on the sizes rather than in a
+         screen stylesheet or a new variant. The weight goes with it: main
+         left these rows at the interface's normal weight and spent medium
+         on the selected one alone, which is what makes selection legible.
+         With the button's medium on every row, the emphasis said nothing. */
         default:
           'h-(--hd-btn-h) p-(--hd-btn-padding) has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         xs: "h-5 gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
@@ -120,10 +129,15 @@ const buttonVariants = cva(
            from the touch target rather than the control height, so it
            sits inside running text without setting the line. */
         chip: 'h-auto min-h-(--hd-target-min) gap-(--hd-space-1) rounded-full px-(--hd-space-2) text-(length:--hd-text-xs)',
-        inline: 'h-auto rounded-(--hd-radius-sm) p-1 whitespace-normal',
+        inline: 'h-auto rounded-(--hd-radius-sm) p-1 text-(length:--hd-text) font-normal whitespace-normal',
         panel: 'h-auto w-full p-4 whitespace-normal',
-        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
-        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
+        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 text-(length:--hd-text) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
+        /* Two spellings on purpose: a session row carries `data-density`
+           itself, while an app window's rail inherits `data-hd-density`
+           from the <nav> around it. Dropping either leaves those rows with
+           no vertical padding, and the label sits off-centre against the
+           row's own min-height. */
+        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) text-(length:--hd-text) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1 in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },

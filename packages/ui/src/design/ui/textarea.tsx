@@ -18,7 +18,8 @@ const textareaVariants = cva(
            field inside it draws neither ring. `outline-none` in the base
            ties with app.css's global `:focus-visible` and loses on source
            order; the focus-visible variant outranks it. */
-        composer: 'border-transparent bg-transparent focus-visible:shadow-none focus-visible:outline-none',
+        composer:
+          'border-transparent bg-transparent text-base focus-visible:shadow-none focus-visible:outline-none',
       },
       size: {
         default: 'min-h-14 resize-y px-2.5 py-1.5',
