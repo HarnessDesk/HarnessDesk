@@ -28,15 +28,25 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * The documents this reads: the two front doors and everything under `docs/`.
+ * The documents this reads: the two front doors and everything under `docs/`
+ * that describes what ships.
  *
  * `CONTRIBUTING.md` is deliberately not here. The sweep #223 measured covered
  * exactly these three, and a gate is only worth landing green — a document
  * nobody swept is a document that may or may not pass, which is a different
  * change from this one.
+ *
+ * `docs/superpowers/` is deliberately not here either, and for a stronger
+ * reason than coverage: a spec and a plan name the files they are about to
+ * create. Naming a path that does not exist yet is what those documents are
+ * *for*, so this gate's premise — a named path is a path in the tree — is
+ * false there. Sweeping them would make every plan illegal until its own last
+ * task landed, which is exactly backwards.
  */
 export const isSweptDocument = (file) =>
-  file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('docs/') && file.endsWith('.md'))
+  file === 'AGENTS.md' ||
+  file === 'README.md' ||
+  (file.startsWith('docs/') && file.endsWith('.md') && !file.startsWith('docs/superpowers/'))
 
 /**
  * Does this backticked string claim to be a path in this repository?

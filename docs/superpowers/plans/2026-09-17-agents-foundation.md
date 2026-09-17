@@ -32,7 +32,7 @@ The wire's `agents/*` prefix is six methods that mix two unrelated jobs: five re
 - Modify: `packages/server/src/methods/accounts.ts` (the handlers)
 - Modify: `packages/server/src/methods/index.ts` (the docstring naming which module takes which prefix)
 - Modify: every renderer caller — find them with the grep in Step 1
-- Test: `packages/server/test/conformance.test.ts` (already asserts every declared method has exactly one handler)
+- Test: `packages/server/test/methods.test.ts` (asserts every declared method has exactly one handler — this is the control, not `conformance.test.ts`, which is the adapter suite and says nothing about the method table)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -48,9 +48,9 @@ grep -rn "agents/registry\|agents/register\|agents/remove\|agents/update\|agents
 
 Expected: hits in `packages/protocol/src/wire.ts`, `packages/protocol/src/wire-validators.ts`, `packages/server/src/methods/accounts.ts`, and renderer callers under `packages/ui/src/`. Write the list down; every one of them changes in Step 3.
 
-- [ ] **Step 2: Run the conformance test to see it green before the move**
+- [ ] **Step 2: Run the method-table test to see it green before the move**
 
-Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/conformance.test.js`
+Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/methods.test.js`
 Expected: PASS. This is the control: it must pass now, fail in the middle of the rename, and pass again at the end. A rename that never reddens it is a rename that did not take.
 
 - [ ] **Step 3: Rename the five registry verbs and move the two install verbs**
@@ -71,12 +71,14 @@ Do not change any handler body, any param shape or any result shape. This task i
 
 In `packages/server/src/methods/index.ts`, the docstring says `accounts` holds `agents/*`. Change that clause to say it holds `acp/*` and the account and API-key verbs, and that `runtime/installs*` sits with the rest of `runtime/` in `runtimes.ts` — or, if moving the two handlers between modules is more churn than the sentence is worth, say plainly that `accounts.ts` also answers `runtime/installs*` and why.
 
-- [ ] **Step 4: Typecheck, then run the conformance test**
+- [ ] **Step 4: Build (which typechecks), then run the method-table test**
 
-Run: `pnpm run typecheck`
-Expected: PASS. A missed caller fails here, because `HostMethodName` is a union of the declared names.
+Run: `pnpm run build:node`
+Expected: PASS. A missed caller fails here, because `HostMethodName` is a union of the declared names, and the build is what typechecks the server packages.
 
-Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/conformance.test.js`
+Do **not** use `pnpm run typecheck`: `tsc -b --noEmit` is incompatible with this repository's composite project references and fails with `TS6310` regardless of your changes. `pnpm verify` does not use it either.
+
+Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/methods.test.js`
 Expected: PASS.
 
 - [ ] **Step 5: Verify no stale name survives**
@@ -1032,8 +1034,8 @@ importing `Agents` from `../agents.js`. In `packages/server/src/methods/index.ts
 
 - [ ] **Step 5: Run the tests**
 
-Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/agent-methods.test.js packages/server/dist/test/conformance.test.js`
-Expected: PASS. The conformance test proves both declared methods have exactly one handler.
+Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/agent-methods.test.js packages/server/dist/test/methods.test.js`
+Expected: PASS. `methods.test.js` proves both declared methods have exactly one handler.
 
 - [ ] **Step 6: Commit**
 
