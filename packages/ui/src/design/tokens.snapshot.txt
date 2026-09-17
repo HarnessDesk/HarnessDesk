@@ -5,7 +5,7 @@
 --hd-accent-hover = rgb(98, 135, 249)
 --hd-active = rgba(9, 12, 17, 0.09)
 --hd-background = rgb(255, 255, 255)
---hd-bar-h = 44px
+--hd-bar-h = 46px
 --hd-board-column-width = 280px
 --hd-border = rgba(9, 12, 17, 0.05)
 --hd-border-emphasis = rgba(9, 12, 17, 0.14)
@@ -163,7 +163,7 @@
 --hd-sidebar-muted-foreground = rgb(129, 132, 135)
 --hd-sidebar-plate = rgb(248, 249, 250)
 --hd-sidebar-selected = color-mix(in srgb, rgb(25, 27, 30) 12%, transparent)
---hd-sidebar-width = 256px
+--hd-sidebar-width = 275px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
 --hd-solid = rgb(25, 27, 30)
@@ -223,7 +223,7 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(133, 77, 187)
 --hd-title = 24px
---hd-titlebar-height = 44px
+--hd-titlebar-height = 46px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -425,7 +425,7 @@
 --hd-accent-hover = rgb(118, 153, 251)
 --hd-active = rgba(255, 255, 255, 0.13)
 --hd-background = rgb(22, 24, 27)
---hd-bar-h = 44px
+--hd-bar-h = 46px
 --hd-board-column-width = 280px
 --hd-border = rgba(255, 255, 255, 0.05)
 --hd-border-emphasis = rgba(255, 255, 255, 0.2)
@@ -583,7 +583,7 @@
 --hd-sidebar-muted-foreground = rgb(174, 176, 180)
 --hd-sidebar-plate = rgb(0, 0, 0)
 --hd-sidebar-selected = color-mix(in srgb, rgb(229, 231, 234) 12%, transparent)
---hd-sidebar-width = 256px
+--hd-sidebar-width = 275px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
 --hd-solid = rgb(229, 231, 234)
@@ -643,7 +643,7 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(184, 132, 240)
 --hd-title = 24px
---hd-titlebar-height = 44px
+--hd-titlebar-height = 46px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -845,7 +845,7 @@
 --hd-accent-hover = rgb(98, 135, 249)
 --hd-active = rgba(9, 12, 17, 0.09)
 --hd-background = rgb(255, 255, 255)
---hd-bar-h = 44px
+--hd-bar-h = 46px
 --hd-board-column-width = 280px
 --hd-border = rgba(9, 12, 17, 0.05)
 --hd-border-emphasis = rgba(9, 12, 17, 0.14)
@@ -1022,7 +1022,7 @@
 --hd-sidebar-selected = rgb(82, 117, 235)
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(255, 255, 255) 86%, transparent )
---hd-sidebar-width = 256px
+--hd-sidebar-width = 275px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
 --hd-solid = rgb(25, 27, 30)
@@ -1082,7 +1082,7 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(133, 77, 187)
 --hd-title = 24px
---hd-titlebar-height = 44px
+--hd-titlebar-height = 46px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -1284,7 +1284,7 @@
 --hd-accent-hover = rgb(118, 153, 251)
 --hd-active = rgba(255, 255, 255, 0.13)
 --hd-background = rgb(22, 24, 27)
---hd-bar-h = 44px
+--hd-bar-h = 46px
 --hd-board-column-width = 280px
 --hd-border = rgba(255, 255, 255, 0.05)
 --hd-border-emphasis = rgba(255, 255, 255, 0.2)
@@ -1461,7 +1461,7 @@
 --hd-sidebar-selected = rgb(82, 117, 235)
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(255, 255, 255) 86%, transparent )
---hd-sidebar-width = 256px
+--hd-sidebar-width = 275px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
 --hd-solid = rgb(229, 231, 234)
@@ -1521,7 +1521,7 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(184, 132, 240)
 --hd-title = 24px
---hd-titlebar-height = 44px
+--hd-titlebar-height = 46px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)

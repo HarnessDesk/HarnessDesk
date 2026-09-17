@@ -326,7 +326,7 @@ body {
    */
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
-  --hd-bar-h: 44px;
+  --hd-bar-h: 46px; /* desk: 44 → 46, the window's own bar */
   --hd-column: 736px;
 
   /* A row whose trailing action floats over its own label rather than taking
@@ -801,7 +801,7 @@ body {
   /* 256px is the reference's `--sidebar-width: 16rem`, and 48px its icon
      rail. Named here rather than measured in a layout file, so the column and
      everything that reserves room for it move together. */
-  --hd-sidebar-width: 256px;
+  --hd-sidebar-width: 275px; /* desk: 256 → 275 */
   --hd-sidebar-width-icon: 48px;
 
   /* --- the nav row ---------------------------------------------------------
