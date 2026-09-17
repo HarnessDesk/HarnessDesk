@@ -41,7 +41,7 @@ The wire's `agents/*` prefix is six methods that mix two unrelated jobs: five re
 - [ ] **Step 1: Find every caller before changing anything**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 grep -rn "agents/registry\|agents/register\|agents/remove\|agents/update\|agents/catalog\|agents/installs" \
   packages --include='*.ts' --include='*.tsx' | grep -v '/dist/'
 ```
@@ -82,7 +82,7 @@ Expected: PASS.
 - [ ] **Step 5: Verify no stale name survives**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 grep -rn "'agents/" packages --include='*.ts' --include='*.tsx' | grep -v '/dist/'
 ```
 
@@ -110,7 +110,7 @@ end of this plan says which page each later phase owes.
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 pnpm verify
 git add packages/protocol/src packages/server/src packages/ui/src
 git commit -m "refactor(wire): the ACP registry verbs move under acp/
@@ -448,7 +448,7 @@ If `seatAt` is not exported from `packages/server/src/flow.ts`, export it there 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 pnpm verify
 git add packages/protocol/src/agent.ts packages/protocol/src/index.ts packages/server/src/agent-def.ts packages/server/test/agent-def.test.ts
 git commit -m "feat(agents): an Agent definition, and a parser that reports instead of throwing
@@ -681,7 +681,7 @@ Expected: PASS, 6 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 pnpm verify
 git add packages/server/src/agents.ts packages/server/test/agents.test.ts
 git commit -m "feat(agents): the roster, in precedence order, marking what it shadowed
@@ -898,7 +898,7 @@ Expected: PASS, 9 tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 pnpm verify
 git add packages/server/src/agent-seating.ts packages/server/test/agent-seating.test.ts
 git commit -m "feat(agents): choose a seat from ordered candidates, or refuse and say why
@@ -1038,7 +1038,7 @@ Expected: PASS. The conformance test proves both declared methods have exactly o
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 pnpm verify
 git add packages/protocol/src packages/server/src packages/server/test/agent-methods.test.ts
 git commit -m "feat(agents): agent/list and agent/read
@@ -1237,7 +1237,7 @@ Run: `pnpm test`
 Expected: PASS.
 
 ```bash
-cd /Users/aivilo/code-shane/HarnessDesk
+cd "$(git rev-parse --show-toplevel)"
 pnpm verify
 git add packages/protocol/src packages/server/src packages/server/test/agent-seat.test.ts
 git commit -m "feat(agents): seat a conversation as an Agent
