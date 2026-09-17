@@ -43,11 +43,15 @@ the work", turned into an object instead of a promise.
 
 ## The nouns
 
-Six, of which two are new and one is a merge. **Deliberately not a seventh:**
-"which runtime and model" needs no noun of its own, because the codebase already
-has one — a **seat spec** (`cursor=gemini-3.8-flash/high`) with a type
-(`FlowSeat`), a grammar and a parser (`seatAt`). Naming it again would also
-collide with the wire's existing `routes/*`, which means a model *endpoint*.
+Six, of which two are new and one is a merge.
+
+**Two things deliberately kept off this list.** "Which runtime and model" needs no
+noun of its own, because the codebase already has one — a **seat spec**
+(`cursor=gemini-3.8-flash/high`) with a type (`FlowSeat`), a grammar and a parser
+(`seatAt`); naming it again would also collide with the wire's existing
+`routes/*`, which means a model *endpoint*. And a runtime's own **delegation** —
+the subagent every vendor now spins off — is part of a Seat rather than a noun
+beside it, for the reasons below.
 
 | Noun | What it is | Lifetime | State today |
 | --- | --- | --- | --- |
@@ -125,6 +129,48 @@ design does not reuse the word for either.
 **If none can be seated, the Goal refuses and names what is missing.** It never
 silently substitutes: a review signed by a model that did not write it is a
 review that lies about who wrote it, which is worse than no review.
+
+### Delegations: the subagents a runtime spins off for itself
+
+Every vendor now delegates. Claude Code calls a tool and runs the child on the
+*same* stream, joined by `parent_tool_use_id`; Codex has its own subagent
+source; the ACP bridges report it, where they report it at all. So there are two
+different things in this design that a person could call "an agent working", and
+conflating them would either double-count the work or lose it.
+
+**An Agent is ours; a delegation is the runtime's.** We choose an Agent, its
+brief, its ceiling, its seat and its checkout, and we can witness what it did. A
+delegation is spun off *inside* one Seat's turn by the runtime's own machinery:
+we did not pick it, we did not brief it, and we often cannot even choose its
+model. The position `docs/multi-agent.md` already states holds — **the desk does
+not execute internal subagents; it observes and measures them** — and this is
+where that sits in the noun model:
+
+- **A delegation is part of a Seat, never a Seat of its own.** It has no card, it
+  claims nothing, and it never appears on the roster. The board's file ownership
+  depends on exactly one holder per card; a child that could claim would break
+  the one guarantee that makes parallel edits safe.
+- **Its spend is the Seat's spend, kept apart rather than summed away.** Which is
+  already how it works, per delegation: what it was asked, what model actually
+  answered, how many calls, what they cost. "Five workers" and "five Seats that
+  between them spun off thirty children" are different sentences, and a budget
+  that cannot tell them apart is a budget that fails at the worst moment.
+- **The ceiling has to survive delegation, and it cannot do so on trust.** If a
+  `read` Agent's runtime delegates a child that writes, the ceiling was
+  decoration. It holds because permission is enforced where the tool call
+  *arrives* — the MCP surface the desk offers every runtime — and a child calls
+  the same server as its parent. Nothing here relies on a runtime propagating a
+  permission it was never told about.
+- **Provenance resolves to the Seat.** A commit belongs to the Seat that produced
+  it; which delegation inside that turn wrote the line is a detail the transcript
+  holds. The chain does not grow a level, because the Seat is the thing with a
+  brief, a ceiling and an account behind it.
+- **Absence is not a claim.** A runtime that cannot report its delegations shows
+  none, and that means *unknown*, not *there were none* — the same rule the
+  capability matrix already follows. A surface that draws "0 delegations" for a
+  bridge that cannot count them is lying with a number.
+- **Blindness survives delegation for free.** A Seat's children live in its own
+  lane, so a blind round stays blind however much its members delegate.
 
 ### Goal
 
