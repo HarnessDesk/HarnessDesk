@@ -567,8 +567,8 @@ body {
    * dark enough to carry it at 4.0:1, and white on red is the one convention
    * strong enough that inverting it would read as a different message.
    */
-  --hd-success-foreground: var(--hdp-static-neutral-bluish-1000);
-  --hd-warning-foreground: var(--hdp-static-neutral-bluish-1000);
+  --hd-success-foreground: var(--hdp-static-grey-1000);
+  --hd-warning-foreground: var(--hdp-static-grey-1000);
 
   /* Lines. `--hd-border` separates; `--hd-border-strong` encloses something
      that has to read as its own object. */
@@ -786,7 +786,7 @@ body {
    * family arrived; a token with no relatives has nowhere better to be, and
    * one with eight does.
    */
-  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-50);
+  --hd-sidebar-plate: var(--hdp-static-grey-50);
   --hd-sidebar: var(--hd-sidebar-plate);
   --hd-sidebar-foreground: var(--hdp-alias-label-primary);
   /*
@@ -1003,7 +1003,7 @@ body {
  * prompted the measurement. That is the point of having had a token layer.
  */
 body[data-hd-dark-theme] {
-  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-850); /* desk: black → a plate above the page, the direction the column reads in */
+  --hd-sidebar-plate: var(--hdp-static-grey-850); /* desk: black → a plate above the page, the direction the column reads in */
 
   /* An elevation drawn in black does nothing on a black page: the smallest
      rung becomes a hairline of light instead. */
