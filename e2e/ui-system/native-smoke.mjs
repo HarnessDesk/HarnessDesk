@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Cdp, closeDesk, launchDesk, sleep, STORE } from '../../script/lib/desk.mjs'
+import { removeTemporaryDirectory } from '../../script/lib/temporary-directory.mjs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -203,6 +204,6 @@ const report = {
     // the main process exits. Node retries the exact marked directory for the
     // transient ENOTEMPTY/EBUSY window instead of turning a successful visual
     // run red or, worse, broadening the cleanup target.
-    rmSync(rig, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    removeTemporaryDirectory(rig)
   }
 }

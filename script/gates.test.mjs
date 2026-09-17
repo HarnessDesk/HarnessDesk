@@ -15,6 +15,7 @@ import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
 import { createSteps } from './lib/steps.mjs'
+import { removeTemporaryDirectory } from './lib/temporary-directory.mjs'
 import { leadComment } from './design-doc.mjs'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -35,6 +36,21 @@ test('UI system gates do not depend on an external ripgrep binary', () => {
     const source = fs.readFileSync(path.join(repoRoot, 'script', file), 'utf8')
     assert.doesNotMatch(source, /execFileSync\(['"]rg['"]/, file)
   }
+})
+
+test('native evidence cleanup cannot turn a completed run red for a late helper write', () => {
+  const busy = Object.assign(new Error('busy'), { code: 'ENOTEMPTY' })
+  let warning = ''
+  assert.equal(removeTemporaryDirectory('/temporary-rig', {
+    remove: () => { throw busy },
+    warn: (message) => { warning = message },
+  }), false)
+  assert.match(warning, /remained busy/)
+
+  const denied = Object.assign(new Error('denied'), { code: 'EACCES' })
+  assert.throws(() => removeTemporaryDirectory('/temporary-rig', {
+    remove: () => { throw denied },
+  }), denied)
 })
 
 /**
