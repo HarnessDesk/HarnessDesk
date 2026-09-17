@@ -23,7 +23,11 @@
   cursor: pointer;
   white-space: nowrap;
   max-width: 100%;
-  min-width: 0;
+  /* A floor rather than zero. The words shorten before the trigger overflows
+     its row — that is the rule below, and it is the `span`'s job — but a
+     trigger whose label is only a glyph has nothing to shorten, so `0` let
+     the box itself be squeezed to 21 against a 26-tall target. */
+  min-width: var(--hd-target-min); /* desk: 0 → 24, the target floor */
 }
 
 /* Words in a trigger shorten before the trigger overflows its row. */
@@ -182,7 +186,7 @@
 
 /* Model reads as the subject, effort as its qualifier. */
 .strong {
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 

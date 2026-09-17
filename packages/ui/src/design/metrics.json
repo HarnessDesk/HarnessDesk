@@ -160,7 +160,7 @@
     "radius": 8
   },
   "button/button/size/icon-xs": {
-    "h": 20,
+    "h": 24,
     "text": 13,
     "weight": "500",
     "line": 13,
@@ -192,12 +192,12 @@
     "radius": 8
   },
   "button/button/size/row": {
-    "h": 30,
+    "h": 29,
     "text": 13,
     "weight": "400",
     "line": 18,
     "pad": "4 8 4 8",
-    "radius": 8
+    "radius": 10
   },
   "button/button/size/sm": {
     "h": 28,
@@ -280,6 +280,14 @@
     "radius": 8
   },
   "button/button/variant/outline": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/primary": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -488,7 +496,7 @@
     "radius": 8
   },
   "section/section/variant/card": {
-    "h": 84.5,
+    "h": 88,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -496,7 +504,7 @@
     "radius": 10
   },
   "section/section/variant/plain": {
-    "h": 82.5,
+    "h": 86,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -504,7 +512,7 @@
     "radius": 0
   },
   "section/section/variant/quiet": {
-    "h": 82.5,
+    "h": 86,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -512,7 +520,7 @@
     "radius": 10
   },
   "stat/stat/variant/bordered": {
-    "h": 107,
+    "h": 102,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -520,7 +528,7 @@
     "radius": 10
   },
   "stat/stat/variant/plain": {
-    "h": 107,
+    "h": 102,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -528,7 +536,7 @@
     "radius": 0
   },
   "stat/stat/variant/tinted": {
-    "h": 107,
+    "h": 102,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -596,7 +604,7 @@
     "text": 14,
     "weight": "400",
     "line": 21,
-    "pad": "2 2 2 2",
+    "pad": "1 1 1 1",
     "radius": 6
   },
   "tools/tabs-list/variant/line": {

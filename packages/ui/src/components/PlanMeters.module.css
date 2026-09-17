@@ -32,9 +32,14 @@
   margin-right: 4px;
 }
 
+/* A square-ish target: its padding is 4 a side, so around a 13px glyph it was
+   21 wide — tall enough and too narrow, which a floor stated on one axis
+   cannot see. */
 .trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--hd-target-min);
   height: 26px;
   padding: 0 var(--hd-space-1); /* desk: canonical One UI System scale */
   border: none;
@@ -203,7 +208,7 @@
   flex: 1;
   min-width: 0;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 
@@ -372,10 +377,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* The tint is the control's — `primary` on the chip rung — not this file's.
+     Drawn here it had no ground, no corner and no ink, which left the one
+     fact that stops the next Send looking like the ambient strip around it. */
   max-width: 140px;
-
- /* desk: canonical One UI System scale */
-
- /* desk: canonical One UI System scale */
-
 }

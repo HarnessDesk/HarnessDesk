@@ -521,6 +521,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) host.close() }}>
       <DialogContent
+        bleed
         className={styles.dialog}
         portalled={false}
         aria-label="Command palette"

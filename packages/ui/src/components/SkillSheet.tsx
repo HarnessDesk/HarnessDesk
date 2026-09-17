@@ -393,7 +393,8 @@ export const SkillSheet = ({
     <DialogRoot open onOpenChange={(next) => !next && onClose()}>
       <DialogContent
         data-slot="skill-sheet"
-        className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
+        bleed
+        className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] flex-col overflow-hidden"
       >
         {/* --- the head: what this is ---------------------------------- */}
         <div className="flex items-start gap-3 border-b px-5 py-4">
@@ -402,7 +403,7 @@ export const SkillSheet = ({
           </IconTile>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <DialogTitle className="truncate text-base leading-tight">
+              <DialogTitle className="truncate text-base leading-(--hd-line)">
                 {entry.title ?? entry.name}
               </DialogTitle>
               <Badge variant="secondary">{entry.kind === 'skill' ? 'Skill' : 'MCP server'}</Badge>
@@ -415,7 +416,7 @@ export const SkillSheet = ({
               {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
             </CodeText>
             {entry.description && (
-              <DialogDescription className="mt-0.5 text-sm leading-relaxed text-(--hd-secondary-foreground)">
+              <DialogDescription className="mt-0.5 text-sm leading-(--hd-line) text-(--hd-secondary-foreground)">
                 {entry.description}
               </DialogDescription>
             )}
@@ -492,7 +493,7 @@ export const SkillSheet = ({
                   </span>
                 </p>
               ) : view === 'source' ? (
-                <CodeText as="pre" className="m-0 text-xs leading-relaxed whitespace-pre-wrap text-(--hd-secondary-foreground)">
+                <CodeText as="pre" className="m-0 text-xs leading-(--hd-line-sm) whitespace-pre-wrap text-(--hd-secondary-foreground)">
                   {definition.text}
                 </CodeText>
               ) : (
@@ -505,7 +506,7 @@ export const SkillSheet = ({
                       >
                         Frontmatter
                       </p>
-                      <CodeText as="pre" className="m-0 text-xs leading-relaxed whitespace-pre-wrap text-(--hd-secondary-foreground)">
+                      <CodeText as="pre" className="m-0 text-xs leading-(--hd-line-sm) whitespace-pre-wrap text-(--hd-secondary-foreground)">
                         {front}
                       </CodeText>
                     </div>

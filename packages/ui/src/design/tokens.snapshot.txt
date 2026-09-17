@@ -135,6 +135,7 @@
 --hd-radius-2xs = 2px
 --hd-radius-full = 9999px
 --hd-radius-lg = 14px
+--hd-radius-matted = calc(14px - 2px)
 --hd-radius-md = 8px
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
@@ -143,7 +144,7 @@
 --hd-ring-muted = rgb(82, 117, 235)
 --hd-ring-offset = 2px
 --hd-ring-width = 2px
---hd-row-h = 30px
+--hd-row-h = calc(14px * 1.5 + 4px * 2)
 --hd-scrim = rgba(7, 9, 14, 0.28)
 --hd-scrollbar-fill = rgb(228, 228, 228)
 --hd-scrollbar-fill-hover = rgb(211, 211, 211)
@@ -558,6 +559,7 @@
 --hd-radius-2xs = 2px
 --hd-radius-full = 9999px
 --hd-radius-lg = 14px
+--hd-radius-matted = calc(14px - 2px)
 --hd-radius-md = 8px
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
@@ -566,7 +568,7 @@
 --hd-ring-muted = rgb(82, 117, 235)
 --hd-ring-offset = 2px
 --hd-ring-width = 2px
---hd-row-h = 30px
+--hd-row-h = calc(14px * 1.5 + 4px * 2)
 --hd-scrim = rgba(7, 9, 14, 0.56)
 --hd-scrollbar-fill = rgb(65, 65, 65)
 --hd-scrollbar-fill-hover = rgb(93, 93, 93)
@@ -998,6 +1000,7 @@
 --hd-radius-2xs = 2px
 --hd-radius-full = 9999px
 --hd-radius-lg = 14px
+--hd-radius-matted = calc(14px - 2px)
 --hd-radius-md = 8px
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
@@ -1006,7 +1009,7 @@
 --hd-ring-muted = color-mix(in srgb, rgb(82, 117, 235) 45%, transparent)
 --hd-ring-offset = 0px
 --hd-ring-width = 3px
---hd-row-h = 30px
+--hd-row-h = 34px
 --hd-scrim = rgba(7, 9, 14, 0.28)
 --hd-scrollbar-fill = rgb(228, 228, 228)
 --hd-scrollbar-fill-hover = rgb(211, 211, 211)
@@ -1440,6 +1443,7 @@
 --hd-radius-2xs = 2px
 --hd-radius-full = 9999px
 --hd-radius-lg = 14px
+--hd-radius-matted = calc(14px - 2px)
 --hd-radius-md = 8px
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
@@ -1448,7 +1452,7 @@
 --hd-ring-muted = color-mix(in srgb, rgb(82, 117, 235) 55%, transparent)
 --hd-ring-offset = 0px
 --hd-ring-width = 3px
---hd-row-h = 30px
+--hd-row-h = 34px
 --hd-scrim = rgba(7, 9, 14, 0.56)
 --hd-scrollbar-fill = rgb(65, 65, 65)
 --hd-scrollbar-fill-hover = rgb(93, 93, 93)

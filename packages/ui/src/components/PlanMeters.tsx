@@ -87,7 +87,7 @@ export const PlanMeters = ({
       {anchor?.kind === 'signIn' && (
         <Button
           type="button"
-          variant="quiet" size="content" className={`${styles.signInChip} truncate`}
+          variant="primary" size="chip" className={`${styles.signInChip} truncate`}
           onClick={() => onSignIn(anchor.info.id)}
           title={`${anchor.info.presentation.name} has no account here — sign in to use it`}
         >

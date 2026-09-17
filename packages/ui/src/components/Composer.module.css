@@ -109,7 +109,7 @@
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   pointer-events: none;
 }
 
@@ -139,8 +139,6 @@
   width: 100%;
   /* Named in the token layer because the room's box is the same box drawn from
      utilities, and `composer.parity.test.ts` holds the two to these three. */
-
- /* desk: canonical One UI System scale */
 
 }
 
@@ -300,7 +298,7 @@
 
 .mentionName {
   flex: none;
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
 }
 
 .mentionPath {

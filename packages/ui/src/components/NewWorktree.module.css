@@ -74,6 +74,7 @@
 }
 
 .label {
+  font-weight: var(--hd-weight-medium);
   display: block;
   margin-bottom: var(--hd-space-1-5);
   font-size: var(--hd-text-sm);

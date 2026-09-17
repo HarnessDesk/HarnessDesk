@@ -30,7 +30,7 @@ const InputGroup = ({ className, ...props }: React.ComponentProps<'div'>) => (
     data-slot="input-group"
     role="group"
     className={cn(
-      'group/input-group relative flex w-full items-center rounded-(--hd-radius-sm) border border-(--hd-border-strong) bg-(--hd-input) outline-none',
+      'group/input-group relative flex w-full items-center rounded-(--hd-radius-md) border border-(--hd-border-strong) bg-(--hd-input) outline-none',
       'h-(--hd-field-h) has-[>textarea]:h-auto',
       'has-[>[data-align=inline-start]]:[&>input]:pl-2 has-[>[data-align=inline-end]]:[&>input]:pr-2',
       'has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col',

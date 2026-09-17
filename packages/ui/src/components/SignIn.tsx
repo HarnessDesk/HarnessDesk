@@ -195,14 +195,8 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
-        /* `max-w-none` twice, as SkillSheet does: the dialog primitive caps
-           itself at `sm:max-w-md`, and a max-width beats a width however the
-           two are written, so this sheet — "a two-pane window at 980×820",
-           per its own stylesheet — was rendering at 448px. Its rail is a
-           fixed 244px, which left 164px for the detail pane, and every
-           sign-in method's name and description overflowed that column and
-           ran off the sheet (#749). */
-        className={`${own.dialog} max-w-none sm:max-w-none`}
+        bleed
+        className={own.dialog}
         portalled={false}
         aria-label="Sign in"
         showCloseButton={false}
@@ -231,7 +225,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
             <div className={own.railScroll}>
               {rows.map((entry) => (
-                <Button variant="ghost" size="sm"
+                <Button variant="ghost" size="row"
                   key={entry.info.id}
                   type="button"
                   className={own.rosterRow}
@@ -269,7 +263,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                     />
                   )}
                   {listedRegistry.map((agent) => (
-                    <Button variant="ghost" size="sm"
+                    <Button variant="ghost" size="row"
                       key={agent.id}
                       type="button"
                       className={own.rosterRow}
@@ -882,7 +876,7 @@ const KeyField = ({
             {method.helpUrl ? (
               <>
                 {' '}
-                <Button variant="ghost" size="sm"
+                <Button variant="ghost" size="inline"
                   type="button"
                   className={`break-all`}
                   onClick={() => openExternal(method.helpUrl!)}

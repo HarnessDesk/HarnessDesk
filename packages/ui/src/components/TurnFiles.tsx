@@ -91,7 +91,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           {turn.status !== 'inProgress' &&
             (reverted ? (
               <Button
-                variant="quiet" size="content" className={styles.action}
+                variant="quiet" size="sm" className={styles.action}
                 onClick={() => void apply('redo')}
                 disabled={busy}
                 title="Write this turn's edits again. Refuses if you have edited one of these files since."
@@ -102,7 +102,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
             ) : (
               <>
                 <Button
-                  variant="quiet" size="content" className={styles.action}
+                  variant="quiet" size="sm" className={styles.action}
                   onClick={() => void apply('undo')}
                   disabled={busy}
                   title="Put these files back the way they were before this turn. Refuses if you have edited one since."
@@ -112,7 +112,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                 </Button>
                 {partly && (
                   <Button
-                    variant="quiet" size="content" className={styles.action}
+                    variant="quiet" size="sm" className={styles.action}
                     onClick={() => void apply('undo', true)}
                     disabled={busy}
                     title="Put back everything this turn can. The file just named is left exactly as it is — the agent recorded nothing to put back there."
@@ -124,7 +124,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
               </>
             ))}
           <Button
-            variant="quiet" size="content" className={styles.action}
+            variant="quiet" size="sm" className={styles.action}
             onClick={() => store.setDetailsTab('changes')}
             title="Open the Changes panel"
           >

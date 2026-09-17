@@ -46,7 +46,7 @@
      size and the step up in weight. On the scale — main said 11px, which
      the type scale has no name for. */
   font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -200,7 +200,7 @@
   padding: 8px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  line-height: 1.55;
+  line-height: var(--hd-line-sm); /* desk: 1.55 → 18, its step’s own line */
   overflow-x: auto;
   white-space: pre;
 }
@@ -215,7 +215,7 @@
 
 .documentTitle {
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   margin-bottom: 4px;
 }
 
@@ -283,7 +283,7 @@
   padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
   background: var(--hd-card);
   border-bottom: 1px solid var(--hd-border);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   color: var(--hd-secondary-foreground);
   text-align: left;
   white-space: nowrap;

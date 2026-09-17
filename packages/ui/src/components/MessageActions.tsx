@@ -54,7 +54,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
   return (
     <div className={styles.actions} {...(copied || vote ? { 'data-sticky': '' } : {})}>
       <Button
-        variant="quiet" size="content" className={styles.action}
+        variant="quiet" size="icon-xs"
         onClick={copy}
         aria-label="Copy this message"
         title="Copy"
@@ -62,7 +62,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
         {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
       </Button>
       <Button
-        variant="quiet" size="content" className={styles.action}
+        variant="quiet" size="icon-xs"
         {...(vote === 'up' ? { 'data-on': '' } : {})}
         onClick={() => setVote(vote === 'up' ? null : 'up')}
         aria-label="Mark this response as good"
@@ -71,7 +71,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
         <ThumbsUpIcon size={13} />
       </Button>
       <Button
-        variant="quiet" size="content" className={styles.action}
+        variant="quiet" size="icon-xs"
         {...(vote === 'down' ? { 'data-on': '' } : {})}
         onClick={() => setVote(vote === 'down' ? null : 'down')}
         aria-label="Mark this response as poor"
@@ -80,7 +80,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
         <ThumbsDownIcon size={13} />
       </Button>
       <Button
-        variant="quiet" size="content" className={styles.action}
+        variant="quiet" size="icon-xs"
         onClick={retry}
         aria-label="Ask the agent to try again"
         title="Try again"

@@ -14,8 +14,9 @@
 
 .title {
   margin: 0;
-  font-size: var(--hd-heading);
-  font-weight: 650;
+  font-size: var(--hd-title); /* desk: var(--hd-heading) → var(--hd-title) */
+  line-height: var(--hd-line-title);
+  font-weight: var(--hd-weight-normal); /* desk: 650 → 600, the bundled face stops there */
   letter-spacing: -0.01em;
   color: var(--hd-foreground);
 }
@@ -59,7 +60,7 @@
   margin: 0 0 8px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-muted-foreground);
 }
 
@@ -85,7 +86,7 @@
 .filePath {
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  font-weight: 550;
+  font-weight: var(--hd-weight-medium); /* desk: 550 → 500, onto the three rungs */
   color: var(--hd-foreground);
 }
 

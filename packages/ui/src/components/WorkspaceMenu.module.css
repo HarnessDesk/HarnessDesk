@@ -8,7 +8,7 @@
 
 .confirmTitle {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 

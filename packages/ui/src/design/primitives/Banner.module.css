@@ -110,7 +110,7 @@
 
 .title {
   font-size: var(--hd-text);
-  font-weight: 600;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   line-height: var(--hd-line); /* desk: 2 → 21, the line the 14px step is set on */
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
@@ -156,7 +156,7 @@
   background: var(--hd-solid); /* desk: the platform's primary fill → the app's one ink */
   color: var(--hd-solid-foreground); /* desk: the platform's primary label → the ink's own foreground */
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
   cursor: pointer;
   transition: background 0.12s var(--hd-ease); /* desk: canonical One UI System scale */

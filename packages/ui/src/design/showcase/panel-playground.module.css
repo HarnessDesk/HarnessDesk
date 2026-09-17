@@ -78,7 +78,7 @@
 .treeTitle {
   padding: 0 var(--hd-space-1);
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-muted-foreground);
 }
 
@@ -227,7 +227,7 @@
   align-items: center;
   gap: var(--hd-space-1);
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-foreground);
 }
 
@@ -301,7 +301,7 @@
   background: var(--hd-accent);
   color: var(--hd-accent-foreground);
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   opacity: 0;
 }
 

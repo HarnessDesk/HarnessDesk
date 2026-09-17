@@ -131,7 +131,7 @@ const Bars = ({
           <span
             key={index}
             title={labels?.[index]}
-            className="min-w-0 flex-1 rounded-t-[3px]"
+            className="min-w-0 flex-1 rounded-t-(--hd-radius-2xs)"
             style={{
               height: `${Math.max(2, (value / high) * 100)}%`,
               background:

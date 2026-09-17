@@ -171,7 +171,7 @@ const BoardColumn = ({
           onClick={onAdd}
           title={addLabel}
           aria-label={addLabel}
-          className="inline-flex size-5 shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
+          className="inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
         >
           <PlusIcon />
         </button>
@@ -379,7 +379,7 @@ const BoardCard = ({
           through its own edge, across the column beside it and out of the
           pane — which is what it did until this fixture was written. */}
       <div className="flex min-w-0 flex-col gap-1">
-        <h4 className="text-base leading-snug font-medium break-words">{title}</h4>
+        <h4 className="text-base leading-(--hd-line) font-medium break-words">{title}</h4>
         {note && (
           /* Clamped at two lines, and reachable in full on hover when it is
              plain text. The clamp is the right call — a card that grows with
@@ -388,7 +388,7 @@ const BoardCard = ({
              the third, which is the trip to the channel this line exists to
              save. */
           <p
-            className="line-clamp-2 text-xs leading-snug break-words text-(--hd-muted-foreground)"
+            className="line-clamp-2 text-xs leading-(--hd-line-sm) break-words text-(--hd-muted-foreground)"
             {...(typeof note === 'string' ? { title: note } : {})}
           >
             {note}
@@ -491,7 +491,10 @@ const BoardMenuButton = forwardRef<HTMLButtonElement, React.ComponentProps<'butt
       type="button"
       aria-label="More"
       className={cn(
-        'inline-flex size-5 shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
+        /* `--hd-icon-target`, not `size-5`: this was 20px, four under the floor
+           the system declares, on the one control a card's whole menu hangs
+           from. The corner of a card is empty, so it grows into nothing. */
+        'inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
         className,
       )}
       {...props}

@@ -92,7 +92,7 @@ const Stat = ({
         >
           {label}
         </div>
-        <div className="mt-1 text-xl leading-tight font-semibold tabular-nums">{value}</div>
+        <div className="mt-1 text-xl leading-none font-semibold tabular-nums">{value}</div>
       </div>
       {icon != null && (
         <span

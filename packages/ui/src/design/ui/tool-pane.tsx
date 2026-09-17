@@ -62,7 +62,12 @@ const ToolPaneHeader = ({
   <header
     data-slot="tool-pane-header"
     className={cn(
-      'flex shrink-0 items-center gap-2 border-b border-(--hd-border) px-2.5 py-2',
+      /* A bar, at the height every other bar in the window stands at. It used
+         to reach one by adding its padding to whatever the tallest control in
+         it happened to be, which put it at 45 — one off the bar above it, and
+         one off the bar in the panel beside it, which was 47 by the same
+         arithmetic. */
+      'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border) px-(--hd-bar-pad)',
       className,
     )}
     {...props}

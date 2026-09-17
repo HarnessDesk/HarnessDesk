@@ -25,6 +25,12 @@ export const SECTIONS = [
     'Use a step: --hd-text-xs/-sm/--hd-text/--hd-text-lg/--hd-heading. If the value you want is not a step, the answer is almost never a new step — 11px and 12.5px were each one screen deciding alone. This category is a burn-down: its ceiling may only fall.',
   ],
   [
+    'rawWeight',
+    'Type weights written out rather than named',
+    'The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it.',
+    'Use a rung: --hd-weight-normal/-medium/-semibold. A value between two rungs is a screen deciding alone — 550 and 650 each reached the tree that way, and the bundled face cannot draw above 600 at all.',
+  ],
+  [
     'patternClass',
     'Patterns re-declared in a screen stylesheet',
     'Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line.',

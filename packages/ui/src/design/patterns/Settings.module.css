@@ -702,13 +702,13 @@
   gap: var(--hd-space-2);
   font-size: var(--hd-heading); /* desk: 24 → 20, the same step as a page title */
   line-height: var(--hd-line-heading); /* desk: 26 → 28, the line the 20px step is set on */ /* desk: 30 → 26, with the size */
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold);
   letter-spacing: -0.01em; /* desk: -0.02em → -0.01em */
 }
 
 .detailOwner {
   font-size: var(--hd-text-sm);
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal);
   color: var(--hd-muted-foreground);
 }
 

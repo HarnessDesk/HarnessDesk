@@ -104,7 +104,7 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
           {reference.title && (
             <span
               title={reference.title}
-              className="mt-0.5 line-clamp-2 block text-sm leading-tight font-semibold"
+              className="mt-0.5 line-clamp-2 block text-sm leading-(--hd-line-sm) font-semibold"
             >
               {reference.title}
             </span>
@@ -126,7 +126,7 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
 
       {reference.excerpt && (
         <div data-slot="publication-band" className="border-t border-(--hd-border-strong) px-3 py-2">
-          <p className="line-clamp-6 text-xs leading-snug whitespace-pre-line text-(--hd-muted-foreground)">
+          <p className="line-clamp-6 text-xs leading-(--hd-line-sm) whitespace-pre-line text-(--hd-muted-foreground)">
             {reference.excerpt}
           </p>
         </div>

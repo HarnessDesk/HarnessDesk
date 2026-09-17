@@ -39,7 +39,7 @@
 .headTitle {
   font-size: var(--hd-heading);
   line-height: var(--hd-line-heading); /* desk: 26 → 28, the line the 20px step is set on */
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: -0.01em;
 }
 
@@ -52,6 +52,28 @@
   min-height: 0;
   display: grid;
   grid-template-columns: 244px minmax(0, 1fr);
+}
+
+/*
+ * Below this the rail stops being a column.
+ *
+ * 244px is a fixed track, so on a narrow window it took what it wanted and
+ * left the pane beside it whatever remained — 172px inside a 456px dialog,
+ * where the detail's heading was cut mid-address and its closing card came
+ * out one word per line. A rail is a way of reaching the pane; when there is
+ * not room for both, the pane is the one with work in it, so the rail goes
+ * above and keeps its own scroll.
+ */
+@media (max-width: 720px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(88px, 0.9fr) minmax(0, 1.4fr);
+  }
+
+  .roster {
+    border-right: none;
+    border-bottom: var(--hd-border-width) solid var(--hd-border);
+  }
 }
 
 /* --- the rail ------------------------------------------------------------ */
@@ -72,7 +94,7 @@
 
 .railTitle {
   font-size: var(--hd-text-lg);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   margin-bottom: 8px;
 }
 
@@ -149,7 +171,7 @@
 .rosterName {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -179,7 +201,7 @@
   padding-top: 10px;
   border-top: 1px solid var(--hd-border);
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--hd-muted-foreground);
@@ -203,7 +225,7 @@
    the rail already tells you not to expect much of it. */
 .rosterRow[data-blocked] .rosterName {
   color: var(--hd-muted-foreground);
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
 }
 
 .whoMeta {
@@ -249,9 +271,17 @@
   color: var(--hd-secondary-foreground);
 }
 
+/* The subject step — the name of the thing this pane is about — and it gives
+   way rather than running off the edge, which is what an address did at a
+   narrow width. */
 .whoName {
-  font-size: var(--hd-text-lg);
-  font-weight: 500;
+  min-width: 0;
+  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
+  line-height: var(--hd-line);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .blurb {
@@ -313,7 +343,7 @@
 
 .methodName {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .methodHint {
@@ -445,7 +475,7 @@
 
 .stateTitle {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .stateHint {
@@ -462,7 +492,7 @@
   font-family: var(--hd-font-code);
   font-size: var(--hd-heading);
   line-height: var(--hd-line-heading);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: 0.18em;
   text-align: center;
   user-select: all;
@@ -517,6 +547,7 @@
    is done, so four sign-ins are one errand rather than four visits. */
 .next {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-top: var(--hd-space-6); /* desk: canonical One UI System scale */
@@ -534,9 +565,13 @@
   color: var(--hd-secondary-foreground);
 }
 
+/* `min-width: 0` alone let this reach zero: the mark and the button are both
+   `flex: none`, so at a narrow width there was nothing left for the words and
+   the sentence came out one to a line. A floor plus a wrapping row puts the
+   button underneath instead, which is a shape the words survive. */
 .nextText {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 14ch; /* desk: a basis, so the row wraps rather than crushing */
+  min-width: 14ch; /* desk: 0 → 14ch, a floor the words survive */
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -544,7 +579,7 @@
 
 .nextTitle {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .nextHint {
@@ -573,7 +608,5 @@
 .keyInput {
   flex: 1;
   min-width: 0;
-
- /* desk: canonical One UI System scale */
 
 }

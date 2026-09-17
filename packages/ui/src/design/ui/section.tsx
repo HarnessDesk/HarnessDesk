@@ -78,7 +78,7 @@ const SectionHeader = ({ className, ...props }: React.ComponentProps<'div'>) => 
 const SectionTitle = ({ className, ...props }: React.ComponentProps<'h2'>) => (
   <h2
     data-slot="section-title"
-    className={cn('text-base leading-tight font-semibold', className)}
+    className={cn('text-base leading-(--hd-line) font-medium', className)}
     {...props}
   />
 )

@@ -61,8 +61,28 @@ const DialogContent = forwardRef<
     showCloseButton?: boolean
     portalled?: boolean
     overlayClassName?: string
+    /**
+     * A sheet rather than a prompt: it lays itself out and states its own
+     * width, and this stands out of the way.
+     *
+     * The default below is opinionated in five ways at once — a grid, a gap, a
+     * padding, a full width and a medium cap — and every one of them is a
+     * utility, so `app.css` being bundled last means a stylesheet cannot
+     * override any of them however specific it is. Four screens set a width in
+     * their own sheet and only one of them knew to un-set the cap by name; the
+     * other three were drawn at 448px at every window size, and one of those
+     * asked for 980.
+     *
+     * So this *removes* the five rather than replacing them: a sheet that
+     * bleeds gets the surface and the safety margin, and its own stylesheet
+     * decides whether it is a grid or a column, what it is padded by and how
+     * wide it is. Replacing them would only move the argument — the first
+     * version of this imposed `flex`, which is wrong for the one sheet here
+     * that is a grid.
+     */
+    bleed?: boolean
   }
->(({ className, children, showCloseButton = true, portalled = true, overlayClassName, ...props }, ref) => {
+>(({ className, children, showCloseButton = true, portalled = true, overlayClassName, bleed = false, ...props }, ref) => {
   const [inlineHost, setInlineHost] = useState<HTMLDivElement | null>(null)
   const content = (
     <>
@@ -72,7 +92,8 @@ const DialogContent = forwardRef<
         ref={ref}
         data-slot="dialog-content"
         className={cn(
-          'bg-popover data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl p-5 shadow-(--hd-surface-shadow) duration-200 outline-none sm:max-w-md',
+          'bg-popover data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow) duration-200 outline-none',
+          bleed || 'grid w-full gap-4 p-5 sm:max-w-md',
           className,
         )}
         {...props}
@@ -135,7 +156,7 @@ const DialogTitle = ({
 }: React.ComponentProps<typeof DialogPrimitive.Title>) => (
   <DialogPrimitive.Title
     data-slot="dialog-title"
-    className={cn('text-base leading-none font-semibold', className)}
+    className={cn('text-base leading-none font-medium', className)}
     {...props}
   />
 )

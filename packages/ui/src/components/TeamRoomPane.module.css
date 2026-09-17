@@ -433,8 +433,11 @@
   inset-inline: 0;
   bottom: var(--hd-space-2);
   margin-inline: auto;
+  /* Only where it sits. Floating over somebody's sentence means it needs a
+     surface of its own, and that surface is the control's: `outline` on the
+     chip rung. Drawn here it was bare words on the transcript, unreadable
+     against the line it was covering. */
   width: fit-content;
-
 }
 
 /* In the column with the words it is about: a line that runs the full pane

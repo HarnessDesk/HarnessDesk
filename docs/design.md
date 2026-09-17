@@ -93,12 +93,50 @@ anybody has counted it.
 
 The pair is the default, not the only legal answer, and the deviation that is
 allowed has a direction. **Text that wraps may take the next line up; nothing
-takes a line tighter than its own.** Counted today: 119 rules on the pair, 20 a
-step looser, none tighter. The 20 are almost all a 12px caption set on the 13px
+takes a line tighter than its own.** Counted today: 132 rules on the pair, 38 a
+step looser, none tighter. The 38 are almost all a 12px caption set on the 13px
 step's 18px line, which is the same trade prose makes at the other end of the
 scale and for the same reason — a paragraph needs air between its lines and a
-row does not. A tighter line is not a trade, it is a crush, and the three that
-existed are gone.
+row does not. A tighter line is not a trade, it is a crush.
+
+There is a second rule, and leaving it unsaid is what let the first one be
+broken quietly. **A single line inside a box that already states its height
+sets `line-height: 1`** — a chip, a badge, a meter's caption, a figure in a
+stat tile. The box's padding is the rhythm and the line only has to be the
+glyph; anything above 1 is the box arguing with itself. Seventeen rules do
+this, and before it was written down they read as seventeen violations of the
+first rule, which is why nobody could tell them from the real ones.
+
+Both rules are counted off the same two spellings and no others: a
+`line-height` naming a `--hd-line-*` token, or Tailwind's `leading-(--hd-line-*)`.
+A ratio is neither. Twenty-one stylesheets and twenty-two components set their
+line as `1.15`, `1.4`, `leading-snug`, `leading-tight`, and every one of them
+was outside the count that reported none tighter — nine of them were. The
+ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
+and `text-xl` included: those two agreed with the table by coincidence across
+a hundred and fifty call sites, and a coincidence does not follow a change.
+
+## Four steps and nothing else
+
+A size and a weight together name a *role*, and there are four:
+
+| role | spelling | what wears it |
+| --- | --- | --- |
+| page | 24 / normal | the name of a place — a settings page, a review |
+| subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
+| row | 13 / medium | the name of one thing in a list, and the word above a control |
+| muted | 13 / normal | a description under a name, and chrome that labels rather than names |
+
+Counted before this rule was written down: eight. A dialog's title was 16/600
+in one pattern and 14/600 in another; a label above a field was 13/600 in three
+screens, 13 at whatever weight it inherited in three more, and 12 in a seventh.
+The design system's own head slots said 600 in five components and 500 in the
+sixth — so a screen that composed the system got a heavier title than a screen
+that drew its own, which is the opposite of what a design system is for.
+
+Nothing is 16 any more. A step between the subject and the page turned out to
+be a way of avoiding the choice between them: a dialog names one question and a
+page names a place, and 16 said neither.
 
 | step | line | ratio |
 | --- | --- | --- |

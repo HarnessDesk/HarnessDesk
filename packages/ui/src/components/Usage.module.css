@@ -42,7 +42,7 @@
 }
 
 .acct[data-selected] .acctName {
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .acctFigure {
@@ -178,7 +178,7 @@
 .bandTitle {
   flex: none;
   font-size: var(--hd-text-lg);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: -0.01em;
 }
 
@@ -237,7 +237,7 @@
 .cardName {
   min-width: 0;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -281,7 +281,7 @@
 .figure {
   font-size: var(--hd-display); /* desk: 34 → 36, the display step */
   line-height: var(--hd-line-display); /* desk: 36 → 40, room for the figure's descender */
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
 }
@@ -508,7 +508,7 @@
 
 .calloutTitle {
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 
@@ -557,7 +557,13 @@
   grid-template-columns: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px; /* desk: a 44px share column, between the bar and the tokens */
   align-items: center;
   gap: 12px;
-  height: 42px;
+  /* A table row, which is the one row shape Desk does not have a token for:
+     a rank glyph, a name, a meter and three figures do not fit a rail row and
+     are not a bar. So it reads the page row the settings window already
+     stands on, with its own 42 as the Desk value — which is the shape every
+     other interface-dependent height in this tree is written in, and means
+     this row follows the dial instead of ignoring it. */
+  height: var(--hd-page-row-h, 42px);
   padding: 0 var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 
@@ -667,14 +673,14 @@
 
 .periodLabel {
   font-size: var(--hd-text-xs);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-muted-foreground);
 }
 
 .periodValue {
   font-size: var(--hd-text-lg);
-  line-height: 1.15;
-  font-weight: 600;
+  line-height: 1; /* desk: 1.15 → 1, the tile states the height and the figure must not add to it */
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
 }
@@ -748,7 +754,7 @@
 
 .statValue {
   font-size: var(--hd-text-sm);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -776,7 +782,7 @@
 
 .donutTotal {
   font-size: var(--hd-text-lg);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }

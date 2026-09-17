@@ -28,6 +28,7 @@ import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { Settings, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
+import { SignIn } from '../components/SignIn'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
@@ -1320,7 +1321,7 @@ const Preview = () => {
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
-  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back'>('off')
+  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in'>('off')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -1356,13 +1357,20 @@ const Preview = () => {
           onChange={(next) => store.setCorners(next)}
         />
         <Dial
-          label="worktree dialog"
+          label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back'] as const}
+          options={['off', 'remove', 'bring back', 'sign in'] as const}
           onChange={setDialog}
         />
       </div>
-      {dialog !== 'off' && <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />}
+      {/* Sign-in is on this page's own store rather than the worktree one: it
+          reads the roster, which the fixture already has, and it is the one
+          screen here that is *only* ever a dialog — so at a narrow window
+          nothing else on the page shows what it does. */}
+      {dialog === 'sign in' && <SignIn onClose={() => setDialog('off')} />}
+      {dialog !== 'off' && dialog !== 'sign in' && (
+        <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
+      )}
       {/* The board, in a pane of its own — which is one of the two shapes it
           really has (the other is the room's right half, further down). It is
           first here because it is the widest surface the token layer touches:

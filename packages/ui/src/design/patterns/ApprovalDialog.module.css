@@ -57,7 +57,7 @@
 .title {
   flex: 1;
   font-size: var(--hd-text);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-medium); /* desk: var(--hd-weight-semibold) → var(--hd-weight-medium) */
 }
 
 .queue {

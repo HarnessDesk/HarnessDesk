@@ -12,15 +12,15 @@
 
 .headline {
   margin: 0;
-  font-size: var(--hd-text-sm);
-  font-weight: 600;
-  line-height: 1.5;
+  font-size: var(--hd-text); /* desk: 13 → 14, the subject step */
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
+  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
   color: var(--hd-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
-  line-height: 1.5;
+  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
   color: var(--hd-secondary-foreground);
 }
 
@@ -66,7 +66,8 @@
 }
 
 .label {
-  font-size: var(--hd-text-xs);
+  font-size: var(--hd-text-sm); /* desk: 12 → 13, the row step */
+  font-weight: var(--hd-weight-medium);
   color: var(--hd-secondary-foreground);
 }
 
@@ -93,7 +94,7 @@
   flex: 1 1 200px;
   min-width: 0;
   font-size: var(--hd-text-sm);
-  line-height: 1.45;
+  line-height: var(--hd-line); /* desk: 1.45 → 21, its step’s own line */
   color: var(--hd-danger);
   overflow-wrap: anywhere;
 }

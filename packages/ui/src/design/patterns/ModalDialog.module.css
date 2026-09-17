@@ -84,13 +84,12 @@
 .title {
   flex: 1;
   min-width: 0;
-  /* A step below a page title: a dialog names one question, and a page names a
-     place. Held by weight rather than by size, which is what the step above is
-     for. */
-  font-size: var(--hd-text-lg); /* desk: 20 → 16, a dialog is not a page */
-  line-height: var(--hd-line-lg); /* desk: 28 → 24, the line the 16px step is set on */
-  font-weight: var(--hd-weight-semibold);
-  letter-spacing: -0.01em;
+  /* A dialog names one question, and a page names a place, so this is the
+     subject step and not the page one — held by weight rather than by size,
+     which is what the page step is for. */
+  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
+  line-height: var(--hd-line); /* desk: var(--hd-line-lg) → 21, its step’s own line */
+  font-weight: var(--hd-weight-medium); /* desk: var(--hd-weight-semibold) → var(--hd-weight-medium) */
 }
 
 .close {

@@ -202,7 +202,7 @@ const TaskCard = ({
         )}
       </header>
       {hasBlock && (
-        <div className="max-h-[360px] overflow-auto border-t border-(--hd-border) bg-(--hd-muted) font-mono text-xs leading-[19px]">
+        <div className="max-h-[360px] overflow-auto border-t border-(--hd-border) bg-(--hd-muted) font-mono text-xs leading-(--hd-line-xs)">
           {task.command && (
             <div className="flex gap-2 px-3 pt-2 text-(--hd-foreground)">
               <span aria-hidden className="shrink-0 text-(--hd-muted-foreground)">

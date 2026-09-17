@@ -244,7 +244,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               name fits its line: where it does, the tooltip repeats it, which
               is what a native title does everywhere and costs a rest nobody
               makes. */}
-          <span className="flex items-baseline gap-1.5 text-sm leading-tight font-semibold">
+          <span className="flex items-baseline gap-1.5 text-sm leading-(--hd-line-sm) font-semibold">
             <span className="truncate" title={subject.name}>
               {subject.name}
             </span>
@@ -330,7 +330,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           <div
             key={caution.text}
             data-slot="agent-card-band"
-            className={`flex items-start gap-2 border-t border-(--hd-border-strong) px-3 py-2 text-xs leading-snug ${CAUTION_STYLE[caution.tone]}`}
+            className={`flex items-start gap-2 border-t border-(--hd-border-strong) px-3 py-2 text-xs leading-(--hd-line-sm) ${CAUTION_STYLE[caution.tone]}`}
           >
             <Glyph size={13} className="mt-px flex-none" />
             <span>{caution.text}</span>

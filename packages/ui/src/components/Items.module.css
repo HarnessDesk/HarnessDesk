@@ -128,26 +128,14 @@
   color: var(--hd-secondary-foreground);
 }
 
+/* Where it sits, and nothing else: the square is `icon-xs`, which is the icon
+   rung that clears AA on its own. */
 .shellCopy {
   flex: none;
   align-self: flex-start;
-  display: inline-grid;
-  place-items: center;
-  width: var(--hd-icon-target); /* desk: 22 → 24, the icon rung that clears AA on its own */
-  height: var(--hd-icon-target); /* desk: 22 → 24 */
   /* Optical: a 24px target centred on the 21px line it sits beside, and pulled
      out to the band's own padding on the right. */
   margin: -2px -4px -2px 0; /* desk: -3 → -2, centred on the 21px line the band now sets */
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hd-muted-foreground);
-  cursor: pointer;
-}
-
-.shellCopy:hover {
-  background: var(--hd-hover);
-  color: var(--hd-secondary-foreground);
 }
 
 /* The bubble already sits on the muted surface, so a code span inside it needs
@@ -596,13 +584,6 @@
 .actions:focus-within,
 .actions[data-sticky] {
   opacity: 1;
-}
-
-.action {
-  display: inline-grid;
-  place-items: center;
-  width: var(--hd-icon-target);
-
 }
 
 .actionLabel {

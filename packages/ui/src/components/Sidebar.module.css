@@ -66,14 +66,18 @@
 
 .header {
   flex: none;
-  height: 38px;
+  /* The app has one bar height and this row was the last thing not on it: 38
+     with four more of margin under it, which is 42 — near enough to 46 to
+     read as a mistake and far enough to stop the wordmark sitting level with
+     the window's own bar across the top. The bar's height carries the
+     separation, so the margin goes with the literal. */
+  height: var(--hd-bar-h); /* desk: 38px → var(--hd-bar-h) */
   /* The wordmark starts on the left rail, with the nav icons under it. The
      right stops at 8 rather than 14 so the search button can hang its box
      over the rail and land the magnifier on it — see the note at the top. */
   /* The wordmark has no box of its own, so it states where a composed row's
      label lands and its mark sits on the same x as every icon under it. */
   padding: 0 var(--hd-bar-pad) 0 var(--hd-bar-ink); /* desk: 14 → 17, level with the rows below */
-  margin-bottom: 4px;
   display: flex;
   align-items: center;
   gap: var(--hd-bar-gap); /* desk: 2 → 6, the bar's own gap */
@@ -107,7 +111,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   font-size: var(--hd-heading);
   letter-spacing: -0.01em;
 }
@@ -281,7 +285,7 @@
 }
 
 .groupRow[data-current] .groupName {
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .groupName {
@@ -607,7 +611,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   display: flex;
   align-items: center;
   gap: 6px;
@@ -676,7 +680,7 @@
 
 .accountMenuName {
   font-size: var(--hd-text);
-  font-weight: 600;
+  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1096,7 +1100,7 @@
 
 .rowMetaItem[data-trace='waiting'] {
   color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 .rowMetaItem[data-trace='failed'] {
@@ -1249,7 +1253,7 @@
   gap: 6px;
   min-width: 0;
   font-size: var(--hd-text);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
 }
 
 /* A chosen name can be longer than the menu is wide: cut, never wrapped, and
@@ -1278,7 +1282,7 @@
   background: var(--hd-muted);
   color: var(--hd-sidebar-muted-foreground);
   font-size: var(--hd-text-xs);
-  font-weight: 400;
+  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
 }
 
@@ -1370,7 +1374,7 @@
 .seatName {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

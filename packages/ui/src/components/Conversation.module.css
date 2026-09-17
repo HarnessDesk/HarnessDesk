@@ -36,10 +36,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
-  font-size: var(--hd-text-lg);
-  line-height: var(--hd-line-lg); /* desk: 22 → 24, the line the 16px step is set on */
-  letter-spacing: -0.01em;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
+  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
+  line-height: var(--hd-line); /* desk: var(--hd-line-lg) → 21, its step’s own line */
 }
 
 .status {
@@ -101,10 +100,6 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-
- /* desk: canonical One UI System scale */
-
- /* desk: canonical One UI System scale */
 
   white-space: nowrap;
 }
@@ -302,7 +297,7 @@
 .emptyTitle {
   font-family: var(--hd-font-display);
   font-size: var(--hd-heading); /* desk: 22 → 20, the step every page title uses */
-  font-weight: 500;
+  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   color: var(--hd-foreground);
 }
 
@@ -320,8 +315,6 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-
- /* desk: canonical One UI System scale */
 
   z-index: 3;
 }
@@ -443,8 +436,6 @@
 
   min-width: 0;
   max-width: 100%;
-
- /* desk: canonical One UI System scale */
 
   white-space: nowrap;
 
