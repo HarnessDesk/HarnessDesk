@@ -169,6 +169,7 @@ const findings = {
   rawRadius: [],
   danglingToken: [],
   crossImport: [],
+  rawZIndex: [],
   rawColour: [],
   arbitraryUtility: [],
   rawType: [],
@@ -353,8 +354,17 @@ for (const file of cssFiles()) {
   // follows a theme change exactly as badly as one written in place, and until
   // this the checks could not see it at all.
   const raw = (value) => /#[0-9a-fA-F]{3,8}\b/.test(value) || /\brgba?\(/.test(value)
+  // Every property that can carry a colour, not the handful someone thought of.
+  //
+  // This listed five for a long time, and `box-shadow` was not among them — so
+  // ten hand-written shadows sat outside a count that reported none. It is the
+  // same failure as the line-height ratios: name the spellings you remember and
+  // the rest are invisible, confidently, at zero. The ones added here are the
+  // remaining properties in the app's CSS whose value is a colour; `outline`
+  // and `border` are covered by their `-color` longhand and by the shorthand
+  // matching below.
   for (const match of css.matchAll(
-    /(?<![-\w])(color|background|background-color|border-color|fill)\s*:\s*([^;]+);/g,
+    /(?<![-\w])(color|background|background-color|border-color|fill|stroke|box-shadow|text-shadow|outline|outline-color|text-decoration-color|caret-color|accent-color|column-rule-color)\s*:\s*([^;]+);/g,
   )) {
     const value = match[2].trim()
     if (raw(value)) findings.rawColour.push(`${name}: ${value.slice(0, 48)}`)
@@ -362,6 +372,23 @@ for (const file of cssFiles()) {
   for (const match of css.matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)) {
     const value = match[2].trim()
     if (raw(value)) findings.rawColour.push(`${name}: ${match[1]}: ${value.slice(0, 40)}`)
+  }
+
+  // Stacking written as a number.
+  //
+  // The ladder in `tokens.css` already says it: "Stacking is a system, not a
+  // race. A component that needs to sit above another takes the next name up;
+  // it never writes a number." Twenty-four places wrote a number, because the
+  // rule was prose and nothing read it.
+  //
+  // Single digits are left alone deliberately. A `z-index: 1` that lifts a
+  // label over the image beside it is ordering *within* one component's own
+  // stacking context — it can no more collide with the dialog layer than
+  // `order: 1` can, and a rung would say something false about it. From 10 up
+  // is the band where two components can genuinely claim the same plane, and
+  // that is the band the ladder is for.
+  for (const match of css.matchAll(/(?<![-\w])z-index\s*:\s*(-?\d+)\s*(?:;|})/g)) {
+    if (Math.abs(Number(match[1])) >= 10) findings.rawZIndex.push(`${name}: z-index: ${match[1]}`)
   }
 
   // A system token defined outside the file that owns the system.

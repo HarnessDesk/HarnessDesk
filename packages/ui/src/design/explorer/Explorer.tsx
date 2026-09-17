@@ -1,18 +1,30 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
 import { Button, Input } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
 import { COMPOSITION_BOARDS } from './boards-compositions'
-import { ComposerBoard } from '../showcase/ComposerBoard'
-import { ConversationPage } from '../showcase/ConversationPage'
-import { GitHistoryPage } from '../showcase/GitHistoryPage'
-import { GroupProject } from '../showcase/GroupProject'
 import { PanelPlayground } from '../showcase/PanelPlayground'
 import { PropagationPage } from '../showcase/PropagationPage'
-import { RailBoard } from '../showcase/RailBoard'
 import { Showcase } from '../showcase/Showcase'
 import { ToolsPage } from '../showcase/ToolsPage'
+
+/**
+ * The whole-screen surfaces, behind a split.
+ *
+ * They mount the app's own screens, so they drag in the store, the layout
+ * model and every component a screen reaches for. Loading that eagerly would
+ * put it in the same chunk as the primitive boards and quietly retire the one
+ * thing this entry proves by building at all: that a primitive needs none of
+ * it. Split here, the proof survives and the surfaces still show the shipped
+ * screen rather than a drawing of one.
+ */
+const surfaceModule = () => import('../surfaces/surfaces')
+const ComposerSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ComposerSurface })))
+const ConversationSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ConversationSurface })))
+const GitSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GitSurface })))
+const GroupSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GroupSurface })))
+const RailSurface = lazy(() => surfaceModule().then((m) => ({ default: m.RailSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -99,35 +111,35 @@ const SURFACES = [
     title: 'Group project',
     about:
       'Several harnesses on one goal, with a board between them. Three claims the layout is built to make true: a group project is a project rather than a mode, so it stands in the workspace list beside ordinary sessions under its own mark; the agents are deliberately not alike, so the harness mark appears wherever a member does; and the board, the agent and the conversation are one triangle — a task names the harness holding it, pressing that harness opens its conversation, and the conversation names the task and offers the way back. Press a harness on a card, or Claim with on an unclaimed one.',
-    render: GroupProject,
+    render: GroupSurface,
   },
   {
     id: 'conversation',
     title: 'Conversation',
     about:
       'One transcript carrying every kind of thing a transcript can carry — prose, thinking, a published plan, nine tool calls with one of them refused and one failed, a diff, attachments, an approval that stops you, a compaction, and a turn still running. Not a tidy sample: the grading only proves itself under all of it at once, in one column, at the width the app actually gives it.',
-    render: ConversationPage,
+    render: ConversationSurface,
   },
   {
     id: 'composer',
     title: 'Composer',
     about:
       'The one component a user touches on every turn, in the five states it is really in — resting, carrying attachments, running, queueing behind a turn, and nearly out of context. All five are the same shell; what differs is what is inside it, which is the test that the shell is right.',
-    render: ComposerBoard,
+    render: ComposerSurface,
   },
   {
     id: 'rail',
     title: 'Left bar',
     about:
       'The sidebar at the density it actually stands at, inside a frame the width of a window — because the whole question about a rail is how much attention it takes from the work beside it, and a rail alone on a white page always looks fine.',
-    render: RailBoard,
+    render: RailSurface,
   },
   {
     id: 'git',
     title: 'Git history',
     about:
       'The repository as history rather than status: a graph that answers what happened, a detail pane that answers what exactly, and lanes coloured by identity rather than by judgement. Click a row.',
-    render: GitHistoryPage,
+    render: GitSurface,
   },
   {
     id: 'panels',
@@ -371,7 +383,9 @@ export const Explorer = () => {
             <>
               <h1 className={styles.boardTitle}>{surface.title}</h1>
               <p className={styles.boardAbout}>{surface.about}</p>
-              <surface.render />
+              <Suspense fallback={<p className={styles.boardAbout}>Mounting the screen…</p>}>
+                <surface.render />
+              </Suspense>
             </>
           ) : board ? (
             <>

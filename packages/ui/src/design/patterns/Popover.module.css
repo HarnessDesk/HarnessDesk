@@ -72,7 +72,7 @@
   border-radius: var(--hd-radius);
   background: var(--hd-surface-fill);
   box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.18),
+    var(--hd-shadow), /* desk: 0 8px 28px rgba(0,0,0,.18) -> one floating rung */
     inset 0 0 0 1px var(--hd-border-strong);
 }
 

@@ -1,0 +1,68 @@
+/*
+ * Frames for a whole screen.
+ *
+ * Nothing here styles a screen — a screen brings its own stylesheet, and the
+ * point of this directory is that it is the shipped one. These rules only give
+ * the screen the *room* the app gives it, because a pane judged at the height
+ * of its content is not the pane: a transcript that never scrolls has no
+ * scroll edge, a sidebar with no floor below it never shows what the floor
+ * does, and an empty state that is allowed to be as short as its words tells
+ * you nothing about the hole it sits in.
+ *
+ * So: a height, a width, and a clip. That is the whole file.
+ */
+
+.frame {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--hd-border);
+  border-radius: var(--hd-radius);
+  background: var(--hd-background);
+}
+
+/* The height the app's own window gives a pane on a laptop, less its chrome.
+   Fixed rather than fluid: two panes side by side scroll independently, and
+   neither can decide the height of the other. */
+.frame[data-height='pane'] {
+  height: 560px;
+}
+
+/* A transcript needs more than a pane before its own scrolling is the thing
+   you are looking at rather than the frame's. */
+.frame[data-height='page'] {
+  height: 820px;
+}
+
+/* A rail is judged by how much attention it takes from the work beside it, so
+   it is framed at a window's width with the work standing in. */
+.beside {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+/* The stand-in for "the work" next to a rail. Deliberately empty: anything
+   drawn here would be a second opinion about a screen this directory does not
+   own, which is the failure this whole layer exists to end. */
+.work {
+  min-width: 0;
+  border-left: 1px solid var(--hd-border);
+  background: var(--hd-muted);
+}
+
+/* Two panes that the app shows together, at the proportion the app shows them
+   in — the board reads as the subject and the room as its column. */
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--hd-space-3);
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -107,10 +107,10 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
    the named interactive board but is not expressed as CVA axes. */
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'alert-dialog', 'avatar', 'avatar-stack', 'board',
-  'breadcrumb', 'browser-chrome', 'card', 'chart', 'checkbox', 'commit', 'composer',
+  'breadcrumb', 'browser-chrome', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'dropdown-menu', 'empty-state', 'field',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
-  'radio-group', 'rail', 'resize-handle', 'scroll-area', 'select', 'separator',
+  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'turn', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'DockPanel', 'PublicationCard', 'RefusedAction',
@@ -354,7 +354,6 @@ export const CANONICAL_UI_MODULES = [
   ['browser-chrome', 'tools', 'First-party browser frame'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
-  ['commit', 'git', 'Commit and repository history anatomy'],
   ['composer', 'composer', 'Shared composer presentation shell'],
   ['data-table', 'adopted', 'Sortable and selectable data table'],
   ['checkbox', 'adopted', 'Multiple-choice control'],
@@ -375,7 +374,6 @@ export const CANONICAL_UI_MODULES = [
   ['popover', 'propagation', 'Base UI anchored popup parts'],
   ['progress', 'readings', 'Progress and usage meter'],
   ['radio-group', 'control', 'Single-choice radio behavior'],
-  ['rail', 'rail', 'Application navigation rail'],
   ['resize-handle', 'panels', 'Keyboard-accessible resize seam'],
   ['scroll-area', 'adopted', 'Themed scroll container'],
   ['section', 'section', 'Titled content region'],
@@ -411,16 +409,33 @@ export const CANONICAL_PATTERN_MODULES = [
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
 ] as const satisfies readonly ModuleSeed[]
 
+/**
+ * The whole-screen entries, and the module each one actually mounts.
+ *
+ * `implementationPath` is the promise this row makes to a reader: open the
+ * surface and you are looking at that file. Five of these used to name a page
+ * in `design/showcase` that was built to look like the screen — same shapes,
+ * separate code — so the promise was kept only for as long as nobody edited
+ * the real one. They now name the shipped module, and
+ * `script/check-ui-system.mjs` refuses a row whose module the surfaces file
+ * does not import.
+ *
+ * The three that still name a `showcase` page are the ones where there is no
+ * shipped screen to point at: a dashboard assembled only to put unrelated
+ * parts in one frame, the panel model driven by nothing but itself, and the
+ * propagation fixture the browser suite reads. `catalogOnly` marks those, and
+ * it is the exemption the check looks for.
+ */
 export const PRODUCT_SURFACES = [
-  ['surface.dashboard', 'showcase', 'Composed dashboard', 'packages/ui/src/design/showcase/Showcase.tsx'],
-  ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/design/showcase/GroupProject.tsx'],
-  ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/design/showcase/ConversationPage.tsx'],
-  ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/design/showcase/ComposerBoard.tsx'],
-  ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/design/showcase/RailBoard.tsx'],
-  ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/design/showcase/GitHistoryPage.tsx'],
-  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/design/showcase/PanelPlayground.tsx'],
-  ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx'],
-  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/design/showcase/ToolsPage.tsx'],
+  ['surface.dashboard', 'showcase', 'Composed dashboard', 'packages/ui/src/design/showcase/Showcase.tsx', true],
+  ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
+  ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
+  ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx'],
+  ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx'],
+  ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/components/GitPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
+  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/design/showcase/PanelPlayground.tsx', true],
+  ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
+  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/design/showcase/ToolsPage.tsx', true],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
@@ -440,7 +455,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
   },
   ...CANONICAL_UI_MODULES.map(primitive),
   ...CANONICAL_PATTERN_MODULES.map(pattern),
-  ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath]): CatalogEntry => ({
+  ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer]): CatalogEntry => ({
     id,
     category: 'Product Surfaces' as const,
     implementationPath,
@@ -450,8 +465,13 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     sizes: ['default'] as const,
     states: ['default', 'loading', 'empty', 'populated', 'error'] as const,
     examples: ['packages/ui/src/design/explorer/Explorer.tsx'],
-    consumers: [],
-    catalogOnly: true,
+    // A surface that mounts a shipped screen names the file that mounts it in
+    // the app — the panel registry, or the screen that owns it. `main.tsx` was
+    // the obvious guess and the wrong one: panels are registered through a
+    // table, so nothing reaches a pane from the entry by import. Only the
+    // three assembled for the catalogue have no consumer at all.
+    consumers: consumer ? [consumer] : [],
+    catalogOnly,
     coverageExemption: `${id} has no component CVA contract; the ${exampleId} surface matrix is reviewed by browser and native scenario suites.`,
     visual: true,
   })),

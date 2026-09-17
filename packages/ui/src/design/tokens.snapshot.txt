@@ -158,6 +158,8 @@
 --hd-selected = color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
+--hd-shadow-notice = 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08)
+--hd-shadow-raised = 0 2px 10px rgba(0, 0, 0, 0.08)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
 --hd-shadow-xs = 0 1px 2px rgba(0, 0, 0, 0.05)
 --hd-sidebar = rgb(249, 249, 249)
@@ -250,9 +252,12 @@
 --hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
+--hd-z-palette = 47
 --hd-z-popover = 50
+--hd-z-sheet = 60
 --hd-z-sticky = 10
 --hd-z-toast = 200
+--hd-z-window = 45
 --hdp-alias-bg-base = rgb(255, 255, 255)
 --hdp-alias-bg-layer-1 = rgb(255, 255, 255)
 --hdp-alias-bg-layer-2 = rgb(255, 255, 255)
@@ -582,6 +587,8 @@
 --hd-selected = color-mix(in srgb, rgb(231, 231, 231) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
+--hd-shadow-notice = 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08)
+--hd-shadow-raised = 0 2px 10px rgba(0, 0, 0, 0.08)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
 --hd-shadow-xs = 0 0 0 1px rgba(255, 255, 255, 0.04)
 --hd-sidebar = rgb(41, 41, 41)
@@ -674,9 +681,12 @@
 --hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
+--hd-z-palette = 47
 --hd-z-popover = 50
+--hd-z-sheet = 60
 --hd-z-sticky = 10
 --hd-z-toast = 200
+--hd-z-window = 45
 --hdp-alias-bg-base = rgb(24, 24, 24)
 --hdp-alias-bg-layer-1 = rgb(33, 33, 33)
 --hdp-alias-bg-layer-2 = rgb(41, 41, 41)
@@ -1023,6 +1033,8 @@
 --hd-selected = color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
+--hd-shadow-notice = 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08)
+--hd-shadow-raised = 0 2px 10px rgba(0, 0, 0, 0.08)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
 --hd-shadow-xs = 0 1px 2px rgba(0, 0, 0, 0.05)
 --hd-sidebar = rgb(249, 249, 249)
@@ -1117,9 +1129,12 @@
 --hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
+--hd-z-palette = 47
 --hd-z-popover = 50
+--hd-z-sheet = 60
 --hd-z-sticky = 10
 --hd-z-toast = 200
+--hd-z-window = 45
 --hdp-alias-bg-base = rgb(255, 255, 255)
 --hdp-alias-bg-layer-1 = rgb(255, 255, 255)
 --hdp-alias-bg-layer-2 = rgb(255, 255, 255)
@@ -1466,6 +1481,8 @@
 --hd-selected = color-mix(in srgb, rgb(231, 231, 231) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
+--hd-shadow-notice = 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08)
+--hd-shadow-raised = 0 2px 10px rgba(0, 0, 0, 0.08)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
 --hd-shadow-xs = 0 0 0 1px rgba(255, 255, 255, 0.04)
 --hd-sidebar = rgb(41, 41, 41)
@@ -1560,9 +1577,12 @@
 --hd-z-drawer = 40
 --hd-z-header = 30
 --hd-z-notice = 35
+--hd-z-palette = 47
 --hd-z-popover = 50
+--hd-z-sheet = 60
 --hd-z-sticky = 10
 --hd-z-toast = 200
+--hd-z-window = 45
 --hdp-alias-bg-base = rgb(24, 24, 24)
 --hdp-alias-bg-layer-1 = rgb(33, 33, 33)
 --hdp-alias-bg-layer-2 = rgb(41, 41, 41)

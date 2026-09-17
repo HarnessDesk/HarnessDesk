@@ -201,6 +201,34 @@ export const importGraph = (files) => {
       return names
     }
     const localDependencies = new Map()
+
+    /*
+     * A lazily-loaded module is still a dependency.
+     *
+     * This walked `import` declarations only, so `import('./surfaces')` behind
+     * a `React.lazy` was invisible: the catalogue's surface rows claimed to
+     * show `components/Conversation.tsx` and the reachability check could not
+     * see the edge that made it true. Splitting a chunk is a loading decision,
+     * not an architectural one, and a rule that can be stepped around by
+     * moving an import inside a closure is not a rule.
+     *
+     * Whole-file, not per-symbol: what comes back from a dynamic import is
+     * decided at runtime, so the honest edge is "this file reaches that one".
+     */
+    const dynamicTargets = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        node.arguments.length > 0 &&
+        ts.isStringLiteral(node.arguments[0])
+      ) {
+        const target = resolveSpecifier(file.path, node.arguments[0].text, paths)
+        if (target) info.fileTargets.add(target)
+      }
+      ts.forEachChild(node, dynamicTargets)
+    }
+    dynamicTargets(ast)
+
     for (const statement of ast.statements) {
       if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
         localDependencies.set(statement.name.text, identifiersUnder(statement))
@@ -291,7 +319,20 @@ export const isReachable = (graph, from, target) => {
       && (current.symbol === null || current.symbol === '*' || info.exports.has(current.symbol))
     ) return true
     if (current.symbol === null) {
+      /*
+       * A whole-file edge reaches everything that file reaches.
+       *
+       * This followed `fileTargets` alone, so a file depended on without a
+       * named symbol — a side-effect import, or a dynamic one — was a dead
+       * end: whatever it imported *by name* was invisible from here. That is
+       * how the surface boards could mount `components/Sidebar` through a
+       * lazily-loaded module and still be reported unreachable. There is no
+       * symbol to narrow by on this kind of edge, so the honest walk is the
+       * whole closure.
+       */
       for (const next of info.fileTargets) pending.push({ path: next, symbol: null })
+      for (const edge of info.symbols.values()) pending.push({ path: edge.target, symbol: edge.symbol })
+      for (const next of info.exportAll) pending.push({ path: next, symbol: '*' })
       continue
     }
     const direct = info.symbols.get(current.symbol)
