@@ -132,7 +132,7 @@ const buttonVariants = cva(
            from the <nav> around it. Dropping either leaves those rows with
            no vertical padding, and the label sits off-centre against the
            row's own min-height. */
-        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) text-(length:--hd-text) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1 in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
+        navigation: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) p-(--hd-nav-padding) text-(length:--hd-text) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1 in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },

@@ -193,11 +193,11 @@ A navigation column is its own small design system, and shadcn treats it as one:
 
 ### The nav row
 
-One row in a navigation list — the sidebar's sessions, the settings sheet's pages. The reference stands them at `h-9` with `rounded-md`, `gap-2` and a medium weight when selected; the app drew four slightly different versions of this row across two files, at 30px and 31px with an 8px literal radius. One row, one set of numbers.
+One row in a navigation list — the sidebar's sessions, the settings sheet's pages. The height is solved, not written: a row is its line of text plus one step of padding above and below. Move the reading size or the density and every row in every column follows without a second edit.
 
 | token | value |
 | --- | --- |
-| `--hd-nav-h` | `31px` |
+| `--hd-nav-h` | `calc(14px * 1.5 + 4px * 2)` |
 
 ### The section label
 

@@ -26,10 +26,12 @@
  */
 
 .sidebar {
-  /* Both rails, named once. Most rows reach it by composition — the list's
-     own 6 plus a row's 8 — and the two that state it outright say it here
-     rather than spelling a number twice. */
-  --rail: 14px;
+  /* How far a row's box sits from the column's edge. One number for the
+     whole column: every list and every group states this as its own inline
+     padding, every row carries `--hd-nav-inset` of its own, and so every
+     label in the column starts at exactly `--rail + --hd-nav-inset`. A row
+     without a box — a section label — states the sum instead. */
+  --rail: var(--hd-space-2); /* desk: 14 → 8, one inset for the whole column */
   /*
    * What a panel below the list may take before it scrolls inside itself.
    * This column belongs to the session list; a panel — the Tasks plan, a
@@ -117,7 +119,7 @@
 
 .nav {
   flex: none;
-  padding: 0 6px 4px;
+  padding: 0 var(--rail) 4px; /* desk: 6 → --rail, the column's one inset */
 }
 
 /* New session, Plugins: the same size as the list they sit above — one
@@ -130,7 +132,7 @@
    column, none agreeing, all drawn to look like the same row. */
 .navItem {
   justify-content: flex-start;
-  gap: var(--hd-nav-gap);
+  gap: var(--hd-nav-gap); /* desk: 6 → 8, the column's one gap */
   width: 100%;
 
   text-align: left;
@@ -155,7 +157,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 2px 6px 12px;
+  padding: 2px var(--rail) 12px; /* desk: 6 → --rail, the column's one inset */
 }
 
 /*
@@ -178,7 +180,7 @@
   gap: 6px;
   /* The row ends in an icon button, so it stops at 8 and lets the button
      overhang — the + lands on the rail, the counts below it already do. */
-  padding: var(--hd-label-space, var(--hd-space-1-5)) 8px var(--hd-space-1) var(--rail);
+  padding: var(--hd-label-space, var(--hd-space-1-5)) 8px var(--hd-space-1) calc(var(--rail) + var(--hd-nav-inset)); /* desk: 14 → 16, a label has no box, so it states the sum a row reaches by composition */
   font-size: var(--hd-label-size, var(--hd-text-sm));
   font-weight: var(--hd-label-weight, var(--hd-weight-normal));
   letter-spacing: var(--hd-label-tracking, 0);
@@ -241,7 +243,7 @@
 .groupRow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--hd-nav-gap); /* desk: 6 → 8, the column's one gap */
   width: 100%;
 
   text-align: left;
@@ -317,9 +319,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Sessions sit one level in from their workspace. */
+/* Sessions stand where every other row in the column stands. The workspace
+   head above them already says whose they are, and an indent spends ten of a
+   narrow column's pixels restating it. */
 .nested {
-  padding-left: 10px;
+  padding-left: 0; /* desk: 10 → 0, sessions stand where every other row stands */
 }
 
 .rowWrap {
@@ -559,7 +563,7 @@
   height: var(--hd-bar-h);
   position: relative;
   flex: none;
-  padding: 4px;
+  padding: 4px var(--rail); /* desk: 4 → --rail, the column's one inset */
   border-top: 1px solid var(--hd-border);
 }
 
@@ -568,10 +572,10 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 36px;
-  padding: 0 8px;
+  height: var(--hd-nav-h); /* desk: 36 → 29, the column's one row height */
+  padding: 0 var(--hd-nav-inset);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--hd-nav-radius); /* desk: 8 → 10, the row radius */
   background: none;
   color: inherit;
   cursor: pointer;
@@ -901,7 +905,7 @@
   display: flex;
   align-self: stretch;
   align-items: flex-start;
-  padding: 0 6px;
+  padding: 0 var(--rail); /* desk: 6 → --rail, the column's one inset */
   margin: 0 -6px;
 }
 
@@ -1254,7 +1258,7 @@
   display: inline-flex;
   align-items: center;
   height: 18px;
-  padding: 0 6px;
+  padding: 0 var(--rail); /* desk: 6 → --rail, the column's one inset */
   border-radius: var(--hd-radius-sm);
   background: var(--hd-muted);
   color: var(--hd-sidebar-muted-foreground);

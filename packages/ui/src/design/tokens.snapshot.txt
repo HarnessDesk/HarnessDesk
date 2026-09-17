@@ -60,7 +60,7 @@
 --hd-code-string = rgb(23, 110, 62)
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
---hd-column = 768px
+--hd-column = 736px
 --hd-composer-line = 22px
 --hd-composer-max = 320px
 --hd-composer-min = 52px
@@ -105,12 +105,12 @@
 --hd-line-sm = 18px
 --hd-muted = rgb(244, 245, 246)
 --hd-muted-foreground = rgb(129, 132, 135)
---hd-nav-gap = 10px
---hd-nav-h = 31px
---hd-nav-h-group = 30px
+--hd-nav-gap = 8px
+--hd-nav-h = calc(14px * 1.5 + 4px * 2)
+--hd-nav-h-group = calc(14px * 1.5 + 4px * 2)
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
---hd-nav-radius = 8px
+--hd-nav-radius = 10px
 --hd-placeholder-foreground = rgb(129, 132, 135)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(25, 27, 30)
@@ -471,7 +471,7 @@
 --hd-code-string = rgb(126, 231, 135)
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
---hd-column = 768px
+--hd-column = 736px
 --hd-composer-line = 22px
 --hd-composer-max = 320px
 --hd-composer-min = 52px
@@ -516,12 +516,12 @@
 --hd-line-sm = 18px
 --hd-muted = rgb(47, 49, 52)
 --hd-muted-foreground = rgb(174, 176, 180)
---hd-nav-gap = 10px
---hd-nav-h = 31px
---hd-nav-h-group = 30px
+--hd-nav-gap = 8px
+--hd-nav-h = calc(14px * 1.5 + 4px * 2)
+--hd-nav-h-group = calc(14px * 1.5 + 4px * 2)
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
---hd-nav-radius = 8px
+--hd-nav-radius = 10px
 --hd-placeholder-foreground = rgb(174, 176, 180)
 --hd-popover = rgb(31, 33, 36)
 --hd-popover-foreground = rgb(229, 231, 234)
@@ -886,7 +886,7 @@
 --hd-code-string = rgb(23, 110, 62)
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
---hd-column = 768px
+--hd-column = 736px
 --hd-composer-line = 22px
 --hd-composer-max = 320px
 --hd-composer-min = 52px
@@ -938,7 +938,7 @@
 --hd-line-sm = 18px
 --hd-muted = rgb(244, 245, 246)
 --hd-muted-foreground = rgb(129, 132, 135)
---hd-nav-gap = 10px
+--hd-nav-gap = 8px
 --hd-nav-h = 34px
 --hd-nav-h-group = 34px
 --hd-nav-inset = 10px
@@ -1316,7 +1316,7 @@
 --hd-code-string = rgb(126, 231, 135)
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
---hd-column = 768px
+--hd-column = 736px
 --hd-composer-line = 22px
 --hd-composer-max = 320px
 --hd-composer-min = 52px
@@ -1368,7 +1368,7 @@
 --hd-line-sm = 18px
 --hd-muted = rgb(47, 49, 52)
 --hd-muted-foreground = rgb(174, 176, 180)
---hd-nav-gap = 10px
+--hd-nav-gap = 8px
 --hd-nav-h = 34px
 --hd-nav-h-group = 34px
 --hd-nav-inset = 10px

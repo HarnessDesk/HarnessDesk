@@ -160,12 +160,12 @@
     "radius": 6
   },
   "button/size/navigation": {
-    "h": 31,
+    "h": 29,
     "text": 14,
     "weight": "400",
     "line": 21,
     "pad": "0 8 0 8",
-    "radius": 8
+    "radius": 10
   },
   "button/size/panel": {
     "h": 47,

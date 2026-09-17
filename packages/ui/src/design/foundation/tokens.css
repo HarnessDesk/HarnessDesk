@@ -317,7 +317,7 @@ body {
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
   --hd-bar-h: 44px;
-  --hd-column: 768px; /* desk: 736 → 768, 48rem — a measure with an arithmetic rather than a residue */
+  --hd-column: 736px;
 
   /* The text well of the composer: where it rests, where it stops growing, and
      the line it is set on.
@@ -783,18 +783,16 @@ body {
 
   /* --- the nav row ---------------------------------------------------------
      One row in a navigation list — the sidebar's sessions, the settings
-     sheet's pages. The reference stands them at `h-9` with `rounded-md`,
-     `gap-2` and a medium weight when selected; the app drew four slightly
-     different versions of this row across two files, at 30px and 31px with an
-     8px literal radius. One row, one set of numbers. */
-  --hd-nav-h: 31px;
-  /* The project row is a pixel shorter than the rows above it and always has
-     been. Its own name, because "make the column roomier" is a real request
-     and "silently restyle a row by one pixel" is not: Desk keeps the app's
-     two heights exactly, and Studio is where they agree. */
-  --hd-nav-h-group: var(--hd-row-h);
-  --hd-nav-radius: var(--hd-radius-md);
-  --hd-nav-gap: var(--hd-space-2-5);
+     sheet's pages.
+
+     The height is solved, not written: a row is its line of text plus one
+     step of padding above and below. Move the reading size or the density
+     and every row in every column follows without a second edit. */
+  --hd-nav-h: calc(var(--hd-text) * 1.5 + var(--hd-space-1) * 2); /* desk: 31 → 29, solved from the type */
+  /* Every row in a navigation column stands the same. */
+  --hd-nav-h-group: var(--hd-nav-h); /* desk: 30 → 29, one height for every row in the column */
+  --hd-nav-radius: var(--hd-radius); /* desk: 8 → 10, the row radius */
+  --hd-nav-gap: var(--hd-space-2); /* desk: 10 → 8 */
   /* How far a row's text sits from its own edge. Named separately from the
      shorthand because the session row states its vertical padding itself —
      it is a two-line row — and only wants the horizontal half. */
@@ -1073,7 +1071,7 @@ body[data-hd-interface='studio'] {
   --hd-nav-h: 34px;
   /* One height for every row in a navigation column, which is the thing Desk
      does not do: three rows in one sidebar at 31, 30 and neither. */
-  --hd-nav-h-group: var(--hd-nav-h);
+  --hd-nav-h-group: var(--hd-nav-h); /* desk: 30 → 29, one height for every row in the column */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
 
