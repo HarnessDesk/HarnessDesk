@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -140,4 +140,95 @@ test('a missing directory is an empty roster, not a crash', async () => {
     builtin: join(tmpdir(), 'hd-absent-builtin'),
   })
   assert.deepEqual(await agents.list(), [])
+})
+
+/*
+ * What is on disk decides before precedence does.
+ *
+ * The three below are one rule read three ways: a file is read first, and only
+ * then is it a winner or a shadow. Decided the other way round — precedence
+ * first — a folder with no file becomes a shadow at a path nobody can open, and
+ * a directory that failed to open becomes an empty roster with no reason given.
+ */
+
+test('a lower-tier directory with no AGENT.md is not a shadow', async () => {
+  const { roots, agents } = await rig()
+  await write(roots.user, 'reviewer', brief('User reviewer'))
+  /* The folder left behind by a hand-deleted file, or by a write that failed
+     halfway. Nothing is there, so there is nothing for the winner to have
+     beaten — a shadow is a place to go and look, and this one has no file. */
+  await mkdir(join(roots.builtin, 'reviewer'), { recursive: true })
+
+  const [entry] = await agents.list()
+  assert.equal(entry?.origin, 'user')
+  assert.deepEqual(entry?.shadows, [])
+})
+
+test('a root directory that cannot be read is raised, not read as empty', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-agents-'))
+  const locked = join(root, 'locked')
+  await write(locked, 'reviewer', brief('Locked reviewer'))
+  await chmod(locked, 0o000)
+  try {
+    const readable = await readdir(locked).then(
+      () => true,
+      () => false,
+    )
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    const agents = new Agents({ user: locked, builtin: join(root, 'absent') })
+    await assert.rejects(agents.list(), (error: unknown) => {
+      assert.equal((error as { code?: unknown }).code, 'EACCES')
+      return true
+    })
+  } finally {
+    await chmod(locked, 0o700)
+  }
+})
+
+test('a root the filesystem refuses outright is raised as well', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-agents-'))
+  /* `ENAMETOOLONG` rather than the permission above, so the guarantee is
+     covered for a user the mode test skips for: 300 characters in one component
+     is refused by every filesystem these tests run on, and by no mode. */
+  const absurd = join(root, 'n'.repeat(300))
+  const agents = new Agents({ user: absurd, builtin: join(root, 'absent') })
+  await assert.rejects(agents.list(), (error: unknown) => {
+    assert.equal((error as { code?: unknown }).code, 'ENAMETOOLONG')
+    return true
+  })
+})
+
+test('a root that is a file, or is under one, is simply empty', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-agents-'))
+  await writeFile(join(root, 'user'), 'somebody touched this instead of making it\n', 'utf8')
+  /* The other half of the rule above, and the reason `ENOTDIR` is not raised:
+     a project with a `.harnessdesk` *file* has no Agents in it, and `agent/list`
+     refusing for every such project would be a worse answer than an empty one. */
+  const agents = new Agents({ user: join(root, 'user'), builtin: join(root, 'user', 'agents') })
+  assert.deepEqual(await agents.list(), [])
+})
+
+test('an AGENT.md that cannot be read is listed with its failure, and costs only itself', async () => {
+  const { roots, agents } = await rig()
+  await write(roots.user, 'good', brief('Good'))
+  // Present, and unreadable: a directory where the file goes.
+  await mkdir(join(roots.user, 'unreadable', 'AGENT.md'), { recursive: true })
+
+  const listed = await agents.list()
+  assert.deepEqual(
+    listed.map((one) => one.id),
+    ['good', 'unreadable'],
+  )
+  const stuck = listed.find((one) => one.id === 'unreadable')
+  /* The same shape a file that does not parse arrives in, so a reader has one
+     case to handle: no definition, and a problem that says what happened. */
+  assert.equal(stuck?.definition, null)
+  assert.equal(stuck?.origin, 'user')
+  assert.equal(
+    stuck?.problems.some((one) => one.level === 'error' && /EISDIR/.test(one.text)),
+    true,
+    'the problem names the failure, not just that there was one',
+  )
 })
