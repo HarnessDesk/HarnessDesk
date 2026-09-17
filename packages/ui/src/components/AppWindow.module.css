@@ -29,8 +29,9 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* No edge, for the reason the workbench column has none: the surface is the
+     boundary. */
   background: var(--hd-sidebar);
-  border-right: 1px solid var(--hd-sidebar-border);
 }
 
 /* The traffic lights are the window's own, so the nav starts below the band

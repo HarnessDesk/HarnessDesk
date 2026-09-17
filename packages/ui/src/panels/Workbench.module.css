@@ -81,16 +81,15 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  /* No edge: the column is already its own surface, and a rule beside a
+     surface change says the same thing twice. */
   background: var(--hd-sidebar-plate);
-  border-right: var(--hd-border-width) solid var(--hd-border);
   transition: width var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
-/* A zero-width column must not paint a 1px seam of its own — nor keep controls
-   you can Tab to and cannot see. Hidden once the slide has finished, shown the
-   moment the next one starts. */
+/* A zero-width column must not keep controls you can Tab to and cannot see.
+   Hidden once the slide has finished, shown the moment the next one starts. */
 .sidebar[data-hidden] {
-  border-right: none;
   visibility: hidden;
   transition:
     width var(--hd-duration-slow) var(--hd-ease),
