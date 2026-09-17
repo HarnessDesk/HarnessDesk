@@ -130,7 +130,7 @@ test('the composed numbers stay on the scale', async ({ page }) => {
   await settle(page)
   const scale = await page.evaluate(() => {
     const css = getComputedStyle(document.body)
-    return Object.fromEntries(['--hd-text-xs', '--hd-text-sm', '--hd-text', '--hd-text-lg', '--hd-heading']
+    return Object.fromEntries(['--hd-text-xs', '--hd-text-sm', '--hd-text', '--hd-text-lg', '--hd-heading', '--hd-display']
       .map(name => [name, parseFloat(css.getPropertyValue(name))]))
   })
   // A step that reads back as NaN is a token the page never received, which

@@ -298,7 +298,7 @@
 
 .emptyTitle {
   font-family: var(--hd-font-display);
-  font-size: 22px;
+  font-size: var(--hd-heading);
   font-weight: 500;
   color: var(--hd-foreground);
 }

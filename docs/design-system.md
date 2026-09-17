@@ -115,6 +115,7 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-text` | `14px` |
 | `--hd-text-lg` | `16px` |
 | `--hd-heading` | `20px` |
+| `--hd-display` | `36px` |
 | `--hd-line` | `21px` |
 | `--hd-line-sm` | `18px` |
 | `--hd-weight-normal` | `400` |
@@ -740,7 +741,7 @@ list only goes down, except when the audit learns to see something it was blind 
 
 | finding | count | what it costs |
 | --- | --- | --- |
-| `rawType` | 2 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
+| `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `patternClass` | 126 | Nineteen screens drawing their own header is why pages stop looking alike; the shared component already exists. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |

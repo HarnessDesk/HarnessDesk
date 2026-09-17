@@ -73,6 +73,7 @@
 --hd-destructive = rgb(228, 68, 62)
 --hd-destructive-foreground = rgb(255, 255, 255)
 --hd-destructive-muted = rgba(228, 68, 62, 0.12)
+--hd-display = 36px
 --hd-duration = 0.2s
 --hd-duration-fast = 0.1s
 --hd-duration-slow = 0.3s
@@ -483,6 +484,7 @@
 --hd-destructive = rgb(228, 68, 62)
 --hd-destructive-foreground = rgb(255, 255, 255)
 --hd-destructive-muted = rgba(228, 68, 62, 0.12)
+--hd-display = 36px
 --hd-duration = 0.2s
 --hd-duration-fast = 0.1s
 --hd-duration-slow = 0.3s
@@ -898,6 +900,7 @@
 --hd-destructive = rgb(228, 68, 62)
 --hd-destructive-foreground = rgb(255, 255, 255)
 --hd-destructive-muted = rgba(228, 68, 62, 0.12)
+--hd-display = 36px
 --hd-duration = 0.2s
 --hd-duration-fast = 0.1s
 --hd-duration-slow = 0.3s
@@ -1327,6 +1330,7 @@
 --hd-destructive = rgb(228, 68, 62)
 --hd-destructive-foreground = rgb(255, 255, 255)
 --hd-destructive-muted = rgba(228, 68, 62, 0.12)
+--hd-display = 36px
 --hd-duration = 0.2s
 --hd-duration-fast = 0.1s
 --hd-duration-slow = 0.3s

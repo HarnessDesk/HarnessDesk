@@ -279,15 +279,15 @@
 }
 
 .figure {
-  font-size: 34px;
-  line-height: 36px;
+  font-size: var(--hd-display);
+  line-height: 40px;
   font-weight: 600;
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
 }
 
 /* A card with no figure still has to print something, and an em dash set at
-   34px is a black bar that reads as a broken meter. It keeps the size — the
+   display size is a black bar that reads as a broken meter. It keeps the size — the
    row of cards is a row — and gives up the ink. */
 .card[data-muted] .figure {
   color: var(--hd-muted-foreground);

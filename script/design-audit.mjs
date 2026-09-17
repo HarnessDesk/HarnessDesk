@@ -42,8 +42,12 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * So these carry a recorded ceiling instead. Going up fails. Going *down*
  * also fails, with the fix being `--baseline` — because a ratchet that is not
  * tightened is a ceiling nobody is under.
+ *
+ * `rawType` started here at 34 and is now zero, so it has left: a category
+ * that has reached the floor is an ordinary category, and holding it at a
+ * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['rawType', 'patternClass'])
+const BURN_DOWN = new Set(['patternClass'])
 
 /**
  * Everywhere UI is written, not just the screens.
