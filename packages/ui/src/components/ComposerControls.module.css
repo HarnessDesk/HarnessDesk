@@ -21,11 +21,26 @@
 
 }
 
+/* The words, and the reason the row can be narrow: without `min-width: 0` a
+   flex child will not shrink below its content, so the hint would push the row
+   wider than the dialog however the text is allowed to wrap. */
+.choiceText {
+  min-width: 0;
+}
+
+/*
+ * The mark sits on the label's line, not in the middle of the whole choice.
+ * Stated here rather than on the row: the row is the canonical control and its
+ * own `items-center` is a utility, which a module class of equal weight loses
+ * to on source order — `align-self` on the child is the one that wins without
+ * anybody having to shout.
+ */
 .choiceMark {
   flex: none;
+  align-self: flex-start;
   width: 14px;
   height: 14px;
-  margin-top: 2px;
+  margin-top: 4px; /* desk: 2 → 4, the mark on the label’s line rather than above it */
   border-radius: 50%;
   border: 1.5px solid var(--hd-border-emphasis);
 }

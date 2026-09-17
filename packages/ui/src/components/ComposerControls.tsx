@@ -815,7 +815,7 @@ export const AgentControl = () => {
 }
 
 /** What to carry across — the one decision a hand-off needs from the user. */
-const HandoffSheet = ({
+export const HandoffSheet = ({
   from,
   to,
   onCancel,
@@ -846,9 +846,13 @@ const HandoffSheet = ({
         {to} cannot read {from}'s thread, so HarnessDesk writes what happened into a new
         conversation there. Choose how much travels.
       </p>
+      {/* `row`, not `sm`: `sm` is a fixed-height control whose base does not
+          wrap, so a two-line choice overflowed it both ways — the hint ran the
+          row wider than the dialog and the label sat outside the 28px box. A
+          row is the size that is allowed to be as tall as what it holds. */}
       <div className={sheet.choices} role="radiogroup" aria-label="What to carry">
         {CARRY_OPTIONS.map((option) => (
-          <Button variant="ghost" size="sm"
+          <Button variant="ghost" size="row"
             key={option.id}
             type="button"
             role="radio"
@@ -858,7 +862,7 @@ const HandoffSheet = ({
             onClick={() => setCarry(option.id)}
           >
             <span className={sheet.choiceMark} aria-hidden="true" />
-            <span>
+            <span className={sheet.choiceText}>
               <div className={sheet.choiceLabel}>
                 {option.id === 'summary' ? (
                   <SummaryIcon size={13} />
