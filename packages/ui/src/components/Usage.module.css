@@ -557,7 +557,13 @@
   grid-template-columns: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px; /* desk: a 44px share column, between the bar and the tokens */
   align-items: center;
   gap: 12px;
-  height: 42px;
+  /* A table row, which is the one row shape Desk does not have a token for:
+     a rank glyph, a name, a meter and three figures do not fit a rail row and
+     are not a bar. So it reads the page row the settings window already
+     stands on, with its own 42 as the Desk value — which is the shape every
+     other interface-dependent height in this tree is written in, and means
+     this row follows the dial instead of ignoring it. */
+  height: var(--hd-page-row-h, 42px);
   padding: 0 var(--hd-space-4); /* desk: canonical One UI System scale */
 }
 
