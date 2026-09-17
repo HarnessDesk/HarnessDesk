@@ -62,8 +62,13 @@ export interface AgentEntry {
    * deliberately *not* `brief`: `AgentDefinition.brief` is the prose twenty
    * lines above, both are strings, and a reader who fetched the wrong one would
    * get a hash where a paragraph belongs with nothing to catch it.
+   *
+   * Null when nothing was read — an unreadable file has no digest, and a
+   * sentinel string would compare equal between two unrelated broken entries
+   * exactly where a consumer is comparing digests. `library.ts` types its own
+   * hollow copies the same way for the same reason.
    */
-  readonly digest: string
+  readonly digest: string | null
   /** Same id, lower precedence. Listed and marked, never hidden. */
   readonly shadows: readonly { readonly origin: AgentOrigin; readonly path: string }[]
   readonly problems: readonly AgentProblem[]

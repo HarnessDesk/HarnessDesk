@@ -130,9 +130,10 @@ export class Agents {
             id,
             origin: place.origin,
             path,
-            // Nothing was read, so there is nothing to hash — and an empty
-            // digest cannot be mistaken for the digest of an empty file.
-            digest: '',
+            // Nothing was read, so there is nothing to hash. Null rather than a
+            // sentinel string: two unrelated unreadable entries must not compare
+            // equal to a consumer that is comparing digests.
+            digest: null,
             shadows: [],
             problems: [problem('error', FILE, `this file could not be read — ${candidate.reason}`)],
           })

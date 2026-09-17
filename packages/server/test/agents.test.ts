@@ -225,6 +225,9 @@ test('an AGENT.md that cannot be read is listed with its failure, and costs only
   /* The same shape a file that does not parse arrives in, so a reader has one
      case to handle: no definition, and a problem that says what happened. */
   assert.equal(stuck?.definition, null)
+  // Null, not a sentinel string: two unrelated unreadable entries must not
+  // compare equal to a consumer comparing digests.
+  assert.equal(stuck?.digest, null)
   assert.equal(stuck?.origin, 'user')
   assert.equal(
     stuck?.problems.some((one) => one.level === 'error' && /EISDIR/.test(one.text)),
