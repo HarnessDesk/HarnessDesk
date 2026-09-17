@@ -122,6 +122,6 @@
 }
 
 .initial {
-  font-size: 9px;
+  font-size: var(--hd-text-3xs);
   font-weight: var(--hd-weight-semibold);
 }

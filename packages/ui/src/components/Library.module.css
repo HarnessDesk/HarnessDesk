@@ -483,7 +483,7 @@ details[open] > .gapsFold {
   flex-wrap: wrap;
   gap: 4px 0;
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--hd-text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--hd-secondary-foreground);
 }

@@ -14,7 +14,7 @@
 
 .title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--hd-heading);
   font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--hd-foreground);
