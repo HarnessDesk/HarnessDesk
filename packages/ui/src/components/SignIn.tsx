@@ -195,7 +195,14 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
-        className={own.dialog}
+        /* `max-w-none` twice, as SkillSheet does: the dialog primitive caps
+           itself at `sm:max-w-md`, and a max-width beats a width however the
+           two are written, so this sheet — "a two-pane window at 980×820",
+           per its own stylesheet — was rendering at 448px. Its rail is a
+           fixed 244px, which left 164px for the detail pane, and every
+           sign-in method's name and description overflowed that column and
+           ran off the sheet (#749). */
+        className={`${own.dialog} max-w-none sm:max-w-none`}
         portalled={false}
         aria-label="Sign in"
         showCloseButton={false}
@@ -555,8 +562,15 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           <div className={own.methods}>
             {driveable.map((method) => {
               const Glyph = METHOD_ICON[method.flow]
+              /* `row`, not `sm`: a method card is a name with the agent's own
+                 sentence under it, and every button size below `row` is one
+                 line of a fixed height with `whitespace-nowrap`. At `sm` the
+                 four methods Antigravity declares wrapped nowhere, and once
+                 they wrapped they drew over each other (#749). `row` is the
+                 design system's own multi-line row: `h-auto`, a min-height,
+                 and `whitespace-normal`. */
               return (
-                <Button variant="ghost" size="sm"
+                <Button variant="ghost" size="row"
                   key={method.id}
                   type="button"
                   className={own.method}
