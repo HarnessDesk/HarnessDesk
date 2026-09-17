@@ -26,10 +26,12 @@
  */
 
 .sidebar {
-  /* Both rails, named once. Most rows reach it by composition — the list's
-     own 6 plus a row's 8 — and the two that state it outright say it here
-     rather than spelling a number twice. */
-  --rail: 14px;
+  /* How far a row's box sits from the column's edge. One number for the
+     whole column: every list and every group states this as its own inline
+     padding, every row carries `--hd-nav-inset` of its own, and so every
+     label in the column starts at exactly `--rail + --hd-nav-inset`. A row
+     without a box — a section label — states the sum instead. */
+  --rail: var(--hd-bar-pad); /* desk: 14 → 8, one inset for the whole column */
   /*
    * What a panel below the list may take before it scrolls inside itself.
    * This column belongs to the session list; a panel — the Tasks plan, a
@@ -58,7 +60,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 8px 0 max(8px, var(--titlebar-inset, 0px)); /* desk: unchanged at 8, the inset is 0 unless this row is the corner */
+  gap: var(--hd-bar-gap);
+  padding: 0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px)); /* desk: unchanged at 8, the inset is 0 unless this row is the corner */
 }
 
 .header {
@@ -67,11 +70,13 @@
   /* The wordmark starts on the left rail, with the nav icons under it. The
      right stops at 8 rather than 14 so the search button can hang its box
      over the rail and land the magnifier on it — see the note at the top. */
-  padding: 0 8px 0 var(--rail);
+  /* The wordmark has no box of its own, so it states where a composed row's
+     label lands and its mark sits on the same x as every icon under it. */
+  padding: 0 var(--hd-bar-pad) 0 var(--hd-bar-ink); /* desk: 14 → 17, level with the rows below */
   margin-bottom: 4px;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--hd-bar-gap); /* desk: 2 → 6, the bar's own gap */
 }
 
 /* The workspace switcher reads as a title, not a form control. */
@@ -117,7 +122,7 @@
 
 .nav {
   flex: none;
-  padding: 0 6px 4px;
+  padding: 0 var(--rail) 4px; /* desk: 6 → --rail, the column's one inset */
 }
 
 /* New session, Plugins: the same size as the list they sit above — one
@@ -130,7 +135,7 @@
    column, none agreeing, all drawn to look like the same row. */
 .navItem {
   justify-content: flex-start;
-  gap: var(--hd-nav-gap);
+  gap: var(--hd-nav-gap); /* desk: 6 → 8, the column's one gap */
   width: 100%;
 
   text-align: left;
@@ -155,7 +160,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 2px 6px 12px;
+  padding: 2px var(--rail) 12px; /* desk: 6 → --rail, the column's one inset */
 }
 
 /*
@@ -178,7 +183,7 @@
   gap: 6px;
   /* The row ends in an icon button, so it stops at 8 and lets the button
      overhang — the + lands on the rail, the counts below it already do. */
-  padding: var(--hd-label-space, var(--hd-space-1-5)) 8px var(--hd-space-1) var(--rail);
+  padding: var(--hd-label-space, var(--hd-space-1-5)) 8px var(--hd-space-1) var(--hd-bar-ink); /* desk: 14 → 17, a label has no box, so it states the sum a row reaches by composition */
   font-size: var(--hd-label-size, var(--hd-text-sm));
   font-weight: var(--hd-label-weight, var(--hd-weight-normal));
   letter-spacing: var(--hd-label-tracking, 0);
@@ -241,7 +246,7 @@
 .groupRow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--hd-nav-gap); /* desk: 6 → 8, the column's one gap */
   width: 100%;
 
   text-align: left;
@@ -283,8 +288,8 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  mask-image: var(--hd-fade);
 }
 
 /* Reserve the actions in the content layout, leaving the navigation
@@ -295,6 +300,16 @@
   flex: 1;
   min-width: 0;
   gap: var(--hd-space-1-5);
+}
+
+/* The actions are absolute and drawn only while the row is under the pointer,
+   holds focus, or has its menu open, so the room for them is owed in exactly
+   those states. A resting row keeps its full width; the marks at its end step
+   aside when the ⋯ arrives, which is the moment they would otherwise be
+   covered by it. */
+.groupHead:hover .groupBody,
+.groupHead:focus-within .groupBody,
+.groupHead[data-menu-open] .groupBody {
   padding-right: calc(var(--hd-btn-h-sm) * 2);
 }
 
@@ -317,9 +332,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Sessions sit one level in from their workspace. */
+/* Sessions stand where every other row in the column stands. The workspace
+   head above them already says whose they are, and an indent spends ten of a
+   narrow column's pixels restating it. */
 .nested {
-  padding-left: 10px;
+  padding-left: 0; /* desk: 10 → 0, sessions stand where every other row stands */
 }
 
 .rowWrap {
@@ -401,8 +418,8 @@
 
 .rowTitle {
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  mask-image: var(--hd-fade);
   font-size: var(--hd-text);
   color: var(--hd-sidebar-foreground);
   line-height: var(--hd-line);
@@ -449,7 +466,7 @@
   font-size: var(--hd-text-xs);
   color: var(--hd-sidebar-muted-foreground);
   min-width: 0;
-  line-height: 15px;
+  line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
 }
 
 /* The agent and the time are short and always shown whole; only the branch —
@@ -470,7 +487,7 @@
 .emptyGroup {
   padding: 4px 8px 8px var(--hd-space-8); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  line-height: 16px;
+  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
   color: var(--hd-sidebar-muted-foreground);
 }
 
@@ -489,14 +506,6 @@
   height: 6px;
   border-radius: 50%;
   background: var(--hd-success);
-}
-
-.empty {
-  padding: 24px 12px;
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-sidebar-muted-foreground);
-  line-height: 18px;
 }
 
 /* The row's menu sits at the right edge, centred on a compact row and on
@@ -559,7 +568,7 @@
   height: var(--hd-bar-h);
   position: relative;
   flex: none;
-  padding: 4px;
+  padding: 4px var(--rail); /* desk: 4 → --rail, the column's one inset */
   border-top: 1px solid var(--hd-border);
 }
 
@@ -568,10 +577,14 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 36px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 8px;
+  height: var(--hd-nav-h); /* desk: 36 → 29, the column's one row height */
+  padding: 0 var(--hd-nav-inset);
+  /* Transparent rather than absent: every other row in the column is the
+     canonical control, which reserves a hairline it usually does not paint, and
+     this row has to reserve the same one or its glyph sits a pixel left of
+     theirs. */
+  border: var(--hd-border-width) solid transparent; /* desk: none → a reserved hairline, so this row's glyph is level with the rest */
+  border-radius: var(--hd-nav-radius); /* desk: 8 → 10, the row radius */
   background: none;
   color: inherit;
   cursor: pointer;
@@ -811,7 +824,7 @@
 
 .accountMenuConfirmText {
   font-size: var(--hd-text-sm);
-  line-height: 16px;
+  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
   color: var(--hd-secondary-foreground);
   margin-bottom: 8px;
 }
@@ -901,7 +914,7 @@
   display: flex;
   align-self: stretch;
   align-items: flex-start;
-  padding: 0 6px;
+  padding: 0 var(--rail); /* desk: 6 → --rail, the column's one inset */
   margin: 0 -6px;
 }
 
@@ -933,13 +946,19 @@
   opacity: 1;
 }
 
+/* Same trade as the group head. */
+.rowWrap:hover .rowBody,
+.rowWrap:focus-within .rowBody,
+.rowWrap[data-menu-open] .rowBody {
+  padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
+}
+
 .rowBody {
   min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
 }
 
 /* Compact is one line — the title — in a 28px row: the height Codex and
@@ -1006,7 +1025,7 @@
 .accountMenuHint {
   display: block;
   font-size: var(--hd-text-sm);
-  line-height: 14px;
+  line-height: var(--hd-line-sm); /* desk: 14 → 18, the line the 13px step is set on */
   color: var(--hd-sidebar-muted-foreground);
 }
 
@@ -1254,7 +1273,7 @@
   display: inline-flex;
   align-items: center;
   height: 18px;
-  padding: 0 6px;
+  padding: 0 var(--rail); /* desk: 6 → --rail, the column's one inset */
   border-radius: var(--hd-radius-sm);
   background: var(--hd-muted);
   color: var(--hd-sidebar-muted-foreground);
@@ -1359,7 +1378,7 @@
 
 .seatSub {
   font-size: var(--hd-text-xs);
-  line-height: 16px;
+  line-height: var(--hd-line-xs);
   color: var(--hd-sidebar-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1459,10 +1478,14 @@
 }
 
 /* A held message is the team's "needs you": it goes nowhere until somebody
-   releases it, so the row that leads to it is warm rather than quiet. */
+   releases it, so the row that leads to it stands at full ink while its
+   neighbours sit back. The column keeps one hue — the accent on a running
+   session — and says everything else with weight, because a narrow column
+   carrying two colour codes makes the reader learn both. */
 .roomRow[data-held] .roomIcon,
 .roomRow[data-held] .groupName {
-  color: var(--hd-tint-amber-ink);
+  color: var(--hd-foreground); /* desk: amber → full ink, the column keeps one hue */
+  font-weight: var(--hd-weight-medium);
 }
 
 .roomTwisty {

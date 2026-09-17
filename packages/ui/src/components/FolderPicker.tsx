@@ -109,9 +109,9 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
       footerAside="Click a folder to enter it; open the one you are in."
     >
       <div className={styles.list}>
-        {loading && <p className={styles.empty}>Loading…</p>}
+        {loading && <p className="hd-empty-line">Loading…</p>}
         {!loading && listing?.entries.length === 0 && (
-          <p className={styles.empty}>No sub-folders here.</p>
+          <p className="hd-empty-line">No sub-folders here.</p>
         )}
         {listing?.entries.map((entry) => (
           <Button

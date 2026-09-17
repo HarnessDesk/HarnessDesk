@@ -63,7 +63,7 @@ export const TriggerMenu = ({
   return (
     <div className={styles.menu} ref={container} role="listbox">
       {title && <div className={styles.header}>{title}</div>}
-      {items.length === 0 && <div className={styles.empty}>{emptyLabel ?? 'No matches'}</div>}
+      {items.length === 0 && <div className="hd-empty-line">{emptyLabel ?? 'No matches'}</div>}
       {items.map((item, index) => (
         <Button
           key={item.id}

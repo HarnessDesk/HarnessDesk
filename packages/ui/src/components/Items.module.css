@@ -84,7 +84,7 @@
   background: var(--hd-muted);
   box-shadow: var(--hd-hairline-soft);
   font-size: var(--hd-text-lg);
-  line-height: 24px; /* 16px at 1.5: two or three lines, tighter than a document */
+  line-height: var(--hd-line-lg); /* 16px at 1.5: two or three lines, tighter than a document */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

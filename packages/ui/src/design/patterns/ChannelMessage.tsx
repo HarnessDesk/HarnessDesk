@@ -79,10 +79,10 @@ const DENSITY = {
     row: 'grid-cols-[24px_1fr] gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50',
     avatar: 'size-6',
     mark: 14,
-    initials: 'text-(length:--hd-text-2xs)',
+    initials: 'text-(length:--hd-text-xs)',
     /* The grouped row's own moment, in the gutter the face would be in. */
     stampAlign: 'justify-center',
-    stamp: 'pt-0.5 text-(length:--hd-text-3xs) leading-4',
+    stamp: 'pt-0.5 text-(length:--hd-text-xs) leading-4',
     name: 'text-sm',
     body: 'text-sm',
     /* About eight lines at this size; the "Show more" below opens the rest. */

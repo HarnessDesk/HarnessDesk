@@ -35,7 +35,7 @@ export const DayLabel = ({ children }: { children: ReactNode }) => (
 )
 
 export const PanelEmpty = ({ children }: { children: ReactNode }) => (
-  <p className={styles.empty}>{children}</p>
+  <p className="hd-empty-line">{children}</p>
 )
 
 export const PanelRow = ({

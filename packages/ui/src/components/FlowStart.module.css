@@ -4,13 +4,6 @@
   gap: var(--hd-space-3);
 }
 
-.empty {
-  margin: 0;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
 /* The report, not a preview: what this is about to cost and do, above the
    button that does it. */
 .report {

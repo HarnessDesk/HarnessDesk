@@ -478,9 +478,9 @@
    Codex's settings pages use. It was a 26px literal, a size the scale does
    not have, and the one thing on the page bigger than the reference. */
 .pageTitle {
-  font-size: var(--hd-heading); /* desk: 26 → 20, the scale's heading step */
-  line-height: 26px; /* desk: 32 → 26, with the size */
-  font-weight: 600;
+  font-size: var(--hd-title); /* desk: 26 → 24, the page-title step */
+  line-height: var(--hd-line-title); /* desk: 26 → 30, the line the 24px step is set on */
+  font-weight: var(--hd-weight-normal); /* desk: 600 → 400, a page title is large rather than heavy */
   letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, lighter at 20px */
 }
 
@@ -552,7 +552,7 @@
 .row {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-4); /* desk: 18 → 16, a step of the scale */
+  gap: var(--hd-space-6); /* desk: 18 → 24, the gap between a row's words and its control */
   padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
 }
@@ -591,8 +591,8 @@
 /* The title carries the weight and the description the colour, so a row
    reads as a name with a note under it rather than two grey lines. */
 .rowTitle {
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
+  font-size: var(--hd-text-sm); /* desk: 14 → 13, the chrome size */
+  line-height: var(--hd-line-sm); /* desk: 21 → 18, the line the 13px step is set on */
   font-weight: var(--hd-weight-medium);
 }
 
@@ -605,7 +605,7 @@
    The full text stays reachable: the row's `title` carries it on hover, and a
    plugin's page has room for the paragraph. */
 .rowDesc {
-  margin-top: 1px;
+  margin-top: var(--hd-space-0-5); /* desk: 1 → 2, a step of the scale */
   overflow: hidden;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
@@ -701,7 +701,7 @@
   align-items: baseline;
   gap: var(--hd-space-2);
   font-size: var(--hd-heading); /* desk: 24 → 20, the same step as a page title */
-  line-height: 26px; /* desk: 30 → 26, with the size */
+  line-height: var(--hd-line-heading); /* desk: 26 → 28, the line the 20px step is set on */ /* desk: 30 → 26, with the size */
   font-weight: 600;
   letter-spacing: -0.01em; /* desk: -0.02em → -0.01em */
 }

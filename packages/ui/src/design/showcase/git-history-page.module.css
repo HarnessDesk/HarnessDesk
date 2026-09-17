@@ -138,7 +138,7 @@
   background: var(--hd-muted);
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  line-height: 18px;
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
   white-space: pre-wrap;
 }
 

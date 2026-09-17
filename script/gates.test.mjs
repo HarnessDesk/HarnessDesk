@@ -435,20 +435,20 @@ test('a burn-down category is gated on a ceiling that may only fall', () => {
     rawRadius: 0, offGrid: 0, rawColour: 0, arbitraryUtility: 0,
     rawType: 0, patternClass: 0,
   }
-  const ceiling = { ...clean, rawType: 34, patternClass: 126 }
+  const ceiling = { ...clean, patternClass: 126 }
 
   // At the ceiling: the debt is recorded, so the gate is quiet.
-  const held = compareBaseline({ ...clean, rawType: 34, patternClass: 126 }, ceiling)
+  const held = compareBaseline({ ...clean, patternClass: 126 }, ceiling)
   assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
 
-  // Above it: a screen just wrote another literal.
-  const grown = compareBaseline({ ...clean, rawType: 35, patternClass: 126 }, ceiling)
+  // Above it: a screen just re-declared another pattern.
+  const grown = compareBaseline({ ...clean, patternClass: 127 }, ceiling)
   assert.equal(grown.worse, true)
   assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
 
   // Below it: the work was done and the ceiling has to follow, or the debt can
-  // silently come back to 34 without the gate ever noticing.
-  const paid = compareBaseline({ ...clean, rawType: 33, patternClass: 126 }, ceiling)
+  // silently come back to 126 without the gate ever noticing.
+  const paid = compareBaseline({ ...clean, patternClass: 125 }, ceiling)
   assert.equal(paid.worse, true)
   assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
 
@@ -456,6 +456,13 @@ test('a burn-down category is gated on a ceiling that may only fall', () => {
   const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
   assert.equal(smuggled.worse, true)
   assert.ok(smuggled.problems.some((p) => p.message.includes('must be zero')))
+
+  // And a category that has burned down to nothing leaves the ratchet: type
+  // sizes reached zero, so a single literal coming back is refused outright
+  // rather than measured against a ceiling of nought.
+  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126 }, ceiling)
+  assert.equal(returned.worse, true)
+  assert.ok(returned.problems.some((p) => p.key === 'rawType'))
 })
 
 

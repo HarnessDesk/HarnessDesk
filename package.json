@@ -60,6 +60,7 @@
     "design": "pnpm --filter @harnessdesk/ui run dev",
     "test:ui-system": "playwright test -c playwright.ui-system.config.ts",
     "test:ui-system:install": "playwright install chromium",
+    "design:metrics": "UPDATE_METRICS=1 playwright test -c playwright.ui-system.config.ts metrics.spec.ts",
     "test:ui-system:native": "node e2e/ui-system/native-smoke.mjs",
     "layering": "node script/check-layering.mjs",
     "check:fixes": "node script/check-half-applied-fixes.mjs",

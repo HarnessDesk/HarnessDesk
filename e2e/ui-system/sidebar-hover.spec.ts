@@ -14,6 +14,27 @@ async function setWidth(page: Page, width: number) {
   }, width)
 }
 
+/**
+ * Read a box once it has stopped moving.
+ *
+ * Hovering a row reveals its actions and re-flows the marks at its end, and a
+ * single read taken on the frame the pointer lands can catch either side of
+ * that. Measured: the same tree passed six of six cases on one run and failed
+ * two on the next, with no edit between them. Two agreeing frames is the
+ * cheapest thing that cannot see the transition.
+ */
+async function settled(locator: Locator) {
+  let last = ''
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const now = await bounds(locator)
+    const key = JSON.stringify(now)
+    if (key === last) return now
+    last = key
+    await locator.page().waitForTimeout(40)
+  }
+  return bounds(locator)
+}
+
 async function bounds(locator: Locator) {
   return locator.evaluate(node => {
     const rect = node.getBoundingClientRect()
@@ -57,9 +78,16 @@ for (const theme of ['light', 'dark'] as const) {
           contentType: 'application/json',
         })
       }
-      expect(await bounds(pin)).toEqual(before)
-      expect((await bounds(pin)).right).toBeLessThanOrEqual((await bounds(add)).left)
-      expect((await bounds(group.locator('[class*="groupCount_"]'))).right).toBeLessThanOrEqual((await bounds(add)).left)
+      // A resting row keeps its whole width — no room is held for a control
+      // that is not drawn — and the marks at its end step aside when the ⋯
+      // arrives, which is the moment they would otherwise sit under it.
+      // It never moves right and never changes line; whether it moves left at
+      // all depends on whether the row was full, which the wide case is not.
+      const after = await settled(pin)
+      expect(after.left).toBeLessThanOrEqual(before.left)
+      expect(after.top).toBe(before.top)
+      expect(after.right).toBeLessThanOrEqual((await settled(add)).left)
+      expect((await settled(group.locator('[class*="groupCount_"]'))).right).toBeLessThanOrEqual((await settled(add)).left)
       expect(await unobstructed(add)).toBe(true)
       expect(await unobstructed(actions)).toBe(true)
     }
@@ -100,9 +128,13 @@ for (const theme of ['light', 'dark'] as const) {
             contentType: 'application/json',
           })
         }
-        expect(await bounds(branch)).toEqual(before)
+        // Same trade as the workspace head above: the marks step aside for the
+        // ⋯ rather than being covered by it, and they keep their line.
+        const moved = await settled(branch)
+        expect(moved.left).toBeLessThanOrEqual(before.left)
+        expect(moved.top).toBe(before.top)
         for (const mark of [branch, gone]) {
-          expect((await bounds(mark)).right).toBeLessThanOrEqual((await bounds(action)).left)
+          expect((await settled(mark)).right).toBeLessThanOrEqual((await settled(action)).left)
           expect(await unobstructed(mark)).toBe(true)
         }
         expect(await unobstructed(action)).toBe(true)

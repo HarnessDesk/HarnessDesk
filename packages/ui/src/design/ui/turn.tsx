@@ -228,7 +228,7 @@ const WorkStep = ({
             tone === 'neutral' ? 'text-(--hd-muted-foreground)' : '',
             tone === 'danger' && 'text-(--hd-danger-ink)',
             tone === 'warning' && 'text-(--hd-warning-ink)',
-            state === 'running' && 'animate-pulse',
+            state === 'running' && 'hd-cadence',
           )}
         />
         <span className="shrink-0 text-(--hd-secondary-foreground)">{verb}</span>
@@ -316,7 +316,7 @@ const Work = ({
           aria-hidden
           className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
         />
-        <span className={cn('truncate', running && 'animate-pulse')}>{summary}</span>
+        <span className={cn('truncate', running && 'hd-cadence')}>{summary}</span>
       </button>
       {open && (
         /* A rule down the left, not a box: the steps are subordinate to the

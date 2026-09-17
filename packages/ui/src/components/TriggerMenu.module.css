@@ -64,20 +64,13 @@
   background: var(--hd-accent-dim);
   color: var(--hd-accent);
   font-size: var(--hd-text-xs);
-  line-height: 17px;
+  line-height: var(--hd-line-xs); /* desk: 17 → 16, the line the 12px step is set on */
 }
 
 .check {
   flex: none;
   width: 14px;
   color: var(--hd-accent);
-}
-
-.empty {
-  padding: var(--hd-space-4) 10px; /* desk: canonical One UI System scale */
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
 }
 
 /* A row's own glyph, when the kinds this menu knows cannot say it — an

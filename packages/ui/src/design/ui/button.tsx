@@ -84,7 +84,7 @@ const buttonVariants = cva(
            control from a screen stylesheet. These roles are deliberately
            opinionated rather than an `unstyled` escape hatch. */
         row:
-          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:font-semibold data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through aria-expanded:bg-(--hd-active)',
+          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:font-semibold data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
         navigation:
           'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))] data-[active]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))] data-[current]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))] data-[open]:font-[number:var(--hd-nav-weight-selected,var(--hd-weight-medium))]',
         choice:
@@ -126,13 +126,13 @@ const buttonVariants = cva(
         chip: 'h-auto min-h-(--hd-target-min) gap-(--hd-space-1) rounded-full px-(--hd-space-2) text-(length:--hd-text-xs)',
         inline: 'h-auto rounded-(--hd-radius-sm) p-1 text-(length:--hd-text) font-normal whitespace-normal',
         panel: 'h-auto w-full p-4 whitespace-normal',
-        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 text-(length:--hd-text) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
+        row: 'h-auto min-h-(--hd-btn-h) px-2 py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
         /* Two spellings on purpose: a session row carries `data-density`
            itself, while an app window's rail inherits `data-hd-density`
            from the <nav> around it. Dropping either leaves those rows with
            no vertical padding, and the label sits off-centre against the
            row's own min-height. */
-        navigation: 'h-auto min-h-(--hd-nav-h) p-(--hd-nav-padding) text-(length:--hd-text) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1 in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
+        navigation: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) p-(--hd-nav-padding) text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1 in-data-[hd-density=comfortable]:py-2 in-data-[hd-density=compact]:py-1',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },

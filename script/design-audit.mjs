@@ -42,8 +42,12 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * So these carry a recorded ceiling instead. Going up fails. Going *down*
  * also fails, with the fix being `--baseline` — because a ratchet that is not
  * tightened is a ceiling nobody is under.
+ *
+ * `rawType` started here at 34 and is now zero, so it has left: a category
+ * that has reached the floor is an ordinary category, and holding it at a
+ * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['rawType', 'patternClass'])
+const BURN_DOWN = new Set(['patternClass'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -174,15 +178,26 @@ const findings = {
 /**
  * The shapes a screen keeps re-declaring instead of composing.
  *
- * Counted from the tree, not chosen: `.row` in eighteen stylesheets, `.body`
- * in sixteen, `.list` in fourteen. Each one already has a component in
- * `design/`, and `.head` beside `.header` is the tell — two spellings of one
- * idea means nobody could have shared it even if they wanted to.
+ * One stem, and the list has been cut twice. It began at thirteen and matched
+ * on a class's leading stem alone, so a diff table's `.row`, the library's
+ * 250px sticky `.name` and a flex `.body` were all counted as re-declared
+ * patterns. Narrowing to `head`, `header` and `empty` was supposed to leave
+ * the words that name exactly one thing, and it did not: reading the fourteen
+ * `head` findings, `ToolPanes` draws a 46px pane title bar, `MessageQueue` a
+ * 12px status strip, `GitPane` a 24px table header with a rule under it, and
+ * `Approvals` a card header at 14/600. Four different components, not four
+ * copies of one.
+ *
+ * `empty` survives because it is the one word here that names a single thing:
+ * a list with nothing in it. Sampled, every finding was a screen saying
+ * "nothing here" at its own padding and its own size.
+ *
+ * The rule this leaves, and it is the useful half: **a stem is only worth
+ * counting when the word names exactly one thing.** For everything else the
+ * question is what a class *declares*, not what it is called, and that is a
+ * different check from this one.
  */
-const PATTERN_STEMS = new Set([
-  'row', 'head', 'header', 'note', 'list', 'empty', 'field',
-  'title', 'label', 'body', 'page', 'foot', 'name',
-])
+const PATTERN_STEMS = new Set(['empty'])
 
 /** A screen's own stylesheet, as opposed to the system's. */
 const isScreenSheet = (file) => /\/(components|slots|panels)\//.test(file)

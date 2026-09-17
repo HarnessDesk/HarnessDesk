@@ -217,7 +217,7 @@ button.row:hover {
 .rowSub {
   margin-top: 1px;
   font-size: var(--hd-text-xs);
-  line-height: 16px;
+  line-height: var(--hd-line-xs);
   color: var(--hd-muted-foreground);
   white-space: nowrap;
   overflow: hidden;
@@ -240,7 +240,7 @@ button.row:hover {
 .rowAsk {
   margin-top: 1px;
   font-size: var(--hd-text-xs);
-  line-height: 16px;
+  line-height: var(--hd-line-xs);
   color: var(--hd-secondary-foreground);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -286,10 +286,3 @@ button.row:hover {
   background: var(--hd-accent);
 }
 
-.empty {
-  padding: var(--hd-space-8) 8px; /* desk: canonical One UI System scale */
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  line-height: 19px;
-  color: var(--hd-muted-foreground);
-}

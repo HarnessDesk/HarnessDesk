@@ -2022,9 +2022,12 @@ export const Settings = ({
         )}
       </WindowNav>
 
-      {/* The library is a grid of agent columns, not a column of sentences, so
-          it takes the wide measure the usage dashboard uses. */}
-      <WindowPage key={section} wide={section === 'library'}>
+      {/* Every page in this window stands on one measure, including the library.
+          It was the one exception, taken when its captions still wrapped and
+          twelve agent marks had to sit beside a paragraph; the caption is one
+          clamped line now, so the marks have their room at the ordinary width
+          and the window stops having a page that is a different shape. */}
+      <WindowPage key={section}>
             {section === 'profile' && <ProfileSection />}
             {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
             {section === 'appearance' && <AppearanceSection />}

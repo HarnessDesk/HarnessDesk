@@ -131,7 +131,7 @@ export const FlowStart = ({
 
   if (files !== null && files.length === 0) {
     return (
-      <p className={styles.empty}>
+      <p className="hd-empty-line">
         No flows in this project yet. A flow is a file in <code>.harnessdesk/flows</code>, versioned with
         the code it governs.
       </p>

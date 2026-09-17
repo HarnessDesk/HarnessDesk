@@ -27,7 +27,7 @@ export const SECTIONS = [
   [
     'patternClass',
     'Patterns re-declared in a screen stylesheet',
-    'Nineteen screens drawing their own header is why pages stop looking alike; the shared component already exists.',
+    'Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line.',
     'Compose the pattern instead of re-declaring it: Row/Rows, ListRow/ListRows, EmptyState, Section, PageHead/SectionHead, Note, Field — all exported from packages/ui/src/design. This category is a burn-down: its ceiling may only fall.',
   ],
   [

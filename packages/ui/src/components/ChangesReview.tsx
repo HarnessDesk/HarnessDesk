@@ -202,7 +202,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
         </header>
 
         {groups.length === 0 && (
-          <div className={styles.empty}>
+          <div className="hd-empty-line">
             {git === null
               ? 'This folder is not a git repository, so there is nothing to compare against.'
               : staged

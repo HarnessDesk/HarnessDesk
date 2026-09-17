@@ -15,7 +15,7 @@
 .confirmText {
   margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-xs);
-  line-height: 16px;
+  line-height: var(--hd-line-xs);
   color: var(--hd-secondary-foreground);
 }
 

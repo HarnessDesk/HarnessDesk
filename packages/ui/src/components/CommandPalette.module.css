@@ -104,13 +104,6 @@
   color: var(--hd-muted-foreground);
 }
 
-.empty {
-  padding: var(--hd-space-8) 10px; /* desk: canonical One UI System scale */
-  text-align: center;
-  font-size: var(--hd-text);
-  color: var(--hd-muted-foreground);
-}
-
 .rowMatch {
   width: 100%;
   padding-left: 24px;

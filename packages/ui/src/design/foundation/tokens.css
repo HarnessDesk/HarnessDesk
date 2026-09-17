@@ -214,15 +214,24 @@ body {
      default answer and the rest are exceptions that have to earn it. The full
      reasoning, and the rule for choosing between steps, is
      docs/design.md. */
-  --hd-text-3xs: 9px;
-  --hd-text-2xs: 10px;
   --hd-text-xs: 12px;
   --hd-text-sm: 13px;
   --hd-text: 14px;
   --hd-text-lg: 16px;
   --hd-heading: 20px;
-  --hd-line: 21px;
+  --hd-title: 24px;
+  --hd-display: 36px;
+  /* One line per step, and nothing else. Before this the 13px step was set on
+     eight different line-heights across the tree and the 12px step on five;
+     a size and its line are one decision, so they are named together and a
+     surface picks the pair. */
+  --hd-line-xs: 16px;
   --hd-line-sm: 18px;
+  --hd-line: 21px;
+  --hd-line-lg: 24px;
+  --hd-line-heading: 28px;
+  --hd-line-title: 30px;
+  --hd-line-display: 40px;
 
   --hd-weight-normal: 400;
   --hd-weight-medium: 500;
@@ -317,8 +326,27 @@ body {
    */
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
-  --hd-bar-h: 44px;
+  --hd-bar-h: 46px; /* desk: 44 → 46, the window's own bar */
+  /* What a bar holds its controls at, and how far they stand from its ends.
+     One pair for every bar in the window, so a control in the title row and a
+     control in a pane's header sit on the same rhythm. */
+  --hd-bar-gap: var(--hd-space-1-5);
+  /* Where a boxed control's edge sits. */
+  --hd-bar-pad: var(--hd-space-2);
+  /* And where a label lands once a control has been composed: that inset, the
+     control's own padding, and the hairline it reserves whether or not it
+     paints one. A thing with no box of its own — a wordmark, a page title, a
+     section label — states this instead, and then everything in the column or
+     the bar shares one x. */
+  --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
+
+  /* A row whose trailing action floats over its own label rather than taking
+     room from it. The label fades out under the action instead of stopping at
+     an ellipsis, so a resting row reserves nothing and a hovered row moves
+     nothing. */
+  --hd-fade-edge: 16px;
+  --hd-fade: linear-gradient(to right, #000 calc(100% - var(--hd-fade-edge)), transparent);
 
   /* The text well of the composer: where it rests, where it stops growing, and
      the line it is set on.
@@ -330,12 +358,14 @@ body {
      ceiling 64px apart, and a floor 12px apart. `composer.parity.test.ts`
      pins them to each other; these are the numbers it pins.
 
-     The line is 22 and not `--hd-line`, which is 21: the composer is the one
-     surface in the app a person writes a paragraph into, and it was measured
-     at 22 before either implementation existed. */
-  --hd-composer-min: 52px;
+     The floor is one line of text plus its room, and the line is the interface
+     line rather than the prose one — a composer holds a sentence on its way
+     out, not a paragraph being read. The radius is its own: the box is the
+     largest soft shape on the screen and takes a corner to match. */
+  --hd-composer-min: 44px; /* desk: 52 → 44, one line and its room */
   --hd-composer-max: 320px;
-  --hd-composer-line: 22px;
+  --hd-composer-line: 20px; /* desk: 22 → 20, the interface line */
+  --hd-composer-radius: 28px;
 
   /* Native-looking scrollbar geometry and paint. The global adapter consumes
      only these public names; the private platform palette ends here. */
@@ -576,7 +606,11 @@ body {
    * **four elements out of 271** on a full page. A dial that appears to do
    * nothing is worse than no dial.
    */
-  --hd-selected: var(--hd-accent-dim); /* desk: a 10% grey → a 12% brand wash */
+  /* Selection is the same ink as hover, standing further forward: 12% against
+     5%, which is two and a half times the wash and plainly a different state.
+     A colour here would be the column's second code, and a navigation column
+     that needs two codes needs neither. */
+  --hd-selected: color-mix(in srgb, var(--hd-foreground) 12%, transparent); /* desk: a 12% brand wash → the ink it sits on */
 
   /* =========================================================================
      COMPONENT — the third layer, and the reason a restyle is a diff in this
@@ -752,7 +786,7 @@ body {
    * family arrived; a token with no relatives has nowhere better to be, and
    * one with eight does.
    */
-  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-50); /* desk: a neutral grey → the cool ramp the rest of the app is drawn from */
+  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-50);
   --hd-sidebar: var(--hd-sidebar-plate);
   --hd-sidebar-foreground: var(--hdp-alias-label-primary);
   /*
@@ -779,23 +813,21 @@ body {
   /* 256px is the reference's `--sidebar-width: 16rem`, and 48px its icon
      rail. Named here rather than measured in a layout file, so the column and
      everything that reserves room for it move together. */
-  --hd-sidebar-width: 256px;
+  --hd-sidebar-width: 275px; /* desk: 256 → 275 */
   --hd-sidebar-width-icon: 48px;
 
   /* --- the nav row ---------------------------------------------------------
      One row in a navigation list — the sidebar's sessions, the settings
-     sheet's pages. The reference stands them at `h-9` with `rounded-md`,
-     `gap-2` and a medium weight when selected; the app drew four slightly
-     different versions of this row across two files, at 30px and 31px with an
-     8px literal radius. One row, one set of numbers. */
-  --hd-nav-h: 31px;
-  /* The project row is a pixel shorter than the rows above it and always has
-     been. Its own name, because "make the column roomier" is a real request
-     and "silently restyle a row by one pixel" is not: Desk keeps the app's
-     two heights exactly, and Studio is where they agree. */
-  --hd-nav-h-group: var(--hd-row-h);
-  --hd-nav-radius: var(--hd-radius-md);
-  --hd-nav-gap: var(--hd-space-2-5);
+     sheet's pages.
+
+     The height is solved, not written: a row is its line of text plus one
+     step of padding above and below. Move the reading size or the density
+     and every row in every column follows without a second edit. */
+  --hd-nav-h: calc(var(--hd-text) * 1.5 + var(--hd-space-1) * 2); /* desk: 31 → 29, solved from the type */
+  /* Every row in a navigation column stands the same. */
+  --hd-nav-h-group: var(--hd-nav-h); /* desk: 30 → 29, one height for every row in the column */
+  --hd-nav-radius: var(--hd-radius); /* desk: 8 → 10, the row radius */
+  --hd-nav-gap: var(--hd-space-2); /* desk: 10 → 8 */
   /* How far a row's text sits from its own edge. Named separately from the
      shorthand because the session row states its vertical padding itself —
      it is a two-line row — and only wants the horizontal half. */
@@ -971,7 +1003,7 @@ body {
  * prompted the measurement. That is the point of having had a token layer.
  */
 body[data-hd-dark-theme] {
-  --hd-sidebar-plate: var(--hdp-static-neutral-1000); /* desk: measured against the Codex desktop app, whose dark under-colour is black */
+  --hd-sidebar-plate: var(--hdp-static-neutral-bluish-850); /* desk: black → a plate above the page, the direction the column reads in */
 
   /* An elevation drawn in black does nothing on a black page: the smallest
      rung becomes a hairline of light instead. */
@@ -1074,7 +1106,7 @@ body[data-hd-interface='studio'] {
   --hd-nav-h: 34px;
   /* One height for every row in a navigation column, which is the thing Desk
      does not do: three rows in one sidebar at 31, 30 and neither. */
-  --hd-nav-h-group: var(--hd-nav-h);
+  --hd-nav-h-group: var(--hd-nav-h); /* desk: 30 → 29, one height for every row in the column */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
 

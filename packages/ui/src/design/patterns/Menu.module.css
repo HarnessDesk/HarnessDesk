@@ -130,7 +130,7 @@
 
 .hint {
   font-size: var(--hd-text-sm);
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
   white-space: normal;
 }
@@ -142,7 +142,7 @@
   background: var(--hd-card-raised, var(--hd-hover));
   color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-xs);
-  line-height: 18px;
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
   font-weight: 500;
 }
 
@@ -198,7 +198,7 @@
 .note {
   padding: 6px 10px 8px;
   font-size: var(--hd-text-sm);
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
 }
 

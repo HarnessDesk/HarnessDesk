@@ -85,7 +85,7 @@
 .subline {
   margin-top: 2px;
   font-size: var(--hd-text-xs);
-  line-height: 15px;
+  line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
@@ -123,7 +123,7 @@
   gap: 8px;
   padding: var(--hd-space-1) var(--hd-space-2); /* desk: canonical One UI System scale */
   font-size: var(--hd-text-sm);
-  line-height: 16px;
+  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
 }
 
 .rowLabel {

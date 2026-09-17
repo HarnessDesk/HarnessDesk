@@ -366,7 +366,7 @@
   padding: 1px 6px;
   border-radius: var(--hd-radius-full);
   font-size: var(--hd-text-xs);
-  line-height: 16px;
+  line-height: var(--hd-line-xs);
 }
 
 /* The ellipsis has to live on the text itself: an inline-flex box clips its
@@ -512,7 +512,7 @@
   color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
   font-size: var(--hd-text-xs);
   font-weight: 500;
-  line-height: 15px;
+  line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
 }
 
 .railTrack {

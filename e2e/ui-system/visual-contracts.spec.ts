@@ -15,10 +15,15 @@ test('real sidebar footer fills its column and its menu is painted and clickable
     const gap = await trigger.evaluate(node => {
       const footer = node.parentElement!.parentElement!
       const box = footer.getBoundingClientRect(), row = node.getBoundingClientRect()
-      return { left: row.left - box.left, right: box.right - row.right }
+      // The column states one inset for every row it holds; the footer row is
+      // one of them, so read the number rather than repeating it here — a
+      // literal would have to be edited every time the column is re-spaced,
+      // and the claim is "level with its neighbours", not "four pixels".
+      const rail = parseFloat(getComputedStyle(node.closest('[class*="sidebar_"]')!).getPropertyValue('--rail'))
+      return { left: row.left - box.left, right: box.right - row.right, rail }
     })
     expect(gap.right).toBeCloseTo(gap.left, 0)
-    expect(gap.right).toBeLessThanOrEqual(4)
+    expect(gap.right).toBeCloseTo(gap.rail, 0)
   }
   await trigger.click()
   const popup = page.locator('[data-slot="popover-popup"]')
