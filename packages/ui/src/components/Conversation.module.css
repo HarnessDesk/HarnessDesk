@@ -101,10 +101,6 @@
   align-items: center;
   gap: 6px;
 
- /* desk: canonical One UI System scale */
-
- /* desk: canonical One UI System scale */
-
   white-space: nowrap;
 }
 
@@ -320,8 +316,6 @@
   align-items: center;
   gap: 6px;
 
- /* desk: canonical One UI System scale */
-
   z-index: 3;
 }
 
@@ -442,8 +436,6 @@
 
   min-width: 0;
   max-width: 100%;
-
- /* desk: canonical One UI System scale */
 
   white-space: nowrap;
 

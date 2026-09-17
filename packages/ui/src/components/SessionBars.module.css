@@ -149,8 +149,6 @@
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 
- /* desk: canonical One UI System scale */
-
 }
 
 .deliverableAdded {

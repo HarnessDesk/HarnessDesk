@@ -1370,7 +1370,9 @@ const MemberRow = ({
              says which — not about the agent, so it summons no card and puts
              an open one away. See `AgentHoverCard`. */
           data-no-card=""
-          className="flex"
+          /* `size="content"` is a button with no box, so the box is here: a
+             13px glyph made a 15px target. */
+          className="flex min-h-(--hd-target-min) min-w-(--hd-target-min) items-center justify-center"
           aria-label={
             replaces
               ? `Watch ${peer.nickname} in place of ${replaces}`

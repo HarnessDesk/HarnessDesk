@@ -32,9 +32,14 @@
   margin-right: 4px;
 }
 
+/* A square-ish target: its padding is 4 a side, so around a 13px glyph it was
+   21 wide — tall enough and too narrow, which a floor stated on one axis
+   cannot see. */
 .trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: var(--hd-target-min);
   height: 26px;
   padding: 0 var(--hd-space-1); /* desk: canonical One UI System scale */
   border: none;
@@ -373,9 +378,5 @@
   align-items: center;
   gap: 6px;
   max-width: 140px;
-
- /* desk: canonical One UI System scale */
-
- /* desk: canonical One UI System scale */
 
 }

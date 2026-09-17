@@ -140,8 +140,6 @@
   /* Named in the token layer because the room's box is the same box drawn from
      utilities, and `composer.parity.test.ts` holds the two to these three. */
 
- /* desk: canonical One UI System scale */
-
 }
 
 /* The shell is the focus indication; the global ring would draw a second box. */

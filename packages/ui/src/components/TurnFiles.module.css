@@ -94,11 +94,15 @@
   margin-left: auto;
 }
 
+/* `size="content"` gives a button no box, so this is the box — and it has to
+   be a floor rather than a height, because `h-auto` is a utility and a
+   utility beats a module. Without it the row's own words were the target:
+   fifteen pixels tall. */
 .action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-
+  min-height: var(--hd-target-min);
 }
 
 .files {
@@ -112,8 +116,6 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-
- /* desk: canonical One UI System scale */
 
   text-align: left;
 

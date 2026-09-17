@@ -51,8 +51,6 @@
      it always has, and Studio stands it at the page's control height. A fixed
      height under Desk cost every row in this column 9px. */
 
- /* desk: canonical One UI System scale */
-
   text-align: left;
 
 }
@@ -144,8 +142,6 @@
   min-width: 0;
   gap: 10px;
   width: 100%;
-
- /* desk: canonical One UI System scale */
 
   text-align: left;
 

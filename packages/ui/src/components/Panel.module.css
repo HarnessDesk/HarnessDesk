@@ -103,9 +103,11 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
-  /* The chip rung, which this row stood four pixels above while wearing the
-     chip's fill and the chip's shape. */
-  height: var(--hd-chip-h); /* desk: 26px → var(--hd-chip-h) */
+  /* `--hd-chip-h` is the height of a chip you *read* — a delta beside a
+     figure, a tag on a card. Every chip in this bar is one you press, so it
+     stands on the target floor instead, which is two pixels above it. It was
+     four above that again and wearing the chip's fill and shape. */
+  min-height: var(--hd-target-min); /* desk: 26 → 24, the target floor */
   padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
   border: none;
   border-radius: var(--hd-chip-radius); /* desk: 13 → a pill, said as one */

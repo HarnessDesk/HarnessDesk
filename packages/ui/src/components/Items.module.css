@@ -598,11 +598,18 @@
   opacity: 1;
 }
 
+/* A square, said on both axes. It stated only its width, so its height came
+   from whatever glyph was inside it — 15px, well under the target floor the
+   width was reaching for. A target stated on one axis is not a target.
+
+   `min-height` rather than `height`, because `size="content"` is a button
+   that says it has no box (`h-auto`) and a utility beats a module: the height
+   this rule asked for was thrown away, and the floor is not. */
 .action {
   display: inline-grid;
   place-items: center;
   width: var(--hd-icon-target);
-
+  min-height: var(--hd-icon-target);
 }
 
 .actionLabel {
