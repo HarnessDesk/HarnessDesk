@@ -61,9 +61,10 @@
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
---hd-composer-line = 22px
+--hd-composer-line = 20px
 --hd-composer-max = 320px
---hd-composer-min = 52px
+--hd-composer-min = 44px
+--hd-composer-radius = 28px
 --hd-control-h = <cycle>
 --hd-control-h-lg = <cycle>
 --hd-control-h-sm = 24px
@@ -79,6 +80,8 @@
 --hd-duration-slow = 0.3s
 --hd-ease = cubic-bezier(0.4, 0, 0.2, 1)
 --hd-external-canvas = rgb(255, 255, 255)
+--hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
+--hd-fade-edge = 16px
 --hd-field-h = 30px
 --hd-focus-ring = 0 0 0 2px rgb(82, 117, 235)
 --hd-font-code = ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'
@@ -148,7 +151,7 @@
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
---hd-selected = rgba(82, 117, 235, 0.12)
+--hd-selected = color-mix(in srgb, rgb(25, 27, 30) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
@@ -159,7 +162,7 @@
 --hd-sidebar-hover = rgba(9, 12, 17, 0.05)
 --hd-sidebar-muted-foreground = rgb(129, 132, 135)
 --hd-sidebar-plate = rgb(248, 249, 250)
---hd-sidebar-selected = rgba(82, 117, 235, 0.12)
+--hd-sidebar-selected = color-mix(in srgb, rgb(25, 27, 30) 12%, transparent)
 --hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
@@ -478,9 +481,10 @@
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
---hd-composer-line = 22px
+--hd-composer-line = 20px
 --hd-composer-max = 320px
---hd-composer-min = 52px
+--hd-composer-min = 44px
+--hd-composer-radius = 28px
 --hd-control-h = <cycle>
 --hd-control-h-lg = <cycle>
 --hd-control-h-sm = 24px
@@ -496,6 +500,8 @@
 --hd-duration-slow = 0.3s
 --hd-ease = cubic-bezier(0.4, 0, 0.2, 1)
 --hd-external-canvas = rgb(255, 255, 255)
+--hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
+--hd-fade-edge = 16px
 --hd-field-h = 30px
 --hd-focus-ring = 0 0 0 2px rgb(82, 117, 235)
 --hd-font-code = ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'
@@ -565,7 +571,7 @@
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
---hd-selected = rgba(82, 117, 235, 0.12)
+--hd-selected = color-mix(in srgb, rgb(229, 231, 234) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
@@ -576,7 +582,7 @@
 --hd-sidebar-hover = rgba(255, 255, 255, 0.07)
 --hd-sidebar-muted-foreground = rgb(174, 176, 180)
 --hd-sidebar-plate = rgb(0, 0, 0)
---hd-sidebar-selected = rgba(82, 117, 235, 0.12)
+--hd-sidebar-selected = color-mix(in srgb, rgb(229, 231, 234) 12%, transparent)
 --hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
@@ -899,9 +905,10 @@
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
---hd-composer-line = 22px
+--hd-composer-line = 20px
 --hd-composer-max = 320px
---hd-composer-min = 52px
+--hd-composer-min = 44px
+--hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(82, 117, 235) 45%, transparent)
 --hd-control-h = 36px
 --hd-control-h-lg = 36px
@@ -918,6 +925,8 @@
 --hd-duration-slow = 0.3s
 --hd-ease = cubic-bezier(0.4, 0, 0.2, 1)
 --hd-external-canvas = rgb(255, 255, 255)
+--hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
+--hd-fade-edge = 16px
 --hd-field-h = 30px
 --hd-focus-ring = 0 0 0 3px color-mix(in srgb, rgb(82, 117, 235) 45%, transparent)
 --hd-font-code = ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'
@@ -999,7 +1008,7 @@
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
---hd-selected = rgba(82, 117, 235, 0.12)
+--hd-selected = color-mix(in srgb, rgb(25, 27, 30) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)
@@ -1335,9 +1344,10 @@
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
---hd-composer-line = 22px
+--hd-composer-line = 20px
 --hd-composer-max = 320px
---hd-composer-min = 52px
+--hd-composer-min = 44px
+--hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(82, 117, 235) 55%, transparent)
 --hd-control-h = 36px
 --hd-control-h-lg = 36px
@@ -1354,6 +1364,8 @@
 --hd-duration-slow = 0.3s
 --hd-ease = cubic-bezier(0.4, 0, 0.2, 1)
 --hd-external-canvas = rgb(255, 255, 255)
+--hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
+--hd-fade-edge = 16px
 --hd-field-h = 30px
 --hd-focus-ring = 0 0 0 3px color-mix(in srgb, rgb(82, 117, 235) 55%, transparent)
 --hd-font-code = ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'
@@ -1435,7 +1447,7 @@
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
---hd-selected = rgba(82, 117, 235, 0.12)
+--hd-selected = color-mix(in srgb, rgb(229, 231, 234) 12%, transparent)
 --hd-shadow = 0 6px 24px rgba(0, 0, 0, 0.16)
 --hd-shadow-lg = 0 24px 60px rgba(0, 0, 0, 0.3)
 --hd-shadow-sm = 0 1px 2px rgba(0, 0, 0, 0.08)

@@ -329,6 +329,13 @@ body {
   --hd-bar-h: 44px;
   --hd-column: 736px;
 
+  /* A row whose trailing action floats over its own label rather than taking
+     room from it. The label fades out under the action instead of stopping at
+     an ellipsis, so a resting row reserves nothing and a hovered row moves
+     nothing. */
+  --hd-fade-edge: 16px;
+  --hd-fade: linear-gradient(to right, #000 calc(100% - var(--hd-fade-edge)), transparent);
+
   /* The text well of the composer: where it rests, where it stops growing, and
      the line it is set on.
 
@@ -339,12 +346,14 @@ body {
      ceiling 64px apart, and a floor 12px apart. `composer.parity.test.ts`
      pins them to each other; these are the numbers it pins.
 
-     The line is 22 and not `--hd-line`, which is 21: the composer is the one
-     surface in the app a person writes a paragraph into, and it was measured
-     at 22 before either implementation existed. */
-  --hd-composer-min: 52px;
+     The floor is one line of text plus its room, and the line is the interface
+     line rather than the prose one — a composer holds a sentence on its way
+     out, not a paragraph being read. The radius is its own: the box is the
+     largest soft shape on the screen and takes a corner to match. */
+  --hd-composer-min: 44px; /* desk: 52 → 44, one line and its room */
   --hd-composer-max: 320px;
-  --hd-composer-line: 22px;
+  --hd-composer-line: 20px; /* desk: 22 → 20, the interface line */
+  --hd-composer-radius: 28px;
 
   /* Native-looking scrollbar geometry and paint. The global adapter consumes
      only these public names; the private platform palette ends here. */
@@ -585,7 +594,11 @@ body {
    * **four elements out of 271** on a full page. A dial that appears to do
    * nothing is worse than no dial.
    */
-  --hd-selected: var(--hd-accent-dim); /* desk: a 10% grey → a 12% brand wash */
+  /* Selection is the same ink as hover, standing further forward: 12% against
+     5%, which is two and a half times the wash and plainly a different state.
+     A colour here would be the column's second code, and a navigation column
+     that needs two codes needs neither. */
+  --hd-selected: color-mix(in srgb, var(--hd-foreground) 12%, transparent); /* desk: a 12% brand wash → the ink it sits on */
 
   /* =========================================================================
      COMPONENT — the third layer, and the reason a restyle is a diff in this

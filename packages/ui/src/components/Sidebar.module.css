@@ -285,8 +285,8 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  mask-image: var(--hd-fade);
 }
 
 /* Reserve the actions in the content layout, leaving the navigation
@@ -297,6 +297,16 @@
   flex: 1;
   min-width: 0;
   gap: var(--hd-space-1-5);
+}
+
+/* The actions are absolute and drawn only while the row is under the pointer,
+   holds focus, or has its menu open, so the room for them is owed in exactly
+   those states. A resting row keeps its full width; the marks at its end step
+   aside when the ⋯ arrives, which is the moment they would otherwise be
+   covered by it. */
+.groupHead:hover .groupBody,
+.groupHead:focus-within .groupBody,
+.groupHead[data-menu-open] .groupBody {
   padding-right: calc(var(--hd-btn-h-sm) * 2);
 }
 
@@ -405,8 +415,8 @@
 
 .rowTitle {
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  mask-image: var(--hd-fade);
   font-size: var(--hd-text);
   color: var(--hd-sidebar-foreground);
   line-height: var(--hd-line);
@@ -937,13 +947,19 @@
   opacity: 1;
 }
 
+/* Same trade as the group head. */
+.rowWrap:hover .rowBody,
+.rowWrap:focus-within .rowBody,
+.rowWrap[data-menu-open] .rowBody {
+  padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
+}
+
 .rowBody {
   min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
 }
 
 /* Compact is one line — the title — in a 28px row: the height Codex and
@@ -1463,10 +1479,14 @@
 }
 
 /* A held message is the team's "needs you": it goes nowhere until somebody
-   releases it, so the row that leads to it is warm rather than quiet. */
+   releases it, so the row that leads to it stands at full ink while its
+   neighbours sit back. The column keeps one hue — the accent on a running
+   session — and says everything else with weight, because a narrow column
+   carrying two colour codes makes the reader learn both. */
 .roomRow[data-held] .roomIcon,
 .roomRow[data-held] .groupName {
-  color: var(--hd-tint-amber-ink);
+  color: var(--hd-foreground); /* desk: amber → full ink, the column keeps one hue */
+  font-weight: var(--hd-weight-medium);
 }
 
 .roomTwisty {

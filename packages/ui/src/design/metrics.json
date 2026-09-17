@@ -8,10 +8,10 @@
     "radius": 8
   },
   "adopted/size/composer": {
-    "h": 52,
+    "h": 44,
     "text": 13,
     "weight": "400",
-    "line": 22,
+    "line": 20,
     "pad": "16 16 6 16",
     "radius": 8
   },
@@ -48,10 +48,10 @@
     "radius": 6
   },
   "adopted/variant/composer": {
-    "h": 52,
+    "h": 44,
     "text": 14,
     "weight": "400",
-    "line": 22,
+    "line": 20,
     "pad": "16 16 6 16",
     "radius": 8
   },

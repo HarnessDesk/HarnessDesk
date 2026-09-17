@@ -57,8 +57,15 @@ for (const theme of ['light', 'dark'] as const) {
           contentType: 'application/json',
         })
       }
-      expect(await bounds(pin)).toEqual(before)
-      expect((await bounds(pin)).right).toBeLessThanOrEqual((await bounds(add)).left)
+      // A resting row keeps its whole width — no room is held for a control
+      // that is not drawn — and the marks at its end step aside when the ⋯
+      // arrives, which is the moment they would otherwise sit under it.
+      // It never moves right and never changes line; whether it moves left at
+      // all depends on whether the row was full, which the wide case is not.
+      const after = await bounds(pin)
+      expect(after.left).toBeLessThanOrEqual(before.left)
+      expect(after.top).toBe(before.top)
+      expect(after.right).toBeLessThanOrEqual((await bounds(add)).left)
       expect((await bounds(group.locator('[class*="groupCount_"]'))).right).toBeLessThanOrEqual((await bounds(add)).left)
       expect(await unobstructed(add)).toBe(true)
       expect(await unobstructed(actions)).toBe(true)
@@ -100,7 +107,11 @@ for (const theme of ['light', 'dark'] as const) {
             contentType: 'application/json',
           })
         }
-        expect(await bounds(branch)).toEqual(before)
+        // Same trade as the workspace head above: the marks step aside for the
+        // ⋯ rather than being covered by it, and they keep their line.
+        const moved = await bounds(branch)
+        expect(moved.left).toBeLessThanOrEqual(before.left)
+        expect(moved.top).toBe(before.top)
         for (const mark of [branch, gone]) {
           expect((await bounds(mark)).right).toBeLessThanOrEqual((await bounds(action)).left)
           expect(await unobstructed(mark)).toBe(true)
