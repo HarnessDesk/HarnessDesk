@@ -205,6 +205,15 @@ body {
   --hd-radius-xl: 16px;
   --hd-radius-full: 9999px;
 
+  /* Not a rung.
+     The inner corner of a matted card — a frame at `lg` with a gutter of
+     ground showing around the surface inside it. That corner is not chosen,
+     it is what keeps the two curves concentric, so it is stated as the
+     relationship rather than as a number and moves when either side does.
+     Named because a chart panel is not the last thing that will be matted,
+     and two sheets doing this arithmetic separately is how they drift. */
+  --hd-radius-matted: calc(var(--hd-radius-lg) - var(--hd-space-0-5));
+
   /* A hairline is one device pixel, not one CSS pixel, so it stays a hairline
      on the retina displays this app actually runs on. */
   --hd-border-width: 1px;
@@ -308,7 +317,13 @@ body {
    */
   --hd-control-h-lg: var(--hd-control-h);
   --hd-chip-h: 22px;
-  --hd-row-h: 30px;
+  /* A row, which is what `--hd-nav-h` already is.
+     These were 30 and 29 — a menu item and the sidebar row it opens from,
+     one pixel apart for no reason either of them could state, and one of the
+     two written as a literal so it followed nothing. A rail row and a menu
+     item are the same row: one line of text with the same air above and
+     below, and an interface that sets its rows taller moves both. */
+  --hd-row-h: var(--hd-nav-h);
   /*
    * A target with a glyph in it and no words: an icon button, a ⋮, a ✕.
    *

@@ -14,13 +14,13 @@
   margin: 0;
   font-size: var(--hd-text-sm);
   font-weight: var(--hd-weight-semibold);
-  line-height: 1.5;
+  line-height: var(--hd-line);
   color: var(--hd-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
-  line-height: 1.5;
+  line-height: var(--hd-line);
   color: var(--hd-secondary-foreground);
 }
 
@@ -93,7 +93,7 @@
   flex: 1 1 200px;
   min-width: 0;
   font-size: var(--hd-text-sm);
-  line-height: 1.45;
+  line-height: var(--hd-line);
   color: var(--hd-danger);
   overflow-wrap: anywhere;
 }

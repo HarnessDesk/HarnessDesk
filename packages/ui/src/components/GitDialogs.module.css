@@ -31,7 +31,7 @@
 .note {
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
-  line-height: 1.5;
+  line-height: var(--hd-line);
 }
 
 .quiet {

@@ -488,7 +488,7 @@
     "radius": 8
   },
   "section/section/variant/card": {
-    "h": 84.5,
+    "h": 88,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -496,7 +496,7 @@
     "radius": 10
   },
   "section/section/variant/plain": {
-    "h": 82.5,
+    "h": 86,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -504,7 +504,7 @@
     "radius": 0
   },
   "section/section/variant/quiet": {
-    "h": 82.5,
+    "h": 86,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -512,7 +512,7 @@
     "radius": 10
   },
   "stat/stat/variant/bordered": {
-    "h": 107,
+    "h": 102,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -520,7 +520,7 @@
     "radius": 10
   },
   "stat/stat/variant/plain": {
-    "h": 107,
+    "h": 102,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -528,7 +528,7 @@
     "radius": 0
   },
   "stat/stat/variant/tinted": {
-    "h": 107,
+    "h": 102,
     "text": 14,
     "weight": "400",
     "line": 21,

@@ -66,14 +66,18 @@
 
 .header {
   flex: none;
-  height: 38px;
+  /* The app has one bar height and this row was the last thing not on it: 38
+     with four more of margin under it, which is 42 — near enough to 46 to
+     read as a mistake and far enough to stop the wordmark sitting level with
+     the window's own bar across the top. The bar's height carries the
+     separation, so the margin goes with the literal. */
+  height: var(--hd-bar-h);
   /* The wordmark starts on the left rail, with the nav icons under it. The
      right stops at 8 rather than 14 so the search button can hang its box
      over the rail and land the magnifier on it — see the note at the top. */
   /* The wordmark has no box of its own, so it states where a composed row's
      label lands and its mark sits on the same x as every icon under it. */
   padding: 0 var(--hd-bar-pad) 0 var(--hd-bar-ink); /* desk: 14 → 17, level with the rows below */
-  margin-bottom: 4px;
   display: flex;
   align-items: center;
   gap: var(--hd-bar-gap); /* desk: 2 → 6, the bar's own gap */

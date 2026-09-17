@@ -814,7 +814,7 @@
   flex: 1 1 200px;
   min-width: 0;
   font-size: var(--hd-text-sm);
-  line-height: 1.45;
+  line-height: var(--hd-line);
   color: var(--hd-warning-ink);
 }
 

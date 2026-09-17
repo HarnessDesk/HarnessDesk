@@ -70,7 +70,7 @@ const ChartCard = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="chart-card"
     className={cn(
-      'rounded-[calc(var(--hd-radius-lg)-var(--hd-space-0-5))] bg-(--hd-card) px-4 py-3',
+      'rounded-(--hd-radius-matted) bg-(--hd-card) px-4 py-3',
       className,
     )}
     {...props}
@@ -89,7 +89,7 @@ const ChartHead = ({ className, ...props }: React.ComponentProps<'div'>) => (
 const ChartTitle = ({ className, ...props }: React.ComponentProps<'h3'>) => (
   <h3
     data-slot="chart-title"
-    className={cn('text-sm leading-tight font-semibold', className)}
+    className={cn('text-sm leading-(--hd-line-sm) font-semibold', className)}
     {...props}
   />
 )
@@ -665,7 +665,7 @@ const DayColumns = ({
             >
               <div
                 className={cn(
-                  'flex w-full flex-col-reverse overflow-hidden rounded-t-[3px] transition-opacity',
+                  'flex w-full flex-col-reverse overflow-hidden rounded-t-(--hd-radius-2xs) transition-opacity',
                   active !== null && index !== active && 'opacity-45',
                 )}
                 style={{

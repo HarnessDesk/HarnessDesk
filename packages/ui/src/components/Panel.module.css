@@ -12,13 +12,20 @@
 
 /* --- the tab strip -------------------------------------------------------- */
 
+/* A bar, at the height every other bar in the window stands at. It used to
+   reach one by adding its padding to whatever the tallest control in it
+   happened to be, which put it at 47 — one pixel off the bar it sits under,
+   which is the distance at which an edge stops reading as deliberate. The
+   tabs keep their own gap: they are a segmented group and stand closer than
+   the separate controls a bar usually holds. */
 .tabs {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: var(--hd-space-2) 8px; /* desk: canonical One UI System scale */
-  border-bottom: 1px solid var(--hd-border);
+  gap: var(--hd-space-0-5);
+  height: var(--hd-bar-h);
+  padding: 0 var(--hd-bar-pad);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
 }
 
 /* The tab itself is no longer drawn here.
@@ -41,9 +48,10 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px;
-  border-bottom: 1px solid var(--hd-border);
+  gap: var(--hd-bar-gap);
+  height: var(--hd-bar-h);
+  padding: 0 var(--hd-bar-pad);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
 }
 
 /* A text field, so it stands on the text-control rung rather than on a
@@ -57,13 +65,22 @@
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
   padding: 0 var(--hd-space-2-5); /* desk: 9 → 10, onto the spacing scale */
-  border: 1px solid var(--hd-border-strong);
+  border: var(--hd-border-width) solid var(--hd-border-strong);
   border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
+  box-shadow: var(--hd-input-shadow);
   color: var(--hd-muted-foreground);
+  transition:
+    border-color var(--hd-duration-fast) var(--hd-ease),
+    box-shadow var(--hd-duration-fast) var(--hd-ease);
 }
 
+/* The focus a field takes everywhere else. This one swapped its border to the
+   accent instead, which is a second way of saying focus in an app that
+   already has one, and a thinner one: no ring, so at a glance the field is
+   the same shape with a different colour. */
 .findBox:focus-within {
-  border-color: var(--hd-accent);
+  border-color: var(--hd-ring);
+  box-shadow: var(--hd-focus-ring);
 }
 
 .findBox input {
@@ -86,13 +103,13 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
-  height: 26px;
+  /* The chip rung, which this row stood four pixels above while wearing the
+     chip's fill and the chip's shape. */
+  height: var(--hd-chip-h);
   padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
   border: none;
-  /* A pill, said as a pill. Half the height written out is a pill only while
-     the height does not change, and it follows no shape dial. */
-  border-radius: var(--hd-radius-full); /* desk: 13 → a pill, said as one */
-  background: var(--hd-muted);
+  border-radius: var(--hd-chip-radius); /* desk: 13 → a pill, said as one */
+  background: var(--hd-chip-fill);
   color: var(--hd-secondary-foreground);
   font: inherit;
   font-size: var(--hd-text-xs);
@@ -127,10 +144,10 @@ button.pill:hover {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--hd-bar-gap);
   height: var(--hd-bar-h);
-  padding: 0 10px;
-  border-top: 1px solid var(--hd-border);
+  padding: 0 var(--hd-bar-pad);
+  border-top: var(--hd-border-width) solid var(--hd-border);
   font-size: var(--hd-text-xs);
   color: var(--hd-muted-foreground);
 }

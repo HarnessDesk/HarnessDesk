@@ -14,13 +14,13 @@
 .lede {
   margin: 0;
   font-size: var(--hd-text-sm);
-  line-height: 1.5;
+  line-height: var(--hd-line);
   color: var(--hd-secondary-foreground);
 }
 
 .note {
   font-size: var(--hd-text-sm);
-  line-height: 1.5;
+  line-height: var(--hd-line);
   color: var(--hd-secondary-foreground);
 }
 
@@ -185,7 +185,7 @@
   flex: 1 1 200px;
   min-width: 0;
   font-size: var(--hd-text-sm);
-  line-height: 1.4;
+  line-height: var(--hd-line-sm);
   color: var(--hd-foreground);
 }
 
@@ -226,7 +226,7 @@
 
 .modeWhat {
   font-size: var(--hd-text-xs);
-  line-height: 1.4;
+  line-height: var(--hd-line-sm);
   color: var(--hd-secondary-foreground);
 }
 

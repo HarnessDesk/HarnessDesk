@@ -101,14 +101,25 @@ body {
 
   /* The app's type scale under Tailwind's names: `text-sm` is the app's
      13px small text, `text-base` its 14px default — so a vendored component
-     written in the shadcn idiom lands on the desk's own steps. `text-xs`
-     already coincides at 12px. */
+     written in the shadcn idiom lands on the desk's own steps.
+
+     Every step names its pair here too, including the two that used to be
+     left to Tailwind because they already agreed. `text-xs` and `text-xl`
+     coincided with 12/16 and 20/28 by accident, across a hundred and
+     fifty-odd call sites, and a coincidence is not a mapping: moving the
+     12px step would have left every one of them behind. `lg` had a mapping
+     and it was the one wrong number in the table — a ratio of 1.4, which is
+     22.4px where the pair says 24. */
+  --text-xs: var(--hd-text-xs);
+  --text-xs--line-height: var(--hd-line-xs);
   --text-sm: var(--hd-text-sm);
   --text-sm--line-height: var(--hd-line-sm);
   --text-base: var(--hd-text);
   --text-base--line-height: var(--hd-line);
   --text-lg: var(--hd-text-lg);
-  --text-lg--line-height: 1.4;
+  --text-lg--line-height: var(--hd-line-lg);
+  --text-xl: var(--hd-heading);
+  --text-xl--line-height: var(--hd-line-heading);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

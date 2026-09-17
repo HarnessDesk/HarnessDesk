@@ -52,7 +52,7 @@
   font-size: var(--hd-text-lg);
   font-weight: var(--hd-weight-semibold);
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+  line-height: 1; /* the tile states the height; the figure must not add to it */
 }
 
 /* Amber on the count, not the label: the number is the alarming part, and

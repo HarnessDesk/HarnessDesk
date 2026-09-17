@@ -379,7 +379,7 @@ const BoardCard = ({
           through its own edge, across the column beside it and out of the
           pane — which is what it did until this fixture was written. */}
       <div className="flex min-w-0 flex-col gap-1">
-        <h4 className="text-base leading-snug font-medium break-words">{title}</h4>
+        <h4 className="text-base leading-(--hd-line) font-medium break-words">{title}</h4>
         {note && (
           /* Clamped at two lines, and reachable in full on hover when it is
              plain text. The clamp is the right call — a card that grows with
@@ -388,7 +388,7 @@ const BoardCard = ({
              the third, which is the trip to the channel this line exists to
              save. */
           <p
-            className="line-clamp-2 text-xs leading-snug break-words text-(--hd-muted-foreground)"
+            className="line-clamp-2 text-xs leading-(--hd-line-sm) break-words text-(--hd-muted-foreground)"
             {...(typeof note === 'string' ? { title: note } : {})}
           >
             {note}

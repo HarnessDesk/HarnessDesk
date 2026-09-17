@@ -683,12 +683,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       the one a person is about to trigger is worth naming
                       before they let go. */}
                   {takes && (
-                    <p className="px-1.5 pb-1 text-xs leading-snug font-medium text-(--hd-primary-ink)">
+                    <p className="px-1.5 pb-1 text-xs leading-(--hd-line-sm) font-medium text-(--hd-primary-ink)">
                       {(outcome as { label: string }).label}
                     </p>
                   )}
                   {refused && (
-                    <p className="px-1.5 pb-1 text-xs leading-snug text-(--hd-muted-foreground)">
+                    <p className="px-1.5 pb-1 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)">
                       {(outcome as { refusal: string }).refusal}
                     </p>
                   )}

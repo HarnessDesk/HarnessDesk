@@ -459,7 +459,7 @@ export const ChannelMessage = ({
               {peeking ? 'Hide envelope' : 'Envelope'}
             </Button>
             {peeking && (
-              <pre className="mt-1.5 overflow-x-auto rounded-md bg-muted p-2 font-mono text-xs leading-[1.4] whitespace-pre-wrap">
+              <pre className="mt-1.5 overflow-x-auto rounded-md bg-muted p-2 font-mono text-xs leading-(--hd-line-xs) whitespace-pre-wrap">
                 {envelope}
               </pre>
             )}

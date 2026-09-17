@@ -144,7 +144,7 @@ const ListRow = ({
     <div className="min-w-0 flex-1">
       <div
         className={cn(
-          'truncate leading-snug',
+          'truncate leading-(--hd-line)',
           size === 'sm' ? 'text-base' : 'text-base font-medium',
           selected && 'font-medium',
         )}

@@ -200,7 +200,7 @@
   padding: 8px;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
-  line-height: 1.55;
+  line-height: var(--hd-line-sm);
   overflow-x: auto;
   white-space: pre;
 }

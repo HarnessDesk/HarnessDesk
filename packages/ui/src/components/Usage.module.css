@@ -673,7 +673,7 @@
 
 .periodValue {
   font-size: var(--hd-text-lg);
-  line-height: 1.15;
+  line-height: 1; /* the tile states the height; the figure must not add to it */
   font-weight: var(--hd-weight-semibold);
   letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;

@@ -140,6 +140,7 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 | `--hd-radius-lg` | `14px` |
 | `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
+| `--hd-radius-matted` | `calc(14px - 2px)` |
 | `--hd-border-width` | `1px` |
 
 ### Type
@@ -178,7 +179,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |
-| `--hd-row-h` | `30px` |
+| `--hd-row-h` | `calc(14px * 1.5 + 4px * 2)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
 | `--hd-bar-h` | `46px` |
