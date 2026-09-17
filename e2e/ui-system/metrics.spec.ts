@@ -74,6 +74,7 @@ test('every catalogued case composes to the recorded number', async ({ page }, t
   expect(views.length).toBeGreaterThan(10)
 
   const measured: Record<string, unknown> = {}
+  const collisions: string[] = []
   for (const view of views) {
     await page.goto(`/design.html?view=${view}`)
     await settle(page)
@@ -85,7 +86,12 @@ test('every catalogued case composes to the recorded number', async ({ page }, t
       return nodes.map(node => {
         const axis = node.getAttribute('data-catalog-variant') ? 'variant' : 'size'
         const css = getComputedStyle(node)
-        return [`${axis}/${node.getAttribute(`data-catalog-${axis}`)}`, {
+        /* Which component this case belongs to, not only which axis value it
+           carries. Four different controls render `size/default` on one board;
+           without the component in the key the last one written wins and the
+           other three are unmeasured while the table claims to hold them. */
+        const who = node.getAttribute('data-slot') ?? node.tagName.toLowerCase()
+        return [`${who}/${axis}/${node.getAttribute(`data-catalog-${axis}`)}`, {
           h: Math.round(node.getBoundingClientRect().height * 100) / 100,
           text: px(css.fontSize),
           weight: css.fontWeight,
@@ -95,8 +101,16 @@ test('every catalogued case composes to the recorded number', async ({ page }, t
         }] as const
       })
     })
-    for (const [key, value] of cases) measured[`${view}/${key}`] = value
+    for (const [key, value] of cases) {
+      const full = `${view}/${key}`
+      /* A collision is not a tie to be broken — it means two cases the table
+         claims to hold are really one, and the loser is unmeasured. */
+      if (full in measured) collisions.push(full)
+      measured[full] = value
+    }
   }
+
+  expect(collisions.join('\n') || 'every case has its own key').toBe('every case has its own key')
 
   expect(Object.keys(measured).length).toBeGreaterThan(20)
 

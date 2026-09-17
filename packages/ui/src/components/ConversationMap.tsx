@@ -62,9 +62,16 @@ export const ConversationMap = ({
     }
   }, [scroll, marks.length])
 
+  /* The half of the turn the mark previewed, not the turn around it: a dash
+     showing the answer that lands on the prompt has taken the reader somewhere
+     they did not ask to go. The turn itself is the fallback, for a transcript
+     whose halves are not marked. */
   const goTo = useCallback(
-    (turn: string) => {
-      const target = scroll.current?.querySelector(`[data-turn="${CSS.escape(turn)}"]`)
+    (turn: string, part: 'prompt' | 'answer') => {
+      const id = CSS.escape(turn)
+      const target =
+        scroll.current?.querySelector(`[data-turn="${id}"][data-part="${part}"]`) ??
+        scroll.current?.querySelector(`[data-turn="${id}"]`)
       target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
     },
     [scroll],
@@ -110,7 +117,7 @@ export const ConversationMap = ({
             data-kind={mark.kind}
             style={{ '--near': near } as React.CSSProperties}
             aria-label={mark.preview}
-            onClick={() => goTo(mark.turn)}
+            onClick={() => goTo(mark.turn, mark.kind)}
           >
             {/* The dash is the drawing; the control around it is the target,
                 because two pixels is not something anybody can hit. */}

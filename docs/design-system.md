@@ -49,6 +49,17 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-font-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
 | `--hdp-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hdp-font-family-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
+| `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-accent` | `rgb(82, 117, 235)` |
+| `--hd-accent-foreground` | `rgb(255, 255, 255)` |
+| `--hd-accent-hover` | `rgb(98, 135, 249)` |
+| `--hd-accent-dim` | `rgba(82, 117, 235, 0.12)` |
+| `--hd-danger` | `rgb(228, 68, 62)` |
+| `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
+| `--hd-success` | `rgb(65, 189, 111)` |
+| `--hd-success-dim` | `rgba(65, 189, 111, 0.14)` |
+| `--hd-warning` | `rgb(240, 165, 27)` |
+| `--hd-warning-dim` | `rgba(240, 165, 27, 0.14)` |
 
 ### State ink
 
@@ -57,6 +68,9 @@ A state colour used as *text on its own soft fill* is a different question from 
 | token | value |
 | --- | --- |
 | `--hd-warning-ink` | `rgb(150, 100, 0)` |
+| `--hd-danger-ink` | `rgb(196, 52, 48)` |
+| `--hd-success-ink` | `rgb(0, 126, 63)` |
+| `--hd-primary-ink` | `rgb(69, 99, 205)` |
 
 ### Tints
 
@@ -65,6 +79,29 @@ Five hues that identify a thing rather than judge it — which account, which ag
 | token | value |
 | --- | --- |
 | `--hd-tint-blue-fill` | `rgba(91, 126, 237, 0.14)` |
+| `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
+| `--hd-tint-blue-edge` | `rgba(91, 126, 237, 0.55)` |
+| `--hd-tint-green-fill` | `rgba(79, 185, 101, 0.14)` |
+| `--hd-tint-green-ink` | `rgb(18, 125, 52)` |
+| `--hd-tint-green-edge` | `rgba(79, 185, 101, 0.55)` |
+| `--hd-tint-amber-fill` | `rgba(228, 175, 41, 0.16)` |
+| `--hd-tint-amber-ink` | `rgb(139, 103, 0)` |
+| `--hd-tint-amber-edge` | `rgba(228, 175, 41, 0.6)` |
+| `--hd-tint-violet-fill` | `rgba(155, 92, 215, 0.14)` |
+| `--hd-tint-violet-ink` | `rgb(133, 77, 187)` |
+| `--hd-tint-violet-edge` | `rgba(155, 92, 215, 0.55)` |
+| `--hd-tint-rose-fill` | `rgba(226, 81, 110, 0.14)` |
+| `--hd-tint-rose-ink` | `rgb(186, 56, 85)` |
+| `--hd-tint-rose-edge` | `rgba(226, 81, 110, 0.55)` |
+| `--hd-tint-teal-fill` | `rgba(0, 185, 170, 0.14)` |
+| `--hd-tint-teal-ink` | `rgb(0, 120, 111)` |
+| `--hd-tint-teal-edge` | `rgba(0, 185, 170, 0.55)` |
+| `--hd-tint-orange-fill` | `rgba(233, 119, 41, 0.15)` |
+| `--hd-tint-orange-ink` | `rgb(172, 79, 0)` |
+| `--hd-tint-orange-edge` | `rgba(233, 119, 41, 0.55)` |
+| `--hd-tint-sky-fill` | `rgba(0, 174, 225, 0.14)` |
+| `--hd-tint-sky-ink` | `rgb(0, 115, 151)` |
+| `--hd-tint-sky-edge` | `rgba(0, 174, 225, 0.55)` |
 
 ### Space
 
@@ -103,6 +140,7 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 | `--hd-radius-lg` | `14px` |
 | `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
+| `--hd-border-width` | `1px` |
 
 ### Type
 
@@ -117,6 +155,16 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-heading` | `20px` |
 | `--hd-title` | `24px` |
 | `--hd-display` | `36px` |
+| `--hd-line-xs` | `16px` |
+| `--hd-line-sm` | `18px` |
+| `--hd-line` | `21px` |
+| `--hd-line-lg` | `24px` |
+| `--hd-line-heading` | `28px` |
+| `--hd-line-title` | `30px` |
+| `--hd-line-display` | `40px` |
+| `--hd-weight-normal` | `400` |
+| `--hd-weight-medium` | `500` |
+| `--hd-weight-semibold` | `600` |
 
 ### Measure
 
@@ -127,6 +175,28 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
+| `--hd-field-h` | `30px` |
+| `--hd-control-h-lg` | `<cycle>` |
+| `--hd-chip-h` | `22px` |
+| `--hd-row-h` | `30px` |
+| `--hd-icon-target` | `24px` |
+| `--hd-icon-target-sm` | `20px` |
+| `--hd-bar-h` | `46px` |
+| `--hd-bar-gap` | `6px` |
+| `--hd-bar-pad` | `8px` |
+| `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
+| `--hd-column` | `736px` |
+| `--hd-fade-edge` | `16px` |
+| `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
+| `--hd-composer-min` | `44px` |
+| `--hd-composer-max` | `320px` |
+| `--hd-composer-line` | `20px` |
+| `--hd-composer-radius` | `28px` |
+| `--hd-scrollbar-width` | `8px` |
+| `--hd-scrollbar-inset` | `2px` |
+| `--hd-scrollbar-inset-hover` | `1px` |
+| `--hd-scrollbar-fill` | `rgb(228, 228, 228)` |
+| `--hd-scrollbar-fill-hover` | `rgb(211, 211, 211)` |
 
 ### Motion
 
@@ -143,6 +213,13 @@ One curve, three durations. Fast is a state change the finger caused — a hover
 
 What floats, and how far. A menu sits just off the surface; a dialog sits over the whole window and earns a deeper shadow because it has taken the window's attention. These three are the app's own values, counted rather than chosen: every one of its six dialogs already draws the same `0 24px 60px / 0.3`, and the menus cluster on `0 6px 24px / 0.16`. The scale was named after what the app does, so adopting it moves nothing.
 
+| token | value |
+| --- | --- |
+| `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
+| `--hd-shadow-sm` | `0 1px 2px rgba(0, 0, 0, 0.08)` |
+| `--hd-shadow` | `0 6px 24px rgba(0, 0, 0, 0.16)` |
+| `--hd-shadow-lg` | `0 24px 60px rgba(0, 0, 0, 0.3)` |
+
 ### Focus
 
 The values below are Desk's, and they are the app's own: a hard 2px ring in the accent, floating 2px clear of the control. Studio replaces all three — 3px of the ring colour at low alpha, lying *against* the control, with the control's own border going ring-coloured at the same moment. Two marks, one event, and nothing moves; the offset is what makes Desk's read as a marquee drawn around the control rather than as the control being live. `--hd-focus-ring` is a box-shadow so it can be composed with a hairline and so it follows a rounded corner exactly; the outline rule in app.css is the fallback for anything that has not been given a shadow of its own.
@@ -153,6 +230,9 @@ The values below are Desk's, and they are the app's own: a hard 2px ring in the 
 | `--hd-ring-offset` | `2px` |
 | `--hd-ring-muted` | `rgb(82, 117, 235)` |
 | `--hd-focus-ring` | `0 0 0 2px rgb(82, 117, 235)` |
+| `--hd-press` | `none` |
+| `--hd-hairline` | `inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
+| `--hd-hairline-soft` | `inset 0 0 0 1px rgba(9, 12, 17, 0.05)` |
 
 ### Layer
 
@@ -178,6 +258,25 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-solid` | `rgb(27, 27, 27)` |
 | `--hd-solid-hover` | `color-mix(in srgb, rgb(27, 27, 27) 86%, rgb(255, 255, 255))` |
 | `--hd-solid-foreground` | `rgb(255, 255, 255)` |
+| `--hd-destructive` | `rgb(228, 68, 62)` |
+| `--hd-destructive-foreground` | `rgb(255, 255, 255)` |
+| `--hd-destructive-muted` | `rgba(228, 68, 62, 0.12)` |
+| `--hd-success` | `rgb(65, 189, 111)` |
+| `--hd-warning` | `rgb(240, 165, 27)` |
+| `--hd-success-foreground` | `rgb(17, 17, 17)` |
+| `--hd-warning-foreground` | `rgb(17, 17, 17)` |
+| `--hd-border` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-border-strong` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-border-emphasis` | `rgba(9, 12, 17, 0.14)` |
+| `--hd-border-heavy` | `rgba(9, 12, 17, 0.2)` |
+| `--hd-input` | `rgb(255, 255, 255)` |
+| `--hd-ring` | `rgb(82, 117, 235)` |
+| `--hd-hover` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-hover-solid` | `rgb(242, 242, 242)` |
+| `--hd-tooltip-fill` | `rgb(41, 41, 41)` |
+| `--hd-tooltip-foreground` | `rgb(255, 255, 255)` |
+| `--hd-active` | `rgba(9, 12, 17, 0.09)` |
+| `--hd-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 
 ### Density scopes
 
@@ -187,6 +286,18 @@ A page-sized decision about how big a control is, named so a component can opt i
 
 A navigation column is its own small design system, and shadcn treats it as one: `--sidebar`, `--sidebar-foreground`, `--sidebar-accent`, `--sidebar-border`, `--sidebar-width` are a family, defined apart from the page's, because the column is a different ground and the same grey does not mean the same thing on both. This app had exactly one of those names — `--hd-sidebar-plate`, stranded in app.css next to the window chrome — and every other value the column needed was reached for directly out of the platform layer, forty times over. That is why the sidebar could not be restyled without editing the sidebar: there was nothing between it and the raw palette. The family below is that missing layer, and the plate moves here to join it. `--hd-sidebar-selected` states the rule for navigation: the row you are on is filled with the brand, not washed in grey. A grey wash has to compete with the hover state that sits one step below it, and in this app they were four percent of alpha apart — a distinction nobody could see, on the one row that most needs to be found at a glance.
 
+| token | value |
+| --- | --- |
+| `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
+| `--hd-sidebar` | `rgb(249, 249, 249)` |
+| `--hd-sidebar-foreground` | `rgb(27, 27, 27)` |
+| `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
+| `--hd-sidebar-muted-foreground` | `rgb(132, 132, 132)` |
+| `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
+| `--sidebar-width` | `` |
+| `--hd-sidebar-width-icon` | `48px` |
+
 ### The nav row
 
 One row in a navigation list — the sidebar's sessions, the settings sheet's pages. The height is solved, not written: a row is its line of text plus one step of padding above and below. Move the reading size or the density and every row in every column follows without a second edit.
@@ -194,6 +305,11 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | token | value |
 | --- | --- |
 | `--hd-nav-h` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-nav-radius` | `10px` |
+| `--hd-nav-gap` | `8px` |
+| `--hd-nav-inset` | `8px` |
+| `--hd-nav-padding` | `0 8px` |
 
 ### The section label
 
@@ -202,6 +318,88 @@ The word over a group of rows — "Workspaces", "Capabilities", "Agents". The re
 ### The card
 
 A block of related settings on a page. The reference's account-settings cards are `bg-primary/5`, `rounded-xl`, `px-4 py-6`, `border-none` — a tinted, borderless, roomy block. The app's were white-on-white with a 1px hairline and 9px of padding, which is a table row wearing a border rather than a card: on a white page the hairline is doing all the work, and it is not enough work. The tint is the move worth taking. A card that is a *wash of the brand* separates from the page without a line, holds its own in both themes, and lets the hairline go — which is what stops a settings page reading as a stack of boxes.
+
+| token | value |
+| --- | --- |
+| `--hd-card-padding` | `16px` |
+| `--hd-card-gap` | `12px` |
+| `--hd-seg-pad` | `2px` |
+| `--hd-seg-trim` | `calc(2px * 2)` |
+| `--hd-seg-text` | `12px` |
+| `--hd-chip-radius` | `9999px` |
+| `--hd-chip-fill` | `rgb(245, 245, 245)` |
+| `--hd-toggle-knob` | `rgb(255, 255, 255)` |
+| `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
+| `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
+| `--hd-toggle-on` | `rgb(82, 117, 235)` |
+| `--hd-toggle-width` | `34px` |
+| `--hd-toggle-width-sm` | `30px` |
+| `--hd-toggle-height-sm` | `18px` |
+| `--hd-board-column-width` | `280px` |
+| `--hd-surface-fill` | `rgb(255, 255, 255)` |
+| `--hd-surface-radius` | `14px` |
+| `--hd-surface-shadow` | `0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
+| `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
+| `--hd-lightbox-scrim` | `rgba(0, 0, 0, 0.78)` |
+| `--hd-lightbox-canvas` | `rgb(255, 255, 255)` |
+| `--hd-lightbox-foreground` | `rgba(255, 255, 255, 0.92)` |
+| `--hd-lightbox-muted` | `rgba(255, 255, 255, 0.6)` |
+| `--hd-lightbox-control` | `rgba(255, 255, 255, 0.12)` |
+| `--hd-lightbox-control-hover` | `rgba(255, 255, 255, 0.24)` |
+| `--hd-lightbox-shadow` | `0 24px 60px rgba(0, 0, 0, 0.5)` |
+| `--hd-external-canvas` | `rgb(255, 255, 255)` |
+| `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
+| `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
+| `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
+| `--hd-tint-green-ink` | `rgb(18, 125, 52)` |
+| `--hd-tint-amber-ink` | `rgb(139, 103, 0)` |
+| `--hd-tint-violet-ink` | `rgb(133, 77, 187)` |
+| `--hd-tint-rose-ink` | `rgb(186, 56, 85)` |
+| `--hd-tint-teal-ink` | `rgb(0, 120, 111)` |
+| `--hd-tint-orange-ink` | `rgb(172, 79, 0)` |
+| `--hd-tint-sky-ink` | `rgb(0, 115, 151)` |
+| `--hd-warning-ink` | `rgb(150, 100, 0)` |
+| `--hd-danger-ink` | `rgb(196, 52, 48)` |
+| `--hd-success-ink` | `rgb(0, 126, 63)` |
+| `--hd-primary-ink` | `rgb(69, 99, 205)` |
+| `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
+| `--hd-sidebar-selected-foreground` | `` |
+| `--hd-sidebar-selected-muted-foreground` | `` |
+| `--hd-nav-weight-selected` | `` |
+| `--hd-nav-h` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-nav-radius` | `10px` |
+| `--hd-nav-inset` | `8px` |
+| `--hd-label-size` | `` |
+| `--hd-label-weight` | `` |
+| `--hd-label-tracking` | `` |
+| `--hd-label-transform` | `` |
+| `--hd-label-ink` | `` |
+| `--hd-label-space` | `` |
+| `--hd-card-fill` | `` |
+| `--hd-card-border` | `` |
+| `--hd-card-divider` | `` |
+| `--hd-card-radius` | `` |
+| `--hd-composer-ring` | `` |
+| `--hd-control-h-lg` | `<cycle>` |
+| `--hd-page-row-h` | `` |
+| `--hd-page-row-padding` | `` |
+| `--hd-page-search-h` | `` |
+| `--hd-page-search-radius` | `` |
+| `--hd-seg-trim` | `calc(2px * 2)` |
+| `--hd-page-group-gap` | `` |
+| `--hd-btn-shadow` | `none` |
+| `--hd-input-shadow` | `none` |
+| `--hd-press` | `none` |
+| `--hd-ring-width` | `2px` |
+| `--hd-ring-offset` | `2px` |
+| `--hd-ring-muted` | `rgb(82, 117, 235)` |
+| `--hd-card-fill` | `` |
+| `--hd-ring-muted` | `rgb(82, 117, 235)` |
+| `--hd-field-h` | `30px` |
+| `--hd-btn-h` | `30px` |
+| `--hd-field-h` | `30px` |
+| `--hd-btn-h-sm` | `28px` |
 
 ## When to use which
 

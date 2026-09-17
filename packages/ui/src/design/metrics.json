@@ -1,21 +1,5 @@
 {
-  "adopted/size/compact": {
-    "h": 32,
-    "text": 13,
-    "weight": "400",
-    "line": 18,
-    "pad": "4 8 4 8",
-    "radius": 8
-  },
-  "adopted/size/composer": {
-    "h": 44,
-    "text": 13,
-    "weight": "400",
-    "line": 20,
-    "pad": "16 16 6 16",
-    "radius": 8
-  },
-  "adopted/size/default": {
+  "adopted/attachment/size/default": {
     "h": 50,
     "text": 13,
     "weight": "400",
@@ -23,7 +7,7 @@
     "pad": "6 6 6 6",
     "radius": 6
   },
-  "adopted/size/lg": {
+  "adopted/attachment/size/lg": {
     "h": 50,
     "text": 13,
     "weight": "400",
@@ -31,7 +15,7 @@
     "pad": "8 8 8 8",
     "radius": 6
   },
-  "adopted/size/sm": {
+  "adopted/attachment/size/sm": {
     "h": 50,
     "text": 12,
     "weight": "400",
@@ -39,7 +23,7 @@
     "pad": "4 4 4 4",
     "radius": 6
   },
-  "adopted/variant/border": {
+  "adopted/marker/variant/border": {
     "h": 30,
     "text": 12,
     "weight": "400",
@@ -47,39 +31,15 @@
     "pad": "6 8 6 8",
     "radius": 6
   },
-  "adopted/variant/composer": {
-    "h": 44,
-    "text": 14,
+  "adopted/marker/variant/default": {
+    "h": 24,
+    "text": 12,
     "weight": "400",
-    "line": 20,
-    "pad": "16 16 6 16",
-    "radius": 8
+    "line": 16,
+    "pad": "4 0 4 0",
+    "radius": 0
   },
-  "adopted/variant/default": {
-    "h": 32,
-    "text": 13,
-    "weight": "400",
-    "line": 18,
-    "pad": "4 8 4 8",
-    "radius": 8
-  },
-  "adopted/variant/editor": {
-    "h": 32,
-    "text": 13,
-    "weight": "400",
-    "line": 18,
-    "pad": "4 8 4 8",
-    "radius": 8
-  },
-  "adopted/variant/inline": {
-    "h": 32,
-    "text": 13,
-    "weight": "400",
-    "line": 18,
-    "pad": "4 8 4 8",
-    "radius": 8
-  },
-  "adopted/variant/separator": {
+  "adopted/marker/variant/separator": {
     "h": 40,
     "text": 12,
     "weight": "400",
@@ -87,7 +47,63 @@
     "pad": "12 0 12 0",
     "radius": 0
   },
-  "button/size/chip": {
+  "adopted/textarea/size/compact": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/size/composer": {
+    "h": 44,
+    "text": 13,
+    "weight": "400",
+    "line": 20,
+    "pad": "16 16 6 16",
+    "radius": 8
+  },
+  "adopted/textarea/size/default": {
+    "h": 56,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "6 10 6 10",
+    "radius": 8
+  },
+  "adopted/textarea/variant/composer": {
+    "h": 44,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "16 16 6 16",
+    "radius": 8
+  },
+  "adopted/textarea/variant/default": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/variant/editor": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/variant/inline": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "button/button/size/chip": {
     "h": 24,
     "text": 12,
     "weight": "500",
@@ -95,7 +111,7 @@
     "pad": "0 8 0 8",
     "radius": 33554400
   },
-  "button/size/content": {
+  "button/button/size/content": {
     "h": 15,
     "text": 13,
     "weight": "500",
@@ -103,7 +119,7 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "button/size/default": {
+  "button/button/size/default": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -111,7 +127,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/size/fill": {
+  "button/button/size/fill": {
     "h": 15,
     "text": 13,
     "weight": "500",
@@ -119,7 +135,7 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "button/size/icon": {
+  "button/button/size/icon": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -127,7 +143,7 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "button/size/icon-circle": {
+  "button/button/size/icon-circle": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -135,7 +151,7 @@
     "pad": "0 0 0 0",
     "radius": 33554400
   },
-  "button/size/icon-sm": {
+  "button/button/size/icon-sm": {
     "h": 28,
     "text": 13,
     "weight": "500",
@@ -143,7 +159,7 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "button/size/icon-xs": {
+  "button/button/size/icon-xs": {
     "h": 20,
     "text": 13,
     "weight": "500",
@@ -151,7 +167,7 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "button/size/inline": {
+  "button/button/size/inline": {
     "h": 31,
     "text": 14,
     "weight": "400",
@@ -159,7 +175,7 @@
     "pad": "4 4 4 4",
     "radius": 6
   },
-  "button/size/navigation": {
+  "button/button/size/navigation": {
     "h": 29,
     "text": 13,
     "weight": "400",
@@ -167,7 +183,7 @@
     "pad": "0 8 0 8",
     "radius": 10
   },
-  "button/size/panel": {
+  "button/button/size/panel": {
     "h": 47,
     "text": 13,
     "weight": "500",
@@ -175,7 +191,7 @@
     "pad": "16 16 16 16",
     "radius": 8
   },
-  "button/size/row": {
+  "button/button/size/row": {
     "h": 30,
     "text": 13,
     "weight": "400",
@@ -183,7 +199,7 @@
     "pad": "4 8 4 8",
     "radius": 8
   },
-  "button/size/sm": {
+  "button/button/size/sm": {
     "h": 28,
     "text": 12,
     "weight": "500",
@@ -191,7 +207,7 @@
     "pad": "0 10 0 10",
     "radius": 8
   },
-  "button/size/xs": {
+  "button/button/size/xs": {
     "h": 20,
     "text": 12,
     "weight": "500",
@@ -199,7 +215,7 @@
     "pad": "0 6 0 6",
     "radius": 8
   },
-  "button/variant/action": {
+  "button/button/variant/action": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -207,7 +223,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/choice": {
+  "button/button/variant/choice": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -215,7 +231,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/default": {
+  "button/button/variant/default": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -223,7 +239,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/destructive": {
+  "button/button/variant/destructive": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -231,7 +247,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/ghost": {
+  "button/button/variant/ghost": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -239,7 +255,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/link": {
+  "button/button/variant/link": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -247,7 +263,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/muted": {
+  "button/button/variant/muted": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -255,7 +271,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/navigation": {
+  "button/button/variant/navigation": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -263,7 +279,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/outline": {
+  "button/button/variant/outline": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -271,7 +287,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/quiet": {
+  "button/button/variant/quiet": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -279,7 +295,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/reveal": {
+  "button/button/variant/reveal": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -287,7 +303,7 @@
     "pad": "0 12 0 12",
     "radius": 6
   },
-  "button/variant/row": {
+  "button/button/variant/row": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -295,7 +311,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/secondary": {
+  "button/button/variant/secondary": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -303,7 +319,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/subtle": {
+  "button/button/variant/subtle": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -311,7 +327,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "button/variant/warning": {
+  "button/button/variant/warning": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -319,7 +335,7 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
-  "control/size/bare": {
+  "control/input/size/bare": {
     "h": 28,
     "text": 14,
     "weight": "400",
@@ -327,7 +343,63 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "control/size/compact": {
+  "control/input/size/compact": {
+    "h": 24,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 6 0 6",
+    "radius": 8
+  },
+  "control/input/size/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/chrome": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/code": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/filled": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/quiet": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/native-select-control/size/compact": {
     "h": 24,
     "text": 13,
     "weight": "400",
@@ -335,55 +407,7 @@
     "pad": "0 28 0 10",
     "radius": 8
   },
-  "control/size/default": {
-    "h": 26,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 0 0 0",
-    "radius": 8
-  },
-  "control/size/lg": {
-    "h": 32,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 0 0 0",
-    "radius": 8
-  },
-  "control/size/sm": {
-    "h": 26,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 0 0 0",
-    "radius": 8
-  },
-  "control/variant/chrome": {
-    "h": 30,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 10 0 10",
-    "radius": 8
-  },
-  "control/variant/code": {
-    "h": 30,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 10 0 10",
-    "radius": 8
-  },
-  "control/variant/default": {
-    "h": 26,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 0 0 0",
-    "radius": 8
-  },
-  "control/variant/filled": {
+  "control/native-select-control/size/default": {
     "h": 30,
     "text": 13,
     "weight": "400",
@@ -391,7 +415,39 @@
     "pad": "0 28 0 10",
     "radius": 8
   },
-  "control/variant/outline": {
+  "control/native-select-control/variant/default": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 28 0 10",
+    "radius": 8
+  },
+  "control/native-select-control/variant/filled": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 28 0 10",
+    "radius": 8
+  },
+  "control/switch/size/default": {
+    "h": 20,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 33554400
+  },
+  "control/switch/size/sm": {
+    "h": 18,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 33554400
+  },
+  "control/toggle-group/size/default": {
     "h": 26,
     "text": 14,
     "weight": "400",
@@ -399,15 +455,39 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
-  "control/variant/quiet": {
-    "h": 30,
+  "control/toggle-group/size/lg": {
+    "h": 32,
     "text": 14,
     "weight": "400",
     "line": 21,
-    "pad": "0 10 0 10",
+    "pad": "0 0 0 0",
     "radius": 8
   },
-  "section/variant/card": {
+  "control/toggle-group/size/sm": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/toggle-group/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/toggle-group/variant/outline": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "section/section/variant/card": {
     "h": 84.5,
     "text": 14,
     "weight": "400",
@@ -415,7 +495,7 @@
     "pad": "0 0 0 0",
     "radius": 10
   },
-  "section/variant/plain": {
+  "section/section/variant/plain": {
     "h": 82.5,
     "text": 14,
     "weight": "400",
@@ -423,7 +503,7 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
-  "section/variant/quiet": {
+  "section/section/variant/quiet": {
     "h": 82.5,
     "text": 14,
     "weight": "400",
@@ -431,7 +511,7 @@
     "pad": "0 0 0 0",
     "radius": 10
   },
-  "stat/variant/bordered": {
+  "stat/stat/variant/bordered": {
     "h": 107,
     "text": 14,
     "weight": "400",
@@ -439,7 +519,7 @@
     "pad": "16 16 16 16",
     "radius": 10
   },
-  "stat/variant/plain": {
+  "stat/stat/variant/plain": {
     "h": 107,
     "text": 14,
     "weight": "400",
@@ -447,7 +527,7 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
-  "stat/variant/tinted": {
+  "stat/stat/variant/tinted": {
     "h": 107,
     "text": 14,
     "weight": "400",
@@ -455,7 +535,7 @@
     "pad": "16 16 16 16",
     "radius": 10
   },
-  "tile/size/default": {
+  "tile/icon-tile/size/default": {
     "h": 32,
     "text": 14,
     "weight": "400",
@@ -463,7 +543,7 @@
     "pad": "0 0 0 0",
     "radius": 6
   },
-  "tile/size/lg": {
+  "tile/icon-tile/size/lg": {
     "h": 40,
     "text": 14,
     "weight": "400",
@@ -471,7 +551,7 @@
     "pad": "0 0 0 0",
     "radius": 6
   },
-  "tile/size/sm": {
+  "tile/icon-tile/size/sm": {
     "h": 24,
     "text": 14,
     "weight": "400",
@@ -479,7 +559,39 @@
     "pad": "0 0 0 0",
     "radius": 6
   },
-  "tools/variant/default": {
+  "tools/badge/variant/default": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "tools/badge/variant/destructive": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "tools/badge/variant/outline": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "tools/badge/variant/secondary": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "tools/tabs-list/variant/default": {
     "h": 26,
     "text": 14,
     "weight": "400",
@@ -487,36 +599,12 @@
     "pad": "2 2 2 2",
     "radius": 6
   },
-  "tools/variant/destructive": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
-  },
-  "tools/variant/line": {
+  "tools/tabs-list/variant/line": {
     "h": 26,
     "text": 14,
     "weight": "400",
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 0
-  },
-  "tools/variant/outline": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
-  },
-  "tools/variant/secondary": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
   }
 }
