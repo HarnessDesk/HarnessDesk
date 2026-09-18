@@ -251,7 +251,9 @@ head, which leaves everything bound to the old head stale — and `again` opens
 that round there. Without `again` the fact is recorded, and the person decides.
 A firing whose Goal has already wrapped opens a new Goal. `goal` defaults to the
 thing the source is about — the pull request, the issue — and each firing of a
-`schedule` is its own.
+`schedule` is its own. Recording a firing, finding its Goal and opening the
+`again` round are one step: two copies of one event delivered at once, or a
+crash between the record and the round, still leave one Goal and one round.
 
 `opens: { agent: triager }` is the single-worker case — a degenerate one-role
 flow — and it is the only form an Agent needs to carry on its own.
@@ -1205,7 +1207,9 @@ keep what it did, `ceiling: read` to narrow it. A flow file's `permission:` is
 rewritten as `grant:` by the flow migration, the same way. The one change
 nobody writes: an Agent with no ceiling at all gets the narrowest, `read`, where
 before the split it could edit — the safe direction, and flagged on its row
-until its author writes one.
+until its author writes one. And an `AGENT.md` that writes both keys is refused,
+with both lines named: a file that says two things does not get one of them
+chosen for it by whichever the parser reads first.
 
 **When a runtime cannot hold a ceiling at all**, the machine decides, once, in
 Settings: seat it and say so, or refuse to seat it. A conversation a person is

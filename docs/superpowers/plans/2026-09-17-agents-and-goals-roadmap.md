@@ -286,7 +286,9 @@ seat an Agent, the sheet lists every candidate and nothing has opened.
   - an `AGENT.md` written before the split (`permission: read`) keeps its old
     meaning and is flagged;
   - one with no key runs as `read` and is flagged;
-  - one with `ceiling: read` runs as read-only and is not flagged.
+  - one with `ceiling: read` runs as read-only and is not flagged;
+  - one that writes both `permission:` and `ceiling:` is refused, with both
+    lines named, and never resolved by parser precedence.
 - A machine preference for when a runtime cannot hold a ceiling: seat it and
   say so, or refuse. It has two values because it has two situations: a
   conversation someone is watching defaults to the first, and a Goal a trigger
@@ -575,7 +577,11 @@ findings; and a merge card once the blocking set is empty.
 - a budget stop is named on the Goal.
 
 The sequence opened → pushed → redelivered → restart is also a test: one Goal,
-one new round for the new head, and nothing fired twice.
+one new round for the new head, and nothing fired twice. So are its two
+boundaries: two copies of one event delivered at once, and a crash between
+recording a firing and opening its round. The dedupe, the Goal lookup and
+`again` are one idempotent step, and each boundary leaves one Goal and one
+round.
 
 **Needs.** 3, 5, 6, 7.
 
