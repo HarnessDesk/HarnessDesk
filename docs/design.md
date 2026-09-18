@@ -641,10 +641,13 @@ unable to see:
   wrote a number. Single digits are ordering inside one component's own stacking
   context and are not counted; from 10 up is the band two components can
   genuinely collide in, and that is what the ladder is for. A number counts
-  however it is written — `calc(5 + 5)`, `max(1, 12)`, a custom property of the
-  same stylesheet, a `var()` fallback — and arithmetic on a rung,
-  `calc(var(--hd-z-sticky) + 1)`, does not: it is derived from the ladder and
-  moves when the ladder does.
+  however it is written — any CSS math function, escaped or not (`calc(5 + 5)`,
+  `abs(-12)`, `round(up, 10.1, 1)`), a custom property any rule in the same
+  stylesheet defines, a `var()` fallback — and a math expression the audit
+  cannot compute is reported rather than assumed small. A rung may be named,
+  chosen between, or nudged by one digit — `calc(var(--hd-z-sticky) + 1)`, the
+  app's one such case, moves with the ladder — and anything else done to a rung
+  (`+ 60`, `* 2`) writes a plane of its own, and counts.
 
 Both failures have the same shape as the line-height ratios before them: name
 the spellings you happen to remember, and everything else is invisible —

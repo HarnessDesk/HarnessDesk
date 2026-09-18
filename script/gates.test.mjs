@@ -1698,3 +1698,52 @@ test('a z-index from the ladder, a single digit or not a number at all is not co
   // a cycle resolves to nothing rather than looping
   assert.deepEqual(layers('.a { --a: var(--b); --b: var(--a); z-index: var(--a); }'), [])
 })
+
+/* The fifth #762 re-review, and the neighbours of each finding — every value
+   below computed in Chromium first. */
+const counted = (css) => rawZIndexes(css).length > 0
+
+test('a z-index written through any CSS math function is counted, escaped or not (#762)', () => {
+  for (const math of ['c\\61lc(5 + 5)', 'abs(-12)', 'round(up, 10.1, 1)', 'round(10.4)', 'calc(pi * 4)', 'calc(infinity)',
+    'mod(25, 15)', 'rem(-25, 15)', 'pow(2, 4)', 'sqrt(100)', 'hypot(6, 8)', 'calc(e * 4)', 'calc(1e1)', 'calc(sin(0) + 12)'])
+    assert.equal(counted(`.a { z-index: ${math}; }`), true, math)
+  // what this cannot compute, and involves no rung, is reported rather than assumed small
+  assert.equal(counted('.a { z-index: calc(asin(1) / 1deg); }'), true)
+})
+
+test('a z-index that is small, from the ladder, or not valid CSS is not counted (#762)', () => {
+  for (const value of ['calc(2 * 3)', 'abs(-5)', 'var(--hd-z-popover)', 'calc(var(--hd-z-sticky) + 1)', 'auto',
+    // arithmetic outside a math function is not CSS: Chromium computes these to auto
+    'sign(-5) * -12', '5 + 5', '10.5'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+})
+
+test('var() falls back where the browser does, and each rule\'s custom property is its own candidate (#762)', () => {
+  assert.equal(counted('.a { --l: var(--l); z-index: var(--l, 60); }'), true)
+  assert.equal(counted('.a { --l: initial; z-index: var(--l, 60); }'), true)
+  // a later rule's definition does not replace this rule's
+  assert.equal(counted('.a { --l: 60; z-index: var(--l); } .b { --l: var(--hd-z-popover); }'), true)
+  assert.equal(counted('.a { z-index: calc(var(--x, 5) + 5); }'), true)
+  // a cycle with no fallback is invalid, and `inherit` defers to another element
+  assert.equal(counted('.a { --a: var(--b); --b: var(--a); z-index: var(--a); }'), false)
+  assert.equal(counted('.a { --l: inherit; z-index: var(--l); }'), false)
+})
+
+test('an author name is not a colour, in a property or inside a function (#762)', () => {
+  assert.deepEqual(rawColours('.a { transition-property: red; will-change: tan; }'), [])
+  assert.deepEqual(rawColours('.a { transition: red 1s; }'), [])
+  for (const content of ['counter(red)', 'counters(red, ".")', 'counter(x, red)', 'attr(red)'])
+    assert.deepEqual(rawColours(`.a { content: ${content}; }`), [], content)
+  assert.deepEqual(rawColours('.a { font-variant-alternates: styleset(red); }'), [])
+  // attr()'s fallback is a value, though, and a colour there is still one
+  assert.deepEqual(rawColours('.a { color: attr(data-x, red); }').map(({ property }) => property), ['color'])
+})
+
+test('a rung may be named, chosen between, or nudged by one digit; anything else done to it is counted (#762)', () => {
+  for (const value of ['var(--hd-z-popover)', 'calc(var(--hd-z-sticky) + 1)', 'calc(var(--hd-z-sticky) - 1)',
+    'calc(1 + var(--hd-z-sticky))', 'max(var(--hd-z-popover), var(--hd-z-drawer))'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+  for (const value of ['calc(var(--hd-z-sticky) + 60)', 'calc(var(--hd-z-popover) * 2)', 'max(var(--hd-z-popover), 60)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  assert.equal(counted('.a { --l: 60; z-index: calc(var(--hd-z-sticky) + var(--l)); }'), true)
+})

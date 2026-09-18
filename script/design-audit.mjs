@@ -293,6 +293,14 @@ const bare = (raw) => {
   return out
 }
 
+/* Functions whose arguments are names an author chose — a counter, a counter
+   style, a local font, a font feature — so `counter(red)` names a counter and
+   `styleset(red)` a feature value; each checked in Chromium (#762 review). */
+const NAME_FUNCTIONS = new Set([
+  'counter', 'counters', 'local',
+  'styleset', 'stylistic', 'swash', 'ornaments', 'annotation', 'character-variant',
+])
+
 /*
  * The tokens of a value that can name a colour — hashes, functions and
  * identifiers, each with its escapes decoded — with strings, numbers (units
@@ -329,8 +337,15 @@ const colourTokens = (raw) => {
     } else if (identStartsAt(text, index)) {
       const { name, end } = nameAt(text, index)
       if (text[end] === '(') {
-        if (name.toLowerCase() === 'url') index = urlEnd(text, end + 1)
-        else {
+        const fn = name.toLowerCase()
+        if (fn === 'url') index = urlEnd(text, end + 1)
+        else if (NAME_FUNCTIONS.has(fn)) index = closeOf(text, end + 1)
+        else if (fn === 'attr') {
+          // `attr(name type?, fallback?)`: the attribute is a name, the fallback a value
+          const close = closeOf(text, end + 1)
+          const comma = topLevelComma(text.slice(end + 1, close - 1))
+          index = comma === -1 ? close : end + 1 + comma + 1
+        } else {
           tokens.push({ type: 'function', value: name })
           index = end + 1
         }
@@ -488,13 +503,15 @@ const COLOUR_FUNCTIONS = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'l
 
 /* Properties whose values are names an author chose — a keyframes rule, a
    grid area or line, a counter, a font family, a container, a named page, a
-   view-transition class — each checked in Chromium. A colour word there is an
+   view-transition class, a property a transition or `will-change` names (any
+   custom identifier is accepted there) — each checked in Chromium. A colour
+   word there is an
    identifier, not a colour: `animation: red 1s` is a keyframes rule called
    `red`. Only the named-colour check stands aside for these; a hex or a colour
    function is a colour wherever it is written. Like the mask exemption, a list
    of exceptions: one missing from it shows up as a finding someone reads. */
 const AUTHOR_NAMES =
-  /^(?:animation(?:-name|-timeline)?|font(?:-family)?|grid(?:-area|-template(?:-areas|-columns|-rows)?|-(?:row|column)(?:-start|-end)?)?|counter-(?:reset|increment|set)|list-style(?:-type)?|container(?:-name)?|view-transition-(?:name|class)|page|anchor-name|position-anchor|timeline-scope|(?:scroll|view)-timeline(?:-name)?)$/
+  /^(?:animation(?:-name|-timeline)?|transition(?:-property)?|will-change|font(?:-family)?|grid(?:-area|-template(?:-areas|-columns|-rows)?|-(?:row|column)(?:-start|-end)?)?|counter-(?:reset|increment|set)|list-style(?:-type)?|container(?:-name)?|view-transition-(?:name|class)|page|anchor-name|position-anchor|timeline-scope|(?:scroll|view)-timeline(?:-name)?)$/
 
 /** Whether a value writes a colour out: hex, a colour function or a named colour, outside `url()` and strings. */
 export const rawColourIn = (value, { names = true } = {}) =>
@@ -527,13 +544,49 @@ const topLevelComma = (text) => {
   return -1
 }
 
-/* A value with every `var()` replaced by what this stylesheet says it is — a
-   custom property defined in the same file, or the fallback written in place
-   — or `null` when one comes from somewhere else, which for a layer means the
-   ladder in `tokens.css`. */
-const substituteVars = (value, locals, seen) => {
-  let out = ''
+/*
+ * Every value a `var()`-bearing value can take in this stylesheet.
+ *
+ * A custom property may be defined by several rules, and which one reaches an
+ * element is the cascade's business, not this file's — so each definition is
+ * a candidate, and none is collapsed into "the last one in the file" (#762
+ * review: `.b { --l: var(--hd-z-popover) }` used to hide `.a { --l: 60 }`).
+ * Where a candidate is invalid — a cycle, or `initial`, which is the
+ * guaranteed-invalid value — the `var()` falls back, as it does in the
+ * browser. A reference this stylesheet does not define is from elsewhere,
+ * which for a layer means the ladder (`RUNG`), unless it has a fallback,
+ * which is a value written here. `inherit` and its kin defer to another
+ * element, so they are from elsewhere too. `null` when there are too
+ * many combinations to list, which the caller treats conservatively.
+ */
+/* A reference to a custom property defined elsewhere — for a layer, a rung of
+   the ladder — kept in the expression as this name, so what is done to it
+   stays visible. A dashed name is never a valid operand of its own. */
+const RUNG = '--rung'
+const GUARANTEED_INVALID = Symbol('guaranteed invalid')
+const MAX_CANDIDATES = 256
+const expand = (value, scope, seen) => {
+  let heads = ['']
+  let literal = ''
   let index = 0
+  /* Literal text joins as written; a substituted value is padded, so it cannot
+     fuse with the tokens beside it — as `var()` substitution never does. */
+  const extend = (options, padded) => {
+    const out = new Set()
+    for (const head of heads) {
+      for (const option of options) {
+        if (typeof head !== 'string') out.add(head)
+        else if (typeof option !== 'string') out.add(option)
+        else out.add(padded ? `${head} ${option} ` : head + option)
+      }
+    }
+    heads = [...out]
+    return heads.length <= MAX_CANDIDATES
+  }
+  const flush = () => {
+    if (literal) extend([literal], false)
+    literal = ''
+  }
   while (index < value.length) {
     if (identStartsAt(value, index)) {
       const { name, end } = nameAt(value, index)
@@ -542,56 +595,109 @@ const substituteVars = (value, locals, seen) => {
         const inner = value.slice(end + 1, close - 1)
         const comma = topLevelComma(inner)
         const reference = nameAt((comma === -1 ? inner : inner.slice(0, comma)).trim(), 0).name
-        let resolved = null
-        if (locals.has(reference) && !seen.has(reference)) {
-          resolved = substituteVars(locals.get(reference), locals, new Set([...seen, reference]))
-        } else if (comma !== -1) {
-          resolved = substituteVars(inner.slice(comma + 1), locals, seen)
-        }
-        if (resolved === null) return null
-        out += ` ${resolved} `
+        const options = candidatesOf(reference, comma === -1 ? null : inner.slice(comma + 1), scope, seen)
+        flush()
+        if (options === null || !extend(options, true)) return null
         index = close
         continue
       }
-      out += value.slice(index, end)
+      literal += value.slice(index, end)
       index = end
       continue
     }
-    out += value[index]
+    literal += value[index]
     index += 1
   }
-  return out
+  flush()
+  return heads
 }
 
-/* The number an expression of literals comes to — `+`, `-`, `*`, `/`,
-   parentheses, and `calc`, `min`, `max`, `clamp` — or `null` for anything
-   else: a unit, a keyword, a function this does not know. */
-const MATH = new Set(['calc', 'min', 'max', 'clamp'])
-const evaluate = (text) => {
+const candidatesOf = (reference, fallback, scope, seen) => {
+  const fallen = () => (fallback === null ? [GUARANTEED_INVALID] : expand(fallback, scope, seen))
+  if (seen.has(reference)) return [GUARANTEED_INVALID]
+  const defined = scope.get(reference)
+  if (!defined) return fallback === null ? [RUNG] : expand(fallback, scope, seen)
+  const out = []
+  for (const value of defined) {
+    const keyword = value.trim().toLowerCase()
+    if (keyword === 'initial') {
+      const back = fallen()
+      if (back === null) return null
+      out.push(...back)
+    }
+    else if (['inherit', 'unset', 'revert', 'revert-layer'].includes(keyword)) out.push(RUNG)
+    else {
+      const options = expand(value, scope, new Set([...seen, reference]))
+      if (options === null) return null
+      for (const option of options) {
+        if (option === GUARANTEED_INVALID) {
+          const back = fallen()
+          if (back === null) return null
+          out.push(...back)
+        } else out.push(option)
+      }
+    }
+  }
+  return [...new Set(out)]
+}
+
+/*
+ * The number an expression comes to, the way CSS Values 4 computes it: the
+ * numeric math functions and constants, names decoded through the shared
+ * escape reader so `c\61lc(` is `calc(`. `UNPROVEN` when it is a math
+ * expression this cannot compute — a dimension, an angle, a function it does
+ * not know — which the stacking rule reports rather than assumes small; `null`
+ * when it is not a number at all, or not valid CSS.
+ */
+const UNPROVEN = Symbol('unproven')
+const MATH_FUNCTIONS = new Set([
+  'calc', 'min', 'max', 'clamp', 'round', 'mod', 'rem', 'abs', 'sign',
+  'pow', 'sqrt', 'hypot', 'log', 'exp', 'sin', 'cos', 'tan',
+])
+const CONSTANTS = { pi: Math.PI, e: Math.E, infinity: Infinity, '-infinity': -Infinity, nan: NaN }
+const ROUNDING = new Set(['nearest', 'up', 'down', 'to-zero'])
+
+const mathTokens = (text) => {
   const tokens = []
   let at = 0
   while (at < text.length) {
+    const char = text[at]
     const rest = text.slice(at)
-    const space = /^\s+/.exec(rest)
-    const number = /^[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?/.exec(rest)
-    const fn = /^([A-Za-z-]+)\(/.exec(rest)
-    if (space) at += space[0].length
+    const number = /^(?:[0-9]*\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?/.exec(rest)
+    if (/[ \t\n]/.test(char)) at += 1
     else if (number) {
-      tokens.push(Number(number[0]))
       at += number[0].length
-    } else if (fn && MATH.has(fn[1].toLowerCase())) {
-      tokens.push({ fn: fn[1].toLowerCase() })
-      at += fn[0].length
-    } else if ('()+-*/,'.includes(rest[0])) {
-      tokens.push(rest[0])
+      if (identStartsAt(text, at) || text[at] === '%') {
+        at = text[at] === '%' ? at + 1 : nameAt(text, at).end
+        tokens.push({ unit: true })
+      } else tokens.push(Number(number[0]))
+    } else if (identStartsAt(text, at)) {
+      const { name, end } = nameAt(text, at)
+      if (text[end] === '(') {
+        tokens.push({ fn: name.toLowerCase() })
+        at = end + 1
+      } else {
+        tokens.push({ ident: name.toLowerCase() })
+        at = end
+      }
+    } else if ('()+-*/,'.includes(char)) {
+      tokens.push(char)
       at += 1
     } else return null
   }
+  return tokens
+}
+
+const evaluate = (tokens) => {
   let position = 0
-  const next = () => tokens[position++]
+  let unproven = false
   const peek = () => tokens[position]
+  const next = () => tokens[position++]
+  const invalid = () => {
+    throw new Error('not a number')
+  }
   const expect = (token) => {
-    if (next() !== token) throw new Error('shape')
+    if (next() !== token) invalid()
   }
   const sum = () => {
     let total = product()
@@ -604,6 +710,49 @@ const evaluate = (text) => {
     return total
   }
   const unary = () => (peek() === '-' ? (next(), -unary()) : peek() === '+' ? (next(), unary()) : atom())
+  const argument = () => (peek()?.ident && ROUNDING.has(peek().ident) ? next().ident : sum())
+  const skipCall = () => {
+    for (let depth = 1; depth > 0 && position < tokens.length; ) {
+      const token = next()
+      if (token === '(' || token?.fn) depth += 1
+      else if (token === ')') depth -= 1
+    }
+  }
+  const call = (fn) => {
+    const args = [argument()]
+    while (peek() === ',') {
+      next()
+      args.push(argument())
+    }
+    expect(')')
+    const [a, b, c] = args
+    const numbers = (count) => args.length === count && args.every((arg) => typeof arg === 'number')
+    const variadic = () => args.length > 0 && args.every((arg) => typeof arg === 'number')
+    if (fn === 'calc' && numbers(1)) return a
+    if (fn === 'min' && variadic()) return Math.min(...args)
+    if (fn === 'max' && variadic()) return Math.max(...args)
+    if (fn === 'clamp' && numbers(3)) return Math.max(a, Math.min(b, c))
+    if (fn === 'round') {
+      const [strategy, value, step] = typeof a === 'string' ? args : ['nearest', ...args]
+      if (typeof value !== 'number' || (step !== undefined && typeof step !== 'number') || args.length > 3) invalid()
+      const unit = step ?? 1
+      const by = { nearest: Math.round, up: Math.ceil, down: Math.floor, 'to-zero': Math.trunc }[strategy]
+      return by(value / unit) * unit
+    }
+    if (fn === 'mod' && numbers(2)) return a - b * Math.floor(a / b)
+    if (fn === 'rem' && numbers(2)) return a - b * Math.trunc(a / b)
+    if (fn === 'abs' && numbers(1)) return Math.abs(a)
+    if (fn === 'sign' && numbers(1)) return Math.sign(a)
+    if (fn === 'pow' && numbers(2)) return a ** b
+    if (fn === 'sqrt' && numbers(1)) return Math.sqrt(a)
+    if (fn === 'hypot' && variadic()) return Math.hypot(...args)
+    if (fn === 'log' && (numbers(1) || numbers(2))) return args.length === 2 ? Math.log(a) / Math.log(b) : Math.log(a)
+    if (fn === 'exp' && numbers(1)) return Math.exp(a)
+    if (fn === 'sin' && numbers(1)) return Math.sin(a)
+    if (fn === 'cos' && numbers(1)) return Math.cos(a)
+    if (fn === 'tan' && numbers(1)) return Math.tan(a)
+    invalid()
+  }
   const atom = () => {
     const token = next()
     if (typeof token === 'number') return token
@@ -612,57 +761,96 @@ const evaluate = (text) => {
       expect(')')
       return inner
     }
-    if (token && token.fn) {
-      const args = [sum()]
-      while (peek() === ',') {
-        next()
-        args.push(sum())
-      }
-      expect(')')
-      if (token.fn === 'calc' && args.length === 1) return args[0]
-      if (token.fn === 'min') return Math.min(...args)
-      if (token.fn === 'max') return Math.max(...args)
-      if (token.fn === 'clamp' && args.length === 3) return Math.max(args[0], Math.min(args[1], args[2]))
+    if (token?.unit) {
+      unproven = true // a dimension: arithmetic on units is not modelled here
+      return 1
     }
-    throw new Error('shape')
+    if (token?.ident && token.ident in CONSTANTS) return CONSTANTS[token.ident]
+    if (token?.fn && MATH_FUNCTIONS.has(token.fn)) return call(token.fn)
+    if (token?.fn) {
+      unproven = true // `asin`, `atan2`, and anything newer: not computed here
+      skipCall()
+      return 1
+    }
+    invalid()
   }
   try {
     const result = sum()
-    return position === tokens.length && Number.isFinite(result) ? result : null
+    if (position !== tokens.length) return null
+    return unproven ? UNPROVEN : result
   } catch {
     return null
   }
 }
 
-/**
- * The layer a `z-index` value is written as, or `null` when it is not written
- * as a number.
- *
- * A number is written when it resolves without the ladder: a literal (`+10`
- * is one), arithmetic over literals (`calc(5 + 5)`, `max(1, 12)` — each
- * checked in Chromium, rounded as CSS rounds an integer), a custom property
- * defined in the same stylesheet, or a `var()` fallback. Arithmetic on a
- * ladder token — `calc(var(--hd-z-sticky) + 1)`, the one case in the app — is
- * derived from the ladder and moves when it moves, so it is not counted: that
- * is a decision, not an oversight (#762 review).
+/*
+ * The layer a resolved `z-index` value is, `UNPROVEN`, or `null`. The value
+ * has to be one integer or one math function: arithmetic outside a function
+ * is not CSS (`sign(-5) * -12` computes to `auto` in Chromium). A math result
+ * is rounded, as CSS rounds an integer, and clamped to the integer range.
  */
-const layerOf = (value, locals) => {
-  const text = substituteVars(value, locals, new Set())
-  if (text === null) return null
-  const layer = evaluate(text)
-  if (layer === null) return null
-  // a bare number has to be an integer to be a z-index at all; math is rounded
-  return /\(/.test(text) ? Math.round(layer) : Number.isInteger(layer) ? layer : null
+const layerOf = (text) => {
+  const tokens = mathTokens(text)
+  if (!tokens || tokens.length === 0) return null
+  const single = tokens.length === 1 && typeof tokens[0] === 'number'
+  const signed = tokens.length === 2 && (tokens[0] === '+' || tokens[0] === '-') && typeof tokens[1] === 'number'
+  if (single || signed) return /^\s*[+-]?[0-9]+\s*$/.test(text) ? Number(text) : null
+  if (!tokens[0]?.fn || tokens[tokens.length - 1] !== ')') return null
+  let depth = 0
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index] === '(' || tokens[index]?.fn) depth += 1
+    else if (tokens[index] === ')' && (depth -= 1) === 0 && index !== tokens.length - 1) return null
+  }
+  const result = evaluate(tokens)
+  if (result === null || result === UNPROVEN) return result
+  if (Number.isNaN(result)) return 0
+  return Math.max(-2147483648, Math.min(2147483647, Math.round(result)))
 }
 
-/** `z-index` written as a number in the shared band — 10 and up, however it is spelled; `!important` does not hide one. */
+/* Whether an expression that involves a rung is still taking a name: rungs
+   alone (`var(--hd-z-popover)`, `max()` over rungs — choosing, not writing),
+   or the one nudge the app uses, a rung plus or minus a single digit
+   (`calc(var(--hd-z-sticky) + 1)`). */
+const takesAName = (tokens) => {
+  const numbers = tokens.filter((token) => typeof token === 'number' || token?.unit)
+  if (numbers.length === 0) return true
+  const rung = (token) => token?.ident === RUNG
+  const digit = (token) => typeof token === 'number' && token < 10
+  const [fn, a, op, b, close] = tokens
+  return (
+    tokens.length === 5 && fn?.fn === 'calc' && close === ')' &&
+    ((rung(a) && (op === '+' || op === '-') && digit(b)) || (digit(a) && op === '+' && rung(b)))
+  )
+}
+
+/**
+ * `z-index` written as a number in the shared band — 10 and up, however it is
+ * spelled: a literal, math over literals (`calc(5 + 5)`, `abs(-12)`,
+ * `round(up, 10.1, 1)`), a custom property any rule in this stylesheet
+ * defines, or a `var()` fallback. A math expression that cannot be computed
+ * here is counted: a number the audit cannot prove small is not assumed
+ * small. A rung may be named, chosen between, or nudged by one digit —
+ * `calc(var(--hd-z-sticky) + 1)`, the app's one such case — and anything else
+ * done to a rung (`+ 60`, `* 2`) writes a plane of its own and is counted
+ * (#762 review).
+ */
 export const rawZIndexes = (css) => {
   const declarations = declarationsOf(css)
-  const locals = new Map(declarations.filter(({ property }) => property.startsWith('--')).map(({ property, value }) => [property, value]))
+  const scope = new Map()
+  for (const { property, value } of declarations) {
+    if (property.startsWith('--')) scope.set(property, [...(scope.get(property) ?? []), value])
+  }
   return declarations.filter(({ property, value }) => {
     if (property !== 'z-index') return false
-    const layer = layerOf(value, locals)
-    return layer !== null && Math.abs(layer) >= 10
+    const options = expand(value, scope, new Set())
+    if (options === null) return true
+    return options.some((option) => {
+      if (typeof option !== 'string') return false
+      const tokens = mathTokens(option)
+      if (tokens?.some((token) => token?.ident === RUNG)) return !takesAName(tokens)
+      const layer = layerOf(option)
+      return layer === UNPROVEN || (layer !== null && Math.abs(layer) >= 10)
+    })
   })
 }
 
