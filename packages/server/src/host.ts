@@ -63,6 +63,7 @@ import {
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
 import { MachineSeatingFile, SEATING_FILE } from './agent-seating-file.js'
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
+import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
@@ -424,6 +425,11 @@ export class Host {
    * conversations a seating has opened and not yet kept or let go.
    */
   readonly #machineSeating: MachineSeatingFile
+  /**
+   * The roster, watched (`AgentWatch`). Made at start rather than in the
+   * constructor, so a host that is built and never started watches nothing.
+   */
+  #agentWatch: AgentWatch | null = null
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -861,6 +867,12 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    // From here on a file changed under any of the roster's roots is one notice to every window.
+    this.#agentWatch = new AgentWatch({
+      roots: [join(this.#state.directory, 'agents'), builtinAgentRoot()],
+      changed: (project) => this.#push({ method: 'agent/changed', params: { project } }),
+    })
+    await this.#watchProjects()
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
     /* And only now wake what stopped while the desk was down. Reconciling a
        run's rounds is board work and belongs above; *sending* to a seat needs
@@ -929,6 +941,7 @@ export class Host {
 
   async dispose(): Promise<void> {
     this.#catalogs.stop()
+    this.#agentWatch?.dispose()
     /*
       Every runtime is told the quit has begun before anything below can yield.
 
@@ -1242,7 +1255,11 @@ export class Host {
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
-        forgetBoardRoots: () => this.#boardRoots.clear(),
+        forgetBoardRoots: () => {
+          this.#boardRoots.clear()
+          // The same moment the roster's watch lets go of a project that is no longer open.
+          void this.#watchProjects()
+        },
         issuePreviewTicket: (path, runtime) => {
           const ticket = randomBytes(24).toString('hex')
           this.#previewTickets.set(ticket, {
@@ -1684,6 +1701,9 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
+    // Fire-and-forget: opening a folder must not wait on re-pointing the
+    // roster's watch, which walks every open project's ancestors afresh.
+    void this.#watchProjects()
     return {
       ...record,
       name: described.name || basename(described.path),
@@ -1692,6 +1712,24 @@ export class Host {
       // opened as a workspace under the project it is a checkout of.
       repo: await this.#repoOf(described.path),
     }
+  }
+
+  /**
+   * Points the roster's watch at every open project: each open folder, and the
+   * top of the repository it sits in — a project keeps its Agents at the top
+   * of its repository, and a person often opens a folder inside it.
+   */
+  async #watchProjects(): Promise<void> {
+    const watch = this.#agentWatch
+    if (!watch) return
+    const roots = new Set<string>()
+    for (const entry of this.#state.state.workspaces) {
+      if (typeof entry?.path !== 'string' || entry.path === '') continue
+      roots.add(entry.path)
+      const repo = await this.#repoOf(entry.path).catch(() => null)
+      if (repo?.root) roots.add(repo.root)
+    }
+    await watch.watchProjects([...roots])
   }
 
   /** What the host knows about a runtime, by id — null for one it does not hold. */

@@ -256,7 +256,7 @@ export interface HostContext {
     open(path: string): Promise<HostResult<'workspace/open'>>
     repoOf(cwd: string): Promise<RepoInfo | null>
     boardRootOf(cwd: string): Promise<string | null>
-    /** Drops the folder→board cache; call when the set of workspaces changed. */
+    /** Drops the folder→board cache and re-points the Agent roster's watch; call when the set of workspaces changed. */
     forgetBoardRoots(): void
     /** Mints a short-lived ticket the preview route redeems for one file. */
     issuePreviewTicket(path: string, runtime: RuntimeId | undefined): string
