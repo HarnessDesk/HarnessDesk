@@ -1075,6 +1075,45 @@ addition rather than a rewrite.
   noun model. It attaches to the Project, not to an Agent, for the same reason
   shared memory does.
 
+## Permission is enforced where it can be, and only described where it cannot
+
+Today a seat's permission is a paragraph in its standing order (`GIT_RULES`).
+That is reasonable as **role guidance** — a reviewer should be told it does not
+push — and it is not a permission system, though the interface presents it as
+one. Three things make it fall short from any user's standpoint:
+
+- **Nothing enforces it.** A model can misread a sentence, ignore it, or be
+  prompted out of it.
+- **`read` does not mean read.** The rule forbids push, merge, reset and force,
+  and nothing else: a `read` seat may edit files and commit inside the
+  repository. Someone who sets `permission: read` on a reviewer reasonably
+  believes it cannot change their code. A label that promises more safety than
+  it delivers is worse than no label.
+- **It sits beside controls that do enforce, and ignores them.** Each runtime
+  has its own — a sandbox and an approval policy, a permission mode and deny
+  rules — enforced by the runtime rather than requested of the model, and the
+  desk already reaches some of them per session. The prose is a weaker, parallel
+  layer, and different models obey the same sentence differently, which is an
+  odd property for a desk that exists to be vendor-neutral.
+
+So the enforcement phase does four things, in this order of strength:
+
+1. **Map the ceiling onto each runtime's own enforced controls**, negotiated per
+   capability the way every other runtime difference is: `read` becomes a
+   read-only sandbox where one exists, and deny rules for publishing verbs where
+   a permission list exists. A runtime that offers no such control says so, and
+   the seat shows that its ceiling is only asked, not held.
+2. **Enforce at the desk's own tool boundary** for the tools the desk owns. The
+   forge's pull-request tools belong to the desk, so it can refuse to merge for a
+   seat whose ceiling forbids it — genuinely, today, whatever the model decides.
+3. **Keep the prose as guidance, labelled as guidance.** One line saying what the
+   role is for, not a paragraph pretending to be a policy.
+4. **Name the ceilings for what they allow**, and show the effective policy on
+   every seat, so a person can see what is enforced and what is merely asked.
+
+Renaming `read` is recommended, not done here: committed flow files use it, and
+changing its meaning under them is a migration of its own.
+
 ## Before any of this is served remotely
 
 Everything above was designed for a desk on one machine, and one property holds
