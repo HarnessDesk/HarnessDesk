@@ -325,6 +325,17 @@
   padding-left: calc(var(--hd-space-2-5) * 2 + var(--hd-space-4));
 }
 
+.search[data-clear] .input {
+  padding-right: calc(var(--hd-icon-target) + var(--hd-space-2));
+}
+
+.searchClear {
+  position: absolute;
+  right: var(--hd-space-1);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .search input::-webkit-search-cancel-button {
   appearance: none;
 }

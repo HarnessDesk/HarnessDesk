@@ -32,7 +32,7 @@ import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { Dialog } from '../design'
-import { Button, Input, NativeSelect, RefusedAction, Segmented, Switch } from '../design'
+import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
@@ -54,7 +54,6 @@ import {
   PushIcon,
   RefreshIcon,
   ResetIcon,
-  SearchIcon,
   SidebarIcon,
   StashIcon,
   TagIcon,
@@ -814,23 +813,16 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           value={scope}
           onChange={(next) => { if (next) setScope(next) }}
         />
-        <label className={styles.find}>
-          <SearchIcon size={13} />
-          <Input
-            value={query}
-            placeholder="Search history"
-            spellCheck={false}
-            aria-label="Search history"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          {query.length > 0 && (
-            <Button variant="ghost" size="icon-sm" aria-label="Clear the search" onClick={() => setQuery('')}>
-              <CrossIcon size={12} />
-            </Button>
-          )}
-        </label>
+        <Search
+          className={styles.historySearch}
+          value={query}
+          placeholder="Search history"
+          label="Search history"
+          onChange={setQuery}
+          clear={{ label: 'Clear the search', onClick: () => setQuery('') }}
+        />
         <NativeSelect
-          variant="filled" controlSize="compact" className={styles.searchScope}
+          variant="filled" className={styles.searchScope}
           value={search}
           aria-label="What the search matches"
           onChange={(event) => setSearch(event.target.value as GitLogSearch)}
@@ -1789,16 +1781,13 @@ const RefsRail = ({
 
   return (
     <aside className={styles.rail} aria-label="Branches, remotes, tags and stashes">
-      <label className={styles.railFind}>
-        <SearchIcon size={12} />
-        <Input
-          value={filter}
-          placeholder="Filter refs"
-          spellCheck={false}
-          aria-label="Filter refs"
-          onChange={(event) => setFilter(event.target.value)}
-        />
-      </label>
+      <Search
+        className={styles.railSearch}
+        value={filter}
+        placeholder="Filter refs"
+        label="Filter refs"
+        onChange={setFilter}
+      />
       {error && <div className={styles.railError}>{error}</div>}
       <div className={styles.railScroll}>
         <div className={styles.railHead}>Branches · {branches.length}</div>

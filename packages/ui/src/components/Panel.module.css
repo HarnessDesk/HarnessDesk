@@ -54,48 +54,9 @@
   border-bottom: var(--hd-border-width) solid var(--hd-border); /* desk: 1px solid var(--hd-border) → var(--hd-border-width) solid var(--hd-border) */
 }
 
-/* A text field, so it stands on the text-control rung rather than on a
-   literal — at 26px with a 13px label it was at box ÷ cap 2.82, the number
-   every field in the app carried before the rung existed. */
-.findBox {
+.filterLayout {
   flex: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
-  height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
-  padding: 0 var(--hd-space-2-5); /* desk: 9 → 10, onto the spacing scale */
-  border: var(--hd-border-width) solid var(--hd-border-strong); /* desk: 1px solid var(--hd-border-strong) → var(--hd-border-width) solid var(--hd-border-strong) */
-  border-radius: var(--hd-radius-md); /* desk: 6 → 8, the control rung */
-  box-shadow: var(--hd-input-shadow);
-  color: var(--hd-muted-foreground);
-  transition:
-    border-color var(--hd-duration-fast) var(--hd-ease),
-    box-shadow var(--hd-duration-fast) var(--hd-ease);
-}
-
-/* The focus a field takes everywhere else. This one swapped its border to the
-   accent instead, which is a second way of saying focus in an app that
-   already has one, and a thinner one: no ring, so at a glance the field is
-   the same shape with a different colour. */
-.findBox:focus-within {
-  border-color: var(--hd-ring); /* desk: var(--hd-accent) → var(--hd-ring) */
-  box-shadow: var(--hd-focus-ring);
-}
-
-.findBox input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  color: var(--hd-foreground);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  outline: none;
-}
-
-.findBox input::placeholder {
-  color: var(--hd-muted-foreground);
 }
 
 .pill {
@@ -304,4 +265,3 @@ button.row:hover {
   border-radius: 50%;
   background: var(--hd-accent);
 }
-

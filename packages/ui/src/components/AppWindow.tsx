@@ -1,8 +1,8 @@
-import { Button, DialogPopup, DialogPortal, DialogRoot, Input } from '../design'
+import { Button, DialogPopup, DialogPortal, DialogRoot, Search } from '../design'
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import { Clipped } from '../design'
 
-import { ArrowLeftIcon, SearchIcon } from './Icons'
+import { ArrowLeftIcon } from './Icons'
 import styles from './AppWindow.module.css'
 
 /**
@@ -87,16 +87,13 @@ export const WindowNav = ({
         Back to app
       </Button>
       {search && (
-        <div className={`${styles.winSearch} hd-no-drag`}>
-          <SearchIcon size={14} />
-          <Input
-            type="search"
-            value={search.value}
-            placeholder={search.placeholder}
-            aria-label={search.label}
-            onChange={(event) => search.onChange(event.target.value)}
-          />
-        </div>
+        <Search
+          className={`${styles.winSearchLayout} hd-no-drag`}
+          value={search.value}
+          placeholder={search.placeholder}
+          label={search.label}
+          onChange={search.onChange}
+        />
       )}
     </div>
     <div className={styles.winNavScroll}>{children}</div>
