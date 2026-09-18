@@ -169,6 +169,19 @@ const resolveWithin = async (root: string, from: string, steps: readonly string[
         at = next
         continue
       }
+      // A known limit, measured and deliberately left open. Node's `readlink`
+      // sizes its buffer with `pathconf(_PC_PATH_MAX)`, and `pathconf` follows
+      // the link — so reading the text of an in-project link that points
+      // outside costs time proportional to how many links deep the *outside*
+      // target is (about 2.5 µs for a missing target, 22 µs for a loop). The
+      // answer is byte-identical whatever lies outside; its latency is not.
+      //
+      // Unexploitable under this module's threat model — a cloned repository
+      // with no process on the machine cannot time a local call. It becomes
+      // real the moment `agent/list` is served to a party who can also plant a
+      // repository, so the cloud lane must close it before it serves this:
+      // a `readlink` that does not pre-size by following, or a fixed floor on
+      // the listing's latency. Node exposes neither today.
       target = await readlink(next)
     } catch (error) {
       if (NOTHING_HERE.has(errnoOf(error))) return { to: 'nothing' }

@@ -1064,6 +1064,24 @@ addition rather than a rewrite.
   noun model. It attaches to the Project, not to an Agent, for the same reason
   shared memory does.
 
+## Before any of this is served remotely
+
+Everything above was designed for a desk on one machine, and one property holds
+only there. An Agent directory in a cloned repository is untrusted input, so the
+roster reads a project's paths one step at a time inside the project and never
+follows a link out of it — the answer is byte-identical whatever lies outside.
+Its **latency** is not: the platform's `readlink` sizes its buffer by following
+the link, so listing a project whose links point out takes time proportional to
+how deep the outside target goes.
+
+No local attacker can observe that. A service can: a party who can plant a
+repository and time `agent/list` learns the shape of paths on the host. So
+**closing that channel is a precondition of the cloud lane**, not an
+optimisation for it — either a `readlink` that does not pre-size by following,
+or a fixed floor on the listing's latency. The same review applies to every
+verb that reads a path a repository chose, because this one was found by
+measurement rather than by reasoning, and the next one will be too.
+
 ## Refused, and why
 
 Not deferred. These are choices, and a later phase that wants one of them is
