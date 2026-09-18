@@ -988,7 +988,9 @@ export class CodexRuntime implements AgentRuntime {
   /**
    * The turns a fork was made with. The fork exists whether or not they can
    * be read, so one that cannot is opened without them, which its
-   * `session/started` already calls unloaded, and a later read fills in.
+   * `session/started` already calls unloaded. Nothing reads a fork again on
+   * its own, and an empty pane reads as a new conversation, so the person is
+   * told; opening it again from the list reads it.
    */
   async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[]> {
     try {
@@ -996,6 +998,12 @@ export class CodexRuntime implements AgentRuntime {
     } catch (error) {
       this.#logger?.warn?.(`codex could not read the history of fork ${fork.id}`, {
         error: error instanceof Error ? error.message : String(error),
+      })
+      this.#emit({
+        type: 'notice',
+        sessionId: makeSessionId(fork.id),
+        level: 'warning',
+        message: 'The branch was made, but its history could not be read yet. Open it again to load it.',
       })
       return []
     }

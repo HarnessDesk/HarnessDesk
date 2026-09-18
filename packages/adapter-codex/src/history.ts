@@ -70,38 +70,61 @@ const everyPage = async <T>(
   }
 }
 
+/** How many times a paginated history is read before one that keeps moving is taken as it last stood. */
+const READS = 3
+
+/** The id of a thread's newest turn, as Codex lists it now; none for a thread with no turns. */
+const newestTurn = async (server: CodexAppServer, threadId: string): Promise<string | undefined> =>
+  (
+    await server.request('thread/turns/list', {
+      threadId,
+      limit: 1,
+      sortDirection: 'desc',
+      itemsView: 'notLoaded',
+    })
+  ).data[0]?.id
+
 /**
  * Every turn of a thread, each holding all of its items, oldest first.
  *
  * A paginated thread is paged, as Codex's own terminal client pages one
  * (`hydrate_initial_thread_history`): its turns, without their items, then
- * every item of the thread, each filed under the turn it names. An item whose
- * turn the first listing did not hold belongs to a turn that started after
- * it, and is left for the next read. A legacy thread is read whole.
+ * every item of the thread, each filed under the turn it names.
+ *
+ * Those are two listings, and another client can start a turn, or revert
+ * one, between them. The first left its items with no turn to go to; the
+ * second left a turn with no items, which Codex no longer holds. Either one
+ * moves the thread's newest turn, so that is asked last, and a history whose
+ * newest turn is not the one its listing ended on is read again. A turn only
+ * gaining items leaves it where it was, and needs no second read. A legacy
+ * thread is read whole, in one call.
  */
 export const readHistory = async (server: CodexAppServer, thread: Thread): Promise<Turn[]> => {
   try {
     if (!paginated(thread)) {
       return (await server.request('thread/read', { threadId: thread.id, includeTurns: true })).thread.turns
     }
-    const turns = await everyPage(
-      (cursor) =>
-        server.request('thread/turns/list', {
-          threadId: thread.id,
-          cursor,
-          limit: PAGE,
-          sortDirection: 'asc',
-          itemsView: 'notLoaded',
-        }),
-      'turns',
-    )
-    const items = new Map(turns.map((turn) => [turn.id, [] as CodexProtocol.v2.ThreadItem[]]))
-    const entries = await everyPage(
-      (cursor) => server.request('thread/items/list', { threadId: thread.id, cursor, limit: PAGE, sortDirection: 'asc' }),
-      'items',
-    )
-    for (const entry of entries) items.get(entry.turnId)?.push(entry.item)
-    return turns.map((turn) => ({ ...turn, items: items.get(turn.id) ?? [], itemsView: 'full' }))
+    for (let read = 1; ; read += 1) {
+      const turns = await everyPage(
+        (cursor) =>
+          server.request('thread/turns/list', {
+            threadId: thread.id,
+            cursor,
+            limit: PAGE,
+            sortDirection: 'asc',
+            itemsView: 'notLoaded',
+          }),
+        'turns',
+      )
+      const entries = await everyPage(
+        (cursor) => server.request('thread/items/list', { threadId: thread.id, cursor, limit: PAGE, sortDirection: 'asc' }),
+        'items',
+      )
+      if (read < READS && (await newestTurn(server, thread.id)) !== turns.at(-1)?.id) continue
+      const items = new Map(turns.map((turn) => [turn.id, [] as CodexProtocol.v2.ThreadItem[]]))
+      for (const entry of entries) items.get(entry.turnId)?.push(entry.item)
+      return turns.map((turn) => ({ ...turn, items: items.get(turn.id) ?? [], itemsView: 'full' }))
+    }
   } catch (error) {
     if (unmaterialized(error)) return []
     throw error

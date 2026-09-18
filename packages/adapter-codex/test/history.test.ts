@@ -20,11 +20,11 @@ const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url)
 
 type Context = { after(fn: () => Promise<void>): void }
 
-const start = async (t: Context, version = '0.155.0') => {
+const start = async (t: Context, version = '0.155.0', env: Readonly<Record<string, string>> = {}) => {
   const runtime = new CodexRuntime({
     binaryPath: FAKE,
     clientName: 'harnessdesk-test',
-    env: { FAKE_CODEX_VERSION: version },
+    env: { FAKE_CODEX_VERSION: version, ...env },
   })
   t.after(() => runtime.dispose())
   await runtime.start()
@@ -82,6 +82,20 @@ test('a paginated conversation is read in pages, every item under its turn, and 
   assert.deepEqual(await deprecations(), [])
 })
 
+test('a turn started between the two listings is read with its items, not left out', async (t) => {
+  // Another client starts a turn after the turns were listed and before the
+  // items were: its items would name a turn the read does not hold.
+  const { runtime } = await start(t, '0.155.0', { FAKE_CODEX_CHANGE_BETWEEN_LISTINGS: 'append' })
+  const session = await runtime.readSession(sessionId('thread-paged'))
+  assert.deepEqual(shape(session), [...PAGED, 'turn-late: userMessage, assistantMessage'])
+})
+
+test('a turn reverted between the two listings is not read as a turn with no items', async (t) => {
+  const { runtime } = await start(t, '0.155.0', { FAKE_CODEX_CHANGE_BETWEEN_LISTINGS: 'revert' })
+  const session = await runtime.readSession(sessionId('thread-paged'))
+  assert.deepEqual(shape(session), PAGED.slice(0, 2))
+})
+
 test('a legacy conversation is read whole, since Codex will not page one', async (t) => {
   const { runtime, deprecations } = await start(t)
   // The fake refuses `thread/items/list` a legacy thread, as Codex does: a
@@ -104,6 +118,15 @@ test('a conversation with nothing stored yet reads as no turns, and has none to 
   assert.equal(read.itemsLoaded, true)
   await live.rollback!(1)
   assert.deepEqual(await deprecations(), [])
+})
+
+test('an unstored thread Codex refuses as "list_turns is not supported yet" is not read as empty', async (t) => {
+  // 0.155.0's other answer for a live thread with nothing stored. It is also
+  // what an unreadable store says, so the read fails rather than claim a
+  // whole, empty history, and the host answers from what it holds.
+  const { runtime } = await start(t, '0.155.0', { FAKE_CODEX_UNSTORED: 'list_turns' })
+  const live = await runtime.createSession({ cwd: '/w' })
+  await assert.rejects(runtime.readSession(live.id), /list_turns is not supported yet/)
 })
 
 test('Undo reverts a paginated conversation to before the turn it drops, and Codex says nothing', async (t) => {
@@ -148,6 +171,26 @@ test('a fork arrives with the history it copied, read in pages, and Codex says n
   // The pane shows a fork from this event and never reads it again.
   assert.deepEqual(started && shape(started.session), PAGED)
   assert.deepEqual(await deprecations(), [])
+})
+
+test('a fork whose history cannot be read opens without it, says so, and reads whole when opened again', async (t) => {
+  // The first turn listing is refused, as a store that cannot be read refuses it.
+  const { runtime, events } = await start(t, '0.155.0', { FAKE_CODEX_FAIL_TURNS_LISTS: '1' })
+  const fork = await runtime.forkSession(sessionId('thread-paged'))
+  const started = events.find(
+    (event): event is Extract<AgentEvent, { type: 'session/started' }> =>
+      event.type === 'session/started' && event.session.id === fork.id,
+  )
+  assert.deepEqual(started?.session.turns, [])
+  assert.equal(started?.session.itemsLoaded, false, 'unloaded, not an empty conversation')
+  // Nothing reads a fork again on its own, and an empty pane reads as a new
+  // conversation: the person is told, in words.
+  const told = events.filter((event) => event.type === 'notice' && event.sessionId === fork.id)
+  assert.deepEqual(
+    told.map((event) => event.type === 'notice' && `${event.level}: ${event.message}`),
+    ['warning: The branch was made, but its history could not be read yet. Open it again to load it.'],
+  )
+  assert.deepEqual(shape(await runtime.readSession(fork.id)), PAGED)
 })
 
 test('a fork of a legacy conversation arrives with its history, read whole', async (t) => {

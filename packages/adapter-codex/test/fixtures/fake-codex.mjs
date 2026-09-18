@@ -428,11 +428,32 @@ const historyOf = (threadId) => {
   if (!histories.has(threadId)) histories.set(threadId, { mode: NEW_HISTORY, stored: false, turns: [] })
   return histories.get(threadId)
 }
-/** Codex's words for a thread with nothing stored, which has had no first message. */
-const unmaterialized = (threadId, what) => ({
-  code: -32600,
-  message: `thread ${threadId} is not materialized yet; ${what} is unavailable before first user message`,
-})
+/**
+ * Codex's words for a thread with nothing stored, which has had no first
+ * message. 0.155.0 has two, measured: this, and — for a thread it holds live,
+ * depending on what its store already has — "list_turns is not supported
+ * yet", which FAKE_CODEX_UNSTORED=list_turns plays.
+ */
+const unmaterialized = (threadId, what) =>
+  process.env['FAKE_CODEX_UNSTORED'] === 'list_turns'
+    ? { code: -32601, message: 'list_turns is not supported yet' }
+    : { code: -32600, message: `thread ${threadId} is not materialized yet; ${what} is unavailable before first user message` }
+/**
+ * FAKE_CODEX_CHANGE_BETWEEN_LISTINGS=append|revert plays another client
+ * writing the thread while it is being read: once per thread, as the items
+ * of the whole thread start to be listed — after its turns were — a turn is
+ * started (with its items) or the newest one reverted away.
+ */
+const changedBetweenListings = new Set()
+const changeBetweenListings = (threadId, history) => {
+  const change = process.env['FAKE_CODEX_CHANGE_BETWEEN_LISTINGS']
+  if (!change || changedBetweenListings.has(threadId)) return
+  changedBetweenListings.add(threadId)
+  if (change === 'revert') history.turns = history.turns.slice(0, -1)
+  else history.turns = [...history.turns, pastTurn('turn-late', [asked('late-ask', 'One more thing.'), answered('late-answer', 'Done.')], 1_700_000_900)]
+}
+/** FAKE_CODEX_FAIL_TURNS_LISTS=<n> refuses the first n turn listings, as a store that cannot be read does. */
+let turnListingsFailed = 0
 /**
  * One page of a listing: at most `limit`, clamped as Codex clamps it and then
  * to two, so every cursor gets followed; ordered by `sortDirection`, else by
@@ -1665,6 +1686,11 @@ rl.on('line', (line) => {
       // without items, with a summary of them — the ask and the last answer —
       // or with all of them.
       const history = historyOf(params.threadId)
+      if (turnListingsFailed < Number(process.env['FAKE_CODEX_FAIL_TURNS_LISTS'] ?? 0)) {
+        turnListingsFailed += 1
+        send({ id, error: { code: -32603, message: 'failed to list thread history: database is locked' } })
+        return
+      }
       if (!history.stored) {
         send({ id, error: unmaterialized(params.threadId, 'thread/turns/list') })
         return
@@ -1690,6 +1716,7 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32601, message: 'thread/items/list is not supported yet' } })
         return
       }
+      if (!params.cursor && params.turnId == null) changeBetweenListings(params.threadId, history)
       const entries = history.turns
         .filter((turn) => params.turnId == null || turn.id === params.turnId)
         .flatMap((turn) => turn.items.map((item) => ({ turnId: turn.id, item })))
