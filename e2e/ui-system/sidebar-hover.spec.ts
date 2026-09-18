@@ -44,19 +44,24 @@ async function settled(locator: Locator, within = 10_000) {
       const moving = document.getAnimations().filter(animation =>
         animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
       if (moving.length === 0) break
-      // A transition the next change interrupts rejects; the next pass meets its successor.
-      const finished = Promise.all(moving.map(animation => animation.finished.catch(() => undefined)))
-      let timer = 0
-      const late = new Promise<'late'>(resolve => {
-        timer = window.setTimeout(resolve, Math.max(0, deadline - performance.now()), 'late')
-      })
-      const outcome = await Promise.race([finished, late])
-      window.clearTimeout(timer)
-      if (outcome === 'late') {
-        const names = moving.filter(animation => animation.playState === 'running').map(animation =>
+      const remaining = deadline - performance.now()
+      if (remaining <= 0) {
+        const names = moving.map(animation =>
           (animation as CSSTransition).transitionProperty ?? (animation as CSSAnimation).animationName ?? (animation.id || 'an animation'))
         throw new Error(`still moving after ${within}ms: ${names.join(', ')}`)
       }
+      // Until the batch finishes or the bound comes, whichever is first. A
+      // transition the next change interrupts rejects; either way the next
+      // pass asks again, so a batch that ends as the bound lands is read, and
+      // only what is still running then is named.
+      let timer = 0
+      await Promise.race([
+        Promise.all(moving.map(animation => animation.finished.catch(() => undefined))),
+        new Promise(resolve => {
+          timer = window.setTimeout(resolve, remaining)
+        }),
+      ])
+      window.clearTimeout(timer)
     }
     const rect = node.getBoundingClientRect()
     return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
