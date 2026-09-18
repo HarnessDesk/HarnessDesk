@@ -86,12 +86,16 @@ test('the flyout goes when the pointer takes another row, and no row stays lit w
   await expect(low(page)).toBeHidden()
   await expect(manage).toBeFocused()
 
-  // Back onto the row, then away from the whole menu: the flyout closes, and
-  // the row it belonged to is not left looking chosen.
+  // Back onto the row, then out of the menu along the row itself, away from
+  // the flyout — no other row is crossed that would take the focus on its
+  // own — and the row it belonged to is not left looking chosen.
   await page.mouse.move(at.x, at.y, { steps: 6 })
   await expect(reasoningRow(page)).toHaveAttribute('data-popup-open', '')
-  await page.mouse.move(at.x, 796, { steps: 10 })
-  await page.mouse.move(4, 796, { steps: 10 })
+  await expect(reasoningRow(page)).toBeFocused()
+  const side = await low(page).evaluate((node) => node.closest('[data-side]')?.getAttribute('data-side'))
+  const menu = (await page.locator('[data-slot="dropdown-menu-popup"]').boundingBox())!
+  const away = side === 'right' ? menu.x - 60 : menu.x + menu.width + 60
+  await page.mouse.move(away, at.y, { steps: 16 })
   await expect(low(page)).toBeHidden()
   await expect(reasoningRow(page)).not.toBeFocused()
   await expect(reasoningRow(page)).not.toHaveAttribute('data-highlighted', '')
