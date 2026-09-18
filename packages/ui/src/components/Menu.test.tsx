@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ContextMenu, Menu, MenuItem, MenuToggle, Submenu, dismissOverlays, useContextMenu } from '../design'
+import { ContextMenu, Menu, MenuItem, MenuNote, MenuToggle, Submenu, dismissOverlays, useContextMenu } from '../design'
 
 /**
  * The menu's contract, exercised through the DOM: a row closes the menu or
@@ -36,6 +36,11 @@ const row = (label: string): HTMLButtonElement => {
 const click = (el: Element): void => {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+const frame = async (): Promise<void> => {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(resolve))
   })
 }
 const key = (el: Element, name: string): void => {
@@ -207,6 +212,47 @@ describe('Submenu', () => {
     expect(document.activeElement).toBe(row('More models'))
   })
 
+  it('↓ on its row moves on to the next row and leaves the flyout shut', () => {
+    // ↑ and ↓ belong to the menu the row is in. Base UI cannot find that
+    // menu's orientation — the flyout has no parent in its floating tree —
+    // and took ↓ for a way into the flyout, so no row below could be reached.
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+          <MenuItem label="Manage" onSelect={() => {}} />
+        </Menu>,
+      )
+    })
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Manage'))
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('→ opens it onto its first choice, past the note above it', async () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuNote>How hard the model thinks before answering.</MenuNote>
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+            <MenuItem label="High" selected onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    // The menu settles first — Base UI focuses a level a frame after it opens.
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(row('Low'))
+  })
+
   it('stays open while the pointer leaves its row on the way to it', async () => {
     act(() => {
       root.render(
@@ -283,6 +329,26 @@ describe('ContextMenu', () => {
     // The first row takes focus so the keyboard works at once.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     expect(document.activeElement).toBe(row('Pin'))
+  })
+
+  it('stays open when one of its rows opens a flyout', () => {
+    // The flyout has no parent in Base UI's tree, so its opening reads as a
+    // sibling menu opening, and Base UI asked the context menu to close.
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <ContextMenu at={{ x: 40, y: 50 }} label="Actions" onClose={onClose}>
+          <MenuItem label="Pin" onSelect={() => {}} />
+          <Submenu label="Move to">
+            <MenuItem label="Archive" onSelect={() => {}} />
+          </Submenu>
+        </ContextMenu>,
+      )
+    })
+    click(row('Move to'))
+    expect(row('Move to').getAttribute('aria-expanded')).toBe('true')
+    expect(row('Archive')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('closes on Escape, on a click outside, and when a row is taken', () => {

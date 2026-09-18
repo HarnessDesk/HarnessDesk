@@ -43,6 +43,13 @@ export const useMenuClose = (): (() => void) => useScope().close
 
 const ROW_SELECTOR = '[role^="menuitem"]:not([disabled]),[role="switch"]:not([disabled])'
 
+/** The rows a menu's arrows visit — Base UI's navigation stops on a disabled row too. */
+const LEVEL_ROW = '[role^="menuitem"],[role="switch"]'
+
+/** Where → lands in a flyout: its first row that is on — never a note or a label. */
+const FIRST_ROW =
+  '[role^="menuitem"]:not([disabled]):not([aria-disabled="true"]),[role="switch"]:not([disabled]):not([aria-disabled="true"])'
+
 /**
  * A HarnessDesk menu level. Base UI owns item collection, roving focus,
  * selection, Escape and submenu coordination; this wrapper carries the
@@ -249,7 +256,10 @@ export const Submenu = ({
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
   const row = useRef<HTMLButtonElement>(null)
+  const flyout = useRef<HTMLDivElement>(null)
   const closedBy = useRef<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const stepIn = useRef(false)
   /*
     A level here is a Base UI `Menu.Root` with no `Menu.Trigger` — the
     Popover, or a pointer, opens it — and Base UI 1.7 names a root menu's
@@ -268,15 +278,48 @@ export const Submenu = ({
     If the pointer wandered off without taking another row, the reset the
     row skipped is made once the flyout has gone, so no row stays lit that
     nothing is pointing at.
+
+    The missing parent costs the keys their meaning too. Base UI asks a
+    flyout's parent which way it runs to know which arrow opens the flyout;
+    with no parent to ask it counts both, so ↓ opened the flyout instead of
+    moving on — no row below it could be reached — and → opened it without
+    stepping in. ↑ and ↓ are left to the menu the row is in, and → steps onto
+    the flyout's first row once it has one. Escape from inside the flyout
+    hands focus back to the row before Base UI makes the closing flyout
+    inert: left to fall out of it, focus landed on the Popover's own panel,
+    which takes back focus that drops to the page, and the row was lost.
   */
+  useEffect(() => {
+    if (!open || !stepIn.current) return
+    stepIn.current = false
+    let frame = 0
+    let waited = 0
+    const land = (): void => {
+      const first = flyout.current?.querySelector<HTMLElement>(FIRST_ROW)
+      if (!first) {
+        if (waited++ < 3) frame = requestAnimationFrame(land)
+        return
+      }
+      // A flyout that took the focus itself — a filter field — keeps it.
+      if (document.activeElement === row.current) first.focus({ preventScroll: true })
+    }
+    land()
+    return () => cancelAnimationFrame(frame)
+  }, [open])
   return (
     <DropdownMenuSub
-      onOpenChange={(open, details) => {
-        closedBy.current = open ? null : details.reason
+      onOpenChange={(next, details) => {
+        setOpen(next)
+        closedBy.current = next ? null : details.reason
+        stepIn.current = next && details.reason === 'list-navigation'
+        if (!next && details.reason === 'escape-key') {
+          const element = row.current
+          if (element && document.activeElement !== element) element.focus({ preventScroll: true })
+        }
       }}
-      onOpenChangeComplete={(open) => {
+      onOpenChangeComplete={(opened) => {
         const element = row.current
-        if (open || closedBy.current !== 'trigger-hover' || !element) return
+        if (opened || closedBy.current !== 'trigger-hover' || !element) return
         if (element === document.activeElement && !element.matches(':hover')) {
           element.closest<HTMLElement>('[role="menu"]')?.focus({ preventScroll: true })
         }
@@ -296,6 +339,22 @@ export const Submenu = ({
           if (!event.currentTarget.hasAttribute('data-popup-open')) return
           ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
         }}
+        onKeyDown={(event) => {
+          // ↓ is the menu's key, not a way into the flyout. Base UI's own
+          // handler for it is skipped, and with it — the skip is carried on
+          // the event as it bubbles — the menu's, so the step is taken here:
+          // the next row of this level, round to the first as the menu loops.
+          // ↑ never opened the flyout and is left to the menu.
+          if (event.key !== 'ArrowDown') return
+          ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
+          const level = event.currentTarget.closest<HTMLElement>('[role="menu"]')
+          const rows = level ? [...level.querySelectorAll<HTMLElement>(LEVEL_ROW)] : []
+          const next = rows[(rows.indexOf(event.currentTarget) + 1) % rows.length]
+          if (!next) return
+          event.preventDefault()
+          event.stopPropagation()
+          next.focus()
+        }}
       >
         {icon !== undefined && <span className={styles.icon}>{icon}</span>}
         <span className={styles.body}>
@@ -314,6 +373,7 @@ export const Submenu = ({
           a side and slid into the window, the flyout lies across the row
           itself, and the pointer reaches it without leaving the row. */}
       <DropdownMenuSubContent
+        ref={flyout}
         className={styles.flyout}
         style={width ? { width } : undefined}
         collisionAvoidance={{ fallbackAxisSide: 'none' }}
@@ -403,7 +463,17 @@ export const ContextMenu = ({
   return (
     <DropdownMenu
       open={at !== null}
-      onOpenChange={(open) => { if (!open) onClose() }}
+      onOpenChange={(open, details) => {
+        if (open) return
+        // A flyout opening reads to Base UI as a sibling menu opening — the
+        // flyout has no parent in its tree (see `Submenu`) — and is no
+        // reason for the menu it opened from to close.
+        if (details.reason === 'sibling-open') {
+          details.cancel()
+          return
+        }
+        onClose()
+      }}
       onOpenChangeComplete={(open) => {
         if (open) panel.current?.querySelector<HTMLElement>(ROW_SELECTOR)?.focus({ preventScroll: true })
       }}
