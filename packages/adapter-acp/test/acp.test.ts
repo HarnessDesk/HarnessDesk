@@ -1850,6 +1850,99 @@ test("a conversation on a later page of its agent's listing reopens where it ran
   assert.deepEqual(opened(), [{ method: 'session/load', sessionId: 'third', cwd: thirdAt }])
 })
 
+/**
+ * What a listing answers when the agent pages it.
+ *
+ * Every page, in one answer. It used to read the first page and drop the
+ * agent's cursor, so nothing older was ever listed. Handing the cursor on, as
+ * the Codex adapter does, would reach the older pages only where the
+ * interface follows `nextCursor`: the sidebar does for the agent it pages and
+ * for no other, and the archive reads one page per agent. ACP keeps no
+ * archive, so the host takes archived rows out of each answer itself, and a
+ * conversation archived past the first page would have been in neither list.
+ * Every agent measured so far answers in one page anyway (claude-agent-acp
+ * 0.77.0, the Cursor bridge, OpenCode 1.18.30, Antigravity 1.1.1 with 665
+ * rows).
+ */
+test('a paged listing is listed whole, each conversation once, the draft probe on none of it', async (t) => {
+  // Two rows a page, five conversations: three pages.
+  const { runtime } = await storedAgent(
+    t,
+    (dir) => ({
+      first: { cwd: folderIn(dir, 'first') },
+      second: { cwd: folderIn(dir, 'second') },
+      third: { cwd: folderIn(dir, 'third') },
+      fourth: { cwd: folderIn(dir, 'fourth') },
+      fifth: { cwd: folderIn(dir, 'fifth'), turns: [['on the last page']] },
+    }),
+    { FAKE_ACP_LIST_PAGE: '2' },
+  )
+  // One of them open here, from the last page, and the draft probe beside it.
+  await runtime.resumeSession(sessionId('fifth'))
+  await runtime.defaultSessionOptions()
+
+  const listed = await runtime.listSessions()
+  assert.deepEqual(
+    listed.data.map((row) => [String(row.id), row.title, row.status.type]).sort(),
+    [
+      // Open here, so listed as open — once — under the name its row on the
+      // last page gives it.
+      ['fifth', 'fifth', 'idle'],
+      ['first', 'first', 'notLoaded'],
+      ['fourth', 'fourth', 'notLoaded'],
+      ['second', 'second', 'notLoaded'],
+      ['third', 'third', 'notLoaded'],
+    ],
+  )
+  // Nothing left to ask for.
+  assert.equal(listed.nextCursor, null)
+})
+
+// A bound of its own: `pnpm verify` runs with no test timeout, and a walk that
+// never ends would hang the gate rather than fail it.
+test('a cursor the agent hands back twice ends the walk, and repeats no row', { timeout: 30_000 }, async (t) => {
+  // Every page names itself as the next one: without an end, a listing and a
+  // reopen would ask for it forever.
+  const { runtime } = await storedAgent(
+    t,
+    (dir) => ({
+      first: { cwd: folderIn(dir, 'first') },
+      second: { cwd: folderIn(dir, 'second') },
+      third: { cwd: folderIn(dir, 'third') },
+    }),
+    { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_STUCK: '1' },
+  )
+  assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)).sort(), ['first', 'second'])
+  assert.deepEqual(await reopening(runtime, 'third'), {
+    refused: 'Fake ACP Agent does not list conversation third, so the folder it worked in is not known.',
+    gone: true,
+  })
+})
+
+test('a listing that fails past its first page keeps the pages it read', async (t) => {
+  const { runtime } = await storedAgent(
+    t,
+    (dir) => ({
+      first: { cwd: folderIn(dir, 'first') },
+      second: { cwd: folderIn(dir, 'second') },
+      third: { cwd: folderIn(dir, 'third') },
+    }),
+    { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_FAILS: 'later' },
+  )
+  assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)).sort(), ['first', 'second'])
+})
+
+test('a listing asked for the page after a cursor it never gave answers with nothing', async (t) => {
+  // It hands out no cursor — every page is in its one answer — so a cursor
+  // is another listing's, and the page after the whole list is empty.
+  const { runtime } = await storedAgent(t, (dir) => ({ first: { cwd: folderIn(dir, 'first') } }), {
+    FAKE_ACP_LIST_PAGE: '2',
+  })
+  assert.deepEqual(await runtime.listSessions({ cursor: 'from-somewhere-else' }), { data: [], nextCursor: null })
+  // The control: without one, the conversation is there.
+  assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)), ['first'])
+})
+
 test('an agent that keeps no listing cannot say where a conversation worked, so it is not reopened', async (t) => {
   // Gemini CLI 0.59.0, measured: `loadSession: true`, no `sessionCapabilities`,
   // and `session/list` answered with -32601. It keeps its conversations by

@@ -1519,6 +1519,10 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async listSessions(query?: ListSessionsQuery): Promise<Page<SessionSummary>> {
+    // Every page is in the one answer below, so this listing hands out no
+    // cursor, and one it is given is some other listing's. The page after the
+    // whole list is empty; answering with the first again repeated it.
+    if (query?.cursor) return { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
       .filter((session) => session.id !== this.#probeId)
       .map((session) => session.summary())
@@ -1528,15 +1532,17 @@ export class AcpRuntime implements AgentRuntime {
     // The agent keeps its own store (Claude Code writes ~/.claude/projects);
     // reading through it is what lets a conversation outlive both this
     // process and the agent's — the same rule the Codex adapter follows.
+    //
+    // All of it, every page, where the Codex adapter hands its cursor on. ACP
+    // keeps no archive, so the host takes archived rows out of each answer
+    // itself, and the interface reads one answer in most places: the archive,
+    // and every agent in the sidebar but the one it pages. Answered a page at
+    // a time, a conversation archived past the first page would be in neither.
     try {
       // The workspace travels with the question when the caller has one: an
       // agent that keys its store by folder — Cursor hashes the path — can
       // only answer for a folder it has been given.
-      const listed = await this.#connection.request<{ sessions?: readonly AcpSessionRow[] }>(
-        'session/list',
-        query?.cwd ? { cwd: query.cwd } : {},
-      )
-      const rows = listed.sessions ?? []
+      const rows = await this.#listedRows(query?.cwd)
       // The agent names its own conversations — Claude Code writes a title
       // into the transcript as the turn runs — and that name is what its own
       // window shows. A session open here has no title of its own, so it
@@ -2112,34 +2118,73 @@ export class AcpRuntime implements AgentRuntime {
         `${name} keeps no list of its conversations, so the folder conversation ${id} worked in is not known.`,
       )
     }
+    let row: AcpSessionRow | undefined
+    try {
+      for await (const page of this.#listPages()) {
+        row = page.find((entry) => entry.sessionId === String(id))
+        if (row) break
+      }
+    } catch (error) {
+      // Not gone: a listing that failed this time may not the next.
+      throw new Error(
+        `${name} could not list its conversations (${describeAcp(error)}), so the folder conversation ${id} worked in is not known.`,
+      )
+    }
+    if (!row) {
+      throw new SessionGoneError(`${name} does not list conversation ${id}, so the folder it worked in is not known.`)
+    }
+    // ACP says it is absolute. One that is not would be read — by the folder
+    // check in `resumeSession` and by the agent's own load — against the
+    // working directory both have, which is this process's.
+    if (typeof row.cwd === 'string' && isAbsolute(row.cwd)) return row.cwd
+    throw new SessionGoneError(
+      `${name} lists conversation ${id} as working in ${JSON.stringify(row.cwd ?? '')}, which is not an absolute path.`,
+    )
+  }
+
+  /**
+   * The agent's `session/list`, a page at a time, until it names no next one.
+   *
+   * ACP pages the listing with an opaque cursor. A cursor handed back twice
+   * ends the walk, since it would be asked for forever. A page that fails is
+   * thrown to the caller, which knows what a failure means to it.
+   */
+  async *#listPages(cwd?: string): AsyncGenerator<readonly AcpSessionRow[]> {
     const asked = new Set<string>()
     let cursor: string | null = null
     do {
-      let page: AcpSessionPage
-      try {
-        page = await this.#connection.request<AcpSessionPage>('session/list', cursor === null ? {} : { cursor })
-      } catch (error) {
-        // Not gone: a listing that failed this time may not the next.
-        throw new Error(
-          `${name} could not list its conversations (${describeAcp(error)}), so the folder conversation ${id} worked in is not known.`,
-        )
-      }
-      const row = (page.sessions ?? []).find((entry) => entry.sessionId === String(id))
-      if (row) {
-        // ACP says it is absolute. One that is not would be read — by the
-        // folder check below and by the agent's own load — against the working
-        // directory both have, which is this process's.
-        if (typeof row.cwd === 'string' && isAbsolute(row.cwd)) return row.cwd
-        throw new SessionGoneError(
-          `${name} lists conversation ${id} as working in ${JSON.stringify(row.cwd ?? '')}, which is not an absolute path.`,
-        )
-      }
+      const page: AcpSessionPage = await this.#connection.request<AcpSessionPage>('session/list', {
+        ...(cwd ? { cwd } : {}),
+        ...(cursor === null ? {} : { cursor }),
+      })
+      yield page.sessions ?? []
       cursor = typeof page.nextCursor === 'string' && page.nextCursor !== '' ? page.nextCursor : null
-      // A cursor handed back twice would be asked for forever.
-      if (cursor !== null && asked.has(cursor)) break
-      if (cursor !== null) asked.add(cursor)
+      if (cursor !== null) {
+        if (asked.has(cursor)) return
+        asked.add(cursor)
+      }
     } while (cursor !== null)
-    throw new SessionGoneError(`${name} does not list conversation ${id}, so the folder it worked in is not known.`)
+  }
+
+  /**
+   * Every row of every page, each once: a listing that moved while it was
+   * read can put a row on two pages. A page that fails ends the walk with the
+   * rows read before it, which are still the agent's answer.
+   */
+  async #listedRows(cwd?: string): Promise<AcpSessionRow[]> {
+    const rows = new Map<string, AcpSessionRow>()
+    try {
+      for await (const page of this.#listPages(cwd)) {
+        for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
+      }
+    } catch (error) {
+      this.#config.logger?.debug?.('the listing ended at a page that failed', {
+        agent: this.#config.id,
+        read: rows.size,
+        error: describeAcp(error),
+      })
+    }
+    return [...rows.values()]
   }
 
   async forkSession(): Promise<AgentSession> {

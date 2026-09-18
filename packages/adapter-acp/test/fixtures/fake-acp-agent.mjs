@@ -35,10 +35,13 @@ const STORE = process.env.FAKE_ACP_STORE ?? null
  *    Cursor's lists only the workspaces it has been shown.
  *  - FAKE_ACP_LIST_PAGE=<n> answers n rows a page and a `nextCursor` for the
  *    rest, as ACP's `session/list` allows, so a row past the first page is
- *    found only by asking for the next.
+ *    found only by asking for the next. With FAKE_ACP_LIST_STUCK=1 every page
+ *    hands back its own cursor as the next one, which is the loop a client
+ *    walking the pages has to notice.
  *  - FAKE_ACP_NO_LIST=1 declares `loadSession` and no listing, and answers
  *    `session/list` as Gemini CLI 0.59.0 does: -32601, "Method not found".
- *  - FAKE_ACP_LIST_FAILS=1 declares a listing and fails every call to it.
+ *  - FAKE_ACP_LIST_FAILS=1 declares a listing and fails every call to it;
+ *    `later` answers the first page and fails every one after it.
  * FAKE_ACP_UNLOADABLE=<id> is the other way round: listed, and refused when
  * it is loaded, with the reason in `data` the way Claude Code gives one.
  * FAKE_ACP_OPENS=<file> records every session it is asked to open, new or
@@ -950,7 +953,7 @@ const handlers = {
         error: { code: -32601, message: '"Method not found": session/list', data: { method: 'session/list' } },
       })
     }
-    if (process.env.FAKE_ACP_LIST_FAILS === '1') {
+    if (process.env.FAKE_ACP_LIST_FAILS === '1' || (process.env.FAKE_ACP_LIST_FAILS === 'later' && params?.cursor != null)) {
       return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the index is locked' } } })
     }
     const rows = Object.values(readStore())
@@ -964,7 +967,9 @@ const handlers = {
     if (!(LIST_PAGE > 0)) return reply(id, { sessions: rows })
     const from = Number(params?.cursor ?? 0)
     const rest = from + LIST_PAGE < rows.length
-    reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(rest ? { nextCursor: String(from + LIST_PAGE) } : {}) })
+    // Stuck, every page names itself as the next one.
+    const next = process.env.FAKE_ACP_LIST_STUCK === '1' ? String(from) : rest ? String(from + LIST_PAGE) : null
+    reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(next !== null ? { nextCursor: next } : {}) })
   },
   'session/load': (id, params) => {
     recordOpen('session/load', params.sessionId, params.cwd)
