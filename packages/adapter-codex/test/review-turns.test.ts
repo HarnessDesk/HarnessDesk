@@ -104,15 +104,38 @@ test('a review on one thread leaves the others alone', () => {
   assert.deepEqual(turns.see(elsewhere), [elsewhere])
 })
 
-test("a review is stopped by naming the reviewer's turn, once Codex has started one", () => {
+test("a review is stopped by naming the reviewer's turn, or before there is one, no turn at all", () => {
   const turns = new ReviewTurns()
   assert.equal(turns.interruptible(T, 't1'), 't1', 'an ordinary turn is its own')
   run(turns, [entered('r1')])
-  assert.equal(turns.interruptible(T, 'r1'), 'r1', 'no reviewer yet: nothing better to name')
+  assert.equal(turns.interruptible(T, 'r1'), '', "no reviewer yet: Codex's stop that names no turn")
   run(turns, [started('reviewer')])
   assert.equal(turns.interruptible(T, 'r1'), 'reviewer')
   run(turns, [completed('r1')])
   assert.equal(turns.interruptible(T, 'r1'), 'r1', 'over')
+})
+
+test("a reviewer that starts before the review's first item is the reviewer all the same, and ends with it", () => {
+  const turns = new ReviewTurns()
+  const told = run(turns, [started('reviewer'), entered('r1'), said('r1', 'withheld'), exited('r1'), said('r1', 'findings')])
+  assert.equal(turns.interruptible(T, 'r1'), 'reviewer')
+  told.push(...run(turns, [completed('r1')]))
+  assert.deepEqual(told, [
+    'turn/started reviewer',
+    'turn/started r1',
+    'item/started enteredReviewMode r1',
+    'item/completed exitedReviewMode r1',
+    'item/started agentMessage r1',
+    'turn/completed r1',
+    'turn/completed reviewer',
+  ])
+})
+
+test('a reviewer told as a turn ends when the thread stops working, if that comes first', () => {
+  const turns = new ReviewTurns()
+  run(turns, [started('reviewer'), entered('r1')])
+  const idle: Notification = { method: 'thread/status/changed', params: { threadId: T, status: { type: 'idle' } } }
+  assert.deepEqual(run(turns, [idle, completed('r1')]), ['thread/status/changed', 'turn/completed reviewer', 'turn/completed r1'])
 })
 
 test('a thread let go of and opened again has no review left open on it', () => {

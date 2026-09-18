@@ -73,6 +73,7 @@ const state: ThreadState = {
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
   permissions: ':workspace',
+  sandbox: null,
   serviceTier: null,
   mode: 'default',
 }
@@ -262,6 +263,7 @@ test('a settings notification replaces the state wholesale, keeping only the roo
     approvalPolicy: 'never',
     approvalsReviewer: 'guardian_subagent',
     permissions: ':read-only',
+    sandbox: null,
     serviceTier: 'priority',
     mode: 'plan',
   })
@@ -406,4 +408,32 @@ test('a thread set up like another starts with every setting thread/start takes,
     approvalsReviewer: 'guardian_subagent',
     permissions: 'ci',
   })
+})
+
+test('a thread its configuration set a sandbox for is started on that sandbox, not on the profile named after it', () => {
+  // Measured on 0.145.0 and 0.155.0: under sandbox_mode workspace-write with
+  // network access and a writable root, a thread started on :workspace has
+  // neither, and one started on sandbox workspace-write has both.
+  const configured = stateFromStartResponse({
+    cwd: '/w',
+    runtimeWorkspaceRoots: ['/w'],
+    model: 'gpt-5.5',
+    modelProvider: 'openai',
+    serviceTier: null,
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
+    sandbox: { type: 'workspaceWrite', writableRoots: ['/extra'], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+    activePermissionProfile: null,
+    reasoningEffort: null,
+  })
+  assert.equal(configured.permissions, ':workspace', 'the control still names the matching profile')
+  const like = startParamsLike(configured)
+  assert.equal(like.sandbox, 'workspace-write')
+  assert.equal('permissions' in like, false, 'thread/start refuses permissions beside a sandbox')
+
+  // A profile chosen since is a profile.
+  assert.equal(startParamsLike(overlayDraftValues(configured, { permissions: ':read-only' }, catalog)).permissions, ':read-only')
+  // A sandbox with no legacy mode is left to the configuration that set it.
+  const external = startParamsLike({ ...configured, sandbox: 'external' })
+  assert.equal('sandbox' in external || 'permissions' in external, false)
 })

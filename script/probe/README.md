@@ -99,7 +99,7 @@ node script/probe/review-side-thread.mjs --codex <path to codex>
 
 Every check is a call the Codex adapter makes, or something it relies on, so
 running it against the oldest supported Codex (`MINIMUM_CODEX_VERSION`, 0.145.0)
-and the newest says whether both take the route. Expect `15/15 checks passed`.
+and the newest says whether both take the route. Expect `17/17 checks passed`.
 Measured on 0.145.0 and 0.155.0:
 
 - the review's items and its `turn/completed` carry the turn `review/start`
@@ -108,9 +108,15 @@ Measured on 0.145.0 and 0.155.0:
   item — which is why the adapter opens a review's turn itself
   (`packages/adapter-codex/src/review-turns.ts`);
 - `turn/interrupt` naming the review's own turn is refused ("expected active
-  turn id … but found …"); naming the reviewer's stops the review, which then
-  ends under its own turn, `interrupted`;
-- a thread with no turn is not listed, named or not.
+  turn id … but found …"); naming the reviewer's stops the review, and so,
+  before the reviewer has started, does a stop naming no turn at all (`turnId:
+  ""`, Codex's "startup interrupt"); either way the review ends under its own
+  turn, `interrupted`;
+- a thread with no turn is not listed, named or not;
+- a thread whose sandbox came from `config.toml`, with no profile active, is
+  reproduced by starting another on that `sandbox` mode — network access and
+  writable roots included — and not by the profile named after the mode,
+  which drops both (the adapter's `ThreadState.sandbox`).
 
 The last lines are the control, a detached review on the same app-server:
 0.145.0 takes it silently; 0.155.0 sends the `deprecationNotice` and then

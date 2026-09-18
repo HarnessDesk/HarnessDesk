@@ -182,6 +182,43 @@ test('a review can be stopped, and ends as a stopped turn', async (t) => {
   )
 })
 
+test('a review stopped before its reviewer has started is stopped all the same', async (t) => {
+  // Codex holds a turn it never reports until the reviewer starts, so the
+  // stop names no turn at all — measured to stop the review on both versions.
+  const { runtime, events, until } = await start(t, { FAKE_CODEX_REVIEW_MS: '60000', FAKE_CODEX_REVIEWER_MS: '60000' })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const side = await session.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+  await until(() => about(events, side).some((event) => event.type === 'turn/started'), 'the review to start')
+  await side.interrupt()
+  await until(() => about(events, side).some((event) => event.type === 'turn/completed'), 'the review to end')
+  const completed = about(events, side).find((event) => event.type === 'turn/completed')
+  assert.ok(completed?.type === 'turn/completed' && completed.turn.status === 'interrupted')
+})
+
+test('a reviewer that starts first is still the reviewer, and nothing is left working', async (t) => {
+  const { runtime, events, until } = await start(t, { FAKE_CODEX_REVIEWER_FIRST: '1' })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const side = await session.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+  await until(
+    () => about(events, side).filter((event) => event.type === 'turn/completed').length === 2,
+    'the review, and the turn its reviewer was told as, to end',
+  )
+  const told = about(events, side)
+  const opened = told.find((event) => event.type === 'session/started')
+  assert.ok(opened?.type === 'session/started')
+  const folded: Session = reduceAll(opened.session, told)
+  assert.deepEqual(
+    folded.turns.map((turn) => [String(turn.id), turn.status, turn.items.length > 0]),
+    [
+      ['reviewer-turn-1', 'completed', false],
+      ['review-turn-1', 'completed', true],
+    ],
+  )
+  assert.deepEqual((await runtime.listSessions()).data.find((row) => row.id === side.id)?.status, { type: 'idle' })
+})
+
 test('a review thread closed mid-review and opened again takes its next turn', async (t) => {
   // Closed, this desk stops hearing the thread, and never hears the review
   // end; the next turn must not be taken for the reviewer's.
@@ -250,6 +287,23 @@ test('the first message sent in a review thread does not rename it', async (t) =
   await until(() => notices(events).includes('MEMORY enabled'), 'the memory switch')
   const titles = about(events, side).flatMap((event) => (event.type === 'session/title' ? [event.title] : []))
   assert.deepEqual(titles, ['Review of uncommitted changes'])
+})
+
+test('a side thread keeps the sandbox its configuration gave the conversation, not the profile named after it', async (t) => {
+  // No profile chosen: Codex reports only the configuration's sandbox, and a
+  // thread started on :workspace instead would lose its network access and
+  // writable roots (measured on 0.145.0 and 0.155.0).
+  const { runtime, events, until } = await start(t, { FAKE_CODEX_ECHO_STARTS: '1' })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const side = await session.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+  await until(() => notices(events).filter((message) => message.startsWith('STARTED')).length === 2, 'both starts')
+  const [, sideStart] = notices(events)
+    .filter((message) => message.startsWith('STARTED'))
+    .map((message) => JSON.parse(message.slice('STARTED '.length)) as Record<string, unknown>)
+  assert.equal(sideStart?.['sandbox'], 'workspace-write')
+  assert.equal(sideStart?.['permissions'], undefined)
+  assert.equal(values(side)['permissions'], values(session)['permissions'])
 })
 
 test('a side thread keeps the model route its conversation was opened on', async (t) => {

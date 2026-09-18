@@ -65,6 +65,16 @@ export interface ThreadState {
   readonly approvalsReviewer: ApprovalsReviewer
   /** The active profile id, derived from the legacy sandbox field when Codex reports none. */
   readonly permissions: string
+  /**
+   * The legacy sandbox behind `permissions` when Codex reports no active
+   * profile, only a sandbox — a thread its configuration's `sandbox_mode` set
+   * up. `permissions` then names the built-in profile matching it, which is
+   * not the same thing: a thread started on that profile loses the
+   * configuration's network access and writable roots (measured on 0.145.0
+   * and 0.155.0). `external` for a sandbox with no legacy mode; null while a
+   * profile is active.
+   */
+  readonly sandbox: CodexProtocol.v2.SandboxMode | 'external' | null
   readonly serviceTier: string | null
   readonly mode: CodexProtocol.ModeKind
 }
@@ -97,6 +107,7 @@ export const stateFromStartResponse = (response: StartLike): ThreadState => ({
   approvalPolicy: response.approvalPolicy,
   approvalsReviewer: response.approvalsReviewer,
   permissions: response.activePermissionProfile?.id ?? profileForSandbox(response.sandbox),
+  sandbox: response.activePermissionProfile ? null : legacySandbox(response.sandbox),
   serviceTier: response.serviceTier,
   mode: 'default',
 })
@@ -113,6 +124,7 @@ export const stateFromThreadSettings = (
   approvalPolicy: settings.approvalPolicy,
   approvalsReviewer: settings.approvalsReviewer,
   permissions: settings.activePermissionProfile?.id ?? profileForSandbox(settings.sandboxPolicy),
+  sandbox: settings.activePermissionProfile ? null : legacySandbox(settings.sandboxPolicy),
   serviceTier: settings.serviceTier,
   mode: settings.collaborationMode.mode,
 })
@@ -157,6 +169,7 @@ export const stateFromConfig = (
     approvalPolicy: config.approval_policy ?? 'on-request',
     approvalsReviewer: config.approvals_reviewer ?? 'user',
     permissions: profileForSandbox(sandbox),
+    sandbox: legacySandbox(sandbox),
     serviceTier: config.service_tier ?? model?.defaultServiceTier ?? null,
     mode: 'default',
   }
@@ -221,7 +234,7 @@ export const overlayDraftValues = (
         next = { ...next, mode: text as CodexProtocol.ModeKind }
         break
       case 'permissions':
-        next = { ...next, permissions: text }
+        next = { ...next, permissions: text, sandbox: null }
         break
       case 'approvals':
         next = { ...next, approvalPolicy: text as Exclude<AskForApproval, object> }
@@ -257,6 +270,20 @@ const profileForSandbox = (sandbox: CodexProtocol.v2.SandboxPolicy): string => {
       return ':danger-full-access'
     default:
       return ':workspace'
+  }
+}
+
+/** The legacy sandbox mode a policy is, for a thread with no profile active. */
+const legacySandbox = (sandbox: CodexProtocol.v2.SandboxPolicy): CodexProtocol.v2.SandboxMode | 'external' => {
+  switch (sandbox.type) {
+    case 'readOnly':
+      return 'read-only'
+    case 'dangerFullAccess':
+      return 'danger-full-access'
+    case 'workspaceWrite':
+      return 'workspace-write'
+    case 'externalSandbox':
+      return 'external'
   }
 }
 
@@ -607,6 +634,7 @@ export type LikeParams = Pick<
   | 'approvalPolicy'
   | 'approvalsReviewer'
   | 'permissions'
+  | 'sandbox'
 > & { readonly cwd: string }
 
 /**
@@ -616,9 +644,12 @@ export type LikeParams = Pick<
  * the one the person is looking at.
  *
  * Codex's own values, passed back as they came: a custom approval policy is
- * an object no option can spell, and a null tier is the standard one. Effort
- * and mode have no field on the verb and are not here; they follow as
- * settings updates.
+ * an object no option can spell, and a null tier is the standard one. Who
+ * may do what is the profile when one is active, and otherwise the legacy
+ * sandbox mode the configuration gave — never the profile named after that
+ * mode, which is a narrower sandbox (`ThreadState.sandbox`); a sandbox with
+ * no mode is left to the configuration that set it. Effort and mode have no
+ * field on the verb and are not here; they follow as settings updates.
  */
 export const startParamsLike = (state: ThreadState): LikeParams => ({
   cwd: state.cwd,
@@ -628,7 +659,11 @@ export const startParamsLike = (state: ThreadState): LikeParams => ({
   serviceTier: state.serviceTier,
   approvalPolicy: state.approvalPolicy,
   approvalsReviewer: state.approvalsReviewer,
-  permissions: state.permissions,
+  ...(state.sandbox === null
+    ? { permissions: state.permissions }
+    : state.sandbox === 'external'
+      ? {}
+      : { sandbox: state.sandbox }),
 })
 
 // ------------------------------------------------------- runtime-wide options

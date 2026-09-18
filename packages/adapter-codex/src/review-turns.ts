@@ -24,22 +24,34 @@ type Notification = CodexProtocol.ServerNotification
  * `turn/started` on the thread is the reviewer's and goes no further, and so
  * does an `agentMessage` started before the review is over.
  *
- * The reviewer's turn is kept all the same, because it is the one Codex holds
- * as running: `turn/interrupt` naming the review's own turn is refused
- * ("expected active turn id … but found …"), and naming the reviewer's stops
- * the review, which then ends under its own turn — measured on both versions
- * by the same probe. `interruptible` says which to name.
+ * Nothing here depends on the reviewer starting after that first item, though
+ * both versions send them in that order. A turn Codex announced and never
+ * ended is, once a review opens over it, the reviewer's — it is told as ended
+ * when the review is, so it cannot spin in the transcript for good.
+ *
+ * The reviewer's turn is kept, because it is the one Codex holds as running:
+ * `turn/interrupt` naming the review's own turn is refused ("expected active
+ * turn id … but found …"), naming the reviewer's stops the review, and before
+ * the reviewer has started, a stop that names no turn at all — Codex's own
+ * "startup interrupt" — stops it too. Each ends the review under its own
+ * turn, `interrupted`; measured on both versions by the same probe.
+ * `interruptible` says which to send.
  */
 export class ReviewTurns {
   /**
-   * Per thread, the review running on it: its turn, the reviewer's turn once
-   * Codex has announced it, and whether the findings are in.
+   * Per thread, the review running on it: its turn; the reviewer's turn, once
+   * Codex has announced it; the reviewer's turn when it was announced before
+   * the review opened, and so was told as a turn of its own; and whether the
+   * findings are in.
    */
-  readonly #open = new Map<string, { readonly turnId: string; reviewer: string | null; exited: boolean }>()
-  /** Per thread, the last turn Codex announced itself, so a review it did announce is not opened twice. */
-  readonly #started = new Map<string, string>()
+  readonly #open = new Map<
+    string,
+    { readonly turnId: string; reviewer: string | null; readonly early: string | null; exited: boolean }
+  >()
+  /** Per thread, the turn Codex announced and has not ended. */
+  readonly #running = new Map<string, string>()
 
-  /** What to handle in place of `notification`: nothing, itself, or its turn's start and then itself. */
+  /** What to handle in place of `notification`: nothing, itself, or that with what it opens or closes. */
   see(notification: Notification): Notification[] {
     switch (notification.method) {
       case 'turn/started': {
@@ -49,7 +61,7 @@ export class ReviewTurns {
           open.reviewer = turn.id
           return []
         }
-        this.#started.set(threadId, turn.id)
+        this.#running.set(threadId, turn.id)
         return [notification]
       }
       case 'item/started': {
@@ -57,9 +69,15 @@ export class ReviewTurns {
         const open = this.#open.get(threadId)
         if (open?.turnId === turnId && !open.exited && item.type === 'agentMessage') return []
         if (item.type !== 'enteredReviewMode' || open?.turnId === turnId) return [notification]
-        this.#open.set(threadId, { turnId, reviewer: null, exited: false })
-        if (this.#started.get(threadId) === turnId) return [notification]
-        this.#started.set(threadId, turnId)
+        const running = this.#running.get(threadId) ?? null
+        // Announced by Codex itself: the review's own turn, already told.
+        if (running === turnId) {
+          this.#open.set(threadId, { turnId, reviewer: null, early: null, exited: false })
+          return [notification]
+        }
+        // Another turn still running is the reviewer's, started first.
+        this.#open.set(threadId, { turnId, reviewer: running, early: running, exited: false })
+        this.#running.set(threadId, turnId)
         const opened: Notification = {
           method: 'turn/started',
           params: {
@@ -84,29 +102,60 @@ export class ReviewTurns {
         if (open?.turnId === turnId && item.type === 'exitedReviewMode') open.exited = true
         return [notification]
       }
-      case 'turn/completed':
-        if (this.#open.get(notification.params.threadId)?.turnId === notification.params.turn.id) {
-          this.#open.delete(notification.params.threadId)
-        }
-        return [notification]
-      case 'thread/status/changed':
-        // A thread that is not working has no review running on it, however
-        // its turn ended — the fallback for a completion never seen.
-        if (notification.params.status.type !== 'active') this.#open.delete(notification.params.threadId)
-        return [notification]
+      case 'turn/completed': {
+        const { threadId, turn } = notification.params
+        if (this.#running.get(threadId) === turn.id) this.#running.delete(threadId)
+        return this.#open.get(threadId)?.turnId === turn.id
+          ? [notification, ...this.#close(threadId)]
+          : [notification]
+      }
+      case 'thread/status/changed': {
+        // A thread that is not working has no review, and no turn, running on
+        // it, however they ended — the fallback for a completion never seen.
+        const { threadId, status } = notification.params
+        if (status.type === 'active') return [notification]
+        this.#running.delete(threadId)
+        return [notification, ...this.#close(threadId)]
+      }
       default:
         return [notification]
     }
   }
 
+  /** Ends the review on `threadId`, and with it a reviewer turn that was told as a turn. */
+  #close(threadId: string): Notification[] {
+    const open = this.#open.get(threadId)
+    this.#open.delete(threadId)
+    if (!open?.early) return []
+    return [
+      {
+        method: 'turn/completed',
+        params: {
+          threadId,
+          turn: {
+            id: open.early,
+            items: [],
+            itemsView: 'notLoaded',
+            status: 'completed',
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            durationMs: null,
+          },
+        },
+      },
+    ]
+  }
+
   /**
-   * The turn `turn/interrupt` has to name to stop `turnId` on `threadId`:
-   * the reviewer's, while `turnId` is a review whose reviewer has started,
-   * and `turnId` itself otherwise.
+   * What `turn/interrupt` has to name to stop `turnId` on `threadId`: the
+   * reviewer's turn while `turnId` is a review whose reviewer has started, no
+   * turn at all (`''`) while it is one whose reviewer has not, and `turnId`
+   * itself otherwise.
    */
   interruptible(threadId: string, turnId: string): string {
     const open = this.#open.get(threadId)
-    return open?.turnId === turnId && open.reviewer !== null ? open.reviewer : turnId
+    return open?.turnId === turnId ? (open.reviewer ?? '') : turnId
   }
 
   /**
@@ -116,12 +165,12 @@ export class ReviewTurns {
    */
   forget(threadId: string): void {
     this.#open.delete(threadId)
-    this.#started.delete(threadId)
+    this.#running.delete(threadId)
   }
 
   /** Forgets every thread: the app-server they ran on is gone. */
   clear(): void {
     this.#open.clear()
-    this.#started.clear()
+    this.#running.clear()
   }
 }

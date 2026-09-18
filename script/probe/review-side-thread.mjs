@@ -108,6 +108,13 @@ writeFileSync(
     'model = "probe-model"',
     'model_provider = "probe"',
     'approval_policy = "never"',
+    // A sandbox the configuration sets, with more than the profile named
+    // after it gives: check 7 is whether a side thread keeps it.
+    'sandbox_mode = "workspace-write"',
+    '',
+    '[sandbox_workspace_write]',
+    'network_access = true',
+    `writable_roots = [${JSON.stringify(join(root, 'extra'))}]`,
     '',
     '[model_providers.probe]',
     'name = "Probe"',
@@ -347,7 +354,49 @@ try {
     for (const m of since(mark).filter((m) => m.params?.threadId === stoppedId)) console.log(`shape ${JSON.stringify(m)}`)
   }
 
-  // 7. The control: detached delivery on the same app-server.
+  //    Before the reviewer has started there is no turn to name; a stop naming
+  //    none is Codex's "startup interrupt", which checks nothing.
+  holdReviewMs = 10_000
+  const unstarted = await request('thread/start', { cwd: repo, permissions: ':read-only' })
+  const earlyId = unstarted.thread.id
+  mark = heard.length
+  const earlyReview = await request('review/start', {
+    threadId: earlyId,
+    target: { type: 'uncommittedChanges' },
+    delivery: 'inline',
+  })
+  const reviewerSeen = since(mark).some((m) => m.method === 'turn/started' && m.params.threadId === earlyId)
+  const byNothing = await request('turn/interrupt', { threadId: earlyId, turnId: '' }).then(
+    () => 'accepted',
+    (error) => `refused: ${error.message}`,
+  )
+  const earlyEnd = await until((m) => m.method === 'turn/completed' && m.params.threadId === earlyId, 20_000).catch(
+    () => null,
+  )
+  holdReviewMs = 0
+  check(
+    'a stop naming no turn stops a review',
+    byNothing === 'accepted' && earlyEnd?.params.turn.id === earlyReview.turn.id && earlyEnd?.params.turn.status === 'interrupted',
+    `${byNothing}; the reviewer had ${reviewerSeen ? '' : 'not '}started when it was sent`,
+  )
+
+  // 7. A sandbox the configuration set, with no profile active: started
+  //    again on its mode it is the same sandbox; on the profile named after
+  //    it, it is not (the adapter's ThreadState.sandbox).
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+  const configured = await request('thread/start', { cwd: repo })
+  const byMode = await request('thread/start', { cwd: repo, sandbox: 'workspace-write' })
+  const byProfile = await request('thread/start', { cwd: repo, permissions: ':workspace' })
+  check(
+    'a sandbox the configuration set is started again on its mode',
+    configured.activePermissionProfile === null && same(byMode.sandbox, configured.sandbox),
+    `network ${configured.sandbox.networkAccess}, ${configured.sandbox.writableRoots?.length ?? 0} writable root(s)`,
+  )
+  console.log(
+    `info  control: on the profile named after it — ${same(byProfile.sandbox, configured.sandbox) ? 'the same sandbox' : `network ${byProfile.sandbox.networkAccess}, ${byProfile.sandbox.writableRoots?.length ?? 0} writable root(s)`}`,
+  )
+
+  // 8. The control: detached delivery on the same app-server.
   mark = heard.length
   const detached = await request('review/start', {
     threadId: parentId,

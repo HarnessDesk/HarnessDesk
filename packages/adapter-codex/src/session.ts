@@ -679,7 +679,7 @@ const applyUpdate = (
   ...(update.effort !== undefined ? { effort: update.effort } : {}),
   ...(update.approvalPolicy != null ? { approvalPolicy: update.approvalPolicy } : {}),
   ...(update.approvalsReviewer != null ? { approvalsReviewer: update.approvalsReviewer } : {}),
-  ...(update.permissions != null ? { permissions: update.permissions } : {}),
+  ...(update.permissions != null ? { permissions: update.permissions, sandbox: null } : {}),
   ...(update.serviceTier !== undefined ? { serviceTier: update.serviceTier } : {}),
   ...(update.collaborationMode
     ? {

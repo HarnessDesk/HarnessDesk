@@ -505,7 +505,10 @@ const startBackground = (command, { fails = false } = {}) => {
  * FAKE_CODEX_REVIEW_MS holds the review open that long before its findings,
  * for a caller that has to see it working, or stop it; 20 ms otherwise.
  * Stopping one is Codex's way too: `turn/interrupt` has to name the
- * reviewer's turn, not the review's (`stopReview`).
+ * reviewer's turn, or no turn at all, never the review's (`stopReview`).
+ * FAKE_CODEX_REVIEWER_MS holds back the reviewer's `turn/started` that long,
+ * and FAKE_CODEX_REVIEWER_FIRST=1 sends it before the review's first item —
+ * neither is what either Codex does, and the adapter must not care.
  */
 let reviews = 0
 /** Per thread, the review running on it: its turn, the reviewer's, and the timer that ends it. */
@@ -533,15 +536,24 @@ const playReview = (id, params) => {
       reviewThreadId: threadId,
     },
   })
+  const startedAtMs = nowMs()
+  const review = { turnId, reviewerTurnId, reviewerStarted: false, reviewerTimer: null, timer: null, reviews, startedAtMs }
+  const reviewerStarts = () => {
+    review.reviewerStarted = true
+    notify('turn/started', {
+      threadId,
+      turn: { id: reviewerTurnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: null, durationMs: null },
+    })
+  }
+  const first = process.env['FAKE_CODEX_REVIEWER_FIRST'] === '1'
+  if (first) reviewerStarts()
   const entered = { type: 'enteredReviewMode', id: `entered-${reviews}`, review: hint }
   on('item/started', entered, { startedAtMs: nowMs() })
   on('item/completed', entered, { completedAtMs: nowMs() })
   notify('thread/status/changed', { threadId, status: { type: 'active', activeFlags: [] } })
-  const startedAtMs = nowMs()
-  notify('turn/started', {
-    threadId,
-    turn: { id: reviewerTurnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: null, durationMs: null },
-  })
+  const lag = Number(process.env['FAKE_CODEX_REVIEWER_MS'] ?? 0)
+  if (!first && lag > 0) review.reviewerTimer = setTimeout(reviewerStarts, lag)
+  else if (!first) reviewerStarts()
   const asked = {
     type: 'userMessage',
     id: `asked-${reviews}`,
@@ -551,8 +563,9 @@ const playReview = (id, params) => {
   on('item/started', asked, { startedAtMs: nowMs() })
   on('item/completed', asked, { completedAtMs: nowMs() })
   on('item/started', { type: 'agentMessage', id: `withheld-${reviews}`, text: '', phase: null, memoryCitation: null, delivery: null, questions: null }, { startedAtMs: nowMs() })
-  const timer = setTimeout(() => {
+  review.timer = setTimeout(() => {
     runningReviews.delete(threadId)
+    clearTimeout(review.reviewerTimer)
     const findings = 'One cosmetic finding.\n\nReview comment:\n\n- [P2] Greeting lost its punctuation — README.md:1-1\n  The edit drops the full stop the other lines keep.'
     const exited = { type: 'exitedReviewMode', id: `exited-${reviews}`, review: findings }
     on('item/started', exited, { startedAtMs: nowMs() })
@@ -567,21 +580,25 @@ const playReview = (id, params) => {
       turn: { id: turnId, items: [answer], itemsView: 'summary', status: 'completed', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - startedAtMs },
     })
   }, Number(process.env['FAKE_CODEX_REVIEW_MS'] ?? 20))
-  runningReviews.set(threadId, { turnId, reviewerTurnId, timer, reviews, startedAtMs })
+  runningReviews.set(threadId, review)
 }
 
 /**
  * `turn/interrupt` on a thread with a review running, measured on 0.145.0
- * and 0.155.0: Codex checks the turn against the one it holds as running,
- * which is the reviewer's, and the stopped review then ends under its own.
+ * and 0.155.0: Codex checks a named turn against the one it holds as
+ * running — the reviewer's, or before that one it never reports — while a
+ * stop naming no turn is its "startup interrupt" and is not checked. The
+ * stopped review then ends under its own turn.
  */
 const stopReview = (id, params) => {
   const review = runningReviews.get(params.threadId)
-  if (params.turnId !== review.reviewerTurnId) {
-    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${review.reviewerTurnId}` } })
+  if (params.turnId !== '' && !(review.reviewerStarted && params.turnId === review.reviewerTurnId)) {
+    const held = review.reviewerStarted ? review.reviewerTurnId : 'an unreported review turn'
+    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${held}` } })
     return
   }
   clearTimeout(review.timer)
+  clearTimeout(review.reviewerTimer)
   runningReviews.delete(params.threadId)
   send({ id, result: {} })
   const on = (method, item, at) => notify(method, { threadId: params.threadId, turnId: review.turnId, item, ...at })
