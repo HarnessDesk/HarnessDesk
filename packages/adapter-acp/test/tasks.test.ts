@@ -138,7 +138,7 @@ test('the wait for a turn to close holds while the turn is open, and names it wh
   await runtime.start()
   const session = await runtime.createSession({ cwd: '/tmp/acp-tasks' })
   const sent = await session.send([{ type: 'text', text: 'slow' }])
-  await assert.rejects(closed(runtime, session.id, sent, 200), /never closed; it is inProgress/)
+  await assert.rejects(closed(runtime, session.id, sent, 200), { message: `turn ${sent} never closed; it is inProgress` })
   await session.interrupt()
   assert.equal((await closed(runtime, session.id, sent)).status, 'interrupted')
 })
