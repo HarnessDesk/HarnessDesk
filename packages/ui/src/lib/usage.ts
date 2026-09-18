@@ -481,6 +481,10 @@ export interface RunwaySummary {
   readonly detail: string
 }
 
+/** Whether a report carries a balance a person could read — a finite one. */
+const hasBalance = (report: UsageReport): boolean =>
+  typeof report.credits?.remaining === 'number' && Number.isFinite(report.credits.remaining)
+
 /**
  * The one line above the cards.
  *
@@ -493,7 +497,10 @@ export const runway = (
   nameFor: (report: UsageReport) => string,
   now: number,
 ): RunwaySummary => {
-  const metered = reports.filter((report) => bindingLane(report.lanes) !== null)
+  // A prepaid balance is usage reported as much as a window is: Amp's and
+  // Cline's accounts have nothing else, and one of them at zero cannot run a
+  // turn, which this line exists to say before anyone reads a card.
+  const metered = reports.filter((report) => bindingLane(report.lanes) !== null || hasBalance(report))
   // Figures for another sign-in (`unverified`) never count as an agent's own,
   // here or anywhere; they are only named, so the line above a card full of
   // them does not read as a contradiction of it.
@@ -513,9 +520,10 @@ export const runway = (
     .filter((at): at is number => at !== null && at > now)
   const nextReturn = returns.length > 0 ? Math.min(...returns) : null
 
+  const only = exhausted[0]
   const headline =
-    exhausted.length === 1
-      ? `${nameFor(exhausted[0] as UsageReport)} is out of quota.`
+    exhausted.length === 1 && only
+      ? `${nameFor(only)} is out of ${bindingLane(only.lanes) === null && hasBalance(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
         ? `${exhausted.length} agents are out of quota.`
         : low.length === 1

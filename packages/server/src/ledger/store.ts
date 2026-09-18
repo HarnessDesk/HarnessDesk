@@ -6,9 +6,11 @@ import { DatabaseSync } from 'node:sqlite'
  * The ledger's store.
  *
  * `node:sqlite` ships with the runtime, so a month of per-day, per-model,
- * per-project usage costs no dependency. Rows hold **tokens only** — cost is
+ * per-project usage costs no dependency. Rows hold **tokens**, and cost is
  * computed at query time from the price table, so correcting a rate never
- * means rescanning three gigabytes of transcripts.
+ * means rescanning three gigabytes of transcripts. The one cost a row keeps is
+ * one the agent itself reported — OpenCode's and Cline's — because that is a
+ * fact about what was billed, not a rate anybody could correct.
  *
  * Rows carry the file they came from. An append-only transcript resumes from
  * its byte offset; one that was truncated or rewritten has its rows dropped
@@ -31,6 +33,11 @@ export interface UsageRow {
   /** Part of `output` for most providers; kept for display, never priced twice. */
   readonly reasoning: number
   readonly requests: number
+  /**
+   * USD the agent itself says these requests cost, when it says; null when
+   * the cost is ours to work out from the tokens.
+   */
+  readonly vendorCost?: number | null
 }
 
 export interface FileCursor {
@@ -69,6 +76,7 @@ CREATE TABLE IF NOT EXISTS usage (
   cacheWrite INTEGER NOT NULL DEFAULT 0,
   reasoning INTEGER NOT NULL DEFAULT 0,
   requests INTEGER NOT NULL DEFAULT 0,
+  vendorCost REAL,
   PRIMARY KEY (file, day, runtime, model, project)
 );
 CREATE INDEX IF NOT EXISTS usage_day ON usage (day);
@@ -84,6 +92,12 @@ export class LedgerStore {
     this.#db = new DatabaseSync(path)
     this.#db.exec('PRAGMA journal_mode = WAL')
     this.#db.exec(SCHEMA)
+    // A ledger written before rows could carry an agent's own cost gains the
+    // column empty, which is exactly what those rows meant.
+    const columns = this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]
+    if (!columns.some((column) => column.name === 'vendorCost')) {
+      this.#db.exec('ALTER TABLE usage ADD COLUMN vendorCost REAL')
+    }
   }
 
   close(): void {
@@ -124,15 +138,19 @@ export class LedgerStore {
     try {
       if (replace) this.#db.prepare('DELETE FROM usage WHERE file = ?').run(cursor.path)
       const add = this.#db.prepare(`
-        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(file, day, runtime, model, project) DO UPDATE SET
           input = input + excluded.input,
           output = output + excluded.output,
           cacheRead = cacheRead + excluded.cacheRead,
           cacheWrite = cacheWrite + excluded.cacheWrite,
           reasoning = reasoning + excluded.reasoning,
-          requests = requests + excluded.requests
+          requests = requests + excluded.requests,
+          vendorCost = CASE
+            WHEN vendorCost IS NULL AND excluded.vendorCost IS NULL THEN NULL
+            ELSE COALESCE(vendorCost, 0) + COALESCE(excluded.vendorCost, 0)
+          END
       `)
       for (const row of rows) {
         add.run(
@@ -147,6 +165,7 @@ export class LedgerStore {
           row.cacheWrite,
           row.reasoning,
           row.requests,
+          row.vendorCost ?? null,
         )
       }
       this.#db

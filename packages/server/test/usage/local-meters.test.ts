@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 
-import { localUsageFor } from '../../src/bootstrap.js'
+import { localUsageFor, ownCli } from '../../src/bootstrap.js'
 import { knownAgent } from '../../src/installs/known-agents.js'
 
 /**
@@ -34,15 +34,32 @@ test('a direct-CLI row is metered through the knowledge table, not through field
     command: '/opt/homebrew/bin/copilot',
     args: ['--acp'],
   })
-  // The control: with no knowledge, nothing in the row names a CLI the
-  // switch knows, and this is exactly what the desk did before.
-  assert.equal(localUsageFor(copilot), null)
   assert.equal(localUsageFor(copilot, knowledge('github-copilot-cli'))?.meter?.id, 'copilot-account')
 
   // The same hole, for the same reason, on the agent next to it.
   const gemini = row({ id: 'gemini', command: 'gemini', args: ['--acp'] })
-  assert.equal(localUsageFor(gemini), null)
   assert.equal(localUsageFor(gemini, knowledge('gemini'))?.meter?.id, 'gemini-account')
+  assert.equal(localUsageFor(gemini, knowledge('gemini'))?.corpus, 'gemini')
+
+  // The knowledge wins over the program's own name: a wrapper that the table
+  // knows to be Gemini is metered as Gemini, whatever it is called.
+  const wrapped = row({ id: 'gemini', command: '/usr/local/bin/my-gemini-wrapper' })
+  assert.equal(localUsageFor(wrapped, knowledge('gemini'))?.meter?.id, 'gemini-account')
+})
+
+test('a row the table has no entry for is named by the program it runs', () => {
+  // Amp's registry download runs its adapter by path.
+  const amp = row({ id: 'amp-acp', command: '/home/dev/.harnessdesk/acp-agents/amp-acp/0.9.0/amp-acp' })
+  assert.equal(localUsageFor(amp)?.meter?.id, 'amp-account')
+  // Qwen Code's runs through npx: the package is the program.
+  const qwen = row({ id: 'qwen-code', command: 'npx', args: ['-y', '@qwen-code/qwen-code@0.24.0', '--acp'] })
+  assert.equal(ownCli(qwen), 'qwen-code')
+  assert.equal(localUsageFor(qwen)?.corpus, 'qwen')
+  // An unscoped package, with the version pinned the way the registry pins it.
+  assert.equal(ownCli(row({ id: 'cline', command: 'npx', args: ['-y', 'cline@3.0.61', '--acp'] })), 'cline')
+  assert.equal(ownCli(row({ id: 'x', command: 'pnpm', args: ['dlx', '@scope/tool', '--acp'] })), 'tool')
+  // A runner with nothing to run names nothing.
+  assert.equal(ownCli(row({ id: 'x', command: 'npx', args: ['--yes'] })), null)
 })
 
 test("a bridge row still answers from its own fields, and the knowledge cannot disagree", () => {
@@ -78,8 +95,15 @@ test('Antigravity is metered by the agy CLI beside its ACP server', () => {
   assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.corpus, undefined)
 })
 
-test('an agent with no meter of its own gets none, however it is named', () => {
-  assert.equal(localUsageFor(row({ id: 'opencode', command: 'opencode' }), knowledge('opencode')), null)
+test('an agent whose spend is on disk gets its records, and one with neither gets nothing', () => {
+  // OpenCode offers an API key no balance, but prices every session itself.
+  const opencode = localUsageFor(row({ id: 'opencode', command: 'opencode' }), knowledge('opencode'))
+  assert.equal(opencode?.meter, undefined)
+  assert.equal(opencode?.corpus, 'opencode')
+  // Cline has both: a balance on its account and its sessions' cost on disk.
+  const cline = localUsageFor(row({ id: 'cline', command: 'npx', args: ['-y', 'cline@3.0.61', '--acp'] }), knowledge('cline'))
+  assert.equal(cline?.meter?.id, 'cline-account')
+  assert.equal(cline?.corpus, 'cline')
   // A hand-written row for something the desk has never heard of.
   assert.equal(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), null)
 })

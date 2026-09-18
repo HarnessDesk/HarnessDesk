@@ -467,6 +467,22 @@ describe('runway', () => {
     expect(borrowed.exhausted).toEqual([])
   })
 
+  it('counts a prepaid balance as usage reported, and a spent one as out of credits', () => {
+    // Amp and Cline have a balance and nothing else. The line above the cards
+    // once said "No agent here reports plan usage." beside a card reading
+    // "Limit reached" for an overdrawn Cline account.
+    const funded = report({ runtime: runtimeId('amp'), credits: { remaining: 10, unit: 'USD' } })
+    const overdrawn = report({ runtime: runtimeId('cline'), credits: { remaining: -0.016, unit: 'USD' }, reached: 'credits' })
+    const healthy = runway([funded, report({})], nameFor, NOON)
+    expect(healthy.headline).toBe('Nothing is close to a limit.')
+    expect(healthy.metered).toBe(1)
+    const spent = runway([funded, overdrawn], nameFor, NOON)
+    expect(spent.exhausted).toEqual([overdrawn])
+    expect(spent.headline).toBe(`${nameFor(overdrawn)} is out of credits.`)
+    // A balance that cannot be named is not one.
+    expect(runway([report({ credits: { remaining: Number.NaN, unit: 'USD' } })], nameFor, NOON).metered).toBe(0)
+  })
+
   it('treats a reached limit as out even when the lane reads fine', () => {
     const summary = runway(
       [report({ runtime: runtimeId('alpha'), reached: 'rate_limit_reached', lanes: [lane({ id: 'w', usedPercent: 40 })] })],

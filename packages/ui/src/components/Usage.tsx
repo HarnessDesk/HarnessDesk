@@ -534,14 +534,17 @@ const AccountRow = ({
   // name would read as the agent's. They are on the card, under their own.
   const view = describeReport(report, { now, maxLanes: 0, preference })
   const left = view.hero?.remainingPercent ?? null
+  // An account whose whole standing is a prepaid balance (Amp, Cline) has
+  // that to say here, not a dash: it is what is left, in the unit it is kept.
+  const balance = left === null && !view.hero ? balanceOf(report.credits) : null
   const agent = info?.presentation.name ?? String(report.runtime)
   return (
     <RailRow
       mark={info ? <RuntimeMark runtime={info} size={15} /> : <UsageIcon size={14} />}
       name={agent}
       {...(report.account ? { title: `${agent} · ${report.account}` } : {})}
-      figure={left === null ? '—' : `${left}%`}
-      {...(view.hero ? { tone: view.hero.tone } : {})}
+      figure={left !== null ? `${left}%` : balance ? amount(balance.remaining, balance.unit) : '—'}
+      {...(view.hero ? { tone: view.hero.tone } : balance && balance.remaining <= 0 ? { tone: 'bad' as const } : {})}
       percent={left}
       {...(left === null && report.account ? { sub: report.account } : {})}
       selected={selected}
@@ -1051,14 +1054,19 @@ export const noteGlyph = (tone: Tone | undefined): ReactNode =>
     <AlertIcon size={13} />
   )
 
-const noteOf = (
+export const noteOf = (
   report: UsageReport,
   view: ReportView,
   balance: Balance | null,
   hasSpend: boolean,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
-  if (view.blocked) return { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
+  if (view.blocked) {
+    // A prepaid balance does not come back on its own; a window does.
+    return !view.hero && balance && balance.remaining <= 0
+      ? { text: 'The balance is spent — new turns will fail until it is topped up', tone: 'bad' }
+      : { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
+  }
   const gated = view.all.find((lane) => lane.gatedUntil !== null)
   if (gated) {
     return {

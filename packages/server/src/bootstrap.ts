@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { existsSync } from 'node:fs'
@@ -18,12 +18,15 @@ import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
 import { knowledgeOverlay } from './installs/overlay.js'
 import type { KnownAgent } from './installs/known-agents.js'
-import { InstallService } from './installs/service.js'
+import { commandName, InstallService } from './installs/service.js'
 import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } from './agent-registry.js'
 import { CredentialBroker } from './credentials.js'
 import { Host, type AccountFactory, type HostOptions } from './host.js'
 import { ClaudeFileMeter } from './usage/claude-file.js'
+import { corpusRoot, type CorpusKind } from './ledger/index.js'
 import { AgyMeter } from './usage/agy.js'
+import { AmpMeter } from './usage/amp.js'
+import { ClineMeter } from './usage/cline.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
 import { GeminiMeter } from './usage/gemini.js'
@@ -489,20 +492,32 @@ export const createDefaultHost = (
  * written for them that nothing ever reached, and reported as unmetered with
  * nothing to say why. The knowledge is the same lookup the launch decision
  * makes, so a row cannot be metered as one agent and started as another;
- * `basename` because the row may spell any of the three absolutely.
+ * `commandName` because the row may spell any of them absolutely, or with
+ * Windows's `.exe`.
+ *
+ * And a row the table has no entry for — Amp's registry adapter, Qwen Code
+ * through `npx` — is named by the program it runs (`ownCli`), last, so the
+ * table still decides wherever it has something to say.
  */
 export const localUsageFor = (
   agent: AcpAgentConfig,
   known?: Pick<KnownAgent, 'cli'> | undefined,
-): { meter?: UsageMeter; corpus?: 'codex' | 'claude' } | null => {
-  const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0]
-  switch (named ? basename(named) : null) {
+): { meter?: UsageMeter; corpus?: CorpusKind; root?: string } | null => {
+  const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
+  // Where the agent keeps its records is decided by its own environment — a
+  // row can move an agent's home to hold a second account — so paths are
+  // resolved against what the row adds to the desk's.
+  const env = { ...process.env, ...agent.env }
+  const records = (corpus: CorpusKind) => ({ corpus, root: corpusRoot(corpus, env) })
+  switch (named ? commandName(named) : null) {
     case 'claude':
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
     case 'cursor-agent':
       return { meter: new CursorMeter() }
     case 'gemini':
-      return { meter: new GeminiMeter() }
+      // A Code Assist sign-in has a quota to read; an API key has none, and
+      // what its calls cost is in the chat logs either way.
+      return { meter: new GeminiMeter(), ...records('gemini') }
     case 'copilot':
       return { meter: new CopilotMeter() }
     // The ACP server reports no quota, but the `agy` CLI beside it does. It is
@@ -510,10 +525,44 @@ export const localUsageFor = (
     // agent — see `usage/agy.ts`.
     case 'agy_acp_server':
       return { meter: new AgyMeter() }
+    case 'cline':
+      return { meter: new ClineMeter({ env }), ...records('cline') }
+    case 'opencode':
+      // Zen's balance and Go's limits are not open to an API key; what
+      // OpenCode priced each session at is in its own database.
+      return records('opencode')
+    case 'qwen':
+    case 'qwen-code':
+      return records('qwen')
+    // The registry's `amp-acp` wraps the `amp` CLI, whose own `amp usage`
+    // answers for the account both of them are signed in as.
+    case 'amp':
+    case 'amp-acp':
+      return { meter: new AmpMeter() }
     default:
       return null
   }
 }
+
+/**
+ * The CLI a row runs when nothing else names it: the program itself, or — for
+ * a registry row that runs its agent through a package runner — the package.
+ * `npx -y @qwen-code/qwen-code@0.24.0 --acp` runs `qwen-code`. The knowledge
+ * table is asked first; this is for the agents it has no entry for, whose
+ * meter would otherwise be written and never reached.
+ */
+export const ownCli = (agent: Pick<AcpAgentConfig, 'command' | 'args'>): string | null => {
+  const program = commandName(agent.command)
+  if (!RUNNERS.has(program)) return program || null
+  const args = agent.args ?? []
+  const spec = args.find((arg, index) => !arg.startsWith('-') && !(index === 0 && (arg === 'dlx' || arg === 'exec')))
+  if (!spec) return null
+  // `@scope/name@1.2.3` and `name@1.2.3` both name the package before the version.
+  const unversioned = spec.startsWith('@') ? spec.replace(/^(@[^/]+\/[^@]+)@.*$/, '$1') : spec.replace(/@.*$/, '')
+  return unversioned.split('/').pop() || null
+}
+
+const RUNNERS = new Set(['npx', 'bunx', 'pnpx', 'pnpm', 'yarn', 'bun'])
 
 /**
  * Loads the built-in plugins, then anything the user installed.
