@@ -188,7 +188,7 @@ can say, and each now says it:
 | Amp | `amp usage` prints the balance in a short report its server writes (no JSON form); account lookups share a limit of 60 an hour with Amp's own. `amp-acp` forwards none of the SDK's per-message `usage`. | the balance, `$10.00 left`, re-asked at most every five minutes |
 | Cline | Its CLI's account screen asks `api.cline.bot` for the user and the billed account's balance (micro-dollars), with the session in `providers.json`. Its ACP server drops the engine's `usage` event. Its `sessions.db` keeps each session's usage and `totalCost`. | the balance, plus the spend Cline billed |
 | Gemini CLI | A Code Assist sign-in has a quota (the existing meter); an API key has none anywhere. Its chat logs carry tokens and model per call. | spend at list price |
-| OpenCode | Zen's balance and Go's limits are enforced server-side and not open to an API key. It sends `usage_update` (context, session cost) and keeps each session's tokens and `cost` in `opencode.db`. | spend at the cost OpenCode recorded, a free model's `$0` included |
+| OpenCode | Zen's balance has no endpoint an API key can read (requested upstream, anomalyco/opencode#10448). Go's limits do: `GET /zen/go/v1/usage` with the Go key returns the rolling 5-hour, weekly and monthly windows (`status`, `percent`, `resetsAt`) — not read by the desk yet, for want of a Go subscription to measure against. It sends `usage_update` (context, session cost) and keeps each session's tokens and `cost` in `opencode.db`. | spend at the cost OpenCode recorded, a free model's `$0` included |
 | Qwen Code | No quota endpoint. Its transcripts record `usageMetadata` per call. | spend at list price |
 
 The token Cline's meter uses is **never refreshed**: refreshing rotates the

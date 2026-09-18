@@ -528,8 +528,11 @@ export const localUsageFor = (
     case 'cline':
       return { meter: new ClineMeter({ env }), ...records('cline') }
     case 'opencode':
-      // Zen's balance and Go's limits are not open to an API key; what
-      // OpenCode priced each session at is in its own database.
+      // Zen's balance has no endpoint an API key can read (asked upstream,
+      // anomalyco/opencode#10448). Go's limits do — `GET /zen/go/v1/usage`
+      // with the Go key — and are not read here yet: that needs a Go
+      // subscription to measure against. What OpenCode priced each session
+      // at is in its own database either way.
       return records('opencode')
     case 'qwen':
     case 'qwen-code':
