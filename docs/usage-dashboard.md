@@ -341,7 +341,11 @@ stays in the list, red, with its reset. Only when every scope is spent is the
 account out, and then the scope that comes back first is the headline, because
 when is the only question left. (Until 2026-09-17 such a report was treated as
 blocked by its tightest scope, on the stated assumption that no source had this
-shape; Gemini CLI already did.)
+shape; Gemini CLI already did.) Seating an Agent asks the same question, plus
+one: a candidate whose model has a spent lane of its own is passed over for
+another (#778). A lane counts as the model's own when its scope is exactly the
+model id, as Gemini CLI reports it; a scope that names a group, like
+Antigravity's, matches no candidate.
 
 **How far back the money goes.** The spend band picks its own window: a week is
 what you are spending now, a month is the cycle most plans bill on, and a quarter
