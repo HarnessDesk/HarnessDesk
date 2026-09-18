@@ -1,4 +1,4 @@
-import type { ConfigOption, FlowPermission, FlowSeat, SessionSettings } from '@harnessdesk/protocol'
+import type { ConfigOption, FlowPermission, FlowSeat, SeatFix, SeatReason, SessionSettings } from '@harnessdesk/protocol'
 
 import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
 
@@ -37,6 +37,13 @@ export interface SeatOffer {
   /** The runtime's id, as a seat spec names it: `cursor`, `claude`. */
   readonly runtime: string
   /**
+   * Added to the desk, and the program it runs is not on this machine. Not
+   * the same fix as a runtime nobody added — that is no offer at all — so it
+   * is said apart, though a refusal words both "not installed". When it is
+   * set the rest of the offer is not consulted.
+   */
+  readonly notInstalled?: boolean
+  /**
    * Why it cannot open a conversation right now, in its own words — too old,
    * crashed, still starting, an account it would not answer about — or absent
    * when it can. Not installed is not this: that is no offer at all. When it is
@@ -70,8 +77,10 @@ export interface SeatOffer {
 
 export interface PassedOver {
   readonly seat: FlowSeat
-  /** A sentence for a person: the runtime, and what it lacks. */
+  /** A sentence for the host's refusal and its log: the runtime by its id, and what it lacks. */
   readonly why: string
+  /** The same fact, for a surface to word and to offer the fix for (`fixOf`). */
+  readonly reason: SeatReason
 }
 
 /**
@@ -85,29 +94,88 @@ export type Seating =
 /** The runtime's own sentence, fitted into one of ours: one line, no closing stop. */
 const quoted = (words: string): string => words.replace(/\s+/g, ' ').trim().replace(/\.$/, '')
 
-/** Why this candidate cannot be taken, or null when it can. */
-const whyNot = (seat: FlowSeat, offers: readonly SeatOffer[]): string | null => {
+/** Why this candidate cannot be taken, as a fact a surface can act on, or null when it can. */
+export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): SeatReason | null => {
   const offer = offers.find((one) => one.runtime === seat.runtime)
-  if (!offer) return `${seat.runtime} is not installed`
-  if (offer.unavailable) return `${seat.runtime} is unavailable: ${quoted(offer.unavailable)}`
+  if (!offer) return { kind: 'notInstalled', added: false }
+  if (offer.notInstalled) return { kind: 'notInstalled', added: true }
+  if (offer.unavailable) return { kind: 'unavailable', detail: quoted(offer.unavailable) }
   /* Before anything the candidate asked for: signed out, a runtime may list no
      models at all, and "does not offer" would then send the reader to change a
      spec that was right. */
-  if (!offer.signedIn) return `${seat.runtime} is signed out`
-  if (offer.spent) return `${seat.runtime}'s window is spent`
+  if (!offer.signedIn) return { kind: 'signedOut' }
+  if (offer.spent) return { kind: 'spent' }
   /* A model or effort left out, or written as null, is not asked for, so there
      is nothing to check it against. */
   if (seat.model) {
-    if (offer.models === null) {
-      return `cannot tell whether ${seat.runtime} offers ${seat.model}: its model list could not be read`
-    }
-    if (!offer.models.includes(seat.model)) return `${seat.runtime} does not offer ${seat.model}`
+    if (offer.models === null) return { kind: 'modelsUnread', model: seat.model }
+    if (!offer.models.includes(seat.model)) return { kind: 'noModel', model: seat.model }
   }
   if (seat.effort && offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
-    return `${seat.runtime} does not offer ${seat.effort} effort`
+    return { kind: 'noEffort', effort: seat.effort }
   }
   return null
 }
+
+/**
+ * A reason as the host says it: in a refusal, and in its log. The runtime is
+ * named by the id a seat spec writes, because that is the text a person can
+ * find in an `AGENT.md` and change. A surface words the reason itself.
+ */
+export const sentenceOf = (runtime: string, reason: SeatReason): string => {
+  switch (reason.kind) {
+    case 'notInstalled':
+      return `${runtime} is not installed`
+    case 'unavailable':
+      return `${runtime} is unavailable: ${reason.detail}`
+    case 'signedOut':
+      return `${runtime} is signed out`
+    case 'spent':
+      return `${runtime}'s window is spent`
+    case 'modelsUnread':
+      return `cannot tell whether ${runtime} offers ${reason.model}: its model list could not be read`
+    case 'noModel':
+      return `${runtime} does not offer ${reason.model}`
+    case 'noEffort':
+      return `${runtime} does not offer ${reason.effort} effort`
+    case 'couldNotOpen':
+      return `${runtime} could not open a conversation: ${reason.detail}`
+    case 'openedOtherwise':
+      return `${runtime} runs it ${reason.detail}`
+  }
+}
+
+/**
+ * What removes a reason. Three places a person goes: the runtime (add it,
+ * install it, sign in, look at what is wrong with it), its usage, or this
+ * machine's seats for the Agent — the last being the answer whenever the seat
+ * itself asks for something the runtime does not do here.
+ */
+export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
+  switch (reason.kind) {
+    case 'notInstalled':
+      return reason.added ? { kind: 'install', runtime } : { kind: 'add', runtime }
+    case 'signedOut':
+      return { kind: 'signIn', runtime }
+    case 'spent':
+      return { kind: 'usage', runtime }
+    case 'unavailable':
+    case 'modelsUnread':
+    case 'couldNotOpen':
+      return { kind: 'runtime', runtime }
+    case 'noModel':
+    case 'noEffort':
+    case 'openedOtherwise':
+      return { kind: 'seats' }
+  }
+}
+
+/** One candidate passed over, the sentence and the fact from one reason so the two cannot disagree. */
+export const passedFor = (seat: FlowSeat, reason: SeatReason): PassedOver => ({
+  seat,
+  why: sentenceOf(seat.runtime, reason),
+  reason,
+})
 
 /**
  * The first candidate this machine can seat, exactly as it was written, and
@@ -116,9 +184,9 @@ const whyNot = (seat: FlowSeat, offers: readonly SeatOffer[]): string | null => 
 export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly SeatOffer[]): Seating => {
   const passed: PassedOver[] = []
   for (const seat of candidates) {
-    const why = whyNot(seat, offers)
-    if (why === null) return { seat, passed }
-    passed.push({ seat, why })
+    const reason = reasonAgainst(seat, offers)
+    if (reason === null) return { seat, passed }
+    passed.push(passedFor(seat, reason))
   }
   return { seat: null, passed }
 }
@@ -236,7 +304,7 @@ export const differences = (asked: FlowSeat, running: SeatRunning): string[] => 
  */
 export const openedOtherwise = (asked: FlowSeat, running: SeatRunning): string | null => {
   const found = differences(asked, running)
-  return found.length === 0 ? null : `${asked.runtime} runs it ${found.join(', and ')}`
+  return found.length === 0 ? null : sentenceOf(asked.runtime, { kind: 'openedOtherwise', detail: found.join(', and ') })
 }
 
 // ------------------------------------------------------------ what it may do

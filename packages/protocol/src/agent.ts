@@ -98,3 +98,53 @@ export interface AgentProblem {
   readonly at: string
   readonly text: string
 }
+
+/**
+ * Why one candidate seat cannot be taken here, as a fact rather than a
+ * sentence.
+ *
+ * The host words each of these for its own refusals and logs, with the
+ * runtime's wire id in them. A surface may show neither the id nor the
+ * host's sentence (it words a runtime by its presentation), so it reads this
+ * instead, and the fix beside it (`SeatFix`).
+ *
+ * The first seven are known before anything is opened; the last two only
+ * once a conversation exists.
+ */
+export type SeatReason =
+  /**
+   * No runtime by this id can be asked. `added` false: nothing by that id is
+   * added to the desk. `added` true: it is added, and the program it runs is
+   * not on this machine. One sentence, two fixes.
+   */
+  | { readonly kind: 'notInstalled'; readonly added: boolean }
+  /** It cannot open a conversation right now — too old, crashed, still starting — in its own words. */
+  | { readonly kind: 'unavailable'; readonly detail: string }
+  | { readonly kind: 'signedOut' }
+  /** An account-wide window is used up. */
+  | { readonly kind: 'spent' }
+  /** The seat names a model and the runtime's model list could not be read, so whether it offers it is unknown. */
+  | { readonly kind: 'modelsUnread'; readonly model: string }
+  | { readonly kind: 'noModel'; readonly model: string }
+  | { readonly kind: 'noEffort'; readonly effort: string }
+  /** Asked for a conversation, and it failed to open one. */
+  | { readonly kind: 'couldNotOpen'; readonly detail: string }
+  /** It opened, and runs something other than the seat asked for: each difference named in `detail`. */
+  | { readonly kind: 'openedOtherwise'; readonly detail: string }
+
+/**
+ * What removes a reason, as a thing a surface can offer. Never a sentence:
+ * the words are the surface's, and the runtime is named by its presentation.
+ */
+export type SeatFix =
+  /** Nothing by this id is added: Settings › Runtimes, where one is added. */
+  | { readonly kind: 'add'; readonly runtime: string }
+  /** Added, with its program missing: the runtime's own page, which says how to install it. */
+  | { readonly kind: 'install'; readonly runtime: string }
+  | { readonly kind: 'signIn'; readonly runtime: string }
+  /** Its window is spent: the usage dashboard, which says when it comes back. */
+  | { readonly kind: 'usage'; readonly runtime: string }
+  /** Something about the runtime itself: its page in Settings › Runtimes. */
+  | { readonly kind: 'runtime'; readonly runtime: string }
+  /** The seat asks for what this runtime does not do here: this Mac's seats for the Agent. */
+  | { readonly kind: 'seats' }

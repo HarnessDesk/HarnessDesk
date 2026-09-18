@@ -7,8 +7,12 @@ import {
   chooseSeat,
   differences,
   explainRefusal,
+  fixOf,
   openedOtherwise,
+  passedFor,
+  reasonAgainst,
   runningOf,
+  sentenceOf,
   type SeatOffer,
   type SeatRunning,
 } from '../src/agent-seating.js'
@@ -316,4 +320,75 @@ test('a seat that asks for thinking off is held to it — the allowance for a mo
   )
   // Said nothing of thinking, on a model that always thinks: still the model asked for.
   assert.deepEqual(differences(written('cursor=m1/high'), running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
+})
+
+/*
+ * A reason a surface can act on. The sentence is the host's — it quotes the
+ * runtime's wire id, which a surface may not show — so every candidate also
+ * carries what the reason is and what removes it, and a surface words both.
+ */
+
+test('every reason carries what removes it, and the sentence is unchanged', () => {
+  const chosen = chooseSeat(
+    ['ghost=m1', 'gone=m1', 'old=m1', 'out=m1', 'spent=m1', 'unread=m1', 'cursor=nope', 'cursor=m1/xhigh'].map(written),
+    [
+      offer('gone', { notInstalled: true }),
+      offer('old', { unavailable: 'Old 0.1 is too old.' }),
+      offer('out', { signedIn: false }),
+      offer('spent', { spent: true }),
+      offer('unread', { models: null }),
+      offer('cursor'),
+    ],
+  )
+  assert.equal(chosen.seat, null)
+  assert.deepEqual(
+    chosen.passed.map((one) => [one.reason, fixOf(one.seat.runtime, one.reason)]),
+    [
+      [{ kind: 'notInstalled', added: false }, { kind: 'add', runtime: 'ghost' }],
+      [{ kind: 'notInstalled', added: true }, { kind: 'install', runtime: 'gone' }],
+      [{ kind: 'unavailable', detail: 'Old 0.1 is too old' }, { kind: 'runtime', runtime: 'old' }],
+      [{ kind: 'signedOut' }, { kind: 'signIn', runtime: 'out' }],
+      [{ kind: 'spent' }, { kind: 'usage', runtime: 'spent' }],
+      [{ kind: 'modelsUnread', model: 'm1' }, { kind: 'runtime', runtime: 'unread' }],
+      [{ kind: 'noModel', model: 'nope' }, { kind: 'seats' }],
+      [{ kind: 'noEffort', effort: 'xhigh' }, { kind: 'seats' }],
+    ],
+  )
+  // The sentence is still the one a refusal has always said, and one function says it.
+  assert.deepEqual(
+    chosen.passed.map((one) => one.why),
+    [
+      'ghost is not installed',
+      'gone is not installed',
+      'old is unavailable: Old 0.1 is too old',
+      'out is signed out',
+      "spent's window is spent",
+      'cannot tell whether unread offers m1: its model list could not be read',
+      'cursor does not offer nope',
+      'cursor does not offer xhigh effort',
+    ],
+  )
+  for (const one of chosen.passed) assert.equal(one.why, sentenceOf(one.seat.runtime, one.reason))
+})
+
+test('a runtime nobody added and one whose program is missing read the same and are fixed differently', () => {
+  // Both are "not installed" to a reader of the refusal; the first is fixed in
+  // Settings by adding it, the second by installing what it runs.
+  assert.deepEqual(reasonAgainst(written('codex'), []), { kind: 'notInstalled', added: false })
+  assert.deepEqual(reasonAgainst(written('codex'), [offer('codex', { notInstalled: true })]), {
+    kind: 'notInstalled',
+    added: true,
+  })
+  assert.equal(reasonAgainst(written('codex'), [offer('codex')]), null)
+})
+
+test('what only an open seat can say is a reason too, worded as the refusal always worded it', () => {
+  const asked = written('cursor=m1/high')
+  const opened = passedFor(asked, { kind: 'openedOtherwise', detail: 'at medium effort, not high' })
+  assert.equal(opened.why, 'cursor runs it at medium effort, not high')
+  assert.equal(opened.why, openedOtherwise(asked, running({ effort: 'medium' })))
+  assert.deepEqual(fixOf('cursor', opened.reason), { kind: 'seats' })
+  const failed = passedFor(asked, { kind: 'couldNotOpen', detail: 'the bridge exited' })
+  assert.equal(failed.why, 'cursor could not open a conversation: the bridge exited')
+  assert.deepEqual(fixOf('cursor', failed.reason), { kind: 'runtime', runtime: 'cursor' })
 })

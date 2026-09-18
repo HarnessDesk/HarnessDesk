@@ -5,8 +5,9 @@ import { isBlocked, type AgentRuntime, type FlowSeat, type UsageReport } from '@
 import {
   agentOrder,
   chooseSeat,
+  differences,
   explainRefusal,
-  openedOtherwise,
+  passedFor,
   permissionWithin,
   type PassedOver,
   type SeatOffer,
@@ -101,8 +102,8 @@ export const agentMethods = {
       // Every candidate above the one chosen was passed over, so what is left starts just below it.
       rest = rest.slice(chosen.passed.length + 1)
       const opened = await openAsAsked(ctx, seat, { cwd: params.cwd, title: definition.name })
-      if (typeof opened === 'string') {
-        passed.push({ seat, why: opened })
+      if ('reason' in opened) {
+        passed.push(opened)
         continue
       }
 
@@ -153,8 +154,8 @@ const projectOf = async (ctx: HostContext, project: string | undefined): Promise
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
- * Opens one candidate and holds it to what it asked for: the open seat, or why
- * it cannot be kept — and then nothing of it is left open.
+ * Opens one candidate and holds it to what it asked for: the open seat, or the
+ * candidate passed over with why — and then nothing of it is left open.
  *
  * A seat that fails part-way through opening is closed by the host before the
  * failure reaches here; one that opens on something else is closed here, and
@@ -165,17 +166,17 @@ const openAsAsked = async (
   ctx: HostContext,
   seat: FlowSeat,
   where: { readonly cwd: string; readonly title: string },
-): Promise<OpenedSeat | string> => {
+): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {
     opened = await ctx.seats.open(seat, where)
   } catch (error) {
-    return `${seat.runtime} could not open a conversation: ${messageOf(error)}`
+    return passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) })
   }
-  const otherwise = openedOtherwise(seat, opened.running)
-  if (otherwise === null) return opened
+  const found = differences(seat, opened.running)
+  if (found.length === 0) return opened
   await ctx.seats.retire(opened.runtime, opened.sessionId)
-  return otherwise
+  return passedFor(seat, { kind: 'openedOtherwise', detail: found.join(', and ') })
 }
 
 /**
@@ -204,20 +205,24 @@ const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[]): Pro
   })
   if (runtimes.length === 0) return []
   const reports = await ctx.usage().reports()
-  const offers = await Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports)))
-  return offers.filter((offer): offer is SeatOffer => offer !== null)
+  return Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports)))
 }
 
 const offerOf = async (
   ctx: HostContext,
   runtime: AgentRuntime,
   reports: readonly UsageReport[],
-): Promise<SeatOffer | null> => {
+): Promise<SeatOffer> => {
   const id = String(runtime.info.id)
   const health = runtime.health()
-  if (health.state === 'unavailable' && health.reason === 'notInstalled') return null
   // Nothing else is read about a runtime that cannot open a conversation; the chooser stops at why.
   const unread = { models: null, efforts: null, signedIn: false, spent: false }
+  /* Added, and its program is missing. Offered with that said rather than
+     dropped: a runtime nobody added is fixed by adding it, and this one by
+     installing what it runs, and only an offer can carry the difference. */
+  if (health.state === 'unavailable' && health.reason === 'notInstalled') {
+    return { runtime: id, notInstalled: true, ...unread }
+  }
   if (health.state === 'unavailable') {
     const why = health.remediation ? `${health.message} ${health.remediation}` : health.message
     return { runtime: id, unavailable: why, ...unread }
