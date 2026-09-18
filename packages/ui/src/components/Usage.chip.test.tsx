@@ -116,14 +116,40 @@ const shapes: readonly { readonly name: string; readonly report: UsageReport; re
     out: true,
   },
   {
-    name: 'scoped lanes and no account-wide one',
+    name: 'scoped lanes and no account-wide one, one of them spent',
     report: report({
       lanes: [
         lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
         lane({ id: 'weekly:opus', usedPercent: 20, scope: 'Opus' }),
       ],
+      reached: 'weekly:fable',
+    }),
+    out: false,
+  },
+  {
+    name: 'scoped lanes and no account-wide one, every one spent',
+    report: report({
+      lanes: [
+        lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
+        lane({ id: 'weekly:opus', usedPercent: 100, scope: 'Opus' }),
+      ],
     }),
     out: true,
+  },
+  {
+    // Antigravity's quota read through the `agy` CLI, which signs in on its
+    // own: whatever it says, it is not this agent's account (#769).
+    name: "another sign-in's figures, every one of them spent",
+    report: report({
+      unverified: {
+        whose: 'agy CLI sign-in',
+        lanes: [lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models' })],
+        reached: 'gemini-weekly',
+        fetchedAt: NOON,
+        staleAfterMs: 60_000,
+      },
+    }),
+    out: false,
   },
   { name: 'an account with plenty left', report: report({ lanes: [lane({ id: 'weekly', usedPercent: 12 })] }), out: false },
   { name: 'an account that reports no lane at all', report: report({}), out: false },

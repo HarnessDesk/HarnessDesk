@@ -129,6 +129,32 @@ export interface UsageError {
 }
 
 /**
+ * Figures for a sign-in the desk cannot tie to the account the agent runs as.
+ *
+ * Antigravity's come from the `agy` CLI, which signs in separately from the
+ * ACP server the desk runs, so its quota may belong to another Google account.
+ * They are kept out of `UsageReport.lanes` on purpose: readiness, the chip,
+ * the alerts, the header strip and the tray all reduce over `lanes`, and none
+ * of them can mistake these for the agent's own because they are not there.
+ * Only the Dashboard card draws them, under their own name.
+ */
+export interface UnverifiedUsage {
+  /** Whose figures these are, in words: "agy CLI sign-in". */
+  readonly whose: string
+  readonly lanes: readonly UsageLane[]
+  /** The lane that sign-in has spent, when one is. */
+  readonly reached: string | null
+  readonly fetchedAt: number
+  readonly staleAfterMs: number
+  /**
+   * Set when that sign-in's source failed and these are its last good
+   * figures. It lives here and not on `UsageReport.error`, which is the
+   * agent's own: a failing `agy` says nothing about whether the agent works.
+   */
+  readonly error?: UsageError | null
+}
+
+/**
  * One account's standing with one agent.
  *
  * An agent with two signed-in accounts produces two reports; the interface
@@ -149,6 +175,8 @@ export interface UsageReport {
   readonly staleAfterMs: number
   /** Stays on this report; one failing source never blanks the others. */
   readonly error: UsageError | null
+  /** Figures for another sign-in, drawn beside this account and never read as it. */
+  readonly unverified?: UnverifiedUsage | null
 }
 
 /** How the ledger should slice its history. */
@@ -245,6 +273,14 @@ export const remainingOf = (lane: UsageLane): number | null =>
  * lanes decide the headline, and a scoped lane is considered only when there
  * is nothing else to go on. It still appears in the list, still turns red,
  * and still says when it comes back.
+ *
+ * **With no account-wide lane, the scopes are alternatives.** Antigravity
+ * reports a weekly limit for its Gemini models and another for its Claude and
+ * GPT ones, and nothing for the account; Gemini CLI reports one per model.
+ * Spend one scope and the agent still works on another, which is the rule
+ * above in a different shape — so a spent scope is stepped around while any
+ * other still has room, and only when every one is spent does the account
+ * wait, for whichever comes back first.
  */
 export const bindingLane = (
   lanes: readonly UsageLane[],
@@ -252,16 +288,27 @@ export const bindingLane = (
 ): UsageLane | null => {
   const real = lanes.filter((lane) => lane.placeholder !== true)
   if (real.length === 0) return null
+  const isSpent = (lane: UsageLane): boolean => {
+    const remaining = remainingOf(lane)
+    return remaining !== null && remaining <= 0
+  }
   const wide = real.filter((lane) => !lane.scope)
-  const candidates = wide.length > 0 ? wide : real
+  if (wide.length === 0) {
+    const open = real.filter((lane) => !isSpent(lane))
+    if (open.length === 0) {
+      // Every scope is spent. The account is back when the first of them is,
+      // so the soonest reset decides; one nobody reported comes last.
+      return real.reduce((best, lane) =>
+        (lane.resetsAt ?? Number.POSITIVE_INFINITY) < (best.resetsAt ?? Number.POSITIVE_INFINITY) ? lane : best,
+      )
+    }
+    return rankLive(open, preference)
+  }
   // A spent account-wide limit is a hard block. It wins over a shorter live
   // window and over a pin because the shorter window cannot bypass it. When
   // several are spent, the longest one is the most useful explanation of the
   // hold; ties keep the provider's order.
-  const spent = candidates.filter((lane) => {
-    const remaining = remainingOf(lane)
-    return remaining !== null && remaining <= 0
-  })
+  const spent = wide.filter(isSpent)
   if (spent.length > 0) {
     return spent.reduce((best, lane) => {
       const bestMinutes = best.windowMinutes ?? -1
@@ -269,7 +316,11 @@ export const bindingLane = (
       return laneMinutes > bestMinutes ? lane : best
     })
   }
+  return rankLive(wide, preference)
+}
 
+/** Among lanes with room, a pin first, then the shortest measurable window. */
+const rankLive = (candidates: readonly UsageLane[], preference: UsagePreference): UsageLane => {
   const pinned = preference.pinLaneId
     ? candidates.find((lane) => lane.id === preference.pinLaneId && isLaneKnown(lane))
     : undefined
@@ -302,14 +353,11 @@ export const reachedLaneOf = (report: UsageReport): UsageLane | null =>
  * model-scoped lane is deliberately *not* blocking: switch models and the
  * work continues.
  *
- * The one shape where a scoped lane can block is an account that reports no
- * account-wide lane at all, because `bindingLane` then has only scoped ones to
- * choose from and the least left of those is the whole of what we know. No
- * source we read has that shape — Codex, Claude Code and Cursor all report an
- * account-wide window — so it is a contract on the reading rather than a case
- * in the wild; the renderer's `describeReport` pins it, so a source that
- * arrives with only scoped lanes fails a test rather than quietly blocking an
- * account.
+ * An account that reports no account-wide lane at all — Antigravity's model
+ * groups, Gemini CLI's models — is blocked only when every scope is spent,
+ * because until then there is a model to switch to. `bindingLane` keeps that
+ * rule and this reads it, so the chip, the headline and the host's seating
+ * cannot disagree.
  */
 export const isBlocked = (report: UsageReport): boolean => {
   const reached = reachedLaneOf(report)

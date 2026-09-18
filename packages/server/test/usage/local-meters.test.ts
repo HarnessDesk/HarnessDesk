@@ -65,6 +65,19 @@ test("a bridge row still answers from its own fields, and the knowledge cannot d
   assert.ok(localUsageFor(cursor)?.meter)
 })
 
+test('Antigravity is metered by the agy CLI beside its ACP server', () => {
+  // The registry download names the server by its file, `agy_acp_server.par`;
+  // the knowledge table names it by the command, and that is what binds.
+  const antigravity = row({
+    id: 'antigravity-acp',
+    command: '/home/dev/.harnessdesk/acp-agents/antigravity-acp/1.1.1/agy_acp_server.par',
+  })
+  assert.equal(localUsageFor(antigravity), null)
+  assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.meter?.id, 'antigravity-account')
+  // No transcripts of its own for the ledger: its turns are counted from its store.
+  assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.corpus, undefined)
+})
+
 test('an agent with no meter of its own gets none, however it is named', () => {
   assert.equal(localUsageFor(row({ id: 'opencode', command: 'opencode' }), knowledge('opencode')), null)
   // A hand-written row for something the desk has never heard of.

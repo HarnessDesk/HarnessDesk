@@ -78,6 +78,7 @@ interface UsageReport {
   readonly fetchedAt: number
   readonly staleAfterMs: number
   readonly error: UsageError | null      // stays on the row; never drops the others
+  readonly unverified?: UnverifiedUsage | null  // another sign-in's figures: drawn, never read as the agent's
 }
 ```
 
@@ -98,6 +99,7 @@ it; `check-layering.mjs` only forbids it above.
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
 | 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`) | one request, cached |
+| 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models) | one process start and one request, at most once a minute |
 | 4 | The local ledger — the agent's own transcripts | tokens and list-price cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl` | one incremental scan |
 
 Tier 2 is the discovery that makes this cheap. Claude Code caches its full
@@ -123,6 +125,58 @@ does not exist and the meter has nothing to read. A Copilot agent is bound to
 this meter either way; it simply has no lanes to report until a road that
 writes that file has been used. Nothing here will prompt for keychain access
 to close the gap.
+
+**Antigravity, measured 2026-09-17.** The ACP server the desk runs (1.1.1,
+Google's, proprietary) puts no quota on the wire, and keeps its Google token
+in a keychain item (`gemini` / `antigravity-acp`) whose access list names only
+its own binary — reading it would prompt, so it is not read. The `agy` CLI
+beside it answers the question itself: `/usage` is one of the commands its
+print mode runs without a model turn, and with `--output-format json` it
+prints the structured payload it draws (`command.data.groups[].buckets[]`:
+`window`, `remaining_fraction`, `reset_time`). The meter runs exactly that,
+with two guards, because every other run of agy has side effects: it installs
+its own updates in place — the first probe of `/usage` moved this machine from
+1.2.5 to 1.2.6 — which `AGY_CLI_DISABLE_AUTO_UPDATE=true` turns off (the word:
+agy ignores `1` and spawns its updater anyway), and it writes
+a ~20 KB log into `~/.gemini/antigravity-cli/log/` per run, which `--log-file`
+sends to the null device. A read younger than a minute is answered again
+rather than starting agy after every turn of a busy flow.
+
+Signed out is only what agy says it is. Measured with its ADC route forced
+and no credentials, the JSON said "authentication failed or timed out" (which
+a timeout also says) and stderr said `Error: authentication required. Run
+'agy' to log in.`, the sentence Google's headless docs promise. That sentence
+and two others of agy's own ("stored credentials are expired or revoked",
+"You are not logged into Antigravity") are the whole match; anything else, a
+503 from the sign-in service included, is an error.
+
+**A meter that fails keeps what it had.** Until #769 a meter that threw was
+dropped as silence however recently it had answered, so one 503 took a card
+back to "no source available". It now keeps its last good reading, dated when
+it was read, with the failure beside it — the rule a runtime's own figures
+already had. With no earlier reading, a failure is still logged and no card.
+
+The figures are **the agy CLI's sign-in**, not the ACP server's: the two sign
+in separately (see the known-agents note), and neither says which Google
+account it is, so the desk cannot tell whether they are the agent's. So they
+are never treated as the agent's. The meter marks its reading `unverified`,
+and the service files it under `UsageReport.unverified` rather than in
+`lanes`. The Dashboard card draws it under its own name ("agy CLI sign-in",
+"from the agy CLI"), with the chip still read from the report itself.
+Readiness, the chip, the alerts, the header strip, the tray and Setup Desk all
+reduce over `lanes`, which are empty, so a spent `agy` account can never mark
+Antigravity out of quota or hide "Use this agent", and an Antigravity whose
+own account is spent is not shown as ready on `agy`'s numbers either (review
+of #769). The same goes for the two places a second round of that review
+found. The Dashboard's rail row names the agent and nothing else, so it
+answers from the agent's own lanes ("—" here), never from `unverified`. And
+when `agy` fails, the failure is `unverified.error`, drawn in the card's note
+beside its last good figures; `report.error` is the agent's own, and would
+have turned the chip "Unavailable" over a source the agent does not depend
+on. A bucket that is untouched reports a reset of
+"now plus a week" that moves on every read, so a full bucket's reset is drawn
+as no date at all. Every lane is scoped to a group of models — see the
+headline rule below for what that does to the card.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
@@ -277,6 +331,21 @@ at 0% all week while every other model answers normally, and a card headlined
 still gets said, in one line under the bar — *Fable is spent — other models
 still work* — and only an account-wide limit turns the card red, raises the
 banner, or counts as an exhausted agent in the line at the top.
+
+**With no account-wide lane, the scopes are alternatives.** Antigravity
+reports a weekly limit for its Gemini models and another for its Claude and
+GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
+rule, other shape: a spent scope is stepped around while any other still has
+room, so the headline is a scope that can still run a turn, and the spent one
+stays in the list, red, with its reset. Only when every scope is spent is the
+account out, and then the scope that comes back first is the headline, because
+when is the only question left. (Until 2026-09-17 such a report was treated as
+blocked by its tightest scope, on the stated assumption that no source had this
+shape; Gemini CLI already did.) Seating an Agent asks the same question, plus
+one: a candidate whose model has a spent lane of its own is passed over for
+another (#778). A lane counts as the model's own when its scope is exactly the
+model id, as Gemini CLI reports it; a scope that names a group, like
+Antigravity's, matches no candidate.
 
 **How far back the money goes.** The spend band picks its own window: a week is
 what you are spending now, a month is the cycle most plans bill on, and a quarter

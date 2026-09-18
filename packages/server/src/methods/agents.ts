@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
 
-import { isBlocked, type AgentRuntime, type FlowSeat, type UsageReport } from '@harnessdesk/protocol'
+import { isBlocked, remainingOf, type AgentRuntime, type FlowSeat, type UsageReport } from '@harnessdesk/protocol'
 
 import {
   agentOrder,
@@ -240,8 +240,23 @@ const offerOf = async (
     efforts: null,
     signedIn,
     spent: report ? isBlocked(report) : false,
+    spentModels: report ? spentScopesOf(report) : [],
   }
 }
+
+/**
+ * The scopes of the report's own spent lanes, for the chooser to match against
+ * a candidate's model. With no account-wide lane a spent scope no longer
+ * spends the runtime (`bindingLane`), so a candidate asking for the very model
+ * that is out has to be told here. Only the agent's own lanes: another
+ * sign-in's figures (`unverified`) never decide a seat.
+ */
+const spentScopesOf = (report: UsageReport): readonly string[] =>
+  report.lanes.flatMap((lane) => {
+    if (!lane.scope || lane.placeholder === true) return []
+    const left = remainingOf(lane)
+    return left !== null && left <= 0 ? [lane.scope] : []
+  })
 
 /**
  * The ids of the models a runtime offers, or null when it could not say.

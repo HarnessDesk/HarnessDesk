@@ -928,6 +928,70 @@ test("one model's spent window does not spend the runtime, and an agent that kee
   assert.deepEqual(created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
 })
 
+test("another sign-in's figures do not spend the runtime, however spent they are", async () => {
+  // Antigravity's quota, read through the separately signed-in `agy` CLI
+  // (#769): the host files it under `unverified`, and this check reads the
+  // runtime's own lanes, which are empty. Every group spent, still seated.
+  const borrowed: UsageReport = {
+    ...reportFor('claude', []),
+    unverified: {
+      whose: 'agy CLI sign-in',
+      lanes: [
+        { id: 'gemini-weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+        { id: '3p-weekly', label: 'Weekly', scope: 'Claude and GPT models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+        // Even scoped to the very model asked for, another sign-in's lane decides nothing.
+        { id: 'opus-weekly', label: 'Weekly', scope: 'opus-5', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+      ],
+      reached: 'gemini-weekly',
+      fetchedAt: 0,
+      staleAfterMs: 60_000,
+    },
+  }
+  const { ctx, created } = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, { reports: [borrowed] })
+  await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+})
+
+test('a runtime that reports only model groups is spent only when every group is', async () => {
+  // The shape Antigravity and Gemini CLI report: no account-wide window, one
+  // per group of models. A spent group is a model to switch away from.
+  const groups = (gemini: number, others: number) =>
+    reportFor('claude', [
+      { usedPercent: gemini, scope: 'Gemini Models' },
+      { usedPercent: others, scope: 'Claude and GPT models' },
+    ])
+  const oneSpent = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, { reports: [groups(100, 0)] })
+  await agentMethods['agent/seat'](oneSpent.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(oneSpent.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+
+  const allSpent = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, { reports: [groups(100, 100)] })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](allSpent.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    /claude's window is spent/,
+  )
+  assert.deepEqual(allSpent.created, [])
+})
+
+test("a candidate whose model's own window is spent is passed over for one whose model has room", async () => {
+  // Lanes scoped by model id, the way Gemini CLI reports them, read from the
+  // report the desk already holds (#769).
+  const perModel = reportFor('claude', [
+    { usedPercent: 100, scope: 'opus-5' },
+    { usedPercent: 10, scope: 'sonnet-5' },
+  ])
+  const desk = { claude: { models: ['opus-5', 'sonnet-5'] } }
+  const both = await rig('claude=opus-5/high, claude=sonnet-5/high', desk, { reports: [perModel] })
+  await agentMethods['agent/seat'](both.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(both.created, [{ runtime: 'claude', model: 'sonnet-5', cwd: '/tmp/x' }])
+
+  const onlySpent = await rig('claude=opus-5/high', desk, { reports: [perModel] })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](onlySpent.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    /claude's window for opus-5 is spent/,
+  )
+  assert.deepEqual(onlySpent.created, [])
+})
+
 test("seats named for one seating override the Agent's own preference", async () => {
   const { ctx, created } = await rig('cursor=gemini-3.8-flash/high')
   await agentMethods['agent/seat'](ctx, {
