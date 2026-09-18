@@ -494,6 +494,12 @@ export const runway = (
   now: number,
 ): RunwaySummary => {
   const metered = reports.filter((report) => bindingLane(report.lanes) !== null)
+  // Figures for another sign-in (`unverified`) never count as an agent's own,
+  // here or anywhere; they are only named, so the line above a card full of
+  // them does not read as a contradiction of it.
+  const borrowed = reports.filter(
+    (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
+  )
   const exhausted = metered.filter(isBlocked)
   const low = metered.filter((report) => {
     if (exhausted.includes(report)) return false
@@ -518,7 +524,13 @@ export const runway = (
             ? `${low.length} agents are running low.`
             : metered.length > 0
               ? 'Nothing is close to a limit.'
-              : 'No agent here reports plan usage.'
+              : borrowed.length > 0
+                ? `No agent here reports its own plan usage — ${
+                    borrowed.length === 1
+                      ? `${nameFor(borrowed[0] as UsageReport)} shows`
+                      : `${borrowed.length} agents show`
+                  } another sign-in's.`
+                : 'No agent here reports plan usage.'
 
   const parts: string[] = []
   if (nextReturn !== null) {

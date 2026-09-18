@@ -451,6 +451,20 @@ describe('runway', () => {
 
   it('does not pretend an unmetered roster is healthy', () => {
     expect(runway([report({})], nameFor, NOON).headline).toBe('No agent here reports plan usage.')
+    // Another sign-in's figures are not the agent's, so they are still not
+    // "plan usage" here — but the line says what the card below is showing,
+    // rather than contradicting it (#769, found launching the app).
+    const other = {
+      whose: 'agy CLI sign-in',
+      lanes: [lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models' })],
+      reached: 'gemini-weekly',
+      fetchedAt: NOON,
+      staleAfterMs: HOUR,
+    }
+    const borrowed = runway([report({ unverified: other })], nameFor, NOON)
+    expect(borrowed.headline).toBe("No agent here reports its own plan usage — a shows another sign-in's.")
+    expect(borrowed.metered).toBe(0)
+    expect(borrowed.exhausted).toEqual([])
   })
 
   it('treats a reached limit as out even when the lane reads fine', () => {

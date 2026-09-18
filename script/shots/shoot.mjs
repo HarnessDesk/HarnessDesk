@@ -581,6 +581,18 @@ rules:
       await sleep(1600)
     } },
 
+    /**
+     * One agent whose figures are another sign-in's: Antigravity, scoped from
+     * the rail. The card is headed by that sign-in and keeps the agent's own
+     * chip; the rail row beside it stays the agent's, with nothing measured.
+     */
+    'dashboard-antigravity': { expect: 'agy CLI sign-in', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Antigravity'))) throw new Error('no Antigravity row in the Dashboard rail')
+      await sleep(1200)
+    } },
+
     /** The rebuilt settings patterns, reached through the same store request features use. */
     settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
       await cdp.eval(`${STORE}.askSettings('appearance'); true`)
