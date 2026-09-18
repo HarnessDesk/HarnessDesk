@@ -1350,26 +1350,50 @@ rules:
   const codexFooter = () => cdp.json(`(() => {
     const codex = ${STORE}.getSnapshot().runtimes.find((runtime) => runtime.id === 'codex')
     const lines = document.body.innerText.split('\\n').filter((line) => /^Codex \\d/.test(line) || / is available\\./.test(line))
-    return { version: codex?.version ?? null, notice: codex?.update?.version ?? null, footer: lines }
+    return { version: codex?.version ?? null, notice: codex?.update?.version ?? null, footer: lines, page: document.visibilityState }
   })()`)
-  const menuOpen = () => cdp.eval(`Boolean([...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? '')))`)
+  const MODEL_CONTROL = 'button[title$="odel and reasoning"]'
   /**
-   * The model menu, open and staying open. A menu seen on its way out — the
-   * previous scene's, still leaving the page — reads as open, so it has to
-   * still be there a beat later.
+   * Open is what the control says, with the menu's rows on the page. The rows
+   * alone are not enough: a menu that has been closed stays in the page until
+   * its exit transition ends, and a window nobody can see — behind others, on
+   * another desktop — runs no transitions, so it stays as long as that lasts.
    */
+  const menuOpen = () => cdp.eval(`(() => {
+    const control = document.querySelector(${q(MODEL_CONTROL)})
+    const row = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? ''))
+    return control?.getAttribute('aria-expanded') === 'true' && Boolean(row)
+  })()`)
   const openModelMenu = async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (!(await menuOpen())) {
-        if (!(await press({ selector: 'button[title$="odel and reasoning"]' }))) throw new Error('composer model trigger missing')
+        if (!(await press({ selector: MODEL_CONTROL }))) throw new Error('composer model trigger missing')
         await waitForSnapshot(menuOpen, Boolean)
       }
       await sleep(500)
       if (await menuOpen()) return
     }
-    throw new Error('the model menu would not stay open')
+    throw new Error(`the model menu would not stay open (the page is ${await cdp.eval('document.visibilityState')})`)
+  }
+  /**
+   * "Refresh models", pointed at when the row can be. In a window nobody can
+   * see the menu's open transition never ends, and until it does the menu
+   * takes no pointer — the row is on the page and cannot be hit — so the
+   * click is the row's own then. What is photographed is the same either way.
+   */
+  const refreshModels = async () => {
+    if (await press({ text: 'Refresh models' }, { wait: 1500 })) return
+    const clicked = await cdp.eval(`(() => {
+      const row = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? ''))
+      if (!row) return false
+      row.click()
+      return true
+    })()`)
+    if (!clicked) throw new Error('no "Refresh models" in the model menu')
+    await sleep(900)
   }
   let behind = null
+  let installed = null
   const stageUpdateNotice = async () => {
     if (behind) return behind
     await stageCodexComposer()
@@ -1397,13 +1421,17 @@ rules:
     expect: 'models checked',
     run: async () => {
       const { notice: latest } = await stageUpdateNotice()
+      installed = latest
       writeFileSync(SHOT_ENV.FAKE_CODEX_VERSION_FILE, `${latest}\n`)
       await openModelMenu()
-      if (!(await press({ text: 'Refresh models' }))) throw new Error('no "Refresh models" in the model menu')
+      await refreshModels()
       await waitForSnapshot(codexFooter, (state) => state.version?.includes(latest), { attempts: 300 })
       // A beat for the notice to be measured against the build it is on now.
       await sleep(1500)
+      // The refresh closes the menu; it is opened again onto the footer, which
+      // has to be on screen — an empty footer would prove nothing about the notice.
       await openModelMenu()
+      await waitForSnapshot(codexFooter, (state) => state.footer.some((line) => line.startsWith(`Codex ${latest}`)), { attempts: 100 })
     },
     verify: async () => {
       const state = await codexFooter()
@@ -1411,6 +1439,9 @@ rules:
       if (process.env['HD_SHOTS_UPDATE_EXPECT'] === 'stale') {
         if (state.notice === null) throw new Error('a build from before the change was expected to keep its notice')
         return
+      }
+      if (!state.footer.some((line) => line.startsWith(`Codex ${installed}`))) {
+        throw new Error(`the footer does not name the build it is on: ${JSON.stringify(state)}`)
       }
       if (state.notice !== null || state.footer.some((line) => / is available\./.test(line))) {
         throw new Error('the footer still says a newer build is available, under the build it names')
