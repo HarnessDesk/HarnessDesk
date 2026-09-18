@@ -116,11 +116,22 @@ const shapes: readonly { readonly name: string; readonly report: UsageReport; re
     out: true,
   },
   {
-    name: 'scoped lanes and no account-wide one',
+    name: 'scoped lanes and no account-wide one, one of them spent',
     report: report({
       lanes: [
         lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
         lane({ id: 'weekly:opus', usedPercent: 20, scope: 'Opus' }),
+      ],
+      reached: 'weekly:fable',
+    }),
+    out: false,
+  },
+  {
+    name: 'scoped lanes and no account-wide one, every one spent',
+    report: report({
+      lanes: [
+        lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
+        lane({ id: 'weekly:opus', usedPercent: 100, scope: 'Opus' }),
       ],
     }),
     out: true,

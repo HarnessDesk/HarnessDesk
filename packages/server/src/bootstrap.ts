@@ -23,6 +23,7 @@ import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } fr
 import { CredentialBroker } from './credentials.js'
 import { Host, type AccountFactory, type HostOptions } from './host.js'
 import { ClaudeFileMeter } from './usage/claude-file.js'
+import { AgyMeter } from './usage/agy.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
 import { GeminiMeter } from './usage/gemini.js'
@@ -504,6 +505,10 @@ export const localUsageFor = (
       return { meter: new GeminiMeter() }
     case 'copilot':
       return { meter: new CopilotMeter() }
+    // The ACP server reports no quota, but the `agy` CLI beside it does. See
+    // `usage/agy.ts` for why it is the CLI's sign-in that answers.
+    case 'agy_acp_server':
+      return { meter: new AgyMeter() }
     default:
       return null
   }

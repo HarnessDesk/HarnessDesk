@@ -98,6 +98,7 @@ it; `check-layering.mjs` only forbids it above.
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
 | 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`) | one request, cached |
+| 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models) | one process start and one request, at most once a minute |
 | 4 | The local ledger — the agent's own transcripts | tokens and list-price cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl` | one incremental scan |
 
 Tier 2 is the discovery that makes this cheap. Claude Code caches its full
@@ -123,6 +124,30 @@ does not exist and the meter has nothing to read. A Copilot agent is bound to
 this meter either way; it simply has no lanes to report until a road that
 writes that file has been used. Nothing here will prompt for keychain access
 to close the gap.
+
+**Antigravity, measured 2026-09-17.** The ACP server the desk runs (1.1.1,
+Google's, proprietary) puts no quota on the wire, and keeps its Google token
+in a keychain item (`gemini` / `antigravity-acp`) whose access list names only
+its own binary — reading it would prompt, so it is not read. The `agy` CLI
+beside it answers the question itself: `/usage` is one of the commands its
+print mode runs without a model turn, and with `--output-format json` it
+prints the structured payload it draws (`command.data.groups[].buckets[]`:
+`window`, `remaining_fraction`, `reset_time`). The meter runs exactly that,
+with two guards, because every other run of agy has side effects: it installs
+its own updates in place — the first probe of `/usage` moved this machine from
+1.2.5 to 1.2.6 — which `AGY_CLI_DISABLE_AUTO_UPDATE=true` turns off (the word:
+agy ignores `1` and spawns its updater anyway), and it writes
+a ~20 KB log into `~/.gemini/antigravity-cli/log/` per run, which `--log-file`
+sends to the null device. A read younger than a minute is answered again
+rather than starting agy after every turn of a busy flow.
+
+The figures are **the agy CLI's sign-in**, not the ACP server's: the two sign
+in separately (see the known-agents note). Quota is kept per Google account, so
+for one account they are the same number; the footer says "from the agy CLI"
+so a person with two can tell. A bucket that is untouched reports a reset of
+"now plus a week" that moves on every read, so a full bucket's reset is drawn
+as no date at all. Every lane is scoped to a group of models — see the
+headline rule below for what that does to the card.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
@@ -277,6 +302,17 @@ at 0% all week while every other model answers normally, and a card headlined
 still gets said, in one line under the bar — *Fable is spent — other models
 still work* — and only an account-wide limit turns the card red, raises the
 banner, or counts as an exhausted agent in the line at the top.
+
+**With no account-wide lane, the scopes are alternatives.** Antigravity
+reports a weekly limit for its Gemini models and another for its Claude and
+GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
+rule, other shape: a spent scope is stepped around while any other still has
+room, so the headline is a scope that can still run a turn, and the spent one
+stays in the list, red, with its reset. Only when every scope is spent is the
+account out, and then the scope that comes back first is the headline, because
+when is the only question left. (Until 2026-09-17 such a report was treated as
+blocked by its tightest scope, on the stated assumption that no source had this
+shape; Gemini CLI already did.)
 
 **How far back the money goes.** The spend band picks its own window: a week is
 what you are spending now, a month is the cycle most plans bill on, and a quarter
