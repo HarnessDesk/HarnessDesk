@@ -41,7 +41,11 @@ const group = (id: string, scope: string, usedPercent: number): UsageLane => ({
   usageKnown: true,
 })
 
-const reportWith = (lanes: readonly UsageLane[], reached: string | null): UsageReport => ({
+const reportWith = (
+  lanes: readonly UsageLane[],
+  reached: string | null,
+  failure: string | null = null,
+): UsageReport => ({
   runtime: antigravity.id,
   account: 'Google account',
   plan: null,
@@ -53,7 +57,14 @@ const reportWith = (lanes: readonly UsageLane[], reached: string | null): UsageR
   fetchedAt: NOW,
   staleAfterMs: 5 * 60_000,
   error: null,
-  unverified: { whose: 'agy CLI sign-in', lanes, reached, fetchedAt: NOW, staleAfterMs: 5 * 60_000 },
+  unverified: {
+    whose: 'agy CLI sign-in',
+    lanes,
+    reached,
+    fetchedAt: NOW,
+    staleAfterMs: 5 * 60_000,
+    ...(failure ? { error: { message: failure } } : {}),
+  },
 })
 
 const storeWith = (report: UsageReport): AppStore => {
@@ -92,7 +103,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const card = async (report: UsageReport): Promise<string> => {
+const render = async (report: UsageReport): Promise<void> => {
   await act(async () =>
     root.render(
       <StoreProvider store={storeWith(report)}>
@@ -100,11 +111,25 @@ const card = async (report: UsageReport): Promise<string> => {
       </StoreProvider>,
     ),
   )
+}
+
+const card = async (report: UsageReport): Promise<string> => {
+  await render(report)
   const article = [...document.querySelectorAll('article')].find((node) =>
     node.textContent?.includes('Antigravity'),
   )
   expect(article).toBeDefined()
   return article?.textContent ?? ''
+}
+
+/** The Dashboard rail's row for the agent: its name, then its figure. */
+const railRow = async (report: UsageReport): Promise<string> => {
+  await render(report)
+  const row = [...document.querySelectorAll('button')].find((node) =>
+    node.textContent?.startsWith('Antigravity'),
+  )
+  expect(row).toBeDefined()
+  return row?.textContent ?? ''
 }
 
 describe("another sign-in's figures", () => {
@@ -138,5 +163,31 @@ describe("another sign-in's figures", () => {
         usage: [spent],
       }),
     ).toBe('ready')
+  })
+
+  it('stay off the rail, which names the agent (#769, review round 2)', async () => {
+    // The rail row says "Antigravity" and nothing else about whose figures they
+    // are, so a red 0% there would be another sign-in's quota under the agent's
+    // name. It answers from the agent's own lanes, of which there are none.
+    const row = await railRow(
+      reportWith([group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 100)], 'gemini-weekly'),
+    )
+    expect(row).toContain('—')
+    expect(row).not.toContain('%')
+  })
+
+  it('keep the chip on the agent when only their source fails (#769, review round 2)', async () => {
+    const text = await card(
+      reportWith(
+        [group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 0)],
+        'gemini-weekly',
+        'agy /usage failed: HTTP 503',
+      ),
+    )
+    expect(text).toContain('Ready')
+    expect(text).not.toContain('Unavailable')
+    // The failure is said, on the card it belongs to, with the last good figures.
+    expect(text).toContain('agy /usage failed: HTTP 503')
+    expect(text).toContain('100%')
   })
 })

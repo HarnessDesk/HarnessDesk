@@ -331,6 +331,9 @@ export const drawnReport = (report: UsageReport): UsageReport => {
     reached: other.reached,
     fetchedAt: other.fetchedAt,
     staleAfterMs: other.staleAfterMs,
+    // Its source's failure is what the card's note says; the agent's own
+    // error, if it has one, still reaches the chip through the report.
+    error: other.error ?? report.error,
   }
 }
 

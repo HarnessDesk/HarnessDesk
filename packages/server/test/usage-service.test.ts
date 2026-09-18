@@ -205,9 +205,13 @@ test("another sign-in's figures are drawn beside the report and never read as th
   assert.equal(report?.source.label, 'from a script')
   assert.equal(await usage.limitsFor(signedIn), null, 'the strip, the ring and the Settings card see nothing')
 
-  // And a failure keeps those figures the way it keeps an agent's own.
+  // A failure keeps those figures the way it keeps an agent's own — and it is
+  // that sign-in's failure, not the agent's: `report.error` is what makes the
+  // chip read "Unavailable", and a failing `agy` says nothing about the agent.
   const after = (await usage.refresh(METERED))[0]
   assert.equal(after?.unverified?.lanes[0]?.usedPercent, 100)
-  assert.equal(after?.error?.message, 'agy /usage failed: HTTP 503')
+  assert.equal(after?.unverified?.fetchedAt, 2_000, 'still dated when they were read')
+  assert.equal(after?.unverified?.error?.message, 'agy /usage failed: HTTP 503')
+  assert.equal(after?.error, null)
   usage.dispose()
 })

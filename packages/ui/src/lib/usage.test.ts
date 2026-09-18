@@ -332,6 +332,10 @@ describe('describeReport', () => {
     // An account with lanes of its own is drawn as itself.
     const own = report({ lanes: [lane({ id: 'weekly', usedPercent: 10 })], unverified: other })
     expect(drawnReport(own)).toBe(own)
+    // Its source failing is drawn with its figures, and is not the report's.
+    const failing = report({ unverified: { ...other, error: { message: 'agy /usage failed: HTTP 503' } } })
+    expect(drawnReport(failing).error?.message).toBe('agy /usage failed: HTTP 503')
+    expect(failing.error).toBeNull()
   })
 
   it('marks a lane with no usage figure as unknown rather than empty', () => {

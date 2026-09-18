@@ -194,6 +194,8 @@ export class UsageService {
     let staleAfterMs = DEFAULT_STALE_AFTER_MS
     let error: UsageReport['error'] = null
     let unverified: UnverifiedUsage | null = null
+    // Another sign-in's source failing, kept apart from the agent's own error.
+    let unverifiedFailure: string | null = null
 
     // The runtime first: it is the only source that can be live.
     if (runtime.info.capabilities.metered) {
@@ -221,9 +223,11 @@ export class UsageService {
       const read = await this.#readMeter(id, candidate)
       // A meter that fails keeps the reading it had, below — but only one it
       // had. With nothing before it, a failure is still silence rather than a
-      // card of its own, as it always was.
+      // card of its own, as it always was. The failure belongs to whoever the
+      // figures belong to: the agent's own, or the other sign-in's.
       if ('failure' in read) {
-        if (previous && (previous.lanes.length > 0 || previous.unverified)) error = { message: read.failure }
+        if (previous && previous.lanes.length > 0) error = { message: read.failure }
+        else if (previous?.unverified) unverifiedFailure = read.failure
         return
       }
       const reading = read.reading
@@ -255,6 +259,20 @@ export class UsageService {
     }
 
     await take(meter)
+
+    // Another sign-in's source failing keeps its last figures with the failure
+    // on them, and leaves the agent's own standing — and its error — alone.
+    if (unverifiedFailure !== null && previous?.unverified && lanes.length === 0) {
+      const kept: UsageReport = {
+        ...previous,
+        spend,
+        error,
+        unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
+      }
+      this.#cache.set(id, kept)
+      if (!this.#disposed) this.#options.onReport(kept)
+      return kept
+    }
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.

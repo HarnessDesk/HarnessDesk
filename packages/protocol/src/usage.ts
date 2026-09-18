@@ -146,6 +146,12 @@ export interface UnverifiedUsage {
   readonly reached: string | null
   readonly fetchedAt: number
   readonly staleAfterMs: number
+  /**
+   * Set when that sign-in's source failed and these are its last good
+   * figures. It lives here and not on `UsageReport.error`, which is the
+   * agent's own: a failing `agy` says nothing about whether the agent works.
+   */
+  readonly error?: UsageError | null
 }
 
 /**
