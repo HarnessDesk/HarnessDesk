@@ -1,7 +1,7 @@
 import { Menu as DropdownMenuPrimitive } from '@base-ui/react/menu'
 import * as React from 'react'
 
-import { CheckIcon, ChevronIcon, BulletIcon } from '@/components/Icons'
+import { CheckIcon, BulletIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (dropdown-menu). Icons come from the app's
@@ -198,10 +198,9 @@ const DropdownMenuSubTrigger = ({
     )}
     {...props}
   >
+    {/* No chevron of its own: the row that opens a flyout draws one where its
+        pattern places it, and a second here stood beside it at the edge. */}
     {children}
-    <span className="ml-auto">
-      <ChevronIcon size={14} />
-    </span>
   </DropdownMenuPrimitive.SubmenuTrigger>
 )
 

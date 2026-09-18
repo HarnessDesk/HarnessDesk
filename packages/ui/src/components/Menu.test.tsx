@@ -176,6 +176,8 @@ describe('Submenu', () => {
       )
     })
     expect(rows().map((button) => button.textContent)).toEqual(['EffortMedium'])
+    // One chevron: the vendored trigger used to draw a second beside the row's own.
+    expect(row('Effort').querySelectorAll('svg')).toHaveLength(1)
     expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
     click(row('Effort'))
     expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
