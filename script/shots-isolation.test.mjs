@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -27,6 +27,18 @@ test('every capture dismisses only the normal import offer before auditing the f
   assert.ok(dismissal >= 0, 'the standing banner is not a transient snapshot.notice')
   assert.ok(dismissal < capture.indexOf('await audit(name)'))
   assert.doesNotMatch(capture, /dismissNotices\(/, 'do not discard errors to make a scene look healthy')
+})
+
+// Nothing loads a rig script until someone shoots a scene, so one that no
+// longer parses is found only then. Two branches that each declare a helper
+// under one name in the same scope merge without a conflict and fail that way
+// (`press`, #777 and #779).
+test('every rig script parses', () => {
+  const scripts = readdirSync(join(root, 'script/shots')).filter(name => name.endsWith('.mjs'))
+  assert.ok(scripts.includes('shoot.mjs'), 'the rig scripts are where this test looks')
+  for (const name of scripts) {
+    execFileSync(process.execPath, ['--check', join(root, 'script/shots', name)], { stdio: 'pipe' })
+  }
 })
 
 test('the native editor scene seeds the fake filesystem and requires rendered file contents', () => {
