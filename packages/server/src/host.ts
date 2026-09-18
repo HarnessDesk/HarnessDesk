@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join } from 'node:path'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
@@ -66,6 +66,7 @@ import { UsageService } from './usage/service.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
+import { canonicalDestination } from './git-worktree.js'
 import { Worktrees, repositoryOf } from './worktree.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -82,7 +83,7 @@ import { redactorFor, redactLog } from './diagnostics.js'
 import { Flows, runCheck } from './flows.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
-import { LocalFiles, confine, describeWorkspace } from './workspace.js'
+import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
 
 /**
@@ -1197,6 +1198,12 @@ export class Host {
    * past repositories the user has actually opened part of.
    */
   async #confineGitRoot(root: string): Promise<string> {
+    // Before anything resolves it. `realpath` reads a relative path against
+    // this process's working directory, so `confine` below only ever saw an
+    // absolute one and its own refusal could not fire: a relative root was
+    // admitted whenever, read from wherever the app had been started, it led
+    // into an open folder.
+    assertAbsolute(root)
     const roots = this.#openRoots()
     // Real paths on both sides. `confine` collapses `..` but cannot see a
     // symlink, so `opened/elsewhere -> /other/repo` passed a lexical test and
@@ -1216,12 +1223,19 @@ export class Host {
     }
   }
 
-  /** The path with its links resolved, or the path itself when it is not there. */
+  /**
+   * The path with its links resolved. One that is not there — yet, or any
+   * more — is resolved through the deepest ancestor that is, the way a new
+   * worktree's folder is. Left as it was spelled, it was compared against open
+   * roots that had been resolved: a folder inside one reached through a link
+   * (macOS keeps its temporary folders behind /var -> /private/var) was
+   * refused as outside it, and one behind a link out of an open folder passed.
+   */
   async #realPath(path: string): Promise<string> {
     try {
       return await realpath(path)
     } catch {
-      return resolve(path)
+      return canonicalDestination(path)
     }
   }
 

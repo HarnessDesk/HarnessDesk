@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { after, test } from 'node:test'
 import { promisify } from 'node:util'
 
@@ -16,6 +16,7 @@ import {
   turnId,
   type AgentEvent,
   type HostMethodName,
+  type HostParams,
   type HostToClient,
   type Session,
 } from '@harnessdesk/protocol'
@@ -1481,6 +1482,136 @@ test('git RPCs refuse a root nobody opened', async (t) => {
   await client.call('workspace/open', { path: outside })
   const summary = (await client.call('git/refs', { root: outside })) as { branch: string | null }
   assert.equal(summary.branch, 'main')
+})
+
+/**
+ * What each git verb is asked beside its root, in the test below.
+ *
+ * Keyed by every `git/*` verb on the wire, so a verb added without a line here
+ * fails the build rather than going untested. Against a host that admits the
+ * root, git is asked, so every ask that would change something is one git
+ * turns down — a commit id naming nothing, a branch that is not there — and
+ * the scratch repository ends as it began.
+ */
+const RELATIVE_ROOT_ASKS: {
+  readonly [M in Extract<HostMethodName, `git/${string}`>]: Omit<HostParams<M>, 'root'>
+} = {
+  'git/status': {},
+  'git/branches': {},
+  'git/checkout': { branch: 'not-a-branch' },
+  'git/diff': {},
+  'git/log': {},
+  'git/refs': {},
+  'git/commit': { sha: 'deadbeef' },
+  'git/commitDiff': { sha: 'deadbeef', path: 'a.txt' },
+  'git/createBranch': { name: 'made-relative', at: 'deadbeef' },
+  'git/commitAll': { message: 'made relative' },
+  'git/pull': {},
+  'git/push': {},
+  'git/fetch': {},
+  'git/merge': { ref: 'not-a-branch' },
+  'git/rebase': { onto: 'not-a-branch' },
+  'git/checkoutCommit': { sha: 'deadbeef' },
+  'git/renameBranch': { from: 'not-a-branch', to: 'renamed' },
+  'git/deleteBranch': { name: 'not-a-branch' },
+  'git/createTag': { name: 'made-relative', at: 'deadbeef' },
+  'git/deleteTag': { name: 'not-a-tag' },
+  'git/reset': { to: 'deadbeef', mode: 'soft' },
+  'git/revert': { sha: 'deadbeef' },
+  'git/cherryPick': { sha: 'deadbeef' },
+  'git/stashSave': {},
+  'git/stashApply': { ref: 'stash@{0}' },
+  'git/stashDrop': { ref: 'stash@{0}' },
+  'git/patch': { sha: 'deadbeef' },
+  'git/diffRange': { from: 'HEAD', to: 'HEAD' },
+  'git/pullRequestUrl': { branch: 'main' },
+  'git/worktrees': {},
+  'git/worktreeAdd': { path: 'made-relative', checkout: { kind: 'detach', at: 'deadbeef' } },
+  'git/worktreeInventory': { path: 'not-a-worktree' },
+  'git/worktreeRemove': { path: 'not-a-worktree' },
+  'git/worktreePrune': {},
+  'git/worktreeLock': { path: 'not-a-worktree', locked: true },
+  'git/worktreeMove': { from: 'not-a-worktree', to: 'elsewhere' },
+}
+
+test('git RPCs refuse a relative root, even one that leads into an open repository', async (t) => {
+  // A relative path names no folder until something resolves it, and what
+  // resolved it here was the host's working directory — wherever the app
+  // happened to be started. So the root below is the one relative spelling
+  // that resolution would admit: from this process's working directory, which
+  // is the host's, into a repository opened here. Anything but the refusal —
+  // an answer, a git error — is that spelling admitted.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // The repository one folder down, so a worktree made beside it lands in
+  // what this test removes.
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-git-relative-'))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repo = join(scratch, 'repo')
+  await mkdir(repo)
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await writeFile(join(repo, 'a.txt'), 'one\n')
+  await gitIn(repo, 'add', '.')
+  await gitIn(repo, 'commit', '-qm', 'root commit')
+  await client.call('workspace/open', { path: repo })
+
+  const spelled = relative(process.cwd(), repo)
+  // The controls: the spelling is relative, it leads from the host's working
+  // directory into the open repository, and that repository spelled absolutely
+  // is answered — so a refusal below can only be about the spelling.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(repo))
+  assert.equal(((await client.call('git/status', { root: repo })) as { branch?: string | null }).branch, 'main')
+
+  for (const [verb, asks] of Object.entries(RELATIVE_ROOT_ASKS)) {
+    await t.test(verb, async () => {
+      await assert.rejects(() => client.call(verb as HostMethodName, { ...asks, root: spelled }), {
+        message: `${spelled} is not an absolute path.`,
+      })
+    })
+  }
+})
+
+test('a git root that is not there yet is judged by the folder it would be in, links and all', async (t) => {
+  // `realpath` refuses a path that does not exist, and the confinement then
+  // compared the path as it was spelled against open folders it had resolved.
+  // A folder reached through a link — macOS reaches every temporary folder
+  // through /var -> /private/var — was refused as outside the very folder it
+  // sits in the moment it was not there; and a link out of an open folder
+  // passed as inside it, because nothing looked at the link.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-git-missing-'))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repo = join(scratch, 'real', 'repo')
+  await mkdir(repo, { recursive: true })
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await symlink(join(scratch, 'real'), join(scratch, 'link'))
+  await mkdir(join(scratch, 'outside'))
+  await symlink(join(scratch, 'outside'), join(repo, 'out'))
+  // Opened the way a person reached it: through the link.
+  const opened = join(scratch, 'link', 'repo')
+  await client.call('workspace/open', { path: opened })
+
+  await t.test('inside an open folder reached through a link, git answers', async () => {
+    // Git's answer for a folder that is not a repository, not a refusal.
+    assert.equal(await client.call('git/status', { root: join(opened, 'not-yet') }), null)
+  })
+
+  await t.test('behind a link out of an open folder, it is refused', async () => {
+    // The control: a link inside the open folder that leads out of it is still
+    // out of it, whether what it leads to is there or not. Spelled from the
+    // real path, so that nothing but the link stands between it and the open
+    // folder.
+    const leaving = join(await realpath(repo), 'out', 'not-yet')
+    await assert.rejects(() => client.call('git/status', { root: leaving }), /outside every open workspace/)
+  })
 })
 
 test('the repository top level above an open subfolder is reachable', async (t) => {
