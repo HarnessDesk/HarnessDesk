@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **This plan is phase 1 of 10.** It ships Agents only: no Goal, no Evidence, no flow-engine change, no binding. The other plans are listed at the bottom; do not reach into them.
+- **This plan is phase 1 of 12.** It ships Agents only: no Goal, no Evidence, no flow-engine change, no trigger. The phases after it are in [the roadmap](2026-09-17-agents-and-goals-roadmap.md); do not reach into them.
 - **Design source:** `docs/superpowers/specs/2026-09-17-agents-and-goals-design.md`. Where this plan and the spec disagree, the spec is right and the plan is a bug.
 - **No competitor or third-party product names** in code, comments, commit messages, PR titles or PR bodies. Prior-art reasoning lives outside the repository.
 - **`permission` is a ceiling, never a grant.** A Seat gets `min(agent ceiling, step grant)` and a step grants `read` by default. Nothing in this plan may widen an Agent's permission.
@@ -106,8 +106,9 @@ says Runtime, so they move with the code rather than after it:
   correct and this rename does not touch it.
 
 Do **not** describe Agents, Goals or Evidence in `docs/` yet. Those pages
-describe what ships, and none of it ships until its phase lands; the table at the
-end of this plan says which page each later phase owes.
+describe what ships, and none of it ships until its phase lands;
+[the roadmap](2026-09-17-agents-and-goals-roadmap.md) says which page each later
+phase owes.
 
 - [ ] **Step 7: Commit**
 
@@ -1367,47 +1368,12 @@ Checked each section of `docs/superpowers/specs/2026-09-17-agents-and-goals-desi
 | `acp/*` for the registry, `runtime/installs*` for the machine | 1 |
 | Credentials and history stay in their own planes | 2 (the type omits them) |
 
-**Deliberately not in this phase**, and each has a plan of its own below: the machine-level seating override file, the built-in Agents that ship with the app, the Settings roster surface, and everything to do with Goal, Evidence, findings, bindings and lanes.
+**Deliberately not in this phase**, and each has a phase of its own in [the roadmap](2026-09-17-agents-and-goals-roadmap.md): the machine-level seating override file, the built-in Agents that ship with the app and the Settings roster surface (phase 2); ceilings that hold (3); Evidence (4); Goal and lanes (5); findings (7); and triggers (8).
 
 **One thing to check before Task 6 rather than assume:** `HostContext` may already expose conversation-opening and standing-order verbs under the names the flow engine's `FlowPort` uses (`seat`, `order`). Reuse them. A second way to open a conversation is a second set of bugs.
 
 ## The plans after this one
 
-This is phase 1 of 10. Each produces working software on its own; none may be started before the one above it lands, except where noted.
+This is phase 1 of 12. The phases after it — each with the configuration it adds, the settings that change it, the interface that shows it, the documentation it owes, and the scenario in the running app that closes it — are in [the roadmap](2026-09-17-agents-and-goals-roadmap.md).
 
-1. **Agents foundation** — this plan.
-2. **The evidence ledger** — the `Evidence` type and store, staleness at a revision, the producers (check, diff, pr, ci), the immutable Seat record, and the board's columns derived from facts rather than dragged.
-3. **Goal** — Room and `Plan` merged into a container that finishes, membership derived from assignment, wrap and receipt, `dependsOn` between Goals, and the migration of existing rooms.
-4. **Flows on the new nouns** — `uses`, `grant`, evidence guards, one level of evidence templating, and the migration of committed flow files.
-5. **The findings ledger** — stable ids, the repair delta, the shrinking blocking set, bounded rounds that end at a person, and where each finding was published.
-6. **Intake** — bindings on the Project, the dedupe key, concurrency, budget, and named stop reasons.
-7. **Provenance** — the ref observer independent of turns, patch-id reconciliation through rewrites, and capture health per Project. Can run in parallel with 4 and 5; needs 2.
-8. **The interface** — the common shapes reachable without writing a file, and the file it wrote shown afterwards. This is the phase that stops the answer to "have three reviewers look at this" being *write YAML*.
-9. **Insight** — what a wrapped Goal cost, broken down by Agent, by seat, by what was loaded and by delegation. Mostly a join rather than new plumbing once 2 lands, because `spend` is evidence, evidence carries its Seat, and the Library already prices every skill and MCP server per turn. Gives comparison a second axis — same Goal, and now which Agent got there for fewer tokens — and eventually lets an Agent's `prefer` be answered from its own record instead of guessed once by its author.
-10. **Cross-Agent memory, skills and MCP** — per-Agent allowlists actually driving each runtime's own loading mechanism, and shared knowledge living on the Project where it can be diffed and cited by revision. Cross-agent *tools* already work through the one MCP surface, so this narrows rather than widens.
-
-## Documentation each phase owes
-
-`docs/` describes what ships. So no page below is touched before its phase lands,
-and none is left behind after it does — a page that describes the previous noun
-model is worse than no page, because a reader cannot tell which parts still hold.
-
-| Phase | Page | What changes |
-| --- | --- | --- |
-| 1 (this plan) | `docs/agents.md` → `docs/runtimes.md`, `docs/README.md` | "agent" means the installed CLI throughout; ACP-facing mentions and `agents.json` keep the word |
-| 8 | new `docs/agents.md` | Reintroduced for the *new* noun **when a person can reach it**. Phase 1 ships `agent/*` with no screen calling them, and `docs/` describes what a person can do, so a page written now would describe something nobody can use. Held deliberately, not forgotten |
-| 2 | `docs/interface.md` | Board columns derived from evidence rather than dragged |
-| 3 | `docs/multi-agent.md`, `docs/interface.md`, `docs/README.md` | Room and `Plan` become Goal; membership derived; the receipt a wrap leaves |
-| 4 | `docs/flows.md` | `uses`, `grant`, evidence guards, one level of evidence templating; `seats` narrowed to seating only |
-| 4 | `docs/multi-agent.md` | `/race` restated as one Agent on two seats |
-| 5 | `docs/flows.md` | The findings ledger and how a review round converges |
-| 6 | `docs/multi-agent.md`, `docs/data-boundaries.md` | Bindings, the dedupe key, concurrency, budget; and what a forge watch reads |
-| 7 | `docs/architecture.md`, `docs/decisions.md` | The ref observer, patch-id reconciliation, capture health |
-| 8 | `docs/interface.md`, `docs/getting-started.md` | Starting the common shapes without writing a file |
-
-Two pages need no change at any phase, and the reason is worth stating so nobody
-"tidies" them: `docs/multi-agent.md`'s delegation section and
-`docs/context-usage.md`'s account of what a session delegated are already right.
-The desk observes and measures a runtime's own subagents and does not execute
-them, and this design does not alter that — it only says where a delegation sits
-in the noun model, which is inside a Seat.
+The documentation this phase owed was `docs/agents.md` → `docs/runtimes.md` and `docs/README.md`, where the installed CLI is now a *runtime* throughout, while ACP-facing mentions and `agents.json` keep the word *agent*. A new `docs/agents.md` for the Agent itself belongs to phase 2, because `docs/` describes what a person can reach, and phase 1 ships `agent/*` with no screen calling it.

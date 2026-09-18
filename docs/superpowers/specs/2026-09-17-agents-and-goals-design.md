@@ -57,7 +57,7 @@ beside it, for the reasons below.
 | --- | --- | --- | --- |
 | **Runtime** | What is installed: `cursor`, `claude`, `codex`, and the models each offers | Follows the install | Exists — `RuntimeId`, `agent-inventory` |
 | **Agent** | **Who.** A named, reusable directory: brief, permission ceiling, skill allowlist, preferred seats, its own notes | Durable, shareable | **New** |
-| **Project** | A repository. Holds as many Goals as the work needs, and the bindings that open them | Permanent | Exists |
+| **Project** | A repository. Holds as many Goals as the work needs, and the triggers that open them | Permanent | Exists |
 | **Goal** | **What.** A finishable container: its board, its channel, its checkout policy, and the Agents assigned to it | Has an end | **Merge of Room and `Plan`** |
 | **Seat** | An Agent working in a Goal now: the spec it resolved to, one checkout, one permission | Its working state is disposable; **its record is immutable and outlives the Goal** | Half exists — `FlowSeatRecord`, discarded with the run |
 | **Evidence** | A fact the desk observed, bound to the revision it was true at | Outlives the Goal | **New** |
@@ -120,6 +120,19 @@ and not rate-limited is seated. Precedence, highest first: a flow round's own
 `seats`, then this machine's override, then the Agent's `prefer`. The dry run
 prints which candidate won at every Seat and why the ones above it were passed
 over.
+
+This machine's override is `~/.harnessdesk/seating.json`, keyed by Agent id, and
+it **replaces** that Agent's `prefer` here rather than merging with it — two
+ordered lists merged have no order anyone chose. It is never committed, and it
+is what a person edits when they say "on this Mac, seat the reviewer on Opus".
+
+```json
+{ "code-reviewer": ["claude=opus-5/high", "codex/high"] }
+```
+
+The Agents that ship with the app name runtimes, not models (`prefer: [claude,
+codex, cursor]`), so no release carries a model name that has since gone stale;
+the machine's override is where a model gets chosen.
 
 One naming trap avoided rather than walked into: the wire's `routes/*` verbs
 already exist and mean a **model endpoint** — an address and a wire protocol for
@@ -186,7 +199,7 @@ where that sits in the noun model:
 ### Goal
 
 ```
-Project (a repository, permanent — and the bindings that open Goals)
+Project (a repository, permanent — and the triggers that open Goals)
   └─ Goal (a sentence, a board, a channel, a checkout policy, assigned Agents)
        └─ Seat (an Agent, a seat spec resolved, a checkout, one card at a time)
             └─ Evidence (facts, bound to a revision)
@@ -210,26 +223,41 @@ one level up, so an epic needs no new noun.
 A requirement agreed in one Goal is read by the next as "that document at that
 sha", not copied forward.
 
-### Bindings: where work comes from
+### Triggers: where work comes from
 
-A **binding** belongs to the Project, not to an Agent, and says: when this source
+A **trigger** belongs to the Project, not to an Agent, and says: when this source
 fires, open a Goal running this flow.
 
 ```yaml
-# .harnessdesk/bindings.yml
-- on: pull-request
+# .harnessdesk/triggers.yml
+- id: review-every-pr         # what arming, history and dedupe attach to
+  on: pull-request
   events: [opened, pushed, commented]
   opens: { flow: review-pr }
-  concurrency: 4            # at most four Goals open from this binding at once
+  concurrency: 4            # at most four Goals open from this trigger at once
   dedupe: [pr, head, event] # one Goal per fact; a force-push does not open two
+  forks: never              # the default: a stranger's pull request does not seat anyone
 ```
 
 `opens: { agent: triager }` is the single-worker case — a degenerate one-role
 flow — and it is the only form an Agent needs to carry on its own.
 
 **This is a correction.** An earlier draft put the stream on the Agent. Three
-reviewers each carrying a binding would open three Goals for one pull request,
-which is wrong: the binding has to name the whole thing to open.
+reviewers each carrying a trigger would open three Goals for one pull request,
+which is wrong: the trigger has to name the whole thing to open.
+
+**The file declares; the machine consents.** A trigger in a cloned repository
+does nothing until a person arms it on their own machine, because firing spends
+that person's plan and runs agents under their sign-in. Arming is machine-local
+and attaches to the trigger's `id`; a trigger whose text changes after it was
+armed waits to be armed again, the same rule a command from a repository follows
+(see Evidence). And a Goal nobody is watching seats only where each Seat's
+ceiling is **held**, never merely asked — see the permission section.
+
+**Why the word.** The first draft called this a *binding*. That word is taken:
+the usage dashboard's *binding lane* is the one with the least left. *Trigger*
+is what [docs/flows.md](../../flows.md) already calls this ladder of sources, so
+the reader meets one word for it everywhere.
 
 Sources are one shape — a fact fires, a dedupe key stops it firing twice.
 `pull-request` ships first. `issue` (labelled, closed, commented) and `schedule`
@@ -327,6 +355,22 @@ This noun belongs here rather than in a tool beside us: the desk is the one plac
 that sees the turn, the tool calls, the diff, the pull request, the CI run and the
 cost at once. Anything outside it can only check one of those and trust the rest.
 
+**Which commands the desk runs.** A `check` role's `run` is one source; the other
+is a project's named checks, so a card in a Goal with no flow can still earn
+`check` evidence from a button rather than from an agent saying it ran something:
+
+```yaml
+# .harnessdesk/checks.yml
+verify: { run: pnpm verify, timeout: 1200 }
+```
+
+A command a repository names is untrusted input, exactly as its Agent folders
+are. So **a command runs only after a person has seen it, verbatim, on this
+machine** — the flow dry run's rule applied everywhere a repository names one —
+and a command whose text has changed since asks again. Evidence records the
+command text as well as its name, so renaming a check cannot make an old result
+look like a new one.
+
 #### Keeping it true: from a commit back to the session
 
 The ledger is written forward and read backward. Forward, a card accumulates
@@ -392,7 +436,7 @@ And four channels they reach each other through. Nothing else is a channel.
 | "Here is what I left you" | **The package** on the finished card | Must be durable and readable by whoever claims next; the channel is neither |
 | "What did you mean by that?" | **The channel** | Ad hoc, and **a rule never reads it** |
 | "It passed / it is approved / CI is green" | **Evidence** | A rule reads nothing else |
-| "There is new work" | **A binding**, or a Goal's watch | Not an Agent polling |
+| "There is new work" | **A trigger**, or a Goal's watch | Not an Agent polling |
 | "The thing I approved has changed" | **Nothing is said** — the evidence went stale at the new head | An active notification can be missed; staleness cannot |
 | "This one won" | **Evidence bound to the winner's revision** | An outcome word cannot carry a sha |
 | "This specific problem is still open" | **A finding id** in the ledger | Prose cannot be re-checked |
@@ -529,7 +573,7 @@ the commit. Permissions tighten as it moves. Traced in full as **UC1**.
 
 ### 5. Unattended — work arrives while you are away
 
-A binding fires and a Goal opens, its first cards already carrying evidence: the
+A trigger fires and a Goal opens, its first cards already carrying evidence: the
 head sha, the CI state, the new comments. A budget bounds the whole thing:
 
 ```yaml
@@ -542,7 +586,7 @@ budget:
 
 The first line is enforceable here because the desk already reads what is left on
 every plan: a round that would open on a spent lane does not open, and the dry run
-says so before anything is billed. Concurrency is bounded on the binding rather
+says so before anything is billed. Concurrency is bounded on the trigger rather
 than in the budget, because it limits how many Goals exist, not what one costs.
 
 A card that stops has a **named** reason — `answered`, `crashed`, `timed out`,
@@ -552,9 +596,10 @@ those questions.
 
 ### 6. Investigation — an answer, not a diff
 
-One Goal, and a researcher Agent whose ceiling is `read` and whose `produces` is a
-written finding rather than a commit. The board needs a shape for work whose output
-is knowledge; today every card assumes a change.
+One Goal, and a researcher Agent whose ceiling is `edit` — it writes and commits
+its answer, and never publishes one — and whose `produces` is a written answer
+rather than a code change. The board needs a shape for work whose output is
+knowledge; today every card assumes a change.
 
 **An artifact that matters is a file in the repository**, so a written answer earns
 the same `diff` evidence a code change does, is reviewable as a diff, and is
@@ -625,8 +670,8 @@ inputs:
   topic: { label: What to research }
 
 roles:
-  scout:      { uses: researcher }
-  analyst:    { uses: requirements-analyst, count: 2 }
+  scout:      { uses: researcher, grant: edit }
+  analyst:    { uses: requirements-analyst, count: 2, grant: edit }
   editor:     { uses: requirements-editor, grant: publish }
   dev:        { uses: implementer, grant: publish, isolate: true }
   gate:       { kind: check, run: pnpm verify }
@@ -653,7 +698,7 @@ rules:
 
 The trace, channel by channel:
 
-1. **Binding** (`schedule`, daily) opens the Goal and seeds the scout's card. By
+1. **Trigger** (`schedule`, daily) opens the Goal and seeds the scout's card. By
    hand until that source lands.
 2. **Board → package.** The scout commits what it gathered and finishes. Its
    package and `diff` evidence are what the next round reads.
@@ -667,7 +712,9 @@ The trace, channel by channel:
 5. **Package.** The editor's card depends on the final debate round and writes the
    requirement as a committed file — `diff` evidence at its own revision.
 6. **Package, and a tightening grant.** `dev` gets `publish` and an isolated
-   worktree. `scout`, `analyst`, `tester` and `acceptance` never do.
+   worktree. `scout` and `analyst` get `edit`, enough to commit what they wrote
+   and no more; `tester` and `acceptance` keep the default `read`, because a
+   verdict writes nothing.
 7. **Evidence, not an opinion.** `gate` is a `check` role: the desk runs
    `pnpm verify` and writes `check` evidence at the dev head. It seats nobody.
 8. **Evidence with `against`.** Each `acceptance` card is a **fresh Seat of the
@@ -727,7 +774,7 @@ rules:
 *Shapes 5 and 2.* No agent monitors anything.
 
 ```yaml
-# .harnessdesk/bindings.yml
+# .harnessdesk/triggers.yml
 - on: pull-request
   events: [opened, pushed]
   opens: { flow: review-pr }
@@ -750,7 +797,7 @@ rules:
                     then: { role: referee, title: "Merge {{pr}}" } }
 ```
 
-1. **The desk watches, not an Agent.** The binding fires on the forge event and
+1. **The desk watches, not an Agent.** The trigger fires on the forge event and
    opens one Goal for that pull request, deduped on `(pr, head, event)` so a
    force-push does not open a second and a restart does not re-open a handled one.
 2. **The first card is born with evidence**: `pr`, the head sha, and the `ci` state
@@ -765,14 +812,14 @@ rules:
    head it read, and `posted` remembers where it landed so a reply can thread
    under it.
 6. **A later push does not need telling.** It makes every `review` at the old head
-   stale, `every: approve` stops holding, and the binding fires again.
+   stale, `every: approve` stops holding, and the trigger fires again.
 
 ### UC4 — a stream of issues, five implementers, three blind reviewers, and a loop
 
 *Shapes 1, 5 and 2, at the level where they compose.*
 
 ```yaml
-# .harnessdesk/bindings.yml
+# .harnessdesk/triggers.yml
 - on: issue
   events: [labelled]
   label: agent-ready
@@ -799,7 +846,7 @@ rules:
 
 1. **Five Goals, not five cards.** Each labelled issue opens its own Goal with its
    own branch, pull request, receipt and ending. The "five agents" is the
-   binding's `concurrency`: at most five Goals from this source are open at once,
+   trigger's `concurrency`: at most five Goals from this source are open at once,
    and the sixth issue waits rather than seating a sixth worker.
 2. **Board → PR.** Each `dev` Seat works an isolated worktree and publishes,
    leaving `diff` and `pr` evidence.
@@ -916,7 +963,7 @@ cover.
 
 ```yaml
 roles:
-  player: { uses: web-game-player, count: 2, isolate: true }
+  player: { uses: web-game-player, count: 2, isolate: true, grant: edit }   # a dev server writes its caches
   match:
     kind: check
     run: node script/web-match.mjs
@@ -941,7 +988,7 @@ roles:
 | --- | --- |
 | Room as a roster you drop sessions into | Goal; membership derived from assignment |
 | `Plan` inside a Room | The Goal itself |
-| The standing room | A binding on the Project |
+| The standing room | A trigger on the Project |
 | `FlowRole`'s seven fields | `uses` + `count` + `seats` + `isolate` + `grant` |
 | `seat:` naming the worker in a flow file | `uses:` names the Agent; `seats:` only overrides its seating |
 | `seats: [...]` was the only way to vary a round | `seats: [...]` varies the model; `uses: [...]` varies the Agent |
@@ -950,17 +997,19 @@ roles:
 | `abandoned` | A named stop reason |
 | `FlowSeatRecord` discarded with the run | An immutable Seat record that outlives the Goal |
 | No commit is linked to the session that made it | A ref observer, reconciled by patch-id, with capture health |
-| A waiting role polling for work | A binding the desk fires |
+| A waiting role polling for work | A trigger the desk fires |
 | `isolate` means a worktree | A lane: checkout, port range, browser profile |
+| `permission: read`, which may edit and commit | `edit`; `read` changes nothing |
+| A ceiling stated in a paragraph | A ceiling held by the runtime or the desk, and marked *asked* where neither can |
 | Settings › Agents (the installed CLIs) | Settings › Runtimes; Agents becomes the roster of who |
 | `agents/*` wire verbs, mixing a registry with two install verbs | `acp/*` for the registry, `runtime/installs*` for the machine |
 | `~/.harnessdesk/agents.json` | Unchanged — it faces ACP, where the word is right |
 
 ## Decisions taken, and why
 
-- **A binding belongs to the Project and names what to open.** Putting the stream
+- **A trigger belongs to the Project and names what to open.** Putting the stream
   on an Agent breaks as soon as a source should open a *team*: three reviewers with
-  three bindings would open three Goals for one pull request.
+  three triggers would open three Goals for one pull request.
 - **The round is the publication unit.** It is the only way to have reviewers who
   are both blind and staggered, and staggering is what happens in practice when
   models queue.
@@ -993,22 +1042,28 @@ desk stores, the same way a commit is what git stores.
 So the order of work is deliberate, and stated here so the intermediate state
 is not mistaken for the destination:
 
-1. **The foundation.** The nouns and the ledger: Agent as a directory, the
-   seat resolution, the Goal merge, the immutable Seat record, Evidence with
-   staleness, the findings ledger, the reduced flow engine, bindings for pull
-   requests. At the end of this, everything in this document works and is
-   declared in files.
-2. **The interface.** Making the common shapes reachable without writing a
+1. **The foundation, each noun with the surface that shows it.** The nouns and
+   the ledger: Agent as a directory, the seat resolution, ceilings that hold,
+   the Goal merge, the immutable Seat record, Evidence with staleness, the
+   findings ledger, the reduced flow engine, triggers for pull requests. Each
+   lands with its configuration, the settings that change it, and a surface a
+   person can reach — the roster with the Agent, the evidence chip with the
+   ledger, the Goal row with the Goal — because a noun nobody can see cannot be
+   checked by the person it is for. At the end of this, everything in this
+   document works, is declared in files, and is visible.
+2. **The front door.** Making the common shapes reachable without writing a
    file at all — pick the Agents, pick the shape, start; a round of three
    reviewers should be two clicks, and the file it wrote should be visible
    afterwards for anyone who wants to edit or commit it. This is also where the
-   zero-configuration front door belongs, which is the one thing every
+   zero-configuration first run belongs, which is the one thing every
    comparable product has and we currently answer with an editor.
 
-The foundation has to come first because an interface over the wrong nouns is a
-rewrite, and the nouns are what this document is for. But a foundation that
-only a YAML author can reach is half a product, and the second phase is not
-optional polish.
+Authoring comes last because an interface that *composes* the nouns is a
+rewrite whenever one of them moves; showing a noun that has already landed is
+not. But a foundation that only a YAML author can start is half a product, and
+the second step is not optional polish. The phases, and the configuration,
+settings and interface each one ships, are in
+[the roadmap](../plans/2026-09-17-agents-and-goals-roadmap.md).
 
 ## What a wrapped Goal can answer
 
@@ -1054,7 +1109,7 @@ addition rather than a rewrite.
 
 - **Sources beyond `pull-request`, `issue` and `schedule`.** An inbound mention,
   a failing check, a webhook. One shape: a fact fires, a dedupe key stops it
-  firing twice. The seam is the binding.
+  firing twice. The seam is the trigger.
 - **Cross-Agent memory.** An Agent's `NOTES.md` is its own; what several Agents
   should share belongs to the **Project**, beside the code, where it can be
   diffed and cited by revision like everything else here. The seam is the Agent
@@ -1111,8 +1166,21 @@ So the enforcement phase does four things, in this order of strength:
 4. **Name the ceilings for what they allow**, and show the effective policy on
    every seat, so a person can see what is enforced and what is merely asked.
 
-Renaming `read` is recommended, not done here: committed flow files use it, and
-changing its meaning under them is a migration of its own.
+**`read` is split, not renamed.** `read` comes to mean what it says — the seat
+changes nothing — and a new **`edit`** takes today's meaning: write and commit
+inside its own checkout, never push. The ladder is `read < edit < publish <
+merge`, and the default grant stays `read`, which is now a promise rather than a
+hope. Nothing changes behaviour under its author: a committed flow file's `read`
+keeps its old meaning, and the dry run says so, until the flow migration
+rewrites it as `edit` in a diff the person sees; an `AGENT.md`'s `read` means
+read from the start, because no Agent predates the split except the ones that
+ship with the app, written for it.
+
+**When a runtime cannot hold a ceiling at all**, the machine decides, once, in
+Settings: seat it and say so, or refuse to seat it. A conversation a person is
+watching defaults to seating it and saying so; a Goal a trigger opened while
+nobody watches defaults to refusing, because an instruction nobody can enforce
+and nobody is reading is not a ceiling.
 
 ## Before any of this is served remotely
 
