@@ -623,6 +623,50 @@ export const spendHint = (provenance: SpendSummary['provenance'] | undefined): s
   }
 }
 
+/**
+ * How the page's own sentence names what the work cost. "At public rates" was
+ * all of it until agents recorded their own costs; where they do, it is only
+ * part of it. Until the ledger arrives it reads as list price, as the band's
+ * own subtitle does.
+ */
+export const costClause = (provenance: SpendSummary['provenance'] | undefined): string => {
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'what the work cost as the agents recorded it'
+    case 'mixed':
+      return 'what the work cost as the agents recorded it or at public rates'
+    default:
+      return 'what the work cost at public rates'
+  }
+}
+
+/**
+ * The caveat under the *Where it went* table.
+ *
+ * A row is short only when a call in it has no price at all. With none short,
+ * it says where the prices came from: a public rate is no longer the only
+ * source, since Cline and OpenCode record what each call cost them.
+ */
+export const pricedNote = (
+  unpriced: number,
+  provenance: SpendSummary['provenance'] | undefined,
+): string => {
+  if (unpriced === 1) {
+    return 'One of these rows includes a model with no public price, so its cost is lower than shown.'
+  }
+  if (unpriced > 1) {
+    return `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`
+  }
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'Every call in this window carries the cost its agent recorded, so none is left out.'
+    case 'mixed':
+      return "Every call in this window carries a cost — its agent's record or a public price — so none is left out."
+    default:
+      return 'Every call in this window has a public price, so these figures are exact.'
+  }
+}
+
 export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string => {
   switch (spend.provenance) {
     case 'listPrice':

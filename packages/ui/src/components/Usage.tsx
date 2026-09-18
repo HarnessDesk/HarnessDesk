@@ -25,6 +25,8 @@ import {
   formatMoney,
   planLabel,
   provenanceLabel,
+  costClause,
+  pricedNote,
   spendHint,
   runway,
   type LaneView,
@@ -302,8 +304,8 @@ export const Usage = ({
       ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
       : `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
     : borrowed
-      ? 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.'
-      : 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine.'
+      ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
+      : `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
 
   return (
     <AppWindow label="Dashboard">
@@ -1445,11 +1447,7 @@ const Ranked = ({
           second row — a badge that repeats down a column stops reading as a
           warning and starts reading as a category. */}
       <div className={styles.footnote}>
-        {unpriced === 0
-          ? 'Every call in this window has a public price, so these figures are exact.'
-          : unpriced === 1
-            ? 'One of these rows includes a model with no public price, so its cost is lower than shown.'
-            : `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`}
+        {pricedNote(unpriced, ledger.provenance)}
       </div>
     </>
   )

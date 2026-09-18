@@ -14,7 +14,9 @@ import {
   gatedUntil,
   isBlocked,
   pace,
+  costClause,
   planLabel,
+  pricedNote,
   runway,
   spendHint,
   workingAccount,
@@ -501,6 +503,34 @@ describe('spendHint', () => {
     expect(spendHint('vendorMetered')).toBe('what the agents recorded these tokens cost.')
     expect(spendHint('mixed')).toContain('what the agents recorded')
     expect(spendHint('mixed')).toContain('public API rates')
+  })
+})
+
+describe('costClause', () => {
+  it('calls the work public-rate cost only when every price is a public one', () => {
+    expect(costClause('listPrice')).toBe('what the work cost at public rates')
+    expect(costClause(undefined)).toBe(costClause('listPrice'))
+    expect(costClause('vendorMetered')).not.toContain('public rates')
+    expect(costClause('mixed')).toBe('what the work cost as the agents recorded it or at public rates')
+  })
+})
+
+describe('pricedNote', () => {
+  it('claims a public price for every call only when every price is one', () => {
+    expect(pricedNote(0, 'listPrice')).toBe('Every call in this window has a public price, so these figures are exact.')
+    expect(pricedNote(0, undefined)).toBe(pricedNote(0, 'listPrice'))
+    expect(pricedNote(0, 'vendorMetered')).not.toContain('public price')
+    expect(pricedNote(0, 'vendorMetered')).toContain('its agent recorded')
+    expect(pricedNote(0, 'mixed')).toContain("its agent's record or a public price")
+  })
+
+  it('names the rows that are short, whatever priced the rest', () => {
+    expect(pricedNote(1, 'mixed')).toBe(
+      'One of these rows includes a model with no public price, so its cost is lower than shown.',
+    )
+    expect(pricedNote(3, 'listPrice')).toBe(
+      '3 of these rows include models with no public price, so their cost is lower than shown.',
+    )
   })
 })
 
