@@ -595,10 +595,14 @@ you do not already know what the screen looks like. Edit
 because it is that sidebar.
 
 `script/check-ui-system.mjs` keeps it true. Every surface row in
-`design/catalog/manifest.ts` names the module it mounts, and the check walks the
-import graph twice: the explorer must reach that module, and the app must ship
-it. A row naming something the app does not ship fails, and so does a surface
-that quietly stops mounting what it claims.
+`design/catalog/manifest.ts` names the module it mounts and the one export in
+`design/surfaces/surfaces.tsx` that mounts it, and the check holds three things:
+that export reaches the module, the explorer tab for the row loads that exact
+export, and the app ships the module. The walk starts at the export, not the
+file — from the file, a surface that stopped mounting its screen passed on a
+sibling that mounts the same one. So a row naming something the app does not
+ship fails, a surface that quietly stops mounting what it claims fails, and
+two tabs that swap their screens fail.
 
 One surface is marked `catalogOnly`: Foundation propagation, a test rig built
 only from production implementations, which two browser specs drive. There is

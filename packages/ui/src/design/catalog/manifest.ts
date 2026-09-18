@@ -422,9 +422,10 @@ export const CANONICAL_PATTERN_MODULES = [
  * in `design/showcase` that was built to look like the screen — same shapes,
  * separate code — so the promise was kept only for as long as nobody edited
  * the real one. Every row but one now names the shipped module, and
- * `script/check-ui-system.mjs` walks the import graph to hold it: the explorer
- * must reach the module, and the app must ship it (the last field names the
- * file in the app that mounts it).
+ * `script/check-ui-system.mjs` holds it three ways: the row's own export in
+ * `surfaces.tsx` (the last field) must reach the module, the explorer tab for
+ * the row must load that exact export, and the app must ship the module (the
+ * field before names the file in the app that mounts it).
  *
  * The one exception is the propagation page, which is a test rig rather than
  * a screen — built only from production implementations, driven by two
@@ -432,15 +433,15 @@ export const CANONICAL_PATTERN_MODULES = [
  * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
-  ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx'],
-  ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
-  ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
-  ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx'],
-  ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx'],
-  ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/components/GitPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
-  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx'],
+  ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx', 'DashboardSurface'],
+  ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GroupSurface'],
+  ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ConversationSurface'],
+  ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx', 'ComposerSurface'],
+  ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx', 'RailSurface'],
+  ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/components/GitPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GitSurface'],
+  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx', 'PanelsSurface'],
   ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
-  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
+  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ToolsSurface'],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
@@ -460,7 +461,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
   },
   ...CANONICAL_UI_MODULES.map(primitive),
   ...CANONICAL_PATTERN_MODULES.map(pattern),
-  ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer]): CatalogEntry => ({
+  ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer, surface]): CatalogEntry => ({
     id,
     category: 'Product Surfaces' as const,
     implementationPath,
@@ -469,7 +470,12 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     variants: ['light', 'dark'] as const,
     sizes: ['default'] as const,
     states: ['default', 'loading', 'empty', 'populated', 'error'] as const,
-    examples: ['packages/ui/src/design/explorer/Explorer.tsx'],
+    /* The one export that mounts this row's screen, not the file that holds
+       every surface: walked from the file, any row was satisfied by a sibling
+       that happened to mount the same screen (#762 review). The explorer tab
+       for `exampleId` has to load this exact export, too — see
+       `script/ui-catalog.mjs`. */
+    examples: [surface ? `packages/ui/src/design/surfaces/surfaces.tsx#${surface}` : 'packages/ui/src/design/explorer/Explorer.tsx'],
     // A surface that mounts a shipped screen names the file that mounts it in
     // the app — the panel registry, or the screen that owns it. `main.tsx` was
     // the obvious guess and the wrong one: panels are registered through a

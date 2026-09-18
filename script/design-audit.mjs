@@ -143,6 +143,48 @@ const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /**
+ * Every declaration in a stylesheet, whatever its property.
+ *
+ * The colour and stacking rules used to match a list of property names, and a
+ * list is the spellings someone remembered: `border: 1px solid #fff` walked
+ * past a colour rule that named `border-color`, and `z-index: 10 !important`
+ * past a stacking rule that wanted the number to be followed by `;`. Both
+ * reported zero. So they read declarations instead, and ask of each value what
+ * it is rather than of each property what it is called.
+ *
+ * A declaration ends at `;` or at the `}` that closes its block — the last one
+ * in a block needs no semicolon. A selector's pseudo-class (`a:hover {`) never
+ * parses as one, because its "value" would have to end before a `{`. Vendor
+ * prefixes and custom properties are declarations like any other.
+ */
+export const declarationsOf = (css) =>
+  [...bare(css).matchAll(/(?<![-\w])(--[\w-]+|-?[A-Za-z][\w-]*)\s*:\s*([^;{}]+?)\s*(?=[;}])/g)].map(
+    (match) => ({ property: match[1], value: match[2].replace(/\s*!important$/i, '').trim() }),
+  )
+
+/* A mask reads alpha and ignores hue: `#000` in a gradient there means "show",
+   not black, and no theme could meaningfully restyle it. The one exemption,
+   named — a list of exceptions fails loudly when it is missing one, which a
+   list of inclusions never does. */
+const ALPHA_ONLY = /^(?:-webkit-)?mask(?:-image|-border(?:-source)?)?$/
+
+/** Whether a value writes a colour out: hex, or any colour function, outside `url()` and strings. */
+export const rawColourIn = (value) => {
+  const plain = value.replace(/url\([^)]*\)/gi, ' ').replace(/(["'])(?:\\.|(?!\1)[^\\])*\1/g, ' ')
+  return /#[0-9a-fA-F]{3,8}\b/.test(plain) || /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i.test(plain)
+}
+
+/** Declarations that write a colour out, custom properties included. */
+export const rawColours = (css) =>
+  declarationsOf(css).filter(({ property, value }) => !ALPHA_ONLY.test(property) && rawColourIn(value))
+
+/** `z-index` written as a number in the shared band — 10 and up; `!important` does not hide one. */
+export const rawZIndexes = (css) =>
+  declarationsOf(css).filter(
+    ({ property, value }) => property === 'z-index' && /^-?\d+$/.test(value) && Math.abs(Number(value)) >= 10,
+  )
+
+/**
  * A `.tsx` file's code, with its comments gone.
  *
  * `bare` above is for CSS and must not be pointed at TypeScript: `/*` opens a
@@ -349,29 +391,12 @@ for (const file of cssFiles()) {
     if (px && !RADIUS.has(Number(px[1]))) findings.rawRadius.push(`${name}: border-radius: ${value}`)
   }
 
-  // A colour written out rather than named — in a real property, and in a
-  // custom property, which is where one hides. A literal behind `--row-tint`
-  // follows a theme change exactly as badly as one written in place, and until
-  // this the checks could not see it at all.
-  const raw = (value) => /#[0-9a-fA-F]{3,8}\b/.test(value) || /\brgba?\(/.test(value)
-  // Every property that can carry a colour, not the handful someone thought of.
-  //
-  // This listed five for a long time, and `box-shadow` was not among them — so
-  // ten hand-written shadows sat outside a count that reported none. It is the
-  // same failure as the line-height ratios: name the spellings you remember and
-  // the rest are invisible, confidently, at zero. The ones added here are the
-  // remaining properties in the app's CSS whose value is a colour; `outline`
-  // and `border` are covered by their `-color` longhand and by the shorthand
-  // matching below.
-  for (const match of css.matchAll(
-    /(?<![-\w])(color|background|background-color|border-color|fill|stroke|box-shadow|text-shadow|outline|outline-color|text-decoration-color|caret-color|accent-color|column-rule-color)\s*:\s*([^;]+);/g,
-  )) {
-    const value = match[2].trim()
-    if (raw(value)) findings.rawColour.push(`${name}: ${value.slice(0, 48)}`)
-  }
-  for (const match of css.matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)) {
-    const value = match[2].trim()
-    if (raw(value)) findings.rawColour.push(`${name}: ${match[1]}: ${value.slice(0, 40)}`)
+  // A colour written out rather than named — in any declaration, custom
+  // properties included, which is where one hides: a literal behind
+  // `--row-tint` follows a theme change exactly as badly as one written in
+  // place. See `declarationsOf` for why this reads values, not property names.
+  for (const { property, value } of rawColours(css)) {
+    findings.rawColour.push(`${name}: ${property}: ${value.replace(/\s+/g, ' ').slice(0, 48)}`)
   }
 
   // Stacking written as a number.
@@ -387,9 +412,7 @@ for (const file of cssFiles()) {
   // `order: 1` can, and a rung would say something false about it. From 10 up
   // is the band where two components can genuinely claim the same plane, and
   // that is the band the ladder is for.
-  for (const match of css.matchAll(/(?<![-\w])z-index\s*:\s*(-?\d+)\s*(?:;|})/g)) {
-    if (Math.abs(Number(match[1])) >= 10) findings.rawZIndex.push(`${name}: z-index: ${match[1]}`)
-  }
+  for (const { value } of rawZIndexes(css)) findings.rawZIndex.push(`${name}: z-index: ${value}`)
 
   // A system token defined outside the file that owns the system.
   //

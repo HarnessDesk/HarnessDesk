@@ -4,7 +4,17 @@ import { test } from 'node:test'
 import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { codeOf, compareBaseline, createSourceCache, sheetsOf, squaresOf, STYLESHEET_OWNERS } from './design-audit.mjs'
+import {
+  codeOf,
+  compareBaseline,
+  createSourceCache,
+  declarationsOf,
+  rawColours,
+  rawZIndexes,
+  sheetsOf,
+  squaresOf,
+  STYLESHEET_OWNERS,
+} from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
@@ -1508,4 +1518,47 @@ test('packages/server/tsconfig.json includes project references for internal dep
     assert.ok(refs.has(dep), `packages/server/tsconfig.json is missing reference for dependency ${dep}`)
   }
   assert.ok(!refs.has('../transport-acp'), 'packages/server/tsconfig.json must not reference ../transport-acp')
+})
+
+/*
+ * The colour and stacking rules read declarations, not property names (#762
+ * review). Each case below is a spelling a property list would miss, or one it
+ * would wrongly count — the rule has to be seen getting both right.
+ */
+test('a colour written into any property is counted, not only the ones someone listed (#762)', () => {
+  const found = (css) => rawColours(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { border: 1px solid #fff; }'), ['border'])
+  assert.deepEqual(found('.a { border-top: 1px solid rgb(0 0 0); }'), ['border-top'])
+  assert.deepEqual(found('.a { outline: 2px solid hsl(210 50% 50%); }'), ['outline'])
+  assert.deepEqual(found('.a { --tint: #abc; }'), ['--tint'])
+  // the last declaration in a block needs no semicolon
+  assert.deepEqual(found('.a { color: #fff }'), ['color'])
+  // a vendor prefix is a property like any other
+  assert.deepEqual(found('.a { -webkit-text-stroke: 1px #000; }'), ['-webkit-text-stroke'])
+})
+
+test('tokens, fragment references, strings and masks are not raw colours (#762)', () => {
+  assert.deepEqual(rawColours('.a { color: var(--hd-foreground); border: 1px solid var(--hd-border); }'), [])
+  assert.deepEqual(rawColours('.a { fill: url(#grad); }'), [])
+  assert.deepEqual(rawColours(".a::before { content: '#fff'; }"), [])
+  // a mask reads alpha: `#000` there means "show", not black
+  assert.deepEqual(rawColours('.a { mask-image: linear-gradient(to right, #000 80%, transparent); }'), [])
+  assert.deepEqual(rawColours('.a { -webkit-mask: radial-gradient(#000, transparent); }'), [])
+})
+
+test('a selector is never read as a declaration (#762)', () => {
+  assert.deepEqual(
+    declarationsOf('a:hover { color: red } .b:not(:focus) { gap: 4px; } @media (max-width: 720px) { .c { top: 0 } }')
+      .map(({ property }) => property),
+    ['color', 'gap', 'top'],
+  )
+})
+
+test('a stacking number is counted with !important and without a semicolon (#762)', () => {
+  const found = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(found('.a { z-index: 10 !important; }'), ['10'])
+  assert.deepEqual(found('.a { z-index: 40 }'), ['40'])
+  assert.deepEqual(found('.a { z-index: -20; }'), ['-20'])
+  // single digits order within one component; tokens are the point
+  assert.deepEqual(found('.a { z-index: 5; } .b { z-index: var(--hd-z-popover) !important; }'), [])
 })

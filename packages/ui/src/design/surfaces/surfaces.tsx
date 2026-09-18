@@ -35,8 +35,10 @@ import styles from './surfaces.module.css'
  * without a store does not render a simpler version of itself — it throws.
  * `script/check-ui-system.mjs` holds this: every surface row in the catalogue
  * names the shipped module it mounts — a screen in `components/`, or the
- * workbench in `panels/` — and the check walks the import graph to prove this
- * file reaches it and the app ships it.
+ * workbench in `panels/` — and the check walks the import graph from that
+ * row's own export here, not from this file: walked from the file, a surface
+ * that stopped mounting its screen passed on a sibling that mounts the same
+ * one. The explorer tab for the row has to load that export, too.
  *
  * The frames are the only judgement this file makes, and they are about room
  * rather than looks — see `surfaces.module.css`.

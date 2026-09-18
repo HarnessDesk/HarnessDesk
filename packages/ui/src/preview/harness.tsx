@@ -44,6 +44,7 @@ import {
   previewWorkspaces,
 } from './sidebar-fixture'
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
+import { terminalAttach } from './terminal-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -812,6 +813,21 @@ class PreviewStore {
     for (const listener of this.#listeners) listener()
   }
 
+  /* The terminal's live stream. A real subscription with nothing on the other
+     end: the pane registers, unregisters on unmount, and hears nothing, which
+     is exactly a shell that has gone quiet. Answered here rather than by the
+     floor below so the page does not log a missing verb every time a
+     terminal mounts. */
+  #terminalListeners = new Map<string, Set<(notification: unknown) => void>>()
+  onTerminal(terminalId: string, listener: (notification: never) => void): () => void {
+    const set = this.#terminalListeners.get(terminalId) ?? new Set()
+    set.add(listener as (notification: unknown) => void)
+    this.#terminalListeners.set(terminalId, set)
+    return () => {
+      set.delete(listener as (notification: unknown) => void)
+    }
+  }
+
   /* The panel verbs, answered by the functions the app's own store answers
      them with. `AppStore.togglePanel` is one line — `toggleDock` over the
      workbench — and so is every verb below, so calling the same function here
@@ -1169,6 +1185,10 @@ class PreviewStore {
       /* The repository the git pane shows — `git-fixture.ts`. Reads only;
          a write verb from the pane falls through to `null` like any other
          method this page does not implement. */
+      /* A terminal redraws from its scrollback before anything else; see
+         `terminal-fixture.ts`. Writes and resizes answer `null`, as the host
+         does — there is no shell here to receive them. */
+      if (method === 'terminal/attach') return terminalAttach()
       if (method === 'workspace/readFile') {
         const path = (params as { path?: string } | undefined)?.path ?? ''
         if (path.endsWith('lib/brands.ts'))

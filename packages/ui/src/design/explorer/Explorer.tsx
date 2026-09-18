@@ -17,16 +17,22 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  * thing this entry proves by building at all: that a primitive needs none of
  * it. Split here, the proof survives and the surfaces still show the shipped
  * screen rather than a drawing of one.
+ *
+ * Each handle writes its own `import(…).then((m) => m.X)` rather than sharing
+ * a helper that returns the import. Vite emits one chunk either way; what
+ * differs is what `script/ui-catalog.mjs` can read. This shape names the one
+ * export a tab loads, which is what lets the catalogue check that the tab for
+ * a row mounts that row's screen — a shared helper hides the export, and
+ * every tab then looks like it loads all of them.
  */
-const surfaceModule = () => import('../surfaces/surfaces')
-const ComposerSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ComposerSurface })))
-const DashboardSurface = lazy(() => surfaceModule().then((m) => ({ default: m.DashboardSurface })))
-const ConversationSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ConversationSurface })))
-const GitSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GitSurface })))
-const GroupSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GroupSurface })))
-const PanelsSurface = lazy(() => surfaceModule().then((m) => ({ default: m.PanelsSurface })))
-const RailSurface = lazy(() => surfaceModule().then((m) => ({ default: m.RailSurface })))
-const ToolsSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ToolsSurface })))
+const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
+const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
+const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
+const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
+const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
+const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
+const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
+const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -157,7 +163,7 @@ const SURFACES = [
     id: 'tools',
     title: 'Browser · Terminal · Editor',
     about:
-      'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal has no shell — there is no host here to run one.',
+      'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal redraws a fixture\'s scrollback with no shell behind it — nothing new arrives, and typing goes nowhere.',
     render: ToolsSurface,
   },
   {
