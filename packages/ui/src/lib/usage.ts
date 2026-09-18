@@ -311,6 +311,30 @@ export const formatAge = (fetchedAt: number, now: number): string => {
 }
 
 /**
+ * What the Dashboard draws for a report — and only the Dashboard.
+ *
+ * A report whose own lanes are empty but which carries another sign-in's
+ * figures (`unverified`: Antigravity's, read through the separate `agy` CLI)
+ * is drawn with those figures, under that sign-in's name, so the card can
+ * show what it has without claiming it is this agent's account. The result is
+ * for drawing: readiness, the chip, alerts, the strip and the tray keep
+ * reading the report itself, whose lanes are empty, and so never decide
+ * anything on an account the desk cannot tie to the agent.
+ */
+export const drawnReport = (report: UsageReport): UsageReport => {
+  const other = report.unverified
+  if (!other || report.lanes.length > 0) return report
+  return {
+    ...report,
+    account: other.whose,
+    lanes: other.lanes,
+    reached: other.reached,
+    fetchedAt: other.fetchedAt,
+    staleAfterMs: other.staleAfterMs,
+  }
+}
+
+/**
  * Which of an agent's accounts decides whether it can work.
  *
  * Lanes inside one account are conjunctive — every window has to have room, so

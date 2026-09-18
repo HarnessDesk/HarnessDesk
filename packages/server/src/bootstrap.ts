@@ -505,8 +505,9 @@ export const localUsageFor = (
       return { meter: new GeminiMeter() }
     case 'copilot':
       return { meter: new CopilotMeter() }
-    // The ACP server reports no quota, but the `agy` CLI beside it does. See
-    // `usage/agy.ts` for why it is the CLI's sign-in that answers.
+    // The ACP server reports no quota, but the `agy` CLI beside it does. It is
+    // the CLI's own sign-in, so its figures are shown and never gate the
+    // agent — see `usage/agy.ts`.
     case 'agy_acp_server':
       return { meter: new AgyMeter() }
     default:

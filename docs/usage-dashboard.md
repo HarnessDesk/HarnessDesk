@@ -141,10 +141,32 @@ a ~20 KB log into `~/.gemini/antigravity-cli/log/` per run, which `--log-file`
 sends to the null device. A read younger than a minute is answered again
 rather than starting agy after every turn of a busy flow.
 
+Signed out is only what agy says it is. Measured with its ADC route forced
+and no credentials, the JSON said "authentication failed or timed out" (which
+a timeout also says) and stderr said `Error: authentication required. Run
+'agy' to log in.`, the sentence Google's headless docs promise. That sentence
+and two others of agy's own ("stored credentials are expired or revoked",
+"You are not logged into Antigravity") are the whole match; anything else, a
+503 from the sign-in service included, is an error.
+
+**A meter that fails keeps what it had.** Until #769 a meter that threw was
+dropped as silence however recently it had answered, so one 503 took a card
+back to "no source available". It now keeps its last good reading, dated when
+it was read, with the failure beside it — the rule a runtime's own figures
+already had. With no earlier reading, a failure is still logged and no card.
+
 The figures are **the agy CLI's sign-in**, not the ACP server's: the two sign
-in separately (see the known-agents note). Quota is kept per Google account, so
-for one account they are the same number; the footer says "from the agy CLI"
-so a person with two can tell. A bucket that is untouched reports a reset of
+in separately (see the known-agents note), and neither says which Google
+account it is, so the desk cannot tell whether they are the agent's. So they
+are never treated as the agent's. The meter marks its reading `unverified`,
+and the service files it under `UsageReport.unverified` rather than in
+`lanes`. The Dashboard card draws it under its own name ("agy CLI sign-in",
+"from the agy CLI"), with the chip still read from the report itself.
+Readiness, the chip, the alerts, the header strip, the tray and Setup Desk all
+reduce over `lanes`, which are empty, so a spent `agy` account can never mark
+Antigravity out of quota or hide "Use this agent", and an Antigravity whose
+own account is spent is not shown as ready on `agy`'s numbers either (review
+of #769). A bucket that is untouched reports a reset of
 "now plus a week" that moves on every read, so a full bucket's reset is drawn
 as no date at all. Every lane is scoped to a group of models — see the
 headline rule below for what that does to the card.

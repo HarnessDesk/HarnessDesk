@@ -19,6 +19,7 @@ import {
   byUrgency,
   coverageLabel,
   describeReport,
+  drawnReport,
   formatAge,
   formatCountdown,
   formatMoney,
@@ -519,18 +520,19 @@ const AccountRow = ({
   onClick: () => void
 }) => {
   // No lanes below the headline: the rail asks one question of each account.
-  const view = describeReport(report, { now, maxLanes: 0, preference })
+  const drawn = drawnReport(report)
+  const view = describeReport(drawn, { now, maxLanes: 0, preference })
   const left = view.hero?.remainingPercent ?? null
   const agent = info?.presentation.name ?? String(report.runtime)
   return (
     <RailRow
       mark={info ? <RuntimeMark runtime={info} size={15} /> : <UsageIcon size={14} />}
       name={agent}
-      {...(report.account ? { title: `${agent} · ${report.account}` } : {})}
+      {...(drawn.account ? { title: `${agent} · ${drawn.account}` } : {})}
       figure={left === null ? '—' : `${left}%`}
       {...(view.hero ? { tone: view.hero.tone } : {})}
       percent={left}
-      {...(left === null && report.account ? { sub: report.account } : {})}
+      {...(left === null && drawn.account ? { sub: drawn.account } : {})}
       selected={selected}
       onClick={onClick}
     />
@@ -569,13 +571,18 @@ const Card = ({
   onRefresh: () => void
   onStopTracking: () => void
 }) => {
-  const view: ReportView = describeReport(report, { now, maxLanes: 3, preference })
+  // Another sign-in's figures are drawn, under its name; the chip is still the
+  // agent's own, read from the report itself, so a spent `agy` account can
+  // never put "Limit" on an agent that may be running as somebody else.
+  const drawn = drawnReport(report)
+  const borrowed = drawn !== report
+  const view: ReportView = describeReport(drawn, { now, maxLanes: 3, preference })
   const plan = planLabel(report.plan)
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
   // "not metered" — it is an account with nothing to run out of.
   const balance = balanceOf(report.credits)
-  const state = stateOf(report, view)
+  const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
   const agent = info?.presentation.name ?? String(report.runtime)
 
@@ -600,7 +607,13 @@ const Card = ({
         : money
           ? `spent in ${spend?.windowDays ?? 0}d`
           : 'not metered'
-  const note = noteOf(report, view, balance, Boolean(spend))
+  const note =
+    borrowed && !report.error && view.blocked
+      ? {
+          text: `Everything is spent on the ${drawn.account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
+          tone: 'warn' as const,
+        }
+      : noteOf(drawn, view, balance, Boolean(spend))
 
   return (
     <article
@@ -613,8 +626,8 @@ const Card = ({
             <RuntimeMark runtime={info} size={15} />
           </span>
         )}
-        <span className={styles.cardName}>{report.account ?? agent}</span>
-        {report.account && <span className={styles.cardAgent}>{agent}</span>}
+        <span className={styles.cardName}>{drawn.account ?? agent}</span>
+        {drawn.account && <span className={styles.cardAgent}>{agent}</span>}
         <span className={styles.fill} />
         <Chip state={state} {...(plan ? { label: plan } : {})} />
       </div>

@@ -129,6 +129,26 @@ export interface UsageError {
 }
 
 /**
+ * Figures for a sign-in the desk cannot tie to the account the agent runs as.
+ *
+ * Antigravity's come from the `agy` CLI, which signs in separately from the
+ * ACP server the desk runs, so its quota may belong to another Google account.
+ * They are kept out of `UsageReport.lanes` on purpose: readiness, the chip,
+ * the alerts, the header strip and the tray all reduce over `lanes`, and none
+ * of them can mistake these for the agent's own because they are not there.
+ * Only the Dashboard card draws them, under their own name.
+ */
+export interface UnverifiedUsage {
+  /** Whose figures these are, in words: "agy CLI sign-in". */
+  readonly whose: string
+  readonly lanes: readonly UsageLane[]
+  /** The lane that sign-in has spent, when one is. */
+  readonly reached: string | null
+  readonly fetchedAt: number
+  readonly staleAfterMs: number
+}
+
+/**
  * One account's standing with one agent.
  *
  * An agent with two signed-in accounts produces two reports; the interface
@@ -149,6 +169,8 @@ export interface UsageReport {
   readonly staleAfterMs: number
   /** Stays on this report; one failing source never blanks the others. */
   readonly error: UsageError | null
+  /** Figures for another sign-in, drawn beside this account and never read as it. */
+  readonly unverified?: UnverifiedUsage | null
 }
 
 /** How the ledger should slice its history. */

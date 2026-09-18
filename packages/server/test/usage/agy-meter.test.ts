@@ -133,6 +133,8 @@ test('the reading is agy’s own /usage, run so that it changes nothing', async 
   assert.ok(reading)
   assert.equal(reading.reached, 'gemini-weekly')
   assert.equal(reading.account, null)
+  // agy signs in on its own, so these are its figures and are said to be.
+  assert.equal(reading.unverified, 'agy CLI sign-in')
   assert.equal(reading.fetchedAt, NOW)
   assert.deepEqual(calls, [
     {
@@ -158,25 +160,47 @@ test('a reading younger than a minute is answered again, with its own time', asy
   assert.equal(calls.length, 2)
 })
 
-test('signed out is silence, and anything else agy refuses is an error worth logging', async () => {
-  const signedOut = new AgyMeter({
-    command: '/opt/agy',
-    run: scripted(
-      answered(JSON.stringify({ status: 'ERROR', error: 'transcription requires CLI authentication' }), { ok: false, code: 1 }),
-    ).run,
-  })
-  assert.equal(await signedOut.read(), null)
+/**
+ * What agy 1.2.6 printed with its ADC route forced and no credentials: the
+ * JSON alone cannot tell a sign-out from a timeout; stderr can.
+ */
+const SIGNED_OUT = answered(
+  JSON.stringify({ conversation_id: '', status: 'ERROR', response: '', error: 'authentication failed or timed out' }),
+  {
+    ok: false,
+    code: 1,
+    stderr: "Error: authentication required. Run 'agy' to log in.\nerror: authentication failed or timed out\n",
+  },
+)
 
-  const plainText = new AgyMeter({
-    command: '/opt/agy',
-    run: scripted(answered('', { ok: false, code: 1, stderr: 'Please log in with /login to continue.\n' })).run,
-  })
-  assert.equal(await plainText.read(), null)
+const refusing = (error: string, stderr = ''): RunResult =>
+  answered(JSON.stringify({ status: 'ERROR', error }), { ok: false, code: 1, stderr })
 
-  const refused = new AgyMeter({
-    command: '/opt/agy',
-    run: scripted(answered(JSON.stringify({ status: 'ERROR', error: 'retrieving quota summary: HTTP 500' }), { ok: false, code: 1 })).run,
-  })
+test('signed out is silence, in agy’s own words and no others', async () => {
+  assert.equal(await new AgyMeter({ command: '/opt/agy', run: scripted(SIGNED_OUT).run }).read(), null)
+  const lapsed = refusing('stored credentials are expired or revoked: oauth2: "invalid_grant"')
+  assert.equal(await new AgyMeter({ command: '/opt/agy', run: scripted(lapsed).run }).read(), null)
+})
+
+test('a failure that only mentions authentication is an error, not a sign-out', async () => {
+  // Each of these used to match a pattern as broad as "auth…", and was taken
+  // for a sign-out: the reading was forgotten and nothing was logged.
+  for (const [error, stderr] of [
+    ['authentication service unavailable: HTTP 503', ''],
+    ['retrieving quota summary: Proxy Authentication Required', ''],
+    // The JSON on its own, without agy's sentence on stderr: a timeout says this too.
+    ['authentication failed or timed out', 'error: authentication failed or timed out\n'],
+  ] as const) {
+    const meter = new AgyMeter({ command: '/opt/agy', run: scripted(refusing(error, stderr)).run })
+    await assert.rejects(meter.read(), (cause: Error) => cause.message === `agy /usage failed: ${error}`)
+  }
+  // Words of our own about logging in are not agy's either.
+  const invented = answered('', { ok: false, code: 1, stderr: 'Please log in with /login to continue.\n' })
+  await assert.rejects(new AgyMeter({ command: '/opt/agy', run: scripted(invented).run }).read(), /not its JSON/)
+})
+
+test('agy that refuses in other ways, or says nothing, is reported rather than guessed at', async () => {
+  const refused = new AgyMeter({ command: '/opt/agy', run: scripted(refusing('retrieving quota summary: HTTP 500')).run })
   await assert.rejects(refused.read(), /agy \/usage failed: retrieving quota summary: HTTP 500/)
 
   const hung = new AgyMeter({
@@ -194,11 +218,7 @@ test('signed out is silence, and anything else agy refuses is an error worth log
 
 test('a signed-out answer forgets the last reading instead of repeating it', async () => {
   let now = NOW
-  const { run } = scripted(
-    answered(JSON.stringify(PRINTED)),
-    answered(JSON.stringify({ status: 'ERROR', error: 'not authenticated' }), { ok: false, code: 1 }),
-    answered(JSON.stringify(PRINTED)),
-  )
+  const { run } = scripted(answered(JSON.stringify(PRINTED)), SIGNED_OUT, answered(JSON.stringify(PRINTED)))
   const meter = new AgyMeter({ command: '/opt/agy', run, now: () => now })
   assert.ok(await meter.read())
   now += 61_000

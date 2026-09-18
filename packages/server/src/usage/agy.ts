@@ -32,10 +32,12 @@ import { WINDOW_MINUTES, type MeterReading, type UsageMeter } from './meter.js'
  * it to the null device instead.
  *
  * **It is the CLI's sign-in, not the server's.** agy and the ACP server each
- * sign in on their own (see the known-agents note), so these are the figures
- * for the Google account agy is signed in as. Quota is kept per account, so
- * for the one-account person that is the same number; the footer says where it
- * came from so a person with two accounts can tell. Signed out, or not
+ * sign in on their own (see the known-agents note), and nothing either one
+ * exposes says which Google account it is, so the desk cannot tell whether
+ * these figures are the agent's. The reading says so (`unverified`), and the
+ * service files it beside the report rather than in its lanes: the Dashboard
+ * draws it under agy's name, and readiness, alerts and every other surface
+ * that decides whether the agent can run never see it. Signed out, or not
  * installed, the meter is silent.
  */
 
@@ -50,6 +52,8 @@ const STALE_AFTER_MS = 5 * 60_000
  * younger than this is answered again — with its own time, not ours.
  */
 const MIN_INTERVAL_MS = 60_000
+/** Whose figures these are, as the Dashboard names them. */
+const WHOSE = 'agy CLI sign-in'
 
 interface QuotaBucket {
   readonly id?: string
@@ -150,8 +154,25 @@ export const agyLanes = (summary: QuotaSummary): UsageLane[] => {
   return lanes
 }
 
-/** agy's words for an account it has no session for — silence, not a failure. */
-const SIGNED_OUT = /\b(auth|authenticat\w*|log ?in|sign(?:ed)? ?in|credential\w*|onboard\w*)\b/i
+/**
+ * agy's own words for "no session", and nothing broader.
+ *
+ * Measured on 1.2.6 with its ADC route forced and no credentials: the JSON
+ * said only "authentication failed or timed out", which a timeout can say
+ * too, and stderr said `Error: authentication required. Run 'agy' to log
+ * in.` — the sentence Google's headless docs promise for a run that is not
+ * signed in. The other two are the binary's own for a session that has
+ * lapsed. A failure that merely mentions authentication — a 503 from the
+ * sign-in service, a proxy asking for credentials — is an error: logged, and
+ * the last reading stands beside it rather than being forgotten.
+ */
+const SIGNED_OUT: readonly RegExp[] = [
+  /^Error: authentication required\. Run '[^']+' to log in\b/m,
+  /\bstored credentials are expired or revoked\b/,
+  /\bYou are not logged into Antigravity\b/,
+]
+
+const signedOut = (said: string): boolean => SIGNED_OUT.some((pattern) => pattern.test(said))
 
 export interface AgyMeterOptions {
   /** The CLI to run; found on PATH, then where agy's installer puts it, when absent. */
@@ -191,14 +212,14 @@ export class AgyMeter implements UsageMeter {
     if (result.timedOut) throw new Error(`agy /usage did not answer within ${TIMEOUT_MS / 1000} s`)
 
     const printed = parse(result.stdout)
-    if (printed === null) {
-      const said = firstLine(result.stderr) ?? firstLine(result.stdout)
-      if (said !== null && SIGNED_OUT.test(said)) return this.#forget()
-      throw new Error(`agy /usage answered something that is not its JSON${said ? `: ${said}` : ''}`)
-    }
-    if (printed.status !== 'SUCCESS') {
+    if (printed === null || printed.status !== 'SUCCESS') {
+      // The telling line is on stderr, not in the JSON, so both are read.
+      if (signedOut([printed?.error ?? '', result.stderr].join('\n'))) return this.#forget()
+      if (printed === null) {
+        const said = firstLine(result.stderr) ?? firstLine(result.stdout)
+        throw new Error(`agy /usage answered something that is not its JSON${said ? `: ${said}` : ''}`)
+      }
       const said = printed.error ?? firstLine(result.stderr) ?? `status ${printed.status ?? 'missing'}`
-      if (SIGNED_OUT.test(said)) return this.#forget()
       throw new Error(`agy /usage failed: ${said}`)
     }
 
@@ -214,6 +235,7 @@ export class AgyMeter implements UsageMeter {
       reached: spent?.id ?? null,
       fetchedAt: this.#now(),
       staleAfterMs: STALE_AFTER_MS,
+      unverified: WHOSE,
     }
     return this.#last
   }

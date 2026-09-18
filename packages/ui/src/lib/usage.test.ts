@@ -6,11 +6,13 @@ import {
   bindingLane,
   byUrgency,
   describeReport,
+  drawnReport,
   formatAge,
   formatCountdown,
   formatCountdownShort,
   formatMoney,
   gatedUntil,
+  isBlocked,
   pace,
   planLabel,
   runway,
@@ -308,6 +310,28 @@ describe('describeReport', () => {
     )
     expect(view.blocked).toBe(false)
     expect(view.hero?.id).toBe('b')
+  })
+
+  it("draws another sign-in's figures without making them the account's", () => {
+    const other = {
+      whose: 'agy CLI sign-in',
+      lanes: [lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models' })],
+      reached: 'gemini-weekly',
+      fetchedAt: NOON - HOUR,
+      staleAfterMs: HOUR,
+    }
+    const borrowed = report({ account: 'Google account', unverified: other })
+    const drawn = drawnReport(borrowed)
+    expect(drawn.account).toBe('agy CLI sign-in')
+    expect(drawn.lanes).toBe(other.lanes)
+    expect(drawn.reached).toBe('gemini-weekly')
+    expect(drawn.fetchedAt).toBe(NOON - HOUR)
+    // The report itself is untouched, and it is the one everything else reads.
+    expect(borrowed.lanes).toEqual([])
+    expect(isBlocked(borrowed)).toBe(false)
+    // An account with lanes of its own is drawn as itself.
+    const own = report({ lanes: [lane({ id: 'weekly', usedPercent: 10 })], unverified: other })
+    expect(drawnReport(own)).toBe(own)
   })
 
   it('marks a lane with no usage figure as unknown rather than empty', () => {
