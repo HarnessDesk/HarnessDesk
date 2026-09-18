@@ -100,6 +100,28 @@ export interface AgentProblem {
 }
 
 /**
+ * One field of a seat that opened running something other than what was
+ * asked, as a fact rather than a sentence: which control, what was asked,
+ * and what it runs instead.
+ *
+ * `asked`/`running` hold a model or effort id as a string, or thinking as a
+ * boolean; a model or effort of `null` means the runtime named none. For
+ * `thinking`, `asked` is `null` when the seat said nothing about it at all —
+ * distinct from `false`, which a seat writes on purpose (`agent-seating.ts`'s
+ * `differencesOf`).
+ *
+ * `fixed`, thinking only: the runtime's own words for why it cannot move the
+ * switch here, when it gave a reason; absent when it can be moved, or gave
+ * none.
+ */
+export interface SeatDifference {
+  readonly field: 'model' | 'effort' | 'thinking'
+  readonly asked: string | boolean | null
+  readonly running: string | boolean | null
+  readonly fixed?: string
+}
+
+/**
  * Why one candidate seat cannot be taken here, as a fact rather than a
  * sentence.
  *
@@ -108,8 +130,9 @@ export interface AgentProblem {
  * host's sentence (it words a runtime by its presentation), so it reads this
  * instead, and the fix beside it (`SeatFix`).
  *
- * The first eight are known before anything is opened; the last two only
- * once a conversation exists.
+ * Every reason above `couldNotOpen` is known before anything is opened.
+ * `couldNotOpen` is what trying and failing to open one says; only
+ * `openedOtherwise`, the last, needs a conversation that actually did.
  */
 export type SeatReason =
   /**
@@ -118,6 +141,8 @@ export type SeatReason =
    * not on this machine. One sentence, two fixes.
    */
   | { readonly kind: 'notInstalled'; readonly added: boolean }
+  /** The id names no runtime this desk has ever heard of — not merely absent, as a real id nobody added would be. */
+  | { readonly kind: 'unknownRuntime' }
   /** It cannot open a conversation right now — too old, crashed, still starting — in its own words. */
   | { readonly kind: 'unavailable'; readonly detail: string }
   /** Asked whether it is signed in, it did not answer within `after` milliseconds, and was not waited for. */
@@ -131,8 +156,8 @@ export type SeatReason =
   | { readonly kind: 'noEffort'; readonly effort: string }
   /** Asked for a conversation, and it failed to open one. */
   | { readonly kind: 'couldNotOpen'; readonly detail: string }
-  /** It opened, and runs something other than the seat asked for: each difference named in `detail`. */
-  | { readonly kind: 'openedOtherwise'; readonly detail: string }
+  /** It opened, and runs something other than the seat asked for: each field that differs, named in `differences`. */
+  | { readonly kind: 'openedOtherwise'; readonly differences: readonly SeatDifference[] }
 
 /**
  * What removes a reason, as a thing a surface can offer. Never a sentence:

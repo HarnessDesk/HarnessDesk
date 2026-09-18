@@ -5,7 +5,7 @@ import { isBlocked, type AgentRuntime, type FlowSeat, type UsageReport } from '@
 import {
   agentOrder,
   chooseSeat,
-  differences,
+  differencesOf,
   explainRefusal,
   passedFor,
   permissionWithin,
@@ -14,6 +14,7 @@ import {
 } from '../agent-seating.js'
 import { seatSpec } from '../flow.js'
 import type { OpenedSeat } from '../host.js'
+import { knownAgent } from '../installs/known-agents.js'
 import { SEAT_READ_DEADLINE_MS, within } from '../seat-reads.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
@@ -174,18 +175,21 @@ const openAsAsked = async (
   } catch (error) {
     return passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) })
   }
-  const found = differences(seat, opened.running)
+  const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened
   await ctx.seats.retire(opened.runtime, opened.sessionId)
-  return passedFor(seat, { kind: 'openedOtherwise', detail: found.join(', and ') })
+  return passedFor(seat, { kind: 'openedOtherwise', differences: found })
 }
 
 /**
  * What this desk can seat on each runtime the candidates name, read from the
  * desk itself — never assumed, and never a failed read passed off as an answer.
  *
- * - **Installed** is the runtime registry: a runtime this desk has not added has
- *   no offer, and neither has one that says it is not installed on this machine.
+ * - **Installed** is the runtime registry: a runtime this desk has added, with
+ *   its program on this machine, is read below for what it offers; one this
+ *   desk could add but has not gets no offer at all; one whose id names no
+ *   runtime this desk has ever heard of gets an offer that says so, rather
+ *   than being read as though it could still be added (`knownAgent`).
  * - **Unavailable** is its own health when that is not ready — too old, crashed,
  *   still starting — in its own words, and an account that would not answer.
  * - **Signed in** is the accounts plane: an account on it, or an agent that keeps
@@ -199,15 +203,28 @@ const openAsAsked = async (
  * - **Efforts** are null: a runtime declares them per session, so they are held
  *   to account once the seat is open, not guessed at here.
  */
-const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[]): Promise<SeatOffer[]> => {
-  const runtimes = [...new Set(candidates.map((one) => one.runtime))].flatMap((id) => {
+export const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[]): Promise<SeatOffer[]> => {
+  const ids = [...new Set(candidates.map((one) => one.runtime))]
+  const runtimes: AgentRuntime[] = []
+  // Nothing this desk has added and nothing it has ever heard of are not the
+  // same refusal — the first is fixed by adding it, the second only by
+  // fixing the seats that named it — but both are "no runtime by this id can
+  // be asked" until a candidate for it is actually checked, so both are
+  // decided here, once, rather than at every candidate that names the id.
+  const unknown: SeatOffer[] = []
+  for (const id of ids) {
     const runtime = ctx.runtimes.get(id)
-    return runtime ? [runtime] : []
-  })
-  if (runtimes.length === 0) return []
+    if (runtime) {
+      runtimes.push(runtime)
+    } else if (!knownAgent(id)) {
+      unknown.push({ runtime: id, unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false })
+    }
+  }
+  if (runtimes.length === 0) return unknown
   const deadline = ctx.options.seatReadDeadlineMs ?? SEAT_READ_DEADLINE_MS
   const reports = await usageWithin(ctx, runtimes, deadline)
-  return Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline)))
+  const offers = await Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline)))
+  return [...offers, ...unknown]
 }
 
 /**
@@ -233,7 +250,7 @@ const usageWithin = async (
   })
 }
 
-const offerOf = async (
+export const offerOf = async (
   ctx: HostContext,
   runtime: AgentRuntime,
   reports: readonly UsageReport[],

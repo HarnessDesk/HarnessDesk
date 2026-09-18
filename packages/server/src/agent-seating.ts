@@ -1,4 +1,12 @@
-import type { ConfigOption, FlowPermission, FlowSeat, SeatFix, SeatReason, SessionSettings } from '@harnessdesk/protocol'
+import type {
+  ConfigOption,
+  FlowPermission,
+  FlowSeat,
+  SeatDifference,
+  SeatFix,
+  SeatReason,
+  SessionSettings,
+} from '@harnessdesk/protocol'
 
 import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
 
@@ -31,7 +39,9 @@ import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
 /**
  * What this machine can seat on one runtime, right now. One per runtime — the
  * first that names a runtime is the one read — with that runtime's accounts
- * folded into it by the caller. A runtime with no offer is not installed.
+ * folded into it by the caller. A runtime this desk could add but has not is
+ * the one case with no offer at all; one whose id this desk recognises
+ * nothing by still gets an offer, so it can say which (`unknownRuntime`).
  */
 export interface SeatOffer {
   /** The runtime's id, as a seat spec names it: `cursor`, `claude`. */
@@ -44,10 +54,19 @@ export interface SeatOffer {
    */
   readonly notInstalled?: boolean
   /**
+   * The id names no runtime this desk has ever heard of — not a real runtime
+   * left unadded, which is no offer at all, but a spelling nothing
+   * recognises (`prefer: [claude]`, where the real id is `claude-code`). When
+   * it is set the rest of the offer is not consulted, and need not have been
+   * read.
+   */
+  readonly unknownRuntime?: boolean
+  /**
    * Why it cannot open a conversation right now, in its own words — too old,
    * crashed, still starting, an account it would not answer about — or absent
-   * when it can. Not installed is not this: that is no offer at all. When it is
-   * set, the rest of the offer is not consulted, and need not have been read.
+   * when it can. Not installed is not this: that is either no offer at all, or
+   * one that says so itself (`notInstalled`). When it is set, the rest of the
+   * offer is not consulted, and need not have been read.
    */
   readonly unavailable?: string | null
   /**
@@ -111,6 +130,7 @@ export const durationWords = (ms: number): string => {
 export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): SeatReason | null => {
   const offer = offers.find((one) => one.runtime === seat.runtime)
   if (!offer) return { kind: 'notInstalled', added: false }
+  if (offer.unknownRuntime) return { kind: 'unknownRuntime' }
   if (offer.notInstalled) return { kind: 'notInstalled', added: true }
   if (offer.unavailable) return { kind: 'unavailable', detail: quoted(offer.unavailable) }
   if (offer.silent) return { kind: 'noAnswer', after: offer.silent }
@@ -132,6 +152,29 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): Sea
 }
 
 /**
+ * One `SeatDifference`, worded exactly as `differences` has always worded it
+ * — the one place that joins them is `sentenceOf`, below, not each caller.
+ */
+const fragmentOf = (difference: SeatDifference): string => {
+  switch (difference.field) {
+    case 'model':
+      return difference.running === null
+        ? `on no model it would name, not ${difference.asked}`
+        : `on model ${difference.running}, not ${difference.asked}`
+    case 'effort':
+      return difference.running === null
+        ? `with no effort setting, not at ${difference.asked} effort`
+        : `at ${difference.running} effort, not ${difference.asked}`
+    case 'thinking': {
+      const why = difference.fixed ? ` (${difference.fixed})` : ''
+      if (difference.asked === true) return `without thinking, which was asked for${why}`
+      if (difference.asked === false) return `with thinking on, which was asked to be off${why}`
+      return 'with thinking on, which was not asked for and would not turn off'
+    }
+  }
+}
+
+/**
  * A reason as the host says it: in a refusal, and in its log. The runtime is
  * named by the id a seat spec writes, because that is the text a person can
  * find in an `AGENT.md` and change. A surface words the reason itself.
@@ -140,6 +183,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
   switch (reason.kind) {
     case 'notInstalled':
       return `${runtime} is not installed`
+    case 'unknownRuntime':
+      return `${runtime} does not name a runtime this desk knows`
     case 'unavailable':
       return `${runtime} is unavailable: ${reason.detail}`
     case 'noAnswer':
@@ -157,7 +202,7 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
     case 'couldNotOpen':
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
-      return `${runtime} runs it ${reason.detail}`
+      return `${runtime} runs it ${reason.differences.map(fragmentOf).join(', and ')}`
   }
 }
 
@@ -165,7 +210,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
  * What removes a reason. Three places a person goes: the runtime (add it,
  * install it, sign in, look at what is wrong with it), its usage, or this
  * machine's seats for the Agent — the last being the answer whenever the seat
- * itself asks for something the runtime does not do here.
+ * names something that is not a real choice here: a model or an effort the
+ * runtime does not do, or a runtime id that does not exist at all.
  */
 export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
   switch (reason.kind) {
@@ -180,6 +226,7 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'modelsUnread':
     case 'couldNotOpen':
       return { kind: 'runtime', runtime }
+    case 'unknownRuntime':
     case 'noModel':
     case 'noEffort':
     case 'openedOtherwise':
@@ -314,14 +361,48 @@ export const differences = (asked: FlowSeat, running: SeatRunning): string[] => 
 }
 
 /**
+ * The same facts as `differences`, structured for a surface instead of
+ * spelled out for the host's own sentence: which field, what was asked, what
+ * runs, and — thinking only — the runtime's own words for why it will not
+ * move, when it gave one (`SeatDifference.fixed`).
+ *
+ * The one helper that decides what counts as a difference; `sentenceOf`
+ * builds the host's sentence from its output rather than from `differences`
+ * again, so the two can never drift apart. Kept apart from `differences`
+ * itself only because that function's callers, and its own tests, read a
+ * prose fragment already joined to the runtime's quoted words — the one
+ * thing this structured form must not carry (AGENTS.md rule 8).
+ */
+export const differencesOf = (asked: FlowSeat, running: SeatRunning): SeatDifference[] => {
+  const found: SeatDifference[] = []
+  if (asked.model && running.model !== asked.model) {
+    found.push({ field: 'model', asked: asked.model, running: running.model })
+  }
+  if (asked.effort && running.effort !== asked.effort) {
+    found.push({ field: 'effort', asked: asked.effort, running: running.effort })
+  }
+  const fixed = running.thinkingFixed ? { fixed: quoted(running.thinkingFixed) } : {}
+  if (asked.thinking === true && !running.thinking) {
+    found.push({ field: 'thinking', asked: true, running: false, ...fixed })
+  }
+  if (asked.thinking === false && running.thinking) {
+    found.push({ field: 'thinking', asked: false, running: true, ...fixed })
+  }
+  if (asked.thinking === undefined && running.thinking && running.thinkingFixed === null) {
+    found.push({ field: 'thinking', asked: null, running: true })
+  }
+  return found
+}
+
+/**
  * Why a seat that opened cannot be kept, as its line in a refusal, or null
  * when it is running what was asked. Worded, like every reason before opening,
  * as what is true of the seat — "claude runs it at medium effort, not high" —
  * and not as what was done about it, so a refusal reads as one list.
  */
 export const openedOtherwise = (asked: FlowSeat, running: SeatRunning): string | null => {
-  const found = differences(asked, running)
-  return found.length === 0 ? null : sentenceOf(asked.runtime, { kind: 'openedOtherwise', detail: found.join(', and ') })
+  const found = differencesOf(asked, running)
+  return found.length === 0 ? null : sentenceOf(asked.runtime, { kind: 'openedOtherwise', differences: found })
 }
 
 // ------------------------------------------------------------ what it may do

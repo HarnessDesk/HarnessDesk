@@ -35,12 +35,12 @@ import {
   type UserContent,
 } from '@harnessdesk/protocol'
 
-import type { SeatRunning } from '../src/agent-seating.js'
+import { fixOf, reasonAgainst, type SeatRunning } from '../src/agent-seating.js'
 import { Agents } from '../src/agents.js'
 import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
 import type { OpenedSeat } from '../src/host.js'
 import { Logger } from '../src/log.js'
-import { agentMethods } from '../src/methods/agents.js'
+import { agentMethods, offerOf, offersFor } from '../src/methods/agents.js'
 import type { SeatedAs } from '../src/registry.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
@@ -898,7 +898,7 @@ const reportFor = (runtime: string, lanes: readonly { usedPercent: number; scope
 
 test('each thing the desk knows before opening is its own reason, read from the desk', async () => {
   const seen = await rig(
-    'ghost=m, gone=m, old=m, starting=m, mute=m, out=m, spent=m',
+    'devin=m, gone=m, old=m, starting=m, mute=m, out=m, spent=m',
     {
       gone: { models: ['m'], health: { state: 'unavailable', reason: 'notInstalled', message: 'Gone is not installed on this machine.' } },
       old: {
@@ -924,7 +924,10 @@ test('each thing the desk knows before opening is its own reason, read from the 
         error.message,
         [
           'No seat could be opened for this Agent:',
-          '  ghost=m — ghost is not installed',
+          // `devin` names a runtime this desk knows of (`known-agents.ts`) but
+          // has not added — the "nobody added it" flavour of not installed,
+          // as opposed to `gone`'s "added, and its program is missing".
+          '  devin=m — devin is not installed',
           '  gone=m — gone is not installed',
           '  old=m — old is unavailable: Old 0.1 is too old: 1.0 or newer is needed. Update it with `old update`',
           '  starting=m — starting is unavailable: it is still starting',
@@ -937,6 +940,55 @@ test('each thing the desk knows before opening is its own reason, read from the 
     },
   )
   untouched(seen)
+})
+
+/*
+ * `offersFor` decides, for every candidate id this desk has not added, which
+ * fix a refusal can honestly offer: *Add* it, when the id names a real
+ * runtime (`known-agents.ts`) simply not on this desk yet; or send the reader
+ * back to the seats themselves, when nothing recognises the id at all — the
+ * `prefer: [claude]` mistake, where the real id is `claude-code`.
+ */
+
+test('offersFor tells an id nothing knows apart from one the desk could still add', async () => {
+  const { ctx } = await rig('cursor=m1', {})
+  const offers = await offersFor(ctx, [
+    { runtime: 'cursor', thinking: false }, // a real runtime (known-agents.ts) — just not added to this desk
+    { runtime: 'claude', thinking: false }, // the spec's own spelling; the real id is claude-code
+  ])
+  // The known-but-unadded id gets no offer at all — exactly as before this
+  // fix — and only the id nothing recognises gets one, marked apart.
+  assert.deepEqual(offers, [
+    { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
+  ])
+  assert.deepEqual(reasonAgainst({ runtime: 'cursor', thinking: false }, offers), { kind: 'notInstalled', added: false })
+  assert.deepEqual(fixOf('cursor', { kind: 'notInstalled', added: false }), { kind: 'add', runtime: 'cursor' })
+  assert.deepEqual(reasonAgainst({ runtime: 'claude', thinking: false }, offers), { kind: 'unknownRuntime' })
+  assert.deepEqual(fixOf('claude', { kind: 'unknownRuntime' }), { kind: 'seats' })
+})
+
+/*
+ * Only `offerOf`'s own "added, and its program is missing" branch produces
+ * `notInstalled: added: true` — and until now nothing exercised it through
+ * the real health read, so a return to the old "drop it" behaviour read the
+ * same "not installed" sentence and no test noticed.
+ */
+
+test('a registered runtime whose program is missing is offered with that said, fixed by installing it — not dropped as though nobody added it', async () => {
+  const { ctx } = await rig('gone=m', {
+    gone: {
+      models: ['m'],
+      health: { state: 'unavailable', reason: 'notInstalled', message: 'Gone is not installed on this machine.' },
+    },
+  })
+  const runtime = pretendRuntime('gone', {
+    models: ['m'],
+    health: { state: 'unavailable', reason: 'notInstalled', message: 'Gone is not installed on this machine.' },
+  })
+  const offer = await offerOf(ctx, runtime as never, [], 1_000)
+  assert.deepEqual(offer, { runtime: 'gone', notInstalled: true, models: null, efforts: null, signedIn: false, spent: false })
+  assert.deepEqual(reasonAgainst({ runtime: 'gone', thinking: false }, [offer]), { kind: 'notInstalled', added: true })
+  assert.deepEqual(fixOf('gone', { kind: 'notInstalled', added: true }), { kind: 'install', runtime: 'gone' })
 })
 
 test("one model's spent window does not spend the runtime, and an agent that keeps its own account needs no sign-in", async () => {
@@ -1186,14 +1238,16 @@ test('through the host: one seat at a time — each that fails is closed and let
 
 test('through the host: when every candidate fails the refusal names each, and no conversation is left open', async (t) => {
   const { harness, seats, client, work } = await desk(t)
-  await writeReviewer(harness.stateDir, 'ghost=m1, seatfake=small/high, seatfake=small/medium+thinking')
+  await writeReviewer(harness.stateDir, 'devin=m1, seatfake=small/high, seatfake=small/medium+thinking')
 
   await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
     assert.equal(
       error.message,
       [
         'No seat could be opened for this Agent:',
-        '  ghost=m1 — ghost is not installed',
+        // `devin` is a real, known runtime (`known-agents.ts`) nobody added to
+        // this real host — unlike a made-up id, which would read differently.
+        '  devin=m1 — devin is not installed',
         '  seatfake=small/high — seatfake runs it at medium effort, not high',
         '  seatfake=small/medium+thinking — seatfake runs it without thinking, which was asked for (Small has no thinking mode)',
       ].join('\n'),

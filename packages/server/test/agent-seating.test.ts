@@ -6,6 +6,7 @@ import type { ConfigOption, FlowSeat } from '@harnessdesk/protocol'
 import {
   chooseSeat,
   differences,
+  differencesOf,
   explainRefusal,
   fixOf,
   openedOtherwise,
@@ -384,11 +385,76 @@ test('a runtime nobody added and one whose program is missing read the same and 
 
 test('what only an open seat can say is a reason too, worded as the refusal always worded it', () => {
   const asked = written('cursor=m1/high')
-  const opened = passedFor(asked, { kind: 'openedOtherwise', detail: 'at medium effort, not high' })
+  const opened = passedFor(asked, {
+    kind: 'openedOtherwise',
+    differences: [{ field: 'effort', asked: 'high', running: 'medium' }],
+  })
   assert.equal(opened.why, 'cursor runs it at medium effort, not high')
   assert.equal(opened.why, openedOtherwise(asked, running({ effort: 'medium' })))
   assert.deepEqual(fixOf('cursor', opened.reason), { kind: 'seats' })
   const failed = passedFor(asked, { kind: 'couldNotOpen', detail: 'the bridge exited' })
   assert.equal(failed.why, 'cursor could not open a conversation: the bridge exited')
   assert.deepEqual(fixOf('cursor', failed.reason), { kind: 'runtime', runtime: 'cursor' })
+})
+
+/*
+ * An id that names no runtime at all — `prefer: [claude]`, the spelling the
+ * spec itself uses, where the real id is `claude-code` — reads the same "not
+ * installed" a reader would expect, but *Add* is a dead end for it: there is
+ * nothing to add. It gets its own reason, fixed by editing the seats.
+ */
+
+test('an id nothing knows is its own reason, fixed by editing the seats — never offered "add"', () => {
+  assert.deepEqual(reasonAgainst(written('praxis'), [offer('praxis', { unknownRuntime: true })]), {
+    kind: 'unknownRuntime',
+  })
+  assert.equal(sentenceOf('praxis', { kind: 'unknownRuntime' }), 'praxis does not name a runtime this desk knows')
+  assert.deepEqual(fixOf('praxis', { kind: 'unknownRuntime' }), { kind: 'seats' })
+})
+
+/*
+ * `differencesOf` is the one place that decides what differs once a seat is
+ * open; `sentenceOf` must rebuild the refusal's sentence from its output
+ * alone, byte for byte, or the two would be free to drift apart.
+ */
+
+test('the structured version of an opened difference names the field, what was asked and what runs', () => {
+  const asked = written('cursor=m1/high+thinking')
+  assert.deepEqual(differencesOf(asked, running({ model: 'm2', effort: 'medium', thinking: false })), [
+    { field: 'model', asked: 'm1', running: 'm2' },
+    { field: 'effort', asked: 'high', running: 'medium' },
+    { field: 'thinking', asked: true, running: false },
+  ])
+  assert.deepEqual(differencesOf(asked, running({ model: null, effort: null, thinking: false })), [
+    { field: 'model', asked: 'm1', running: null },
+    { field: 'effort', asked: 'high', running: null },
+    { field: 'thinking', asked: true, running: false },
+  ])
+  // Thinking only: the runtime's own words for why it will not move, carried
+  // apart from the boolean state so a sentence can still quote them.
+  assert.deepEqual(differencesOf(asked, running({ thinking: false, thinkingFixed: 'M1 has no thinking mode.' })), [
+    { field: 'thinking', asked: true, running: false, fixed: 'M1 has no thinking mode' },
+  ])
+  const off: FlowSeat = { runtime: 'cursor', model: 'm1', effort: 'high', thinking: false }
+  assert.deepEqual(differencesOf(off, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [
+    { field: 'thinking', asked: false, running: true, fixed: 'M1 always thinks' },
+  ])
+  // Not asked either way, and left on with no stated reason: `asked` is null,
+  // distinct from the `false` a seating writes on purpose.
+  assert.deepEqual(differencesOf(written('cursor=m1/high'), running({ thinking: true })), [
+    { field: 'thinking', asked: null, running: true },
+  ])
+  // What the seat does not name is not a difference, structured either.
+  assert.deepEqual(differencesOf(written('cursor'), running({ model: 'm9', effort: 'low' })), [])
+})
+
+test('sentenceOf rebuilds the opened-otherwise sentence from the structured differences, byte for byte', () => {
+  const asked = written('cursor=m1/high+thinking')
+  const busy = running({ model: 'm2', effort: 'medium', thinking: false, thinkingFixed: 'M1 has no thinking mode.' })
+  const found = differencesOf(asked, busy)
+  assert.equal(
+    sentenceOf('cursor', { kind: 'openedOtherwise', differences: found }),
+    'cursor runs it on model m2, not m1, and at medium effort, not high, and without thinking, which was asked for (M1 has no thinking mode)',
+  )
+  assert.equal(openedOtherwise(asked, busy), sentenceOf('cursor', { kind: 'openedOtherwise', differences: found }))
 })
