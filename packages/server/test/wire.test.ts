@@ -1848,6 +1848,15 @@ const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => Hos
   'library/plan': (cwd) => ({ cwd, intents: [] }),
   'library/apply': (cwd) => ({ cwd, ops: [] }),
   'terminal/open': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd, size: { rows: 24, cols: 80 } }),
+  'agent/seat': (cwd) => ({ id: 'hd-probe', cwd }),
+}
+
+/**
+ * The empty folder, where a method's wire shape asks for a filled one: refused
+ * before its handler runs, in the shape's own words, and handed to nothing.
+ */
+const EMPTY_CWD_SHAPE_REFUSALS: { readonly [M in FolderMethod]?: string } = {
+  'agent/seat': 'message.params.cwd: expected a non-empty string',
 }
 
 test('a cwd is refused when it is relative, whichever method it is handed to', async (t) => {
@@ -1907,16 +1916,19 @@ test('a cwd is refused when it is relative, whichever method it is handed to', a
     await t.test(method, async () => {
       for (const cwd of [spelled, '']) {
         await assert.rejects(() => client.call(method as HostMethodName, ask(cwd)), {
-          message: `${cwd} is not an absolute path.`,
+          message:
+            (cwd === '' ? EMPTY_CWD_SHAPE_REFUSALS[method as FolderMethod] : undefined) ??
+            `${cwd} is not an absolute path.`,
         })
       }
     })
   }
 
-  // No surface was handed either spelling. Spelled absolutely, the same folder
-  // is handed on, and the library finds its skill there, so what was refused
-  // was the spelling.
+  // No surface was handed either spelling, and agent/seat opened no
+  // conversation. Spelled absolutely, the same folder is handed on, and the
+  // library finds its skill there, so what was refused was the spelling.
   assert.deepEqual(handed, [])
+  assert.equal(harness.runtime.lastCreateOptions, null)
   await client.call('runtime/skills', { runtime: FAKE_RUNTIME_ID, cwd: folder })
   assert.deepEqual(handed, [folder])
   const library = (await client.call('library/read', { cwd: folder })) as {
