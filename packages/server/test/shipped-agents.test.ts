@@ -78,6 +78,13 @@ test('each parses with nothing wrong, names runtimes and not models, and says ho
       )
     }
     assert.ok(definition.brief.includes('## How to report'), `${id}'s brief says how it reports`)
+    // A report ends on its `Verdict:` line for a conversation, which has no board; this sentence carries that word
+    // onto a flow's card. The judge's was lost once, in a rewrite of its last lines, while every other check here
+    // stayed green.
+    assert.ok(
+      definition.brief.includes('On a board card, finish the card with'),
+      `${id}'s brief says what to finish a board card with`,
+    )
     assert.ok(definition.brief.includes('## What you never do'), `${id}'s brief says what it must never do`)
     assert.ok(/Verdict:/.test(definition.brief), `${id}'s brief ends a report on a verdict line`)
   }
@@ -102,7 +109,12 @@ const desk = async (t: TestContext, ids: readonly string[] = ['claude-code', 'co
 test('each would sit on the first runtime it names, and seats there, holding read', async (t) => {
   const { fakes, client, work } = await desk(t)
   const plans = (await client.call('agent/seat/dry', { ids: Object.keys(SHIPPED) })) as SeatPlan[]
-  assert.equal(plans.length, 9, 'a plan for every one of the nine shipped Agents, none dropped and none duplicated')
+  // By id, not by count: a verb that drops one plan and repeats another still returns nine.
+  assert.deepEqual(
+    plans.map((plan) => plan.id).sort(),
+    Object.keys(SHIPPED).sort(),
+    'a plan for every one of the nine shipped Agents, none dropped and none duplicated',
+  )
   for (const plan of plans) {
     assert.equal(plan.blocked, null, `${plan.id} can be weighed`)
     assert.equal(plan.winner, 0, `${plan.id} would sit on the first runtime it names`)

@@ -34,7 +34,7 @@ Sweep the whole change before reporting. Finding one blocker never ends a review
 
 ## How to report
 
-Where a claim can be measured without changing code — timing an existing command, counting calls in a log — measure it and report the numbers and how you took them. Where measuring would need a code change, describe the measurement instead.
+Where a claim can be measured without changing code — timing an existing command, counting calls in a log — measure it and report the numbers and how you took them. When what you were pointed at is not what is checked out where you were started, time it in a worktree of your own at its head commit — detached — in a temporary folder, and when you are done delete that folder and prune the worktree rather than force its removal; never switch the branch of the folder you were started in, which somebody else may be using. Where measuring would need a code change, describe the measurement instead.
 
 Report every finding, each with where, severity (**blocking**: it must not land with this; **non-blocking**: worth fixing, not worth stopping for), the cost and when it shows, and the fix. End with one line: `Verdict: approve` when nothing blocking remains, or `Verdict: request-changes` when anything does. On a board card, finish the card with the same word as its outcome.
 

@@ -954,13 +954,21 @@ export const dryRun = (
  * seems to ask for one of those is a card the seat is told to refuse rather
  * than interpret, because an unattended agent reading "merge it" is the
  * failure this exists to prevent.
+ *
+ * Every entry makes one exception to staying inside `{{repo}}`: a temporary
+ * folder of the seat's own, removed when it is done. Running something at
+ * another commit — a judge testing an attempt, a reviewer testing a branch
+ * that is not checked out — needs a worktree somewhere, and inside the shared
+ * folder it shows in `git status` there and the next `git add -A` stages it.
+ * The wider permissions carry the same clause, so each still allows
+ * everything a narrower one does.
  */
 export const GIT_RULES: Readonly<Record<FlowPermission, string>> = {
-  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, never push, never merge, never reset or force anything.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
+  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration, never push, never merge, never reset or force anything.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   publish:
-    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
+    '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   merge:
-    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration.\n- You publish and you merge. You may branch, commit, push your own branch, open a pull request, and merge one that a card asks you to merge. You may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Merge only what the card names, and only if it says so — never something you decide is ready.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
+    '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration.\n- You publish and you merge. You may branch, commit, push your own branch, open a pull request, and merge one that a card asks you to merge. You may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Merge only what the card names, and only if it says so — never something you decide is ready.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
 }
 
 /** What the standing order is filled with for one seat. */
