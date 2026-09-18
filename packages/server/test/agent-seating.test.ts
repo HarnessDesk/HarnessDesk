@@ -300,3 +300,20 @@ test('thinking is held to what the spec says either way, except where the model 
   // Not asked, on a model that always thinks: the model asked for, thinking included.
   assert.deepEqual(differences(plain, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
 })
+
+test('a seat that asks for thinking off is held to it — the allowance for a model that always thinks is for silence only', () => {
+  // `+thinking` is the only switch the grammar writes, so an explicit `false`
+  // comes from a seating's own `seats`, and it is something the caller asked.
+  const off: FlowSeat = { runtime: 'cursor', model: 'm1', effort: 'high', thinking: false }
+  assert.deepEqual(differences(off, running({ thinking: false })), [])
+  assert.deepEqual(differences(off, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [
+    'with thinking on, which was asked to be off (M1 always thinks)',
+  ])
+  assert.deepEqual(differences(off, running({ thinking: true })), ['with thinking on, which was asked to be off'])
+  assert.equal(
+    openedOtherwise(off, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })),
+    'cursor runs it with thinking on, which was asked to be off (M1 always thinks)',
+  )
+  // Said nothing of thinking, on a model that always thinks: still the model asked for.
+  assert.deepEqual(differences(written('cursor=m1/high'), running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
+})

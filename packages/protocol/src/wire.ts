@@ -10,7 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { FlowDryRun, FlowFile, FlowRun, FlowSeat } from './flow.js'
+import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
   LibraryDefinition,
@@ -1553,12 +1553,20 @@ export interface HostMethods {
   }
   /**
    * Opens a conversation as an Agent: the first of its seats this machine can
-   * offer, handed the Agent's brief once as its standing order, and recorded in
-   * its settings as that Agent and that brief (`agent`, `briefDigest`).
+   * offer, handed the Agent's brief once as its standing order — the brief as
+   * written, then the rule of the permission the seat holds — and recorded in
+   * its settings as that Agent, that brief and that permission (`agent`,
+   * `briefDigest`, `permission`).
+   *
+   * The permission is the narrower of the Agent's ceiling and `permission`, the
+   * grant, which is `read` when the call makes none: a grant never reaches past
+   * the ceiling. It is an instruction, the one a flow seat of that permission is
+   * handed, and nothing at the tool surface enforces it yet.
    *
    * Refuses, and never substitutes. A seat is read back once it is open — a
-   * runtime drops a pick it declines rather than failing — and one running a
-   * model, effort or thinking other than the one asked for is closed and passed
+   * runtime drops a pick it declines rather than failing, and an agent may
+   * settle one on the nearest thing it has — and one running a model, effort
+   * or thinking other than the one asked for is closed and passed
    * over like any other candidate, the next one tried. Only when every
    * candidate has failed is the call refused: nothing is left open, and the
    * refusal is one list naming every candidate and why it failed, whether that
@@ -1573,8 +1581,14 @@ export interface HostMethods {
       readonly id: string
       readonly cwd: string
       readonly project?: string
-      /** Overrides the Agent's own preference for this one seating. Empty is no override. */
+      /**
+       * Overrides the Agent's own preference for this one seating. Empty is no
+       * override; longer than `SEAT_PREFERENCE_LIMIT` is refused, as a `prefer`
+       * list that long is.
+       */
       readonly seats?: readonly FlowSeat[]
+      /** What this seating grants, narrowed to the Agent's ceiling. `read` when absent. */
+      readonly permission?: FlowPermission
     }
     result: Session
   }

@@ -2,7 +2,15 @@ import { isAbsolute } from 'node:path'
 
 import { isBlocked, type AgentRuntime, type FlowSeat, type UsageReport } from '@harnessdesk/protocol'
 
-import { chooseSeat, explainRefusal, openedOtherwise, type PassedOver, type SeatOffer } from '../agent-seating.js'
+import {
+  agentOrder,
+  chooseSeat,
+  explainRefusal,
+  openedOtherwise,
+  permissionWithin,
+  type PassedOver,
+  type SeatOffer,
+} from '../agent-seating.js'
 import { seatSpec } from '../flow.js'
 import type { OpenedSeat } from '../host.js'
 import type { HostContext, MethodsUnder } from './context.js'
@@ -53,6 +61,13 @@ export const agentMethods = {
    * and trying another seat could leave two at work on it. Only once the brief
    * is over is the conversation recorded as the Agent and the brief it was
    * handed — a conversation whose brief never arrived was not handed one.
+   *
+   * The order ends with the rule of the permission the seat holds: the narrower
+   * of the Agent's ceiling and the call's grant, and the grant is `read` when
+   * the call makes none, because seating has no step to grant anything more.
+   * It is the flow's own sentence for that permission (`agentOrder`), and it is
+   * recorded beside the Agent. Told, not enforced — which is also all a flow
+   * seat's permission is until the tool surface holds seats to it.
    */
   'agent/seat': async (ctx, params) => {
     // The host would resolve a relative folder against wherever it was started.
@@ -74,6 +89,7 @@ export const agentMethods = {
       )
     }
 
+    const permission = permissionWithin(definition.permission, params.permission ?? 'read')
     const candidates = params.seats?.length ? params.seats : definition.prefer
     const offers = await offersFor(ctx, candidates)
     const passed: PassedOver[] = []
@@ -91,14 +107,18 @@ export const agentMethods = {
       }
 
       try {
-        await ctx.seats.order(opened.runtime, opened.sessionId, definition.brief)
+        await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
       } catch (error) {
         await ctx.seats.retire(opened.runtime, opened.sessionId)
         throw new Error(
           `${definition.name} was seated on ${seatSpec(seat)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
         )
       }
-      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, { agent: definition.id, briefDigest: digest })
+      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, {
+        agent: definition.id,
+        briefDigest: digest,
+        permission,
+      })
     }
   },
 } satisfies MethodsUnder<'agent/'>
@@ -171,7 +191,9 @@ const openAsAsked = async (
  * - **Spent** is the usage the desk already reads, judged by the one rule every
  *   surface uses (`isBlocked`): an account-wide window, never one model's.
  * - **Models** is the runtime's own list, or null when it could not be read —
- *   never empty for unread, which the chooser would take for "offers none".
+ *   never empty for unread, which the chooser would take for "offers none",
+ *   and which is exactly what a picker's list says about an agent that never
+ *   managed to declare one (`modelsOf`).
  * - **Efforts** are null: a runtime declares them per session, so they are held
  *   to account once the seat is open, not guessed at here.
  */
@@ -214,12 +236,28 @@ const offerOf = async (
   const report = reports.find((one) => one.runtime === runtime.info.id)
   return {
     runtime: id,
-    models: await runtime.listModels().then(
-      (models) => models.map((one) => one.id),
-      () => null,
-    ),
+    models: await modelsOf(runtime),
     efforts: null,
     signedIn,
     spent: report ? isBlocked(report) : false,
+  }
+}
+
+/**
+ * The ids of the models a runtime offers, or null when it could not say.
+ *
+ * `listModels` is the picker's question, and a picker would rather draw nothing
+ * than an error: the ACP adapter answers it with an empty list when its agent
+ * never managed to declare a catalogue. To the chooser empty is "offers none",
+ * so a runtime that can tell the two apart is asked the way that does
+ * (`knownModels`); any other is asked `listModels`, and its failing is its
+ * "could not say".
+ */
+const modelsOf = async (runtime: AgentRuntime): Promise<readonly string[] | null> => {
+  try {
+    const models = await (runtime.knownModels ? runtime.knownModels() : runtime.listModels())
+    return models?.map((one) => one.id) ?? null
+  } catch {
+    return null
   }
 }

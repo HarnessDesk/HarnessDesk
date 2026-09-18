@@ -945,6 +945,20 @@ export interface AgentRuntime {
 
   listModels(): Promise<readonly ModelInfo[]>
   /**
+   * The models, or **null when this runtime has never learned them** — for a
+   * caller that must not take "could not say" for "offers none", as seating an
+   * Agent must not: "does not offer" sends a person to change a spec that was
+   * right.
+   *
+   * Only for a runtime whose `listModels` answers an unread catalogue as empty
+   * rather than failing, because a picker would rather draw nothing than an
+   * error — the ACP adapter's, whose agents declare models only when a
+   * conversation opens. Empty here is an answer: the agent opened one and named
+   * no model. A runtime without this has no such difference to hide, and its
+   * `listModels` failing is its "could not say".
+   */
+  knownModels?(): Promise<readonly ModelInfo[] | null>
+  /**
    * Runtime-wide controls — feature flags, anything that is not per
    * conversation. Optional: most runtimes have none, and saying so by not
    * implementing it beats an empty list that looks like a failed call.

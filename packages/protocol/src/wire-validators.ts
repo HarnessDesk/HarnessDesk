@@ -1,3 +1,4 @@
+import { SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   ClientToHost,
@@ -22,7 +23,7 @@ import {
   type Validator,
 } from './validate.js'
 import type { EditorEvent } from './editor.js'
-import type { FlowSeat } from './flow.js'
+import type { FlowPermission, FlowSeat } from './flow.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId } from './ids.js'
@@ -135,6 +136,23 @@ const flowSeatValidator = shape({
   effort: optional(isString),
   thinking: optional(isBoolean),
 }) as Validator<FlowSeat>
+
+/**
+ * The permissions a seating may grant. Keyed by `FlowPermission`, so a fourth
+ * permission stops this compiling rather than being refused here while every
+ * file that reads the word goes on taking it.
+ */
+const GRANTS: Readonly<Record<FlowPermission, true>> = { read: true, publish: true, merge: true }
+const grantValidator = literalUnion(...(Object.keys(GRANTS) as FlowPermission[]))
+
+/** The seats one seating tries in the Agent's place: no more than its `prefer` may name. */
+const seatListValidator: Validator<FlowSeat[]> = (value, path = '') => {
+  const seats = arrayOf(flowSeatValidator)(value, path)
+  if (seats.length > SEAT_PREFERENCE_LIMIT) {
+    throw new ValidationError(path, `expected at most ${SEAT_PREFERENCE_LIMIT} seats, got ${seats.length}`)
+  }
+  return seats
+}
 
 const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
   installSkill: shape({
@@ -490,7 +508,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     id: isFilled,
     cwd: isFilled,
     project: optional(isString),
-    seats: optional(arrayOf(flowSeatValidator)),
+    seats: optional(seatListValidator),
+    permission: optional(grantValidator),
   }),
 
   'git/status': shape({ root: isString }),

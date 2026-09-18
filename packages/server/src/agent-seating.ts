@@ -1,6 +1,6 @@
-import type { ConfigOption, FlowSeat, SessionSettings } from '@harnessdesk/protocol'
+import type { ConfigOption, FlowPermission, FlowSeat, SessionSettings } from '@harnessdesk/protocol'
 
-import { seatSpec } from './flow.js'
+import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
 
 /**
  * Which seat an Agent takes here, and why not the ones above it — then, once it
@@ -140,7 +140,11 @@ export const explainRefusal = (passed: readonly PassedOver[]): string => {
 
 /**
  * What an opened conversation reports it is running, read back from the
- * conversation after its picks were applied — never copied from the request.
+ * conversation after its picks were applied: the runtime's report, never the
+ * request. Over ACP the report is what the agent said in answer to each pick,
+ * or announced while it was being made; only a pick it answered without a word
+ * about it is reported at what was asked, and that is the agent's claim, not a
+ * reading (`AcpSession.setOption`).
  */
 export interface SeatRunning {
   /** The model it is on, as the runtime spells it; null when it names none. */
@@ -181,12 +185,17 @@ export const runningOf = (options: readonly ConfigOption[], settings: SessionSet
  * naming the field, what was asked and what runs; empty when it is the seat.
  *
  * Model and effort are compared only when the seat names them, exactly, as the
- * chooser compares them. Thinking is compared either way, because a seat spec
- * says it either way — `+thinking`, or not — and seating turns off a switch
- * nobody asked for rather than inherit the last seat's. The one allowance is a
- * switch the runtime says it cannot move on this model: a model that always
- * thinks is the model that was asked for, thinking included, and a seat that
- * asked for thinking on a model that cannot is refused all the same.
+ * chooser compares them. Thinking is compared either way, because a seat says
+ * it either way — `+thinking`, or not — and seating turns off a switch nobody
+ * asked for rather than inherit the last seat's.
+ *
+ * The one allowance is for a seat that said nothing about thinking, on a model
+ * whose switch the runtime says it cannot move: a model that always thinks is
+ * the model that was asked for, thinking included. It is for silence only. A
+ * seat that asked for thinking on a model that cannot is refused, and so is
+ * one that asked for it *off* on a model that always thinks — `+thinking` is
+ * the only switch a spec writes, so an explicit `false` comes from a seating's
+ * own `seats`, and is exactly as much a thing asked for as `true` is.
  */
 export const differences = (asked: FlowSeat, running: SeatRunning): string[] => {
   const found: string[] = []
@@ -204,11 +213,14 @@ export const differences = (asked: FlowSeat, running: SeatRunning): string[] => 
         : `at ${running.effort} effort, not ${asked.effort}`,
     )
   }
-  const wantsThinking = asked.thinking === true
-  if (wantsThinking && !running.thinking) {
-    found.push(`without thinking, which was asked for${running.thinkingFixed ? ` (${quoted(running.thinkingFixed)})` : ''}`)
+  const why = running.thinkingFixed ? ` (${quoted(running.thinkingFixed)})` : ''
+  if (asked.thinking === true && !running.thinking) {
+    found.push(`without thinking, which was asked for${why}`)
   }
-  if (!wantsThinking && running.thinking && running.thinkingFixed === null) {
+  if (asked.thinking === false && running.thinking) {
+    found.push(`with thinking on, which was asked to be off${why}`)
+  }
+  if (asked.thinking === undefined && running.thinking && running.thinkingFixed === null) {
     found.push('with thinking on, which was not asked for and would not turn off')
   }
   return found
@@ -224,3 +236,32 @@ export const openedOtherwise = (asked: FlowSeat, running: SeatRunning): string |
   const found = differences(asked, running)
   return found.length === 0 ? null : `${asked.runtime} runs it ${found.join(', and ')}`
 }
+
+// ------------------------------------------------------------ what it may do
+
+/** How far each permission reaches. Keyed by the union, so a fourth has to be placed before it compiles. */
+const REACH: Readonly<Record<FlowPermission, number>> = { read: 0, publish: 1, merge: 2 }
+
+/**
+ * What a seat may do: the narrower of the Agent's ceiling and what the seating
+ * grants. The ceiling is never a grant — an Agent that may merge is not thereby
+ * told to — and a grant never reaches past the ceiling, so writing needs the
+ * Agent and whoever seats it to agree.
+ */
+export const permissionWithin = (ceiling: FlowPermission, grant: FlowPermission): FlowPermission =>
+  REACH[grant] < REACH[ceiling] ? grant : ceiling
+
+/**
+ * The standing order an Agent's seat is handed: the brief as its author wrote
+ * it, then the rule of the permission the seat holds.
+ *
+ * The rule is `GIT_RULES`' own sentence, its `{{repo}}` filled with where the
+ * seat works, exactly as a flow seat's is — so a seat told `read` by an Agent
+ * and one told `read` by a flow are told one thing in one set of words. The
+ * brief is not rendered: it is the author's text, and goes over as written.
+ *
+ * Told, not enforced. This is all a seat's permission is today, a flow seat's
+ * included: nothing at the tool surface holds it to the rule yet.
+ */
+export const agentOrder = (brief: string, permission: FlowPermission, cwd: string): string =>
+  `${brief}\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`

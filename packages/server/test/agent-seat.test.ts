@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
+import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   findOption,
@@ -15,6 +17,7 @@ import {
   type ApprovalDecision,
   type ApprovalId,
   type ConfigOption,
+  type FlowPermission,
   type FlowRun,
   type FlowSeat,
   type ModelInfo,
@@ -33,6 +36,7 @@ import {
 
 import type { SeatRunning } from '../src/agent-seating.js'
 import { Agents } from '../src/agents.js'
+import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
 import type { OpenedSeat } from '../src/host.js'
 import { Logger } from '../src/log.js'
 import { agentMethods } from '../src/methods/agents.js'
@@ -69,6 +73,12 @@ import { tempDir } from './scratch.js'
 class SeatFake extends FakeRuntime {
   /** What the last conversation on this agent left switched on, which a new one inherits. */
   inherited: { thinking: boolean; fast: boolean } = { thinking: true, fast: true }
+  /**
+   * Models that always think, as Cursor's Gemini 3.8 Flash does: thinking is
+   * on, and greyed with the reason. None unless a test adds `big`, the one
+   * model here that can think at all.
+   */
+  readonly alwaysThinks = new Set<string>()
   readonly opened: SeatSession[] = []
   /** The next conversation opens, then fails the first time it is asked what it is running. */
   breakNext = false
@@ -141,12 +151,13 @@ class SeatSession implements AgentSession {
     private readonly cwd: string,
     values: SeatValues,
   ) {
-    this.#values = SeatSession.#fit(values)
+    this.#values = this.#fit(values)
   }
 
-  /** What `small` cannot do is off, whatever was asked of it. */
-  static #fit(values: SeatValues): SeatValues {
-    return values.model === 'small' ? { ...values, effort: 'medium', thinking: false, fast: false } : values
+  /** What `small` cannot do is off, and a model that always thinks is thinking, whatever was asked of it. */
+  #fit(values: SeatValues): SeatValues {
+    if (values.model === 'small') return { ...values, effort: 'medium', thinking: false, fast: false }
+    return this.owner.alwaysThinks.has(values.model) ? { ...values, thinking: true } : values
   }
 
   values(): SeatValues {
@@ -160,6 +171,7 @@ class SeatSession implements AgentSession {
   options(): readonly ConfigOption[] {
     if (this.broken) throw new Error('Seat Fake lost this conversation part-way through opening it')
     const small = this.#values.model === 'small'
+    const always = this.owner.alwaysThinks.has(this.#values.model)
     return [
       {
         type: 'select',
@@ -193,7 +205,11 @@ class SeatSession implements AgentSession {
         category: 'thought_level',
         label: 'Thinking',
         currentValue: this.#values.thinking,
-        ...(small ? { disabled: 'Small has no thinking mode.' } : {}),
+        ...(small
+          ? { disabled: 'Small has no thinking mode.' }
+          : always
+            ? { disabled: 'Big always thinks.' }
+            : {}),
       },
       {
         type: 'boolean',
@@ -211,7 +227,7 @@ class SeatSession implements AgentSession {
     if (!option) throw new Error(`Seat Fake has no option ${id}`)
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new Error(refusal)
-    this.#values = SeatSession.#fit({ ...this.#values, [id]: value })
+    this.#values = this.#fit({ ...this.#values, [id]: value })
     if (id === 'model') {
       this.owner.emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     }
@@ -404,15 +420,30 @@ seed:
 
 // ------------------------------------------------------ the method, by itself
 
-/** An Agent file as a person writes one, with the candidates it prefers. */
-const agentFile = (prefer: string): string =>
-  `---\nname: Reviewer\npermission: read\nprefer: [${prefer}]\n---\nRead the diff.\n`
+/** An Agent file as a person writes one, with the candidates it prefers and its ceiling. */
+const agentFile = (prefer: string, permission: FlowPermission = 'read'): string =>
+  `---\nname: Reviewer\npermission: ${permission}\nprefer: [${prefer}]\n---\nRead the diff.\n`
+
+/**
+ * What a seat on this Agent is handed, working in `cwd`: the brief as written,
+ * then the rule of the permission it holds — the flow's own sentence for it,
+ * `GIT_RULES`, filled in as a flow seat's is.
+ */
+const orderFor = (permission: FlowPermission, cwd: string): string =>
+  `Read the diff.\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`
 
 /** What one runtime on the pretend desk says about itself. Honest and ready unless a test says otherwise. */
 interface Pretend {
   readonly models?: readonly string[]
   /** The model list will not load. */
   readonly modelsFail?: boolean
+  /**
+   * Set, the runtime answers the picker's question with whatever it has — an
+   * empty list when it never managed to learn one, as the ACP adapter does —
+   * and says separately whether it knows (`knownModels`): true, it never
+   * learned them. Unset, it has no such second answer, as Codex has not.
+   */
+  readonly modelsUnknown?: boolean
   readonly health?: RuntimeHealth
   /** Signed in to nothing. */
   readonly signedOut?: boolean
@@ -422,23 +453,29 @@ interface Pretend {
   readonly keepsOwnAccount?: boolean
 }
 
-const pretendRuntime = (id: string, pretend: Pretend) => ({
-  info: { id: runtimeId(id), capabilities: { account: pretend.keepsOwnAccount !== true } },
-  health: (): RuntimeHealth => pretend.health ?? { state: 'ready' },
-  getAccount: async () => {
-    if (pretend.accountFails) throw new Error('the account endpoint timed out')
-    return { accounts: pretend.signedOut ? [] : [{ kind: 'apiKey', label: 'key' }], signInMethods: [] }
-  },
-  listModels: async () => {
-    if (pretend.modelsFail) throw new Error('the catalogue did not load')
-    return (pretend.models ?? []).map((one) => ({
-      id: one,
-      displayName: one,
-      reasoningLevels: [],
-      supportsImages: false,
-    }))
-  },
-})
+const pretendRuntime = (id: string, pretend: Pretend) => {
+  const catalogue = (pretend.models ?? []).map((one) => ({
+    id: one,
+    displayName: one,
+    reasoningLevels: [],
+    supportsImages: false,
+  }))
+  return {
+    info: { id: runtimeId(id), capabilities: { account: pretend.keepsOwnAccount !== true } },
+    health: (): RuntimeHealth => pretend.health ?? { state: 'ready' },
+    getAccount: async () => {
+      if (pretend.accountFails) throw new Error('the account endpoint timed out')
+      return { accounts: pretend.signedOut ? [] : [{ kind: 'apiKey', label: 'key' }], signInMethods: [] }
+    },
+    listModels: async () => {
+      if (pretend.modelsFail) throw new Error('the catalogue did not load')
+      return pretend.modelsUnknown ? [] : catalogue
+    },
+    ...(pretend.modelsUnknown !== undefined
+      ? { knownModels: async () => (pretend.modelsUnknown ? null : catalogue) }
+      : {}),
+  }
+}
 
 /**
  * The method against a context the test builds: a roster on disk, a pretend
@@ -455,11 +492,13 @@ const rig = async (
     /** Why opening this seat fails, or null when it opens. */
     readonly openFails?: (seat: FlowSeat) => string | null
     readonly orderFails?: string
+    /** The Agent's ceiling, as its file declares it. */
+    readonly permission?: FlowPermission
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
   const user = join(root, 'user')
-  const source = agentFile(prefer)
+  const source = agentFile(prefer, options.permission)
   await mkdir(join(user, 'reviewer'), { recursive: true })
   await writeFile(join(user, 'reviewer', 'AGENT.md'), source, 'utf8')
   const roster = new Agents({ user, builtin: join(root, 'builtin') })
@@ -560,12 +599,41 @@ test('it seats the first candidate this machine can offer', async () => {
   assert.deepEqual(titles, ['Reviewer'], 'the conversation is named for the Agent')
 })
 
-test('the brief is handed over as the standing order, once', async () => {
+test('the brief is handed over as the standing order, once, with the rule of the permission it holds', async () => {
   const { ctx, ordered } = await rig('claude=opus-5/high')
   await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.equal(ordered.length, 1)
-  assert.match(ordered[0] ?? '', /Read the diff\./)
-  assert.equal(ordered[0], 'Read the diff.', 'the brief, and nothing added to it')
+  assert.match(ordered[0] ?? '', /^Read the diff\.\n\n/, 'the brief as written, first')
+  // The flow's own sentence for `read`, filled with where the seat works — not
+  // a second wording of it.
+  assert.match(ordered[0] ?? '', /- Stay inside \/tmp\/x\. .*never push, never merge/)
+  assert.equal(ordered[0], orderFor('read', '/tmp/x'))
+})
+
+test("the seat is told the narrower of the Agent's ceiling and the seating's grant, in the flow's words, and it is recorded", async () => {
+  const cases: readonly (readonly [FlowPermission, FlowPermission | undefined, FlowPermission])[] = [
+    ['read', undefined, 'read'],
+    // No step, so no grant but the one the call makes: read, whatever the ceiling.
+    ['merge', undefined, 'read'],
+    // A grant never reaches past the ceiling…
+    ['read', 'merge', 'read'],
+    ['publish', 'merge', 'publish'],
+    // …and a ceiling never widens a grant.
+    ['merge', 'publish', 'publish'],
+    ['merge', 'merge', 'merge'],
+  ]
+  for (const [ceiling, grant, held] of cases) {
+    const said = `a ${ceiling} Agent seated with ${grant ?? 'no'} grant`
+    const seen = await rig('claude=opus-5/high', undefined, { permission: ceiling })
+    const session = await agentMethods['agent/seat'](seen.ctx, {
+      id: 'reviewer',
+      cwd: '/tmp/x',
+      ...(grant ? { permission: grant } : {}),
+    })
+    assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
+    assert.deepEqual(seen.recorded, [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: held }], said)
+    assert.equal(session.settings?.permission, held, said)
+  }
 })
 
 test('the session records the Agent and the brief it ran', async () => {
@@ -608,6 +676,33 @@ test('a model list that could not be read refuses as unread, never as "does not 
     },
   )
   untouched(seen)
+})
+
+test('a runtime that draws an unread model list as empty is still refused as unread', async () => {
+  // The ACP adapter's picker answer: what it has, which is nothing when it
+  // never managed to ask. Taken at its word, that is "does not offer".
+  const unread = await rig('cursor=gemini-3.8-flash/high', { cursor: { modelsUnknown: true } })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](unread.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          '  cursor=gemini-3.8-flash/high — cannot tell whether cursor offers gemini-3.8-flash: its model list could not be read',
+      )
+      return true
+    },
+  )
+  untouched(unread)
+  // The control: a list it did learn, empty or not, is the answer.
+  const none = await rig('cursor=gemini-3.8-flash/high', { cursor: { models: [], modelsUnknown: false } })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](none.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    /cursor=gemini-3\.8-flash\/high — cursor does not offer gemini-3\.8-flash$/,
+  )
+  const offered = await rig('cursor=gemini-3.8-flash/high', { cursor: { models: ['gemini-3.8-flash'], modelsUnknown: false } })
+  await agentMethods['agent/seat'](offered.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(offered.created, [{ runtime: 'cursor', model: 'gemini-3.8-flash', cwd: '/tmp/x' }])
 })
 
 test('an effort nothing can list before seating is let through, and the seat is kept when it runs at it', async () => {
@@ -866,16 +961,18 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
+  assert.equal(session.settings?.permission, 'read')
 
   const opened = seats.opened[0]
   assert.ok(opened)
   assert.equal(String(opened.id), String(session.id))
-  assert.deepEqual(opened.sent, ['Read the diff.'], 'the brief, once')
+  assert.deepEqual(opened.sent, [orderFor('read', work)], 'the brief, once, and the rule it works under')
   // The same seating a flow's seat gets: the picks in, the inherited switches off.
   assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, 'max-mode': false })
   assert.equal(opened.title, 'Reviewer')
   assert.equal(opened.closed, false)
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'every window is told')
+  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
 
   // The runtime re-announces its settings whole — a model change does — and
   // has never heard of the Agent. The record stands, in the host and in what
@@ -889,10 +986,12 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   await client.until(() => settingsSeen(client, String(session.id))?.model === 'small', 5_000, 'the model change')
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
+  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
   const held = harness.host.registry.get(runtimeId('seatfake'), session.id)?.session.settings
   assert.equal(held?.model, 'small')
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
+  assert.equal(held?.permission, 'read')
 })
 
 test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {
@@ -929,19 +1028,45 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   const { harness, client } = await desk(t)
   const session = (await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
-    options: { cwd: '/w', agent: 'forged', briefDigest: 'forged' },
+    options: { cwd: '/w', agent: 'forged', briefDigest: 'forged', permission: 'merge' },
   })) as Session
   assert.equal(session.settings?.agent, undefined)
   // The plain fake echoes a patch back into its settings, the way a runtime might.
   await client.call('session/settings', {
     runtime: FAKE_RUNTIME_ID,
     sessionId: session.id,
-    patch: { agent: 'forged', briefDigest: 'forged' },
+    patch: { agent: 'forged', briefDigest: 'forged', permission: 'merge' },
   })
   await client.until(() => settingsSeen(client, String(session.id)) !== undefined, 5_000, 'the echoed settings')
   assert.equal(settingsSeen(client, String(session.id))?.agent, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, undefined)
-  assert.equal(harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings?.agent, undefined)
+  // Least of all what it may do: a permission a renderer could write is a permission anybody could.
+  assert.equal(settingsSeen(client, String(session.id))?.permission, undefined)
+  const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
+  assert.equal(held?.agent, undefined)
+  assert.equal(held?.permission, undefined)
+})
+
+test('the wire refuses a grant that is no permission, and more seats than an Agent may prefer', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  const badRequest = (error: unknown) => {
+    assert.equal((error as { code?: unknown }).code, 'badRequest')
+    return true
+  }
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work, permission: 'admin' }), badRequest)
+  // Every seat that opens and is passed over leaves an empty conversation behind, so the list is capped.
+  const nine = Array.from({ length: 9 }, () => ({ runtime: 'seatfake', model: 'big', effort: 'high' }))
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work, seats: nine }), badRequest)
+  assert.deepEqual(seats.opened, [], 'nothing was opened for either')
+  // Eight is allowed, and so is a grant that is a permission — narrowed to the ceiling on the way in.
+  const session = (await client.call('agent/seat', {
+    id: 'reviewer',
+    cwd: work,
+    seats: nine.slice(1),
+    permission: 'merge',
+  })) as Session
+  assert.equal(session.settings?.permission, 'read')
 })
 
 // ------------------------------------------------------ down the preference list
@@ -966,8 +1091,8 @@ test('a seat that runs another effort than asked is closed, and the next candida
   ])
   assert.deepEqual(seen.retired, ['claude s1'], 'the first was closed')
   assert.equal(String(session.id), 's2')
-  assert.deepEqual(seen.ordered, ['Read the diff.'], 'the brief went once, to the seat that was kept')
-  assert.deepEqual(seen.recorded, [{ agent: 'reviewer', briefDigest: digestOf(seen.source) }])
+  assert.deepEqual(seen.ordered, [orderFor('read', '/tmp/x')], 'the brief went once, to the seat that was kept')
+  assert.deepEqual(seen.recorded, [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: 'read' }])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
   assert.equal(seen.alive(), 1, 'the seat kept is the only one left')
 })
@@ -1029,7 +1154,7 @@ test('through the host: one seat at a time — each that fails is closed and let
   assert.deepEqual([held(lost), held(other)], [null, null], 'the host holds only the seat it kept')
   assert.ok(held(kept))
   assert.equal(String(kept.id), String(session.id))
-  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], ['Read the diff.']])
+  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], [orderFor('read', work)]])
   assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, 'max-mode': false })
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
@@ -1058,4 +1183,143 @@ test('through the host: when every candidate fails the refusal names each, and n
     assert.equal(harness.host.registry.get(runtimeId('seatfake'), one.id)?.live ?? null, null)
     assert.equal(harness.host.registry.get(runtimeId('seatfake'), one.id)?.session.settings?.agent, undefined)
   }
+})
+
+// ------------------------------------------------------ thinking asked to be off
+
+test('through the host: thinking asked to be off is held to it, even on a model that always thinks', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  seats.alwaysThinks.add('big')
+  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+
+  // A seat that says nothing of thinking, on a model that always thinks, is the model it asked for.
+  const kept = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  assert.equal(kept.settings?.agent, 'reviewer')
+  assert.equal(seats.opened[0]?.values().thinking, true)
+
+  // One that asks for it off, through the wire's override, is not: the allowance is for silence only.
+  await assert.rejects(
+    client.call('agent/seat', {
+      id: 'reviewer',
+      cwd: work,
+      seats: [{ runtime: 'seatfake', model: 'big', effort: 'high', thinking: false }],
+    }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          '  seatfake=big/high — seatfake runs it with thinking on, which was asked to be off (Big always thinks)',
+      )
+      return true
+    },
+  )
+  const refused = seats.opened[1]
+  assert.ok(refused && seats.opened.length === 2)
+  assert.equal(refused.closed, true)
+  assert.deepEqual(refused.sent, [], 'never handed the brief')
+})
+
+// ------------------------------------------------------ over ACP, where a pick settles where the agent puts it
+
+/*
+ * The seat fake above drops a pick it has no place for. An ACP agent can do
+ * something quieter: take the pick, settle it on the nearest thing it has, and
+ * answer the call without an error — Cursor's bridge does it by design. So these
+ * run the real ACP adapter against a scripted agent that does exactly that (the
+ * adapter's own fixture, `variant-acp-agent.mjs`: variants (high, no thinking)
+ * and (medium, thinking), nothing else), and ask the agent itself what it ran
+ * the brief on.
+ */
+
+const ACP_FIXTURES = new URL('../../../adapter-acp/dist/test/fixtures/', import.meta.url)
+
+/** A desk with one ACP agent on it, spawned from the adapter's own fixtures. */
+const acpDesk = async (t: TestContext, fixture: string, id: string, env: Record<string, string>) => {
+  const { harness, client, work } = await desk(t)
+  const runtime = new AcpRuntime({
+    id,
+    name: id === 'variant' ? 'Variant' : 'Acp Fake',
+    command: process.execPath,
+    args: [fileURLToPath(new URL(fixture, ACP_FIXTURES))],
+    env,
+  })
+  harness.host.register(runtime)
+  await runtime.start()
+  t.after(() => runtime.dispose())
+  return { harness, client, work }
+}
+
+/** What the agent ran each prompt on, one line per prompt, as it wrote it down. */
+const ranOn = async (truth: string) =>
+  (await readFile(truth, 'utf8').catch(() => ''))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { session: string; model: string; effort: string; thinking: boolean })
+
+for (const [answer, how] of [
+  ['announce', 'announced before an empty answer, as the Cursor bridge does'],
+  ['reply', 'said in its answer, as ACP has it'],
+] as const) {
+  test(`over ACP: a seat the agent settles on another variant is passed over — the settling ${how}`, async (t) => {
+    const truth = join(tempDir('hd-variant-truth-'), 'truth.jsonl')
+    const { harness, client, work } = await acpDesk(t, 'variant-acp-agent.mjs', 'variant', {
+      VARIANT_ANSWER: answer,
+      VARIANT_TRUTH: truth,
+    })
+    await writeReviewer(harness.stateDir, 'variant=fam/high+thinking, variant=fam/medium')
+
+    await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+      assert.equal(
+        error.message,
+        [
+          'No seat could be opened for this Agent:',
+          // High has no thinking variant: asked for, thinking is settled off.
+          '  variant=fam/high+thinking — variant runs it without thinking, which was asked for',
+          // Medium comes with thinking, and turning it off is declined.
+          '  variant=fam/medium — variant runs it with thinking on, which was not asked for and would not turn off',
+        ].join('\n'),
+      )
+      return true
+    })
+    assert.deepEqual(await ranOn(truth), [], 'no variant was handed the brief')
+  })
+}
+
+test('over ACP: the next candidate that runs what it asked for is seated, and the agent runs the brief on it', async (t) => {
+  const truth = join(tempDir('hd-variant-truth-'), 'truth.jsonl')
+  const { harness, client, work } = await acpDesk(t, 'variant-acp-agent.mjs', 'variant', { VARIANT_TRUTH: truth })
+  await writeReviewer(harness.stateDir, 'variant=fam/high+thinking, variant=fam/medium+thinking')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  assert.equal(session.settings?.agent, 'reviewer')
+  // The brief is a turn; the agent writes down what it ran it on when it runs it.
+  const deadline = Date.now() + 5_000
+  while ((await ranOn(truth)).length === 0 && Date.now() < deadline) await new Promise((wake) => setTimeout(wake, 20))
+  assert.deepEqual(await ranOn(truth), [{ session: String(session.id), model: 'fam', effort: 'medium', thinking: true }])
+})
+
+test("over ACP: a flow seat's label says what the agent settled on, not what the flow asked for", async (t) => {
+  // The flow still seats — a flow says a difference, it does not refuse one —
+  // but what it says is now what runs: medium comes with thinking.
+  const { client, work } = await acpDesk(t, 'variant-acp-agent.mjs', 'variant', {})
+  const run = await runFlow(client, work, 'variant=fam/medium')
+  assert.deepEqual(
+    run.seats.map((one) => one.seat),
+    ['Variant · Fam · Medium · thinking'],
+  )
+})
+
+test('over ACP: an agent whose model list could not be read is refused as unread, never as not offering the model', async (t) => {
+  // Every conversation this agent is asked to open fails, the draft probe that
+  // would have read its models included.
+  const { harness, client, work } = await acpDesk(t, 'fake-acp-agent.mjs', 'acpfake', { FAKE_ACP_SERVER_ERROR: '1' })
+  await writeReviewer(harness.stateDir, 'acpfake=small')
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        '  acpfake=small — cannot tell whether acpfake offers small: its model list could not be read',
+    )
+    return true
+  })
 })

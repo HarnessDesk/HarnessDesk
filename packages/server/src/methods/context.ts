@@ -167,10 +167,11 @@ export interface HostContext {
      */
     retire(runtime: string, sessionId: string): Promise<void>
     /**
-     * Records which Agent a conversation was seated as and the digest of the
-     * brief it was handed, tells every window, and answers the conversation
-     * as the host now holds it. Kept by the host from then on, over whatever
-     * the runtime re-announces (`SessionRecord.seatedAs`).
+     * Records which Agent a conversation was seated as, the digest of the
+     * brief it was handed and the permission it was told it holds, tells every
+     * window, and answers the conversation as the host now holds it. Kept by
+     * the host from then on, over whatever the runtime re-announces
+     * (`SessionRecord.seatedAs`).
      */
     recordAgent(runtime: string, sessionId: string, seated: SeatedAs): Session
   }

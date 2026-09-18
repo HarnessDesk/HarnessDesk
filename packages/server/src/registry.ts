@@ -8,6 +8,7 @@ import {
   type Approval,
   type ApprovalId,
   type BackgroundTask,
+  type FlowPermission,
   type QueuedMessage,
   type RuntimeId,
   type Session,
@@ -86,41 +87,50 @@ export interface SessionRecord {
    */
   tasks: readonly BackgroundTask[]
   /**
-   * The Agent this conversation was seated as, and the brief it was handed, or
-   * null when it was not seated as one.
+   * The Agent this conversation was seated as, the brief it was handed and the
+   * permission it was told it holds, or null when it was not seated as one.
    *
    * Beside the session rather than only inside it, for the reason the queue
    * is: a runtime re-announcing its settings — a model change does — replaces
-   * them whole, and has never heard of either field. So it is kept here and
+   * them whole, and has never heard of any of it. So it is kept here and
    * laid back over the settings on every fold (`seatedSession`).
    */
   seatedAs: SeatedAs | null
 }
 
-/** Which Agent a conversation was seated as, and the digest of the brief it was handed. */
+/**
+ * Which Agent a conversation was seated as, the digest of the brief it was
+ * handed, and the permission its standing order told it it holds.
+ */
 export interface SeatedAs {
   readonly agent: string
   readonly briefDigest: string
+  readonly permission: FlowPermission
 }
 
 /**
  * Settings with the host's record of which Agent this is laid over them — and
  * nobody else's.
  *
- * Both fields are the host's to write. A runtime that re-announces its
+ * All three fields are the host's to write. A runtime that re-announces its
  * settings drops them; a renderer can name them in a patch that a runtime
  * echoes back, or in the options it opens a conversation with. So they are put
  * back from the record after every fold, and taken off a conversation the host
- * never seated as an Agent: when one is there, it is the host's.
+ * never seated as an Agent: when one is there, it is the host's. A permission
+ * anybody could write would be a permission anybody could raise.
  */
 export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | null): SessionSettings => {
   if (seated) {
-    return settings.agent === seated.agent && settings.briefDigest === seated.briefDigest
+    return settings.agent === seated.agent &&
+      settings.briefDigest === seated.briefDigest &&
+      settings.permission === seated.permission
       ? settings
-      : { ...settings, agent: seated.agent, briefDigest: seated.briefDigest }
+      : { ...settings, agent: seated.agent, briefDigest: seated.briefDigest, permission: seated.permission }
   }
-  if (settings.agent === undefined && settings.briefDigest === undefined) return settings
-  const { agent: _agent, briefDigest: _briefDigest, ...theirs } = settings
+  if (settings.agent === undefined && settings.briefDigest === undefined && settings.permission === undefined) {
+    return settings
+  }
+  const { agent: _agent, briefDigest: _briefDigest, permission: _permission, ...theirs } = settings
   return theirs
 }
 

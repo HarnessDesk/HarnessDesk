@@ -1,4 +1,10 @@
-import type { AgentDefinition, AgentProblem, FlowPermission, FlowSeat } from '@harnessdesk/protocol'
+import {
+  SEAT_PREFERENCE_LIMIT,
+  type AgentDefinition,
+  type AgentProblem,
+  type FlowPermission,
+  type FlowSeat,
+} from '@harnessdesk/protocol'
 
 import { asList, asRecord, asText, isPermission, parseSeat, problem, seatFromMap } from './flow.js'
 import { parseYaml, YamlError } from './yaml.js'
@@ -140,7 +146,20 @@ export const parseAgentDefinition = (
      refusal as a string. A model id with a `/` in it can only be written as a
      map, which is why both forms are read here as well as in a flow. */
   const prefer: FlowSeat[] = []
-  oneOrMore(head['prefer']).forEach((one, index) => {
+  const listed = oneOrMore(head['prefer'])
+  /* Refused whole rather than cut at the cap: the seats past it are ones the
+     author wrote, and trying a shorter list than the file says would be the
+     quiet kind of wrong. */
+  if (listed.length > SEAT_PREFERENCE_LIMIT) {
+    problems.push(
+      problem(
+        'error',
+        'prefer',
+        `it names ${listed.length} seats, and an Agent may name at most ${SEAT_PREFERENCE_LIMIT} — each seat that opens and is passed over leaves an empty conversation in that agent’s history, so keep the ones worth trying`,
+      ),
+    )
+  }
+  listed.forEach((one, index) => {
     const map = asRecord(one)
     const seat = map ? seatFromMap(map) : parseSeat(asText(one) ?? '')
     if (typeof seat === 'string') {

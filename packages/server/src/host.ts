@@ -134,9 +134,12 @@ export interface ExtensionHost extends CapabilityRegistry {
 /**
  * A conversation opened on a seat, and what it is actually running.
  *
- * Both halves are read from the conversation after its picks were applied,
- * never copied from the request: `running` for a caller that must compare it
- * with what it asked for, `label` for one that only has to say it.
+ * Both halves are read from the conversation after its picks were applied —
+ * what the runtime reports, never the request: `running` for a caller that
+ * must compare it with what it asked for, `label` for one that only has to say
+ * it. A runtime's report is only as good as what its agent says; over ACP a
+ * pick the agent answered without a word about is reported at what was asked,
+ * as the agent's claim (`AcpSession.setOption`).
  */
 export interface OpenedSeat {
   readonly runtime: string
@@ -2107,11 +2110,13 @@ export class Host {
    * with what it is actually running — the one way the desk opens a
    * conversation for a seat, whether a flow's role or an Agent asked for it.
    *
-   * What it answers is read back from the conversation once the picks are in,
-   * never copied from the request: a runtime drops a pick it has no place for
-   * rather than failing (see `#applySeatPicks`). What to do about a difference
-   * is the caller's. A flow says it in the seat's label and carries on; an
-   * Agent passes the seat over rather than keep something it did not ask for.
+   * What it answers is read back from the conversation once the picks are in —
+   * the runtime's report, never the request: a runtime drops a pick it has no
+   * place for rather than failing (see `#applySeatPicks`), and an agent can
+   * settle one on the nearest thing it has and answer without an error. What
+   * to do about a difference is the caller's. A flow says it in the seat's
+   * label and carries on; an Agent passes the seat over rather than keep
+   * something it did not ask for.
    *
    * It answers with an open seat or with nothing open. A conversation that
    * opened and then failed on the way to being handed back is closed here,

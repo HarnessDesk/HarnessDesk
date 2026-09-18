@@ -81,6 +81,16 @@ export interface AgentEntry {
   readonly problems: readonly AgentProblem[]
 }
 
+/**
+ * The most seats an Agent's `prefer` may name, and a seating's own `seats` in
+ * its place. Every seat that opens and is then passed over leaves a closed,
+ * empty conversation in that runtime's history, and an Agent arrives in a
+ * clone: an uncapped list is somebody else's repository littering your agents'
+ * histories. A longer list is refused where it is read, never cut short — a
+ * list cut at the cap is a different list from the one its author wrote.
+ */
+export const SEAT_PREFERENCE_LIMIT = 8
+
 /** One thing wrong with a definition, and where. */
 export interface AgentProblem {
   readonly level: 'error' | 'warning'

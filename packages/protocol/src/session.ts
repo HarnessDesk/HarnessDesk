@@ -1,3 +1,4 @@
+import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -44,6 +45,19 @@ export interface SessionSettings {
    * like `agent`, by the host alone.
    */
   readonly briefDigest?: string
+  /**
+   * What the conversation was told it may do to the checkout it works in: the
+   * narrower of its Agent's ceiling and what the seating granted, which is
+   * `read` unless the seating said otherwise. Held like `agent`, by the host
+   * alone.
+   *
+   * Told, and not enforced. It reaches the conversation as the rule in its
+   * standing order — the sentence a flow seat of the same permission is handed
+   * — and nothing at the tool surface holds it to that rule yet, so a runtime
+   * that delegates hands its child none of it. That enforcement is a later
+   * phase; until then this records the instruction, not a guarantee.
+   */
+  readonly permission?: FlowPermission
 }
 
 /** Options accepted when opening a session. All are advisory; runtimes may clamp. */
