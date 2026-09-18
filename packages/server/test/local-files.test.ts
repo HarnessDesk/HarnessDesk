@@ -115,6 +115,25 @@ test('a folder inside the project the finder cannot open is passed over, and sai
   }
 })
 
+test('a project folder that is a file is raised, not answered as no files', async (t) => {
+  /* Only ENOENT is nothing at the root: the folder the finder was asked to
+     search has to be a folder, so a file at it, or above it, is raised with
+     everything else. Below the root it is different — an entry listed as a
+     folder that is a file a moment later is the walk racing somebody, and is
+     nothing. (Review of #765.) */
+  const dir = await mkdtemp(join(tmpdir(), 'hd-local-files-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'project')
+  await writeFile(file, 'somebody touched this instead of making it\n')
+  const files = new LocalFiles()
+  for (const root of [file, join(file, 'packages')]) {
+    await assert.rejects(files.search([root], 'app', 10), (error: unknown) => {
+      assert.equal(errnoOf(error), 'ENOTDIR')
+      return true
+    })
+  }
+})
+
 test('a project folder that is gone has no files, and says nothing', async (t) => {
   // The control for the two above: this passes against the old catch-all too.
   const dir = await mkdtemp(join(tmpdir(), 'hd-local-files-'))

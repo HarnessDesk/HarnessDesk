@@ -14,24 +14,29 @@
  *
  * `ENOENT` is a directory nobody has made yet. `ENOTDIR` is a `.harnessdesk`
  * somebody made a *file*, which is a project with nothing of ours in it and
- * not a reason to refuse every listing that project asks for.
+ * not a reason to refuse every listing that project asks for. It is also an
+ * entry a walk found in a listing that turns out not to be a folder — a stray
+ * `.DS_Store` beside the folders it wanted, or a folder replaced between the
+ * listing and the read — which is nothing either.
  *
  * Everything else — a mode, a mount, a name the filesystem will not take — is
  * a real failure, and raised: a path and a reason can be acted on, and zero
  * rows cannot.
  *
- * A folder nothing but the desk writes is narrower — see `NOTHING_YET`.
+ * A folder that has to be one where it is is narrower — see `NOTHING_YET`.
  */
 export const NOTHING_HERE: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR'])
 
 /**
- * The one failure that means "nothing yet" in a folder nothing but the desk
- * writes: its rooms, its flow runs, its transcripts.
+ * The one failure that means "nothing yet" in a folder that has to be one where
+ * it is: the desk's own — its rooms, its flow runs, its transcripts — an
+ * agent's own history, and a project the desk was asked to search.
  *
- * `ENOENT` is a folder the desk has not needed yet. A *file* where it belongs
- * is not that — it is a place nothing can be kept, where every save fails and
- * what the desk said it saved is gone at the next launch — so `ENOTDIR` is
- * raised here with everything else.
+ * `ENOENT` is a folder not made yet — a store never written, an agent never
+ * run — or one that has gone. A *file* where it belongs, or above it, is not
+ * that: it is a place nothing can be kept, or a home that is broken, and an
+ * answer of nothing over it says nothing is wrong. So `ENOTDIR` is raised here
+ * with everything else.
  */
 export const NOTHING_YET: ReadonlySet<string> = new Set(['ENOENT'])
 

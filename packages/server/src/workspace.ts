@@ -11,7 +11,7 @@ import type {
   Unsubscribe,
 } from '@harnessdesk/protocol'
 
-import { errnoOf, NOTHING_HERE } from './errno.js'
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 
 /**
  * Workspace file services.
@@ -129,13 +129,17 @@ export const searchFiles = async (
     try {
       entries = await readdir(directory, { withFileTypes: true })
     } catch (error) {
-      /* A folder removed mid-walk, or a project that moved away, is nothing.
-         A root that will not open is raised: "no files match" over it is how
-         a project macOS will not let the app read (EPERM, until Files and
-         Folders is granted) looked empty. Anything deeper is passed over for
-         the rest of the tree, and reported. */
+      /* The root has to be a folder, so only a project that has gone is
+         nothing there. One that will not open, or is a file, is raised — "no
+         files match" over it is how a project macOS will not let the app read
+         (EPERM, until Files and Folders is granted) looked empty. Below the
+         root, a folder removed or replaced mid-walk is nothing, and anything
+         else is passed over for the rest of the tree, and reported. */
+      if (depth === 0) {
+        if (NOTHING_YET.has(errnoOf(error))) return
+        throw error
+      }
       if (NOTHING_HERE.has(errnoOf(error))) return
-      if (depth === 0) throw error
       options.unreadable?.(directory, error)
       return
     }

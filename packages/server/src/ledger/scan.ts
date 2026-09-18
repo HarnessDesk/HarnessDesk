@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
-import { errnoOf, NOTHING_HERE } from '../errno.js'
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
 import type { UsageRow } from './store.js'
 
 /**
@@ -413,25 +413,29 @@ const walkJsonl = async (
   unreadable: (folder: string, error: unknown) => void,
 ): Promise<{ path: string; size: number; mtime: number }[]> => {
   const found: { path: string; size: number; mtime: number }[] = []
-  const visit = async (dir: string): Promise<void> => {
+  const visit = async (dir: string, depth: number): Promise<void> => {
     if (found.length >= limit) return
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
     } catch (error) {
-      /* These are the agents' own folders. One that is not there is an agent
-         never run, or a folder removed mid-walk: nothing, and not worth a
-         line. One that will not open is passed over, so every other agent is
-         still counted, and reported — it used to leave that agent's numbers
-         frozen, with nothing to tell them from a quiet week. */
-      if (!NOTHING_HERE.has(errnoOf(error))) unreadable(dir, error)
+      /* The root is the agent's own history, and has to be a folder: one that
+         is not there is an agent never run, not worth a line, but a file at
+         it or above it is a broken home and not an idle agent. Below the
+         root, a folder that vanished or became a file between the listing and
+         the read is the walk racing the agent, and nothing. Anything else is
+         passed over, so every other agent is still counted, and reported — it
+         used to leave that agent's numbers frozen, with nothing to tell them
+         from a quiet week. */
+      const nothing = depth === 0 ? NOTHING_YET : NOTHING_HERE
+      if (!nothing.has(errnoOf(error))) unreadable(dir, error)
       return
     }
     for (const entry of entries) {
       if (found.length >= limit) return
       const full = join(dir, entry.name)
       if (entry.isDirectory()) {
-        await visit(full)
+        await visit(full, depth + 1)
         continue
       }
       if (!entry.name.endsWith('.jsonl')) continue
@@ -443,7 +447,7 @@ const walkJsonl = async (
       }
     }
   }
-  await visit(root)
+  await visit(root, 0)
   return found
 }
 
