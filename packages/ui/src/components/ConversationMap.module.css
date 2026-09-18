@@ -83,7 +83,10 @@
   overflow: hidden;
   border-radius: var(--hd-radius-md);
   background: var(--hd-card);
-  box-shadow: var(--hd-shadow-menu, 0 8px 24px rgb(0 0 0 / 18%));
+  /* `--hd-shadow-menu` was never defined anywhere, so this had been running on
+     its fallback since the day it was written — a literal wearing a token's
+     name, which is why no count of raw colours ever saw it. */
+  box-shadow: var(--hd-shadow); /* desk: 0 8px 24px rgb(0 0 0 / 18%) → 0 6px 24px rgba(0, 0, 0, 0.16), the one floating rung */
   color: var(--hd-foreground);
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);

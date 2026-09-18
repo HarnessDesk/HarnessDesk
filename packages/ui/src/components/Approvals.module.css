@@ -2,7 +2,7 @@
   /* Over the pane it belongs to, not the window: the pane is positioned. */
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: var(--hd-z-header);
   display: grid;
   place-items: center;
   padding: 24px;

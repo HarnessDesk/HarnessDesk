@@ -44,8 +44,8 @@ const SHARED: readonly {
   },
   {
     what: 'the resting shadow',
-    css: '0 1px 3px rgba(0, 0, 0, 0.06)',
-    utility: 'shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
+    css: 'var(--hd-shadow-xs)',
+    utility: 'shadow-(--hd-shadow-xs)',
   },
   {
     what: 'the hairline',
@@ -62,8 +62,8 @@ const SHARED: readonly {
      * characters. A parity row that can be satisfied by the wrong class is not
      * pinning the shape. */
     what: 'the focused shadow',
-    css: '0 2px 10px rgba(0, 0, 0, 0.08)',
-    utility: 'focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),0_2px_10px_rgba(0,0,0,0.08)]',
+    css: 'var(--hd-shadow-raised)',
+    utility: 'focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-shadow-raised)]',
   },
   {
     what: 'the focused hairline',

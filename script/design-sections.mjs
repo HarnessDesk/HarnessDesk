@@ -97,6 +97,12 @@ export const SECTIONS = [
     'Use a --hd-space-* step.',
   ],
   [
+    'rawZIndex',
+    'Stacking written as a number',
+    'Two layers claim the same plane, and the one that wins is the one written later.',
+    'Use a --hd-z-* rung from design/foundation/tokens.css. Single digits are local ordering inside one component and are not counted; anything from 10 up is a plane the whole app shares.',
+  ],
+  [
     'rawColour',
     'Colours written out rather than named',
     'Will not follow a palette or theme change.',

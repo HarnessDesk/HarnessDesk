@@ -593,7 +593,7 @@
   border-radius: var(--hd-radius);
   background: var(--hd-card);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.14),
+    var(--hd-shadow), /* desk: 0 8px 24px rgba(0,0,0,.14) -> one floating rung */
     inset 0 0 0 1px var(--hd-border-strong);
 }
 

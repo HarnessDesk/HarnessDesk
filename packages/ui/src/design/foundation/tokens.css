@@ -414,7 +414,21 @@ body {
      on the page and one that is drawn on it. */
   --hd-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
   --hd-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  /* A control that has come forward without leaving the page: the composer
+     with focus in it, and the same box while a file is being dragged onto it.
+     Between `sm` and the floating rung because that is exactly what it is —
+     lifted, not opened. */
+  --hd-shadow-raised: 0 2px 10px rgba(0, 0, 0, 0.08);
+  /* A surface that floats because you opened it: a menu, a popover, a
+     dropdown, a trigger's panel. Six places drew this and four of them drew it
+     differently — 8px/24px/.14, 8px/28px/.18, 10px/30px/.2 and 8px/24px/18% —
+     which is four answers to one question nobody had asked out loud. */
   --hd-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+  /* A notice laid over the page. Softer than a menu on purpose: a menu is
+     something you opened and are looking at, a notice is something that
+     arrived while you were looking elsewhere, and a shadow that insists is
+     the wrong manners for the second. */
+  --hd-shadow-notice: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08);
   --hd-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.3);
 
   /* --- focus ---------------------------------------------------------------
@@ -461,7 +475,18 @@ body {
   --hd-z-header: 30;
   --hd-z-notice: 35;
   --hd-z-drawer: 40;
+  /* A place that takes the whole window and leaves the app behind it:
+     Settings, Usage. Above the drawer it covers, below the palette that can
+     be summoned on top of it. */
+  --hd-z-window: 45;
+  /* The command palette, which must clear that window — it is the one thing
+     you can always reach, including from inside Settings. */
+  --hd-z-palette: 47;
   --hd-z-popover: 50;
+  /* A modal sheet: sign-in. Above the menus, because it is the one surface
+     that must not be talked over; below a dialog, because a dialog opened
+     from inside it is still a dialog. */
+  --hd-z-sheet: 60;
   --hd-z-dialog: 100;
   --hd-z-toast: 200;
 

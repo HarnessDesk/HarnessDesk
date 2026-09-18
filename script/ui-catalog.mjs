@@ -177,10 +177,47 @@ const resolveSpecifier = (from, specifier, paths) => {
   return null
 }
 
+/**
+ * The exports a dynamic `import()` takes, when its shape says so; `null` when
+ * it could take any — see the graph's dynamic edges below for why the line is
+ * drawn where it is.
+ */
+export const exportsTaken = (call) => {
+  const access = call.parent
+  if (!access || !ts.isPropertyAccessExpression(access) || access.name.text !== 'then') return null
+  const invoke = access.parent
+  if (!invoke || !ts.isCallExpression(invoke) || invoke.expression !== access) return null
+  const callback = invoke.arguments[0]
+  if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) return null
+  const param = callback.parameters[0]?.name
+  if (!param) return null
+  if (ts.isObjectBindingPattern(param)) {
+    if (param.elements.some((element) => element.dotDotDotToken)) return null
+    const names = param.elements.map((element) => {
+      const key = element.propertyName ?? element.name
+      return ts.isIdentifier(key) ? key.text : null
+    })
+    return names.every((name) => name !== null) ? names : null
+  }
+  if (!ts.isIdentifier(param)) return null
+  const names = []
+  let whole = false
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && node.text === param.text && node !== param) {
+      const parent = node.parent
+      if (ts.isPropertyAccessExpression(parent) && parent.expression === node) names.push(parent.name.text)
+      else whole = true
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(callback.body)
+  return whole ? null : [...new Set(names)]
+}
+
 export const importGraph = (files) => {
   const paths = new Set(files.map((file) => file.path))
   return new Map(files.map((file) => {
-    const info = { fileTargets: new Set(), symbols: new Map(), exportAll: new Set(), exports: new Set(), exportDependencies: new Map() }
+    const info = { fileTargets: new Set(), symbols: new Map(), exportAll: new Set(), exports: new Set(), exportDependencies: new Map(), dynamicSymbols: [] }
     if (file.path.endsWith('.css')) {
       for (const match of file.source.matchAll(/@import\s+(?:url\()?['"]([^'"]+)['"]/g)) {
         const target = resolveSpecifier(file.path, match[1], paths)
@@ -201,6 +238,43 @@ export const importGraph = (files) => {
       return names
     }
     const localDependencies = new Map()
+
+    /*
+     * A lazily-loaded module is still a dependency — and, when the code says
+     * which of its exports it takes, only those.
+     *
+     * `import('./surfaces')` behind a `React.lazy` used to be invisible to
+     * this graph. Then it was recorded whole-file, which over-reached the
+     * other way: every lazy handle reached every export of `surfaces.tsx`, so
+     * a surface that stopped mounting its screen was still "reachable"
+     * through a sibling that mounted the same one (#762 review).
+     *
+     * So the shape decides. `import(x).then((m) => … m.Name …)`, where the
+     * parameter is only ever read as `m.Name`, and `import(x).then(({ Name })
+     * => …)` without a rest element, name exactly the exports taken, and are
+     * recorded as symbol edges. Anything else — an awaited import, `m` passed
+     * on whole, a rest element, a helper that returns the import — could take
+     * any export, and stays a whole-file edge: over-reaching is the safe
+     * direction for "reachable", and the precise shape is one line to write.
+     */
+    const dynamicTargets = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        node.arguments.length > 0 &&
+        ts.isStringLiteral(node.arguments[0])
+      ) {
+        const target = resolveSpecifier(file.path, node.arguments[0].text, paths)
+        if (target) {
+          const taken = exportsTaken(node)
+          if (taken) for (const symbol of taken) info.dynamicSymbols.push({ target, symbol })
+          else info.fileTargets.add(target)
+        }
+      }
+      ts.forEachChild(node, dynamicTargets)
+    }
+    dynamicTargets(ast)
+
     for (const statement of ast.statements) {
       if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
         localDependencies.set(statement.name.text, identifiersUnder(statement))
@@ -268,15 +342,29 @@ export const importGraph = (files) => {
   }))
 }
 
+/**
+ * Whether `from` reaches `target` through the import graph.
+ *
+ * `from` is a file, or one export of it — `surfaces.tsx#RailSurface` — when
+ * the question is what that export alone depends on. A file's whole closure
+ * answers "is this code in the bundle", not "does this surface mount that
+ * screen": the second needs the walk to start at the export (#762 review).
+ * An anchor naming something the file does not export reaches nothing.
+ */
 export const isReachable = (graph, from, target) => {
-  if (from === target) return true
-  const start = graph.get(from)
+  const [fromPath, anchor] = from.split('#')
+  if (anchor === undefined && fromPath === target) return true
+  const start = graph.get(fromPath)
   if (!start) return false
-  const pending = [
-    ...[...start.fileTargets].map((path) => ({ path, symbol: null })),
-    ...[...start.symbols.values()].map((edge) => ({ path: edge.target, symbol: edge.symbol })),
-    ...[...start.exportAll].map((path) => ({ path, symbol: '*' })),
-  ]
+  if (anchor !== undefined && !start.exports.has(anchor)) return false
+  const pending = anchor !== undefined
+    ? [{ path: fromPath, symbol: anchor }]
+    : [
+      ...[...start.fileTargets].map((path) => ({ path, symbol: null })),
+      ...[...start.symbols.values()].map((edge) => ({ path: edge.target, symbol: edge.symbol })),
+      ...[...start.exportAll].map((path) => ({ path, symbol: '*' })),
+      ...start.dynamicSymbols.map((edge) => ({ path: edge.target, symbol: edge.symbol })),
+    ]
   const seen = new Set()
   while (pending.length > 0) {
     const current = pending.pop()
@@ -291,7 +379,21 @@ export const isReachable = (graph, from, target) => {
       && (current.symbol === null || current.symbol === '*' || info.exports.has(current.symbol))
     ) return true
     if (current.symbol === null) {
+      /*
+       * A whole-file edge reaches everything that file reaches.
+       *
+       * This followed `fileTargets` alone, so a file depended on without a
+       * named symbol — a side-effect import, or a dynamic one — was a dead
+       * end: whatever it imported *by name* was invisible from here. That is
+       * how the surface boards could mount `components/Sidebar` through a
+       * lazily-loaded module and still be reported unreachable. There is no
+       * symbol to narrow by on this kind of edge, so the honest walk is the
+       * whole closure.
+       */
       for (const next of info.fileTargets) pending.push({ path: next, symbol: null })
+      for (const edge of info.symbols.values()) pending.push({ path: edge.target, symbol: edge.symbol })
+      for (const next of info.exportAll) pending.push({ path: next, symbol: '*' })
+      for (const edge of info.dynamicSymbols) pending.push({ path: edge.target, symbol: edge.symbol })
       continue
     }
     const direct = info.symbols.get(current.symbol)
@@ -307,7 +409,121 @@ export const isReachable = (graph, from, target) => {
   return false
 }
 
-export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map() }) => {
+/**
+ * The one export a lazy handle renders, or `null` when that cannot be read.
+ *
+ * `React.lazy` renders the `default` of whatever its loader resolves to. So a
+ * bare `import(x)` renders `x`'s default export, and `import(x).then(cb)`
+ * renders whatever sits in the `default` field of the object `cb` returns —
+ * `m.GitSurface` in `({ default: m.GitSurface })`, or `GitSurface` from a
+ * destructured `({ GitSurface })`. Every `return` has to agree.
+ *
+ * Not "every export the callback touches": `void m.RailSurface; return {
+ * default: m.GitSurface }` touches both and renders one, and reading it as
+ * both let a tab that renders Git satisfy a Left bar anchor (#762 review).
+ * Anything this cannot read — a helper that returns the import, a computed
+ * default, two returns that disagree — is `null`, which the anchor check
+ * reports rather than excuses.
+ */
+export const renderedExport = (call) => {
+  const access = call.parent
+  if (!access || !ts.isPropertyAccessExpression(access) || access.name.text !== 'then') {
+    return ts.isArrowFunction(call.parent) || ts.isReturnStatement(call.parent) ? 'default' : null
+  }
+  const invoke = access.parent
+  if (!invoke || !ts.isCallExpression(invoke) || invoke.expression !== access) return null
+  const callback = invoke.arguments[0]
+  if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) return null
+  const param = callback.parameters[0]?.name
+  if (!param) return null
+  const exportOf = (expression) => {
+    while (ts.isParenthesizedExpression(expression)) expression = expression.expression
+    if (!ts.isObjectLiteralExpression(expression)) return null
+    const field = expression.properties.find(
+      (property) => ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && property.name.text === 'default',
+    )
+    if (!field) return null
+    const value = field.initializer
+    if (ts.isIdentifier(param) && ts.isPropertyAccessExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === param.text) {
+      return value.name.text
+    }
+    if (ts.isObjectBindingPattern(param) && ts.isIdentifier(value)) {
+      const bound = param.elements.find((element) => ts.isIdentifier(element.name) && element.name.text === value.text && !element.dotDotDotToken)
+      const key = bound && (bound.propertyName ?? bound.name)
+      return key && ts.isIdentifier(key) ? key.text : null
+    }
+    return null
+  }
+  const returned = []
+  if (ts.isBlock(callback.body)) {
+    const visit = (node) => {
+      if (ts.isFunctionLike(node)) return
+      if (ts.isReturnStatement(node)) returned.push(node.expression ? exportOf(node.expression) : null)
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(callback.body, visit)
+  } else {
+    returned.push(exportOf(callback.body))
+  }
+  const [first] = returned
+  return first && returned.every((one) => one === first) ? first : null
+}
+
+/**
+ * For each tab in the explorer's `SURFACES`, the export its handle renders.
+ *
+ * A surface row is anchored to one export (`surfaces.tsx#RailSurface`), and
+ * the anchor is only worth something if the tab for that row renders exactly
+ * it: two handles swapped between two tabs would leave every anchor reachable
+ * and every tab showing the wrong screen. So each entry's `render` is followed
+ * to the `const` that holds its `lazy(...)`, and that handle's rendered export
+ * is read by `renderedExport`. A handle with no readable import, or more than
+ * one, renders `null`.
+ */
+export const surfaceLoads = (source, filePath, paths) => {
+  const ast = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const handles = new Map()
+  const renders = new Map()
+  for (const statement of ast.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      const name = declaration.name.text
+      let init = declaration.initializer
+      if (ts.isAsExpression(init) || ts.isSatisfiesExpression?.(init)) init = init.expression
+      if (name === 'SURFACES' && ts.isArrayLiteralExpression(init)) {
+        for (const element of init.elements) {
+          if (!ts.isObjectLiteralExpression(element)) continue
+          const field = (key) => element.properties.find(
+            (property) => ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && property.name.text === key,
+          )?.initializer
+          const id = field('id')
+          const render = field('render')
+          if (id && ts.isStringLiteral(id) && render && ts.isIdentifier(render)) renders.set(id.text, render.text)
+        }
+        continue
+      }
+      const imports = []
+      const visit = (node) => {
+        if (
+          ts.isCallExpression(node) &&
+          node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+          node.arguments.length > 0 &&
+          ts.isStringLiteral(node.arguments[0])
+        ) imports.push(node)
+        ts.forEachChild(node, visit)
+      }
+      visit(declaration.initializer)
+      if (imports.length === 0) continue
+      const target = imports.length === 1 ? resolveSpecifier(filePath, imports[0].arguments[0].text, paths) : null
+      const symbol = target ? renderedExport(imports[0]) : null
+      handles.set(name, target && symbol ? { target, symbol } : null)
+    }
+  }
+  return new Map([...renders].map(([id, render]) => [id, handles.get(render) ?? null]))
+}
+
+export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map(), surfaceLoadsByView = null }) => {
   const productEntries = entries.filter((entry) => entry.category === 'Product Surfaces')
   const requiredSurfaceIds = requiredSurfaces.map((surface) => surface.id)
   const hasCompleteCoverage = (entry) => {
@@ -353,7 +569,16 @@ export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredS
         .map(([axis]) => `${entry.id}:${axis}`)
     }),
     danglingConsumers: entries.flatMap((entry) => entry.consumers.filter((consumer) => !existingPaths.has(consumer)).map(() => entry.id)),
-    danglingExamplePaths: entries.flatMap((entry) => (entry.examples ?? []).filter((example) => !existingPaths.has(example)).map(() => entry.id)),
+    danglingExamplePaths: entries.flatMap((entry) => (entry.examples ?? []).filter((example) => !existingPaths.has(example.split('#')[0])).map(() => entry.id)),
+    /* An example anchored to an export must be the export the row's tab renders. */
+    unloadedAnchors: surfaceLoadsByView === null
+      ? []
+      : entries.filter((entry) => (entry.examples ?? []).some((example) => {
+        const [path, symbol] = example.split('#')
+        if (symbol === undefined) return false
+        const load = surfaceLoadsByView.get(entry.exampleId)
+        return !(load && load.target === path && load.symbol === symbol)
+      })).map((entry) => entry.id),
     unreachableConsumers: reachablePairs === null
       ? []
       : entries.flatMap((entry) => entry.consumers
@@ -443,7 +668,7 @@ if (isMain) {
   const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file.source]))
   const exampleCoverage = new Map(loaded.CATALOG_ENTRIES.flatMap((entry) => {
     const prefix = path.posix.basename(entry.implementationPath).replace(/\.[^.]+$/, '').replace(/-/g, '_').toUpperCase()
-    const source = (entry.examples ?? []).map((example) => sourceByPath.get(example) ?? '').join('\n')
+    const source = (entry.examples ?? []).map((example) => sourceByPath.get(example.split('#')[0]) ?? '').join('\n')
     const contract = contracts.get(entry.implementationPath) ?? {}
     const declarationForAxis = (axis) => axis === 'variant'
       ? `${prefix}_CATALOG_VARIANTS`
@@ -488,6 +713,11 @@ if (isMain) {
     reachableExamplePairs,
     contracts,
     exampleCoverage,
+    surfaceLoadsByView: surfaceLoads(
+      explorer,
+      'packages/ui/src/design/explorer/Explorer.tsx',
+      new Set(existingPathList),
+    ),
   })
   const findings = [...Object.entries(coverage), ...Object.entries(integrity)]
     .flatMap(([kind, names]) => names.map((name) => `${kind}: ${name}`))

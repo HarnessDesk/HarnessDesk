@@ -264,3 +264,38 @@
   composes: channel;
   max-width: 720px;
 }
+
+/* --- the icon set ---------------------------------------------------------
+   A grid sized by the longest name rather than by a column count: the set is
+   read by scanning names, and a name that wraps costs more than a ragged last
+   row does. */
+.iconGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--hd-space-1);
+  margin-bottom: var(--hd-space-5);
+}
+
+.iconCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-3) var(--hd-space-2);
+  border-radius: var(--hd-radius);
+  color: var(--hd-foreground);
+}
+
+.iconCell:hover {
+  background: var(--hd-hover);
+}
+
+.iconName {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+  color: var(--hd-muted-foreground);
+}

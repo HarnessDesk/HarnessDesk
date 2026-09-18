@@ -574,6 +574,106 @@ changes.
 | Public imports | `packages/ui/src/design/index.ts` |
 | The live component catalogue | `packages/ui/src/design/catalog/` and `packages/ui/src/design/explorer/` |
 
-`pnpm design` serves `/design.html`, where foundation, primitives, patterns and
-the product surfaces are all rendered from the production modules — so the page
-is the check on whether a change actually landed everywhere it claims to.
+| The stacking order, and which shadow a surface wears | the `--hd-z-*` and `--hd-shadow-*` ladders in `tokens.css` |
+| Mounting a shipped screen outside the app | `packages/ui/src/preview/harness.tsx`, used by both `/preview.html` and the catalogue's surfaces |
+
+### The catalogue shows the screen, not a picture of it
+
+`pnpm design` serves `/design.html`. Foundation, primitives and patterns render
+from the production modules, and so do the whole-screen surfaces: Conversation,
+Composer, Left bar, Git history, Group project, Browser · Terminal · Editor and
+Panels mount the shipped screens — `components/*`, and `panels/Workbench.tsx`
+— through `preview/harness.tsx`, the same store stub `/preview.html` uses.
+
+This is a rule rather than an arrangement, because the alternative was tried.
+Those surfaces used to be pages in `design/showcase` built to look like the
+screen — over 1,500 lines of CSS that shared nothing with the app but its shape.
+They were right on the day each was drawn and wrong every day after, and there
+was no way to tell by looking: the catalogue is exactly where you go *because*
+you do not already know what the screen looks like. Edit
+`components/Sidebar.module.css` now and the Left bar surface moves with it,
+because it is that sidebar.
+
+`script/check-ui-system.mjs` keeps it true. Every surface row in
+`design/catalog/manifest.ts` names the module it mounts and the one export in
+`design/surfaces/surfaces.tsx` that mounts it, and the check holds three things:
+that export reaches the module, the explorer tab for the row loads that exact
+export, and the app ships the module. The walk starts at the export, not the
+file — from the file, a surface that stopped mounting its screen passed on a
+sibling that mounts the same one. So a row naming something the app does not
+ship fails, a surface that quietly stops mounting what it claims fails, and
+two tabs that swap their screens fail.
+
+One surface is marked `catalogOnly`: Foundation propagation, a test rig built
+only from production implementations, which two browser specs drive. There is
+no shipped screen for it to point at, and its description says it is a rig.
+
+A real screen with no data does not fail — it renders something plausible. The
+git pane mounted with no repository drew an empty frame; the editor sat on
+"Loading…" for good. So the harness answers what the mounted screens read
+(`preview/git-fixture.ts`, typed as the protocol's result types), and each
+surface's description says what the tab shows *on this fixture* and names what
+it does not. A description written for a richer picture than the tab renders is
+the same misleading a drawing was, in words. The only check that has caught
+these is opening every tab in a browser.
+
+### What the audit refuses
+
+`pnpm design:audit --strict` holds sixteen categories at a baseline. Fifteen
+are at zero; `patternClass` sits at 3, which is three screens still drawing
+their own empty state.
+
+Two of those categories spent a long time reporting zero while they were simply
+unable to see:
+
+- `rawColour` named five properties and `box-shadow` was not one of them, so ten
+  hand-written shadows sat outside a count that said there were none. It now
+  reads every declaration, whatever its property, through a scanner that reads
+  CSS the way the browser does — strings, comments, `url()` and escapes: a `;`,
+  a `/*` or a `)` inside a string ends nothing, `r\65 d` is `red` and `c\6f lor`
+  is `color`, and a URL's payload is never read as a colour; and it counts
+  a colour however it is spelled — hex, a colour function, or a name like
+  `red`. The exemptions are named rather than left out: masks, which read
+  alpha, and — for colour names only — the properties whose values are names
+  an author chose (`animation-name`, `grid-area`, counters, font families).
+- `rawZIndex` did not exist. The ladder in `tokens.css` had said in prose since
+  it was written that stacking "never writes a number", and twenty-four places
+  wrote a number. Single digits are ordering inside one component's own stacking
+  context and are not counted; from 10 up is the band two components can
+  genuinely collide in, and that is what the ladder is for. A number counts
+  however it is written — any CSS math function, escaped or not (`calc(5 + 5)`,
+  `abs(-12)`, `round(up, 10.1, 1)`), read with CSS's own tokens, so
+  `calc(5 +5)` is no number at all — or anything a `var()` in the value can
+  come to: a custom property's value, its fallback wherever the property can
+  be unset or invalid, an `@property` initial value, what a registered value
+  computes to. A rung may be named, chosen between (`min()`, `max()`,
+  `clamp()`, or `calc()` and parentheses around one), or nudged by a whole
+  number from 0 to 9 — `calc(var(--hd-z-sticky) + 1)`, the app's one such
+  case, moves with the ladder — and anything else done to a rung (`+ 60`,
+  `* 2`, `abs()`, `+ 9.9`) writes a plane of its own, and counts.
+
+  Which rules reach an element is the page's business, so the audit does not
+  guess. A property set for the same elements — the same selector under the
+  same conditions, a broader one outside any style rule (`.a` for
+  `.a:hover`), a rule it sits in through `&` or conditions only — is what the
+  rules here set it to. One set
+  on an element it descends from — a rule it is nested in through `& .b`, the
+  element of a pseudo-element, an unconditional `:root`, `html` or `*` — is
+  inherited from there when the property inherits. Any other may be
+  inherited from anywhere, set by another stylesheet, or not set at all. A
+  declaration the browser drops sets nothing, and a cycle is invalid in
+  whichever order the browser meets it. Where the audit cannot tell — a rule
+  under a condition, a selector list it does not wholly cover, a registration
+  it cannot prove, a registered value this stylesheet animates or
+  transitions, `if()` or `attr()`, a chain deeper than it follows — it keeps
+  every possibility, and reports what it cannot compute rather than assume
+  it small.
+
+Both failures have the same shape as the line-height ratios before them: name
+the spellings you happen to remember, and everything else is invisible —
+confidently, at zero. When adding a rule, the question is not "does this catch
+the case I am thinking of" but "what spelling of this would it miss".
+
+A new category is only worth having if it can fail. Add it, then put the defect
+back and watch it go red; a check that has never been seen red is a check that
+has never been tested.

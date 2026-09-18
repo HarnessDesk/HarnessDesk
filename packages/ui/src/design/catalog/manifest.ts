@@ -42,7 +42,6 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   chart: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   foundation: 'packages/ui/src/design/explorer/Explorer.tsx',
   coverage: 'packages/ui/src/design/explorer/Explorer.tsx',
-  showcase: 'packages/ui/src/design/explorer/Explorer.tsx',
   group: 'packages/ui/src/design/explorer/Explorer.tsx',
   conversation: 'packages/ui/src/design/explorer/Explorer.tsx',
   composer: 'packages/ui/src/design/explorer/Explorer.tsx',
@@ -88,14 +87,19 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
-  badge: 'packages/ui/src/design/showcase/ToolsPage.tsx',
+  /* Shown on the compositions board, beside the panes it resizes. Its example
+     used to be `showcase/PanelPlayground.tsx`, where coloured rectangles stood
+     in for every feature — so the handle was documented against a drawing of
+     the thing it drags. */
+  'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   card: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'hover-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   input: 'packages/ui/src/design/explorer/boards.tsx',
   'radio-group': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'scroll-area': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   select: 'packages/ui/src/design/explorer/boards-compositions.tsx',
-  tabs: 'packages/ui/src/design/showcase/ToolsPage.tsx',
+  tabs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   textarea: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   toast: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   tooltip: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -107,11 +111,11 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
    the named interactive board but is not expressed as CVA axes. */
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'alert-dialog', 'avatar', 'avatar-stack', 'board',
-  'breadcrumb', 'browser-chrome', 'card', 'chart', 'checkbox', 'commit', 'composer',
+  'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'dropdown-menu', 'empty-state', 'field',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
-  'radio-group', 'rail', 'resize-handle', 'scroll-area', 'select', 'separator',
-  'spark', 'stepper', 'table', 'toast', 'tool-pane', 'turn', 'tooltip',
+  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
+  'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'DockPanel', 'PublicationCard', 'RefusedAction',
 ])
@@ -131,7 +135,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   board: ['default'],
   breadcrumb: ['default'],
   button: ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
-  'browser-chrome': ['default'],
   card: ['default'],
   chart: ['default'],
   checkbox: ['default'],
@@ -198,7 +201,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   board: ['default', 'loading', 'empty', 'populated'],
   breadcrumb: ['default', 'active'],
   button: ['default', 'hover', 'focus-visible', 'disabled'],
-  'browser-chrome': ['default', 'loading', 'error'],
   card: ['default', 'hover', 'selected'],
   chart: ['default', 'loading', 'empty', 'populated'],
   checkbox: ['unchecked', 'checked', 'indeterminate', 'focus-visible', 'disabled'],
@@ -286,6 +288,11 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  /* The workbench is the example: it is what docks, seams and expands, and the
+     Panels surface mounts exactly this file. The old example was the
+     playground, which drove the same model with coloured rectangles standing
+     in for every feature. */
+  DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
@@ -347,14 +354,12 @@ export const CANONICAL_UI_MODULES = [
   ['avatar', 'face', 'Identity image primitive'],
   ['attachment', 'adopted', 'File attachment states'],
   ['avatar-stack', 'adopted', 'Overlapping identity group'],
-  ['badge', 'adopted', 'Compact categorical state'],
+  ['badge', 'badge', 'Compact categorical state'],
   ['board', 'kanban', 'Scrollable board and columns'],
   ['breadcrumb', 'adopted', 'Hierarchical location trail'],
   ['button', 'button', 'All action and icon buttons'],
-  ['browser-chrome', 'tools', 'First-party browser frame'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
-  ['commit', 'git', 'Commit and repository history anatomy'],
   ['composer', 'composer', 'Shared composer presentation shell'],
   ['data-table', 'adopted', 'Sortable and selectable data table'],
   ['checkbox', 'adopted', 'Multiple-choice control'],
@@ -375,7 +380,6 @@ export const CANONICAL_UI_MODULES = [
   ['popover', 'propagation', 'Base UI anchored popup parts'],
   ['progress', 'readings', 'Progress and usage meter'],
   ['radio-group', 'control', 'Single-choice radio behavior'],
-  ['rail', 'rail', 'Application navigation rail'],
   ['resize-handle', 'panels', 'Keyboard-accessible resize seam'],
   ['scroll-area', 'adopted', 'Themed scroll container'],
   ['section', 'section', 'Titled content region'],
@@ -386,13 +390,12 @@ export const CANONICAL_UI_MODULES = [
   ['stepper', 'stepper', 'Ordered progress steps'],
   ['switch', 'control', 'Immediate boolean control'],
   ['table', 'adopted', 'Table anatomy'],
-  ['tabs', 'adopted', 'Roving-focus tab set'],
+  ['tabs', 'badge', 'Roving-focus tab set'],
   ['textarea', 'field', 'Multiline text input'],
   ['toast', 'banner', 'Transient notification host'],
   ['toggle-group', 'control', 'Segmented and multi-toggle behavior'],
   ['tool-pane', 'tools', 'Shared tool-pane chrome'],
   ['tone', 'foundation', 'Typed semantic tone mapping'],
-  ['turn', 'conversation', 'Transcript turn anatomy'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
 ] as const satisfies readonly ModuleSeed[]
 
@@ -411,16 +414,34 @@ export const CANONICAL_PATTERN_MODULES = [
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
 ] as const satisfies readonly ModuleSeed[]
 
+/**
+ * The whole-screen entries, and the module each one actually mounts.
+ *
+ * `implementationPath` is the promise this row makes to a reader: open the
+ * surface and you are looking at that file. Most of these used to name a page
+ * in `design/showcase` that was built to look like the screen — same shapes,
+ * separate code — so the promise was kept only for as long as nobody edited
+ * the real one. Every row but one now names the shipped module, and
+ * `script/check-ui-system.mjs` holds it three ways: the row's own export in
+ * `surfaces.tsx` (the last field) must reach the module, the explorer tab for
+ * the row must load that exact export, and the app must ship the module (the
+ * field before names the file in the app that mounts it).
+ *
+ * The one exception is the propagation page, which is a test rig rather than
+ * a screen — built only from production implementations, driven by two
+ * browser specs, and with no shipped screen to point at. `catalogOnly` marks
+ * it, and it is the exemption the check looks for.
+ */
 export const PRODUCT_SURFACES = [
-  ['surface.dashboard', 'showcase', 'Composed dashboard', 'packages/ui/src/design/showcase/Showcase.tsx'],
-  ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/design/showcase/GroupProject.tsx'],
-  ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/design/showcase/ConversationPage.tsx'],
-  ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/design/showcase/ComposerBoard.tsx'],
-  ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/design/showcase/RailBoard.tsx'],
-  ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/design/showcase/GitHistoryPage.tsx'],
-  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/design/showcase/PanelPlayground.tsx'],
-  ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx'],
-  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/design/showcase/ToolsPage.tsx'],
+  ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx', 'DashboardSurface'],
+  ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GroupSurface'],
+  ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ConversationSurface'],
+  ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx', 'ComposerSurface'],
+  ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx', 'RailSurface'],
+  ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/components/GitPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GitSurface'],
+  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx', 'PanelsSurface'],
+  ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
+  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ToolsSurface'],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
@@ -440,7 +461,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
   },
   ...CANONICAL_UI_MODULES.map(primitive),
   ...CANONICAL_PATTERN_MODULES.map(pattern),
-  ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath]): CatalogEntry => ({
+  ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer, surface]): CatalogEntry => ({
     id,
     category: 'Product Surfaces' as const,
     implementationPath,
@@ -449,9 +470,19 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     variants: ['light', 'dark'] as const,
     sizes: ['default'] as const,
     states: ['default', 'loading', 'empty', 'populated', 'error'] as const,
-    examples: ['packages/ui/src/design/explorer/Explorer.tsx'],
-    consumers: [],
-    catalogOnly: true,
+    /* The one export that mounts this row's screen, not the file that holds
+       every surface: walked from the file, any row was satisfied by a sibling
+       that happened to mount the same screen (#762 review). The explorer tab
+       for `exampleId` has to load this exact export, too — see
+       `script/ui-catalog.mjs`. */
+    examples: [surface ? `packages/ui/src/design/surfaces/surfaces.tsx#${surface}` : 'packages/ui/src/design/explorer/Explorer.tsx'],
+    // A surface that mounts a shipped screen names the file that mounts it in
+    // the app — the panel registry, or the screen that owns it. `main.tsx` was
+    // the obvious guess and the wrong one: panels are registered through a
+    // table, so nothing reaches a pane from the entry by import. Only the
+    // three assembled for the catalogue have no consumer at all.
+    consumers: consumer ? [consumer] : [],
+    catalogOnly,
     coverageExemption: `${id} has no component CVA contract; the ${exampleId} surface matrix is reviewed by browser and native scenario suites.`,
     visual: true,
   })),

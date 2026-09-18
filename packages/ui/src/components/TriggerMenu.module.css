@@ -9,7 +9,7 @@
   border-radius: var(--hd-radius);
   background: var(--hd-card);
   box-shadow:
-    0 6px 24px rgba(0, 0, 0, 0.16),
+    var(--hd-shadow), /* desk: character-for-character --hd-shadow */
     inset 0 0 0 1px var(--hd-border-strong);
   z-index: 5;
 }
