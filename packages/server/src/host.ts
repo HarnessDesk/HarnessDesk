@@ -3247,7 +3247,10 @@ export class Host {
     try {
       // A runtime that moves while it is being measured is measured again, a
       // few times at most: the answer is only worth keeping for the build
-      // it describes.
+      // it describes. One that is still moving after the last try keeps
+      // nothing, so no notice can be about a build it has left; the version it
+      // ended on is measured by the next read of its description, as any
+      // version not yet measured is.
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const against = this.#versionOf(runtime) ?? null
         const update = await updates.updateFor({ ...runtime.info, version: against })

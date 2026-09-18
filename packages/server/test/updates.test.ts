@@ -154,6 +154,11 @@ const upgradable = (running: string) => {
     install: (version: string): void => {
       onDisk = version
     },
+    /** The runtime is on another build from here on, with no refresh and no word to the host. */
+    move: (version: string): void => {
+      onDisk = version
+      runOn(version)
+    },
   }
 }
 
@@ -165,6 +170,8 @@ const deskWith = async (
     chosen?: string
     /** The registry, when a test needs to hold its answer. */
     fetch?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>
+    /** How long an answer is kept; 0 sends every ask to the registry. */
+    ttlMs?: number
   } = {},
 ) => {
   const dir = tempDir('hd-update-host-')
@@ -172,7 +179,11 @@ const deskWith = async (
     logger: silent,
     state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0,
-    updates: new UpdateChecker({ cachePath: join(dir, 'update-checks.json'), fetch: options.fetch ?? registry(LATEST).fetch }),
+    updates: new UpdateChecker({
+      cachePath: join(dir, 'update-checks.json'),
+      fetch: options.fetch ?? registry(LATEST).fetch,
+      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+    }),
     ...(options.chosen ? { installs: { last: () => ({ chosen: { version: options.chosen } }) } as never } : {}),
   })
   t.after(() => host.dispose())
@@ -303,4 +314,90 @@ test('a runtime registered in the place of one being measured is measured on its
 
   release()
   await until(() => desk.told()?.version === '0.150.0' && desk.told()?.update?.version === LATEST, 'the second runtime\'s notice')
+})
+
+/** A registry that answers when the test says so. */
+const held = () => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const fetch = async () => {
+    await gate
+    return { ok: true, json: async () => ({ latest: LATEST }) }
+  }
+  return { fetch, release }
+}
+
+test('a runtime that moves while its notice is being measured is measured again, on the build it moved to', async (t) => {
+  const registry = held()
+  const { runtime, move } = upgradable('0.149.0')
+  const desk = await deskWith(t, runtime, { fetch: registry.fetch })
+
+  // The registry is still answering about 0.149.0 when the runtime restarts
+  // onto 0.152.0, with no refresh and no word to the host. Nothing reads the
+  // description in between, so a window is told only if the measurement
+  // itself notices the move.
+  move('0.152.0')
+  registry.release()
+
+  await until(
+    () => desk.told()?.version === '0.152.0' && desk.told()?.update?.version === LATEST,
+    'the notice measured against 0.152.0',
+  )
+})
+
+test('a runtime removed while its notice is being measured leaves nothing behind', async (t) => {
+  const registry = held()
+  const desk = await deskWith(t, upgradable('0.149.0').runtime, { fetch: registry.fetch })
+
+  await desk.host.unregister('codex' as RuntimeId)
+  registry.release()
+  await settle()
+
+  assert.equal(desk.told(), undefined, 'no description is pushed for a runtime that is gone')
+})
+
+test('a version that moved without a word is hidden, and measured by the next read of the description', async (t) => {
+  const { runtime, move } = upgradable('0.149.0')
+  const desk = await deskWith(t, runtime)
+  await until(async () => (await desk.shown()).update?.version === LATEST, 'the notice for 0.149.0')
+
+  // No refresh and no description sent: only a read can find out.
+  move('0.152.0')
+  const read = await desk.shown()
+  assert.equal(read.version, '0.152.0')
+  assert.equal(read.update, undefined, 'the notice measured against 0.149.0 is not shown beside 0.152.0')
+  await until(
+    () => desk.told()?.version === '0.152.0' && desk.told()?.update?.version === LATEST,
+    'the read to have started the measurement against 0.152.0',
+  )
+})
+
+test('a runtime still moving after three measurements is left unmeasured until the next read', async (t) => {
+  // Every ask reaches the registry, and every answer finds the runtime moved
+  // again: 0.151.0, 0.152.0, 0.153.0. The measurement gives up rather than
+  // chase it — and keeps nothing, so no notice can be about a build the
+  // runtime has left.
+  const { runtime, move } = upgradable('0.149.0')
+  let asked = 0
+  const fetch = async () => {
+    asked += 1
+    if (asked <= 3) move(`0.15${asked}.0`)
+    return { ok: true, json: async () => ({ latest: LATEST }) }
+  }
+  const desk = await deskWith(t, runtime, { fetch, ttlMs: 0 })
+  await until(() => asked === 3, 'the third ask of the registry')
+  await settle()
+  assert.equal(desk.told(), undefined, 'nothing was kept, so nothing was pushed')
+
+  // The next read of the description measures the build it is on.
+  const read = await desk.shown()
+  assert.equal(read.version, '0.153.0')
+  assert.equal(read.update, undefined)
+  await until(
+    () => desk.told()?.version === '0.153.0' && desk.told()?.update?.version === LATEST,
+    'the read to have measured 0.153.0',
+  )
+  assert.equal(asked, 4)
 })
