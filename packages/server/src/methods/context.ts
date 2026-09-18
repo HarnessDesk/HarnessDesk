@@ -229,8 +229,9 @@ export interface HostContext {
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
     /**
-     * Refuses a folder for a room unless it is in a folder or a repository
-     * opened here, links resolved. A relative one is refused.
+     * Refuses a folder for a room, where it works and where its flows are read
+     * from, unless it is in a folder or a repository opened here, links
+     * resolved. A relative one is refused.
      */
     confineRoom(folder: string): Promise<void>
     /** Opens a folder, which becomes one of the open roots. A relative path is refused. */

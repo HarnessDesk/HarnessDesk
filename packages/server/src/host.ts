@@ -1291,7 +1291,7 @@ export class Host {
    * Where a room may work: in a folder opened here or in a repository opened
    * here, by the folder rule above or by the repository rule the worktree
    * verbs answer to, whichever admits it. A room's folder is where its flows
-   * seat agents and cut worktrees.
+   * are read from, and where they seat agents and cut worktrees.
    *
    * The room dialog asks for both kinds. It names the project of the folder
    * open (`projectRootOf`), which for a linked worktree is its main checkout:

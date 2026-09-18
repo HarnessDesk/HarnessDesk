@@ -12,9 +12,20 @@ import type { HostContext, MethodsUnder } from './context.js'
  * asks the pure engine a question.
  */
 export const flowMethods = {
-  'flow/list': (ctx, params) => ctx.flows.list(params.root),
+  /* Both read files under their root, so both are held to what is open before
+     anything is read, on the rule a room is: the room dialog asks them about
+     the root it will make its room at, which for a linked worktree is the main
+     checkout. `flow/dry` is not held: it reads nothing, and only names its
+     root in the report. */
+  'flow/list': async (ctx, params) => {
+    await ctx.workspaces.confineRoom(params.root)
+    return ctx.flows.list(params.root)
+  },
 
-  'flow/read': (ctx, params) => ctx.flows.source(params.root, params.path),
+  'flow/read': async (ctx, params) => {
+    await ctx.workspaces.confineRoom(params.root)
+    return ctx.flows.source(params.root, params.path)
+  },
 
   /**
    * Takes the flow's *text*, not a path, so the dialog checks what is in the

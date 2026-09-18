@@ -2245,6 +2245,101 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
   })
 })
 
+test('flow/list and flow/read refuse a folder nobody opened, and read the flows of any folder or repository opened here', async (t) => {
+  // They took their root as it came: with one folder open, any other folder's
+  // `.harnessdesk/flows` was listed and its files read. The room dialog asks
+  // them about the root it will make its room at, so they answer to the rule
+  // a room does.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so that nothing but the link below stands between
+  // the open folder and the other one.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-flow-files-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const flowFile = (name: string): string => `name: ${name}
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    outcomes: [done]
+seed: { role: worker, title: "Do it" }
+`
+  // A folder with one flow in it, and nothing git knows about.
+  const folder = async (path: string, file: string, name: string): Promise<string> => {
+    await mkdir(join(path, '.harnessdesk', 'flows'), { recursive: true })
+    await writeFile(join(path, '.harnessdesk', 'flows', file), flowFile(name))
+    return path
+  }
+  const opened = await folder(join(scratch, 'opened'), 'here.yml', 'Here')
+  const other = await folder(join(scratch, 'other'), 'secret.yml', 'Only in the other folder')
+  await client.call('workspace/open', { path: opened })
+
+  const outside = (path: string): string =>
+    `${path} is outside every folder and repository opened here. Open it first.`
+  // Each call's answer, or its refusal, so a call that was let in fails on
+  // what it read.
+  const list = (root: string): Promise<unknown> =>
+    client.call('flow/list', { root }).then(
+      (files) => ({ listed: (files as readonly { path: string; name: string }[]).map((file) => [file.path, file.name]) }),
+      (error: Error) => ({ refused: error.message }),
+    )
+  const read = (root: string, path: string): Promise<unknown> =>
+    client.call('flow/read', { root, path }).then(
+      (text) => ({ read: text }),
+      (error: Error) => ({ refused: error.message }),
+    )
+
+  await t.test('a flow in a folder nobody opened is not read', async () => {
+    assert.deepEqual(await read(other, '.harnessdesk/flows/secret.yml'), { refused: outside(other) })
+  })
+
+  await t.test('and that folder’s flows are not listed', async () => {
+    assert.deepEqual(await list(other), { refused: outside(other) })
+  })
+
+  await t.test('reached through a link in the open folder, it is refused as well', async () => {
+    const link = join(opened, 'elsewhere')
+    await symlink(other, link)
+    // The control: the link leads to that folder.
+    assert.equal(await realpath(link), other)
+    assert.deepEqual(await read(link, '.harnessdesk/flows/secret.yml'), { refused: outside(other) })
+    assert.deepEqual(await list(link), { refused: outside(other) })
+  })
+
+  await t.test('spelled relative, even into the open folder, it is refused', async () => {
+    const spelled = relative(process.cwd(), opened)
+    assert.equal(isAbsolute(spelled), false)
+    assert.equal(await realpath(spelled), opened)
+    assert.deepEqual(await list(spelled), { refused: `${spelled} is not an absolute path.` })
+    assert.deepEqual(await read(spelled, '.harnessdesk/flows/here.yml'), {
+      refused: `${spelled} is not an absolute path.`,
+    })
+  })
+
+  await t.test('the folder opened here still lists and reads its flows', async () => {
+    // A folder in no repository, which only the folder rule admits.
+    assert.deepEqual(await list(opened), { listed: [['.harnessdesk/flows/here.yml', 'Here']] })
+    assert.deepEqual(await read(opened, '.harnessdesk/flows/here.yml'), { read: flowFile('Here') })
+  })
+
+  await t.test('and so does a linked worktree’s main checkout, the root the room dialog asks with', async () => {
+    // Outside every open folder while only the worktree is open: the
+    // repository is open, and that is what admits it.
+    const main = await folder(join(scratch, 'main'), 'main.yml', 'In the main checkout')
+    await gitIn(main, 'init', '-q', '-b', 'main')
+    await gitIn(main, 'add', '.')
+    await gitIn(main, 'commit', '-q', '-m', 'root commit')
+    const linked = join(scratch, 'linked')
+    await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
+    await client.call('workspace/open', { path: linked })
+    assert.deepEqual(await list(main), { listed: [['.harnessdesk/flows/main.yml', 'In the main checkout']] })
+    assert.deepEqual(await read(main, '.harnessdesk/flows/main.yml'), { read: flowFile('In the main checkout') })
+  })
+})
+
 test('a folder is not opened by a relative path, whether the wire or the picker names it', async (t) => {
   // `describeWorkspace` resolved what it was handed, so a relative path opened
   // whatever it led to from the host's working directory, and that folder then
