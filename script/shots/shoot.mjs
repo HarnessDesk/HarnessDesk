@@ -879,7 +879,7 @@ rules:
   }
   const stageCodexComposer = async () => {
     if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') {
-      throw new Error('the reasoning scenes need HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels')
+      throw new Error('this scene needs HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels and a build to update')
     }
     await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
     await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
@@ -1330,6 +1330,122 @@ rules:
       await dismissNotices(cdp)
       // Unfolded, as the conversation scene is: the step that was refused is the point.
       await click('Worked', null, { wait: 1500 })
+    },
+  }
+
+  /**
+   * The model menu's footer when the build it names is behind a published one,
+   * and after "Refresh models" has moved Codex onto that build. The footer once
+   * kept its notice — "Codex 0.155.0 is available" under "Codex 0.155.0" —
+   * because the notice was measured once, before the move.
+   *
+   * The fixture is upgraded the way a person upgrades Codex under an open
+   * app: the file FAKE_CODEX_VERSION_FILE names is written with the newest
+   * published release, which the app's own notice names, and the next check
+   * finds it. Needs HD_SHOTS_NATIVE_CODEX=1, and the npm registry to answer:
+   * without a notice to start from the scene stops rather than photograph
+   * nothing. HD_SHOTS_UPDATE_EXPECT=stale is what a build from before the
+   * change shows after the refresh: the notice still there.
+   */
+  const codexFooter = () => cdp.json(`(() => {
+    const codex = ${STORE}.getSnapshot().runtimes.find((runtime) => runtime.id === 'codex')
+    const lines = document.body.innerText.split('\\n').filter((line) => /^Codex \\d/.test(line) || / is available\\./.test(line))
+    return { version: codex?.version ?? null, notice: codex?.update?.version ?? null, footer: lines, page: document.visibilityState }
+  })()`)
+  const MODEL_CONTROL = 'button[title$="odel and reasoning"]'
+  /**
+   * Open is what the control says, with the menu's rows on the page. The rows
+   * alone are not enough: a menu that has been closed stays in the page until
+   * its exit transition ends, and a window nobody can see — behind others, on
+   * another desktop — runs no transitions, so it stays as long as that lasts.
+   */
+  const menuOpen = () => cdp.eval(`(() => {
+    const control = document.querySelector(${q(MODEL_CONTROL)})
+    const row = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? ''))
+    return control?.getAttribute('aria-expanded') === 'true' && Boolean(row)
+  })()`)
+  const openModelMenu = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!(await menuOpen())) {
+        if (!(await press({ selector: MODEL_CONTROL }))) throw new Error('composer model trigger missing')
+        await waitForSnapshot(menuOpen, Boolean)
+      }
+      await sleep(500)
+      if (await menuOpen()) return
+    }
+    throw new Error(`the model menu would not stay open (the page is ${await cdp.eval('document.visibilityState')})`)
+  }
+  /**
+   * "Refresh models", pointed at when the row can be. In a window nobody can
+   * see the menu's open transition never ends, and until it does the menu
+   * takes no pointer — the row is on the page and cannot be hit — so the
+   * click is the row's own then. What is photographed is the same either way.
+   */
+  const refreshModels = async () => {
+    if (await press({ text: 'Refresh models' }, { wait: 1500 })) return
+    const clicked = await cdp.eval(`(() => {
+      const row = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? ''))
+      if (!row) return false
+      row.click()
+      return true
+    })()`)
+    if (!clicked) throw new Error('no "Refresh models" in the model menu')
+    await sleep(900)
+  }
+  let behind = null
+  let installed = null
+  const stageUpdateNotice = async () => {
+    if (behind) return behind
+    await stageCodexComposer()
+    // The check answers a beat after the runtime is up, and asks the registry.
+    behind = await waitForSnapshot(codexFooter, (state) => state.notice !== null, { attempts: 300 }).catch((error) => {
+      throw new Error(`no update notice to start from — does the npm registry answer? ${error.message}`)
+    })
+    return behind
+  }
+  SCENES['model-menu-update'] = {
+    leaveOverlay: true,
+    expect: ' is available.',
+    run: async () => {
+      await stageUpdateNotice()
+      await openModelMenu()
+    },
+    verify: async () => {
+      const state = await codexFooter()
+      say(`footer ${JSON.stringify(state)}`)
+      if (state.footer.length < 2) throw new Error('the footer does not name the build and the newer one')
+    },
+  }
+  SCENES['model-menu-updated'] = {
+    leaveOverlay: true,
+    expect: 'models checked',
+    run: async () => {
+      const { notice: latest } = await stageUpdateNotice()
+      installed = latest
+      writeFileSync(SHOT_ENV.FAKE_CODEX_VERSION_FILE, `${latest}\n`)
+      await openModelMenu()
+      await refreshModels()
+      await waitForSnapshot(codexFooter, (state) => state.version?.includes(latest), { attempts: 300 })
+      // A beat for the notice to be measured against the build it is on now.
+      await sleep(1500)
+      // The refresh closes the menu; it is opened again onto the footer, which
+      // has to be on screen — an empty footer would prove nothing about the notice.
+      await openModelMenu()
+      await waitForSnapshot(codexFooter, (state) => state.footer.some((line) => line.startsWith(`Codex ${latest}`)), { attempts: 100 })
+    },
+    verify: async () => {
+      const state = await codexFooter()
+      say(`footer ${JSON.stringify(state)}`)
+      if (process.env['HD_SHOTS_UPDATE_EXPECT'] === 'stale') {
+        if (state.notice === null) throw new Error('a build from before the change was expected to keep its notice')
+        return
+      }
+      if (!state.footer.some((line) => line.startsWith(`Codex ${installed}`))) {
+        throw new Error(`the footer does not name the build it is on: ${JSON.stringify(state)}`)
+      }
+      if (state.notice !== null || state.footer.some((line) => / is available\./.test(line))) {
+        throw new Error('the footer still says a newer build is available, under the build it names')
+      }
     },
   }
 

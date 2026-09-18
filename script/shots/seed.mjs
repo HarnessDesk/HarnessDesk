@@ -57,6 +57,10 @@ export const SHOT_ENV = {
   ...process.env,
   CODEX_HOME: join(HOME, 'codex-home'),
   HARNESSDESK_CODEX_BINARY: join(APP, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
+  // Where a scene "installs" a newer Codex under the running desk; see the
+  // fixture. Cleared with the rest of a take's residue, so every take boots
+  // on the build the fixture plays by default.
+  FAKE_CODEX_VERSION_FILE: join(HOME, 'codex-version'),
 }
 
 const say = (line) => process.stdout.write(`  ${line}\n`)
@@ -78,7 +82,7 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * profile, not app state, and rebuilding it costs seconds of cold start for
  * nothing.
  */
-const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'window.json']
+const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'window.json', 'codex-version']
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 
 if (process.argv.includes('--clean')) {
