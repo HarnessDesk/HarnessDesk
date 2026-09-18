@@ -41,14 +41,20 @@ const subagents = (session: Session): readonly { turn: number; item: SubagentIte
   )
 
 /**
- * Sends one prompt, then reads the session until that turn has closed and
+ * Sends one prompt, then reads the session until that turn has completed and
  * `ready` holds of what the test reads next, and hands back that reading.
  *
  * No fixed sleep can stand in for this. `send` resolves when the runtime
  * accepts the prompt, not when the turn ends, so the wait has to cover the
- * agent's whole answer; and the delegation push is a notification rather
- * than part of the prompt's reply, so it may land after the turn has closed.
- * 50 ms covered both until a loaded machine ran past it.
+ * agent's whole answer. The delegation push is a notification, not part of
+ * the prompt's reply, so the extension does not order it against the turn's
+ * end: this fake happens to write it first, and the wait does not lean on
+ * that. 50 ms covered the answer until a loaded machine ran past it.
+ *
+ * The prompts the tests set up with are meant to end as asked. A turn that
+ * ends any other way throws at once with how it ended: what it left behind, a
+ * child already reported or usage already recorded, is not a setup to assert
+ * on.
  *
  * The deadline is a ceiling for an adapter that never gets there, not a
  * budget for a slow one: a passing run returns on the first reading that
@@ -64,11 +70,16 @@ const ask = async (
   const deadline = Date.now() + 10_000
   for (;;) {
     const read = await runtime.readSession(session.id)
-    const status = read.turns.find(({ id }) => id === turn)?.status
-    if (status !== undefined && status !== 'inProgress' && ready(read)) return read
+    const closed = read.turns.find(({ id }) => id === turn)
+    if (closed && closed.status !== 'inProgress') {
+      if (closed.status !== 'completed') {
+        throw new Error(`"${text}" ended ${closed.status}: ${closed.error?.message ?? 'no reason recorded'}`)
+      }
+      if (ready(read)) return read
+    }
     if (Date.now() > deadline) {
       const rows = subagents(read).map(({ turn: at, item }) => `${item.status} on turn ${at}`)
-      throw new Error(`"${text}" never settled: its turn is ${status ?? 'missing'}, rows [${rows.join(', ')}]`)
+      throw new Error(`"${text}" never settled: its turn is ${closed?.status ?? 'missing'}, rows [${rows.join(', ')}]`)
     }
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
@@ -105,6 +116,26 @@ test('a child that outlives its turn is updated where it started, not appended t
     await runtime.dispose()
   }
 })
+
+// The helper's own contract, held here because the tests above are only as
+// good as it is: a turn that does not end as asked is a broken setup, and the
+// assertions after it would read whatever state it left behind. The fake
+// reports its child *before* it ends the turn, so the row is already there.
+for (const [verb, status] of [['refused', 'failed'], ['cancelled', 'interrupted']] as const) {
+  test(`a prompt that ends ${status} is refused by the helper, though its child was reported`, async () => {
+    const runtime = make()
+    await runtime.start()
+    try {
+      const session = await runtime.createSession({ cwd: WORKDIR })
+      await assert.rejects(ask(runtime, session, `deleg ${verb}`, reported), new RegExp(`ended ${status}`))
+      // The control: what a helper that read the turn as settled would have
+      // handed back was really there.
+      assert.equal(subagents(await runtime.readSession(session.id)).length, 1, 'the child had been reported')
+    } finally {
+      await runtime.dispose()
+    }
+  })
+}
 
 test('an output count that is still a floor stays a floor across the boundary', async () => {
   const runtime = make()
