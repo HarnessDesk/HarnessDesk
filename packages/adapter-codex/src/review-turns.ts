@@ -35,7 +35,8 @@ type Notification = CodexProtocol.ServerNotification
  * the reviewer has started, a stop that names no turn at all — Codex's own
  * "startup interrupt" — stops it too. Each ends the review under its own
  * turn, `interrupted`; measured on both versions by the same probe.
- * `interruptible` says which to send.
+ * `interruptible` says which to send; a stop Codex refuses all the same is
+ * sent again naming the turn the refusal says it holds (`CodexSession.interrupt`).
  */
 export class ReviewTurns {
   /**

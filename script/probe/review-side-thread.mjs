@@ -16,9 +16,10 @@ import { createInterface } from 'node:readline'
  * Why it exists: Codex 0.155.0 deprecates detached review and sends a
  * `deprecationNotice` for every one, while HarnessDesk still runs on Codex
  * 0.145.0 (MINIMUM_CODEX_VERSION). Each check below is a call the adapter
- * makes, or something it relies on — the review turn's ids, and which turn a
- * stop has to name — so running this once per version answers "does this
- * Codex take the route?" from the binary rather than from its changelog.
+ * makes, or something it relies on — the review turn's ids, which turn a
+ * stop has to name, and how a sandbox is carried to a new thread — so
+ * running this once per version answers "does this Codex take the route?"
+ * from the binary rather than from its changelog.
  * `--shapes` prints the review's notifications whole, for the fixture.
  *
  * The last lines are the control: a detached review on the same app-server,
@@ -329,15 +330,22 @@ try {
   )
   const byReview = await request('turn/interrupt', { threadId: stoppedId, turnId: running.turn.id }).then(
     () => 'accepted',
-    (error) => `refused: ${error.message}`,
+    (error) => error.message,
   )
-  console.log(`info  turn/interrupt naming the review's turn — ${byReview}`)
-  const byReviewer = reviewerStart
-    ? await request('turn/interrupt', { threadId: stoppedId, turnId: reviewerStart.params.turn.id }).then(
+  // Read as Codex's own terminal client reads a refused stop
+  // (`active_turn_interrupt_race`), and as the adapter's retry reads it.
+  const held = /^expected active turn id .*? but found (.+)$/.exec(byReview)?.[1] ?? null
+  check(
+    "a stop naming the review's turn is refused, naming the reviewer's",
+    held !== null && held === reviewerStart?.params.turn.id,
+    byReview,
+  )
+  const byReviewer = held
+    ? await request('turn/interrupt', { threadId: stoppedId, turnId: held }).then(
         () => 'accepted',
         (error) => `refused: ${error.message}`,
       )
-    : 'no reviewer turn was announced'
+    : 'no turn was named'
   check("turn/interrupt naming the reviewer's turn stops the review", byReviewer === 'accepted', byReviewer)
   const halted = await until((m) => m.method === 'turn/completed' && m.params.threadId === stoppedId, 20_000).catch(
     () => null,
@@ -366,6 +374,11 @@ try {
     delivery: 'inline',
   })
   const reviewerSeen = since(mark).some((m) => m.method === 'turn/started' && m.params.threadId === earlyId)
+  const namedEarly = await request('turn/interrupt', { threadId: earlyId, turnId: earlyReview.turn.id }).then(
+    () => 'accepted',
+    (error) => `refused: ${error.message}`,
+  )
+  console.log(`info  before the reviewer, a stop naming the review's turn — ${namedEarly}`)
   const byNothing = await request('turn/interrupt', { threadId: earlyId, turnId: '' }).then(
     () => 'accepted',
     (error) => `refused: ${error.message}`,
@@ -384,6 +397,7 @@ try {
   //    again on its mode it is the same sandbox; on the profile named after
   //    it, it is not (the adapter's ThreadState.sandbox).
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+  const roots = (policy) => (policy.writableRoots ?? []).map((path) => path.slice(path.lastIndexOf('/') + 1)).join(', ')
   const configured = await request('thread/start', { cwd: repo })
   const byMode = await request('thread/start', { cwd: repo, sandbox: 'workspace-write' })
   const byProfile = await request('thread/start', { cwd: repo, permissions: ':workspace' })
@@ -394,6 +408,82 @@ try {
   )
   console.log(
     `info  control: on the profile named after it — ${same(byProfile.sandbox, configured.sandbox) ? 'the same sandbox' : `network ${byProfile.sandbox.networkAccess}, ${byProfile.sandbox.writableRoots?.length ?? 0} writable root(s)`}`,
+  )
+
+  //    A sandbox the configuration does not give — another client's — is
+  //    started again exactly on its mode and config.toml's workspace keys
+  //    (the adapter's startParamsLike), beside a route's keys too.
+  const elsewhere = await request('thread/start', {
+    cwd: repo,
+    sandbox: 'workspace-write',
+    config: {
+      'sandbox_workspace_write.writable_roots': [join(root, 'other')],
+      'sandbox_workspace_write.network_access': false,
+      'sandbox_workspace_write.exclude_tmpdir_env_var': true,
+    },
+  })
+  const policy = elsewhere.sandbox
+  const keys = {
+    'sandbox_workspace_write.writable_roots': policy.writableRoots,
+    'sandbox_workspace_write.network_access': policy.networkAccess,
+    'sandbox_workspace_write.exclude_tmpdir_env_var': policy.excludeTmpdirEnvVar,
+    'sandbox_workspace_write.exclude_slash_tmp': policy.excludeSlashTmp,
+  }
+  const again = await request('thread/start', { cwd: repo, sandbox: 'workspace-write', config: keys })
+  check(
+    'a sandbox the configuration does not give is started again exactly',
+    !same(policy, configured.sandbox) && same(again.sandbox, policy),
+    `roots ${roots(policy)}, network ${policy.networkAccess}; the configuration's: roots ${roots(configured.sandbox)}, network ${configured.sandbox.networkAccess}`,
+  )
+  const routed = await request('thread/start', {
+    cwd: repo,
+    sandbox: 'workspace-write',
+    modelProvider: 'probe_route',
+    config: {
+      ...keys,
+      'model_providers.probe_route.name': 'Probe route',
+      'model_providers.probe_route.base_url': `http://127.0.0.1:${port}/v1`,
+      'model_providers.probe_route.wire_api': 'responses',
+    },
+  })
+  check(
+    "one config carries the sandbox's keys and a route's provider",
+    same(routed.sandbox, policy) && routed.modelProvider === 'probe_route',
+    `provider ${routed.modelProvider}`,
+  )
+  //    The control: the same sandbox by thread/settings/update, which adds
+  //    the configuration's writable roots to the ones it is given.
+  const updated = await request('thread/start', { cwd: repo })
+  mark = heard.length
+  await request('thread/settings/update', { threadId: updated.thread.id, sandboxPolicy: policy })
+  const landed = await until(
+    (m) => m.method === 'thread/settings/updated' && m.params.threadId === updated.thread.id,
+    10_000,
+  ).catch(() => null)
+  console.log(
+    `info  control: the same sandbox by thread/settings/update — ${landed ? (same(landed.params.threadSettings.sandboxPolicy, policy) ? 'the same sandbox' : `roots ${roots(landed.params.threadSettings.sandboxPolicy)}`) : 'not announced'}`,
+  )
+
+  //    What a start cannot say — a read-only sandbox's network access, an
+  //    external sandbox — thread/settings/update sets as given (setSandbox).
+  const given = []
+  for (const [mode, wanted] of [
+    ['read-only', { type: 'readOnly', networkAccess: true }],
+    [null, { type: 'externalSandbox', networkAccess: 'enabled' }],
+  ]) {
+    const thread = await request('thread/start', { cwd: repo, ...(mode ? { sandbox: mode } : {}) })
+    mark = heard.length
+    await request('thread/settings/update', { threadId: thread.thread.id, sandboxPolicy: wanted })
+    const said = await until(
+      (m) => m.method === 'thread/settings/updated' && m.params.threadId === thread.thread.id,
+      10_000,
+    ).catch(() => null)
+    given.push([wanted.type, said ? same(said.params.threadSettings.sandboxPolicy, wanted) : false])
+  }
+  check(
+    'thread/settings/update sets a sandbox no start can say, as given',
+    given.every(([, ok]) => ok),
+    given.map(([type, ok]) => `${type} ${ok ? 'as given' : 'not as given'}`).join(', '),
   )
 
   // 8. The control: detached delivery on the same app-server.

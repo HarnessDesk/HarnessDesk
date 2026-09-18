@@ -99,7 +99,7 @@ node script/probe/review-side-thread.mjs --codex <path to codex>
 
 Every check is a call the Codex adapter makes, or something it relies on, so
 running it against the oldest supported Codex (`MINIMUM_CODEX_VERSION`, 0.145.0)
-and the newest says whether both take the route. Expect `17/17 checks passed`.
+and the newest says whether both take the route. Expect `21/21 checks passed`.
 Measured on 0.145.0 and 0.155.0:
 
 - the review's items and its `turn/completed` carry the turn `review/start`
@@ -107,16 +107,25 @@ Measured on 0.145.0 and 0.155.0:
   is the reviewer sub-agent's, under another id, after the review's first
   item — which is why the adapter opens a review's turn itself
   (`packages/adapter-codex/src/review-turns.ts`);
-- `turn/interrupt` naming the review's own turn is refused ("expected active
-  turn id … but found …"); naming the reviewer's stops the review, and so,
-  before the reviewer has started, does a stop naming no turn at all (`turnId:
-  ""`, Codex's "startup interrupt"); either way the review ends under its own
-  turn, `interrupted`;
+- `turn/interrupt` naming the review's own turn is refused, and the refusal
+  names the reviewer's ("expected active turn id … but found …", the words
+  Codex's own terminal client reads to try again); naming the reviewer's stops
+  the review. Before the reviewer has started, naming the review's turn is
+  refused with "no active turn to interrupt", and a stop naming no turn at
+  all (`turnId: ""`, Codex's "startup interrupt", which its terminal client
+  sends when it knows no turn) stops it. Either way the review ends under its
+  own turn, `interrupted`;
 - a thread with no turn is not listed, named or not;
 - a thread whose sandbox came from `config.toml`, with no profile active, is
   reproduced by starting another on that `sandbox` mode — network access and
   writable roots included — and not by the profile named after the mode,
-  which drops both (the adapter's `ThreadState.sandbox`).
+  which drops both (the adapter's `ThreadState.sandbox`);
+- a workspace sandbox the configuration does not give is reproduced exactly by
+  its mode and `config.toml`'s `sandbox_workspace_write.*` keys in the start's
+  `config`, beside a route's provider keys too; `thread/settings/update` is no
+  way to it, since it adds the configuration's writable roots to the ones it
+  is given. What no start can say — a read-only sandbox's network access, an
+  external sandbox — `thread/settings/update` sets as given.
 
 The last lines are the control, a detached review on the same app-server:
 0.145.0 takes it silently; 0.155.0 sends the `deprecationNotice` and then

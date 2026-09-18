@@ -134,7 +134,11 @@ const settingsState = {
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
   permissions: null,
-  sandboxType: 'workspaceWrite',
+  // With no profile active, the sandbox is a mode over the thread's
+  // `[sandbox_workspace_write]` configuration, or a policy set whole.
+  sandboxMode: 'workspace-write',
+  sandboxConfig: { writable_roots: ['/w'], network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false },
+  sandboxPolicy: null,
   model: 'gpt-5.5',
   serviceTier: null,
   // FAKE_CODEX_CONFIGURED_EFFORT is `model_reasoning_effort` in config.toml.
@@ -150,10 +154,25 @@ const settingsState = {
  * a setting carried across from one that was never lost.
  */
 const CONFIGURED = { ...settingsState }
-const sandboxPolicy = () =>
-  settingsState.permissions
-    ? (SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace'])
-    : { ':read-only': SANDBOX_FOR_PROFILE[':read-only'], workspaceWrite: SANDBOX_FOR_PROFILE[':workspace'], readOnly: SANDBOX_FOR_PROFILE[':read-only'], dangerFullAccess: SANDBOX_FOR_PROFILE[':danger-full-access'] }[settingsState.sandboxType]
+const sandboxPolicy = () => {
+  if (settingsState.permissions) return SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace']
+  if (settingsState.sandboxPolicy) return settingsState.sandboxPolicy
+  const written = settingsState.sandboxConfig
+  switch (settingsState.sandboxMode) {
+    case 'read-only':
+      return { type: 'readOnly', networkAccess: false }
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+    default:
+      return {
+        type: 'workspaceWrite',
+        writableRoots: [...written.writable_roots],
+        networkAccess: written.network_access,
+        excludeTmpdirEnvVar: written.exclude_tmpdir_env_var,
+        excludeSlashTmp: written.exclude_slash_tmp,
+      }
+  }
+}
 
 const threadSettings = () => ({
   cwd: settingsState.cwd,
@@ -198,14 +217,29 @@ const applySettings = (params, { sandboxKey }) => {
   if (params.model != null) settingsState.model = params.model
   if (params.modelProvider != null) settingsState.modelProvider = params.modelProvider
   if (params.runtimeWorkspaceRoots != null) settingsState.workspaceRoots = [...params.runtimeWorkspaceRoots]
+  // `sandbox_workspace_write.*` keys in a thread verb's `config` stand in for
+  // config.toml's own, as they do in Codex.
+  for (const [key, value] of Object.entries(params.config ?? {})) {
+    const field = /^sandbox_workspace_write\.(.+)$/.exec(key)?.[1]
+    if (field) settingsState.sandboxConfig = { ...settingsState.sandboxConfig, [field]: value }
+  }
   if (params.permissions != null) settingsState.permissions = params.permissions
-  if (params[sandboxKey] != null) {
+  if (sandboxKey === 'sandbox' && params.sandbox != null) {
     settingsState.permissions = null
-    const value = params[sandboxKey]
-    settingsState.sandboxType =
-      value === 'read-only' || value?.type === 'readOnly' ? 'readOnly'
-      : value === 'danger-full-access' || value?.type === 'dangerFullAccess' ? 'dangerFullAccess'
-      : 'workspaceWrite'
+    settingsState.sandboxMode = params.sandbox
+    settingsState.sandboxPolicy = null
+  }
+  if (sandboxKey === 'sandboxPolicy' && params.sandboxPolicy != null) {
+    /* Measured on 0.145.0 and 0.155.0: a workspace policy given to a thread
+       with no profile active gains the thread's configured writable roots,
+       first; any other policy, or one given over a profile, is taken as it
+       came. */
+    const given = params.sandboxPolicy
+    settingsState.sandboxPolicy =
+      given.type === 'workspaceWrite' && settingsState.permissions === null
+        ? { ...given, writableRoots: [...new Set([...settingsState.sandboxConfig.writable_roots, ...given.writableRoots])] }
+        : given
+    settingsState.permissions = null
   }
   if (params.approvalPolicy != null) settingsState.approvalPolicy = params.approvalPolicy
   if (params.approvalsReviewer != null) settingsState.approvalsReviewer = params.approvalsReviewer
@@ -509,6 +543,10 @@ const startBackground = (command, { fails = false } = {}) => {
  * FAKE_CODEX_REVIEWER_MS holds back the reviewer's `turn/started` that long,
  * and FAKE_CODEX_REVIEWER_FIRST=1 sends it before the review's first item —
  * neither is what either Codex does, and the adapter must not care.
+ * FAKE_CODEX_REVIEWER_UNANNOUNCED=1 starts the reviewer without forwarding
+ * its `turn/started` at all, and FAKE_CODEX_NO_STARTUP_INTERRUPT=1 checks a
+ * stop naming no turn like any other: a Codex neither version is, which the
+ * adapter must still be able to stop.
  */
 let reviews = 0
 /** Per thread, the review running on it: its turn, the reviewer's, and the timer that ends it. */
@@ -540,6 +578,7 @@ const playReview = (id, params) => {
   const review = { turnId, reviewerTurnId, reviewerStarted: false, reviewerTimer: null, timer: null, reviews, startedAtMs }
   const reviewerStarts = () => {
     review.reviewerStarted = true
+    if (process.env['FAKE_CODEX_REVIEWER_UNANNOUNCED'] === '1') return
     notify('turn/started', {
       threadId,
       turn: { id: reviewerTurnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: null, durationMs: null },
@@ -586,15 +625,20 @@ const playReview = (id, params) => {
 /**
  * `turn/interrupt` on a thread with a review running, measured on 0.145.0
  * and 0.155.0: Codex checks a named turn against the one it holds as
- * running — the reviewer's, or before that one it never reports — while a
- * stop naming no turn is its "startup interrupt" and is not checked. The
- * stopped review then ends under its own turn.
+ * running — the reviewer's, and before the reviewer has started, none —
+ * while a stop naming no turn is its "startup interrupt" and is not checked.
+ * The refusals are Codex's words. The stopped review then ends under its own
+ * turn.
  */
 const stopReview = (id, params) => {
   const review = runningReviews.get(params.threadId)
-  if (params.turnId !== '' && !(review.reviewerStarted && params.turnId === review.reviewerTurnId)) {
-    const held = review.reviewerStarted ? review.reviewerTurnId : 'an unreported review turn'
-    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${held}` } })
+  const checked = params.turnId !== '' || process.env['FAKE_CODEX_NO_STARTUP_INTERRUPT'] === '1'
+  if (checked && !review.reviewerStarted) {
+    send({ id, error: { code: -32600, message: 'no active turn to interrupt' } })
+    return
+  }
+  if (checked && params.turnId !== review.reviewerTurnId) {
+    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${review.reviewerTurnId}` } })
     return
   }
   clearTimeout(review.timer)
@@ -939,6 +983,13 @@ rl.on('line', (line) => {
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
+      }
+      /* FAKE_CODEX_RESUMED_SANDBOX is a policy another client put the thread
+         under, which it is resumed in: JSON, as Codex reports one. */
+      const resumed = process.env['FAKE_CODEX_RESUMED_SANDBOX']
+      if (method === 'thread/resume' && resumed && params?.permissions == null && params?.sandbox == null) {
+        settingsState.permissions = null
+        settingsState.sandboxPolicy = JSON.parse(resumed)
       }
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })

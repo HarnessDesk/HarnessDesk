@@ -2,9 +2,19 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { allItems, reduceAll, wrapContext, type AgentEvent, type AgentSession, type Session } from '@harnessdesk/protocol'
+import type { CodexProtocol } from '@harnessdesk/codex'
+import {
+  allItems,
+  reduceAll,
+  sessionId,
+  wrapContext,
+  type AgentEvent,
+  type AgentSession,
+  type Session,
+} from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
+import type { CodexSession } from '../src/session.js'
 
 /**
  * "Review uncommitted changes" — a review on a side thread, which leaves the
@@ -196,6 +206,41 @@ test('a review stopped before its reviewer has started is stopped all the same',
   assert.ok(completed?.type === 'turn/completed' && completed.turn.status === 'interrupted')
 })
 
+test('a review is stopped on a Codex that neither announces its reviewer nor takes a stop naming no turn', async (t) => {
+  // Neither version is this Codex. The stop names no turn, since the desk
+  // knows of none; Codex refuses it and says which turn it holds, and the
+  // stop names that one instead, as Codex's own terminal client does.
+  const { runtime, events, until } = await start(t, {
+    FAKE_CODEX_REVIEW_MS: '60000',
+    FAKE_CODEX_REVIEWER_UNANNOUNCED: '1',
+    FAKE_CODEX_NO_STARTUP_INTERRUPT: '1',
+  })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const side = await session.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+  await until(() => about(events, side).some((event) => event.type === 'turn/started'), 'the review to start')
+  await side.interrupt()
+  await until(() => about(events, side).some((event) => event.type === 'turn/completed'), 'the review to end')
+  const completed = about(events, side).find((event) => event.type === 'turn/completed')
+  assert.ok(completed?.type === 'turn/completed' && completed.turn.status === 'interrupted')
+})
+
+test('a stop Codex refuses without naming a turn of its own is refused out loud', async (t) => {
+  // The one stop there is no second try for: before the reviewer starts, a
+  // Codex without the startup interrupt holds no turn to name.
+  const { runtime, events, until } = await start(t, {
+    FAKE_CODEX_REVIEW_MS: '60000',
+    FAKE_CODEX_REVIEWER_MS: '60000',
+    FAKE_CODEX_NO_STARTUP_INTERRUPT: '1',
+  })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const side = await session.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+  await until(() => about(events, side).some((event) => event.type === 'turn/started'), 'the review to start')
+  await assert.rejects(() => side.interrupt(), /no active turn to interrupt/)
+  assert.ok(!about(events, side).some((event) => event.type === 'turn/completed'), 'the review runs on')
+})
+
 test('a reviewer that starts first is still the reviewer, and nothing is left working', async (t) => {
   const { runtime, events, until } = await start(t, { FAKE_CODEX_REVIEWER_FIRST: '1' })
   const session = await runtime.createSession({ cwd: '/w' })
@@ -306,6 +351,31 @@ test('a side thread keeps the sandbox its configuration gave the conversation, n
   assert.equal(values(side)['permissions'], values(session)['permissions'])
 })
 
+test('a side thread runs in exactly the sandbox its conversation runs in, however that was set', async (t) => {
+  // A conversation another client put under a sandbox of its own, which the
+  // configuration would not give a new thread. thread/start takes a mode and
+  // the workspace keys of config.toml, and thread/settings/update adds the
+  // configuration's writable roots to a workspace sandbox it is given
+  // (measured on 0.145.0 and 0.155.0; the fake does the same): so a
+  // workspace sandbox is started exact, and the others are set after. An
+  // update that moves nothing is answered with silence, as Codex answers one,
+  // so a sandbox asked for again would be refused as never landing.
+  const policies: CodexProtocol.v2.SandboxPolicy[] = [
+    { type: 'workspaceWrite', writableRoots: ['/other'], networkAccess: true, excludeTmpdirEnvVar: true, excludeSlashTmp: false },
+    { type: 'readOnly', networkAccess: true },
+    { type: 'externalSandbox', networkAccess: 'enabled' },
+  ]
+  for (const policy of policies) {
+    const { runtime } = await start(t, { FAKE_CODEX_RESUMED_SANDBOX: JSON.stringify(policy), FAKE_CODEX_QUIET_NOOP: '1' })
+    const session = (await runtime.resumeSession(sessionId('thread-elsewhere'))) as CodexSession
+    assert.deepEqual(session.startLike().sandbox, policy, 'the conversation runs in the sandbox it was given')
+    const side = (await session.review!({ type: 'uncommitted', delivery: 'detached' })) as CodexSession | null
+    assert.ok(side)
+    assert.deepEqual(side.startLike().sandbox, policy, `a side thread of one in ${policy.type}`)
+    assert.equal(values(side)['permissions'], values(session)['permissions'])
+  }
+})
+
 test('a side thread keeps the model route its conversation was opened on', async (t) => {
   const { runtime, events, until } = await start(t, { FAKE_CODEX_ECHO_STARTS: '1' })
   const route = {
@@ -324,9 +394,9 @@ test('a side thread keeps the model route its conversation was opened on', async
     .filter((message) => message.startsWith('STARTED'))
     .map((message) => JSON.parse(message.slice('STARTED '.length)) as Record<string, unknown>)
   assert.equal(sideStart?.['modelProvider'], 'harnessdesk_route')
-  assert.equal(
-    (sideStart?.['config'] as Record<string, unknown> | undefined)?.['model_providers.harnessdesk_route.base_url'],
-    route.endpoint,
-  )
+  // One `config` says both: the route's provider, and the sandbox's details.
+  const config = sideStart?.['config'] as Record<string, unknown> | undefined
+  assert.equal(config?.['model_providers.harnessdesk_route.base_url'], route.endpoint)
+  assert.deepEqual(config?.['sandbox_workspace_write.writable_roots'], ['/w'])
   assert.equal(side.settings().modelProvider, 'harnessdesk_route')
 })

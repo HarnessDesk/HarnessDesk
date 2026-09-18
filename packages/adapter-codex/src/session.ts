@@ -1,4 +1,4 @@
-import type { CodexAppServer, CodexProtocol } from '@harnessdesk/codex'
+import { CodexRpcError, type CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
 import {
   findOption,
   refuseOptionValue,
@@ -26,6 +26,7 @@ import {
 import { automaticContext, contextPreamble, type ToolProjection } from './capabilities.js'
 import type { ApprovalRouter } from './approvals.js'
 import {
+  sameSandbox,
   sessionOptions,
   settingsFromState,
   settingsUpdateFor,
@@ -224,20 +225,23 @@ export class CodexSession implements AgentSession {
   /**
    * How a new thread is set up like this one, as of now: the fields
    * `thread/start` takes, the route those fields cannot carry on their own,
-   * and the controls the verb has no field for — mode before effort, since a
-   * mode brings an effort of its own and this thread's is the one to keep.
-   * Only controls this thread declares: a model the catalogue does not know
-   * has no effort to carry.
+   * the sandbox when no profile is active, for what of it they cannot say
+   * either (`setSandbox`), and the controls the verb has no field for — mode
+   * before effort, since a mode brings an effort of its own and this
+   * thread's is the one to keep. Only controls this thread declares: a model
+   * the catalogue does not know has no effort to carry.
    */
   startLike(): {
     readonly start: LikeParams
     readonly route: ResolvedModelRoute | null
+    readonly sandbox: CodexProtocol.v2.SandboxPolicy | null
     readonly after: readonly (readonly [string, OptionValue])[]
   } {
     const options = this.options()
     return {
       start: startParamsLike(this.#state),
       route: this.deps.route ?? null,
+      sandbox: this.#state.sandbox,
       after: ['mode', 'effort'].flatMap((id) => {
         const value = findOption(options, id)?.currentValue
         return value === undefined || value === null ? [] : [[id, value] as const]
@@ -291,6 +295,25 @@ export class CodexSession implements AgentSession {
       )
     }
     this.deps.emit({ type: 'session/options', sessionId: this.id, options: this.options() })
+  }
+
+  /**
+   * Puts this thread under exactly `policy`, as `setOption` moves a control:
+   * the call resolves when Codex has said where the sandbox landed, and
+   * one Codex took without saying so is refused out loud.
+   *
+   * For what `thread/start` cannot say (`startParamsLike`): a read-only
+   * sandbox with network access, and an external sandbox. Codex takes both
+   * as given (measured on 0.145.0 and 0.155.0). A thread already under this
+   * policy is left alone.
+   */
+  async setSandbox(policy: CodexProtocol.v2.SandboxPolicy): Promise<void> {
+    if (sameSandbox(this.#state.sandbox, policy)) return
+    const before = this.#announced
+    await this.deps.server.request('thread/settings/update', { threadId: this.id, sandboxPolicy: policy })
+    if (this.#announced === before && !(await this.#nextAnnouncement())) {
+      throw new Error('Codex took the sandbox without saying where it landed.')
+    }
   }
 
   /**
@@ -478,12 +501,28 @@ export class CodexSession implements AgentSession {
     })
   }
 
+  /**
+   * Stops the turn running on this thread.
+   *
+   * Codex checks a stop against the turn it holds as running and, refusing
+   * one that names another, says which it holds: "expected active turn id …
+   * but found …". Codex's own terminal client stops that turn instead, once
+   * — "Review flows can swap the active turn before the TUI processes the
+   * corresponding notification" (`tui/src/app/thread_routing.rs`, 0.145.0;
+   * the same retry in 0.155.0) — and so does this. The turn named first is
+   * the one `interruptible` says, which for a review is already the one
+   * Codex holds; the retry is for a Codex that holds another.
+   */
   async interrupt(): Promise<void> {
     const turnId = this.#requireActiveTurn('interrupt')
-    await this.deps.server.request('turn/interrupt', {
-      threadId: this.id,
-      turnId: this.deps.interruptible?.(this.id, turnId) ?? turnId,
-    })
+    const named = this.deps.interruptible?.(this.id, turnId) ?? turnId
+    try {
+      await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: named })
+    } catch (error) {
+      const held = heldTurn(error)
+      if (held === null || held === named) throw error
+      await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: held })
+    }
   }
 
   /**
@@ -702,6 +741,17 @@ const toCodexInput = (content: UserContent): CodexProtocol.v2.UserInput => {
     case 'mention':
       return { type: 'mention', name: content.name, path: content.path }
   }
+}
+
+/**
+ * The turn Codex holds as running, from its refusal of a stop that named
+ * another — read the way Codex's own terminal client reads it
+ * (`active_turn_interrupt_race`, `tui/src/app.rs`, 0.145.0 and 0.155.0).
+ * Null for any other failure.
+ */
+const heldTurn = (error: unknown): string | null => {
+  if (!(error instanceof CodexRpcError)) return null
+  return /^expected active turn id .*? but found (.+)$/.exec(error.message)?.[1] ?? null
 }
 
 /**

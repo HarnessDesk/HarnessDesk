@@ -894,20 +894,24 @@ export class CodexRuntime implements AgentRuntime {
    * Started as a new conversation is: this desk's plugin tools and standing
    * instruction, and registered here, so its turns, approvals and settings
    * reach the interface like any other thread's. It is set up with what Codex
-   * last said of `like`, and with `like`'s route when it has one. Mode and
-   * effort follow as settings updates, each only where the new thread does
-   * not already have it — judged just before it is sent, because a mode
-   * brings an effort with it, so an effort that matched at the start may not
-   * once the mode has moved. One Codex refuses closes the thread and says
-   * why, as a new conversation's would.
+   * last said of `like`, and with `like`'s route when it has one; both speak
+   * in `config`, the sandbox its details and the route its provider. A
+   * sandbox the start could not say follows as a settings update, and so do
+   * mode and effort, each only where the new thread does not already have it
+   * — judged just before it is sent, because a mode brings an effort with it,
+   * so an effort that matched at the start may not once the mode has moved.
+   * One Codex refuses closes the thread and says why, as a new
+   * conversation's would.
    */
   async #startBeside(like: CodexSession): Promise<CodexSession> {
-    const { start, route, after } = like.startLike()
+    const { start, route, sandbox, after } = like.startLike()
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: start.cwd })
+    const routed = route ? routeParams(route) : null
     const response = await this.#server.request('thread/start', {
       ...start,
-      ...(route ? routeParams(route) : {}),
+      ...(routed ? { modelProvider: routed.modelProvider } : {}),
+      ...(start.config || routed ? { config: { ...start.config, ...routed?.config } } : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
       ...this.#developerInstructions(),
     })
@@ -916,6 +920,7 @@ export class CodexRuntime implements AgentRuntime {
       route,
     })
     try {
+      if (sandbox) await session.setSandbox(sandbox)
       for (const [id, value] of after) {
         if (findOption(session.options(), id)?.currentValue === value) continue
         await session.setOption(id, value)
