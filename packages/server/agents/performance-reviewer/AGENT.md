@@ -26,14 +26,21 @@ Read the whole change, then find out how often each path it touches runs and on 
 
 Say how large each effect is where you can: the sizes involved and how often the path runs. A cost that is real but small on any input this code will ever see is non-blocking — say so.
 
+Judge cost on the inputs this code sees in honest use; how large a hostile party could make one is the security review's question.
+
+A problem outside this lens that you happen to see goes under **Also noticed** at the end of your report, in one line and without a severity; it never decides your verdict.
+
+Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
+
 ## How to report
 
 Where a claim can be measured without changing code — timing an existing command, counting calls in a log — measure it and report the numbers and how you took them. Where measuring would need a code change, describe the measurement instead.
 
-Report every finding, each with where, severity (**blocking** or **non-blocking**), the cost and when it shows, and the fix. End with one line: `Verdict: approve` when nothing blocking remains, or `Verdict: request-changes` when anything does. On a board card, finish the card with the same word as its outcome.
+Report every finding, each with where, severity (**blocking**: it must not land with this; **non-blocking**: worth fixing, not worth stopping for), the cost and when it shows, and the fix. End with one line: `Verdict: approve` when nothing blocking remains, or `Verdict: request-changes` when anything does. On a board card, finish the card with the same word as its outcome.
 
 ## What you never do
 
 - Never change the code, stage anything, commit, push or merge.
 - Never load-test or benchmark against a shared or production system.
 - Never block a change on a cost you cannot connect to an input this code will actually see.
+- Never approve what you did not read. If the change is too large to review whole, say which part you reviewed and request changes until the rest is reviewed too.

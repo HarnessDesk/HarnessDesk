@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { matchesGlob } from 'node:path'
 import { test } from 'node:test'
 
 import { TEMPLATE_BRIDGES } from '@harnessdesk/server'
@@ -71,12 +72,43 @@ test('the packaged smoke awaits forced exit before removing isolated state', () 
   assert.match(smoke, /maxRetries:\s*10/)
 })
 
-test('the built-in Agents are part of the server package, so a packaged app carries them', () => {
+test('the built-in Agents are named in the server package manifest', () => {
   const server = JSON.parse(readFileSync(new URL('../../server/package.json', import.meta.url), 'utf8'))
   assert.ok(
     (server.files ?? []).includes('agents'),
-    '@harnessdesk/server must list "agents" in its files: the shipped Agents live in ' +
-      'packages/server/agents, and a packaged app without them lists no built-in Agent at all.',
+    '@harnessdesk/server should list "agents" in its files, so the manifest says what the package holds. ' +
+      'That alone is not why a packaged app carries the folder — the desktop build copies this whole ' +
+      'workspace package regardless of "files", and unpacks it with asarUnpack; the two tests below pin ' +
+      'the mechanism that actually ships it.',
   )
   assert.match(smoke, /agent\/list/, 'the packaged smoke asks the built app for its Agents')
+})
+
+/**
+ * A file the desktop build must actually carry, unpacked, for the app to list even one built-in Agent:
+ * the brief of the Agent every fixture and screenshot rig starts as.
+ */
+const AN_AGENT_FILE = 'node_modules/@harnessdesk/server/agents/code-reviewer/AGENT.md'
+
+test('asarUnpack really covers the folder the Agents ship in', () => {
+  const unpack = manifest.build.asarUnpack ?? []
+  assert.ok(
+    unpack.some((glob) => matchesGlob(AN_AGENT_FILE, glob)),
+    `packages/desktop/package.json's build.asarUnpack must cover ${AN_AGENT_FILE}: the server package is ` +
+      'copied into node_modules whole, but electron-builder still seals it inside app.asar unless asarUnpack ' +
+      'pulls it back out, and neither a spawned Node child nor a person browsing the built app can read a ' +
+      'path inside app.asar.',
+  )
+})
+
+test('no negated build.files glob excludes an Agent brief from the packaged app', () => {
+  const negated = (manifest.build.files ?? []).filter((glob) => glob.startsWith('!'))
+  const excluding = negated.filter((glob) => matchesGlob(AN_AGENT_FILE, glob.slice(1)))
+  assert.deepEqual(
+    excluding,
+    [],
+    `packages/desktop/package.json's build.files must not exclude ${AN_AGENT_FILE}: a negated glob narrow ` +
+      'enough to catch it (for example "!**/*.md") drops every shipped Agent brief from the packaged app, ' +
+      'even though asarUnpack still unpacks the rest of the folder around them.',
+  )
 })

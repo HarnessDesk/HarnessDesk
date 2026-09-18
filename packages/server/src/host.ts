@@ -232,10 +232,10 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
  * directory in a checkout, a standalone host and the app. The unpacked twin
  * matters here for a reason of its own: an entry's `path` is shown to a person
  * and handed to other programs to open, and a path inside `app.asar` is one only
- * this process can read. The nine Agents that ship with the app live there,
- * one folder each, and the server package lists the folder in its `files` so
- * that a packaged app carries it; a directory that is not there is still an
- * empty tier rather than a failure.
+ * this process can read. The Agents that ship with the app live there, one
+ * folder each. The app carries the folder because the desktop build copies
+ * this whole package and unpacks every `node_modules` entry (`asarUnpack`);
+ * `files` lists it too, so the manifest says what the package holds.
  */
 export const builtinAgentRoot = (): string =>
   packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
