@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent, BackgroundTask, SessionId } from '@harnessdesk/protocol'
+import type { AgentEvent, BackgroundTask, SessionId, Turn, TurnId } from '@harnessdesk/protocol'
 import type { AcpConnection } from '@harnessdesk/transport-acp'
 
 import { AcpRuntime } from '../src/index.js'
@@ -52,6 +52,26 @@ const announced = (runtime: AcpRuntime) => {
   }
 }
 
+/**
+ * Reads the session until `turn` has closed, and hands back the closed turn.
+ *
+ * `send` resolves once the runtime has accepted the prompt, not when the turn
+ * ends, so a check made right after it — or after any fixed sleep — can run
+ * before the agent has answered at all. The adapter reads what the agent
+ * writes in order and closes the turn on its reply, so a closed turn means
+ * everything the agent sent during it has been read. The deadline is a
+ * ceiling for a turn that never closes, not a budget for a slow one.
+ */
+const closed = async (runtime: AcpRuntime, session: SessionId, turn: TurnId): Promise<Turn> => {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    const found = (await runtime.readSession(session)).turns.find(({ id }) => id === turn)
+    if (found && found.status !== 'inProgress') return found
+    if (Date.now() > deadline) throw new Error(`turn ${turn} never closed; it is ${found?.status ?? 'missing'}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 test('an agent that declares the extension gets a task registry, and its list is pushed', async (t) => {
   const runtime = make({ FAKE_ACP_TASKS: '1' })
   t.after(() => runtime.dispose())
@@ -96,11 +116,16 @@ test('an agent with no such concept has no capability and no registry', async (t
   assert.equal(runtime.tasks, undefined)
 
   // And a turn changes nothing about that: the surface stays off rather than
-  // appearing empty the first time the agent is used.
+  // appearing empty the first time the agent is used. Checked once the turn
+  // has closed: 100 ms after `send`, a loaded machine had not yet read any of
+  // the agent's answer, and the check passed without having seen the turn.
   const session = await runtime.createSession({ cwd: '/tmp/acp-tasks' })
-  await session.send([{ type: 'text', text: 'bg pnpm dev' }])
-  await new Promise((resolve) => setTimeout(resolve, 100))
+  const sent = await session.send([{ type: 'text', text: 'bg pnpm dev' }])
+  const turn = await closed(runtime, session.id, sent)
+  // The agent answered: a turn that died would leave the surface off too.
+  assert.equal(turn.status, 'completed')
   assert.equal(runtime.info.capabilities.backgroundTasks, false)
+  assert.equal(runtime.tasks, undefined)
 })
 
 test('a list pushed without the declaration is still believed', async (t) => {
