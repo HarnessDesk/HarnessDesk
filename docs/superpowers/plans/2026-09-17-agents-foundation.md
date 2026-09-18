@@ -185,11 +185,13 @@ test('a complete definition parses, and the body is the brief', () => {
 test('prefer is parsed with the seat grammar the flow engine already uses', () => {
   const { agent } = parseAgentDefinition(REVIEWER, 'code-reviewer')
   assert.equal(agent?.prefer.length, 2)
+  // Three keys, not four: the seat parser omits a field nobody wrote rather
+  // than setting it false, so one spec string parses to one object whichever
+  // file it came from.
   assert.deepEqual(agent?.prefer[0], {
     runtime: 'cursor',
     model: 'gemini-3.8-flash',
     effort: 'high',
-    thinking: false,
   })
   assert.equal(agent?.prefer[1]?.runtime, 'claude')
 })
@@ -742,7 +744,6 @@ const seat = (runtime: string, model?: string, effort?: string) => ({
   runtime,
   ...(model ? { model } : {}),
   ...(effort ? { effort } : {}),
-  thinking: false,
 })
 
 const offer = (runtime: string, over: Partial<SeatOffer> = {}): SeatOffer => ({
@@ -1114,15 +1115,22 @@ is seated without thinking. So:
   candidate when efforts are null rather than refuse it;
 - after `openSession` returns, **compare what the session reports it is running
   with what was asked** — model, effort, thinking. On any mismatch, close the
-  session and refuse, naming the field that differed. This is the contract the
+  session and **pass the candidate over**, naming the field that differed, and
+  try the next one — see the rule stated under the tests below. This is the contract the
   flow engine's `FlowPort.seat` already keeps ("reports what it is *actually*
   running … because a runtime drops a pick it declines rather than failing");
   reuse that report rather than trusting the request.
 
 The rule that ties both together: **check before opening what can be known
 before opening; verify after opening what can only be known then; on any
-mismatch, close and refuse.** A pre-check that guesses and a post-check that
-trusts are the same defect.
+mismatch, close it and move to the next candidate.** A pre-check that guesses and
+a post-check that trusts are the same defect.
+
+**And the post-check is only as good as what the runtime reports.** Both
+adapters that shipped with this phase once reported a *requested* value back as
+if the agent were running it — the ACP adapter for effort and thinking, the Codex
+adapter for effort — which made this comparison a comparison of the request with
+itself. Whatever an adapter says a session is running must come from the agent.
 
 **3. `spent` is one flag per runtime,** so a limit that binds a single model
 cannot be expressed. Acceptable for this phase — record it as a known limit in
@@ -1174,11 +1182,9 @@ const rig = async (prefer: string) => {
   const root = await mkdtemp(join(tmpdir(), 'hd-agent-seat-'))
   const user = join(root, 'user')
   await mkdir(join(user, 'reviewer'), { recursive: true })
-  await writeFile(
-    join(user, 'reviewer', 'AGENT.md'),
-    `---\nname: Reviewer\npermission: read\nprefer: [${prefer}]\n---\nRead the diff.\n`,
-    'utf8',
-  )
+  // Returned so a test can hash exactly what was written.
+  const agentFile = `---\nname: Reviewer\npermission: read\nprefer: [${prefer}]\n---\nRead the diff.\n`
+  await writeFile(join(user, 'reviewer', 'AGENT.md'), agentFile, 'utf8')
   const created: { runtime: string; model?: string; cwd: string }[] = []
   const ordered: string[] = []
   const ctx = {
@@ -1194,7 +1200,7 @@ const rig = async (prefer: string) => {
       ordered.push(text)
     },
   } as never
-  return { ctx, created, ordered, root }
+  return { ctx, created, ordered, root, agentFile }
 }
 
 test('it seats the first candidate this machine can offer', async () => {
@@ -1211,13 +1217,15 @@ test('the brief is handed over as the standing order, once', async () => {
 })
 
 test('the session records the Agent and the brief it ran', async () => {
-  const { ctx } = await rig('claude=opus-5/high')
+  const { ctx, agentFile } = await rig('claude=opus-5/high')
   const session = await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.equal(session.settings.agent, 'reviewer')
-  // Asserted as the digest of the real brief, not merely as a non-empty string:
-  // the defect this guards is a hash and prose being swapped, and a length check
-  // cannot see that.
-  assert.equal(session.settings.briefDigest, digestOf('Read the diff.\n'))
+  // Asserted as the digest of the exact file written, not merely a non-empty
+  // string: the defect this guards is a hash and prose being swapped, and a
+  // length check cannot see that. The digest covers the whole AGENT.md — front
+  // matter included — because a change to the ceiling or the seats is a change
+  // to which Agent ran, even when the prose is identical.
+  assert.equal(session.settings.briefDigest, digestOf(agentFile))
 })
 
 test('nothing seatable refuses, names every candidate, and opens nothing', async () => {
@@ -1387,7 +1395,7 @@ model is worse than no page, because a reader cannot tell which parts still hold
 | Phase | Page | What changes |
 | --- | --- | --- |
 | 1 (this plan) | `docs/agents.md` → `docs/runtimes.md`, `docs/README.md` | "agent" means the installed CLI throughout; ACP-facing mentions and `agents.json` keep the word |
-| 1 | new `docs/agents.md` | Reintroduced for the *new* noun once Task 6 lands: the directory, the front matter, precedence, seating and the refusal |
+| 8 | new `docs/agents.md` | Reintroduced for the *new* noun **when a person can reach it**. Phase 1 ships `agent/*` with no screen calling them, and `docs/` describes what a person can do, so a page written now would describe something nobody can use. Held deliberately, not forgotten |
 | 2 | `docs/interface.md` | Board columns derived from evidence rather than dragged |
 | 3 | `docs/multi-agent.md`, `docs/interface.md`, `docs/README.md` | Room and `Plan` become Goal; membership derived; the receipt a wrap leaves |
 | 4 | `docs/flows.md` | `uses`, `grant`, evidence guards, one level of evidence templating; `seats` narrowed to seating only |
