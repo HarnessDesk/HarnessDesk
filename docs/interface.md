@@ -250,10 +250,12 @@ default agent.
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
 group, the way a Mac's own settings open on their owner — and the page is its
-own preview: the head follows the name as you type it. The faces are the
-house mark's family, twenty-three whales from `assets/avatars`; the one drawn
-in black is left out because a dark surface swallows it, and the default is
-the mark itself, drawn in the theme's own ink. A face is a squared tile
+own preview: the head follows the name as you type it. The faces are the app's
+own icon in six colourways, from `assets/brand/faces`, and then the house
+mark's family, twenty-three whales from `assets/avatars`; the whale drawn in
+black is left out because a dark surface swallows it, and the default is the
+mark itself, drawn in the theme's own ink. Whichever you wear is also what the
+Dock wears, and clearing it puts the app's own icon back there. A face is a squared tile
 everywhere you appear, so its footprint never changes when the face does.
 Clearing the name puts "HarnessDesk" back, picking the first face puts the
 mark back, and **Reset to default** puts back both. It stays on this Mac.

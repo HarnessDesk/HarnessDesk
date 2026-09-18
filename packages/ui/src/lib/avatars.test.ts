@@ -3,25 +3,39 @@ import { expect, it } from 'vitest'
 import { AVATARS, SHIPPED_FACES, avatarOf, avatarSrc, isAvatarId } from './avatars'
 
 /**
- * The picker's table against the folder it draws from.
+ * The picker's tables against the folders they draw from.
  *
- * The words are hand-written and the files are generated (`pnpm run avatars`),
- * so the two can part company silently: a face added to the folder that no
- * one can pick, or a row whose picture is gone and draws as a broken image in
- * the seat. This holds them together, with the one face left out on purpose.
+ * The words are hand-written and the files are generated (`pnpm run avatars`
+ * for the whales, `pnpm run icons` for the mark's colourways), so the two can
+ * part company silently: a face added to a folder that no one can pick, or a
+ * row whose picture is gone and draws as a broken image in the seat. This
+ * holds them together, with the one face left out on purpose.
  *
- * The folder is listed by the bundler rather than by `node:fs` — the renderer
+ * The folders are listed by the bundler rather than by `node:fs` — the renderer
  * has no filesystem, its tests included (`pnpm layering`) — and the listing is
  * the folder's, not the table's: `black`, which the table leaves out, can only
  * have come from the disk.
  */
-const onDisk = Object.keys(import.meta.glob('../../../../assets/avatars/128/*.png'))
-  .map((file) => file.slice(file.lastIndexOf('/') + 1, -'.png'.length))
-  .sort()
+const names = (files: Readonly<Record<string, unknown>>): readonly string[] =>
+  Object.keys(files)
+    .map((file) => file.slice(file.lastIndexOf('/') + 1, -'.png'.length))
+    .sort()
 
-it('offers every face in the folder but the one a dark surface swallows', () => {
+const onDisk = names(import.meta.glob('../../../../assets/avatars/128/*.png'))
+const marksOnDisk = names(import.meta.glob('../../../../assets/brand/faces/128/*.png'))
+
+it('offers every face in the folders but the one a dark surface swallows', () => {
   expect(onDisk).toContain('black')
-  expect([...AVATARS.map((entry) => entry.id), 'black'].sort()).toEqual(onDisk)
+  expect(
+    [...AVATARS.map((entry) => entry.id).filter((id) => !id.startsWith('mark-')), 'black'].sort(),
+  ).toEqual(onDisk)
+  expect(AVATARS.map((entry) => entry.id).filter((id) => id.startsWith('mark-')).sort()).toEqual(marksOnDisk)
+})
+
+it('reads the colourways first and the whales after, which is the order the picker draws', () => {
+  const ids = AVATARS.map((entry) => entry.id)
+  expect(ids.slice(0, marksOnDisk.length).every((id) => id.startsWith('mark-'))).toBe(true)
+  expect(ids.slice(marksOnDisk.length).some((id) => id.startsWith('mark-'))).toBe(false)
 })
 
 it('can draw every face it offers', () => {
@@ -36,6 +50,8 @@ it('names each face once', () => {
 
 it('recognises a stored id only when this build ships it', () => {
   expect(isAvatarId('wizard')).toBe(true)
+  expect(isAvatarId('mark-steel')).toBe(true)
+  expect(isAvatarId('mark-gold')).toBe(false)
   expect(isAvatarId('black')).toBe(false)
   expect(isAvatarId('Wizard')).toBe(false)
   expect(isAvatarId(42)).toBe(false)

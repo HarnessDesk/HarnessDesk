@@ -187,7 +187,8 @@ export const ProfileSection = () => {
 }
 
 /**
- * Eight to a row: Default and the twenty-three faces make three even rows.
+ * Eight to a row: Default and the mark's six colourways fill the first row and
+ * a tile over, and the twenty-three whales run on to the end of the fourth.
  * The grid takes its column count from here (`--face-columns`), so the step
  * Up and Down take and the row the eye sees are one number.
  */
@@ -203,7 +204,7 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
 /**
  * Every face you could wear, as one radio group.
  *
- * One stop on the tab order, not twenty-four: Tab lands on the face you wear,
+ * One stop on the tab order, not thirty: Tab lands on the face you wear,
  * and the arrow keys walk the grid — across, and down a row of eight — the
  * way a radio group has always moved, choosing as they go. Home and End are
  * left out on purpose: in a group that chooses as it moves, a stray Home
@@ -213,7 +214,7 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  * tile, holding a face this build keeps with nothing checked, a Left that
  * chose would be that same silent reset. Otherwise Left and Right run on
  * across the rows, in reading order. A face's name is its label and its description the
- * hover, because twenty-four captions under twenty-four pictures would turn a
+ * hover, because thirty captions under thirty pictures would turn a
  * glance into a read.
  *
  * A face this build cannot draw — one a later build stored — checks no tile at

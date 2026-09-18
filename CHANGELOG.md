@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The app's own face is one of the faces you can wear** — Settings › You now
+  offers the icon in six colourways before the whales: on white, on near-black,
+  in silver, on Blueprint blue, blue on white, and the mark with no plate at
+  all. Whichever you pick is your seat and your Dock icon, and it arrives at the
+  size the Dock draws rather than the size a 44px tile needs, in the same
+  rounded container macOS gives every other icon in the row.
+- **Clearing your profile picture puts the app's own face back on the Dock** —
+  picking a picture changed the Dock icon, but picking the default again left
+  that face there: the icon it went back to was in a format the app cannot
+  read, so nothing happened at all.
 - **UI migration regressions repaired** — menus show their contents again,
   Settings rows grow around descriptions, avatar artwork keeps its size, and
   selected, current, running, failed and drop-target states retain their cues.
