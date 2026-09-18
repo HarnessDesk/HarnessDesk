@@ -144,7 +144,9 @@ export const explainRefusal = (passed: readonly PassedOver[]): string => {
  * request. Over ACP the report is what the agent said in answer to each pick,
  * or announced while it was being made; only a pick it answered without a word
  * about it is reported at what was asked, and that is the agent's claim, not a
- * reading (`AcpSession.setOption`).
+ * reading (`AcpSession.setOption`). Over Codex it is what Codex announced once
+ * the change was made; a change Codex took and never announced is refused at
+ * the pick, so it never reaches a read-back (`CodexSession.setOption`).
  */
 export interface SeatRunning {
   /** The model it is on, as the runtime spells it; null when it names none. */

@@ -5,6 +5,7 @@ import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
+import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   findOption,
@@ -1323,3 +1324,62 @@ test('over ACP: an agent whose model list could not be read is refused as unread
     return true
   })
 })
+
+// ------------------------------------------------------ over Codex, where an effort lands where Codex puts it
+
+/*
+ * Codex answers a settings change with `{}` and says where it landed only in
+ * `thread/settings/updated`, which reaches the desk after the answer — a
+ * millisecond after, from 0.149.0 — or in the same read as it. So these run
+ * the real Codex adapter against its own fake, set to settle an effort asked
+ * for as high on low, and check the seat is read back from what Codex said
+ * whichever way the two arrive.
+ */
+
+const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url))
+
+/** A desk with the real Codex adapter on it, over the adapter's own fake. */
+const codexDesk = async (t: TestContext, env: Record<string, string>) => {
+  const { harness, client, work } = await desk(t)
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  harness.host.register(runtime)
+  await runtime.start()
+  t.after(() => runtime.dispose())
+  return { harness, client, work }
+}
+
+for (const [order, how] of [
+  ['answer-first', 'said after the answer, as 0.149.0 says it'],
+  ['one-chunk', 'said in the same read as the answer'],
+] as const) {
+  test(`over Codex: a seat whose effort Codex settles elsewhere is passed over — ${how}`, async (t) => {
+    const { harness, client, work } = await codexDesk(t, {
+      FAKE_CODEX_EFFORT_SETTLES: 'high:low',
+      FAKE_CODEX_SETTINGS_ORDER: order,
+    })
+    await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+    await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — codex runs it at low effort, not high',
+      )
+      return true
+    })
+  })
+
+  test(`over Codex: the next candidate, running what it asked for, is the one seated — ${how}`, async (t) => {
+    const { harness, client, work } = await codexDesk(t, {
+      FAKE_CODEX_EFFORT_SETTLES: 'high:low',
+      FAKE_CODEX_SETTINGS_ORDER: order,
+    })
+    await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high, codex=gpt-5.5/low')
+
+    const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+    // The fake numbers its threads: the first went to the candidate passed over.
+    assert.equal(String(session.id), 'thread-e2e-2')
+    assert.equal(session.settings?.agent, 'reviewer')
+    assert.equal(session.options?.find((option) => option.id === 'effort')?.currentValue, 'low')
+    assert.equal(harness.host.registry.get(runtimeId('codex'), sessionId('thread-e2e'))?.live ?? null, null, 'the first is let go')
+  })
+}

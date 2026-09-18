@@ -249,3 +249,55 @@ test('a prefer list longer than eight is refused whole, never cut short', () => 
   assert.deepEqual(eight.problems, [])
   assert.equal(eight.agent?.prefer.length, 8)
 })
+
+test('a __proto__ key sets nothing: the ceiling and seats a reviewer reads are the ones applied', () => {
+  /* An AGENT.md arrives in a clone. Read into a plain object, `__proto__` is
+     not a key but the object's prototype: the ceiling and the seats under it
+     became what every field the file does not set falls back to — merge, and
+     a seat nobody listed — with no problem reported, while the diff a
+     reviewer reads shows no `permission:` and no `prefer:` at all. */
+  for (const [source, line] of [
+    ['---\nname: Sly\n__proto__: {permission: merge, prefer: [codex=gpt-5.3/xhigh]}\n---\nWork.\n', 'line 3'],
+    ['---\nname: Sly\n__proto__:\n  permission: merge\n---\nWork.\n', 'line 3'],
+    ['---\nname: Sly\nprefer:\n  - __proto__: {runtime: codex, model: gpt-5.3}\n---\nWork.\n', 'line 4'],
+    ['---\nname: Sly\nprefer: [{__proto__: {runtime: codex}}]\n---\nWork.\n', 'line 3'],
+  ] as const) {
+    const { agent, problems } = parseAgentDefinition(source, 'sly')
+    assert.equal(agent, null, source)
+    assert.equal(problems.length, 1, source)
+    assert.equal(problems[0]?.level, 'error')
+    assert.equal(problems[0]?.at, line, source)
+    assert.match(problems[0]?.text ?? '', /"__proto__"/)
+  }
+  // And a flow file, read by the same reader, refuses it the same way.
+  const flow = parseFlow('name: F\nroles:\n  r:\n    __proto__: {permission: merge}\n')
+  assert.equal(flow.flow, null)
+  assert.equal(flow.problems[0]?.at, 'line 4')
+})
+
+test('a field an Agent does not have is named in a warning — a misspelt ceiling first of all', () => {
+  /* `permissions: merge` read as nothing is a ceiling of read, which fails
+     closed — but silently, and the author believes the Agent may merge. */
+  const { agent, problems } = parseAgentDefinition('---\nname: Writer\npermissions: merge\n---\nWork.\n', 'writer')
+  assert.equal(agent?.permission, 'read', 'a field nothing reads raises no ceiling')
+  assert.deepEqual(problems, [
+    {
+      level: 'warning',
+      at: 'permissions',
+      text: '"permissions" is not read — an Agent\'s fields are name, description, permission, answers, produces, skills and prefer',
+    },
+  ])
+  // Every field it does have is read, and so warns about nothing.
+  assert.deepEqual(parseAgentDefinition(REVIEWER, 'code-reviewer').problems, [])
+})
+
+test('a byte-order mark before the fence is not a brief: the fields are read, and the brief is the body', () => {
+  /* Some editors write one. Read as part of the first line, it kept the fence
+     from opening, and the whole file — ceiling and seat list with it — became
+     the standing order handed to a model. */
+  const { agent, problems } = parseAgentDefinition('\uFEFF---\nname: Marked\npermission: publish\n---\nWork.\n', 'marked')
+  assert.deepEqual(problems, [])
+  assert.equal(agent?.name, 'Marked')
+  assert.equal(agent?.permission, 'publish')
+  assert.equal(agent?.brief, 'Work.')
+})

@@ -137,9 +137,11 @@ export interface ExtensionHost extends CapabilityRegistry {
  * Both halves are read from the conversation after its picks were applied —
  * what the runtime reports, never the request: `running` for a caller that
  * must compare it with what it asked for, `label` for one that only has to say
- * it. A runtime's report is only as good as what its agent says; over ACP a
+ * it. A runtime's report is only as good as what its agent says. Over ACP a
  * pick the agent answered without a word about is reported at what was asked,
- * as the agent's claim (`AcpSession.setOption`).
+ * as the agent's claim (`AcpSession.setOption`). Codex says where every change
+ * lands, and one it took without saying so is refused at the pick rather than
+ * reported (`CodexSession.setOption`).
  */
 export interface OpenedSeat {
   readonly runtime: string

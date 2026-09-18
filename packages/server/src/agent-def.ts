@@ -45,6 +45,15 @@ const asWords = (value: unknown): string[] =>
     .map((one) => (asText(one) ?? '').trim())
     .filter(Boolean)
 
+/**
+ * The fields an Agent has. The front matter is read for these and nothing else,
+ * each only where the file itself sets it; any other key is named in a warning,
+ * because read as nothing it fails silently — `permissions: merge` is a ceiling
+ * of read, and an author who believes otherwise.
+ */
+const FIELDS = ['name', 'description', 'permission', 'answers', 'produces', 'skills', 'prefer'] as const
+type Field = (typeof FIELDS)[number]
+
 /** Front matter opens on a line of exactly `---`, so `--- draft` opens nothing. */
 const OPENS = /^---[ \t]*(?:\r?\n|$)/
 
@@ -82,7 +91,10 @@ export const parseAgentDefinition = (
   id: string,
 ): { agent: AgentDefinition | null; problems: AgentProblem[] } => {
   const problems: AgentProblem[] = []
-  const { front, body, line, unclosed } = split(source)
+  /* A byte-order mark is no character of the file. Left on, it kept the fence
+     from opening, and the whole file — ceiling and seats with it — became the
+     brief handed to a model as its standing order. */
+  const { front, body, line, unclosed } = split(source.replace(/^\uFEFF/, ''))
 
   if (unclosed) {
     return {
@@ -115,19 +127,25 @@ export const parseAgentDefinition = (
     }
   }
 
+  /* Only what the file sets: never a value found through the map's prototype,
+     where a field this file does not name would be read from somewhere that
+     does not appear in it. */
+  const field = (key: Field): unknown => (Object.hasOwn(head, key) ? head[key] : undefined)
+
   const brief = body.trim()
   if (!brief) {
     problems.push(problem('error', 'brief', 'an Agent is its brief: write below the front matter what this one is for'))
   }
 
-  const written = typeof head['name'] === 'string' ? head['name'].trim() : ''
+  const named = field('name')
+  const written = typeof named === 'string' ? named.trim() : ''
   const name = written || id
   if (!written) {
     problems.push(problem('warning', 'name', `no name, so this Agent is called “${id}” after its folder`))
   }
 
   let permission: FlowPermission = 'read'
-  const declared = head['permission']
+  const declared = field('permission')
   if (declared !== undefined) {
     const word = asText(declared)?.trim() ?? ''
     if (!word) {
@@ -146,7 +164,7 @@ export const parseAgentDefinition = (
      refusal as a string. A model id with a `/` in it can only be written as a
      map, which is why both forms are read here as well as in a flow. */
   const prefer: FlowSeat[] = []
-  const listed = oneOrMore(head['prefer'])
+  const listed = oneOrMore(field('prefer'))
   /* Refused whole rather than cut at the cap: the seats past it are ones the
      author wrote, and trying a shorter list than the file says would be the
      quiet kind of wrong. */
@@ -169,17 +187,26 @@ export const parseAgentDefinition = (
     prefer.push(seat)
   })
 
+  for (const key of Object.keys(head)) {
+    if (!(FIELDS as readonly string[]).includes(key)) {
+      problems.push(
+        problem('warning', key, `"${key}" is not read — an Agent's fields are ${FIELDS.slice(0, -1).join(', ')} and ${FIELDS.at(-1)}`),
+      )
+    }
+  }
+
   if (problems.some((one) => one.level === 'error')) return { agent: null, problems }
 
+  const description = field('description')
   return {
     agent: {
       id,
       name,
-      description: typeof head['description'] === 'string' ? head['description'].trim() : null,
+      description: typeof description === 'string' ? description.trim() : null,
       permission,
-      answers: asWords(head['answers']),
-      produces: asWords(head['produces']),
-      skills: asWords(head['skills']),
+      answers: asWords(field('answers')),
+      produces: asWords(field('produces')),
+      skills: asWords(field('skills')),
       prefer,
       brief,
     },

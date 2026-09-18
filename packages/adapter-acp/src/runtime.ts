@@ -2661,6 +2661,12 @@ const overlaid = (
   ]
 }
 
+/** The model a `model` control holds, when there is one holding a model id. */
+const modelIn = (options: readonly AcpConfigOption[]): string | null => {
+  const control = options.find((option) => option.id === 'model')
+  return typeof control?.currentValue === 'string' ? control.currentValue : null
+}
+
 class AcpSession implements AgentSession {
   readonly id: SessionId
   readonly runtime
@@ -2879,17 +2885,30 @@ class AcpSession implements AgentSession {
           ? { sessionId: this.id, configId: 'model', value }
           : { sessionId: this.id, modelId: value },
       )
+      /* One model, which an agent may keep twice: as its model list, and as a
+         `model` control beside it. What it says on either channel is its word
+         on both, so a channel it said nothing on takes the model it said on
+         the other — never the value asked for, which it once took even when
+         the agent had announced the model settled elsewhere, leaving the
+         control a seat reads back holding the request. The value asked for
+         stands only where the agent said nothing about the model at all, and
+         that is its claim, as for every other control. */
+      const optionsSaid = response?.configOptions != null || this.#announced.options !== before.options
+      const listSaid = response?.models != null || this.#announced.model !== before.model
+      const announced =
+        (this.#announced.options !== before.options ? modelIn(this.#configOptions) : null) ??
+        (this.#announced.model !== before.model ? (this.#models?.currentModelId ?? null) : null)
       // A model decides which controls exist, so an answer listing them is the list.
       if (response?.configOptions) this.#configOptions = response.configOptions
-      else if (modelOption && this.#announced.options === before.options) {
+      if (response?.models) this.#models = response.models
+      const settled =
+        modelIn(response?.configOptions ?? []) ?? response?.models?.currentModelId ?? announced ?? (value as string)
+      if (!optionsSaid) {
         this.#configOptions = this.#configOptions.map((entry) =>
-          entry.id === 'model' ? { ...entry, currentValue: value as string } : entry,
+          entry.id === 'model' ? { ...entry, currentValue: settled } : entry,
         )
       }
-      if (response?.models) this.#models = response.models
-      else if (this.#models && this.#announced.model === before.model) {
-        this.#models = { ...this.#models, currentModelId: value as string }
-      }
+      if (!listSaid && this.#models) this.#models = { ...this.#models, currentModelId: settled }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
       const declared = this.#configOptions.find((entry) => entry.id === id)

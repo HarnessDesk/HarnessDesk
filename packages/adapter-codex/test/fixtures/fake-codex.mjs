@@ -163,6 +163,20 @@ const threadSettings = () => ({
   personality: 'pragmatic',
 })
 
+/**
+ * FAKE_CODEX_EFFORT_SETTLES=high:low settles an effort somewhere other than
+ * where it was asked to go — asked for high, the thread runs at low — and says
+ * so only where Codex says anything, in `thread/settings/updated`. The answer
+ * to the update is `{}` either way. Real Codex has not been seen doing this; a
+ * desk that reads back what it asked for would not notice if it did.
+ */
+const EFFORT_SETTLES = Object.fromEntries(
+  (process.env['FAKE_CODEX_EFFORT_SETTLES'] ?? '')
+    .split(',')
+    .filter(Boolean)
+    .map((pair) => pair.split(':')),
+)
+
 /** Applies thread-verb params (start/resume/fork) or settings-update params. Returns an error message or null. */
 const applySettings = (params, { sandboxKey }) => {
   if (params.permissions != null && params[sandboxKey] != null) {
@@ -184,7 +198,9 @@ const applySettings = (params, { sandboxKey }) => {
   if (params.approvalPolicy != null) settingsState.approvalPolicy = params.approvalPolicy
   if (params.approvalsReviewer != null) settingsState.approvalsReviewer = params.approvalsReviewer
   if (params.serviceTier !== undefined) settingsState.serviceTier = params.serviceTier
-  if (params.effort !== undefined) settingsState.effort = params.effort
+  if (params.effort !== undefined) {
+    settingsState.effort = Object.hasOwn(EFFORT_SETTLES, String(params.effort)) ? EFFORT_SETTLES[params.effort] : params.effort
+  }
   if (params.cwd != null) settingsState.cwd = params.cwd
   if (params.collaborationMode) {
     settingsState.mode = params.collaborationMode.mode
@@ -742,10 +758,38 @@ rl.on('line', (line) => {
       return
 
     case 'thread/settings/update': {
+      const was = JSON.stringify(threadSettings())
       const problem = applySettings(params, { sandboxKey: 'sandboxPolicy' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
+      }
+      /* FAKE_CODEX_QUIET_NOOP=1 is real Codex's way, measured on 0.149.0: an
+         update that changes nothing is answered `{}` and never announced. */
+      if (process.env['FAKE_CODEX_QUIET_NOOP'] === '1' && JSON.stringify(threadSettings()) === was) {
+        send({ id, result: {} })
+        return
+      }
+      /* FAKE_CODEX_SETTINGS_ORDER is where the announcement falls against the
+         answer, since a reader must hold Codex's word whichever comes first:
+         `answer-first` (the answer alone, the announcement in a later read —
+         0.149.0 writes it a millisecond after), `one-chunk` (both in one write,
+         so one read hands over both) and `announce-first`. */
+      const said = {
+        method: 'thread/settings/updated',
+        params: { threadId: params.threadId, threadSettings: threadSettings() },
+      }
+      switch (process.env['FAKE_CODEX_SETTINGS_ORDER']) {
+        case 'answer-first':
+          send({ id, result: {} })
+          setTimeout(() => send(said), 100)
+          return
+        case 'one-chunk':
+          process.stdout.write(`${JSON.stringify({ id, result: {} })}\n${JSON.stringify(said)}\n`)
+          return
+        case 'announce-first':
+          process.stdout.write(`${JSON.stringify(said)}\n${JSON.stringify({ id, result: {} })}\n`)
+          return
       }
       send({ id, result: {} })
       notify('thread/settings/updated', { threadId: params.threadId, threadSettings: threadSettings() })

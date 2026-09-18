@@ -24,6 +24,14 @@
  * then every control — and answered with `null`. VARIANT_NO_MODELS=1 declares
  * no models at all: an agent that offers no choice of model, and says so.
  *
+ * VARIANT_MODEL_OPTION keeps the model twice, as a list and as a `model`
+ * control beside it, so a pick goes through `session/set_config_option`, and
+ * says where a pick landed on one channel only: `model` in a
+ * `current_model_update` and nothing else, `options` in a
+ * `config_option_update` and nothing else. The answer is `null` either way.
+ * It also lists `fam-next`, which it runs as asked, so a pick can move the
+ * model somewhere the session was not before `fam-legacy` settles it on `fam`.
+ *
  * VARIANT_TRUTH=<file>: every prompt appends what the session really ran it on.
  */
 import { appendFileSync } from 'node:fs'
@@ -59,7 +67,23 @@ const thinkingOf = (state) => ({
   currentValue: state.actual.thinking,
 })
 
+const MODEL_OPTION = process.env.VARIANT_MODEL_OPTION
+
+const modelControlOf = (state) => ({
+  id: 'model',
+  name: 'Model',
+  category: 'model',
+  type: 'select',
+  currentValue: state.model,
+  options: [
+    { value: 'fam', name: 'Fam' },
+    { value: 'fam-legacy', name: 'Fam (legacy)' },
+    { value: 'fam-next', name: 'Fam (next)' },
+  ],
+})
+
 const optionsOf = (state) => [
+  ...(MODEL_OPTION ? [modelControlOf(state)] : []),
   {
     id: 'effort',
     name: 'Reasoning effort',
@@ -79,6 +103,7 @@ const modelsOf = (state) => ({
   availableModels: [
     { modelId: 'fam', name: 'Fam' },
     { modelId: 'fam-legacy', name: 'Fam (legacy)' },
+    ...(MODEL_OPTION ? [{ modelId: 'fam-next', name: 'Fam (next)' }] : []),
   ],
 })
 
@@ -114,6 +139,17 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (params.configId === 'model' && MODEL_OPTION) {
+      if (!['fam', 'fam-legacy', 'fam-next'].includes(params.value)) return fail(id, `no model ${params.value}`)
+      // `fam-legacy` is listed and no longer run: the family it became is what runs.
+      state.model = params.value === 'fam-legacy' ? 'fam' : params.value
+      if (MODEL_OPTION === 'model') {
+        update(state.id, { sessionUpdate: 'current_model_update', currentModelId: state.model })
+      } else {
+        update(state.id, { sessionUpdate: 'config_option_update', configOptions: optionsOf(state) })
+      }
+      return reply(id, null)
+    }
     if (params.configId !== 'effort' && params.configId !== 'thinking') return fail(id, `no option ${params.configId}`)
     state.wanted = { ...state.wanted, [params.configId]: params.value }
     state.actual = resolve(state.wanted)

@@ -107,6 +107,39 @@ test('an answer that names some controls sets those, keeps the rest, and says no
   }
 })
 
+/*
+ * An agent can keep its model twice: as a model list, and as a `model` control
+ * beside it. It is one model, so whatever the agent says about it on either
+ * channel is its word on both — and a pick it settles elsewhere, saying so on
+ * one channel only, must not leave the other holding what was asked. The
+ * control is what a seat reads back; the list is the model a window shows.
+ */
+for (const [channel, how] of [
+  ['model', 'announced as a model update and nothing else'],
+  ['options', 'announced in its controls and nothing else'],
+] as const) {
+  test(`a model the agent keeps twice and settles elsewhere is one model on both — ${how}`, async () => {
+    const runtime = variant({ VARIANT_MODEL_OPTION: channel })
+    await runtime.start()
+    try {
+      const session = await runtime.createSession({ cwd: '/tmp/acp-variant' })
+      const control = () => session.options().find((option) => option.id === 'model')?.currentValue
+
+      // Run as asked, and said on one channel: the other channel moves with it.
+      await session.setOption('model', 'fam-next')
+      assert.equal(control(), 'fam-next', 'the control a seat reads back')
+      assert.equal(session.settings().model, 'fam-next', 'the model a window shows')
+
+      // Settled elsewhere, and said on one channel: neither holds what was asked.
+      await session.setOption('model', 'fam-legacy')
+      assert.equal(control(), 'fam', 'the control a seat reads back')
+      assert.equal(session.settings().model, 'fam', 'the model a window shows')
+    } finally {
+      await runtime.dispose()
+    }
+  })
+}
+
 test('a model the agent settles on another is the model the session reports', async () => {
   // Announced the bridge's way — the model, then every control — and answered with null.
   const runtime = variant()
