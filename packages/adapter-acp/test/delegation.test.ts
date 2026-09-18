@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentItem, AgentSession, Session, SubagentItem } from '@harnessdesk/protocol'
+import { sessionId, turnId, type AgentItem, type AgentSession, type Session, type SubagentItem } from '@harnessdesk/protocol'
 
 import { AcpRuntime } from '../src/index.js'
 
@@ -17,7 +17,7 @@ import { AcpRuntime } from '../src/index.js'
  * extension gets. Each case here is a sequence that produced a wrong reading
  * before — a child outliving the turn that started it, an output count that
  * is a floor, and a running total that claimed to be exact after a silent
- * turn.
+ * turn — and the last three hold the helper the cases wait with.
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
@@ -117,26 +117,6 @@ test('a child that outlives its turn is updated where it started, not appended t
   }
 })
 
-// The helper's own contract, held here because the tests above are only as
-// good as it is: a turn that does not end as asked is a broken setup, and the
-// assertions after it would read whatever state it left behind. The fake
-// reports its child *before* it ends the turn, so the row is already there.
-for (const [verb, status] of [['refused', 'failed'], ['cancelled', 'interrupted']] as const) {
-  test(`a prompt that ends ${status} is refused by the helper, though its child was reported`, async () => {
-    const runtime = make()
-    await runtime.start()
-    try {
-      const session = await runtime.createSession({ cwd: WORKDIR })
-      await assert.rejects(ask(runtime, session, `deleg ${verb}`, reported), new RegExp(`ended ${status}`))
-      // The control: what a helper that read the turn as settled would have
-      // handed back was really there.
-      assert.equal(subagents(await runtime.readSession(session.id)).length, 1, 'the child had been reported')
-    } finally {
-      await runtime.dispose()
-    }
-  })
-}
-
 test('an output count that is still a floor stays a floor across the boundary', async () => {
   const runtime = make()
   await runtime.start()
@@ -200,4 +180,63 @@ test('a session total drops its cache-write count once any turn is silent about 
   } finally {
     await runtime.dispose()
   }
+})
+
+// The helper's own cases: the ones above are only as good as `ask` is.
+
+// A turn that does not end as asked is a broken setup, and the assertions
+// after it would read whatever state it left behind. The fake reports its
+// child *before* it ends the turn, so the row is already there, and how the
+// turn ended has to be in the message: the adapter's own reason for a failure,
+// and a plain fallback for an interruption, which carries none.
+for (const [verb, status, reason] of [
+  ['refused', 'failed', 'The agent stopped: refusal'],
+  ['cancelled', 'interrupted', 'no reason recorded'],
+] as const) {
+  test(`a prompt that ends ${status} is refused by the helper, though its child was reported`, async () => {
+    const runtime = make()
+    await runtime.start()
+    try {
+      const session = await runtime.createSession({ cwd: WORKDIR })
+      await assert.rejects(ask(runtime, session, `deleg ${verb}`, reported), {
+        message: new RegExp(`^"deleg ${verb}" ended ${status}: ${reason}`),
+      })
+      // The control: what a helper that read the turn as settled would have
+      // handed back was really there.
+      assert.equal(subagents(await runtime.readSession(session.id)).length, 1, 'the child had been reported')
+    } finally {
+      await runtime.dispose()
+    }
+  })
+}
+
+// What the fake cannot show. It writes every push before its reply, so a
+// closed turn already has its row, and no case above can tell a helper that
+// waits for the state from one that waits only for the turn. Scripted
+// readings can: the turn is closed on the first and the row is there on the
+// second, as it would be for an agent that reports its child after the turn.
+test('the helper waits for the state itself when a push lands after the turn has closed', async () => {
+  const turn = turnId('turn-1')
+  const row = { type: 'subagent', status: 'inProgress' } as unknown as SubagentItem
+  const closed = (items: readonly AgentItem[]): Session =>
+    ({ turns: [{ id: turn, status: 'completed', items }] }) as unknown as Session
+  const scripted = (readings: readonly Session[]) => {
+    let reads = 0
+    const runtime = {
+      readSession: async () => readings[Math.min(reads++, readings.length - 1)],
+    } as unknown as AcpRuntime
+    return { runtime, reads: () => reads }
+  }
+  const session = { id: sessionId('scripted'), send: async () => turn } as unknown as AgentSession
+  const noRow = closed([])
+  const withRow = closed([row])
+
+  const late = scripted([noRow, withRow])
+  assert.equal(await ask(late.runtime, session, 'late', reported), withRow, 'the reading with the row, not the first')
+  assert.equal(late.reads(), 2)
+
+  // The control: a row that is already there costs no second reading.
+  const early = scripted([withRow, noRow])
+  assert.equal(await ask(early.runtime, session, 'early', reported), withRow)
+  assert.equal(early.reads(), 1)
 })
