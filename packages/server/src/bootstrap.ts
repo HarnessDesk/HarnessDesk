@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -509,7 +509,12 @@ export const localUsageFor = (
   // row can move an agent's home to hold a second account — so paths are
   // resolved against what the row adds to the desk's.
   const env = { ...process.env, ...agent.env }
-  const records = (corpus: CorpusKind) => ({ corpus, root: corpusRoot(corpus, env) })
+  // A row that isolates an agent with a bare `HOME` — the ordinary way, ahead
+  // of any bespoke variable — moves every one of these fallbacks with it: it
+  // is what the row's own process resolves `homedir()` to, so it is what
+  // reading the row's files by hand has to match (review round 5).
+  const home = env['HOME']?.trim() || homedir()
+  const records = (corpus: CorpusKind) => ({ corpus, root: corpusRoot(corpus, env, home) })
   switch (named ? commandName(named) : null) {
     case 'claude':
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
@@ -518,7 +523,7 @@ export const localUsageFor = (
     case 'gemini':
       // A Code Assist sign-in has a quota to read; an API key has none, and
       // what its calls cost is in the chat logs either way.
-      return { meter: new GeminiMeter({ env }), ...records('gemini') }
+      return { meter: new GeminiMeter({ env, home }), ...records('gemini') }
     case 'copilot':
       return { meter: new CopilotMeter() }
     // The ACP server reports no quota, but the `agy` CLI beside it does. It is
@@ -534,7 +539,7 @@ export const localUsageFor = (
       // wins for the database alone, exactly as `corpusRoot` gives it
       // precedence when there is no override: the two flags name different
       // things, and a row can set one without the other (review round 4).
-      const override = clineDataDirOverride({ args: agent.args, cwd: agent.cwd })
+      const override = clineDataDirOverride({ args: agent.args, cwd: agent.cwd, home })
       if (override === null) return { meter: new ClineMeter({ env }), ...records('cline') }
       const dbDataDir = env['CLINE_DB_DATA_DIR']?.trim()
       return {

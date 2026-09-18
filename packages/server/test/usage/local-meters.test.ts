@@ -189,3 +189,34 @@ test('a Cline row moved with --data-dir is read from there, sign-in and spend to
   const plain = localUsageFor(row({ id: 'cline', command: 'cline', args: ['--acp'] }), knowledge('cline'))
   assert.ok(plain?.root?.endsWith('/.cline/data/db/sessions.db'), plain?.root)
 })
+
+test('a row isolated with a bare HOME moves every fallback that would otherwise read the desk’s own account', () => {
+  // HOME is the ordinary way to isolate an agent — ahead of any bespoke
+  // variable — and it is what the row’s own process resolves homedir() to.
+  // Reading its files by hand has to agree, or a row running as one account
+  // is metered as whichever account the desk itself is signed in as (#772,
+  // review round 5).
+  const isolated = '/accounts/two'
+
+  const gemini = localUsageFor(row({ id: 'gemini', command: 'gemini', args: ['--acp'], env: { HOME: isolated } }), knowledge('gemini'))
+  assert.deepEqual(gemini?.meter?.watchPaths(), [`${isolated}/.gemini/oauth_creds.json`])
+  assert.equal(gemini?.root, `${isolated}/.gemini/tmp`)
+
+  const cline = localUsageFor(row({ id: 'cline', command: 'cline', args: ['--acp'], env: { HOME: isolated } }), knowledge('cline'))
+  assert.deepEqual(cline?.meter?.watchPaths(), [`${isolated}/.cline/data/settings/providers.json`])
+  assert.equal(cline?.root, `${isolated}/.cline/data/db/sessions.db`)
+
+  // `--data-dir ~/…`: the row’s own HOME, not the desk’s, is what `~` expands to.
+  const clineTilde = localUsageFor(
+    row({ id: 'cline-tilde', command: 'cline', args: ['--acp', '--data-dir', '~/moved'], env: { HOME: isolated } }),
+    knowledge('cline'),
+  )
+  assert.equal(clineTilde?.root, `${isolated}/moved/db/sessions.db`)
+
+  // Qwen has no knowledge-table entry; it binds by the program it runs.
+  const qwen = localUsageFor(row({ id: 'qwen-code', command: 'qwen-code', env: { HOME: isolated } }))
+  assert.equal(qwen?.root, `${isolated}/.qwen/projects`)
+
+  const opencode = localUsageFor(row({ id: 'opencode', command: 'opencode', env: { HOME: isolated } }), knowledge('opencode'))
+  assert.equal(opencode?.root, `${isolated}/.local/share/opencode/opencode.db`)
+})

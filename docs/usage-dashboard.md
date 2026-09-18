@@ -206,6 +206,12 @@ set one without the other (round 4 review). Amp's meter, and the `amp`
 binary it runs, read the row's own environment too, not the host process's —
 a second Amp account moves the same way, through `PATH` (round 4 review: the
 binding built a bare `AmpMeter()` and always asked the host's own `amp`).
+And beneath every one of those variables sits the plainest one: a row that
+isolates an agent with a bare `HOME` — the ordinary way, ahead of any of the
+above — moves every one of these paths with it, `~` in `--data-dir` included,
+because that is what the row's own process resolves `homedir()` to (round 5
+review: each fallback still read the desk's own `homedir()` when the row set
+only `HOME`, so a `HOME`-isolated row's sign-in and spend were the desk's).
 The ledger reads OpenCode's
 and Cline's databases the same way it reads nothing else: through
 `readForeignDatabase`, which never guesses whether the owner is running. A WAL

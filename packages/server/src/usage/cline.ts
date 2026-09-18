@@ -181,9 +181,13 @@ export class ClineMeter implements UsageMeter {
   }
 }
 
-/** Cline's own rule (`resolveClineDataDir`): `CLINE_DATA_DIR`, else `<CLINE_DIR or ~/.cline>/data`. */
+/**
+ * Cline's own rule (`resolveClineDataDir`): `CLINE_DATA_DIR`, else
+ * `<CLINE_DIR or ~/.cline>/data` — `~` being the row's own `HOME` when it has
+ * one, not the desk's (review round 5).
+ */
 const clineDataDir = (env: NodeJS.ProcessEnv): string => {
   const explicit = env['CLINE_DATA_DIR']?.trim()
   if (explicit) return explicit
-  return join(env['CLINE_DIR']?.trim() || join(homedir(), '.cline'), 'data')
+  return join(env['CLINE_DIR']?.trim() || join(env['HOME']?.trim() || homedir(), '.cline'), 'data')
 }
