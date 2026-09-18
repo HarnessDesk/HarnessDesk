@@ -1246,6 +1246,92 @@ rules:
     verify: checkReview(['interrupted']),
   }
 
+  /**
+   * A command waiting on its answer, on the native Codex adapter over its
+   * fixture, whose first turn asks before it lists the folder.
+   *
+   * What a frame cannot say is whether the answers take a pointer, and that
+   * went unseen for two days: the dialog's own scrim was painted over its
+   * buttons, so a click on Allow, Allow for this session or Deny landed on
+   * `dialog-overlay` while the digit keys answered everything. jsdom does no
+   * hit-testing and this rig answered approvals through the store, so nothing
+   * could see it. These scenes ask the window. HD_SHOTS_APPROVAL_EXPECT=covered
+   * names what a build from before the fix shows instead: the same read, with
+   * every answer under the scrim.
+   */
+  const askApproval = async () => {
+    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') throw new Error('the approval scenes need HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, asks')
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+    const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+    await waitForSnapshot(() => cdp.eval(`${STORE}.getSnapshot().approvals.filter((entry) => entry.key === ${q(key)}).length`), (pending) => pending > 0)
+    // The store holds the ask a commit before the dialog is drawn.
+    await waitForSnapshot(
+      () => cdp.eval(`document.querySelector('[data-slot="approval-dialog-scope"] [role="dialog"] button') !== null`),
+      Boolean,
+    )
+    // The fixture's own bookkeeping arrives as a warning over the pane.
+    await sleep(600)
+    await dismissFixtureEchoes()
+    return key
+  }
+  /** What a pointer at the middle of each answer would land on. */
+  const approvalAnswers = () => cdp.json(`(() => {
+    const dialog = document.querySelector('[data-slot="approval-dialog-scope"] [role="dialog"]')
+    return [...(dialog?.querySelectorAll('button') ?? [])].map((button) => {
+      const box = button.getBoundingClientRect()
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      const shortcut = button.querySelector('[class*="shortcut"]')
+      return {
+        answer: [...button.childNodes].filter((node) => node !== shortcut).map((node) => node.textContent).join('').trim(),
+        reachable: button.contains(hit),
+        lands: hit?.getAttribute('data-slot') ?? hit?.tagName.toLowerCase() ?? null,
+      }
+    })
+  })()`)
+  const checkAnswers = async () => {
+    const answers = await approvalAnswers()
+    say(`answers ${answers.map((one) => `${one.answer} → ${one.lands}`).join(' · ')}`)
+    // Codex offers three: accept, accept for the session, decline.
+    if (answers.length !== 3) throw new Error(`the approval offers ${answers.length} answers, not Allow, Allow for this session and Deny`)
+    if (process.env['HD_SHOTS_APPROVAL_EXPECT'] === 'covered') {
+      if (answers.some((one) => one.reachable)) throw new Error('a build from before the fix let a pointer reach an answer')
+      return
+    }
+    const covered = answers.filter((one) => !one.reachable)
+    if (covered.length) throw new Error(`a pointer cannot reach ${covered.map((one) => `${one.answer} (it lands on ${one.lands})`).join(', ')}`)
+  }
+  /** The dialog waiting, with every answer under a pointer. */
+  SCENES.approval = {
+    leaveOverlay: true,
+    expect: 'Run this command?',
+    run: async () => { await askApproval() },
+    verify: checkAnswers,
+  }
+  /**
+   * And answered the way a person answers it: a trusted click at the middle
+   * of Deny. The store is read beside the frame — the question gone, the turn
+   * over — because a click that reached the scrim leaves the question where
+   * it was.
+   */
+  SCENES['approval-denied'] = {
+    leaveOverlay: true,
+    expect: 'ls -la',
+    run: async () => {
+      const key = await askApproval()
+      if (!(await press({ text: 'Deny' }))) throw new Error('no Deny under a pointer: something is painted over the answers')
+      await waitForSnapshot(() => cdp.eval(`${STORE}.getSnapshot().approvals.filter((entry) => entry.key === ${q(key)}).length`), (pending) => pending === 0)
+      await waitForSnapshot(
+        () => cdp.eval(`${STORE}.getSnapshot().sessions.get(${q(key)})?.turns.at(-1)?.status ?? null`),
+        (status) => status === 'completed',
+      )
+      await dismissNotices(cdp)
+      // Unfolded, as the conversation scene is: the step that was refused is the point.
+      await click('Worked', null, { wait: 1500 })
+    },
+  }
+
   SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
     await cdp.eval(`${STORE}.askSettings('extensions'); true`)
     await sleep(1200)
