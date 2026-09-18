@@ -1073,6 +1073,20 @@ The payoff: `agent/seat` resolves the Agent's preference against what this machi
 - Consumes: `chooseSeat`, `explainRefusal` (Task 4); `seatSpec` from `packages/server/src/flow.ts` (the inverse of `parseSeat` — note `packages/server/src/seat.ts` exports an unrelated *human* `seatLabel`, do not confuse them); `ctx.agents.read` (Task 5).
 - Produces: `agent/seat` → `Session`. The session's settings carry `agent: string` and `brief: string` (the hash from Task 3), which the provenance plan later reads.
 
+#### Before you start: confinement, and where project Agents are read from
+
+`agent/list` and `agent/read` (Task 5) send the renderer-supplied `project`
+through one helper, `projectOf`, in `packages/server/src/methods/agents.ts`.
+**`agent/seat` must use it too** — as the code below does. Calling
+`ctx.agents.read(id, params.project)` directly would let a renderer choose any
+directory on disk to read Agents from, and Agents read here become a model's
+standing order.
+
+`projectOf` confines with `ctx.workspaces.confineGitRoot`, which admits an open
+folder or the top of the repository it sits in and compares real paths on both
+sides. That is what lets a person who opened a *subfolder* still reach the
+repository's `.harnessdesk/agents`, where the spec puts project Agents.
+
 #### Before you start: what the chooser cannot know
 
 Task 4's chooser is only as truthful as the offers it is handed, and building
@@ -1262,7 +1276,10 @@ Add to `packages/server/src/methods/agents.ts`:
 
 ```ts
   'agent/seat': async (ctx, params) => {
-    const entry = await ctx.agents.read(params.id, params.project)
+    // The same confinement agent/list and agent/read apply, through the same
+    // helper. A second way to turn a renderer-supplied path into a directory to
+    // read is a second place to get it wrong.
+    const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
     if (!entry) throw new Error(`No Agent called “${params.id}”.`)
     const problem = entry.problems.find((one) => one.level === 'error')
     if (problem) throw new Error(`${entry.path} cannot be used: ${problem.at} — ${problem.text}`)
