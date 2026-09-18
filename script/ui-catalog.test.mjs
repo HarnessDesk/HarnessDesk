@@ -378,7 +378,7 @@ test('an anchored example is walked from that one export (#762)', () => {
   assert.equal(isReachable(graph, 'app/surfaces.tsx#Missing', 'app/Sidebar.tsx'), false)
 })
 
-test('each explorer tab is bound to the export its handle loads, and a swap is flagged (#762)', () => {
+test('each explorer tab is bound to the export its handle renders, and a swap is flagged (#762)', () => {
   const explorer = [
     "const RailSurface = lazy(() => import('./surfaces').then((m) => ({ default: m.RailSurface })))",
     "const GitSurface = lazy(() => import('./surfaces').then((m) => ({ default: m.GitSurface })))",
@@ -390,9 +390,9 @@ test('each explorer tab is bound to the export its handle loads, and a swap is f
     "] as const",
   ].join('\n')
   const loads = surfaceLoads(explorer, 'app/Explorer.tsx', new Set(['app/surfaces.tsx']))
-  assert.deepEqual(loads.get('git'), [{ target: 'app/surfaces.tsx', symbol: 'GitSurface' }])
-  // a handle that hides its import behind a helper loads nothing the check can see
-  assert.deepEqual(loads.get('hidden'), [])
+  assert.deepEqual(loads.get('git'), { target: 'app/surfaces.tsx', symbol: 'GitSurface' })
+  // a handle that hides its import behind a helper renders nothing the check can read
+  assert.equal(loads.get('hidden'), null)
   const integrity = catalogIntegrity({
     entries: [
       { id: 'surface.rail', exampleId: 'rail', implementationPath: 'app/Sidebar.tsx', examples: ['app/surfaces.tsx#RailSurface'], consumers: [], catalogOnly: true, variants: ['default'], sizes: ['default'], states: ['default'], visual: false },
@@ -406,4 +406,49 @@ test('each explorer tab is bound to the export its handle loads, and a swap is f
   // the rail tab renders the git handle: its row's export is never loaded
   assert.deepEqual(integrity.unloadedAnchors, ['surface.rail'])
   assert.deepEqual(integrity.danglingExamplePaths, [])
+})
+
+/*
+ * The #762 re-review: a handle that touched the Left bar export and rendered
+ * Git satisfied the Left bar anchor, because every export the callback read
+ * counted as loaded. What a tab shows is the `default` its loader returns.
+ */
+const renders = (handle) =>
+  surfaceLoads(
+    `const H = ${handle}\nconst SURFACES = [ { id: 'rail', title: 'Left bar', about: '', render: H } ] as const`,
+    'app/Explorer.tsx',
+    new Set(['app/surfaces.tsx']),
+  ).get('rail')
+
+test('a tab renders the default its loader returns, not every export it touches (#762)', () => {
+  assert.deepEqual(
+    renders("lazy(() => import('./surfaces').then((m) => { void m.RailSurface; return { default: m.GitSurface } }))"),
+    { target: 'app/surfaces.tsx', symbol: 'GitSurface' },
+  )
+  assert.deepEqual(
+    renders("lazy(() => import('./surfaces').then(({ RailSurface: Rail }) => ({ default: Rail })))"),
+    { target: 'app/surfaces.tsx', symbol: 'RailSurface' },
+  )
+  // a bare import renders the module's own default export
+  assert.deepEqual(renders("lazy(() => import('./surfaces'))"), { target: 'app/surfaces.tsx', symbol: 'default' })
+})
+
+test('a loader whose rendered export cannot be read renders nothing, and is reported (#762)', () => {
+  for (const handle of [
+    // two returns that disagree
+    "lazy(() => import('./surfaces').then((m) => { if (flag) return { default: m.RailSurface }; return { default: m.GitSurface } }))",
+    // a computed default
+    "lazy(() => import('./surfaces').then((m) => ({ default: pick(m) })))",
+    // a helper that hides the import
+    "lazy(() => load().then((m) => ({ default: m.RailSurface })))",
+  ]) assert.equal(renders(handle), null, handle)
+
+  const integrity = catalogIntegrity({
+    entries: [{ id: 'surface.rail', exampleId: 'rail', implementationPath: 'app/Sidebar.tsx', examples: ['app/surfaces.tsx#RailSurface'], consumers: [], catalogOnly: true, variants: ['default'], sizes: ['default'], states: ['default'], visual: false }],
+    existingPaths: new Set(['app/Sidebar.tsx', 'app/surfaces.tsx']),
+    exampleIds: new Set(['rail']),
+    requiredSurfaces: [],
+    surfaceLoadsByView: new Map([['rail', renders("lazy(() => import('./surfaces').then((m) => { void m.RailSurface; return { default: m.GitSurface } }))")]]),
+  })
+  assert.deepEqual(integrity.unloadedAnchors, ['surface.rail'])
 })

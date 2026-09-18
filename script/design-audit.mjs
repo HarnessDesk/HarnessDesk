@@ -152,31 +152,134 @@ const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
  * reported zero. So they read declarations instead, and ask of each value what
  * it is rather than of each property what it is called.
  *
- * A declaration ends at `;` or at the `}` that closes its block — the last one
- * in a block needs no semicolon. A selector's pseudo-class (`a:hover {`) never
- * parses as one, because its "value" would have to end before a `{`. Vendor
- * prefixes and custom properties are declarations like any other.
+ * Read by walking the text, not by a pattern: a `;` or a `}` ends a
+ * declaration only outside a string and outside parentheses. A pattern took
+ * the first one it met, so `content: "status: #fff; ready"` became the value
+ * `"status: #fff` — a raw colour, on valid CSS — and an unquoted
+ * `url(data:…;…)` would have split the same way (#762 review). A `{` outside a
+ * string ends whatever came before it, which is a selector or an at-rule's
+ * prelude — so `a:hover` never parses as a declaration. The last declaration
+ * in a block needs no semicolon. Vendor prefixes and custom properties are
+ * declarations like any other.
  */
-export const declarationsOf = (css) =>
-  [...bare(css).matchAll(/(?<![-\w])(--[\w-]+|-?[A-Za-z][\w-]*)\s*:\s*([^;{}]+?)\s*(?=[;}])/g)].map(
-    (match) => ({ property: match[1], value: match[2].replace(/\s*!important$/i, '').trim() }),
-  )
+export const declarationsOf = (css) => {
+  const text = bare(css)
+  const found = []
+  let buffer = ''
+  const flush = () => {
+    const declaration = splitDeclaration(buffer)
+    if (declaration) found.push(declaration)
+    buffer = ''
+  }
+  let quote = null
+  let depth = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (quote) {
+      buffer += char
+      if (char === '\\' && index + 1 < text.length) buffer += text[(index += 1)]
+      else if (char === quote) quote = null
+    } else if (char === '"' || char === "'") {
+      quote = char
+      buffer += char
+    } else if (char === '(') {
+      depth += 1
+      buffer += char
+    } else if (char === ')') {
+      depth = Math.max(0, depth - 1)
+      buffer += char
+    } else if (depth === 0 && char === '{') {
+      buffer = ''
+    } else if (depth === 0 && (char === ';' || char === '}')) {
+      flush()
+    } else {
+      buffer += char
+    }
+  }
+  flush()
+  return found
+}
+
+/* `property: value`, split at the first colon outside a string or parentheses. */
+const splitDeclaration = (raw) => {
+  let quote = null
+  let depth = 0
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]
+    if (quote) {
+      if (char === '\\') index += 1
+      else if (char === quote) quote = null
+    } else if (char === '"' || char === "'") quote = char
+    else if (char === '(') depth += 1
+    else if (char === ')') depth = Math.max(0, depth - 1)
+    else if (char === ':' && depth === 0) {
+      const property = raw.slice(0, index).trim()
+      if (!/^(?:--[\w-]+|-?[A-Za-z][\w-]*)$/.test(property)) return null
+      const value = raw.slice(index + 1).replace(/\s*!\s*important\s*$/i, '').trim()
+      return value === '' ? null : { property, value }
+    }
+  }
+  return null
+}
 
 /* A mask reads alpha and ignores hue: `#000` in a gradient there means "show",
-   not black, and no theme could meaningfully restyle it. The one exemption,
-   named — a list of exceptions fails loudly when it is missing one, which a
-   list of inclusions never does. */
+   not black, and no theme could meaningfully restyle it. The one exemption
+   from the whole rule, named — a list of exceptions fails loudly when it is
+   missing one, which a list of inclusions never does. */
 const ALPHA_ONLY = /^(?:-webkit-)?mask(?:-image|-border(?:-source)?)?$/
 
-/** Whether a value writes a colour out: hex, or any colour function, outside `url()` and strings. */
-export const rawColourIn = (value) => {
+/* The CSS named colours — the 148 in CSS Color 4, each checked in Chromium
+   with `CSS.supports('color', name)`. `red` follows a theme change exactly as
+   badly as `#f00`. Not here, deliberately: `transparent`, `currentColor`, the
+   CSS-wide keywords and the system colours (`Canvas`, `LinkText`, …) — each of
+   those means "no colour" or "whatever is in force", never a hue chosen in
+   place. */
+export const NAMED_COLOURS = Object.freeze(
+  ('aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown ' +
+    'burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan ' +
+    'darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid ' +
+    'darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet ' +
+    'deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ' +
+    'ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki ' +
+    'lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow ' +
+    'lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray ' +
+    'lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine ' +
+    'mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise ' +
+    'mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab ' +
+    'orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru ' +
+    'pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown ' +
+    'seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan ' +
+    'teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen').split(' '),
+)
+/* A whole identifier, any case — not part of `--hd-red` or `darkred-ish`, and
+   not a function: `tan(45deg)` is trigonometry, not the colour. */
+const NAMED = new RegExp(`(?<![-\\w#])(?:${NAMED_COLOURS.join('|')})(?![-\\w])(?!\\s*\\()`, 'i')
+
+/* Properties whose values are names an author chose — a keyframes rule, a
+   grid area, a counter, a font family, a container. A colour word there is an
+   identifier, not a colour: `animation: red 1s` is a keyframes rule called
+   `red`. Only the named-colour check stands aside for these; a hex or a colour
+   function is a colour wherever it is written. Like the mask exemption, a list
+   of exceptions: one missing from it shows up as a finding someone reads. */
+const AUTHOR_NAMES =
+  /^(?:animation(?:-name|-timeline)?|font(?:-family)?|grid(?:-area|-template(?:-areas)?|-(?:row|column)(?:-start|-end)?)?|counter-(?:reset|increment|set)|list-style(?:-type)?|container(?:-name)?|view-transition-name|anchor-name|position-anchor|timeline-scope|(?:scroll|view)-timeline(?:-name)?)$/
+
+/** Whether a value writes a colour out: hex, a colour function or a named colour, outside `url()` and strings. */
+export const rawColourIn = (value, { names = true } = {}) => {
   const plain = value.replace(/url\([^)]*\)/gi, ' ').replace(/(["'])(?:\\.|(?!\1)[^\\])*\1/g, ' ')
-  return /#[0-9a-fA-F]{3,8}\b/.test(plain) || /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i.test(plain)
+  return (
+    /#[0-9a-fA-F]{3,8}\b/.test(plain) ||
+    /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i.test(plain) ||
+    (names && NAMED.test(plain))
+  )
 }
 
 /** Declarations that write a colour out, custom properties included. */
 export const rawColours = (css) =>
-  declarationsOf(css).filter(({ property, value }) => !ALPHA_ONLY.test(property) && rawColourIn(value))
+  declarationsOf(css).filter(
+    ({ property, value }) =>
+      !ALPHA_ONLY.test(property) && rawColourIn(value, { names: !AUTHOR_NAMES.test(property) }),
+  )
 
 /** `z-index` written as a number in the shared band — 10 and up; `!important` does not hide one. */
 export const rawZIndexes = (css) =>

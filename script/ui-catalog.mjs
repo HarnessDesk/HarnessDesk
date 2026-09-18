@@ -410,15 +410,75 @@ export const isReachable = (graph, from, target) => {
 }
 
 /**
- * For each tab in the explorer's `SURFACES`, the exports its handle loads.
+ * The one export a lazy handle renders, or `null` when that cannot be read.
+ *
+ * `React.lazy` renders the `default` of whatever its loader resolves to. So a
+ * bare `import(x)` renders `x`'s default export, and `import(x).then(cb)`
+ * renders whatever sits in the `default` field of the object `cb` returns —
+ * `m.GitSurface` in `({ default: m.GitSurface })`, or `GitSurface` from a
+ * destructured `({ GitSurface })`. Every `return` has to agree.
+ *
+ * Not "every export the callback touches": `void m.RailSurface; return {
+ * default: m.GitSurface }` touches both and renders one, and reading it as
+ * both let a tab that renders Git satisfy a Left bar anchor (#762 review).
+ * Anything this cannot read — a helper that returns the import, a computed
+ * default, two returns that disagree — is `null`, which the anchor check
+ * reports rather than excuses.
+ */
+export const renderedExport = (call) => {
+  const access = call.parent
+  if (!access || !ts.isPropertyAccessExpression(access) || access.name.text !== 'then') {
+    return ts.isArrowFunction(call.parent) || ts.isReturnStatement(call.parent) ? 'default' : null
+  }
+  const invoke = access.parent
+  if (!invoke || !ts.isCallExpression(invoke) || invoke.expression !== access) return null
+  const callback = invoke.arguments[0]
+  if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) return null
+  const param = callback.parameters[0]?.name
+  if (!param) return null
+  const exportOf = (expression) => {
+    while (ts.isParenthesizedExpression(expression)) expression = expression.expression
+    if (!ts.isObjectLiteralExpression(expression)) return null
+    const field = expression.properties.find(
+      (property) => ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) && property.name.text === 'default',
+    )
+    if (!field) return null
+    const value = field.initializer
+    if (ts.isIdentifier(param) && ts.isPropertyAccessExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === param.text) {
+      return value.name.text
+    }
+    if (ts.isObjectBindingPattern(param) && ts.isIdentifier(value)) {
+      const bound = param.elements.find((element) => ts.isIdentifier(element.name) && element.name.text === value.text && !element.dotDotDotToken)
+      const key = bound && (bound.propertyName ?? bound.name)
+      return key && ts.isIdentifier(key) ? key.text : null
+    }
+    return null
+  }
+  const returned = []
+  if (ts.isBlock(callback.body)) {
+    const visit = (node) => {
+      if (ts.isFunctionLike(node)) return
+      if (ts.isReturnStatement(node)) returned.push(node.expression ? exportOf(node.expression) : null)
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(callback.body, visit)
+  } else {
+    returned.push(exportOf(callback.body))
+  }
+  const [first] = returned
+  return first && returned.every((one) => one === first) ? first : null
+}
+
+/**
+ * For each tab in the explorer's `SURFACES`, the export its handle renders.
  *
  * A surface row is anchored to one export (`surfaces.tsx#RailSurface`), and
- * the anchor is only worth something if the tab for that row is the thing
- * that loads it: two handles swapped between two tabs would leave every
- * anchor reachable and every tab showing the wrong screen. So each entry's
- * `render` is followed to the `const` that holds its `lazy(...)`, and the
- * exports that handle's `import(...).then(...)` takes are read the same way
- * the graph reads them.
+ * the anchor is only worth something if the tab for that row renders exactly
+ * it: two handles swapped between two tabs would leave every anchor reachable
+ * and every tab showing the wrong screen. So each entry's `render` is followed
+ * to the `const` that holds its `lazy(...)`, and that handle's rendered export
+ * is read by `renderedExport`. A handle with no readable import, or more than
+ * one, renders `null`.
  */
 export const surfaceLoads = (source, filePath, paths) => {
   const ast = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -443,24 +503,24 @@ export const surfaceLoads = (source, filePath, paths) => {
         }
         continue
       }
-      const loads = []
+      const imports = []
       const visit = (node) => {
         if (
           ts.isCallExpression(node) &&
           node.expression.kind === ts.SyntaxKind.ImportKeyword &&
           node.arguments.length > 0 &&
           ts.isStringLiteral(node.arguments[0])
-        ) {
-          const target = resolveSpecifier(filePath, node.arguments[0].text, paths)
-          for (const symbol of (target && exportsTaken(node)) || []) loads.push({ target, symbol })
-        }
+        ) imports.push(node)
         ts.forEachChild(node, visit)
       }
       visit(declaration.initializer)
-      if (loads.length > 0) handles.set(name, loads)
+      if (imports.length === 0) continue
+      const target = imports.length === 1 ? resolveSpecifier(filePath, imports[0].arguments[0].text, paths) : null
+      const symbol = target ? renderedExport(imports[0]) : null
+      handles.set(name, target && symbol ? { target, symbol } : null)
     }
   }
-  return new Map([...renders].map(([id, render]) => [id, handles.get(render) ?? []]))
+  return new Map([...renders].map(([id, render]) => [id, handles.get(render) ?? null]))
 }
 
 export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredSurfaces, reachablePairs = null, reachableExamplePairs = null, contracts = new Map(), exampleCoverage = new Map(), surfaceLoadsByView = null }) => {
@@ -510,13 +570,14 @@ export const catalogIntegrity = ({ entries, existingPaths, exampleIds, requiredS
     }),
     danglingConsumers: entries.flatMap((entry) => entry.consumers.filter((consumer) => !existingPaths.has(consumer)).map(() => entry.id)),
     danglingExamplePaths: entries.flatMap((entry) => (entry.examples ?? []).filter((example) => !existingPaths.has(example.split('#')[0])).map(() => entry.id)),
-    /* An example anchored to an export must be the export the row's tab loads. */
+    /* An example anchored to an export must be the export the row's tab renders. */
     unloadedAnchors: surfaceLoadsByView === null
       ? []
       : entries.filter((entry) => (entry.examples ?? []).some((example) => {
         const [path, symbol] = example.split('#')
         if (symbol === undefined) return false
-        return !(surfaceLoadsByView.get(entry.exampleId) ?? []).some((load) => load.target === path && load.symbol === symbol)
+        const load = surfaceLoadsByView.get(entry.exampleId)
+        return !(load && load.target === path && load.symbol === symbol)
       })).map((entry) => entry.id),
     unreachableConsumers: reachablePairs === null
       ? []

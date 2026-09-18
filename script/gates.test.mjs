@@ -9,6 +9,7 @@ import {
   compareBaseline,
   createSourceCache,
   declarationsOf,
+  NAMED_COLOURS,
   rawColours,
   rawZIndexes,
   sheetsOf,
@@ -1561,4 +1562,40 @@ test('a stacking number is counted with !important and without a semicolon (#762
   assert.deepEqual(found('.a { z-index: -20; }'), ['-20'])
   // single digits order within one component; tokens are the point
   assert.deepEqual(found('.a { z-index: 5; } .b { z-index: var(--hd-z-popover) !important; }'), [])
+})
+
+/* The #762 re-review: a `;` inside a string ended the declaration, which read
+   a colour out of valid CSS; and `red` was not a colour at all. */
+test('a semicolon inside a string or parentheses does not end a declaration (#762)', () => {
+  assert.deepEqual(declarationsOf('.a::before { content: "status: #fff; ready"; gap: 4px; }'), [
+    { property: 'content', value: '"status: #fff; ready"' },
+    { property: 'gap', value: '4px' },
+  ])
+  assert.deepEqual(rawColours('.a::before { content: "status: #fff; ready"; }'), [])
+  assert.deepEqual(
+    declarationsOf('.a { background: url(data:image/svg+xml;utf8,x); color: var(--hd-foreground) }').map(({ property }) => property),
+    ['background', 'color'],
+  )
+})
+
+test('a named colour is a raw colour; transparent, currentColor and the CSS-wide keywords are not (#762)', () => {
+  assert.equal(NAMED_COLOURS.length, 148)
+  const found = (css) => rawColours(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { color: red; }'), ['color'])
+  assert.deepEqual(found('.a { border: 1px solid Tomato }'), ['border'])
+  assert.deepEqual(found('.a { --tint: white; }'), ['--tint'])
+  // a literal fallback is a literal
+  assert.deepEqual(found('.a { color: var(--hd-accent, rebeccapurple); }'), ['color'])
+  for (const keyword of ['transparent', 'currentColor', 'inherit', 'initial', 'unset', 'revert', 'revert-layer']) {
+    assert.deepEqual(found(`.a { color: ${keyword}; }`), [], keyword)
+  }
+  // part of a token's name, or a function, is not a colour
+  assert.deepEqual(found('.a { color: var(--hd-red); width: calc(tan(45deg) * 1px); }'), [])
+})
+
+test('a colour word is a name where authors write names (#762)', () => {
+  assert.deepEqual(rawColours('.a { animation: red 1s; grid-area: tan; font-family: Orange, sans-serif; counter-reset: gold; }'), [])
+  // but a hex there is still a colour, and a mask is still alpha
+  assert.deepEqual(rawColours('.a { animation: pulse 1s #fff; }').map(({ property }) => property), ['animation'])
+  assert.deepEqual(rawColours('.a { mask-image: linear-gradient(black, transparent); }'), [])
 })

@@ -627,8 +627,13 @@ Two of those categories spent a long time reporting zero while they were simply
 unable to see:
 
 - `rawColour` named five properties and `box-shadow` was not one of them, so ten
-  hand-written shadows sat outside a count that said there were none. It reads
-  every colour-bearing property now.
+  hand-written shadows sat outside a count that said there were none. It now
+  reads every declaration, whatever its property, through a tokenizer that
+  knows a `;` inside a string or parentheses does not end one; and it counts
+  a colour however it is spelled — hex, a colour function, or a name like
+  `red`. The exemptions are named rather than left out: masks, which read
+  alpha, and — for colour names only — the properties whose values are names
+  an author chose (`animation-name`, `grid-area`, counters, font families).
 - `rawZIndex` did not exist. The ladder in `tokens.css` had said in prose since
   it was written that stacking "never writes a number", and twenty-four places
   wrote a number. Single digits are ordering inside one component's own stacking
