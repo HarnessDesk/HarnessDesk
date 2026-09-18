@@ -581,12 +581,13 @@ changes.
 
 `pnpm design` serves `/design.html`. Foundation, primitives and patterns render
 from the production modules, and so do the whole-screen surfaces: Conversation,
-Composer, Left bar, Git history and Group project mount `components/*` through
-`preview/harness.tsx`, the same store stub `/preview.html` uses.
+Composer, Left bar, Git history, Group project, Browser · Terminal · Editor and
+Panels mount the shipped screens — `components/*`, and `panels/Workbench.tsx`
+— through `preview/harness.tsx`, the same store stub `/preview.html` uses.
 
 This is a rule rather than an arrangement, because the alternative was tried.
-Five of those surfaces used to be pages in `design/showcase` built to look like
-the screen — 1,072 lines of CSS that shared nothing with the app but its shape.
+Those surfaces used to be pages in `design/showcase` built to look like the
+screen — over 1,500 lines of CSS that shared nothing with the app but its shape.
 They were right on the day each was drawn and wrong every day after, and there
 was no way to tell by looking: the catalogue is exactly where you go *because*
 you do not already know what the screen looks like. Edit
@@ -599,14 +600,22 @@ import graph twice: the explorer must reach that module, and the app must ship
 it. A row naming something the app does not ship fails, and so does a surface
 that quietly stops mounting what it claims.
 
-Three surfaces are marked `catalogOnly` and are honest about it: a dashboard
-assembled to put unrelated parts in one frame, the panel model driven by nothing
-but itself, and the propagation fixture the browser suite reads. There is no
-shipped screen for those to point at.
+One surface is marked `catalogOnly`: Foundation propagation, a test rig built
+only from production implementations, which two browser specs drive. There is
+no shipped screen for it to point at, and its description says it is a rig.
+
+A real screen with no data does not fail — it renders something plausible. The
+git pane mounted with no repository drew an empty frame; the editor sat on
+"Loading…" for good. So the harness answers what the mounted screens read
+(`preview/git-fixture.ts`, typed as the protocol's result types), and each
+surface's description says what the tab shows *on this fixture* and names what
+it does not. A description written for a richer picture than the tab renders is
+the same misleading a drawing was, in words. The only check that has caught
+these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds fifteen categories at a baseline. Fourteen
+`pnpm design:audit --strict` holds sixteen categories at a baseline. Fifteen
 are at zero; `patternClass` sits at 3, which is three screens still drawing
 their own empty state.
 

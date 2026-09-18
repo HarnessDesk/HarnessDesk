@@ -14,6 +14,23 @@ import { AppWindowMode } from '../components/AppWindow'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import {
+  activate,
+  focusView,
+  moveView,
+  resizeDock,
+  resizeDockSplit,
+  splitDock,
+  toggleDock,
+  undock,
+  zoomArea,
+  type AreaId,
+  type DockId,
+  type MountedId,
+  type StackId,
+  type Zoom,
+} from '../state/workbench'
+import { permits } from '../panels/views'
 import { applyProfile, type ProfilePatch } from '../lib/profile'
 import {
   PREVIEW_ROOT,
@@ -574,7 +591,7 @@ class PreviewStore {
   #snapshot: AppSnapshot
   #listeners = new Set<() => void>()
 
-  constructor() {
+  constructor(seed: Partial<AppSnapshot> = {}) {
     this.#snapshot = {
       ...emptySnapshot(),
       status: 'open',
@@ -779,6 +796,7 @@ class PreviewStore {
           } as unknown as Session,
         ],
       ]),
+      ...seed,
     } as AppSnapshot
   }
 
@@ -792,6 +810,44 @@ class PreviewStore {
   patch(partial: Partial<AppSnapshot>): void {
     this.#snapshot = { ...this.#snapshot, ...partial }
     for (const listener of this.#listeners) listener()
+  }
+
+  /* The panel verbs, answered by the functions the app's own store answers
+     them with. `AppStore.togglePanel` is one line — `toggleDock` over the
+     workbench — and so is every verb below, so calling the same function here
+     is not a model of the panel system: it is the panel system, minus the
+     socket. What a reader sees on the Panels tab when they collapse a dock is
+     what the app would do, because it is the code the app would run. */
+  #workbench(next: AppSnapshot['workbench']): void {
+    this.patch({ workbench: next })
+  }
+  togglePanel(area: DockId): void {
+    this.#workbench(toggleDock(this.#snapshot.workbench, area))
+  }
+  zoomPanel(area: AreaId, scope: Zoom['scope']): void {
+    this.#workbench(zoomArea(this.#snapshot.workbench, area, scope))
+  }
+  moveView(id: string, to: AreaId, into?: StackId): void {
+    this.#workbench(moveView(this.#snapshot.workbench, id, to, permits, into))
+  }
+  activateView(area: DockId, id: MountedId): void {
+    this.#workbench(activate(this.#snapshot.workbench, area, id))
+  }
+  closeView(id: MountedId): void {
+    this.#workbench(undock(this.#snapshot.workbench, id))
+  }
+  resizePanel(area: DockId, size: number): void {
+    this.#workbench(resizeDock(this.#snapshot.workbench, area, size))
+  }
+  splitPanel(id: MountedId, direction: 'row' | 'column', place: 'before' | 'after' = 'after'): void {
+    this.#workbench(splitDock(this.#snapshot.workbench, id, direction, place))
+  }
+  resizePanelSplit(area: DockId, branchId: string, ratio: number): void {
+    this.#workbench(resizeDockSplit(this.#snapshot.workbench, area, branchId, ratio))
+  }
+  focusView(id: MountedId | null): void {
+    if ((this.#snapshot.workbench.focus ?? null) === (id ?? null)) return
+    this.#workbench(focusView(this.#snapshot.workbench, id))
   }
 
   #team(mutate: (team: TeamState) => TeamState): void {
@@ -1148,7 +1204,16 @@ class PreviewStore {
  * doing. Functions are bound to the instance because the private fields the
  * real methods read are not reachable through a proxy `this`.
  */
-export const store = new Proxy(new PreviewStore(), {
+/**
+ * A store of the page's own, seeded over the fixture.
+ *
+ * Every surface shares `store` below, which is what `/preview.html` and the
+ * browser specs read. A surface that needs a different *state* — the Panels
+ * tab needs docks with something in them, and the app opens with every dock
+ * empty — takes one of these instead, so its state cannot leak into a screen
+ * or a spec that did not ask for it.
+ */
+export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new Proxy(new PreviewStore(seed), {
   get(target, property, receiver) {
     if (Reflect.has(target, property)) {
       const value = Reflect.get(target, property, target)
@@ -1175,6 +1240,8 @@ export const store = new Proxy(new PreviewStore(), {
   },
 }) as unknown as AppStore
 
+export const store = previewStore()
+
 /**
  * Mount a production screen: the store under it, the app's window mode around
  * it, and one screen's crash kept to one screen.
@@ -1185,8 +1252,8 @@ export const store = new Proxy(new PreviewStore(), {
  * throws, or it renders the branch the app never shows. So every surface goes
  * through here, and what the catalogue draws is what the app draws.
  */
-export const Mount = ({ children }: { children: ReactNode }) => (
-  <StoreProvider store={store}>
+export const Mount = ({ children, with: own }: { children: ReactNode; with?: AppStore }) => (
+  <StoreProvider store={own ?? store}>
     <AppWindowMode.Provider value="embedded">
       <Boundary>{children}</Boundary>
     </AppWindowMode.Provider>

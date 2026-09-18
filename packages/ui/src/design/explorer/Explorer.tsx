@@ -20,6 +20,7 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  */
 const surfaceModule = () => import('../surfaces/surfaces')
 const ComposerSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ComposerSurface })))
+const DashboardSurface = lazy(() => surfaceModule().then((m) => ({ default: m.DashboardSurface })))
 const ConversationSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ConversationSurface })))
 const GitSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GroupSurface })))
@@ -95,30 +96,40 @@ const DIALS = [
  * The surface pages: whole screens rather than component matrices.
  *
  * A component board asks "is this piece right in all its states". These ask the
- * question a board cannot: "does the set of pieces make a screen". They are
- * listed here rather than in `BOARDS` because they render a page and take the
- * body's whole width, and because none of them is a component anyone imports.
+ * question a board cannot: "does the set of pieces make a screen". Each one
+ * mounts a screen the app ships (`design/surfaces/surfaces.tsx`), so the
+ * `about` under it describes what that screen shows *on this page's fixture*
+ * — which is less than every state the screen has. Say what is on the page,
+ * and name what is not: a description written for a richer picture than the
+ * tab renders is the same lie as a drawing, in words.
  */
 const SURFACES = [
+  {
+    id: 'dashboard',
+    title: 'Dashboard',
+    about:
+      "The shipped Dashboard — what is left on each plan, what it cost and where it went — as ⌘U opens it, on the preview's four agents. It is a window of its own, so it sits in a window-sized frame here.",
+    render: DashboardSurface,
+  },
   {
     id: 'group',
     title: 'Group project',
     about:
-      'Several harnesses on one goal, with a board between them. Three claims the layout is built to make true: a group project is a project rather than a mode, so it stands in the workspace list beside ordinary sessions under its own mark; the agents are deliberately not alike, so the harness mark appears wherever a member does; and the board, the agent and the conversation are one triangle — a task names the harness holding it, pressing that harness opens its conversation, and the conversation names the task and offers the way back. Press a harness on a card, or Claim with on an unclaimed one.',
+      'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Where the room stands in the workspace list is on the Left bar tab.',
     render: GroupSurface,
   },
   {
     id: 'conversation',
     title: 'Conversation',
     about:
-      'One transcript carrying every kind of thing a transcript can carry — prose, thinking, a published plan, nine tool calls with one of them refused and one failed, a diff, attachments, an approval that stops you, a compaction, and a turn still running. Not a tidy sample: the grading only proves itself under all of it at once, in one column, at the width the app actually gives it.',
+      'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the agent\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
     render: ConversationSurface,
   },
   {
     id: 'composer',
     title: 'Composer',
     about:
-      'The one component a user touches on every turn, in the five states it is really in — resting, carrying attachments, running, queueing behind a turn, and nearly out of context. All five are the same shell; what differs is what is inside it, which is the test that the shell is right.',
+      'The shipped composer alone, at the width the conversation gives it, resting on an idle session. Its other states — carrying attachments, running, queued behind a turn, nearly out of context — need a session in that state, and the fixture has none yet.',
     render: ComposerSurface,
   },
   {
@@ -132,21 +143,21 @@ const SURFACES = [
     id: 'git',
     title: 'Git history',
     about:
-      'The repository as history rather than status: a graph that answers what happened, a detail pane that answers what exactly, and lanes coloured by identity rather than by judgement. Click a row.',
+      'The shipped repository pane on a small fixture history: a feature branch merged back, one still open, a tag, a remote a commit ahead, and a stash, with lanes coloured by identity rather than by judgement. Click a row for the commit.',
     render: GitSurface,
   },
   {
     id: 'panels',
     title: 'Panels',
     about:
-      'The panel system, driven by nothing but itself: the real chrome over the real model, with `useState` where the app has a store and coloured stubs where the app has features. That is the argument, made by construction — if docking, resizing, collapsing and expanding all work with no store, no socket and no agent, then the model owes nothing to the features and a feature owes nothing to its position. Drag a tab onto another area; only the areas that view declares will light up. Press Expand twice. Collapse the bottom panel and note that its tabs stay, because that is the way back.',
+      'The workbench the window renders — sidebar, main area, Changes and Trajectory in the right dock, a terminal in the bottom — on a store of its own so its docks start full; the app itself opens with them empty. Its controls are real: switching a tab, hiding a dock, moving, splitting and resizing run the same functions the app\'s store runs. Press Hide this panel.',
     render: PanelsSurface,
   },
   {
     id: 'tools',
     title: 'Browser · Terminal · Editor',
     about:
-      'Every tool in the frame they share. What differs between the panes is only what a terminal genuinely is versus what a browser genuinely is; everything else — the header, the mark, the subject line, the tab strip, whether the body pads or bleeds — is one component, which is what stops five panes drifting into five layouts.',
+      'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal has no shell — there is no host here to run one.',
     render: ToolsSurface,
   },
   {

@@ -418,20 +418,21 @@ export const CANONICAL_PATTERN_MODULES = [
  * The whole-screen entries, and the module each one actually mounts.
  *
  * `implementationPath` is the promise this row makes to a reader: open the
- * surface and you are looking at that file. Five of these used to name a page
+ * surface and you are looking at that file. Most of these used to name a page
  * in `design/showcase` that was built to look like the screen — same shapes,
  * separate code — so the promise was kept only for as long as nobody edited
- * the real one. They now name the shipped module, and
- * `script/check-ui-system.mjs` refuses a row whose module the surfaces file
- * does not import.
+ * the real one. Every row but one now names the shipped module, and
+ * `script/check-ui-system.mjs` walks the import graph to hold it: the explorer
+ * must reach the module, and the app must ship it (the last field names the
+ * file in the app that mounts it).
  *
- * The three that still name a `showcase` page are the ones where there is no
- * shipped screen to point at: a dashboard assembled only to put unrelated
- * parts in one frame, the panel model driven by nothing but itself, and the
- * propagation fixture the browser suite reads. `catalogOnly` marks those, and
- * it is the exemption the check looks for.
+ * The one exception is the propagation page, which is a test rig rather than
+ * a screen — built only from production implementations, driven by two
+ * browser specs, and with no shipped screen to point at. `catalogOnly` marks
+ * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
+  ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx'],
   ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
   ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
   ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx'],

@@ -35,6 +35,16 @@
   height: 820px;
 }
 
+/* A screen that is its own window — Settings, the Dashboard — is an
+   `AppWindow`, which is `position: fixed`. With no containing block it escapes
+   the frame and paints over the whole page, and every other tab becomes
+   unreachable behind it. A `transform` makes the frame that block; it is the
+   same line `/preview.html` needed, for the same reason. */
+.frame[data-height='window'] {
+  height: 900px;
+  transform: translateZ(0);
+}
+
 /* A rail is judged by how much attention it takes from the work beside it, so
    it is framed at a window's width with the work standing in. */
 .beside {

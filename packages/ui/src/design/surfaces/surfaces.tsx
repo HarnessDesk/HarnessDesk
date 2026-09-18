@@ -9,10 +9,12 @@ import { Sidebar } from '../../components/Sidebar'
 import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
 import { TerminalSurface as TerminalPane } from '../../components/TerminalPane'
+import { Usage } from '../../components/Usage'
 import { MountProvider } from '../../panels/mount'
 import { Workbench } from '../../panels/Workbench'
+import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
-import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY } from '../../preview/harness'
+import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
 import { PREVIEW_ROOT } from '../../preview/sidebar-fixture'
 import styles from './surfaces.module.css'
 
@@ -31,9 +33,10 @@ import styles from './surfaces.module.css'
  * from `components/`, it brings its own stylesheet, and it renders through the
  * same store stub `/preview.html` uses (`preview/harness`) because a screen
  * without a store does not render a simpler version of itself — it throws.
- * `script/check-ui-system.mjs` holds this: every surface in the catalogue
- * names a module under `components/`, and that module has to be one this file
- * actually imports.
+ * `script/check-ui-system.mjs` holds this: every surface row in the catalogue
+ * names the shipped module it mounts — a screen in `components/`, or the
+ * workbench in `panels/` — and the check walks the import graph to prove this
+ * file reaches it and the app ships it.
  *
  * The frames are the only judgement this file makes, and they are about room
  * rather than looks — see `surfaces.module.css`.
@@ -43,7 +46,7 @@ const Frame = ({
   height = 'pane',
   children,
 }: {
-  height?: 'pane' | 'page'
+  height?: 'pane' | 'page' | 'window'
   children: ReactNode
 }) => (
   <div className={styles.frame} data-height={height}>
@@ -237,19 +240,34 @@ export const ToolsSurface = () => (
 /**
  * The panel system, as the app assembles it.
  *
- * This was a playground: the real dock model driven by `useState`, with
- * coloured rectangles standing in for the features. The argument it made was a
- * good one — docking and resizing owe nothing to the features — but it made
- * that argument about rectangles, and a rectangle never reveals that a pane
- * header clips at 380px or that two real panes disagree about their top rule.
+ * `panels/Workbench.tsx`, the component the window renders, with a store of
+ * its own. The app opens with every dock empty, which is the right default
+ * and a useless one to judge docking by, so this store starts with the
+ * Changes and Trajectory views in the right dock and a terminal in the
+ * bottom — put there by `dock`, the function the app calls when you open a
+ * view, so the tree is the one the app would build rather than one written
+ * out by hand.
  *
- * With a store under it there is no reason to stand in for anything. This is
- * `panels/Workbench.tsx`, the component the window renders, holding the panes
- * the app holds. Drag a tab onto another area; only the areas that view
- * declares will light up.
+ * The verbs are real too. Collapse, expand, move, split and resize are the
+ * store's, and the harness answers each with the same pure function the
+ * app's store does (`preview/harness.tsx`). What happens when you press
+ * something here is what the app would do.
  */
+const panelsStore = previewStore({
+  workbench: (
+    [
+      ['right', { kind: 'changes' }],
+      ['right', { kind: 'trajectory' }],
+      [
+        'bottom',
+        { kind: 'terminal', terminalId: 'design-terminal', runtime: 'codex' as never, cwd: PREVIEW_ROOT },
+      ],
+    ] as const
+  ).reduce((workbench, [area, view]) => dock(workbench, area, view), emptyWorkbench()),
+})
+
 export const PanelsSurface = () => (
-  <Mount>
+  <Mount with={panelsStore}>
     <Frame height="page">
       <Workbench
         sidebar={
@@ -263,6 +281,24 @@ export const PanelsSurface = () => (
           />
         }
       />
+    </Frame>
+  </Mount>
+)
+
+/**
+ * The Dashboard — plan usage, what it cost, where it went — as the app opens
+ * it with ⌘U.
+ *
+ * There used to be a tab called Dashboard here that was not this: a page of
+ * stat tiles and charts assembled for the catalogue, which described itself as
+ * "a page that does not exist" while wearing the name of one that does. This
+ * is the one that does — `components/Usage.tsx`, in a window-sized frame,
+ * because it is a window.
+ */
+export const DashboardSurface = () => (
+  <Mount>
+    <Frame height="window">
+      <Usage onClose={() => {}} onSignIn={() => {}} />
     </Frame>
   </Mount>
 )

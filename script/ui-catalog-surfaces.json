@@ -2,6 +2,10 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "surface.dashboard",
+      "implementationPath": "packages/ui/src/components/Usage.tsx"
+    },
+    {
       "id": "surface.group",
       "implementationPath": "packages/ui/src/components/TeamBoardPane.tsx"
     },
