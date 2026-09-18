@@ -1,4 +1,4 @@
-import { act, useEffect, useState } from 'react'
+import { act, useEffect, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,6 +9,7 @@ import {
   MenuLabel,
   MenuNote,
   MenuToggle,
+  Popover,
   PopoverFilterInput,
   Submenu,
   dismissOverlays,
@@ -59,6 +60,29 @@ const key = (el: Element, name: string): void => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true }))
   })
 }
+/**
+ * Tab as a browser presses it. jsdom keeps no tab order, so this moves the
+ * focus itself: the keydown first, and then — unless a handler took the key —
+ * on to the next element in document order that Tab stops at, the way
+ * Chromium does. Base UI's invisible focus guards are among those stops: the
+ * browser lands on them, and their own focus handlers send it on.
+ */
+const tab = ({ shift = false }: { shift?: boolean } = {}): void => {
+  act(() => {
+    const from = document.activeElement ?? document.body
+    const press = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true })
+    from.dispatchEvent(press)
+    if (press.defaultPrevented) return
+    const stops = [...document.body.querySelectorAll<HTMLElement>('*')].filter(
+      (el) => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert],[hidden]'),
+    )
+    const next = shift
+      ? stops.filter((el) => from.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING).at(-1)
+      : stops.find((el) => from.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)
+    next?.focus()
+  })
+}
+const onFocusGuard = (): boolean => document.activeElement?.hasAttribute('data-base-ui-focus-guard') ?? false
 
 describe('Menu rows', () => {
   it('an action row runs and closes; a keepOpen row runs and stays', () => {
@@ -458,6 +482,175 @@ describe('Submenu', () => {
   })
 })
 
+describe('Tab and Shift+Tab in a Popover’s menu', () => {
+  /*
+    Tab and Shift+Tab leave a menu and close every level of it (WAI-ARIA APG,
+    menu pattern). A menu here stands in the tab order where Base UI puts its
+    Popover: just after the trigger. So Tab moves on to what follows the
+    trigger, and Shift+Tab comes back to the trigger itself.
+  */
+  const inPopover = (menu: (close: () => void) => ReactNode): void => {
+    act(() => {
+      root.render(
+        <>
+          <button type="button">Before</button>
+          <Popover label="Model" title="Model and reasoning">
+            {menu}
+          </Popover>
+          <button type="button">After</button>
+        </>,
+      )
+    })
+  }
+  const trigger = (): HTMLButtonElement => {
+    const button = document.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')
+    if (!button) throw new Error('no trigger')
+    return button
+  }
+  const open = async (): Promise<void> => {
+    act(() => trigger().focus())
+    click(trigger())
+    // Base UI focuses the menu a frame after it opens.
+    await frame()
+  }
+
+  it('Tab from a row closes the menu and moves on past its trigger', async () => {
+    inPopover((close) => (
+      <Menu close={close}>
+        <MenuItem label="One" onSelect={() => {}} />
+        <MenuItem label="Two" onSelect={() => {}} />
+      </Menu>
+    ))
+    await open()
+    key(document.activeElement!, 'ArrowDown')
+    expect(document.activeElement).toBe(row('One'))
+
+    // The browser stops next on the focus guard Base UI keeps after the menu,
+    // which sends the focus on to the menu's trigger — and this menu, opened
+    // by its Popover, has none. The focus stayed on the guard, an invisible
+    // span, and the menu stayed open.
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(document.activeElement).toBe(row('After'))
+    await frame()
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it('Tab from a flyout’s row leaves both levels for the same place', async () => {
+    inPopover((close) => (
+      <Menu close={close}>
+        <Submenu label="Effort">
+          <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          <MenuItem label="High" selected onSelect={() => {}} />
+        </Submenu>
+        <MenuItem label="Manage" onSelect={() => {}} />
+      </Menu>
+    ))
+    await open()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    expect(document.activeElement).toBe(row('Low'))
+
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(document.activeElement).toBe(row('After'))
+    await frame()
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it('Tab walks a panel’s own buttons, and past the last one leaves the menu the same way', async () => {
+    // The plan meters' menus hold plain buttons, not rows: Tab is how the
+    // keyboard gets from one to the next, and it has to keep doing that.
+    inPopover((close) => (
+      <Menu close={close}>
+        <div>
+          <button type="button">First</button>
+          <button type="button">Second</button>
+        </div>
+      </Menu>
+    ))
+    await open()
+    expect(document.activeElement).toBe(row('First'))
+    tab()
+    expect(document.activeElement).toBe(row('Second'))
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(document.activeElement).toBe(row('After'))
+    await frame()
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('Tab off the end of a menu with nothing after it on the page closes it, and the focus leaves the guard', async () => {
+    const close = vi.fn()
+    act(() => {
+      root.render(
+        <Menu close={close}>
+          <MenuItem label="One" onSelect={() => {}} />
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('One').focus())
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('Shift+Tab from a row closes the menu and gives its trigger the focus', async () => {
+    // Base UI answers Shift+Tab in a menu by closing it and focusing the
+    // menu's trigger; with none to focus, the key did nothing at all.
+    const close = vi.fn()
+    inPopover((closePopover) => (
+      <Menu
+        close={() => {
+          close()
+          closePopover()
+        }}
+      >
+        <MenuItem label="One" onSelect={() => {}} />
+        <MenuItem label="Two" onSelect={() => {}} />
+      </Menu>
+    ))
+    await open()
+    key(document.activeElement!, 'ArrowDown')
+    key(row('One'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Two'))
+
+    tab({ shift: true })
+    expect(close).toHaveBeenCalledOnce()
+    await frame()
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(trigger())
+  })
+
+  it('Shift+Tab in a flyout still only closes the flyout, and its row has the focus', async () => {
+    // Base UI's own rule for a flyout, and not the missing trigger's doing:
+    // it is kept.
+    const close = vi.fn()
+    act(() => {
+      root.render(
+        <Menu close={close}>
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    expect(document.activeElement).toBe(row('Low'))
+    tab({ shift: true })
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(row('Effort'))
+    expect(close).not.toHaveBeenCalled()
+  })
+})
+
 describe('ContextMenu', () => {
   it('renders through the Base UI fixed positioner at the point it was asked for, and nothing when it was not', async () => {
     const onClose = vi.fn()
@@ -485,7 +678,7 @@ describe('ContextMenu', () => {
     expect(document.activeElement).toBe(row('Pin'))
   })
 
-  it('closes on Escape, on a click outside, and when a row is taken', () => {
+  it('closes on Escape, on a click outside, and when a row is taken', async () => {
     const onClose = vi.fn()
     const pin = vi.fn()
     const render = () =>
@@ -501,6 +694,11 @@ describe('ContextMenu', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     })
     expect(onClose).toHaveBeenCalledTimes(1)
+    // Escape gave the focus back, out of the menu, and Base UI ignores a
+    // press outside in the same task as focus leaving from inside
+    // (`insideReactTree`, cleared by a 0ms timeout). A click never shares
+    // the key's task; this one waits its turn too.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
 
     act(() => {
       document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
@@ -542,6 +740,67 @@ describe('ContextMenu', () => {
     expect(onClose).toHaveBeenCalledTimes(2)
     expect(document.activeElement).toBe(before)
     before.remove()
+  })
+
+  it('Tab, Shift+Tab and Escape each close it and give the focus back to what had it', async () => {
+    /* A context menu opens at a point, not from a place in the tab order, so
+       leaving it by a key goes back to where the focus was. Tab stopped on
+       Base UI's invisible guard after the menu, with the menu still open;
+       Shift+Tab and Escape closed it and dropped the focus on the page. */
+    const Harness = () => {
+      const menu = useContextMenu()
+      return (
+        <>
+          <button type="button" onContextMenu={menu.open}>
+            Session
+          </button>
+          <button type="button">Next</button>
+          <ContextMenu at={menu.at} label="Actions" onClose={menu.close}>
+            <MenuItem label="Pin" onSelect={() => {}} />
+            <MenuItem label="Rename" onSelect={() => {}} />
+          </ContextMenu>
+        </>
+      )
+    }
+    act(() => {
+      root.render(<Harness />)
+    })
+    const session = row('Session')
+    for (const leave of [() => tab(), () => tab({ shift: true }), () => key(row('Pin'), 'Escape')]) {
+      // The context-menu key: the event comes from the focused row, at no point.
+      act(() => session.focus())
+      act(() => {
+        session.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+      })
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+      expect(document.activeElement).toBe(row('Pin'))
+
+      leave()
+      expect(onFocusGuard()).toBe(false)
+      expect(document.activeElement).toBe(session)
+      await frame()
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+    }
+  })
+
+  it('opened while nothing had the focus, Tab leaves it for the page, not the guard', async () => {
+    // What had the focus was the page itself, which a call to focus() cannot
+    // give it back to.
+    act(() => (document.activeElement as HTMLElement | null)?.blur())
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <ContextMenu at={{ x: 10, y: 10 }} label="Actions" onClose={onClose}>
+          <MenuItem label="Pin" onSelect={() => {}} />
+        </ContextMenu>,
+      )
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    expect(document.activeElement).toBe(row('Pin'))
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(document.activeElement).toBe(document.body)
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('useContextMenu opens at the pointer and blocks the native menu', () => {

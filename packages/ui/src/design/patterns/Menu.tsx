@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type FocusEvent as ReactFocusEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react'
@@ -64,6 +65,46 @@ const passedOver = (element: HTMLElement): boolean => {
   return style.display === 'none' || style.display === 'contents'
 }
 
+const TAB_STOP =
+  'a[href],area[href],button,input,select,textarea,summary,iframe,audio[controls],video[controls],[contenteditable]:not([contenteditable="false"]),[tabindex]'
+
+/**
+ * Where Tab goes on to from the end of `region`: the first element after
+ * everything in it, in document order, that Tab stops at. A Base UI focus
+ * guard is one — the browser stops on those too — and the popup it guards
+ * then answers the Tab as its own.
+ */
+const nextTabStop = (region: Element): HTMLElement | null => {
+  for (const candidate of region.ownerDocument.querySelectorAll<HTMLElement>(TAB_STOP)) {
+    if (!(region.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING)) continue
+    if (region.contains(candidate) || candidate.closest('[inert]') || passedOver(candidate)) continue
+    // An editing host takes Tab although its tabIndex reads -1, until one is set.
+    const tabIndex = candidate.isContentEditable && !candidate.hasAttribute('tabindex') ? 0 : candidate.tabIndex
+    if (tabIndex >= 0) return candidate
+  }
+  return null
+}
+
+/**
+ * Tab off the end of a level lands on the focus guard Base UI keeps after
+ * it, whose work is to send the focus on to the menu's trigger. A level here
+ * has none — its Popover, or a pointer, opened it — so the focus stayed on
+ * the guard: an invisible span, in a menu still open. True when this focus
+ * has come to rest there, and Base UI has sent it nowhere.
+ */
+const restsPastLevel = (event: ReactFocusEvent<HTMLElement>, level: HTMLElement | null): boolean =>
+  event.target === level?.nextElementSibling &&
+  event.target === document.activeElement &&
+  event.target.hasAttribute('data-base-ui-focus-guard')
+
+/**
+ * Shift+Tab: Base UI closes a menu on it — a focus-out the key raises itself,
+ * before any focus has moved — and gives the focus to the menu's trigger,
+ * which a level here has not got either.
+ */
+const closedByShiftTab = (details: { reason: string; event: Event }): boolean =>
+  details.reason === 'focus-out' && details.event.type === 'keydown'
+
 /**
  * Where → lands in a flyout: its first row that is on — never a note or a
  * label, nor a row disabled for a reason. → goes in to choose; the arrows
@@ -76,6 +117,13 @@ const FIRST_ROW =
  * A HarnessDesk menu level. Base UI owns item collection, roving focus,
  * selection, Escape and submenu coordination; this wrapper carries the
  * product-level close callback used by async actions.
+ *
+ * Tab and Shift+Tab leave a menu and close every level of it (WAI-ARIA APG,
+ * menu pattern). The menu stands in the tab order just after its trigger,
+ * where Base UI places a Popover: Tab moves on to what follows the trigger,
+ * and Shift+Tab goes back to the trigger, as Escape does. A panel of plain
+ * buttons in a menu keeps Tab for going from one to the next, and leaves by
+ * it after the last.
  */
 export const Menu = ({ close, onEscape, children }: { close: () => void; onEscape?: () => void; children: ReactNode }) => {
   const scope = useMemo<Scope>(() => ({ close }), [close])
@@ -108,14 +156,31 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
           // Item presses close through the typed row contract below; asking
           // the owner again would call the feature close callback twice.
           // Escape belongs to the composite itself, so bridge only that Base
-          // UI reason to the surrounding Popover.
-          if (!open && details.reason === 'escape-key') (onEscape ?? close)()
+          // UI reason to the surrounding Popover — and Shift+Tab, on which
+          // Base UI closes a menu for its trigger, here the Popover's.
+          if (!open && (details.reason === 'escape-key' || closedByShiftTab(details))) (onEscape ?? close)()
         }}
         modal={false}
       >
         <ScopeContext.Provider value={scope}>
           <DropdownMenuPortal container={host}>
-            <DropdownMenuPositioner anchor={host} className={styles.embeddedPositioner}>
+            <DropdownMenuPositioner
+              anchor={host}
+              className={styles.embeddedPositioner}
+              onFocus={(event) => {
+                // From a flyout too: Base UI hands Tab on out of it to here.
+                if (!restsPastLevel(event, level.current) || !host.current) return
+                const next = nextTabStop(host.current)
+                if (next) {
+                  next.focus()
+                } else {
+                  // Nothing follows it on the page: it closes, and the focus
+                  // leaves the guard for the page.
+                  event.target.blur()
+                  close()
+                }
+              }}
+            >
               <DropdownMenuPopup ref={level} className={styles.level} finalFocus={false}>
                 {children}
               </DropdownMenuPopup>
@@ -465,6 +530,7 @@ export const ContextMenu = ({
   children: ReactNode
 }) => {
   const panel = useRef<HTMLDivElement>(null)
+  const positioner = useRef<HTMLDivElement>(null)
   const previous = useRef<HTMLElement | null>(null)
   const previousAt = useRef<MenuPoint | null>(null)
   if (at !== null && previousAt.current === null) {
@@ -472,6 +538,16 @@ export const ContextMenu = ({
   }
   previousAt.current = at
   const scope = useMemo<Scope>(() => ({ close: onClose }), [onClose])
+  // A context menu opens at a point, not from a place in the tab order. So
+  // the keys that leave it — Escape, Tab, Shift+Tab — give the focus back to
+  // what had it when it opened, as a dismissal that asks for it does; and
+  // where that was nothing (the page), or can no longer take it, to nothing.
+  const giveBack = (): void => {
+    const held = document.activeElement
+    if (!(held instanceof HTMLElement) || !positioner.current?.contains(held)) return
+    if (previous.current?.isConnected) previous.current.focus({ preventScroll: true })
+    if (document.activeElement === held) held.blur()
+  }
   const anchor = useMemo(() => at == null ? null : ({
     getBoundingClientRect: () => ({
       x: at.x,
@@ -497,16 +573,18 @@ export const ContextMenu = ({
   }, [at, onClose])
 
   useDismissOverlays(at !== null, ({ returnFocus }) => {
-    if (returnFocus === true && panel.current?.contains(document.activeElement)) {
-      previous.current?.focus({ preventScroll: true })
-    }
+    if (returnFocus === true) giveBack()
     onClose()
   })
 
   return (
     <DropdownMenu
       open={at !== null}
-      onOpenChange={(open) => { if (!open) onClose() }}
+      onOpenChange={(open, details) => {
+        if (open) return
+        if (details.reason === 'escape-key' || closedByShiftTab(details)) giveBack()
+        onClose()
+      }}
       onOpenChangeComplete={(open) => {
         if (open) panel.current?.querySelector<HTMLElement>(ROW_SELECTOR)?.focus({ preventScroll: true })
       }}
@@ -515,12 +593,18 @@ export const ContextMenu = ({
       <ScopeContext.Provider value={scope}>
         <DropdownMenuPortal>
           <DropdownMenuPositioner
+            ref={positioner}
             anchor={anchor}
             positionMethod="fixed"
             side="bottom"
             align="start"
             collisionPadding={8}
             className={styles.contextPositioner}
+            onFocus={(event) => {
+              if (!restsPastLevel(event, panel.current)) return
+              giveBack()
+              onClose()
+            }}
           >
             <DropdownMenuPopup
               ref={panel}
