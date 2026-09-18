@@ -18,6 +18,8 @@ const ICON = fileURLToPath(new URL('./plugin-icon.svg', import.meta.url))
 
 const version = process.env['FAKE_CODEX_VERSION'] ?? '0.149.0'
 const mode = process.env['FAKE_CODEX_MODE'] ?? 'turn'
+/** Whether the release played is `0.<minor>.0` or later, for what arrived with one. */
+const since = (minor) => Number(version.split('.')[1]) >= minor
 
 if (process.argv.includes('--version')) {
   /* A test can hold this answer open, to put a shutdown inside the window
@@ -88,28 +90,32 @@ let TURN = 'turn-e2e'
 let threadCounter = 0
 const nextThreadId = () => (threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`)
 
-const thread = (overrides = {}) => ({
-  id: THREAD,
-  sessionId: THREAD,
-  forkedFromId: null,
-  preview: 'List the files here.',
-  ephemeral: false,
-  modelProvider: 'openai',
-  createdAt: 1_700_000_000,
-  updatedAt: 1_700_000_100,
-  status: { type: 'idle' },
-  path: '/tmp/rollout.jsonl',
-  cwd: '/w',
-  cliVersion: version,
-  source: 'vscode',
-  threadSource: null,
-  agentNickname: null,
-  agentRole: null,
-  gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
-  name: null,
-  turns: [],
-  ...overrides,
-})
+const thread = (overrides = {}) => {
+  const described = {
+    id: THREAD,
+    sessionId: THREAD,
+    forkedFromId: null,
+    preview: 'List the files here.',
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    path: '/tmp/rollout.jsonl',
+    cwd: '/w',
+    cliVersion: version,
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
+    name: null,
+    turns: [],
+    ...overrides,
+  }
+  // How Codex keeps this thread's history, which it reports on every thread.
+  return { historyMode: historyOf(described.id).mode, ...described }
+}
 
 /**
  * Thread settings, the way the real app-server keeps them (observed on
@@ -313,6 +319,109 @@ const storedThreads = () => [
       '<context source="Git">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes">\nStatus: ## main\n</context>',
   }),
 ].filter((t) => !deletedThreads.has(t.id))
+
+/**
+ * What Codex has stored of each thread's history, kept the two ways Codex
+ * keeps one (the adapter's `history.ts`; measured on 0.145.0 and 0.155.0 with
+ * `script/probe/paginated-history.mjs`):
+ *
+ * - `paginated`, every thread Codex starts from 0.151.0: paged by
+ *   `thread/turns/list` and `thread/items/list`, undone by `thread/revert`
+ *   (from 0.148.0), refused `thread/rollback`, and read whole only with a
+ *   `deprecationNotice` — from 0.151.0; before, not at all;
+ * - `legacy`, every thread before 0.151.0: read whole, undone by
+ *   `thread/rollback`, refused `thread/items/list` and `thread/revert`.
+ *
+ * The four listed threads keep the one turn they have always read back as, in
+ * the mode the release played starts threads in. Two more are listed nowhere
+ * and read by id: `thread-paged`, three turns kept in pages, and
+ * `thread-legacy`, two kept whole — one conversation from each side of
+ * 0.151.0, whichever release this is. A thread started here has nothing
+ * stored, and nothing the fake plays on one is stored either: a test that
+ * reads, forks or undoes a history reads one of these.
+ */
+const NEW_HISTORY = since(151) ? 'paginated' : 'legacy'
+/** Codex's own words, for every client but its terminal (0.155.0 `thread_processor.rs`). */
+const DEPRECATED = {
+  rollback: 'thread/rollback is deprecated and will be removed soon',
+  read: 'Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.',
+  resume: 'Full-history hydration is deprecated for paginated threads; use `excludeTurns: true`, then page with `thread/turns/list` and `thread/items/list`.',
+}
+const pastTurn = (id, items, startedAt) => ({ id, items, itemsView: 'full', status: 'completed', error: null, startedAt, completedAt: startedAt + 4, durationMs: 4000 })
+const asked = (id, text) => ({ type: 'userMessage', id, clientId: null, content: [{ type: 'text', text, text_elements: [] }] })
+const answered = (id, text) => ({ type: 'agentMessage', id, text, phase: null, memoryCitation: null, delivery: null })
+const histories = new Map([
+  ...['thread-e2e', 'thread-2', 'thread-3', 'thread-4'].map((id) => [
+    id,
+    { mode: NEW_HISTORY, stored: true, turns: [pastTurn('turn-old', [asked('old-1', 'first page'), answered('old-2', 'second page')], 1_700_000_000)] },
+  ]),
+  ['thread-paged', {
+    mode: 'paginated',
+    stored: true,
+    turns: [
+      pastTurn('turn-p1', [asked('p1-ask', 'What is in here?'), answered('p1-answer', 'A README and a src folder.')], 1_700_000_200),
+      pastTurn('turn-p2', [
+        asked('p2-ask', 'Run the tests.'),
+        { type: 'commandExecution', id: 'p2-run', command: 'npm test', cwd: '/w', processId: null, source: 'agent', status: 'completed', commandActions: [{ type: 'unknown', command: 'npm test' }], aggregatedOutput: '3 passing\n', exitCode: 0, durationMs: 900 },
+        answered('p2-answer', 'All three pass.'),
+      ], 1_700_000_300),
+      pastTurn('turn-p3', [asked('p3-ask', 'Write it up.'), answered('p3-answer', 'Done, in NOTES.md.')], 1_700_000_400),
+    ],
+  }],
+  ['thread-legacy', {
+    mode: 'legacy',
+    stored: true,
+    turns: [
+      pastTurn('turn-l1', [asked('l1-ask', 'Say hello.'), answered('l1-answer', 'Hello.')], 1_700_000_500),
+      pastTurn('turn-l2', [asked('l2-ask', 'Say goodbye.'), answered('l2-answer', 'Goodbye.')], 1_700_000_600),
+    ],
+  }],
+])
+/** A thread's history. A thread nothing is stored for yet — one started here — is empty. */
+const historyOf = (threadId) => {
+  if (!histories.has(threadId)) histories.set(threadId, { mode: NEW_HISTORY, stored: false, turns: [] })
+  return histories.get(threadId)
+}
+/** Codex's words for a thread with nothing stored, which has had no first message. */
+const unmaterialized = (threadId, what) => ({
+  code: -32600,
+  message: `thread ${threadId} is not materialized yet; ${what} is unavailable before first user message`,
+})
+/**
+ * One page of a listing: at most `limit`, clamped as Codex clamps it and then
+ * to two, so every cursor gets followed; ordered by `sortDirection`, else by
+ * the listing's own default. The cursor is opaque to the client, as Codex's is.
+ */
+const pageOf = (entries, params, direction, scope) => {
+  const ordered = (params.sortDirection ?? direction) === 'desc' ? [...entries].reverse() : entries
+  const from = params.cursor ? JSON.parse(params.cursor).from : 0
+  const size = Math.min(Math.max(params.limit ?? 25, 1), 100, 2)
+  const data = ordered.slice(from, from + size)
+  return {
+    data,
+    nextCursor: from + size < ordered.length ? JSON.stringify({ scope, from: from + size }) : null,
+    backwardsCursor: data.length > 0 ? JSON.stringify({ scope, from, anchor: true }) : null,
+  }
+}
+/**
+ * What `thread/resume` and `thread/fork` do with a history before they answer.
+ * A fork keeps its source's history, kept the same way; a Codex before
+ * 0.151.0 cannot fork a paginated one at all. Either verb asked for the turns
+ * of a paginated thread says Codex has deprecated that — the turns themselves
+ * are not sent, since nothing here asks for them any more. Returns a refusal,
+ * or null.
+ */
+const historyVerb = (method, params) => {
+  const source = historyOf(params.threadId)
+  if (method === 'thread/fork') {
+    if (source.mode === 'paginated' && !since(151)) return { code: -32601, message: 'paginated_threads is not supported yet' }
+    histories.set(THREAD, { mode: source.mode, stored: source.stored, turns: source.turns.map((turn) => ({ ...turn })) })
+  }
+  if (!params.excludeTurns && source.mode === 'paginated' && since(151)) {
+    notify('deprecationNotice', { summary: DEPRECATED.resume, details: null })
+  }
+  return null
+}
 
 /** dynamicTools the client declared on thread/start, so the tool round trip is testable. */
 let declaredTools = []
@@ -752,6 +861,10 @@ rl.on('line', (line) => {
     case 'thread/start': {
       THREAD = nextThreadId()
       TURN = `turn-${THREAD}`
+      // Nothing stored yet, even under an id the fake has handed out before;
+      // kept the way this release keeps a new thread unless asked otherwise,
+      // and an ephemeral one is never paged.
+      histories.set(THREAD, { mode: params?.historyMode ?? (params?.ephemeral ? 'legacy' : NEW_HISTORY), stored: false, turns: [] })
       declaredTools = flattenDynamicTools(params?.dynamicTools ?? [])
       // Codex reserves these namespaces for its own Responses tools and
       // refuses the whole thread/start on a collision. Still true on 0.149.0,
@@ -789,6 +902,11 @@ rl.on('line', (line) => {
       }
       THREAD = method === 'thread/resume' ? params.threadId : nextThreadId()
       TURN = `turn-${THREAD}`
+      const refused = historyVerb(method, params)
+      if (refused) {
+        send({ id, error: refused })
+        return
+      }
       const problem = applySettings(params ?? {}, { sandboxKey: 'sandbox' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
@@ -804,10 +922,62 @@ rl.on('line', (line) => {
       send({ id, result: {} })
       return
 
-    case 'thread/rollback':
-      notify('warning', { threadId: params.threadId, message: `ROLLBACK ${params.numTurns}` })
-      send({ id, result: { thread: thread() } })
+    case 'thread/rollback': {
+      // Said to every client but Codex's own terminal, before anything else.
+      notify('deprecationNotice', { summary: DEPRECATED.rollback, details: null })
+      const history = historyOf(params.threadId)
+      if (history.mode === 'paginated') {
+        send({ id, error: { code: -32600, message: 'paginated threads do not support thread/rollback' } })
+        return
+      }
+      if (!(params.numTurns >= 1)) {
+        send({ id, error: { code: -32600, message: 'numTurns must be >= 1' } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: { code: -32600, message: 'failed to load thread history for rollback replay: invalid thread-store request: failed to resolve rollout path: file does not exist' } })
+        return
+      }
+      // More turns than there are drops them all.
+      history.turns = history.turns.slice(0, Math.max(0, history.turns.length - params.numTurns))
+      send({ id, result: { thread: thread({ id: params.threadId, turns: history.turns }) } })
       return
+    }
+
+    case 'thread/revert': {
+      if (!since(148)) {
+        // Codex's refusal lists every method it knows; the head of it is enough.
+        send({ id, error: { code: -32600, message: 'Invalid request: unknown variant `thread/revert`, expected one of `initialize`, `thread/start`, `thread/resume`, `thread/fork`, `thread/rollback`, `thread/read`, `thread/turns/list`, `thread/items/list`' } })
+        return
+      }
+      const history = historyOf(params.threadId)
+      if (history.mode !== 'paginated') {
+        send({ id, error: { code: -32600, message: 'thread/revert only supports paginated threads' } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: { code: -32603, message: `failed to revert session: thread ${params.threadId} not found` } })
+        return
+      }
+      const at = history.turns.findIndex((turn) => turn.id === params.beforeTurnId)
+      if (at === -1) {
+        send({ id, error: { code: -32600, message: `turn not found: ${params.beforeTurnId}` } })
+        return
+      }
+      // The turn named and every one after it go; the thread is reloaded
+      // behind the call and answers with no turns of its own.
+      history.turns = history.turns.slice(0, at)
+      send({
+        id,
+        result: {
+          thread: thread({ id: params.threadId }),
+          turnsBackwardsCursor: history.turns.length > 0 ? JSON.stringify({ scope: 'turns', from: 0, anchor: true }) : null,
+          itemsBackwardsCursor: history.turns.length > 0 ? JSON.stringify({ scope: 'items', from: 0, anchor: true }) : null,
+        },
+      })
+      notify('thread/reverted', { threadId: params.threadId })
+      return
+    }
 
     case 'thread/compact/start':
       send({ id, result: {} })
@@ -1252,64 +1422,63 @@ rl.on('line', (line) => {
       }
       // The thread that was asked for, as the app-server answers: a read and a
       // listing describe the same conversation, down to its stored preview.
-      // A thread the listing does not hold is one this process started.
-      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread()
-      send({
-        id,
-        result: {
-          thread: {
-            ...stored,
-            turns: [
-              {
-                id: 'turn-old',
-                items: [],
-                // Force the adapter down the pagination path.
-                itemsView: 'notLoaded',
-                status: 'completed',
-                error: null,
-                startedAt: 1_700_000_000,
-                completedAt: 1_700_000_001,
-                durationMs: 1000,
-              },
-            ],
-          },
-        },
-      })
+      // A thread the listing does not hold is one this process started, or
+      // one of the unlisted histories.
+      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId })
+      const history = historyOf(params.threadId)
+      if (!params.includeTurns) {
+        send({ id, result: { thread: { ...stored, turns: [] } } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: unmaterialized(params.threadId, 'includeTurns') })
+        return
+      }
+      if (history.mode === 'paginated') {
+        if (!since(151)) {
+          send({ id, error: { code: -32600, message: 'paginated threads do not support thread/read(includeTurns=true)' } })
+          return
+        }
+        notify('deprecationNotice', { summary: DEPRECATED.read, details: null })
+      }
+      send({ id, result: { thread: { ...stored, turns: history.turns } } })
+      return
+    }
+
+    case 'thread/turns/list': {
+      // Either history lists its turns, newest first unless asked otherwise:
+      // without items, with a summary of them — the ask and the last answer —
+      // or with all of them.
+      const history = historyOf(params.threadId)
+      if (!history.stored) {
+        send({ id, error: unmaterialized(params.threadId, 'thread/turns/list') })
+        return
+      }
+      const view = params.itemsView ?? 'summary'
+      const page = pageOf(history.turns, params, 'desc', 'turns')
+      const shown = (turn) =>
+        view === 'full'
+          ? turn.items
+          : view === 'summary'
+            ? [turn.items.find((item) => item.type === 'userMessage'), turn.items.findLast((item) => item.type === 'agentMessage')].filter(Boolean)
+            : []
+      send({ id, result: { ...page, data: page.data.map((turn) => ({ ...turn, items: shown(turn), itemsView: view })) } })
       return
     }
 
     case 'thread/items/list': {
-      // Two pages, so cursor handling is genuinely exercised. 0.149.0 wraps each
-      // item in an entry tagged with the turn it came from.
-      const entry = (item) => ({ turnId: params.turnId ?? TURN, item })
-      const page = params.cursor === 'page-2'
-        ? {
-            data: [
-              entry({
-                type: 'agentMessage',
-                id: 'old-2',
-                text: 'second page',
-                phase: null,
-                memoryCitation: null,
-                delivery: null,
-              }),
-            ],
-            nextCursor: null,
-            backwardsCursor: null,
-          }
-        : {
-            data: [
-              entry({
-                type: 'userMessage',
-                id: 'old-1',
-                clientId: null,
-                content: [{ type: 'text', text: 'first page', text_elements: [] }],
-              }),
-            ],
-            nextCursor: 'page-2',
-            backwardsCursor: null,
-          }
-      send({ id, result: page })
+      // A paginated thread's items, oldest first unless asked otherwise, each
+      // in an entry naming its turn (from 0.145.0). Only a paginated thread
+      // with something stored has any to page.
+      const history = historyOf(params.threadId)
+      if (history.mode !== 'paginated' || !history.stored) {
+        send({ id, error: { code: -32601, message: 'thread/items/list is not supported yet' } })
+        return
+      }
+      const entries = history.turns
+        .filter((turn) => params.turnId == null || turn.id === params.turnId)
+        .flatMap((turn) => turn.items.map((item) => ({ turnId: turn.id, item })))
+      send({ id, result: pageOf(entries, params, 'asc', 'items') })
       return
     }
 
