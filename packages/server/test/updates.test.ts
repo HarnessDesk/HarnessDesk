@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { tempDir } from './scratch.js'
 
-import type { RuntimeId, RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
+import { CodexRuntime } from '@harnessdesk/adapter-codex'
+import type { AgentRuntime, RuntimeId, RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { UpdateChecker, isNewer, upgradeCommand } from '../src/updates.js'
@@ -157,17 +159,21 @@ const upgradable = (running: string) => {
 
 const deskWith = async (
   t: { after: (fn: () => Promise<void>) => void },
-  runtime: FakeRuntime,
-  /** What the install service chose for the agent, when a test needs one. */
-  chosen?: string,
+  runtime: AgentRuntime,
+  options: {
+    /** What the install service chose for the agent, when a test needs one. */
+    chosen?: string
+    /** The registry, when a test needs to hold its answer. */
+    fetch?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>
+  } = {},
 ) => {
   const dir = tempDir('hd-update-host-')
   const host = new Host({
     logger: silent,
     state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0,
-    updates: new UpdateChecker({ cachePath: join(dir, 'update-checks.json'), fetch: registry(LATEST).fetch }),
-    ...(chosen ? { installs: { last: () => ({ chosen: { version: chosen } }) } as never } : {}),
+    updates: new UpdateChecker({ cachePath: join(dir, 'update-checks.json'), fetch: options.fetch ?? registry(LATEST).fetch }),
+    ...(options.chosen ? { installs: { last: () => ({ chosen: { version: options.chosen } }) } as never } : {}),
   })
   t.after(() => host.dispose())
   const pushed: WireNotification[] = []
@@ -176,6 +182,7 @@ const deskWith = async (
   await host.start()
   const id = runtime.info.id
   return {
+    host,
     refresh: () => host.call('runtime/refreshCatalog', { runtime: id }),
     /** What a window opening now is given. */
     shown: async (): Promise<RuntimeInfo> =>
@@ -239,10 +246,61 @@ test('an agent shown with the version its install chose is measured against that
   // install service chose (#354). Measured against the placeholder instead,
   // every release is newer than it.
   const { runtime } = upgradable('0.0.0-dev')
-  const desk = await deskWith(t, runtime, LATEST)
+  const desk = await deskWith(t, runtime, { chosen: LATEST })
   await settle()
 
   const shown = await desk.shown()
   assert.equal(shown.version, LATEST)
   assert.equal(shown.update, undefined)
+})
+
+const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url))
+
+test('over Codex: "Refresh models" onto the release it was offered takes the notice about it away', async (t) => {
+  /* The real adapter over its fake, which is the path the bug took: an idle
+     Codex restarts onto the build it finds on disk — `checkInstallation`,
+     which "Refresh models" runs first — and its own `info.version` moves
+     under a host that measured its notice a minute before. As in the
+     adapter's own test, discovery probes `--version` in this process's
+     environment, so setting the variable is upgrading the binary. */
+  const saved = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.149.0'
+  t.after(async () => {
+    if (saved === undefined) delete process.env['FAKE_CODEX_VERSION']
+    else process.env['FAKE_CODEX_VERSION'] = saved
+  })
+  const desk = await deskWith(t, new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test' }))
+  await until(async () => (await desk.shown()).update?.version === LATEST, 'the notice for 0.149.0')
+  assert.equal((await desk.shown()).version, 'codex-cli 0.149.0')
+
+  process.env['FAKE_CODEX_VERSION'] = LATEST
+  await desk.refresh()
+  await settle()
+
+  const shown = await desk.shown()
+  assert.equal(shown.version, `codex-cli ${LATEST}`)
+  assert.equal(shown.update, undefined, 'a window opening now is told the build it runs is behind itself')
+  assert.equal(desk.told()?.version, `codex-cli ${LATEST}`)
+  assert.equal(desk.told()?.update, undefined, 'the open window is told the build it runs is behind itself')
+})
+
+test('a runtime registered in the place of one being measured is measured on its own account', async (t) => {
+  // The registry is held, so the first runtime's measurement is still in
+  // flight when the second is registered under the same id and a window opens.
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const fetch = async () => {
+    await held
+    return { ok: true, json: async () => ({ latest: LATEST }) }
+  }
+  const desk = await deskWith(t, upgradable('0.149.0').runtime, { fetch })
+  desk.host.register(upgradable('0.150.0').runtime)
+  const opening = await desk.shown()
+  assert.equal(opening.version, '0.150.0')
+  assert.equal(opening.update, undefined, 'nothing is known until the registry answers')
+
+  release()
+  await until(() => desk.told()?.version === '0.150.0' && desk.told()?.update?.version === LATEST, 'the second runtime\'s notice')
 })

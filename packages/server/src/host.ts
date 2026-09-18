@@ -403,8 +403,12 @@ export class Host {
    * version. See `#updateFor`.
    */
   readonly #updates = new Map<string, { readonly against: string | null; readonly update: RuntimeUpdate | null }>()
-  /** Runtimes whose advisory is being measured now, so a burst of reads measures once. */
-  readonly #measuringUpdates = new Set<string>()
+  /**
+   * Runtimes whose advisory is being measured now, so a burst of reads measures
+   * once. The runtime itself, not its id: one registered in its place is
+   * another runtime, and its measurement is its own.
+   */
+  readonly #measuringUpdates = new WeakSet<AgentRuntime>()
   readonly #catalogs: CatalogRefresher
   /** Local sources bound to a runtime by the wiring; see `bindUsage`. */
   readonly #meters = new Map<RuntimeId, UsageMeter>()
@@ -3238,8 +3242,8 @@ export class Host {
   async #checkForUpdate(runtime: AgentRuntime): Promise<void> {
     const updates = this.options.updates
     const id = runtime.info.id
-    if (!updates || this.#measuringUpdates.has(id)) return
-    this.#measuringUpdates.add(id)
+    if (!updates || this.#measuringUpdates.has(runtime)) return
+    this.#measuringUpdates.add(runtime)
     try {
       // A runtime that moves while it is being measured is measured again, a
       // few times at most: the answer is only worth keeping for the build
@@ -3264,7 +3268,7 @@ export class Host {
     } catch (error) {
       this.#logger.debug('update check failed', { runtime: id, error: String(error) })
     } finally {
-      this.#measuringUpdates.delete(id)
+      this.#measuringUpdates.delete(runtime)
     }
   }
 
