@@ -15,11 +15,13 @@ import {
   sessionId,
   turnId,
   type AgentEvent,
+  type FlowRun,
   type HostMethodName,
   type HostParams,
   type HostToClient,
   type Session,
   type SessionSummary,
+  type TeamState,
 } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
@@ -2057,6 +2059,189 @@ test('worktree/create refuses a repository reached through a link in an open fol
     }
     assert.equal(created.branch, 'harnessdesk/in-vendored')
     assert.deepEqual((await holds(vendored)).branches, ['harnessdesk/in-vendored'])
+  })
+})
+
+/** The flow the room test below starts: one agent, in a worktree of its own. */
+const ISOLATING_FLOW = `name: Probe
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    isolate: true
+    outcomes: [done]
+seed: { role: worker, title: "Do it" }
+`
+
+/** The same agent in the room's own folder, for a folder no worktree can be cut from. */
+const SEATING_FLOW = `name: Probe
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    outcomes: [done]
+seed: { role: worker, title: "Do it" }
+`
+
+test('team/room/create refuses a repository nobody opened, flow/start refuses a room whose folder was closed, and a room in any folder or repository opened here still starts its flow', async (t) => {
+  // The team plane took a room's root as it came, and the host's `isolate`
+  // hands a room's folder straight to the worktree service, past the handler
+  // that holds `worktree/create` to what is open. So with one repository open,
+  // a room could be made in another, and a flow started in it cut a branch and
+  // a worktree there.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so that nothing but what each subtest sets up
+  // stands between the open repository and the others.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-room-root-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repository = async (path: string): Promise<string> => {
+    await mkdir(path)
+    await gitIn(path, 'init', '-q', '-b', 'main')
+    await gitIn(path, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+    return path
+  }
+  // What a repository holds of HarnessDesk's: its branches, and its checkouts
+  // as git lists them.
+  const holds = async (repo: string): Promise<{ branches: string[]; checkouts: string[] }> => ({
+    branches: (await gitIn(repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/harnessdesk/'))
+      .split('\n')
+      .filter((line) => line.length > 0),
+    checkouts: (await gitIn(repo, 'worktree', 'list', '--porcelain'))
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length)),
+  })
+  const untouched = (repo: string) => ({ branches: [], checkouts: [repo] })
+  const refused = (folder: string): string =>
+    `${folder} is outside every folder and repository opened here. Open it first.`
+  const startFlow = (room: string): Promise<FlowRun> =>
+    client.call('flow/start', { room, source: ISOLATING_FLOW }) as Promise<FlowRun>
+  // A room made there and its flow started, the way the room dialog does both,
+  // or the refusal of the room.
+  const attempt = async (root: string, name: string): Promise<unknown> => {
+    let room: TeamState
+    try {
+      room = (await client.call('team/room/create', { root, name })) as TeamState
+    } catch (error) {
+      return { refused: (error as Error).message }
+    }
+    return startFlow(room.id).then(
+      (run) => ({ room: room.root, flow: run.state }),
+      (error: Error) => ({ room: room.root, flow: error.message }),
+    )
+  }
+
+  const opened = await repository(join(scratch, 'opened'))
+  await client.call('workspace/open', { path: opened })
+
+  await t.test('a room in a repository nobody opened is refused, and nothing is cut there', async () => {
+    const other = await repository(join(scratch, 'other'))
+    const answer = await attempt(other, 'elsewhere')
+    // Read before the answer, so a room that was let in fails on what its flow
+    // cut there rather than only on having been made.
+    assert.deepEqual(await holds(other), untouched(other))
+    assert.deepEqual(answer, { refused: refused(other) })
+    assert.deepEqual(await client.call('team/rooms', { root: other }), [])
+  })
+
+  await t.test('reached through a link in the open one, it is refused as well', async () => {
+    const behind = await repository(join(scratch, 'behind'))
+    const link = join(opened, 'elsewhere')
+    await symlink(behind, link)
+    // The control: the link leads to that repository, so a refusal is about
+    // where the path leads and not about a path that leads nowhere.
+    assert.equal(await realpath(link), behind)
+    const answer = await attempt(link, 'through the link')
+    assert.deepEqual(await holds(behind), untouched(behind))
+    assert.deepEqual(answer, { refused: refused(behind) })
+  })
+
+  await t.test('spelled relative, a root is refused, even one that leads into a repository opened here', async () => {
+    // A relative path names no folder until something resolves it, and what
+    // resolved this one was the host's working directory, wherever the app
+    // was started. So the root below is the one relative spelling that
+    // resolution would admit: from this process's working directory, which is
+    // the host's, into a repository opened here.
+    const near = await repository(join(scratch, 'near'))
+    await client.call('workspace/open', { path: near })
+    const spelled = relative(process.cwd(), near)
+    // The controls: the spelling is relative, and it leads there.
+    assert.equal(isAbsolute(spelled), false)
+    assert.equal(await realpath(spelled), near)
+    const answer = await attempt(spelled, 'relative')
+    assert.deepEqual(await holds(near), untouched(near))
+    assert.deepEqual(answer, { refused: `${spelled} is not an absolute path.` })
+  })
+
+  await t.test('a room whose folder is no longer open starts no flow, and nothing is cut there', async () => {
+    // A room outlives its folder being open: forgetting the folder leaves the
+    // room, and so does every launch after it.
+    const closed = await repository(join(scratch, 'closed'))
+    await client.call('workspace/open', { path: closed })
+    const room = (await client.call('team/room/create', { root: closed, name: 'was open' })) as TeamState
+    await client.call('workspace/forget', { path: closed })
+    const answer = await startFlow(room.id).then(
+      (run) => ({ flow: run.state }),
+      (error: Error) => ({ refused: error.message }),
+    )
+    assert.deepEqual(await holds(closed), untouched(closed))
+    assert.deepEqual(answer, { refused: refused(closed) })
+  })
+
+  await t.test('a room in the open repository still isolates its flow', async () => {
+    const room = (await client.call('team/room/create', { root: opened, name: 'here' })) as TeamState
+    const run = await startFlow(room.id)
+    assert.equal(run.state, 'running')
+    const held = await holds(opened)
+    assert.match(held.branches.join(' '), /^harnessdesk\/worker-1-[^ ]+$/)
+    assert.deepEqual(held.checkouts, [opened, ...run.seats.map((seat) => seat.cwd)])
+  })
+
+  await t.test('so does one made from a linked worktree, at its main checkout', async () => {
+    // What the room dialog asks for there: `projectRootOf` names a linked
+    // worktree's main checkout, which is outside every open folder while only
+    // the worktree is open. The repository is open, and that is what admits it.
+    const main = await repository(join(scratch, 'main'))
+    const linked = join(scratch, 'linked')
+    await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
+    await client.call('workspace/open', { path: linked })
+    await assert.rejects(() => client.call('git/status', { root: main }), /outside every open workspace/)
+    const room = (await client.call('team/room/create', { root: main, name: 'from the worktree' })) as TeamState
+    assert.equal(room.root, main)
+    assert.equal((await startFlow(room.id)).state, 'running')
+    assert.equal((await holds(main)).branches.length, 1)
+  })
+
+  await t.test('and so does one in a submodule opened on its own', async () => {
+    // A folder opened here, whatever git lists as its repository's main
+    // checkout: its git directory, inside the superproject's `.git`.
+    const library = await repository(join(scratch, 'library'))
+    const superproject = await repository(join(scratch, 'superproject'))
+    await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'vendored')
+    const vendored = join(superproject, 'vendored')
+    await client.call('workspace/open', { path: vendored })
+    const room = (await client.call('team/room/create', { root: vendored, name: 'vendored' })) as TeamState
+    assert.equal((await startFlow(room.id)).state, 'running')
+    assert.equal((await holds(vendored)).branches.length, 1)
+  })
+
+  await t.test('and a room in a folder in no repository still seats its flow there', async () => {
+    // The folder rule's own case: the repository rule has nothing to say
+    // about a folder git knows nothing of.
+    const plain = join(scratch, 'plain')
+    await mkdir(plain)
+    await client.call('workspace/open', { path: plain })
+    const room = (await client.call('team/room/create', { root: plain, name: 'plain' })) as TeamState
+    const run = (await client.call('flow/start', { room: room.id, source: SEATING_FLOW })) as FlowRun
+    assert.equal(run.state, 'running')
+    assert.deepEqual(
+      run.seats.map((seat) => seat.cwd),
+      [plain],
+    )
   })
 })
 

@@ -73,8 +73,16 @@ export const teamMethods = {
 
   'team/rooms': (ctx, params) => ctx.team.roomsFor(params.root),
 
-  'team/room/create': async (ctx, params) =>
-    ctx.team.stateFor((await ctx.team.createRoom(params.root, params.name)).id),
+  /* Held to what is open before anything is made. A room's folder is where
+     its flows seat agents and cut worktrees, so a room made at any path did
+     both in a repository nobody opened. It keeps the path as it was asked
+     for, links and all: a room in a folder in no repository is keyed by the
+     open folder as it is spelled, which is where the conversations in it
+     resolve to, and `flow/start` asks again before anything is seated. */
+  'team/room/create': async (ctx, params) => {
+    await ctx.workspaces.confineRoom(params.root)
+    return ctx.team.stateFor((await ctx.team.createRoom(params.root, params.name)).id)
+  },
 
   'team/room/rename': (ctx, params) => {
     ctx.team.renameRoom(params.room, params.name)
