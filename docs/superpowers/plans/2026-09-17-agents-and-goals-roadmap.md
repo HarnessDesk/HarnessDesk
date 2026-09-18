@@ -282,13 +282,14 @@ seat an Agent, the sheet lists every candidate and nothing has opened.
   writes one.
 - A flow file's `permission:` keeps today's meaning, and its dry run says so,
   until phase 6 rewrites it as `grant:`.
-- Three tests pin the boundary:
+- Four tests pin the boundary:
   - an `AGENT.md` written before the split (`permission: read`) keeps its old
     meaning and is flagged;
   - one with no key runs as `read` and is flagged;
   - one with `ceiling: read` runs as read-only and is not flagged;
   - one that writes both `permission:` and `ceiling:` is refused, with both
-    lines named, and never resolved by parser precedence.
+    lines named, and never resolved by parser precedence. It is tested in both
+    orders, and neither value may take effect in either.
 - A machine preference for when a runtime cannot hold a ceiling: seat it and
   say so, or refuse. It has two values because it has two situations: a
   conversation someone is watching defaults to the first, and a Goal a trigger
@@ -581,7 +582,9 @@ one new round for the new head, and nothing fired twice. So are its two
 boundaries: two copies of one event delivered at once, and a crash between
 recording a firing and opening its round. The dedupe, the Goal lookup and
 `again` are one idempotent step, and each boundary leaves one Goal and one
-round.
+round. The first boundary is tested with genuinely concurrent deliveries. The
+second is tested with a fresh process and store after the crash, because a
+retry against the same objects in memory proves nothing durable.
 
 **Needs.** 3, 5, 6, 7.
 
