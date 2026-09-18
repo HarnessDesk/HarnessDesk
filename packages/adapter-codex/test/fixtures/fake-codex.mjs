@@ -1056,6 +1056,12 @@ rl.on('line', (line) => {
 
   const { id, method, params } = message
 
+  // FAKE_CODEX_FOLDERS=<file> records which folder each configuration read was
+  // asked about, one JSON line each — null for one asked about none.
+  if (process.env['FAKE_CODEX_FOLDERS'] && (method === 'config/read' || method === 'permissionProfile/list')) {
+    appendFileSync(process.env['FAKE_CODEX_FOLDERS'], `${JSON.stringify({ method, cwd: params?.cwd ?? null })}\n`)
+  }
+
   switch (method) {
     case 'initialize':
       send({
