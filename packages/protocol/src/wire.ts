@@ -1282,6 +1282,10 @@ export interface HostMethods {
   'terminal/close': { params: { readonly terminalId: string }; result: null }
 
   // -- worktrees: one checkout per conversation that asks for one
+  /**
+   * Every checkout of the repository `root` is in, refused for a repository
+   * not opened here. A folder in no repository has none: an empty list.
+   */
   'worktree/list': { params: { readonly root: string }; result: readonly Worktree[] }
   'worktree/create': {
     /** `base` is the commit-ish the new branch starts from; HEAD when absent. */

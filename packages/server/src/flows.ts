@@ -98,6 +98,18 @@ export interface FlowPort {
   turnFailure?(runtime: string, sessionId: string): string | null
   /** Puts a conversation in a room. */
   join(room: string, runtime: string, sessionId: string): Promise<void>
+  /**
+   * Refuses the folder a room works in unless it is in a folder or a
+   * repository the desk has open.
+   *
+   * Asked once, by `start`, before anything is seated. Not per seat: a seat
+   * is a conversation the desk holds, and the desk counts the folder of every
+   * conversation it holds as open, so once one seat sat in the room's folder
+   * the question would answer itself. And not again while the run goes on:
+   * nothing after seating cuts a worktree, and its seats are conversations
+   * like any other, which keep working in a folder somebody has since closed.
+   */
+  confine(folder: string): Promise<void>
   /** A worktree of its own, on a branch of its own, for a role that isolates. */
   isolate(root: string, name: string): Promise<string>
   /** Runs a check's command. Resolves with its exit status, or null if it ran over. */
@@ -359,6 +371,12 @@ export class Flows implements TeamFlows {
         `This flow will not run yet:\n${failed.map((one) => `• ${one.at}: ${one.text}`).join('\n')}`,
       )
     }
+    /* Where the seats open and what an isolating role's worktrees are cut
+       from, held to what is open before any of it happens. A room outlives
+       its folder being open: forgetting the folder leaves the room, and so
+       does every launch after it. */
+    const folder = board.cwd ?? board.root
+    await this.#port.confine(folder)
     const vars: Record<string, string> = {}
     for (const input of flow.inputs) vars[input.id] = request.vars?.[input.id] ?? input.default ?? ''
 
@@ -404,10 +422,9 @@ export class Flows implements TeamFlows {
       if (role.kind !== 'agent') continue
       for (let index = 0; index < role.count; index += 1) {
         const spec = seatAt(role, index)
-        const targetCwd = board.cwd ?? board.root
         const cwd = role.isolate
-          ? await this.#port.isolate(targetCwd, `${role.id}-${index + 1}-${id.slice(-4)}`)
-          : targetCwd
+          ? await this.#port.isolate(folder, `${role.id}-${index + 1}-${id.slice(-4)}`)
+          : folder
         const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
         const live = await this.#port.seat(spec, { cwd, title })
         const held: FlowSeatRecord = {

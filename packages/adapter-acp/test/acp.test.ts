@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
@@ -1653,21 +1655,28 @@ test('an agent error keeps the detail it arrived with', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'acp-detail-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const store = join(dir, 'sessions.json')
-  writeFileSync(store, '{}')
+  // Listed, in a folder that is there, so the load is the agent's to refuse.
+  writeFileSync(
+    store,
+    JSON.stringify({
+      unreadable: { sessionId: 'unreadable', cwd: dir, title: 'Unreadable', updatedAt: new Date().toISOString(), turns: [] },
+    }),
+  )
   const runtime = new AcpRuntime({
     id: 'fake-acp',
     name: 'Fake ACP Agent',
     command: process.execPath,
     args: [FAKE],
-    env: { FAKE_ACP_STORE: store },
+    env: { FAKE_ACP_STORE: store, FAKE_ACP_UNLOADABLE: 'unreadable' },
   })
   await runtime.start()
   try {
     // The fake refuses this load the way Claude Code does: a terse message
     // with the reason in `data`. Losing that half was what left the UI
     // showing "Internal error" and nothing else.
-    await assert.rejects(() => runtime.resumeSession(sessionId('never-stored')), (error: Error) => {
-      assert.equal((error as { details?: string }).details, 'the store has no such id')
+    await assert.rejects(() => runtime.resumeSession(sessionId('unreadable')), (error: Error) => {
+      assert.equal(error.message, 'Internal error')
+      assert.equal((error as { details?: string }).details, 'the transcript could not be read')
       return true
     })
 
@@ -1681,6 +1690,484 @@ test('an agent error keeps the detail it arrived with', async (t) => {
   } finally {
     await runtime.dispose()
   }
+})
+
+/**
+ * Where a stored conversation is reopened, and what happens when its agent
+ * does not say.
+ *
+ * The folder comes from the agent's own `session/list`, and every reopen is a
+ * `session/load` in it. Where the listing had no row for the conversation it
+ * used to be this process's working directory — the dev checkout under `pnpm
+ * dev`, `/` from Finder — and the agent loaded the conversation there. The
+ * host then held a conversation whose folder was its own working directory,
+ * and a conversation's folder is an open root. So these read what the agent
+ * was asked to open, off the agent's own record (`FAKE_ACP_OPENS`): a refusal
+ * is told apart from a load that happened somewhere else.
+ */
+interface StoredConversation {
+  readonly cwd: string
+  readonly turns?: readonly (readonly string[])[]
+}
+
+interface Opened {
+  readonly method: string
+  readonly sessionId: string
+  readonly cwd: string
+}
+
+/**
+ * An agent keeping the conversations `stored` names, each in its folder. The
+ * callback is handed a scratch folder of the test's own to make those in.
+ */
+const storedAgent = async (
+  t: TestContext,
+  stored: (dir: string) => Readonly<Record<string, StoredConversation>>,
+  env: Readonly<Record<string, string>> = {},
+): Promise<{ runtime: AcpRuntime; opened: () => Opened[] }> => {
+  const { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  // The real path, so a folder is compared as the agent is handed it.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'acp-where-')))
+  const store = join(dir, 'sessions.json')
+  const opens = join(dir, 'opens.jsonl')
+  const at = new Date().toISOString()
+  writeFileSync(
+    store,
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(stored(dir)).map(([id, { cwd, turns = [] }]) => [
+          id,
+          { sessionId: id, cwd, title: id, updatedAt: at, turns },
+        ]),
+      ),
+    ),
+  )
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: store, FAKE_ACP_OPENS: opens, ...env },
+  })
+  // The agent goes before the folder it writes in.
+  t.after(async () => {
+    await runtime.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  })
+  await runtime.start()
+  const opened = (): Opened[] => {
+    let text = ''
+    try {
+      text = readFileSync(opens, 'utf8')
+    } catch {
+      // Nothing opened yet.
+    }
+    return text
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Opened)
+  }
+  return { runtime, opened }
+}
+
+/** A folder made inside `dir`, for a conversation to have run in. */
+const folderIn = (dir: string, name: string): string => {
+  const path = join(dir, name)
+  mkdirSync(path)
+  return path
+}
+
+/** What a reopen came to: the folder it answered in, or the refusal. */
+const reopening = (runtime: AcpRuntime, id: string) =>
+  runtime.resumeSession(sessionId(id)).then(
+    (session) => ({ cwd: session.settings().cwd }),
+    (error: Error) => ({ refused: error.message, gone: isSessionGone(error) }),
+  )
+
+test('a conversation its agent does not list is refused by name, and loaded nowhere', async (t) => {
+  // Both ran in a folder that is still there, so nothing but the listing
+  // tells them apart. The agent serves both and lists one — as Claude Code's
+  // bridge leaves out a conversation its own listing has no folder for, and
+  // Cursor's lists only the workspaces it has been shown.
+  let listedAt = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      listedAt = folderIn(dir, 'listed')
+      return {
+        listed: { cwd: listedAt, turns: [['in the listing']] },
+        hidden: { cwd: folderIn(dir, 'hidden'), turns: [['out of it']] },
+      }
+    },
+    { FAKE_ACP_UNLISTED: 'hidden' },
+  )
+
+  // The control: listed, it reopens in the folder it ran in, with its turn.
+  assert.deepEqual(await reopening(runtime, 'listed'), { cwd: listedAt })
+  assert.equal((await runtime.readSession(sessionId('listed'))).turns.length, 1)
+
+  // Not listed, it is refused by name, and as gone: asking again asks the
+  // same listing.
+  const refusal = 'Fake ACP Agent does not list conversation hidden, so the folder it worked in is not known.'
+  assert.deepEqual(await reopening(runtime, 'hidden'), { refused: refusal, gone: true })
+  // A read is a load too.
+  assert.equal(
+    await runtime.readSession(sessionId('hidden')).then(
+      () => 'read',
+      (error: Error) => error.message,
+    ),
+    refusal,
+  )
+  // The agent was never asked to load it, anywhere — least of all here.
+  assert.deepEqual(opened(), [{ method: 'session/load', sessionId: 'listed', cwd: listedAt }])
+})
+
+test("a conversation on a later page of its agent's listing reopens where it ran", async (t) => {
+  // One row a page, and a fourth conversation on none of them.
+  let thirdAt = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      thirdAt = folderIn(dir, 'third')
+      return {
+        first: { cwd: folderIn(dir, 'first') },
+        second: { cwd: folderIn(dir, 'second') },
+        third: { cwd: thirdAt },
+        unlisted: { cwd: thirdAt },
+      }
+    },
+    { FAKE_ACP_LIST_PAGE: '1', FAKE_ACP_UNLISTED: 'unlisted' },
+  )
+
+  // Found on the third page, in its own folder.
+  assert.deepEqual(await reopening(runtime, 'third'), { cwd: thirdAt })
+  // Every page read and still no row: refused, and the walk ends.
+  assert.deepEqual(await reopening(runtime, 'unlisted'), {
+    refused: 'Fake ACP Agent does not list conversation unlisted, so the folder it worked in is not known.',
+    gone: true,
+  })
+  assert.deepEqual(opened(), [{ method: 'session/load', sessionId: 'third', cwd: thirdAt }])
+})
+
+/**
+ * What a listing answers when the agent pages it.
+ *
+ * Every page, in one answer. It used to read the first page and drop the
+ * agent's cursor, so nothing older was ever listed. Handing the cursor on, as
+ * the Codex adapter does, would reach the older pages only where the
+ * interface follows `nextCursor`: the sidebar does for the agent it pages and
+ * for no other, and the archive reads one page per agent. ACP keeps no
+ * archive, so the host takes archived rows out of each answer itself, and a
+ * conversation archived past the first page would have been in neither list.
+ * Every agent measured so far answers in one page anyway (claude-agent-acp
+ * 0.77.0, the Cursor bridge, OpenCode 1.18.30, Antigravity 1.1.1 with 665
+ * rows).
+ */
+test('a paged listing is listed whole, each conversation once, the draft probe on none of it', async (t) => {
+  // Two rows a page, five conversations: three pages.
+  const { runtime } = await storedAgent(
+    t,
+    (dir) => ({
+      first: { cwd: folderIn(dir, 'first') },
+      second: { cwd: folderIn(dir, 'second') },
+      third: { cwd: folderIn(dir, 'third') },
+      fourth: { cwd: folderIn(dir, 'fourth') },
+      fifth: { cwd: folderIn(dir, 'fifth'), turns: [['on the last page']] },
+    }),
+    { FAKE_ACP_LIST_PAGE: '2' },
+  )
+  // One of them open here, from the last page, and the draft probe beside it.
+  await runtime.resumeSession(sessionId('fifth'))
+  await runtime.defaultSessionOptions()
+
+  const listed = await runtime.listSessions()
+  assert.deepEqual(
+    listed.data.map((row) => [String(row.id), row.title, row.status.type]).sort(),
+    [
+      // Open here, so listed as open — once — under the name its row on the
+      // last page gives it.
+      ['fifth', 'fifth', 'idle'],
+      ['first', 'first', 'notLoaded'],
+      ['fourth', 'fourth', 'notLoaded'],
+      ['second', 'second', 'notLoaded'],
+      ['third', 'third', 'notLoaded'],
+    ],
+  )
+  // Nothing left to ask for.
+  assert.equal(listed.nextCursor, null)
+})
+
+/**
+ * A listing that cannot be read to its end is a failure, not a shorter list.
+ * The sidebar keeps the list it has when a listing fails, and the archive
+ * names an agent that did not answer; a shorter list was taken for the whole
+ * one by both.
+ */
+const unlistable = (why: string): string => `Fake ACP Agent could not list its conversations (${why}).`
+
+test('a listing that fails on any page is a failure, not a shorter list', async (t) => {
+  for (const fails of ['1', 'later']) {
+    await t.test(fails === '1' ? 'on the first page' : 'past the first page', async (t) => {
+      const { runtime } = await storedAgent(
+        t,
+        (dir) => ({
+          first: { cwd: folderIn(dir, 'first') },
+          second: { cwd: folderIn(dir, 'second') },
+          third: { cwd: folderIn(dir, 'third') },
+        }),
+        { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_FAILS: fails },
+      )
+      await assert.rejects(runtime.listSessions(), { message: unlistable('Internal error: the index is locked') })
+    })
+  }
+})
+
+// A bound of its own: `pnpm verify` runs with no test timeout, and a walk that
+// never ends would hang the gate rather than fail it.
+test('a cursor the agent hands back twice ends the walk, as a failure', { timeout: 30_000 }, async (t) => {
+  // Every page names itself as the next one: without an end, a listing and a
+  // reopen would ask for it forever, and what was read by then is not the list.
+  const { runtime } = await storedAgent(
+    t,
+    (dir) => ({
+      first: { cwd: folderIn(dir, 'first') },
+      second: { cwd: folderIn(dir, 'second') },
+      third: { cwd: folderIn(dir, 'third') },
+    }),
+    { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_STUCK: '1' },
+  )
+  await assert.rejects(runtime.listSessions(), { message: unlistable('it named the same next page twice') })
+  assert.deepEqual(await reopening(runtime, 'third'), {
+    refused:
+      'Fake ACP Agent could not list its conversations (it named the same next page twice), so the folder conversation third worked in is not known.',
+    gone: false,
+  })
+})
+
+test('a listing that names a new next page every time is given up at a bound, not read forever', { timeout: 60_000 }, async (t) => {
+  // Every cursor fresh, so no repeat ever ends it: only a bound on the pages does.
+  const { runtime } = await storedAgent(
+    t,
+    (dir) => ({ first: { cwd: folderIn(dir, 'first') }, unlisted: { cwd: folderIn(dir, 'unlisted') } }),
+    { FAKE_ACP_LIST_PAGE: '1', FAKE_ACP_LIST_ENDLESS: '1', FAKE_ACP_UNLISTED: 'unlisted' },
+  )
+  await assert.rejects(runtime.listSessions(), {
+    message: unlistable('it named a next page 1000 times without an end'),
+  })
+  assert.deepEqual(await reopening(runtime, 'unlisted'), {
+    refused:
+      'Fake ACP Agent could not list its conversations (it named a next page 1000 times without an end), so the folder conversation unlisted worked in is not known.',
+    gone: false,
+  })
+})
+
+test('a listing asked for the page after a cursor it never gave answers with nothing', async (t) => {
+  // It hands out no cursor — every page is in its one answer — so a cursor
+  // is another listing's, and the page after the whole list is empty.
+  const { runtime } = await storedAgent(t, (dir) => ({ first: { cwd: folderIn(dir, 'first') } }), {
+    FAKE_ACP_LIST_PAGE: '2',
+  })
+  assert.deepEqual(await runtime.listSessions({ cursor: 'from-somewhere-else' }), { data: [], nextCursor: null })
+  // The control: without one, the conversation is there.
+  assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)), ['first'])
+})
+
+/** The refusal for a conversation an agent with no listing cannot place. */
+const unplaced = (id: string): string =>
+  `Fake ACP Agent keeps no list of its conversations, and conversation ${id} has not been opened since HarnessDesk started, so the folder it worked in is not known.`
+
+test('an agent that keeps no listing cannot say where a conversation not opened here worked, so it is not reopened', async (t) => {
+  // Gemini CLI 0.59.0, measured: `loadSession: true`, no `sessionCapabilities`,
+  // and `session/list` answered with -32601. It keeps its conversations by
+  // folder, so a load anywhere else finds nothing — or, where that folder is
+  // this process's own, finds one and runs it there.
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => ({ stored: { cwd: folderIn(dir, 'stored'), turns: [['kept']] } }),
+    { FAKE_ACP_NO_LIST: '1' },
+  )
+  // The control: it declared that it reopens conversations, and no listing.
+  assert.equal(runtime.info.capabilities.resume, true)
+  assert.equal(runtime.info.capabilities.listHistory, false)
+
+  assert.deepEqual(await reopening(runtime, 'stored'), { refused: unplaced('stored'), gone: true })
+  assert.deepEqual(opened(), [])
+})
+
+test('an agent that keeps no listing reopens a conversation opened here in its own folder, after a restart', async (t) => {
+  // The one word on where a conversation works that an agent with no listing
+  // gives is the folder it accepted in `session/new`, and this process was
+  // there to hear it. A catalogue refresh restarts the agent under an open
+  // conversation, and the host reopens it on its next use.
+  let here = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      here = folderIn(dir, 'here')
+      // Kept by the agent from an earlier run, and never opened in this one.
+      return { earlier: { cwd: folderIn(dir, 'earlier'), turns: [['from before']] } }
+    },
+    { FAKE_ACP_NO_LIST: '1' },
+  )
+  const session = await runtime.createSession({ cwd: here })
+  const tape = record(runtime)
+  await session.send([{ type: 'text', text: 'remember where' }])
+  await tape.until((event) => event.type === 'turn/completed')
+  // The draft probe beside it: a session the agent counts, and no conversation.
+  await runtime.defaultSessionOptions()
+  const probe = opened().find((open) => open.method === 'session/new' && open.sessionId !== String(session.id))
+  assert.ok(probe, 'the probe was opened')
+
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+
+  // Reopened where it was opened, with its turn.
+  assert.deepEqual(await reopening(runtime, String(session.id)), { cwd: here })
+  assert.equal((await runtime.readSession(session.id)).turns.length, 1)
+  // The controls: one from an earlier run is still refused, and so is the
+  // probe, which is nobody's conversation and was never remembered as one.
+  assert.deepEqual(await reopening(runtime, 'earlier'), { refused: unplaced('earlier'), gone: true })
+  assert.deepEqual(await reopening(runtime, probe.sessionId), { refused: unplaced(probe.sessionId), gone: true })
+  // The agent was asked to load one conversation, in its own folder.
+  assert.deepEqual(
+    opened().filter((open) => open.method === 'session/load'),
+    [{ method: 'session/load', sessionId: String(session.id), cwd: here }],
+  )
+})
+
+test('where an agent keeps a listing, the listing is the one word asked, over the folder a conversation was opened in', async (t) => {
+  // The folder a conversation was opened in is the agent's word then; its
+  // listing is its word now. Both are read off the store the fake agent keeps,
+  // which is edited below to make them differ.
+  const { readFileSync, writeFileSync } = await import('node:fs')
+  let openedAt = ''
+  let movedTo = ''
+  let store = ''
+  const { runtime, opened } = await storedAgent(t, (dir) => {
+    openedAt = folderIn(dir, 'opened')
+    movedTo = folderIn(dir, 'moved')
+    store = join(dir, 'sessions.json')
+    return {}
+  })
+  const tape = record(runtime)
+  const moved = await runtime.createSession({ cwd: openedAt })
+  await moved.send([{ type: 'text', text: 'moved later' }])
+  await tape.until((event) => event.type === 'turn/completed' && event.sessionId === moved.id)
+  const dropped = await runtime.createSession({ cwd: openedAt })
+  await dropped.send([{ type: 'text', text: 'dropped later' }])
+  await tape.until((event) => event.type === 'turn/completed' && event.sessionId === dropped.id)
+  // Now its listing puts one in another folder, and no longer has the other.
+  const kept = JSON.parse(readFileSync(store, 'utf8')) as Record<string, { cwd: string }>
+  kept[String(moved.id)]!.cwd = movedTo
+  delete kept[String(dropped.id)]
+  writeFileSync(store, JSON.stringify(kept))
+
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  assert.deepEqual(await reopening(runtime, String(moved.id)), { cwd: movedTo })
+  assert.deepEqual(await reopening(runtime, String(dropped.id)), {
+    refused: `Fake ACP Agent does not list conversation ${dropped.id}, so the folder it worked in is not known.`,
+    gone: true,
+  })
+  assert.deepEqual(
+    opened().filter((open) => open.method === 'session/load'),
+    [{ method: 'session/load', sessionId: String(moved.id), cwd: movedTo }],
+  )
+})
+
+test('only a conversation handed out, in a folder named in full, is remembered, and only until it is deleted', async (t) => {
+  let refusedAt = ''
+  let deletedAt = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      refusedAt = folderIn(dir, 'refused')
+      deletedAt = folderIn(dir, 'deleted')
+      return {}
+    },
+    { FAKE_ACP_NO_LIST: '1', FAKE_ACP_DELETE: '1' },
+  )
+  // Opened by the agent and then refused here, for a voice it does not have:
+  // nobody was handed it, so nobody holds its folder open.
+  await assert.rejects(runtime.createSession({ cwd: refusedAt, options: { voice: 'operatic' } }))
+  const refused = opened().find((open) => open.cwd === refusedAt)
+  assert.ok(refused, 'the agent opened it before the refusal')
+  // Opened in a folder spelled relative, which the agent reads against its
+  // own working directory: this process's.
+  const relative = await runtime.createSession({ cwd: 'relative-folder' })
+  // Opened, and then deleted from the agent's store.
+  const deleted = await runtime.createSession({ cwd: deletedAt })
+  const tape = record(runtime)
+  await deleted.send([{ type: 'text', text: 'soon gone' }])
+  await tape.until((event) => event.type === 'turn/completed')
+  await runtime.deleteSession(deleted.id)
+
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  for (const id of [refused.sessionId, String(relative.id), String(deleted.id)]) {
+    assert.deepEqual(await reopening(runtime, id), { refused: unplaced(id), gone: true })
+  }
+  // None of them was loaded, anywhere.
+  assert.deepEqual(opened().filter((open) => open.method === 'session/load'), [])
+})
+
+test('a listing that fails refuses the reopen as one that may pass, not with a guess', async (t) => {
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => ({ stored: { cwd: folderIn(dir, 'stored') } }),
+    { FAKE_ACP_LIST_FAILS: '1' },
+  )
+  assert.deepEqual(await reopening(runtime, 'stored'), {
+    refused:
+      'Fake ACP Agent could not list its conversations (Internal error: the index is locked), so the folder conversation stored worked in is not known.',
+    gone: false,
+  })
+  assert.deepEqual(opened(), [])
+})
+
+test("a listed folder that is not absolute is not read against this process's", async (t) => {
+  // ACP says a listed cwd is absolute. One that is not would be resolved —
+  // by the folder check here, and by the agent's own load — against the
+  // working directory both have, which is this process's.
+  const { runtime, opened } = await storedAgent(t, () => ({ dotted: { cwd: '.' }, empty: { cwd: '' } }))
+  assert.deepEqual(await reopening(runtime, 'dotted'), {
+    refused: 'Fake ACP Agent lists conversation dotted as working in ".", which is not an absolute path.',
+    gone: true,
+  })
+  assert.deepEqual(await reopening(runtime, 'empty'), {
+    refused: 'Fake ACP Agent lists conversation empty as working in "", which is not an absolute path.',
+    gone: true,
+  })
+  assert.deepEqual(opened(), [])
+})
+
+test('the draft probe opens in the home folder, and is never handed out as a conversation', async (t) => {
+  const { homedir } = await import('node:os')
+  const { runtime, opened } = await storedAgent(t, () => ({}))
+  // Named no folder, the draft is opened in the user's own — not in this
+  // process's working directory, which depends on how the app was started.
+  await runtime.defaultSessionOptions()
+  const drafts = opened()
+  assert.equal(drafts.length, 1)
+  assert.equal(drafts[0]!.method, 'session/new')
+  assert.equal(drafts[0]!.cwd, homedir())
+  const probe = drafts[0]!.sessionId
+
+  // A real session, but no conversation: not listed, not found by a search
+  // for anything, and neither read nor reopened by its id.
+  assert.deepEqual((await runtime.listSessions()).data, [])
+  assert.deepEqual((await runtime.searchSessions('')).data, [])
+  const refusal = `Fake ACP Agent has no conversation ${probe}.`
+  assert.deepEqual(await reopening(runtime, probe), { refused: refusal, gone: true })
+  assert.equal(
+    await runtime.readSession(sessionId(probe)).then(
+      () => 'read',
+      (error: Error) => error.message,
+    ),
+    refusal,
+  )
+  // And it is still the probe: the next question about a draft is answered by
+  // it, without a second one being opened.
+  await runtime.defaultSessionOptions()
+  assert.deepEqual(opened(), drafts)
 })
 
 /**

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { extname, join } from 'node:path'
+import { extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
@@ -606,6 +606,17 @@ export class AcpRuntime implements AgentRuntime {
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
   readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
+  /**
+   * The folder each conversation opened here was opened in, as the agent
+   * accepted it in `session/new`. For an agent that keeps no listing — Gemini
+   * CLI — this is the only word it ever gives on where a conversation works,
+   * so it outlives the agent's restarts, which drop every live session and
+   * leave the host to reopen them on their next use. Only conversations handed
+   * out are kept, in a folder named in full: each is one the host holds open
+   * already, so reopening it there opens nothing new. It goes with the
+   * conversation, when the agent deletes it, and with this runtime.
+   */
+  readonly #openedIn = new Map<SessionId, string>()
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
@@ -1015,6 +1026,7 @@ export class AcpRuntime implements AgentRuntime {
     await this.#connection.stop()
     this.#sessions.clear()
     this.#resuming.clear()
+    this.#openedIn.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -1519,6 +1531,10 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async listSessions(query?: ListSessionsQuery): Promise<Page<SessionSummary>> {
+    // Every page is in the one answer below, so this listing hands out no
+    // cursor, and one it is given is some other listing's. The page after the
+    // whole list is empty; answering with the first again repeated it.
+    if (query?.cursor) return { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
       .filter((session) => session.id !== this.#probeId)
       .map((session) => session.summary())
@@ -1528,15 +1544,17 @@ export class AcpRuntime implements AgentRuntime {
     // The agent keeps its own store (Claude Code writes ~/.claude/projects);
     // reading through it is what lets a conversation outlive both this
     // process and the agent's — the same rule the Codex adapter follows.
+    //
+    // All of it, every page, where the Codex adapter hands its cursor on. ACP
+    // keeps no archive, so the host takes archived rows out of each answer
+    // itself, and the interface reads one answer in most places: the archive,
+    // and every agent in the sidebar but the one it pages. Answered a page at
+    // a time, a conversation archived past the first page would be in neither.
     try {
       // The workspace travels with the question when the caller has one: an
       // agent that keys its store by folder — Cursor hashes the path — can
       // only answer for a folder it has been given.
-      const listed = await this.#connection.request<{ sessions?: readonly AcpSessionRow[] }>(
-        'session/list',
-        query?.cwd ? { cwd: query.cwd } : {},
-      )
-      const rows = listed.sessions ?? []
+      const rows = await this.#listedRows(query?.cwd)
       // The agent names its own conversations — Claude Code writes a title
       // into the transcript as the turn runs — and that name is what its own
       // window shows. A session open here has no title of its own, so it
@@ -1579,8 +1597,12 @@ export class AcpRuntime implements AgentRuntime {
           }),
         )
       return { data: [...named, ...stored].sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: null }
-    } catch {
-      return { data: live, nextCursor: null }
+    } catch (error) {
+      // A listing that cannot be read to its end is a failure, not a shorter
+      // list. Answered with what was read, or with the live sessions alone, it
+      // was taken for the whole one: the sidebar replaced the list it had with
+      // it, and the archive counted the agent as having answered.
+      throw new Error(`${this.#config.name} could not list its conversations (${describeAcp(error)}).`)
     }
   }
 
@@ -1602,6 +1624,10 @@ export class AcpRuntime implements AgentRuntime {
     const needle = query.toLowerCase()
     return {
       data: [...this.#sessions.values()]
+        // The draft probe is no conversation, here as in `listSessions`. Its
+        // preview is empty, so a search for nothing found it, and its id was
+        // then read as one — in the folder the probe was opened in.
+        .filter((session) => session.id !== this.#probeId)
         .map((session) => session.summary())
         .filter((summary) => (summary.preview ?? '').toLowerCase().includes(needle)),
       nextCursor: null,
@@ -1610,7 +1636,7 @@ export class AcpRuntime implements AgentRuntime {
 
   async readSession(id: SessionId): Promise<Session> {
     const live = this.#sessions.get(id)
-    if (live) return live.snapshot()
+    if (live && id !== this.#probeId) return live.snapshot()
     // ACP has no read-only fetch; loading *is* reading. Free of tokens: a
     // load replays the stored conversation, it does not prompt anything.
     const loaded = await this.resumeSession(id)
@@ -1648,6 +1674,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#tasks?.forget(id)
     this.#titles.delete(id)
     this.#previews.delete(id)
+    this.#openedIn.delete(id)
     const disposition = result?.disposition ?? 'removed'
     const removed = result?.removed?.length ?? 0
     this.#config.logger?.debug?.('session deleted', { session: String(id), removed, disposition })
@@ -1732,7 +1759,13 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async #startProbe(cwd?: string): Promise<AcpSession> {
-    const where = cwd ?? process.cwd()
+    // Named no folder, the draft is opened in the user's own. ACP opens no
+    // session without one, and this process's working directory is no answer:
+    // it is `/` when the app is started from Finder and the checkout under
+    // `pnpm dev`, so what a draft offered depended on how the app was launched. The
+    // home folder is the same however it was, and holds the agent's own
+    // settings, which are what a conversation has before a folder is chosen.
+    const where = cwd ?? homedir()
     const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where })
     const probe = AcpSession.probe(this, opened, where)
     // Registered so the agent's follow-up notifications (an agent may
@@ -2022,11 +2055,16 @@ export class AcpRuntime implements AgentRuntime {
       await session.close()
       throw error
     }
+    if (isAbsolute(options.cwd)) this.#openedIn.set(session.id, options.cwd)
     this.emit({ type: 'session/started', session: session.snapshot() })
     return session
   }
 
   async resumeSession(id: SessionId): Promise<AgentSession> {
+    // The draft probe is a session the agent counts, and no conversation.
+    // Handed out by its id it was held as one, and its folder opened with it;
+    // a turn sent to it would vanish into a session that never speaks.
+    if (id === this.#probeId) throw new SessionGoneError(`${this.#config.name} has no conversation ${id}.`)
     const live = this.#sessions.get(id)
     if (live) return live
     const inFlight = this.#resuming.get(id)
@@ -2077,20 +2115,98 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  /** Where a stored session worked, from the agent's own listing. */
+  /**
+   * Where a stored session worked, as the agent's own listing records it —
+   * every page of it — or, for an agent that keeps no listing, as it accepted
+   * it when this process opened the conversation. Nowhere else.
+   *
+   * ACP's load takes the folder from the client, and the agent runs the
+   * conversation in whatever it is handed. This used to hand over this
+   * process's working directory whenever the listing had no row for the id:
+   * the checkout under `pnpm dev`, `/` from Finder. The conversation was then
+   * held here with that as its folder, and a conversation's folder is an open
+   * root, so every repository under it could be read and branched. A folder
+   * the agent does not vouch for is a refusal instead, one that names the
+   * conversation. Claude Code's listing leaves out a conversation its own store
+   * has no folder for. Gemini CLI keeps no listing at all, so only what it
+   * accepted in `session/new` here says where one works (`#openedIn`). Where a
+   * listing exists it is the agent's word now, and the only one asked.
+   */
   async #cwdOf(id: SessionId): Promise<string> {
-    try {
-      const listed = await this.#connection.request<{ sessions?: readonly AcpSessionRow[] }>(
-        'session/list',
-        {},
+    const name = this.#config.name
+    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
+      // No listing to ask, so the folder it accepted when this process opened
+      // the conversation, or none. See `#openedIn`.
+      const opened = this.#openedIn.get(id)
+      if (opened !== undefined) return opened
+      throw new SessionGoneError(
+        `${name} keeps no list of its conversations, and conversation ${id} has not been opened since HarnessDesk started, so the folder it worked in is not known.`,
       )
-      const row = (listed.sessions ?? []).find((entry) => entry.sessionId === String(id))
-      if (row) return row.cwd
-    } catch {
-      // Fall through to the working directory; the load itself will complain
-      // if the id is genuinely unknown.
     }
-    return process.cwd()
+    let row: AcpSessionRow | undefined
+    try {
+      for await (const page of this.#listPages()) {
+        row = page.find((entry) => entry.sessionId === String(id))
+        if (row) break
+      }
+    } catch (error) {
+      // Not gone: a listing that failed this time may not fail the next.
+      throw new Error(
+        `${name} could not list its conversations (${describeAcp(error)}), so the folder conversation ${id} worked in is not known.`,
+      )
+    }
+    if (!row) {
+      throw new SessionGoneError(`${name} does not list conversation ${id}, so the folder it worked in is not known.`)
+    }
+    // ACP says it is absolute. One that is not would be read — by the folder
+    // check in `resumeSession` and by the agent's own load — against the
+    // working directory both have, which is this process's.
+    if (typeof row.cwd === 'string' && isAbsolute(row.cwd)) return row.cwd
+    throw new SessionGoneError(
+      `${name} lists conversation ${id} as working in ${JSON.stringify(row.cwd ?? '')}, which is not an absolute path.`,
+    )
+  }
+
+  /**
+   * The agent's `session/list`, a page at a time, until it names no next one.
+   *
+   * ACP pages the listing with an opaque cursor. A walk that cannot reach the
+   * last page throws, because what it read by then is not the list: a page
+   * that fails, a cursor handed back twice, which would be asked for forever,
+   * and a fresh one named on every page past `LISTING_PAGE_LIMIT`, which no
+   * repeat would ever end. The reason is a clause each caller puts in a
+   * sentence of its own.
+   */
+  async *#listPages(cwd?: string): AsyncGenerator<readonly AcpSessionRow[]> {
+    const asked = new Set<string>()
+    let cursor: string | null = null
+    for (let pages = 0; ; pages += 1) {
+      if (pages === LISTING_PAGE_LIMIT) {
+        throw new Error(`it named a next page ${LISTING_PAGE_LIMIT} times without an end`)
+      }
+      const page: AcpSessionPage = await this.#connection.request<AcpSessionPage>('session/list', {
+        ...(cwd ? { cwd } : {}),
+        ...(cursor === null ? {} : { cursor }),
+      })
+      yield page.sessions ?? []
+      cursor = typeof page.nextCursor === 'string' && page.nextCursor !== '' ? page.nextCursor : null
+      if (cursor === null) return
+      if (asked.has(cursor)) throw new Error('it named the same next page twice')
+      asked.add(cursor)
+    }
+  }
+
+  /**
+   * Every row of every page, each once: a listing that moved while it was
+   * read can put a row on two pages. A walk that cannot reach the last page
+   * throws; see `#listPages`.
+   */
+  async #listedRows(cwd?: string): Promise<AcpSessionRow[]> {
+    const rows = new Map<string, AcpSessionRow>()
+    for await (const page of this.#listPages(cwd)) {
+      for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
+    }
+    return [...rows.values()]
   }
 
   async forkSession(): Promise<AgentSession> {
@@ -2446,6 +2562,20 @@ const firstSentence = (text: string): string => {
   const cut = line.search(/[.!?](\s|$)/)
   return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
 }
+
+/** One page of `session/list`. No `nextCursor` is the last page. */
+interface AcpSessionPage {
+  readonly sessions?: readonly AcpSessionRow[]
+  readonly nextCursor?: string | null
+}
+
+/**
+ * How many pages of `session/list` are read before the listing is given up.
+ * Every agent measured answers in one page (Antigravity with 665 rows), so a
+ * thousand is room for any paging to come and a bound on an agent that names
+ * a fresh next page forever.
+ */
+const LISTING_PAGE_LIMIT = 1000
 
 /** Antigravity labels an unnamed conversation `Session <id>` in its store. */
 const titleOf = (row: AcpSessionRow, runtimeId: string): string | null => {

@@ -38,6 +38,18 @@ export const assertAbsolute = (path: string): void => {
 }
 
 /**
+ * `assertAbsolute` for the folder a request names as its `cwd`, which most
+ * requests may leave out. Nothing that takes one has a use for a relative one,
+ * and most read it against this process's working directory: the library, for
+ * its scans and for the roots its writes are held to; an agent, which is
+ * spawned from here and has its working directory from this process; and the
+ * confinement checks, once it is a conversation's cwd and so an open root.
+ */
+export const assertAbsoluteCwd = (params: { readonly cwd?: string } | undefined): void => {
+  if (params?.cwd !== undefined) assertAbsolute(params.cwd)
+}
+
+/**
  * Refuses a path that is not under one of the roots the user has opened.
  *
  * Lexical, on the resolved path: `..` segments are collapsed first, so
@@ -309,9 +321,17 @@ export const browseDirectories = async (
   return { path: target, parent: parent === target ? null : parent, entries }
 }
 
+/**
+ * A folder being opened, with its name. Every open folder is a root the
+ * confinement checks trust, so a relative path is refused rather than
+ * resolved: `resolve` would read it against the host's working directory and
+ * open whatever it led to from there. `workspace/open` and `workspace/pick`
+ * both come through here.
+ */
 export const describeWorkspace = async (
   path: string,
 ): Promise<{ path: string; name: string }> => {
+  assertAbsolute(path)
   const resolved = resolve(path)
   const info = await stat(resolved)
   if (!info.isDirectory()) throw new Error(`${resolved} is not a directory`)

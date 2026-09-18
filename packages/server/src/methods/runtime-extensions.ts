@@ -1,3 +1,4 @@
+import { assertAbsoluteCwd } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
 /** The `runtime/*` verbs about a runtime's own extension plane; `runtimes.ts` leaves these to this module. */
@@ -15,6 +16,7 @@ export type RuntimeExtensionPrefix =
  */
 export const runtimeExtensionMethods = {
   'runtime/catalog': (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     if (!runtime.extensions) return { plugins: [], marketplaces: [], loadErrors: [], featured: [] }
     return runtime.extensions.catalog(params.cwd)
@@ -37,6 +39,7 @@ export const runtimeExtensionMethods = {
   },
 
   'runtime/mcp/list': (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     return runtime.extensions ? runtime.extensions.mcpServers(params.cwd) : []
   },
@@ -49,6 +52,7 @@ export const runtimeExtensionMethods = {
   },
 
   'runtime/imports/detect': (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     return runtime.extensions ? runtime.extensions.detectImports(params.cwd) : []
   },

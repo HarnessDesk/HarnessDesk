@@ -33,6 +33,10 @@ interface Rig {
   readonly orders: { key: string; text: string }[]
   /** Worktrees an isolating role asked for. */
   readonly isolated: string[]
+  /** Folders the engine asked the desk to hold to what is open, in order. */
+  readonly confined: string[]
+  /** A folder the desk does not have open, which it refuses. */
+  closed?: string
   /** What a check's command is told to answer. */
   exits: Map<string, number>
   readonly ran: { command: string; cwd: string }[]
@@ -81,6 +85,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
   const seated: Rig['seated'] = []
   const orders: Rig['orders'] = []
   const isolated: string[] = []
+  const confined: string[] = []
   const ran: Rig['ran'] = []
   const reseated: Rig['reseated'] = []
   const logged: Rig['logged'] = []
@@ -130,6 +135,10 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     join: async (id, runtime, sessionId) => {
       await team.joinRoom(id, runtime as RuntimeId, sessionId)
     },
+    confine: async (folder) => {
+      confined.push(folder)
+      if (folder === rig.closed) throw new Error(`${folder} is not open here.`)
+    },
     isolate: async (root, name) => {
       const path = `${root}/.worktrees/${name}`
       isolated.push(path)
@@ -154,7 +163,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     const peer = peers.find((one) => one.runtime === seat.runtime && one.sessionId === seat.sessionId)
     if (peer) Object.assign(peer, { busy: false })
   }
-  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill, reseated, logged, retired })
+  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, confined, exits, ran, kill, reseated, logged, retired })
   return rig as Rig
 }
 
@@ -420,6 +429,39 @@ rules:
   )
 })
 
+test('a flow starts only in a folder the desk has open, asked before anybody is seated', async (t) => {
+  const one = await rig(t)
+  // A room made in a folder inside its project, so the folder its seats open
+  // in is not the root the room is keyed by.
+  const room = (await one.team.createRoom('/repo/app', 'App room')).id
+  /* The reader comes first. Seated, it is a conversation the desk holds in
+     the room's folder, and that folder then counts as open to the desk — so a
+     question asked any later than this would be answered by the seat. */
+  const PAIR = `
+name: Pair
+roles:
+  reader: { kind: agent, seat: cursor, outcomes: [done] }
+  writer: { kind: agent, seat: cursor, isolate: true, outcomes: [done] }
+seed: { role: writer, title: Write it }
+`
+  one.closed = '/repo/app'
+  await assert.rejects(one.flows.start({ room, source: PAIR }), { message: '/repo/app is not open here.' })
+  assert.deepEqual(one.confined, ['/repo/app'])
+  assert.equal(one.seated.length, 0, 'nobody was seated')
+  assert.equal(one.isolated.length, 0, 'and no worktree was cut')
+  assert.deepEqual(one.orders, [])
+  assert.deepEqual(one.flows.runsFor(room), [])
+  assert.deepEqual(one.team.stateFor(room).intents, [])
+
+  // The control: open, the same flow seats both, in the folder it asked about.
+  delete one.closed
+  await one.flows.start({ room, source: PAIR })
+  assert.deepEqual(one.confined, ['/repo/app', '/repo/app'])
+  assert.equal(one.seated[0]?.cwd, '/repo/app')
+  assert.match(one.seated[1]?.cwd ?? '', /^\/repo\/app\/\.worktrees\/writer-1-/)
+  assert.deepEqual(one.isolated, [one.seated[1]?.cwd])
+})
+
 test('a run picks up where it left off when the desk restarts mid-round', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
@@ -440,6 +482,7 @@ test('a run picks up where it left off when the desk restarts mid-round', async 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -885,6 +928,7 @@ test('a restart wakes a seat that stopped while the desk was down', async (t) =>
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1321,6 +1365,7 @@ test('standDown and reArm do not crash when a persisted run has non-array seats 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1396,6 +1441,7 @@ test('Flows.load refuses a running run that omits rounds instead of crashing (#5
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1433,6 +1479,7 @@ test('Flows.load refuses a running run that has malformed flow object (#422)', a
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1526,6 +1573,7 @@ test('Flows.stop does not crash when a run has non-array record data (#505)', as
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1621,6 +1669,7 @@ test('Flows.load stops running flows whose room no longer exists (#441)', async 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1728,6 +1777,7 @@ rules:
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async (command, where) => {
       secondRan.push({ command, cwd: where.cwd })
@@ -1793,6 +1843,7 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async (command, where) => {
       secondRan.push({ command, cwd: where.cwd })
@@ -1875,6 +1926,7 @@ const asking = (asked: string[]): FlowPort => ({
   reseat: async () => 'cursor',
   retire: async () => {},
   join: async () => void asked.push('join'),
+  confine: async () => {},
   isolate: async () => '/repo',
   run: async () => ({ status: 0 }),
   changed: () => {},
