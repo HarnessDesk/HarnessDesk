@@ -431,6 +431,19 @@ export class Host {
    * constructor, so a host that is built and never started watches nothing.
    */
   #agentWatch: AgentWatch | null = null
+  /**
+   * Bumped on every call to `#watchProjects`; a call applies its snapshot only
+   * if it is still the latest by the time it has one, so a slower, older call
+   * — `#openWorkspace` and `forgetBoardRoots` both fire it without waiting —
+   * can never finish last and re-point the watch at a stale set of projects.
+   */
+  #watchGeneration = 0
+  /**
+   * Set at the top of `dispose()`, before anything in it can yield: a `start()`
+   * still working through its own awaits reads this right before making the
+   * roster's watch, so a quit that lands first leaves none to leak.
+   */
+  #disposed = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -868,12 +881,28 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
-    // From here on a file changed under any of the roster's roots is one notice to every window.
-    this.#agentWatch = new AgentWatch({
-      roots: [join(this.#state.directory, 'agents'), builtinAgentRoot()],
-      changed: (project) => this.#push({ method: 'agent/changed', params: { project } }),
-    })
-    await this.#watchProjects()
+    /* From here on a file changed under any of the roster's roots is one
+       notice to every window. Guarded on `#disposed`: everything above this
+       point can yield, and a quit landing in one of those gaps must find no
+       watch here to leak — `dispose()` cannot close what `start()` has not
+       made yet, and does not run again once it has. */
+    if (!this.#disposed) {
+      this.#agentWatch = new AgentWatch({
+        roots: [join(this.#state.directory, 'agents'), builtinAgentRoot()],
+        changed: (project) => this.#push({ method: 'agent/changed', params: { project } }),
+        log: (message, details) => this.#logger.warn(message, details),
+      })
+      /* Not awaited: nothing below needs the watch pointed at open projects
+         yet, and pointing it asks git once per remembered folder. Awaited
+         here, a window's first listing on a stalled volume or a checkout with
+         many linked worktrees would wait behind every one of those probes
+         before any runtime could start. */
+      void this.#watchProjects().catch((error: unknown) => {
+        this.#logger.warn('could not point the roster watch at the open projects', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
     /* And only now wake what stopped while the desk was down. Reconciling a
        run's rounds is board work and belongs above; *sending* to a seat needs
@@ -941,6 +970,8 @@ export class Host {
   }
 
   async dispose(): Promise<void> {
+    // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
+    this.#disposed = true
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
     /*
@@ -1716,20 +1747,41 @@ export class Host {
   }
 
   /**
-   * Points the roster's watch at every open project: each open folder, and the
-   * top of the repository it sits in — a project keeps its Agents at the top
-   * of its repository, and a person often opens a folder inside it.
+   * Points the roster's watch at every open project: each open folder, the
+   * top of the repository it sits in, and that folder's own git top level —
+   * a project keeps its Agents at the top of its repository, a person often
+   * opens a folder inside it, and for a linked worktree those are two
+   * different folders. `agent/list` admits either: `confineGitRoot` follows a
+   * project path to `gitOps.topLevel` of an open root, which for a linked
+   * worktree is that worktree's own top, never the main checkout `#repoOf`
+   * answers with. Both are watched rather than one replacing the other, since
+   * the sidebar's own grouping (`repo.root`) is a real reader too.
+   *
+   * Called without being waited on from two places that can race each other —
+   * opening a folder, and forgetting one — so every call reads its own
+   * snapshot of `this.#state.state.workspaces` and asks git about it in
+   * parallel (`Promise.all`, the way `#withRepos` does), and only applies what
+   * it found if no later call has started since: a generation bumped on
+   * entry, checked again once the asking is done. An older call finishing
+   * last from a slower git probe can then only ever lose to a newer one,
+   * never re-add a folder the newer call had already let go of.
    */
   async #watchProjects(): Promise<void> {
     const watch = this.#agentWatch
     if (!watch) return
+    const generation = ++this.#watchGeneration
     const roots = new Set<string>()
-    for (const entry of this.#state.state.workspaces) {
-      if (typeof entry?.path !== 'string' || entry.path === '') continue
-      roots.add(entry.path)
-      const repo = await this.#repoOf(entry.path).catch(() => null)
-      if (repo?.root) roots.add(repo.root)
-    }
+    await Promise.all(
+      this.#state.state.workspaces.map(async (entry) => {
+        if (typeof entry?.path !== 'string' || entry.path === '') return
+        roots.add(entry.path)
+        const [repo, top] = await Promise.all([this.#repoOf(entry.path).catch(() => null), gitOps.topLevel(entry.path)])
+        if (repo?.root) roots.add(repo.root)
+        if (top) roots.add(top)
+      }),
+    )
+    // Superseded while this was asking git: whatever it found is stale, and the call that made it stale already applied its own.
+    if (generation !== this.#watchGeneration) return
     await watch.watchProjects([...roots])
   }
 
