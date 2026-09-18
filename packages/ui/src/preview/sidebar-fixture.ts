@@ -418,4 +418,38 @@ export const previewSession = {
   itemsLoaded: true,
   turns: previewTurns,
   git: { branch: 'feat/worktrees', dirty: true },
+  /* A model list and a reasoning select, the way Codex declares them, so the
+     composer draws its model control — and the reasoning flyout beside it,
+     the one level of a menu that a pointer has to travel to reach. */
+  options: [
+    {
+      id: 'model',
+      type: 'select',
+      label: 'Model',
+      category: 'model',
+      currentValue: 'gpt-5.5',
+      choices: [
+        { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', description: 'Frontier agentic coding model for complex, long-running tasks.' },
+        { value: 'gpt-5.5', label: 'GPT-5.5', description: 'Strong coding model for everyday work.' },
+        { value: 'gpt-5.5-mini', label: 'GPT-5.5 Mini', description: 'Smaller, faster model for quick edits and small tasks.' },
+        { value: 'gpt-5.4', label: 'GPT-5.4', description: 'Previous generation, balanced for coding and general work.' },
+      ],
+    },
+    {
+      id: 'reasoning_effort',
+      type: 'select',
+      label: 'Reasoning effort',
+      category: 'thought_level',
+      description: 'How hard the model thinks before answering.',
+      currentValue: 'high',
+      choices: [
+        { value: 'low', label: 'Low', description: 'Fast responses with lighter reasoning' },
+        { value: 'medium', label: 'Medium', description: 'Balances speed and reasoning depth for everyday tasks' },
+        { value: 'high', label: 'High', description: 'Greater reasoning depth for complex problems' },
+        { value: 'xhigh', label: 'Extra high', description: 'Extra high reasoning depth for complex problems' },
+        { value: 'max', label: 'Max', description: 'Maximum reasoning depth for the hardest problems' },
+        { value: 'ultra', label: 'Ultra', description: 'Maximum reasoning with automatic task delegation' },
+      ],
+    },
+  ],
 } as unknown as Session

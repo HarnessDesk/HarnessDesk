@@ -196,7 +196,14 @@
   color: var(--hd-secondary-foreground);
 }
 
+/* A note explains the rows; it never sets the menu's width. A menu sizes to
+   its words, and a note's words are a sentence: the model menu's footer —
+   "a newer build is available … npm i -g …" — stretched the menu across the
+   window, left its reasoning flyout no room at either side, and put that
+   flyout over the model list. Contained, a note wraps at the width the rows
+   give the menu. */
 .note {
+  contain: inline-size;
   padding: 6px 10px 8px;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */

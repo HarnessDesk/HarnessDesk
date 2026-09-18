@@ -1,8 +1,19 @@
-import { act } from 'react'
+import { act, useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ContextMenu, Menu, MenuItem, MenuToggle, Submenu, dismissOverlays, useContextMenu } from '../design'
+import {
+  ContextMenu,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuNote,
+  MenuToggle,
+  PopoverFilterInput,
+  Submenu,
+  dismissOverlays,
+  useContextMenu,
+} from '../design'
 
 /**
  * The menu's contract, exercised through the DOM: a row closes the menu or
@@ -36,6 +47,11 @@ const row = (label: string): HTMLButtonElement => {
 const click = (el: Element): void => {
   act(() => {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+const frame = async (): Promise<void> => {
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(resolve))
   })
 }
 const key = (el: Element, name: string): void => {
@@ -176,6 +192,8 @@ describe('Submenu', () => {
       )
     })
     expect(rows().map((button) => button.textContent)).toEqual(['EffortMedium'])
+    // One chevron: the vendored trigger used to draw a second beside the row's own.
+    expect(row('Effort').querySelectorAll('svg')).toHaveLength(1)
     expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
     click(row('Effort'))
     expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
@@ -203,6 +221,219 @@ describe('Submenu', () => {
     key(tiny, 'ArrowLeft')
     expect(row('More models').getAttribute('aria-expanded')).toBe('false')
     expect(document.activeElement).toBe(row('More models'))
+  })
+
+  it('↓ on its row moves on to the next row and leaves the flyout shut', () => {
+    // ↑ and ↓ belong to the menu the row is in. Base UI cannot find that
+    // menu's orientation — the flyout has no parent in its floating tree —
+    // and took ↓ for a way into the flyout, so no row below could be reached.
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+          <MenuItem label="Manage" onSelect={() => {}} />
+        </Menu>,
+      )
+    })
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Manage'))
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('↓ on its row stops where the menu’s own ↓ stops: on a row disabled for a reason, past one that cannot take the focus', () => {
+    // The choices come in groups, as a select's do.
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+          <div>
+            <MenuLabel>Cloud</MenuLabel>
+            <MenuItem label="Terra" selected={false} disabled="Needs a plan." onSelect={() => {}} />
+            <MenuItem label="Sol" selected={false} onSelect={() => {}} />
+          </div>
+          <div>
+            <MenuLabel>Local</MenuLabel>
+            <MenuItem label="Mini" selected={false} disabled="Needs a plan." onSelect={() => {}} />
+            <MenuItem label="Nano" selected={false} onSelect={() => {}} />
+          </div>
+        </Menu>,
+      )
+    })
+    // The menu's own ↓ stops on a row disabled for a reason — it keeps the
+    // focus, so the reason can be read — and so does ↓ on the row.
+    act(() => row('Sol').focus())
+    key(row('Sol'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Mini'))
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Terra'))
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+
+    // None of this app's rows is natively disabled, but one that cannot take
+    // the focus — natively disabled, or not drawn — the menu passes by, and
+    // so does the row.
+    row('Terra').disabled = true
+    row('Mini').disabled = true
+    act(() => row('Sol').focus())
+    key(row('Sol'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Nano'))
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Sol'))
+    row('Sol').style.display = 'none'
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Nano'))
+  })
+
+  it('↓ on the last row goes round to the first row the menu can focus', () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <MenuItem label="Gone" onSelect={() => {}} />
+          <MenuItem label="Locked" disabled="Not on this plan." onSelect={() => {}} />
+          <MenuItem label="Plain" onSelect={() => {}} />
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    row('Gone').disabled = true
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Locked'))
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('→ lands past a first row that cannot take the focus', async () => {
+    const sheet = document.head.appendChild(document.createElement('style'))
+    sheet.textContent = '.gone { display: none }'
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuItem label="Gone" className="gone" selected={false} onSelect={() => {}} />
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(row('Low'))
+    sheet.remove()
+  })
+
+  it('→ waits a few frames for a first row the flyout draws late', async () => {
+    const Later = () => {
+      const [ready, setReady] = useState(false)
+      useEffect(() => {
+        const frame = requestAnimationFrame(() => setReady(true))
+        return () => cancelAnimationFrame(frame)
+      }, [])
+      return ready ? (
+        <MenuItem label="Deep" selected={false} onSelect={() => {}} />
+      ) : (
+        <MenuNote>Reading the levels…</MenuNote>
+      )
+    }
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <Later />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    await frame()
+    await frame()
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(row('Deep'))
+  })
+
+  it('→ leaves the focus in a flyout that took it itself — its filter field', async () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="More models">
+            {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+            <PopoverFilterInput autoFocus placeholder="Type to filter" />
+            <MenuItem label="Tiny" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('More models').focus())
+    key(row('More models'), 'ArrowRight')
+    await frame()
+    await frame()
+    expect(row('More models').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(document.querySelector('input[placeholder="Type to filter"]'))
+  })
+
+  it('→ opens it onto its first choice, past the note above it', async () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuNote>How hard the model thinks before answering.</MenuNote>
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+            <MenuItem label="High" selected onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    // The menu settles first — Base UI focuses a level a frame after it opens.
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(row('Low'))
+  })
+
+  it('stays open while the pointer leaves its row on the way to it', async () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <MenuItem label="Plain" onSelect={() => {}} />
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    click(row('Effort'))
+    const effort = row('Effort')
+    act(() => effort.focus())
+    expect(effort.getAttribute('aria-expanded')).toBe('true')
+    // The pointer leaves the row for the menu around it — the way to a flyout
+    // always crosses the row's edge, and Base UI answers a row losing the
+    // pointer by focusing the menu itself.
+    const level = effort.closest('[role="menu"]')
+    if (!level) throw new Error('the row is not in a menu')
+    act(() => {
+      level.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+      effort.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: level }))
+    })
+    await act(async () => {})
+    expect(effort.getAttribute('aria-expanded')).toBe('true')
+    expect(row('Low')).toBeTruthy()
   })
 
   it('hovering a sibling row closes it', async () => {

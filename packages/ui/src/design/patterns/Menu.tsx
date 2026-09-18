@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -42,6 +43,34 @@ const useScope = (): Scope => {
 export const useMenuClose = (): (() => void) => useScope().close
 
 const ROW_SELECTOR = '[role^="menuitem"]:not([disabled]),[role="switch"]:not([disabled])'
+
+/**
+ * The rows a menu's arrows visit. A row disabled for a reason is one: it is
+ * `aria-disabled`, not natively disabled, so it keeps the focus and its
+ * reason can be read — Base UI's navigation stops on it too.
+ */
+const LEVEL_ROW = '[role^="menuitem"],[role="switch"]'
+
+/**
+ * A row the arrows pass by, by Base UI's own rule (`isListIndexDisabled`,
+ * `isElementVisible`): one that cannot take the focus — natively disabled,
+ * or not drawn.
+ */
+const passedOver = (element: HTMLElement): boolean => {
+  if (element.matches(':disabled') || !element.isConnected) return true
+  const style = getComputedStyle(element)
+  if (style.visibility === 'hidden' || style.visibility === 'collapse') return true
+  if (typeof element.checkVisibility === 'function') return !element.checkVisibility()
+  return style.display === 'none' || style.display === 'contents'
+}
+
+/**
+ * Where → lands in a flyout: its first row that is on — never a note or a
+ * label, nor a row disabled for a reason. → goes in to choose; the arrows
+ * inside still stop on those rows.
+ */
+const FIRST_ROW =
+  '[role^="menuitem"]:not([disabled]):not([aria-disabled="true"]),[role="switch"]:not([disabled]):not([aria-disabled="true"])'
 
 /**
  * A HarnessDesk menu level. Base UI owns item collection, roving focus,
@@ -248,9 +277,98 @@ export const Submenu = ({
   children: ReactNode
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const row = useRef<HTMLButtonElement>(null)
+  const flyout = useRef<HTMLDivElement | null>(null)
+  const closedBy = useRef<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const stepIn = useRef(false)
+  /*
+    A level here is a Base UI `Menu.Root` with no `Menu.Trigger` — the
+    Popover, or a pointer, opens it — and Base UI 1.7 names a root menu's
+    node in its floating tree only through its trigger. So a flyout is filed
+    with no parent, and cannot tell its own menu from anywhere else.
+
+    That matters the moment the pointer leaves this row, which it must do to
+    reach the flyout: Base UI answers a row losing the pointer by focusing the
+    menu itself, and the flyout read that as focus leaving for somewhere
+    unrelated and closed. It closed before the pointer could arrive, so a
+    choice in it could not be taken with the mouse at all.
+
+    While its flyout is open the row keeps the focus instead — the way a
+    native menu keeps a submenu's row lit — and the flyout closes when the
+    pointer takes another row, leaves the flyout's reach, or a key says so.
+    If the pointer wandered off without taking another row, the reset the
+    row skipped is made once the flyout has gone, so no row stays lit that
+    nothing is pointing at.
+
+    The missing parent costs the keys their meaning too. Base UI asks a
+    flyout's parent which way it runs to know which arrow opens the flyout;
+    with no parent to ask it counts both, so ↓ opened the flyout instead of
+    moving on — no row below it could be reached — and → opened it without
+    stepping in. ↑ and ↓ are left to the menu the row is in, and → steps onto
+    the flyout's first row once it has one. Escape from inside the flyout
+    hands focus back to the row before Base UI makes the closing flyout
+    inert: left to fall out of it, focus landed on the Popover's own panel,
+    which takes back focus that drops to the page, and the row was lost.
+  */
+  // → steps onto the flyout's first row just after the commit that draws
+  // it, in which Base UI lists its rows for ↑ and ↓ — and before a key
+  // pressed after → can reach the row: waiting a frame, a slow machine let
+  // that key in first, and it was lost.
+  const land = useCallback((): boolean => {
+    const rows = flyout.current?.querySelectorAll<HTMLElement>(FIRST_ROW) ?? []
+    const first = [...rows].find((candidate) => !passedOver(candidate))
+    if (!first) return false
+    stepIn.current = false
+    // A flyout that took the focus itself — a filter field — keeps it.
+    if (document.activeElement === row.current) first.focus({ preventScroll: true })
+    return true
+  }, [])
+  // The flyout is drawn a commit after it opens, its rows with it...
+  const placeFlyout = useCallback(
+    (node: HTMLDivElement | null) => {
+      flyout.current = node
+      if (!node || !stepIn.current) return
+      queueMicrotask(() => {
+        if (stepIn.current) land()
+      })
+    },
+    [land],
+  )
+  // ...unless it opened again while still going, and is drawn already. Rows
+  // that come later still are waited for, three frames at most.
+  useLayoutEffect(() => {
+    if (!open || !stepIn.current) return
+    let frame = 0
+    let waited = 0
+    const retry = (): void => {
+      if (!stepIn.current || land()) return
+      if (waited++ < 3) frame = requestAnimationFrame(retry)
+    }
+    queueMicrotask(retry)
+    return () => cancelAnimationFrame(frame)
+  }, [open, land])
   return (
-    <DropdownMenuSub>
+    <DropdownMenuSub
+      onOpenChange={(next, details) => {
+        setOpen(next)
+        closedBy.current = next ? null : details.reason
+        stepIn.current = next && details.reason === 'list-navigation'
+        if (!next && details.reason === 'escape-key') {
+          const element = row.current
+          if (element && document.activeElement !== element) element.focus({ preventScroll: true })
+        }
+      }}
+      onOpenChangeComplete={(opened) => {
+        const element = row.current
+        if (opened || closedBy.current !== 'trigger-hover' || !element) return
+        if (element === document.activeElement && !element.matches(':hover')) {
+          element.closest<HTMLElement>('[role="menu"]')?.focus({ preventScroll: true })
+        }
+      }}
+    >
       <DropdownMenuSubTrigger
+        ref={row}
         render={<button type="button" disabled={Boolean(disabled)} />}
         nativeButton
         className={styles.row}
@@ -259,6 +377,27 @@ export const Submenu = ({
         openOnHover
         delay={110}
         closeDelay={220}
+        onPointerLeave={(event) => {
+          if (!event.currentTarget.hasAttribute('data-popup-open')) return
+          ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
+        }}
+        onKeyDown={(event) => {
+          // ↓ is the menu's key, not a way into the flyout. Base UI's own
+          // handler for it is skipped, and with it — the skip is carried on
+          // the event as it bubbles — the menu's, so the step is taken here,
+          // by the menu's rule: the next row of this level that can take the
+          // focus, round to the first as the menu loops. ↑ never opened the
+          // flyout and is left to the menu.
+          if (event.key !== 'ArrowDown') return
+          ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
+          event.preventDefault()
+          event.stopPropagation()
+          const level = event.currentTarget.closest<HTMLElement>('[role="menu"]')
+          const rows = level ? [...level.querySelectorAll<HTMLElement>(LEVEL_ROW)] : []
+          const at = rows.indexOf(event.currentTarget)
+          const onward = [...rows.slice(at + 1), ...rows.slice(0, Math.max(at, 0))]
+          onward.find((candidate) => !passedOver(candidate))?.focus()
+        }}
       >
         {icon !== undefined && <span className={styles.icon}>{icon}</span>}
         <span className={styles.body}>
@@ -268,7 +407,21 @@ export const Submenu = ({
         {value !== undefined && <span className={styles.value}>{value}</span>}
         <ChevronIcon size={14} className={styles.chevron} />
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className={styles.flyout} style={width ? { width } : undefined}>
+      {/* Beside its row, or over the menu at its row — never above or below
+          it. With no room on either side Base UI turned the flyout onto the
+          other axis, over the menu's other rows, and the way there crossed
+          them: a hand resting at the row's far end set off along a safe
+          triangle so thin for a short flyout that its first step fell
+          outside it, and the row it crossed took the flyout's place. Kept to
+          a side and slid into the window, the flyout lies across the row
+          itself, and the pointer reaches it without leaving the row. */}
+      <DropdownMenuSubContent
+        ref={placeFlyout}
+        className={styles.flyout}
+        style={width ? { width } : undefined}
+        collisionAvoidance={{ fallbackAxisSide: 'none' }}
+        sticky
+      >
         {children}
       </DropdownMenuSubContent>
     </DropdownMenuSub>

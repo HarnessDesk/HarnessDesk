@@ -825,6 +825,92 @@ rules:
     if (!opened) throw new Error('composer model trigger missing: ' + await cdp.eval(`JSON.stringify([...document.querySelectorAll('button')].map(e => e.title).filter(Boolean))`))
     await sleep(600)
   } }
+  /*
+    The composer's reasoning flyout, reached the two ways a person reaches it.
+    Only the built-in Codex adapter, on its fixture, offers reasoning levels —
+    the rig's ACP cast declares models and modes and nothing to think with —
+    so these run in the native-Codex rig (HD_SHOTS_NATIVE_CODEX=1).
+
+    The pointer scene walks a real path, in short steps a frame apart: from
+    where a hand rests on the row, sideways out of it at the row's own height
+    — which the flyout always spans, and where Base UI keeps no clock on the
+    way across — then along the flyout to its first level. (A diagonal spends
+    its middle over the menu's other rows, where Base UI closes a flyout the
+    pointer has not reached within 40ms, so a slow machine would lose it.) The
+    flyout is the subject, so the pointer stays where it ended rather than
+    being parked in the corner for the frame (keepPointer). The keyboard scene
+    opens the menu with Enter, walks down to the row and steps in with →.
+  */
+  const MODEL_TRIGGER = `[...document.querySelectorAll('button')].find(e => /model and reasoning/i.test(e.title))`
+  const REASONING_ROW = `[...document.querySelectorAll('[role="menuitem"]')].find(e => /^Reasoning effort/.test(e.textContent ?? ''))`
+  const FIRST_LEVEL = `document.querySelector('[data-slot="dropdown-menu-sub-content"] [role="menuitemradio"]')`
+  const box = (expression) => cdp.json(`(() => {
+    const node = ${expression}
+    if (!node) return null
+    const rect = node.getBoundingClientRect()
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+  })()`)
+  const glide = async (from, to) => {
+    const steps = Math.max(1, Math.round(Math.hypot(to.x - from.x, to.y - from.y) / 8))
+    for (let step = 1; step <= steps; step += 1) {
+      const x = from.x + ((to.x - from.x) * step) / steps
+      const y = from.y + ((to.y - from.y) * step) / steps
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+      await sleep(8)
+    }
+  }
+  const press = async (key) => {
+    const code = { Enter: 13, ArrowDown: 40, ArrowRight: 39 }[key]
+    const base = { key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code }
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
+    if (key === 'Enter') await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...base, text: '\r' })
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
+    await sleep(250)
+  }
+  const stageCodexComposer = async () => {
+    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') {
+      throw new Error('the reasoning scenes need HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels')
+    }
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+    await waitForSnapshot(() => box(MODEL_TRIGGER), Boolean)
+    await sleep(800)
+  }
+  SCENES['composer-reasoning'] = { leaveOverlay: true, keepPointer: true, expect: 'How hard the model thinks', run: async () => {
+    await stageCodexComposer()
+    const trigger = await box(MODEL_TRIGGER)
+    const at = { x: trigger.x + trigger.width / 2, y: trigger.y + trigger.height / 2 }
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, button: 'left', clickCount: 1 })
+    await waitForSnapshot(() => box(REASONING_ROW), Boolean)
+    await sleep(400)
+    const row = await box(REASONING_ROW)
+    const rest = { x: row.x + row.width - 40, y: row.y + row.height / 2 }
+    await glide({ x: rest.x, y: rest.y - 30 }, rest)
+    await waitForSnapshot(() => cdp.eval(`${REASONING_ROW}?.hasAttribute('data-popup-open') ?? false`), Boolean)
+    await sleep(300)
+    const level = await box(FIRST_LEVEL)
+    const flyout = await box(`document.querySelector('[data-slot="dropdown-menu-sub-content"]')`)
+    const inside = { x: Math.min(Math.max(rest.x, flyout.x + 24), flyout.x + flyout.width - 24), y: rest.y }
+    await glide(rest, inside)
+    await glide(inside, { x: level.x + 40, y: level.y + level.height / 2 })
+    await sleep(300)
+    if (!await cdp.eval(`Boolean(${FIRST_LEVEL}?.matches(':hover'))`)) {
+      throw new Error('composer-reasoning: the pointer did not reach the flyout')
+    }
+  } }
+  SCENES['composer-reasoning-keys'] = { leaveOverlay: true, expect: 'How hard the model thinks', run: async () => {
+    await stageCodexComposer()
+    await cdp.eval(`${MODEL_TRIGGER}.focus(); true`)
+    await press('Enter')
+    await waitForSnapshot(() => box(REASONING_ROW), Boolean)
+    for (let step = 0; step < 12 && !await cdp.eval(`${REASONING_ROW} === document.activeElement`); step += 1) {
+      await press('ArrowDown')
+    }
+    await press('ArrowRight')
+    await waitForSnapshot(() => cdp.eval(`${FIRST_LEVEL} === document.activeElement`), Boolean)
+  } }
   SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
     await SCENES.conversation.run()
     const opened = await cdp.eval(`(() => {
@@ -942,7 +1028,7 @@ rules:
     await scene.run()
     for (const theme of THEMES) {
       await setTheme(theme)
-      if (!scene.hover) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
+      if (!scene.hover && !scene.keepPointer) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
       if (scene.hover) {
         await hover(scene.hover)
         if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
