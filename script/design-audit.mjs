@@ -176,12 +176,78 @@ const stringEnd = (text, start) => {
   return text.length
 }
 
-/* Whether a `url(` token opens at `index` — the function name itself, not the
-   end of some longer identifier. */
-const urlAt = (text, index) =>
-  (text[index] === 'u' || text[index] === 'U') &&
-  /^url\(/i.test(text.slice(index, index + 4)) &&
-  !(index > 0 && /[\w-]/.test(text[index - 1]))
+/*
+ * CSS escapes (Syntax §4.3.7), decoded the way the browser decodes them
+ * before it reads a name: `r\65 d` is `red`, `c\6f lor` is `color`,
+ * `u\72l(` opens a URL. The scanners here used to skip an escape for
+ * structure and then classify the spelling it left behind — so every escaped
+ * name slipped past, and an escaped `url(` was read as its payload (#762
+ * review). A backslash before a newline is not an escape.
+ */
+const HEX_DIGIT = /[0-9A-Fa-f]/
+const validEscape = (text, index) => text[index] === '\\' && index + 1 < text.length && text[index + 1] !== '\n'
+const escapeAt = (text, index) => {
+  let at = index + 1
+  if (!HEX_DIGIT.test(text[at])) return { char: text[at], end: at + 1 }
+  let hex = ''
+  while (hex.length < 6 && HEX_DIGIT.test(text[at] ?? '')) hex += text[at++]
+  if (/[ \t\n]/.test(text[at] ?? '')) at += 1 // one whitespace ends a hex escape
+  const code = parseInt(hex, 16)
+  const valid = code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+  return { char: String.fromCodePoint(valid ? code : 0xfffd), end: at }
+}
+const nameCode = (char) => char !== undefined && (/[A-Za-z0-9_-]/.test(char) || char.charCodeAt(0) >= 0x80)
+const nameStart = (char) => char !== undefined && (/[A-Za-z_]/.test(char) || char.charCodeAt(0) >= 0x80)
+
+/* Whether an identifier starts at `index` (Syntax §4.3.9). */
+const identStartsAt = (text, index) => {
+  if (text[index] === '-') {
+    return nameStart(text[index + 1]) || text[index + 1] === '-' || validEscape(text, index + 1)
+  }
+  return nameStart(text[index]) || validEscape(text, index)
+}
+
+/* The name that starts at `index`, escapes decoded, and where it ends. */
+const nameAt = (text, index) => {
+  let name = ''
+  let at = index
+  while (at < text.length) {
+    if (validEscape(text, at)) {
+      const { char, end } = escapeAt(text, at)
+      name += char
+      at = end
+    } else if (nameCode(text[at])) name += text[at++]
+    else break
+  }
+  return { name, end: at }
+}
+
+/* Past the `)` that closes a parenthesis opened just before `index`, counting
+   depth outside strings and escapes. */
+const closeOf = (text, index) => {
+  let depth = 1
+  let at = index
+  while (at < text.length) {
+    const char = text[at]
+    if (char === '\\') at += 2
+    else if (char === '"' || char === "'") at = stringEnd(text, at)
+    else {
+      if (char === '(') depth += 1
+      else if (char === ')' && (depth -= 1) === 0) return at + 1
+      at += 1
+    }
+  }
+  return text.length
+}
+
+/* Past a `url(`…`)` whose `(` is just before `index`: a quoted URL is a
+   function around a string, closed by depth; an unquoted one runs to its
+   first unescaped `)`, the whole of it an address. */
+const urlEnd = (text, index) => {
+  let open = index
+  while (/[ \t\n]/.test(text[open] ?? '')) open += 1
+  return text[open] === '"' || text[open] === "'" ? closeOf(text, index) : unquotedUrlEnd(text, open)
+}
 
 /**
  * Strip comments so prose about a value is not counted as the value.
@@ -190,9 +256,10 @@ const urlAt = (text, index) =>
  * inside a string opened a "comment" that ran to the next `*\/` anywhere —
  * `content: "/*"; color: red; content: "*\/"` lost the `color` between them,
  * and a raw colour slipped past the audit (#762 review). So it scans: strings
- * are copied whole, and an unquoted `url(...)` is copied through its `)`,
- * because the grammar reads everything there as the address — a `/*` inside
- * one is part of a path, not a comment.
+ * are copied whole, a name is copied whole with its escapes (so `\/*` is a
+ * name, not a comment), and an unquoted `url(...)` — however its name is
+ * spelled — is copied through its `)`, because the grammar reads everything
+ * there as the address.
  */
 const bare = (raw) => {
   const css = preprocess(raw)
@@ -207,70 +274,75 @@ const bare = (raw) => {
     } else if (char === '/' && css[index + 1] === '*') {
       const close = css.indexOf('*/', index + 2)
       index = close === -1 ? css.length : close + 2
-    } else if (urlAt(css, index)) {
-      let open = index + 4
-      while (/\s/.test(css[open] ?? '')) open += 1
-      if (css[open] === '"' || css[open] === "'") {
-        out += css.slice(index, open)
-        index = open
-      } else {
-        const end = unquotedUrlEnd(css, open)
-        out += css.slice(index, end)
-        index = end
+    } else if (identStartsAt(css, index)) {
+      const { name, end } = nameAt(css, index)
+      let next = end
+      if (css[end] === '(' && name.toLowerCase() === 'url') {
+        let open = end + 1
+        while (/[ \t\n]/.test(css[open] ?? '')) open += 1
+        next = css[open] === '"' || css[open] === "'" ? open : unquotedUrlEnd(css, open)
       }
+      out += css.slice(index, next)
+      index = next
     } else {
-      out += char
-      index += 1
+      const step = char === '\\' ? 2 : 1
+      out += css.slice(index, index + step)
+      index += step
     }
   }
   return out
 }
 
 /*
- * A value with its strings and every `url(...)` blanked — what is left is what
- * the value itself says. A URL's payload is an image or a reference, never a
- * colour of this stylesheet's, however much it looks like one; and the
- * closing paren is found by depth outside strings, so a quoted payload that
- * holds `translate(1)` does not end the URL early and leave its tail exposed
- * (#762 review).
+ * The tokens of a value that can name a colour — hashes, functions and
+ * identifiers, each with its escapes decoded — with strings, numbers (units
+ * included) and every `url(...)` set aside. A URL's payload is an image or a
+ * reference, never a colour of this stylesheet's; its end is found by depth
+ * outside strings, so `translate(1)` inside a quoted payload does not close
+ * it (#762 review), and its name is read decoded, so `u\72l(red)` is a URL.
  */
-const plainOf = (raw) => {
-  const value = preprocess(raw)
-  let out = ''
+const colourTokens = (raw) => {
+  const text = preprocess(raw)
+  const tokens = []
   let index = 0
-  while (index < value.length) {
-    const char = value[index]
+  while (index < text.length) {
+    const char = text[index]
     if (char === '"' || char === "'") {
-      out += ' '
-      index = stringEnd(value, index)
-    } else if (urlAt(value, index)) {
-      let depth = 0
-      let at = index + 3
-      while (at < value.length) {
-        const inner = value[at]
-        if (inner === '\\') {
-          at += 2 // an escaped paren is part of the address, not its end
-          continue
-        }
-        if (inner === '"' || inner === "'") {
-          at = stringEnd(value, at)
-          continue
-        }
-        if (inner === '(') depth += 1
-        else if (inner === ')' && (depth -= 1) === 0) {
-          at += 1
-          break
-        }
-        at += 1
-      }
-      out += ' '
-      index = at
-    } else {
-      out += char
+      index = stringEnd(text, index)
+    } else if (char === '#' && (nameCode(text[index + 1]) || validEscape(text, index + 1))) {
+      const { name, end } = nameAt(text, index + 1)
+      tokens.push({ type: 'hash', value: name })
+      index = end
+    } else if (
+      /[0-9]/.test(char) ||
+      ((char === '+' || char === '-' || char === '.') && /[0-9.]/.test(text[index + 1] ?? '') && /[0-9]/.test(text[index + 1] === '.' ? text[index + 2] ?? '' : text[index + 1]))
+    ) {
+      // a number, and any unit written on it: `10px`, `1.5em`, `1e3`, `50%`
       index += 1
+      while (/[0-9.]/.test(text[index] ?? '')) index += 1
+      if (/[eE]/.test(text[index] ?? '') && /[0-9]/.test(/[+-]/.test(text[index + 1] ?? '') ? text[index + 2] ?? '' : text[index + 1] ?? '')) {
+        index += /[+-]/.test(text[index + 1]) ? 2 : 1
+        while (/[0-9]/.test(text[index] ?? '')) index += 1
+      }
+      if (identStartsAt(text, index)) index = nameAt(text, index).end
+      else if (text[index] === '%') index += 1
+    } else if (identStartsAt(text, index)) {
+      const { name, end } = nameAt(text, index)
+      if (text[end] === '(') {
+        if (name.toLowerCase() === 'url') index = urlEnd(text, end + 1)
+        else {
+          tokens.push({ type: 'function', value: name })
+          index = end + 1
+        }
+      } else {
+        tokens.push({ type: 'ident', value: name })
+        index = end
+      }
+    } else {
+      index += char === '\\' ? 2 : 1
     }
   }
-  return out
+  return tokens
 }
 
 /**
@@ -284,7 +356,7 @@ const plainOf = (raw) => {
  * it is rather than of each property what it is called.
  *
  * Read by walking the text, not by a pattern: a `;` or a `}` ends a
- * declaration only outside a string and outside parentheses. A pattern took
+ * declaration only outside a string, outside parentheses, and unescaped. A pattern took
  * the first one it met, so `content: "status: #fff; ready"` became the value
  * `"status: #fff` — a raw colour, on valid CSS — and an unquoted
  * `url(data:…;…)` would have split the same way (#762 review). A `{` outside a
@@ -307,7 +379,7 @@ export const declarationsOf = (css) => {
   while (index < text.length) {
     const char = text[index]
     if (char === '"' || char === "'") {
-      // the same notion of a string as `bare` and `plainOf` — one definition
+      // the same notion of a string as `bare` and `colourTokens` — one definition
       const end = stringEnd(text, index)
       buffer += text.slice(index, end)
       index = end
@@ -335,6 +407,25 @@ export const declarationsOf = (css) => {
   return found
 }
 
+/* A value without its trailing `!important`, however that is spelled —
+   `! IMPORTANT`, `!\69 mportant` — found as the last `!` outside a string,
+   followed by nothing but a name that decodes to `important`. */
+const withoutImportant = (raw) => {
+  let bang = -1
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]
+    if (char === '\\') index += 1
+    else if (char === '"' || char === "'") index = stringEnd(raw, index) - 1
+    else if (char === '!') bang = index
+  }
+  if (bang === -1) return raw.trim()
+  let at = bang + 1
+  while (/[ \t\n]/.test(raw[at] ?? '')) at += 1
+  if (!identStartsAt(raw, at)) return raw.trim()
+  const { name, end } = nameAt(raw, at)
+  return name.toLowerCase() === 'important' && raw.slice(end).trim() === '' ? raw.slice(0, bang).trim() : raw.trim()
+}
+
 /* `property: value`, split at the first colon outside a string or parentheses. */
 const splitDeclaration = (raw) => {
   let depth = 0
@@ -345,9 +436,15 @@ const splitDeclaration = (raw) => {
     else if (char === '(') depth += 1
     else if (char === ')') depth = Math.max(0, depth - 1)
     else if (char === ':' && depth === 0) {
-      const property = raw.slice(0, index).trim()
-      if (!/^(?:--[\w-]+|-?[A-Za-z][\w-]*)$/.test(property)) return null
-      const value = raw.slice(index + 1).replace(/\s*!\s*important\s*$/i, '').trim()
+      /* The property as the browser reads it: escapes decoded (`c\6f lor` is
+         `color`), and — unless it is a custom property, which keeps its case —
+         in lower case, because `Z-INDEX` is `z-index`. */
+      const written = raw.slice(0, index).trim()
+      if (!identStartsAt(written, 0)) return null
+      const { name, end } = nameAt(written, 0)
+      if (end !== written.length) return null
+      const property = name.startsWith('--') ? name : name.toLowerCase()
+      const value = withoutImportant(raw.slice(index + 1))
       return value === '' ? null : { property, value }
     }
   }
@@ -383,28 +480,30 @@ export const NAMED_COLOURS = Object.freeze(
     'seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan ' +
     'teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen').split(' '),
 )
-/* A whole identifier, any case — not part of `--hd-red` or `darkred-ish`, and
-   not a function: `tan(45deg)` is trigonometry, not the colour. */
-const NAMED = new RegExp(`(?<![-\\w#])(?:${NAMED_COLOURS.join('|')})(?![-\\w])(?!\\s*\\()`, 'i')
+/* Compared as decoded identifier tokens, in any case: `Red` and `r\65 d` are
+   both `red`, while `--hd-red` and `darkred-ish` are other names, and
+   `tan(45deg)` is a function — trigonometry, not the colour. */
+const NAMED_SET = new Set(NAMED_COLOURS)
+const COLOUR_FUNCTIONS = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color'])
 
 /* Properties whose values are names an author chose — a keyframes rule, a
-   grid area, a counter, a font family, a container. A colour word there is an
+   grid area or line, a counter, a font family, a container, a named page, a
+   view-transition class — each checked in Chromium. A colour word there is an
    identifier, not a colour: `animation: red 1s` is a keyframes rule called
    `red`. Only the named-colour check stands aside for these; a hex or a colour
    function is a colour wherever it is written. Like the mask exemption, a list
    of exceptions: one missing from it shows up as a finding someone reads. */
 const AUTHOR_NAMES =
-  /^(?:animation(?:-name|-timeline)?|font(?:-family)?|grid(?:-area|-template(?:-areas)?|-(?:row|column)(?:-start|-end)?)?|counter-(?:reset|increment|set)|list-style(?:-type)?|container(?:-name)?|view-transition-name|anchor-name|position-anchor|timeline-scope|(?:scroll|view)-timeline(?:-name)?)$/
+  /^(?:animation(?:-name|-timeline)?|font(?:-family)?|grid(?:-area|-template(?:-areas|-columns|-rows)?|-(?:row|column)(?:-start|-end)?)?|counter-(?:reset|increment|set)|list-style(?:-type)?|container(?:-name)?|view-transition-(?:name|class)|page|anchor-name|position-anchor|timeline-scope|(?:scroll|view)-timeline(?:-name)?)$/
 
 /** Whether a value writes a colour out: hex, a colour function or a named colour, outside `url()` and strings. */
-export const rawColourIn = (value, { names = true } = {}) => {
-  const plain = plainOf(value)
-  return (
-    /#[0-9a-fA-F]{3,8}\b/.test(plain) ||
-    /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i.test(plain) ||
-    (names && NAMED.test(plain))
+export const rawColourIn = (value, { names = true } = {}) =>
+  colourTokens(value).some(
+    ({ type, value: token }) =>
+      (type === 'hash' && /^[0-9a-f]{3,8}$/i.test(token)) ||
+      (type === 'function' && COLOUR_FUNCTIONS.has(token.toLowerCase())) ||
+      (names && type === 'ident' && NAMED_SET.has(token.toLowerCase())),
   )
-}
 
 /** Declarations that write a colour out, custom properties included. */
 export const rawColours = (css) =>
@@ -413,11 +512,159 @@ export const rawColours = (css) =>
       !ALPHA_ONLY.test(property) && rawColourIn(value, { names: !AUTHOR_NAMES.test(property) }),
   )
 
-/** `z-index` written as a number in the shared band — 10 and up; `!important` does not hide one. */
-export const rawZIndexes = (css) =>
-  declarationsOf(css).filter(
-    ({ property, value }) => property === 'z-index' && /^-?\d+$/.test(value) && Math.abs(Number(value)) >= 10,
-  )
+/* Past the `)` that closes `var(` or a math function: the first comma at depth
+   zero inside it, or -1. */
+const topLevelComma = (text) => {
+  let depth = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '\\') index += 1
+    else if (char === '"' || char === "'") index = stringEnd(text, index) - 1
+    else if (char === '(') depth += 1
+    else if (char === ')') depth -= 1
+    else if (char === ',' && depth === 0) return index
+  }
+  return -1
+}
+
+/* A value with every `var()` replaced by what this stylesheet says it is — a
+   custom property defined in the same file, or the fallback written in place
+   — or `null` when one comes from somewhere else, which for a layer means the
+   ladder in `tokens.css`. */
+const substituteVars = (value, locals, seen) => {
+  let out = ''
+  let index = 0
+  while (index < value.length) {
+    if (identStartsAt(value, index)) {
+      const { name, end } = nameAt(value, index)
+      if (value[end] === '(' && name.toLowerCase() === 'var') {
+        const close = closeOf(value, end + 1)
+        const inner = value.slice(end + 1, close - 1)
+        const comma = topLevelComma(inner)
+        const reference = nameAt((comma === -1 ? inner : inner.slice(0, comma)).trim(), 0).name
+        let resolved = null
+        if (locals.has(reference) && !seen.has(reference)) {
+          resolved = substituteVars(locals.get(reference), locals, new Set([...seen, reference]))
+        } else if (comma !== -1) {
+          resolved = substituteVars(inner.slice(comma + 1), locals, seen)
+        }
+        if (resolved === null) return null
+        out += ` ${resolved} `
+        index = close
+        continue
+      }
+      out += value.slice(index, end)
+      index = end
+      continue
+    }
+    out += value[index]
+    index += 1
+  }
+  return out
+}
+
+/* The number an expression of literals comes to — `+`, `-`, `*`, `/`,
+   parentheses, and `calc`, `min`, `max`, `clamp` — or `null` for anything
+   else: a unit, a keyword, a function this does not know. */
+const MATH = new Set(['calc', 'min', 'max', 'clamp'])
+const evaluate = (text) => {
+  const tokens = []
+  let at = 0
+  while (at < text.length) {
+    const rest = text.slice(at)
+    const space = /^\s+/.exec(rest)
+    const number = /^[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?/.exec(rest)
+    const fn = /^([A-Za-z-]+)\(/.exec(rest)
+    if (space) at += space[0].length
+    else if (number) {
+      tokens.push(Number(number[0]))
+      at += number[0].length
+    } else if (fn && MATH.has(fn[1].toLowerCase())) {
+      tokens.push({ fn: fn[1].toLowerCase() })
+      at += fn[0].length
+    } else if ('()+-*/,'.includes(rest[0])) {
+      tokens.push(rest[0])
+      at += 1
+    } else return null
+  }
+  let position = 0
+  const next = () => tokens[position++]
+  const peek = () => tokens[position]
+  const expect = (token) => {
+    if (next() !== token) throw new Error('shape')
+  }
+  const sum = () => {
+    let total = product()
+    while (peek() === '+' || peek() === '-') total = next() === '+' ? total + product() : total - product()
+    return total
+  }
+  const product = () => {
+    let total = unary()
+    while (peek() === '*' || peek() === '/') total = next() === '*' ? total * unary() : total / unary()
+    return total
+  }
+  const unary = () => (peek() === '-' ? (next(), -unary()) : peek() === '+' ? (next(), unary()) : atom())
+  const atom = () => {
+    const token = next()
+    if (typeof token === 'number') return token
+    if (token === '(') {
+      const inner = sum()
+      expect(')')
+      return inner
+    }
+    if (token && token.fn) {
+      const args = [sum()]
+      while (peek() === ',') {
+        next()
+        args.push(sum())
+      }
+      expect(')')
+      if (token.fn === 'calc' && args.length === 1) return args[0]
+      if (token.fn === 'min') return Math.min(...args)
+      if (token.fn === 'max') return Math.max(...args)
+      if (token.fn === 'clamp' && args.length === 3) return Math.max(args[0], Math.min(args[1], args[2]))
+    }
+    throw new Error('shape')
+  }
+  try {
+    const result = sum()
+    return position === tokens.length && Number.isFinite(result) ? result : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The layer a `z-index` value is written as, or `null` when it is not written
+ * as a number.
+ *
+ * A number is written when it resolves without the ladder: a literal (`+10`
+ * is one), arithmetic over literals (`calc(5 + 5)`, `max(1, 12)` — each
+ * checked in Chromium, rounded as CSS rounds an integer), a custom property
+ * defined in the same stylesheet, or a `var()` fallback. Arithmetic on a
+ * ladder token — `calc(var(--hd-z-sticky) + 1)`, the one case in the app — is
+ * derived from the ladder and moves when it moves, so it is not counted: that
+ * is a decision, not an oversight (#762 review).
+ */
+const layerOf = (value, locals) => {
+  const text = substituteVars(value, locals, new Set())
+  if (text === null) return null
+  const layer = evaluate(text)
+  if (layer === null) return null
+  // a bare number has to be an integer to be a z-index at all; math is rounded
+  return /\(/.test(text) ? Math.round(layer) : Number.isInteger(layer) ? layer : null
+}
+
+/** `z-index` written as a number in the shared band — 10 and up, however it is spelled; `!important` does not hide one. */
+export const rawZIndexes = (css) => {
+  const declarations = declarationsOf(css)
+  const locals = new Map(declarations.filter(({ property }) => property.startsWith('--')).map(({ property, value }) => [property, value]))
+  return declarations.filter(({ property, value }) => {
+    if (property !== 'z-index') return false
+    const layer = layerOf(value, locals)
+    return layer !== null && Math.abs(layer) >= 10
+  })
+}
 
 /**
  * A `.tsx` file's code, with its comments gone.

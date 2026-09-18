@@ -628,9 +628,10 @@ unable to see:
 
 - `rawColour` named five properties and `box-shadow` was not one of them, so ten
   hand-written shadows sat outside a count that said there were none. It now
-  reads every declaration, whatever its property, through a scanner that knows
-  what a string, a comment and a `url()` are — a `;`, a `/*` or a `)` inside a
-  string ends nothing, and a URL's payload is never read as a colour; and it counts
+  reads every declaration, whatever its property, through a scanner that reads
+  CSS the way the browser does — strings, comments, `url()` and escapes: a `;`,
+  a `/*` or a `)` inside a string ends nothing, `r\65 d` is `red` and `c\6f lor`
+  is `color`, and a URL's payload is never read as a colour; and it counts
   a colour however it is spelled — hex, a colour function, or a name like
   `red`. The exemptions are named rather than left out: masks, which read
   alpha, and — for colour names only — the properties whose values are names
@@ -639,7 +640,11 @@ unable to see:
   it was written that stacking "never writes a number", and twenty-four places
   wrote a number. Single digits are ordering inside one component's own stacking
   context and are not counted; from 10 up is the band two components can
-  genuinely collide in, and that is what the ladder is for.
+  genuinely collide in, and that is what the ladder is for. A number counts
+  however it is written — `calc(5 + 5)`, `max(1, 12)`, a custom property of the
+  same stylesheet, a `var()` fallback — and arithmetic on a rung,
+  `calc(var(--hd-z-sticky) + 1)`, does not: it is derived from the ladder and
+  moves when the ladder does.
 
 Both failures have the same shape as the line-height ratios before them: name
 the spellings you happen to remember, and everything else is invisible —

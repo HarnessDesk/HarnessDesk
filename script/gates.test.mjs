@@ -1640,3 +1640,61 @@ test('CR, form feed and CR LF are the newline CSS preprocessing makes them (#762
   assert.deepEqual(rawColours('.a { content: "a\\\r\n#fff"; }'), [])
   assert.deepEqual(declarationsOf('.a {\r\n  color: red;\r\n  gap: 4px;\r\n}').map(({ property }) => property), ['color', 'gap'])
 })
+
+/* The fourth #762 re-review: CSS decodes escapes before it reads a name, so
+   the audit has to as well — each spelling below checked in Chromium. */
+test('an escaped colour, colour function or property is still one (#762)', () => {
+  const found = (css) => rawColours(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { color: r\\65 d; }'), ['color'])
+  assert.deepEqual(found('.a { color: r\\000065d; }'), ['color'])
+  assert.deepEqual(found('.a { color: r\\67 b(255 0 0); }'), ['color'])
+  assert.deepEqual(found('.a { color: #\\66 ff; }'), ['color'])
+  assert.deepEqual(found('.a { c\\6f lor: red; }'), ['color'])
+  const layers = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(layers('.a { z-\\69 ndex: 10; }'), ['10'])
+  // property names are case-insensitive; a sign and an escaped !important are still an integer and a flag
+  assert.deepEqual(layers('.a { Z-INDEX: 10; }'), ['10'])
+  assert.deepEqual(layers('.a { z-index: +10; }'), ['+10'])
+  assert.deepEqual(layers('.a { z-index: 10 !\\69 mportant; }'), ['10'])
+})
+
+test('an escaped url() is a URL, and an escaped name that is not a colour is not one (#762)', () => {
+  assert.deepEqual(rawColours('.a { background: u\\72l(red); }'), [])
+  assert.deepEqual(rawColours('.a { color: r\\65 dx; }'), [])
+  assert.deepEqual(rawColours('.a { color: var(--hd-r\\65 d); }'), [])
+  // a custom property keeps its case, as the browser keeps it
+  assert.deepEqual(declarationsOf('.a { --Tint: 1; }').map(({ property }) => property), ['--Tint'])
+})
+
+/* Swept before the next review round rather than found by it: spellings of
+   the same two rules, each checked in Chromium first. */
+test('color() is a colour function, and colour words in grid lines, pages and view-transition classes are names (#762)', () => {
+  assert.deepEqual(rawColours('.a { color: color(srgb 1 0 0); }').map(({ property }) => property), ['color'])
+  assert.deepEqual(
+    rawColours('.a { grid-template-columns: [red] 1fr; grid-template-rows: [tan] auto; page: red; view-transition-class: red; }'),
+    [],
+  )
+})
+
+test('a z-index written as a number is counted however it is spelled (#762)', () => {
+  const layers = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(layers('.a { z-index: calc(10); }'), ['calc(10)'])
+  assert.deepEqual(layers('.a { z-index: calc(5 + 5); }'), ['calc(5 + 5)'])
+  assert.deepEqual(layers('.a { z-index: max(1, 12); }'), ['max(1, 12)'])
+  assert.deepEqual(layers('.a { z-index: clamp(10, 5, 20); }'), ['clamp(10, 5, 20)'])
+  // a number behind a custom property of this stylesheet, or in a fallback, is still a number
+  assert.deepEqual(layers('.a { --l: 60; z-index: var(--l); }'), ['var(--l)'])
+  assert.deepEqual(layers('.a { z-index: var(--nope, 60); }'), ['var(--nope, 60)'])
+})
+
+test('a z-index from the ladder, a single digit or not a number at all is not counted (#762)', () => {
+  const layers = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(layers('.a { z-index: var(--hd-z-popover); }'), [])
+  // derived from a rung, so it moves when the ladder moves — the line drawn on purpose
+  assert.deepEqual(layers('.a { z-index: calc(var(--hd-z-sticky) + 1); }'), [])
+  assert.deepEqual(layers('.a { z-index: 5; } .b { z-index: calc(2 * 3); } .c { z-index: auto; }'), [])
+  // not a valid z-index: the browser drops it
+  assert.deepEqual(layers('.a { z-index: 10.5; }'), [])
+  // a cycle resolves to nothing rather than looping
+  assert.deepEqual(layers('.a { --a: var(--b); --b: var(--a); z-index: var(--a); }'), [])
+})
