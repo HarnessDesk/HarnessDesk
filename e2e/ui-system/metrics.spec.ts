@@ -43,9 +43,27 @@ const UPDATE = process.env.UPDATE_METRICS === '1'
  * already correctly sized both times. A rig that cannot reproduce its own
  * numbers cannot hold anyone else's.
  *
- * So: the fonts, then a fingerprint of what the cascade is currently saying,
- * polled until it repeats. Faces are part of it because a fallback face
- * changes measured heights, not only glyphs.
+ * On 2026-09-17 the same shape came back on a different component, on a cold
+ * GitHub Actions runner only: `Stat`'s outer box, like `IconTile` before it,
+ * takes its type size purely by inheritance — nothing on it sets a `text-*`
+ * utility — and it read 16px against a recorded 14px, again with its box
+ * already the right height. The serving side turned out not to be the
+ * culprit here: this rig's dev server (`@tailwindcss/vite` over Vite) hands
+ * the whole cascade over as one `<style>` tag per navigation, not patched in
+ * place afterward, so `document.styleSheets.length` alone wasn't actually
+ * stale — a local cold-restart repro never caught it moving either. What a
+ * `body`-shaped fingerprint cannot rule out is a *descendant* lagging its
+ * ancestor: proving `body` itself has the right font tells you nothing about
+ * whether some already-painted node several inheritance hops away has been
+ * recomputed against it yet, which is exactly the gap a busy, CPU-starved
+ * runner can open. So the fingerprint below now also samples the actual
+ * cases the caller is about to measure — the same elements, the same
+ * property — because settling on what you are about to read is the only
+ * version of this check that cannot be one frame ahead of itself. The
+ * stylesheet signal is kept but strengthened anyway, from a sheet count to
+ * each sheet's own rule count, since a sheet whose rules are replaced in
+ * place (a CSS-module hot update, elsewhere in this pipeline) would pass the
+ * old count-only check without ever having stopped changing.
  */
 const settle = async (page: import('@playwright/test').Page) => {
   await page.evaluate(async () => {
@@ -53,10 +71,27 @@ const settle = async (page: import('@playwright/test').Page) => {
     const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     const fingerprint = () => {
       const body = getComputedStyle(document.body)
-      return `${document.styleSheets.length}|${body.fontSize}|${body.fontFamily}|${body.backgroundColor}`
+      const sheets = [...document.styleSheets]
+        .map(sheet => {
+          try {
+            return sheet.cssRules.length
+          } catch {
+            return 'x' // cross-origin sheet: opaque to us, and not one we can wait on anyway
+          }
+        })
+        .join(',')
+      // The exact cases the test is about to read, not a proxy for them —
+      // see above. `document.body` can be settled while one of these still
+      // isn't.
+      const cases = [...document.querySelectorAll('[data-catalog-variant], [data-catalog-size]')]
+        .map(node => getComputedStyle(node).fontSize)
+        .join(',')
+      return `${sheets}|${body.fontSize}|${body.fontFamily}|${body.backgroundColor}|${cases}`
     }
     let previous = ''
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    // 120, not 60: a wider margin for a slow cold runner, on top of — not
+    // instead of — the fingerprint fix above.
+    for (let attempt = 0; attempt < 120; attempt += 1) {
       const current = fingerprint()
       if (current === previous) return
       previous = current
