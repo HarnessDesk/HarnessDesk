@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
+import { ChildProcess } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import type { AgentEvent } from '@harnessdesk/protocol'
@@ -1178,21 +1179,53 @@ test('two sign-ins at once each end once, and cancelling one leaves the other', 
   )
 })
 
-test('a cancelled sign-in with a real child ends once, and the kill it causes adds nothing', async () => {
+/**
+ * Resolves, with how the sign-in child left, once it has gone and the adapter has had its turn with the exit.
+ *
+ * A flow that has ended reports nothing of the exit its kill causes, so there is no event to wait on, and a sleep
+ * passes having seen nothing whenever the exit comes later than it does. The wait is on the child. The adapter hears
+ * of the exit in a listener on the child's own events, and whatever it does then, promise reactions included, is
+ * finished before the loop goes on to another callback, so a `setImmediate` after the child's `close` (the last event
+ * a child emits) runs after all of it, however late the exit arrives. Nothing here is timed.
+ *
+ * A socket the child holds open, which closes when it dies, does not stand in for this. It says the process is gone,
+ * not that the adapter has been handed the exit, and the two arrive in either order: measured, the exit was still
+ * undelivered a turn after the socket had closed.
+ *
+ * `runtime.login()` does not hand out the child it spawns, so the one place to listen from is
+ * `ChildProcess.prototype.emit`. The wrapper calls through, answers only to the sign-in command, and is put back
+ * when the test ends.
+ */
+const signInChildLeaves = (t: TestContext): Promise<{ code: number | null; signal: NodeJS.Signals | null }> =>
+  new Promise((resolve) => {
+    const emit = ChildProcess.prototype.emit as (this: ChildProcess, event: string | symbol, ...args: unknown[]) => boolean
+    t.mock.method(ChildProcess.prototype, 'emit', function (this: ChildProcess, event: string | symbol, ...args: unknown[]) {
+      const heard = emit.call(this, event, ...args)
+      if (event === 'close' && this.spawnfile === FAKE_CLI && this.spawnargs[1] === 'login') {
+        const [code, signal] = args as [number | null, NodeJS.Signals | null]
+        setImmediate(() => resolve({ code, signal }))
+      }
+      return heard
+    })
+  })
+
+test('a cancelled sign-in with a real child ends once, and the kill it causes adds nothing', async (t) => {
   // Round 10 of #134: cancel was tested on a child the test drives by hand, never on a process.
   const runtime = make({ FAKE_CLI_LOGIN: 'hang' })
   await runtime.start()
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))
+  const leaving = signInChildLeaves(t)
   try {
     const start = await runtime.login('cli-browser')
     await runtime.cancelLogin(start.loginId)
-    /* Time for the SIGTERM's exit to arrive and be ignored. A best effort (review, round 15): a kill's exit carries
-       no code, so nothing is emitted to wait on instead, and where the exit comes later than this the test passes
-       without having seen the second completion it is here to catch. */
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    /* The exit the kill causes emits nothing on a healthy adapter, so what is waited on is the child going and the
+       adapter having heard it. A sleep in its place passes, having seen nothing, whenever the exit is later than the
+       sleep is long. */
+    const left = await leaving
+    assert.equal(left.code, null, 'the cancel killed the child; it did not leave on its own')
     const ended = events.filter((event) => event.type === 'account/loginCompleted') as { error?: string }[]
-    assert.equal(ended.length, 1)
+    assert.equal(ended.length, 1, 'the flow ended once, by its cancel, and the exit the kill caused added nothing')
     assert.equal(ended[0]?.error, 'Sign-in was cancelled.')
   } finally {
     await runtime.dispose()
