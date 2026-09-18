@@ -1,7 +1,6 @@
 /*
  * "Ask an agent to fix this": the dialog, and the refusal block that raises
- * it. The red block rhymes with the `.error` in the other git stylesheets
- * rather than importing one of them — a screen's stylesheet is not a library.
+ * it.
  */
 
 .body {
@@ -22,14 +21,6 @@
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
   color: var(--hd-secondary-foreground);
-}
-
-.error {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
 }
 
 /* --- who to ask ---------------------------------------------------------- */

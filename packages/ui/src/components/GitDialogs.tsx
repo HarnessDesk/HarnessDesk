@@ -9,10 +9,20 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
-import { Dialog } from '../design'
-import { Button, Input, NativeSelect, Switch, Textarea } from '../design'
+import {
+  Alert,
+  AlertContent,
+  AlertDescription,
+  Button,
+  Dialog,
+  Input,
+  NativeSelect,
+  Switch,
+  Textarea,
+} from '../design'
 import { DiffView } from './Diff'
 import {
+  AlertIcon,
   BranchIcon,
   CheckIcon,
   CommitIcon,
@@ -336,7 +346,14 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
             })}
           </div>
         )}
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -415,7 +432,14 @@ export const MergeDialog = ({
           A conflict is not a failure: the files stay in the working tree, named, and committing concludes the
           merge.
         </span>
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -491,7 +515,14 @@ export const RenameBranchDialog = ({
           }}
         />
         <span className={styles.note}>Only the local branch renames; a remote copy keeps its name.</span>
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -552,7 +583,14 @@ export const DeleteBranchDialog = ({
           <Switch checked={force} onCheckedChange={setForce} aria-label="Force — delete even with unmerged commits" />
           <span>Delete even if its commits are nowhere else.</span>
         </div>
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -629,7 +667,14 @@ export const TagDialog = ({
           aria-label="Tag message"
           onChange={(event) => setMessage(event.target.value)}
         />
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -713,7 +758,14 @@ export const ResetDialog = ({
             </Button>
           ))}
         </div>
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -774,7 +826,14 @@ export const StashDialog = ({ root, onDone }: { root: string; onDone: (done: boo
         <span className={styles.note}>
           Sets every change aside, untracked files included, and appears under Stashes in the rail.
         </span>
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <Alert tone="danger" role="alert">
+            <AlertIcon />
+            <AlertContent>
+              <AlertDescription>{error}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        )}
       </div>
     </Dialog>
   )
@@ -824,7 +883,12 @@ export const DiffRangeDialog = ({
       footer={<Button variant="secondary" onClick={onDone}>Close</Button>}
     >
       {error ? (
-        <div className={styles.error}>{error}</div>
+        <Alert tone="danger" role="alert">
+          <AlertIcon />
+          <AlertContent>
+            <AlertDescription>{error}</AlertDescription>
+          </AlertContent>
+        </Alert>
       ) : diff === null ? (
         <div className={styles.quiet}>Reading the difference…</div>
       ) : diff.length === 0 ? (
@@ -911,7 +975,12 @@ export const ConfirmDialog = ({
           (trouble && onAsk ? (
             <TroubleNote message={error} trouble={trouble(error)} onAsk={onAsk} />
           ) : (
-            <div className={styles.error}>{error}</div>
+            <Alert tone="danger" role="alert">
+              <AlertIcon />
+              <AlertContent>
+                <AlertDescription>{error}</AlertDescription>
+              </AlertContent>
+            </Alert>
           ))}
       </div>
     </Dialog>

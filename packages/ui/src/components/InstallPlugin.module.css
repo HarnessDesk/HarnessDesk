@@ -32,10 +32,6 @@
   color: var(--hd-muted-foreground);
 }
 
-.error {
-  color: var(--hd-destructive);
-}
-
 .name {
   font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
   font-weight: var(--hd-weight-medium);

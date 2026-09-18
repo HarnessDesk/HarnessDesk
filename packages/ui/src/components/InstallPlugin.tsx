@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import { Button, Dialog, Input } from '../design'
+import { Alert, AlertContent, AlertDescription, Button, Dialog, Input } from '../design'
 import { useStore } from '../state/context'
 import { AlertIcon, FolderIcon, PluginIcon } from './Icons'
 import styles from './InstallPlugin.module.css'
@@ -151,7 +151,14 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
         </>
       )}
 
-      {error && <p className={`${styles.note} ${styles.error}`}>{error}</p>}
+      {error && (
+        <Alert tone="danger" role="alert" className="mt-2">
+          <AlertIcon />
+          <AlertContent>
+            <AlertDescription>{error}</AlertDescription>
+          </AlertContent>
+        </Alert>
+      )}
     </Dialog>
   )
 }

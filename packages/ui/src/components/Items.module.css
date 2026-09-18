@@ -496,24 +496,6 @@
   margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
-/* --- error -------------------------------------------------------------- */
-
-.error {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-  border-radius: var(--hd-radius);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger-ink); /* desk: the raw red → the ink solved against this fill */
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
-}
-
-.errorIcon {
-  flex: none;
-}
-
 /* --- plan --------------------------------------------------------------- */
 
 .planList {

@@ -22,7 +22,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { Button } from '../design'
+import { Alert, AlertContent, AlertDescription, Button } from '../design'
 import { instant } from '../lib/clock'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf } from '../lib/diff'
@@ -983,10 +983,12 @@ const Review = ({ item }: { item: ReviewItem }) => (
 )
 
 const ErrorRow = ({ item }: { item: ErrorItem }) => (
-  <div className={styles.error}>
-    <AlertIcon className={styles.errorIcon} size={14} />
-    <span>{item.message}</span>
-  </div>
+  <Alert tone="danger" role="alert">
+    <AlertIcon />
+    <AlertContent>
+      <AlertDescription>{item.message}</AlertDescription>
+    </AlertContent>
+  </Alert>
 )
 
 const ImageRow = ({ item }: { item: ImageItem }) => (
