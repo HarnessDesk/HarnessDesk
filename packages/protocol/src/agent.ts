@@ -144,7 +144,7 @@ export type SeatReason =
    */
   | { readonly kind: 'notInstalled'; readonly added: boolean }
   /**
-   * No runtime by this id is on this desk, and none by it can be added:
+   * No runtime by this id is on this desk, nor one it knows how to add:
    * neither the agents the desk knows how to run nor the public registry, as
    * last fetched, lists it. Not merely absent, as an id that could be added is.
    */
@@ -241,3 +241,47 @@ export type SeatLeft =
  * because archiving it failed (`failed`), so it may still be listed.
  */
 export type SeatArchived = 'here' | 'runtime' | 'failed'
+
+/** One candidate seat, as a dry run or a refusal shows it. */
+export interface SeatCandidate {
+  /** The seat as written, for the surface that edits this machine's seats. Never shown. */
+  readonly seat: FlowSeat
+  /** How it reads: "Claude · Opus 5 · High". The runtime's name and the runtime's own labels, never the spec. */
+  readonly label: string
+  /** The runtime as the desk calls it, even when nothing by that id is added here. */
+  readonly runtimeName: string
+  /** Would be taken, was passed over, or was never reached because one above it would be taken. */
+  readonly state: 'taken' | 'passed' | 'untried'
+  /** Why it was passed over; null unless `state` is `passed`. */
+  readonly reason: SeatReason | null
+  /** What removes the reason; null unless `state` is `passed`. */
+  readonly fix: SeatFix | null
+  /** What opening it left behind; only on a candidate passed over after it was opened. */
+  readonly left?: SeatLeft | null
+}
+
+/**
+ * Which seat an Agent would take here, and why not the others — the reads a
+ * seating makes before it chooses, and nothing it opens. A candidate the plan
+ * takes can still be passed over by the real seating once open, when what it
+ * runs is read back; the plan knows only what is knowable before.
+ */
+export interface SeatPlan {
+  readonly id: AgentId
+  /**
+   * Where the candidates came from: the Agent's own `prefer`, or this
+   * machine's entry in `seating.json`, which replaces `prefer` here rather
+   * than merging with it.
+   */
+  readonly from: 'prefer' | 'machine'
+  /** Every candidate, in the order the seating would try them. Empty when the Agent names none. */
+  readonly candidates: readonly SeatCandidate[]
+  /** Where in `candidates` the seat that would be taken is; null when none can be. */
+  readonly winner: number | null
+  /**
+   * Why this Agent cannot be weighed at all — its file does not parse, or
+   * nobody defined it — in the host's words; null otherwise. When it is set
+   * `candidates` is empty and `winner` null.
+   */
+  readonly blocked: string | null
+}

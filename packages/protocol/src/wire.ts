@@ -1,4 +1,4 @@
-import type { AgentEntry } from './agent.js'
+import type { AgentEntry, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -1550,6 +1550,17 @@ export interface HostMethods {
   'agent/read': {
     params: { readonly id: string; readonly project?: string }
     result: AgentEntry | null
+  }
+  /**
+   * Which seat each Agent would take here, and why not the others — opening
+   * nothing. The reads a seating makes before it chooses, each held to the
+   * same deadline; one read of the desk serves every Agent asked about. `ids`
+   * absent is every Agent in force, in the roster's order; an id nobody
+   * defined is answered with why, never dropped.
+   */
+  'agent/seat/dry': {
+    params: { readonly ids?: readonly string[]; readonly project?: string }
+    result: readonly SeatPlan[]
   }
   /**
    * Opens a conversation as an Agent: the first of its seats this machine can

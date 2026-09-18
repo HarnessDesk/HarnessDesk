@@ -65,6 +65,8 @@ const UNREACHED = {
     'likewise — opening one Agent from that roster is the same later phase',
   'agent/seat':
     'likewise — seating an Agent from that roster is the same later phase',
+  'agent/seat/dry':
+    'likewise — every menu that lists Agents is drawn from it, and those menus are the second half of the same phase',
 }
 
 /**

@@ -498,7 +498,7 @@ export class AgentDirectory {
   readonly which?: (command: string) => string | null | Promise<string | null>
       /** The public ACP registry; without one, its requests say so. */
       readonly registry?: Pick<AcpRegistry, 'catalog' | 'resolve' | 'uninstall'> &
-        Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion' | 'cachedIds'>>
+        Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion' | 'cachedIds' | 'cachedAgents'>>
       /**
        * Every copy of an agent on this machine, and which one answers. With
        * it, a template says which copy it found and a registry entry whose
@@ -563,6 +563,16 @@ export class AgentDirectory {
    */
   registryLists(id: string): boolean {
     return this.options.registry?.cachedIds?.().has(id) ?? false
+  }
+
+  /**
+   * The name the public registry gave this id in the document it last
+   * fetched, or null: this host reads no registry, has nothing cached from
+   * one, or that document does not list the id. Cache only, on the same terms
+   * as `registryLists`.
+   */
+  registryNameOf(id: string): string | null {
+    return this.options.registry?.cachedAgents?.().find((agent) => agent.id === id)?.name ?? null
   }
 
   /** The catalogue, computed against what is on this machine right now. */

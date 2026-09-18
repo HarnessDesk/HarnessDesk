@@ -504,6 +504,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
   'agent/list': shape({ project: optional(isString) }),
   'agent/read': shape({ id: isString, project: optional(isString) }),
+  'agent/seat/dry': shape({ ids: optional(arrayOf(isString)), project: optional(isString) }),
   'agent/seat': shape({
     id: isFilled,
     cwd: isFilled,

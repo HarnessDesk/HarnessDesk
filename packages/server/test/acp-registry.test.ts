@@ -205,6 +205,37 @@ test('the cached ids are the last document fetched, however old, and never the n
   assert.equal(fetches, 0, 'nothing went to the network to answer')
 })
 
+test('cachedAgents is cachedIds with the rest of the entry — a name to say, on the same terms', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  let fetches = 0
+  const offline = () =>
+    new AcpRegistry({
+      stateDir: dir,
+      freshMs: 0,
+      fetchJson: async () => {
+        fetches += 1
+        throw new Error('offline')
+      },
+      which: async () => null,
+    })
+
+  assert.deepEqual(offline().cachedAgents(), [], 'nothing cached is nothing listed')
+  await new AcpRegistry({ stateDir: dir, fetchJson: async () => DOCUMENT, which: async () => null }).catalog(() => false)
+  assert.deepEqual(
+    offline()
+      .cachedAgents()
+      .map((agent) => [agent.id, agent.name]),
+    [
+      ['npx-agent', 'Npx Agent'],
+      ['uvx-agent', 'Uvx Agent'],
+      ['binary-agent', 'Binary Agent'],
+      ['verified-agent', 'Verified Agent'],
+    ],
+  )
+  assert.equal(fetches, 0, 'nothing went to the network to answer')
+})
+
 test('a package-runner entry resolves to its runner, provenance and all', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))

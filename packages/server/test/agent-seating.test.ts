@@ -5,8 +5,10 @@ import type { ConfigOption, FlowSeat } from '@harnessdesk/protocol'
 
 import {
   chooseSeat,
+  describeSeat,
   differencesOf,
   durationWords,
+  effortWord,
   explainRefusal,
   fixOf,
   fragmentOf,
@@ -17,6 +19,7 @@ import {
   sentenceOf,
   type SeatOffer,
   type SeatRunning,
+  type SeatWords,
 } from '../src/agent-seating.js'
 import { parseSeat } from '../src/flow.js'
 
@@ -425,7 +428,7 @@ test('an id nothing could add is its own reason, fixed by editing the seats — 
   })
   assert.equal(
     sentenceOf('praxis', { kind: 'unknownRuntime' }),
-    'praxis is not a runtime on this desk, and none by that name can be added',
+    'praxis is not a runtime on this desk, nor one it knows how to add',
   )
   assert.deepEqual(fixOf('praxis', { kind: 'unknownRuntime' }), { kind: 'seats' })
 })
@@ -493,4 +496,20 @@ test('sentenceOf rebuilds the opened-otherwise sentence from the structured diff
     'cursor runs it on model m2, not m1, and at medium effort, not high, and without thinking, which was asked for (M1 has no thinking mode)',
   )
   assert.equal(openedOtherwise(asked, busy), sentenceOf('cursor', { kind: 'openedOtherwise', differences: found }))
+})
+
+/** Words as a desk that knows each runtime's name and the model's labels would give them. */
+const words: SeatWords = {
+  runtime: (id) => ({ claude: 'Claude', cursor: 'Cursor' })[id] ?? id,
+  model: (_runtime, model) => ({ 'opus-5': 'Opus 5' })[model] ?? model,
+  effort: (_runtime, _model, effort) => effortWord(effort),
+}
+
+test('a seat is said in words: the runtime by its name, the model and effort by their labels, never the spec', () => {
+  assert.equal(describeSeat(written('claude=opus-5/high'), words), 'Claude · Opus 5 · High')
+  assert.equal(describeSeat(written('claude=opus-5/xhigh+thinking'), words), 'Claude · Opus 5 · Extra high · thinking')
+  assert.equal(describeSeat(written('cursor'), words), 'Cursor')
+  // An effort nobody has a word for is said as written, never dropped.
+  assert.equal(effortWord('turbo'), 'turbo')
+  assert.equal(effortWord('constructor'), 'constructor')
 })

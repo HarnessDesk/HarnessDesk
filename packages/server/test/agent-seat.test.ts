@@ -29,6 +29,7 @@ import {
   type RuntimeId,
   type RuntimeInfo,
   type SeatLeft,
+  type SeatPlan,
   type Session,
   type SessionDeletion,
   type SessionId,
@@ -48,7 +49,7 @@ import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
 import type { OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
-import { agentMethods, offerOf, offersFor } from '../src/methods/agents.js'
+import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
 import type { SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
@@ -525,6 +526,10 @@ const orderFor = (permission: FlowPermission, cwd: string): string =>
 
 /** What one runtime on the pretend desk says about itself. Honest and ready unless a test says otherwise. */
 interface Pretend {
+  /** What the desk calls it. Its id unless a test names it. */
+  readonly name?: string
+  /** The models it answers with, labels and all; built from `models` when absent. */
+  readonly catalogue?: readonly ModelInfo[]
   readonly models?: readonly string[]
   /** The model list will not load. */
   readonly modelsFail?: boolean
@@ -551,14 +556,15 @@ interface Pretend {
 }
 
 const pretendRuntime = (id: string, pretend: Pretend) => {
-  const catalogue = (pretend.models ?? []).map((one) => ({
-    id: one,
-    displayName: one,
-    reasoningLevels: [],
-    supportsImages: false,
-  }))
+  const catalogue: readonly ModelInfo[] =
+    pretend.catalogue ??
+    (pretend.models ?? []).map((one) => ({ id: one, displayName: one, reasoningLevels: [], supportsImages: false }))
   return {
-    info: { id: runtimeId(id), capabilities: { account: pretend.keepsOwnAccount !== true } },
+    info: {
+      id: runtimeId(id),
+      capabilities: { account: pretend.keepsOwnAccount !== true },
+      presentation: { name: pretend.name ?? id },
+    },
     health: (): RuntimeHealth => {
       if (pretend.healthThrows) throw new Error(pretend.healthThrows)
       return pretend.health ?? { state: 'ready' }
@@ -1075,7 +1081,7 @@ test('each thing the desk knows before opening is its own reason, read from the 
 })
 
 /*
- * `offersFor` decides, for every candidate id this desk has not added, which
+ * `readDesk` decides, for every candidate id this desk has not added, which
  * fix a refusal can honestly offer: *Add* it, when the id is one the desk
  * could add — an agent it knows how to run (`known-agents.ts`), or one the
  * public registry lists in the copy the desk last fetched — or send the
@@ -1083,9 +1089,9 @@ test('each thing the desk knows before opening is its own reason, read from the 
  * `prefer: [claude]` mistake, where the id is `claude-code`.
  */
 
-test('offersFor tells an id nothing could add apart from one the desk could still add', async () => {
+test('readDesk tells an id nothing could add apart from one the desk could still add', async () => {
   const { ctx } = await rig('cursor=m1', {})
-  const offers = await offersFor(ctx, [
+  const { offers } = await readDesk(ctx, [
     { runtime: 'cursor', thinking: false }, // a real runtime (known-agents.ts) — just not added to this desk
     { runtime: 'claude', thinking: false }, // the spec's own spelling; the id is claude-code
   ])
@@ -1113,7 +1119,7 @@ test('beside a runtime this desk has, an id nothing could add is still its own r
     { runtime: 'claude', model: 'opus-5', thinking: false },
     { runtime: 'codex', model: 'gpt-5.5', thinking: false },
   ]
-  const offers = await offersFor(seen.ctx, candidates)
+  const { offers } = await readDesk(seen.ctx, candidates)
   assert.deepEqual(offers, [
     { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false },
     { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
@@ -1129,7 +1135,7 @@ test('beside a runtime this desk has, an id nothing could add is still its own r
         error.message,
         [
           'No seat could be opened for this Agent:',
-          '  claude=opus-5 — claude is not a runtime on this desk, and none by that name can be added',
+          '  claude=opus-5 — claude is not a runtime on this desk, nor one it knows how to add',
           '  codex=gpt-5.5 — codex is signed out',
         ].join('\n'),
       )
@@ -1185,7 +1191,7 @@ test('an id only the public registry lists is one the desk could add, read from 
     { runtime: 'praxis', model: 'm1', thinking: false },
     { runtime: 'codex', model: 'gpt-5.5', thinking: false },
   ]
-  const offers = await offersFor(seen.ctx, candidates)
+  const { offers } = await readDesk(seen.ctx, candidates)
   assert.deepEqual(fixesFor(candidates, offers), [
     ['listed', { kind: 'notInstalled', added: false }, { kind: 'add', runtime: 'listed' }],
     ['praxis', { kind: 'unknownRuntime' }, { kind: 'seats' }],
@@ -1199,7 +1205,7 @@ test('an id only the public registry lists is one the desk could add, read from 
         [
           'No seat could be opened for this Agent:',
           '  listed=m1 — listed is not installed',
-          '  praxis=m1 — praxis is not a runtime on this desk, and none by that name can be added',
+          '  praxis=m1 — praxis is not a runtime on this desk, nor one it knows how to add',
           '  codex=gpt-5.5 — codex is signed out',
         ].join('\n'),
       )
@@ -1221,7 +1227,7 @@ test('with nothing cached from the registry, the agents the desk knows decide al
     { runtime: 'devin', model: 'm1', thinking: false },
     { runtime: 'codex', model: 'gpt-5.5', thinking: false },
   ]
-  assert.deepEqual(fixesFor(candidates, await offersFor(seen.ctx, candidates)), [
+  assert.deepEqual(fixesFor(candidates, (await readDesk(seen.ctx, candidates)).offers), [
     ['listed', { kind: 'unknownRuntime' }, { kind: 'seats' }],
     ['devin', { kind: 'notInstalled', added: false }, { kind: 'add', runtime: 'devin' }],
   ])
@@ -1248,7 +1254,7 @@ test('a registered runtime whose program is missing is offered with that said, f
     models: ['m'],
     health: { state: 'unavailable', reason: 'notInstalled', message: 'Gone is not installed on this machine.' },
   })
-  const offer = await offerOf(ctx, runtime as never, Promise.resolve([]), 1_000)
+  const { offer } = await offerOf(ctx, runtime as never, Promise.resolve([]), 1_000)
   assert.deepEqual(offer, { runtime: 'gone', notInstalled: true, models: null, efforts: null, signedIn: false, spent: false })
   assert.deepEqual(reasonAgainst({ runtime: 'gone', thinking: false }, [offer]), { kind: 'notInstalled', added: true })
   assert.deepEqual(fixOf('gone', { kind: 'notInstalled', added: true }), { kind: 'install', runtime: 'gone' })
@@ -1779,7 +1785,7 @@ test('a runtime that never says whether it is signed in is passed over, and the 
   // proof of this on its own, but a real-clock bound on that is redundant and
   // was flaky; this checks the reason itself instead).
   const muted = pretendRuntime('mute', { models: ['m1'], accountHangs: true })
-  const offer = await offerOf(seen.ctx, muted as never, Promise.resolve([]), 30)
+  const { offer } = await offerOf(seen.ctx, muted as never, Promise.resolve([]), 30)
   assert.deepEqual(reasonAgainst({ runtime: 'mute', thinking: false }, [offer]), { kind: 'noAnswer', after: 30 })
 })
 
@@ -1810,8 +1816,8 @@ test('usage and the per-runtime reads run concurrently: one deadline settles bot
   const seen = await rig('mute=m1', { mute: { models: ['m1'], accountHangs: true } }, { deadlineMs: 150, usageHangs: true })
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let answered: readonly SeatOffer[] | undefined
-  void offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }]).then((offers) => {
-    answered = offers
+  void readDesk(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }]).then((desk) => {
+    answered = desk.offers
   })
   t.mock.timers.tick(150)
   await flush()
@@ -1833,7 +1839,7 @@ test('a read that throws does not answer the call while the others still run beh
   )
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let outcome = 'pending'
-  void offersFor(seen.ctx, [
+  void readDesk(seen.ctx, [
     { runtime: 'broken', model: 'm1', thinking: false },
     { runtime: 'mute', model: 'm1', thinking: false },
   ]).then(
@@ -1864,8 +1870,8 @@ test('a seatReadDeadlineMs that is not a real deadline falls back to the ten-sec
   // Read once the clock has moved, not awaited: a call still waiting then is
   // a failure to report, not a test to hang on.
   let answered: readonly SeatOffer[] | undefined
-  void offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }]).then((offers) => {
-    answered = offers
+  void readDesk(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }]).then((desk) => {
+    answered = desk.offers
   })
   t.mock.timers.tick(SEAT_READ_DEADLINE_MS)
   await flush()
@@ -2376,4 +2382,138 @@ test('through the host: a name file that will not write neither keeps a passed-o
   assert.equal(harness.host.registry.get(runtimeId('seatfake'), passed.id), undefined)
   await client.until(() => removedFor(client, passed.id) === 1, 2_000, 'session/removed for the seat passed over')
   assert.ok(heard.said.includes('a seat passed over could not be forgotten everywhere'))
+})
+
+/*
+ * The dry run: which seat would win here and why not the ones above it —
+ * the reads a seating makes, and nothing it opens.
+ */
+
+test('the dry run says which seat would win here and why not the ones above it, and opens nothing', async () => {
+  const seen = await rig('cursor=gemini-3.8-flash/high, claude=opus-5/high, codex/high', {
+    cursor: { name: 'Cursor', models: ['gemini-3.8-flash'], signedOut: true },
+    claude: {
+      name: 'Claude',
+      catalogue: [
+        { id: 'opus-5', displayName: 'Opus 5', reasoningLevels: [{ id: 'high', label: 'High' }], supportsImages: true },
+      ],
+    },
+  })
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(plans, [
+    {
+      id: 'reviewer',
+      from: 'prefer',
+      winner: 1,
+      blocked: null,
+      candidates: [
+        {
+          seat: { runtime: 'cursor', model: 'gemini-3.8-flash', effort: 'high' },
+          label: 'Cursor · gemini-3.8-flash · High',
+          runtimeName: 'Cursor',
+          state: 'passed',
+          reason: { kind: 'signedOut' },
+          fix: { kind: 'signIn', runtime: 'cursor' },
+        },
+        {
+          seat: { runtime: 'claude', model: 'opus-5', effort: 'high' },
+          label: 'Claude · Opus 5 · High',
+          runtimeName: 'Claude',
+          state: 'taken',
+          reason: null,
+          fix: null,
+        },
+        {
+          // Nothing by this id is added and the desk knows no name for it, so its id is the last word left.
+          seat: { runtime: 'codex', effort: 'high' },
+          label: 'codex · High',
+          runtimeName: 'codex',
+          state: 'untried',
+          reason: null,
+          fix: null,
+        },
+      ],
+    },
+  ])
+  untouched(seen)
+})
+
+test('no ids is every Agent in force; one that cannot be weighed says why; one nobody defined is named', async () => {
+  const seen = await rig('claude=opus-5', { claude: { name: 'Claude', models: ['opus-5'] } })
+  const brokenFile = join(seen.root, 'user', 'broken', 'AGENT.md')
+  await mkdir(join(seen.root, 'user', 'broken'), { recursive: true })
+  await writeFile(brokenFile, '---\npermission: admin\n---\nx\n', 'utf8')
+
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, {})
+  assert.deepEqual(
+    plans.map((one) => [one.id, one.winner, one.blocked]),
+    [
+      ['broken', null, `${brokenFile} cannot be used: permission — "admin" is not a permission — it is read, publish or merge`],
+      ['reviewer', 0, null],
+    ],
+  )
+  assert.deepEqual(await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['ghost'] }), [
+    { id: 'ghost', from: 'prefer', candidates: [], winner: null, blocked: 'No Agent called “ghost”.' },
+  ])
+  untouched(seen)
+})
+
+test('through the host: a dry run opens nothing, and says each seat in the words the desk uses', async (t) => {
+  const { harness, seats, client } = await desk(t)
+  await writeReviewer(harness.stateDir, 'ghost=m1, seatfake=big/high')
+  const plans = (await client.call('agent/seat/dry', { ids: ['reviewer'] })) as SeatPlan[]
+  assert.equal(seats.opened.length, 0, 'nothing was opened')
+  assert.deepEqual(
+    plans[0]?.candidates.map((one) => [one.label, one.state, one.fix?.kind ?? null]),
+    [
+      // No `AgentDirectory` is wired into this harness and `ghost` is not a
+      // known agent either, so nothing here could add it — the same "not a
+      // runtime on this desk, nor one it knows how to add" a seating itself
+      // would say, fixed by editing the seats rather than by *Add*.
+      ['ghost · m1', 'passed', 'seats'],
+      ['Seat Fake · Big · High', 'taken', null],
+    ],
+  )
+})
+
+/*
+ * A runtime this desk has not added is named by what it can still find of it:
+ * the desk's own name for a runtime it has added and knows; failing that, the
+ * name the public registry gave it in the document it last fetched; and only
+ * once neither names it, its bare id.
+ */
+
+test('a runtime this desk has not added, and does not know, is named as the public registry names it — its id only when nothing does', async () => {
+  const stateDir = tempDir('hd-agent-seat-registry-name-')
+  const agents = [
+    { id: 'listed', name: 'Listed Agent', version: '1.0.0', distribution: { npx: { package: 'listed@1.0.0' } } },
+  ]
+  // Fetched once while the network was there, and cached — exactly as listing
+  // the registry in Settings › Runtimes fetches and caches it.
+  await new AcpRegistry({ stateDir, fetchJson: async () => ({ agents }), which: () => null }).catalog(() => false)
+  const registry = new AcpRegistry({
+    stateDir,
+    freshMs: 0,
+    fetchJson: async () => {
+      throw new Error('the network is not there')
+    },
+    which: () => null,
+  })
+  const directory = new AgentDirectory({
+    store: new AgentRegistryStore(join(stateDir, 'agents.json')),
+    build: () => {
+      throw new Error('nothing is added in these tests')
+    },
+    usageFor: () => null,
+    registry,
+  })
+  const seen = await rig('listed=m1, praxis=m1', {}, { directory })
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(
+    plans[0]?.candidates.map((one) => [one.seat.runtime, one.runtimeName]),
+    [
+      ['listed', 'Listed Agent'],
+      ['praxis', 'praxis'],
+    ],
+  )
 })

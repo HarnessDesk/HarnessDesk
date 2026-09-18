@@ -1,11 +1,14 @@
 import type {
+  AgentId,
   ConfigOption,
   FlowPermission,
   FlowSeat,
   SeatArchived,
+  SeatCandidate,
   SeatDifference,
   SeatFix,
   SeatLeft,
+  SeatPlan,
   SeatReason,
   SessionSettings,
 } from '@harnessdesk/protocol'
@@ -57,7 +60,7 @@ export interface SeatOffer {
    */
   readonly notInstalled?: boolean
   /**
-   * No runtime by this id is on this desk, and none by it can be added:
+   * No runtime by this id is on this desk, nor one it knows how to add:
    * neither the agents the desk knows how to run nor the public registry, as
    * last fetched, lists it. Not a runtime left unadded, which is no offer at
    * all, but a spelling neither list has (`prefer: [claude]`, where the id is
@@ -200,7 +203,7 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
     case 'notInstalled':
       return `${runtime} is not installed`
     case 'unknownRuntime':
-      return `${runtime} is not a runtime on this desk, and none by that name can be added`
+      return `${runtime} is not a runtime on this desk, nor one it knows how to add`
     case 'unavailable':
       return `${runtime} is unavailable: ${reason.detail}`
     case 'noAnswer':
@@ -471,3 +474,100 @@ export const permissionWithin = (ceiling: FlowPermission, grant: FlowPermission)
  */
 export const agentOrder = (brief: string, permission: FlowPermission, cwd: string): string =>
   `${brief}\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`
+
+// ------------------------------------------------------------ in words
+
+/**
+ * How a seat is said to a person: the runtime by the name the desk calls it,
+ * and a model and an effort by the labels the runtime gave them where it gave
+ * any. The caller knows the names; this only puts them in order.
+ */
+export interface SeatWords {
+  runtime(id: string): string
+  model(runtime: string, model: string): string
+  effort(runtime: string, model: string | null | undefined, effort: string): string
+}
+
+/**
+ * Effort ids as a person says them, for a runtime that did not label them.
+ * An id not here is said as written — a vendor adds levels faster than this
+ * table learns them, and a word borrowed for one would lie about the next.
+ */
+const EFFORT_WORDS: Readonly<Record<string, string>> = {
+  none: 'Off',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra',
+}
+
+export const effortWord = (effort: string): string =>
+  Object.hasOwn(EFFORT_WORDS, effort) ? (EFFORT_WORDS[effort] ?? effort) : effort
+
+/** "Claude · Opus 5 · High · thinking" — what a surface shows where a spec would otherwise be. */
+export const describeSeat = (seat: FlowSeat, words: SeatWords): string =>
+  [
+    words.runtime(seat.runtime),
+    seat.model ? words.model(seat.runtime, seat.model) : null,
+    seat.effort ? words.effort(seat.runtime, seat.model, seat.effort) : null,
+    seat.thinking ? 'thinking' : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ')
+
+/** One candidate passed over, as a surface shows it. */
+export const candidateOf = (one: PassedOver, words: SeatWords): SeatCandidate => ({
+  seat: one.seat,
+  label: describeSeat(one.seat, words),
+  runtimeName: words.runtime(one.seat.runtime),
+  state: 'passed',
+  reason: one.reason,
+  fix: fixOf(one.seat.runtime, one.reason),
+  ...(one.left ? { left: one.left } : {}),
+})
+
+/**
+ * The plan for one Agent: every candidate in order, the one that would be
+ * taken, and why each above it would not be. Every candidate above the winner
+ * is passed over, so the chooser's list lines up with the candidates by index.
+ */
+export const planSeats = (
+  id: AgentId,
+  candidates: readonly FlowSeat[],
+  offers: readonly SeatOffer[],
+  words: SeatWords,
+  from: SeatPlan['from'] = 'prefer',
+): SeatPlan => {
+  const chosen = chooseSeat(candidates, offers)
+  const winner = chosen.seat === null ? null : chosen.passed.length
+  return {
+    id,
+    from,
+    winner,
+    blocked: null,
+    candidates: candidates.map((seat, index): SeatCandidate => {
+      const passed = chosen.passed[index]
+      if (passed) return candidateOf(passed, words)
+      return {
+        seat,
+        label: describeSeat(seat, words),
+        runtimeName: words.runtime(seat.runtime),
+        state: index === winner ? 'taken' : 'untried',
+        reason: null,
+        fix: null,
+      }
+    }),
+  }
+}
+
+/** An Agent that cannot be weighed at all, with why. */
+export const blockedPlan = (id: AgentId, why: string, from: SeatPlan['from'] = 'prefer'): SeatPlan => ({
+  id,
+  from,
+  candidates: [],
+  winner: null,
+  blocked: why,
+})

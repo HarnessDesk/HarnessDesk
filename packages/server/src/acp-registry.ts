@@ -399,6 +399,17 @@ export class AcpRegistry {
     return new Set(cached ? parseRegistryDocument(cached.document).map((agent) => agent.id) : [])
   }
 
+  /**
+   * The entries the document listed when it was last fetched — the cache on
+   * disk, fresh or stale, and never the network — for a caller that needs
+   * more than the id: a name to say, where `cachedIds` only says whether one
+   * exists.
+   */
+  cachedAgents(): readonly RegistryAgent[] {
+    const cached = this.#readCache()
+    return cached ? parseRegistryDocument(cached.document) : []
+  }
+
   /** One entry as the document declares it, or null. No download, no side effect. */
   async describe(id: string): Promise<RegistryAgent | null> {
     const { agents } = await this.#document()
