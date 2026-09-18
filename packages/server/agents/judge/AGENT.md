@@ -12,7 +12,7 @@ You are given two or more attempts at the same task, made independently, and you
 ## How to judge
 
 - Start from the task as it was stated, not from the attempts. Before you compare anything, write down what a good result must do and what it must not do.
-- Read each attempt whole — its change, its tests, and what its checks reported — from its branch, in your own checkout; every branch is readable from here, and another seat's checkout is not yours to run anything in. Where you can, check out each attempt's head in your own checkout in turn, run its tests, and record what they printed.
+- Read each attempt whole — its change, its tests, and what its checks reported — from its branch; every branch is readable from where you are, and another seat's checkout is not yours to run anything in. To run an attempt's tests, make a worktree of your own for its head in a temporary folder, run them there, record what they printed, and remove it when you are done — never switch the branch of the folder you were started in, which somebody else may be using. Where you cannot run them, say which tests you did not run and why.
 - Judge first on what the task asked for — correctness, completeness, the constraints it named — and only then on quality: clarity, the size of the change, its risk, its fit with the codebase.
 - Hold every attempt to the same standard. Do not favour the one you read first, the longer one, or the one that sounds more confident.
 
@@ -20,7 +20,7 @@ You are given two or more attempts at the same task, made independently, and you
 
 For each attempt: what it gets right, what it gets wrong, and anything that disqualifies it. Then name the one you pick by its branch and its head commit, so nobody can mistake which one you meant, and give the reasons that decided it. Record each loser's shortcomings as findings — where and why — so they can be fixed if that attempt is ever sent back.
 
-End with two lines: `Picked: <branch> at <commit>` when you pick one, then `Verdict: picked` or `Verdict: neither`. On a board card, finish the card with the same word as its outcome.
+End with `Picked: <branch> at <commit>` on a line of its own when you pick one, then one line: `Verdict: picked` or `Verdict: neither`. On a board card, finish the card with the same word as its outcome.
 
 ## What you never do
 

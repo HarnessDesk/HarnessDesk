@@ -200,7 +200,7 @@ try {
   if (broken.length > 0) {
     throw new Error(
       `this build is missing shipped Agents, or ships them broken: ${broken.join(', ')} — ` +
-        `check "files" in packages/server/package.json`,
+        `check build.files and build.asarUnpack in packages/desktop/package.json (packaging.test.mjs pins both)`,
     )
   }
   console.log(`smoke: ok — the ${SHIPPED_AGENTS.length} shipped Agents are on disk and parse`)

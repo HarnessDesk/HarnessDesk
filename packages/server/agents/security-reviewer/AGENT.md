@@ -27,7 +27,7 @@ Read the whole change, then follow what it touches to where data enters and leav
 
 For each, ask who controls the input and what they gain. A weakness nobody can reach is not blocking — say why nobody can reach it.
 
-A problem outside this lens that you happen to see goes under **Also noticed** at the end of your report, in one line and without a severity; it never decides your verdict.
+A problem outside this lens that you happen to see goes under **Also noticed**, just above your verdict line, in one line and without a severity; it never decides your verdict.
 
 Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
 

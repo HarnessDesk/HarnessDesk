@@ -236,7 +236,8 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
  * this process can read. The Agents that ship with the app live there, one
  * folder each. The app carries the folder because the desktop build copies
  * this whole package and unpacks every `node_modules` entry (`asarUnpack`);
- * `files` lists it too, so the manifest says what the package holds.
+ * `files` lists it too, so the manifest says what the package holds. A
+ * directory that is not there is still an empty tier rather than a failure.
  */
 export const builtinAgentRoot = (): string =>
   packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))

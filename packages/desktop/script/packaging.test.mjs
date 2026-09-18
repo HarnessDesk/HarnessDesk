@@ -101,14 +101,27 @@ test('asarUnpack really covers the folder the Agents ship in', () => {
   )
 })
 
-test('no negated build.files glob excludes an Agent brief from the packaged app', () => {
+/**
+ * The folders that brief sits in, down from the one every Agent shares. electron-builder filters folders as
+ * well as files, and never descends into one its filter rejects — so a negated glob that names a folder, the
+ * Agents' own for one, drops every brief beneath it without matching a single file.
+ */
+const AGENT_FOLDERS = [
+  'node_modules/@harnessdesk/server/agents',
+  'node_modules/@harnessdesk/server/agents/code-reviewer',
+]
+
+test('no negated build.files glob excludes an Agent brief, or a folder it ships in, from the packaged app', () => {
   const negated = (manifest.build.files ?? []).filter((glob) => glob.startsWith('!'))
-  const excluding = negated.filter((glob) => matchesGlob(AN_AGENT_FILE, glob.slice(1)))
+  const excluding = negated.filter((glob) =>
+    [...AGENT_FOLDERS, AN_AGENT_FILE].some((path) => matchesGlob(path, glob.slice(1))),
+  )
   assert.deepEqual(
     excluding,
     [],
-    `packages/desktop/package.json's build.files must not exclude ${AN_AGENT_FILE}: a negated glob narrow ` +
-      'enough to catch it (for example "!**/*.md") drops every shipped Agent brief from the packaged app, ' +
-      'even though asarUnpack still unpacks the rest of the folder around them.',
+    `packages/desktop/package.json's build.files must not exclude ${AN_AGENT_FILE}, or a folder it sits in: ` +
+      'a negated glob broad enough to catch either (for example "!**/*.md", or "!**/agents", since ' +
+      'electron-builder never descends into a folder its filter rejects) drops every shipped Agent brief ' +
+      'from the packaged app, whatever asarUnpack says about the folder around them.',
   )
 })

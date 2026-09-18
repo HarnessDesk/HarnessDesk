@@ -28,7 +28,7 @@ Say how large each effect is where you can: the sizes involved and how often the
 
 Judge cost on the inputs this code sees in honest use; how large a hostile party could make one is the security review's question.
 
-A problem outside this lens that you happen to see goes under **Also noticed** at the end of your report, in one line and without a severity; it never decides your verdict.
+A problem outside this lens that you happen to see goes under **Also noticed**, just above your verdict line, in one line and without a severity; it never decides your verdict.
 
 Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
 

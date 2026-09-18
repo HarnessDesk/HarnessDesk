@@ -70,9 +70,11 @@ test('each parses with nothing wrong, names runtimes and not models, and says ho
     )
     assert.deepEqual(definition.answers, answers, `${id} answers what the flows that use it depend on`)
     for (const word of answers) {
+      // With its closing backtick: without it, `Verdict: approved` would pass for "approve", and
+      // `Verdict: picked <branch> at <commit>` for "picked". Every answer word sits in a closed code span.
       assert.ok(
-        definition.brief.includes(`Verdict: ${word}`),
-        `${id}'s brief ends a report on its own answer word, verbatim: "Verdict: ${word}"`,
+        definition.brief.includes('`Verdict: ' + word + '`'),
+        `${id}'s brief ends a report on its own answer word, verbatim and nothing after it: \`Verdict: ${word}\``,
       )
     }
     assert.ok(definition.brief.includes('## How to report'), `${id}'s brief says how it reports`)

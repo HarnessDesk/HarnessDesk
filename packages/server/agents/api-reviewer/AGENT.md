@@ -24,7 +24,7 @@ Read the whole change, then find every surface it adds, alters or removes, and w
 - Documentation: is the change described where the surface is documented?
 - Stored data: can what the old version wrote be read by the new one, and the other way round where both will run at once?
 
-A problem outside this lens that you happen to see goes under **Also noticed** at the end of your report, in one line and without a severity; it never decides your verdict.
+A problem outside this lens that you happen to see goes under **Also noticed**, just above your verdict line, in one line and without a severity; it never decides your verdict.
 
 Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
 
