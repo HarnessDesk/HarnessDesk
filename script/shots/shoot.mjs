@@ -859,7 +859,7 @@ rules:
       await sleep(8)
     }
   }
-  const press = async (key) => {
+  const pressKey = async (key) => {
     const code = { Enter: 13, ArrowDown: 40, ArrowRight: 39 }[key]
     const base = { key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code }
     await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
@@ -903,12 +903,12 @@ rules:
   SCENES['composer-reasoning-keys'] = { leaveOverlay: true, expect: 'How hard the model thinks', run: async () => {
     await stageCodexComposer()
     await cdp.eval(`${MODEL_TRIGGER}.focus(); true`)
-    await press('Enter')
+    await pressKey('Enter')
     await waitForSnapshot(() => box(REASONING_ROW), Boolean)
     for (let step = 0; step < 12 && !await cdp.eval(`${REASONING_ROW} === document.activeElement`); step += 1) {
-      await press('ArrowDown')
+      await pressKey('ArrowDown')
     }
-    await press('ArrowRight')
+    await pressKey('ArrowRight')
     await waitForSnapshot(() => cdp.eval(`${FIRST_LEVEL} === document.activeElement`), Boolean)
   } }
   SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
