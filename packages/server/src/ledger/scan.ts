@@ -3,9 +3,10 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import type { DatabaseSync } from 'node:sqlite'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
-import { openForeignDatabase } from './foreign-db.js'
+import { readForeignDatabase } from './foreign-db.js'
 import type { UsageRow } from './store.js'
 
 /**
@@ -145,10 +146,12 @@ const add = (
   },
 ): void => {
   const day = startOfDay(at)
-  // A separator that cannot occur in a model id or a path, so two rows
-  // never collide on a key.
-  const key = `${day}\u0000${model}\u0000${project}`
   const vendorCost = tokens.vendorCost ?? null
+  // A separator that cannot occur in a model id or a path, so two rows
+  // never collide on a key. Requests the agent priced and requests it did not
+  // never share a row either: a sum of both has no honest cost, and would call
+  // the unpriced ones the agent's own.
+  const key = `${day}\u0000${model}\u0000${project}\u0000${vendorCost === null ? 0 : 1}`
   const existing = into.rows.get(key)
   if (existing) {
     into.rows.set(key, {
@@ -647,14 +650,16 @@ const requireColumns = (
   if (missing.length > 0) throw new Error(`${table} has no ${missing.join(', ')}: not the shape this reads`)
 }
 
-const readForeign = <T>(path: string, read: (database: NonNullable<ReturnType<typeof openForeignDatabase>>) => T): T => {
-  const database = openForeignDatabase(path)
-  if (!database) throw new Error('the database could not be opened for reading')
-  try {
-    return read(database)
-  } finally {
-    database.close()
-  }
+/**
+ * One consistent read of another application's database — see
+ * `readForeignDatabase` for what makes it consistent and why nothing is written
+ * beside it. A file that is not one throws here, so a scan fails loudly and
+ * keeps its previous rows rather than replacing them with nothing.
+ */
+const readForeign = <T>(path: string, read: (database: DatabaseSync) => T): T => {
+  const value = readForeignDatabase(path, read)
+  if (value === null) throw new Error('the database could not be opened for reading')
+  return value
 }
 
 const OPENCODE_COLUMNS = [

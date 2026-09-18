@@ -107,3 +107,23 @@ test('an agent whose spend is on disk gets its records, and one with neither get
   // A hand-written row for something the desk has never heard of.
   assert.equal(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), null)
 })
+
+test('a moved Gemini home moves the sign-in and the spend together, so one card is one account', () => {
+  // `GEMINI_CLI_HOME` stands in for the home folder. Read the sign-in from the
+  // desk's home and the chat logs from the moved one, and the card shows one
+  // account's quota beside another's spend (#772, review round 1).
+  const moved = localUsageFor(
+    row({ id: 'gemini-work', command: 'gemini', args: ['--acp'], env: { GEMINI_CLI_HOME: '/work/second-account' } }),
+    knowledge('gemini'),
+  )
+  assert.deepEqual(moved?.meter?.watchPaths(), ['/work/second-account/.gemini/oauth_creds.json'])
+  assert.equal(moved?.root, '/work/second-account/.gemini/tmp')
+
+  // Unmoved, both fall back to the same home as each other.
+  const home = process.env['HOME'] ?? ''
+  const plain = localUsageFor(row({ id: 'gemini', command: 'gemini', args: ['--acp'] }), knowledge('gemini'))
+  if (!process.env['GEMINI_CLI_HOME']) {
+    assert.deepEqual(plain?.meter?.watchPaths(), [`${home}/.gemini/oauth_creds.json`])
+    assert.equal(plain?.root, `${home}/.gemini/tmp`)
+  }
+})

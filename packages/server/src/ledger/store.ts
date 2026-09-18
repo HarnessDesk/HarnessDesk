@@ -77,7 +77,11 @@ CREATE TABLE IF NOT EXISTS usage (
   reasoning INTEGER NOT NULL DEFAULT 0,
   requests INTEGER NOT NULL DEFAULT 0,
   vendorCost REAL,
-  PRIMARY KEY (file, day, runtime, model, project)
+  -- 1 when the agent priced these requests. Part of the key, because a row is a
+  -- sum, and a sum of requests the agent priced and requests it did not has no
+  -- honest cost or provenance.
+  vendored INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (file, day, runtime, model, project, vendored)
 );
 CREATE INDEX IF NOT EXISTS usage_day ON usage (day);
 CREATE INDEX IF NOT EXISTS usage_runtime_day ON usage (runtime, day);
@@ -92,11 +96,38 @@ export class LedgerStore {
     this.#db = new DatabaseSync(path)
     this.#db.exec('PRAGMA journal_mode = WAL')
     this.#db.exec(SCHEMA)
-    // A ledger written before rows could carry an agent's own cost gains the
-    // column empty, which is exactly what those rows meant.
-    const columns = this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]
-    if (!columns.some((column) => column.name === 'vendorCost')) {
-      this.#db.exec('ALTER TABLE usage ADD COLUMN vendorCost REAL')
+    this.#migrate()
+  }
+
+  /**
+   * A ledger written before rows could carry an agent's own cost has no
+   * `vendorCost`, and one written before that cost was part of the key has a key
+   * too narrow to keep priced and unpriced requests apart. Either is rebuilt in
+   * place with its rows: empty where the column is new, which is what those
+   * rows meant, and unvendored unless they carry a cost.
+   */
+  #migrate(): void {
+    const columns = new Set(
+      (this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]).map((column) => column.name),
+    )
+    if (columns.has('vendored')) return
+    const carried = columns.has('vendorCost')
+    this.#db.exec('BEGIN IMMEDIATE')
+    try {
+      this.#db.exec('DROP INDEX IF EXISTS usage_day; DROP INDEX IF EXISTS usage_runtime_day')
+      this.#db.exec('ALTER TABLE usage RENAME TO usage_old')
+      this.#db.exec(SCHEMA)
+      this.#db.exec(`
+        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
+        SELECT file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests,
+          ${carried ? 'vendorCost' : 'NULL'}, ${carried ? 'CASE WHEN vendorCost IS NULL THEN 0 ELSE 1 END' : '0'}
+        FROM usage_old
+      `)
+      this.#db.exec('DROP TABLE usage_old')
+      this.#db.exec('COMMIT')
+    } catch (error) {
+      this.#db.exec('ROLLBACK')
+      throw error
     }
   }
 
@@ -138,9 +169,9 @@ export class LedgerStore {
     try {
       if (replace) this.#db.prepare('DELETE FROM usage WHERE file = ?').run(cursor.path)
       const add = this.#db.prepare(`
-        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(file, day, runtime, model, project) DO UPDATE SET
+        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(file, day, runtime, model, project, vendored) DO UPDATE SET
           input = input + excluded.input,
           output = output + excluded.output,
           cacheRead = cacheRead + excluded.cacheRead,
@@ -166,6 +197,7 @@ export class LedgerStore {
           row.reasoning,
           row.requests,
           row.vendorCost ?? null,
+          row.vendorCost === null || row.vendorCost === undefined ? 0 : 1,
         )
       }
       this.#db

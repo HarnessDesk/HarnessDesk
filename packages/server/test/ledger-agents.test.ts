@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
 import { tempDir } from './scratch.js'
 
-import { openForeignDatabase } from '../src/ledger/foreign-db.js'
+import { readForeignDatabase } from '../src/ledger/foreign-db.js'
 import { Ledger } from '../src/ledger/index.js'
 import { Pricing } from '../src/ledger/pricing.js'
 import { corpusRoot, listTargets, projectRootOf, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
@@ -154,7 +154,7 @@ const opencodeDatabase = (path: string): DatabaseSync => {
   return database
 }
 
-const addOpencodeSession = (database: DatabaseSync, id: string, model: string, cost: number, tokens: number[]): void => {
+const addOpencodeSession = (database: DatabaseSync, id: string, model: string, cost: number | null, tokens: number[]): void => {
   database
     .prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, '/work/oc', model, cost, ...tokens, NOON - 1000, NOON)
@@ -263,6 +263,51 @@ test('list-priced and agent-priced rows together are said to be mixed', async ()
   ledger.close()
 })
 
+test('a session the agent priced and one it did not, on one day and model, are not one row', async () => {
+  // Same day, same model, same folder: the key a row is grouped by. Folding the
+  // unpriced session into the priced one would call all its tokens vendor-priced
+  // and cost them at the other's $0.50 — its list price lost, provenance wrong
+  // (#772, review round 1).
+  const dir = scratch()
+  const oc = join(dir, 'opencode.db')
+  const writer = opencodeDatabase(oc)
+  const model = '{"id":"gemini-3-flash-preview"}'
+  addOpencodeSession(writer, 'priced', model, 0.5, [1_000_000, 0, 0, 0, 0])
+  addOpencodeSession(writer, 'unpriced', model, null, [1_000_000, 0, 0, 0, 0])
+  writer.close()
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'opencode', kind: 'opencode', root: oc }],
+    pricing: await pricingIn(dir),
+    now: () => NOON,
+  })
+  await ledger.scan()
+  const report = ledger.query({ days: 7, groupBy: 'model' })
+  assert.equal(report.totalCost, 0.5 + 1, 'the recorded $0.50, and 1M input at the list price of $1/M')
+  assert.equal(report.provenance, 'mixed', 'one request was the agent’s to price, one was not')
+  assert.equal(report.coverage.priced, 2)
+  assert.equal(report.coverage.unpriced, 0)
+  ledger.close()
+})
+
+test('rows the agent priced and rows it did not stay apart in the store, and add up within their own kind', () => {
+  const store = new LedgerStore(':memory:')
+  const row = (vendorCost: number | null, requests = 1) => ({
+    file: '/db', day: 1, runtime: 'opencode', model: 'm', project: '/p', input: 10, output: 0, cacheRead: 0, cacheWrite: 0,
+    reasoning: 0, requests, vendorCost,
+  })
+  // One commit, so the upsert is what merges them, as a scan's rows are.
+  store.commit({ path: '/db', size: 1, mtime: 1, offset: 1, tail: [] }, [row(0.5), row(null), row(0.25), row(null)], 1, true)
+  const rows = [...store.since(0)].sort((a, b) => (a.vendorCost ?? -1) - (b.vendorCost ?? -1))
+  assert.equal(rows.length, 2, 'one of each kind')
+  assert.deepEqual(rows.map((entry) => [entry.vendorCost, entry.requests, entry.input]), [
+    [null, 2, 20],
+    [0.75, 2, 20],
+  ])
+  store.close()
+})
+
 test('a ledger from before agents could price their own rows gains the column, empty', () => {
   const dir = scratch()
   const path = join(dir, 'usage.sqlite')
@@ -284,10 +329,34 @@ test('a ledger from before agents could price their own rows gains the column, e
     true,
   )
   assert.equal(store.since(0).find((entry) => entry.file === '/b')?.vendorCost, 0.5)
+  // The old key had no room for the difference; the rebuilt table does.
+  store.commit(
+    { path: '/c', size: 1, mtime: 1, offset: 1, tail: [] },
+    [
+      { file: '/c', day: 1, runtime: 'cline', model: 'm', project: '', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1, vendorCost: 0.5 },
+      { file: '/c', day: 1, runtime: 'cline', model: 'm', project: '', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1, vendorCost: null },
+    ],
+    1,
+    true,
+  )
+  assert.equal(store.since(0).filter((entry) => entry.file === '/c').length, 2)
   store.close()
+  // Opened again, nothing is rebuilt and nothing is lost.
+  const again = new LedgerStore(path)
+  assert.equal(again.since(0).length, 4)
+  again.close()
 })
 
-test('another application’s database is read without a file written beside it', () => {
+/** Every file in a folder with its size and time: what "left alone" means. */
+const listing = (dir: string): string[] =>
+  readdirSync(dir)
+    .sort()
+    .map((name) => `${name} ${statSync(join(dir, name)).size} ${statSync(join(dir, name)).mtimeMs}`)
+
+const countRows = (database: DatabaseSync): number =>
+  (database.prepare('SELECT count(*) AS n FROM t').get() as { n: number }).n
+
+test('a database nobody has open is read without a file written beside it', () => {
   const dir = scratch()
   const wal = join(dir, 'wal.db')
   const writer = new DatabaseSync(wal)
@@ -298,20 +367,102 @@ test('another application’s database is read without a file written beside it'
   other.exec('CREATE TABLE t (x); INSERT INTO t VALUES (2)')
   other.close()
   writeFileSync(join(dir, 'not-a-database.db'), 'hello')
-  const before = readdirSync(dir).sort()
+  const before = listing(dir)
+  assert.equal(existsSync(`${wal}-shm`) || existsSync(`${wal}-wal`), false, 'a closed WAL database leaves no side files')
 
   for (const [path, value] of [
     [wal, 1],
     [rollback, 2],
   ] as const) {
-    const database = openForeignDatabase(path)
-    assert.ok(database)
-    assert.equal((database.prepare('SELECT x FROM t').get() as { x: number }).x, value)
-    database.close()
+    assert.equal(readForeignDatabase(path, (database) => (database.prepare('SELECT x FROM t').get() as { x: number }).x), value)
   }
-  assert.equal(openForeignDatabase(join(dir, 'not-a-database.db')), null)
-  assert.equal(openForeignDatabase(join(dir, 'absent.db')), null)
-  assert.deepEqual(readdirSync(dir).sort(), before, 'no -shm, no -wal')
+  assert.equal(readForeignDatabase(join(dir, 'not-a-database.db'), () => 1), null)
+  assert.equal(readForeignDatabase(join(dir, 'absent.db'), () => 1), null)
+  assert.deepEqual(listing(dir), before, 'no -shm, no -wal, nothing touched')
+})
+
+test('a database its owner has open is read from a copy: what it committed is seen, and nothing of its own is touched', () => {
+  const dir = scratch()
+  const path = join(dir, 'live.db')
+  const owner = new DatabaseSync(path)
+  // Commits stay in the log, as they do between an owner's checkpoints.
+  owner.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x)')
+  owner.exec('INSERT INTO t VALUES (1); INSERT INTO t VALUES (2); INSERT INTO t VALUES (3)')
+  assert.ok(existsSync(`${path}-wal`) && existsSync(`${path}-shm`), 'an owner at work has both side files')
+  const before = listing(dir)
+
+  assert.equal(readForeignDatabase(path, countRows), 3, 'the rows only the log holds')
+  assert.deepEqual(listing(dir), before, 'the owner’s files, byte for byte and time for time')
+  owner.exec('INSERT INTO t VALUES (4)')
+  assert.equal(readForeignDatabase(path, countRows), 4, 'and each read sees what has been committed since')
+  owner.close()
+})
+
+test('an owner in exclusive locking mode, which has no shared memory to give it away, is still read safely', () => {
+  const dir = scratch()
+  const path = join(dir, 'exclusive.db')
+  const owner = new DatabaseSync(path)
+  owner.exec('PRAGMA locking_mode = EXCLUSIVE; PRAGMA journal_mode = WAL; CREATE TABLE t (x)')
+  owner.exec('INSERT INTO t VALUES (1); INSERT INTO t VALUES (2)')
+  // The case a "no -shm, so nobody is running" rule would open in place.
+  assert.equal(existsSync(`${path}-shm`), false, 'exclusive mode keeps its index in memory')
+  assert.ok(existsSync(`${path}-wal`))
+  const before = listing(dir)
+
+  assert.equal(readForeignDatabase(path, countRows), 2)
+  assert.deepEqual(listing(dir), before)
+  owner.close()
+})
+
+test('an owner that starts while an idle database is being read has its read thrown away, not trusted', () => {
+  const dir = scratch()
+  const path = join(dir, 'race.db')
+  const writer = new DatabaseSync(path)
+  writer.exec('PRAGMA journal_mode = WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  writer.close()
+  assert.equal(existsSync(`${path}-wal`), false)
+
+  let owner: DatabaseSync | null = null
+  assert.throws(
+    () =>
+      readForeignDatabase(path, countRows, {
+        onCopied: () => {
+          // The owner wakes up and commits while the immutable read is under way.
+          owner = new DatabaseSync(path)
+          owner.exec('INSERT INTO t VALUES (2)')
+        },
+      }),
+    /changed while it was being read/,
+  )
+  ;(owner as DatabaseSync | null)?.close()
+})
+
+test('a commit while the snapshot is being copied sends it round again, and one that never stops is refused', () => {
+  const dir = scratch()
+  const path = join(dir, 'busy.db')
+  const owner = new DatabaseSync(path)
+  owner.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+
+  // One commit lands mid-copy: the first copy is discarded, the second is whole.
+  let landed = false
+  assert.equal(
+    readForeignDatabase(path, countRows, {
+      onCopied: () => {
+        if (landed) return
+        landed = true
+        owner.exec('INSERT INTO t VALUES (2)')
+      },
+    }),
+    2,
+  )
+
+  // A writer that commits every time is never read torn: after three tries it is an error.
+  let n = 10
+  assert.throws(
+    () => readForeignDatabase(path, countRows, { onCopied: () => owner.exec(`INSERT INTO t VALUES (${n++})`) }),
+    /changed while it was being read/,
+  )
+  owner.close()
 })
 
 test('each agent’s records are found where its own override moves them', () => {

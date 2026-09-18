@@ -1,41 +1,163 @@
-import { closeSync, existsSync, openSync, readSync } from 'node:fs'
+import { closeSync, copyFileSync, existsSync, mkdtempSync, openSync, readSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 
 /**
- * Opens a SQLite file another application owns, for reading, without writing
- * a byte beside it.
+ * Reads a SQLite file another application owns, without writing a byte beside
+ * it and without trusting a guess about who else has it open.
  *
  * A plain read-only open is not enough. A database in WAL mode keeps its
- * readers' shared memory in a `-shm` file, and when that file is missing — the
- * owner is not running — a read-only open **creates** it, and a `-wal` with it,
- * in the owner's folder (measured on Node 25.9: `t.db` became `t.db`,
- * `t.db-shm`, `t.db-wal`). So the mode is read from the file's own header:
+ * readers' shared memory in a `-shm` file, and when that file is missing a
+ * read-only open **creates** it, and a `-wal` with it, in the owner's folder
+ * (measured on Node 25.9: `t.db` became `t.db`, `t.db-shm`, `t.db-wal`). And
+ * the opposite guess is no safer: a `-shm` proves nothing about the owner (a
+ * Cline database here has held one since a run that ended weeks ago), and its
+ * absence proves nothing either (an owner in exclusive locking mode never
+ * makes one). So the mode is read from the file's own header, and the choice
+ * follows what is on disk, not who is thought to be running:
  *
- * - **WAL, owner running** (`-shm` present): an ordinary read-only open, which
- *   maps the owner's shared memory and sees what it has committed.
- * - **WAL, owner not running**: opened `immutable`, which takes no locks and
- *   creates nothing. Safe exactly because nothing is writing it.
  * - **Rollback journal**: an ordinary read-only open, which only takes a shared
  *   lock and never creates a file.
+ * - **WAL, and neither `-wal` nor `-shm` beside it**: nothing is pending and
+ *   nothing has it open, by SQLite's own rule (the last connection to close
+ *   removes both). Opened `immutable`, which takes no locks and creates
+ *   nothing. `immutable` skips change detection, so the read is **checked
+ *   afterwards**: if the file changed, or a side file appeared, an owner
+ *   started while it was being read, and the answer is discarded.
+ * - **WAL with a `-wal` or `-shm`**: an owner may be running, or may have died
+ *   with commits still in the log. The database and its log are **copied** to a
+ *   private folder and read there, so nothing of the owner's is opened, locked
+ *   or recreated. The copy is trusted only if the source's size and time were
+ *   the same before and after it (a checkpoint or a commit during the copy
+ *   changes them), and is retried when they were not.
  *
- * Null when the file is absent, is not a SQLite database, or cannot be opened.
+ * Null when the file is absent or is not a SQLite database. Anything else that
+ * stops a read — a file too large to copy, one that kept changing — throws, so
+ * a scan reports it instead of replacing its rows with a torn read.
  */
-export const openForeignDatabase = (path: string): DatabaseSync | null => {
-  if (!existsSync(path)) return null
+export interface ForeignReadOptions {
+  /** Called between copying and checking the source: the race the check exists for. */
+  readonly onCopied?: () => void
+}
+
+/** A snapshot is a copy: past this, reading it costs more than the figure is worth. */
+export const SNAPSHOT_LIMIT_BYTES = 1024 * 1024 * 1024
+const SNAPSHOT_ATTEMPTS = 3
+
+interface Stamp {
+  readonly size: number
+  readonly mtimeMs: number
+}
+interface Fingerprint {
+  readonly db: Stamp
+  readonly wal: Stamp | null
+  readonly shm: boolean
+}
+
+export const readForeignDatabase = <T>(
+  path: string,
+  read: (database: DatabaseSync) => T,
+  options: ForeignReadOptions = {},
+): T | null => {
   const mode = journalOf(path)
   if (mode === null) return null
+  if (mode === 'rollback') return readIn(open(path), read)
+  const first = fingerprint(path)
+  if (first === null) return null
+  if (first.wal === null && !first.shm) return readQuiescent(path, read, first, options)
+  return readSnapshot(path, read, options)
+}
+
+const open = (path: string, immutable = false): DatabaseSync => {
+  if (!immutable) return new DatabaseSync(path, { readOnly: true })
+  const url = pathToFileURL(path)
+  url.searchParams.set('immutable', '1')
+  return new DatabaseSync(url.href, { readOnly: true })
+}
+
+/** Runs the read and always lets go of the connection. */
+const readIn = <T>(database: DatabaseSync, read: (database: DatabaseSync) => T): T => {
   try {
-    if (mode === 'wal' && !existsSync(`${path}-shm`)) {
-      const url = pathToFileURL(path)
-      url.searchParams.set('immutable', '1')
-      return new DatabaseSync(url.href, { readOnly: true })
+    return read(database)
+  } finally {
+    database.close()
+  }
+}
+
+const readQuiescent = <T>(
+  path: string,
+  read: (database: DatabaseSync) => T,
+  before: Fingerprint,
+  options: ForeignReadOptions,
+): T => {
+  let value: T
+  try {
+    value = readIn(open(path, true), read)
+  } catch (error) {
+    // A file that moved under an immutable read can fail in any way at all.
+    if (!same(before, fingerprint(path))) throw changed(path)
+    throw error
+  }
+  options.onCopied?.()
+  if (!same(before, fingerprint(path))) throw changed(path)
+  return value
+}
+
+const readSnapshot = <T>(path: string, read: (database: DatabaseSync) => T, options: ForeignReadOptions): T => {
+  for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt++) {
+    const before = fingerprint(path)
+    if (before === null) throw changed(path)
+    if (before.db.size + (before.wal?.size ?? 0) > SNAPSHOT_LIMIT_BYTES) {
+      throw new Error(`${path} is too large to read while its owner may have it open`)
     }
-    return new DatabaseSync(path, { readOnly: true })
+    const dir = mkdtempSync(join(tmpdir(), 'hd-foreign-'))
+    try {
+      copyFileSync(path, join(dir, 'db'))
+      if (before.wal !== null) copyFileSync(`${path}-wal`, join(dir, 'db-wal'))
+      options.onCopied?.()
+      if (!same(before, fingerprint(path))) continue
+      return readIn(open(join(dir, 'db')), read)
+    } catch (error) {
+      // The log a checkpoint removes between the check and the copy is that
+      // race too, not a fault.
+      if (isMissing(error) && !same(before, fingerprint(path))) continue
+      throw error
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+  throw changed(path)
+}
+
+const changed = (path: string): Error => new Error(`${path} changed while it was being read`)
+
+const isMissing = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT'
+
+const stamp = (path: string): Stamp | null => {
+  try {
+    const { size, mtimeMs } = statSync(path)
+    return { size, mtimeMs }
   } catch {
     return null
   }
 }
+
+/** What "the same file" means for a consistent read: both files' size and time, and whether the shared memory is there. */
+const fingerprint = (path: string): Fingerprint | null => {
+  const db = stamp(path)
+  if (db === null) return null
+  return { db, wal: stamp(`${path}-wal`), shm: existsSync(`${path}-shm`) }
+}
+
+const sameStamp = (a: Stamp | null, b: Stamp | null): boolean =>
+  a === null || b === null ? a === b : a.size === b.size && a.mtimeMs === b.mtimeMs
+
+/** The shared memory is compared only for presence: readers rewrite it without the data changing. */
+const same = (a: Fingerprint, b: Fingerprint | null): boolean =>
+  b !== null && sameStamp(a.db, b.db) && sameStamp(a.wal, b.wal) && a.shm === b.shm
 
 const HEADER = 'SQLite format 3\u0000'
 

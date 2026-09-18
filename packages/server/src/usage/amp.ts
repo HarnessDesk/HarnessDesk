@@ -26,6 +26,13 @@ import type { MeterReading, UsageMeter } from './meter.js'
  * seen. The report is the server's words, not the CLI's (they are not in the
  * binary), so a new kind of balance arrives as a new line of the same shape.
  *
+ * **A changed report reads as silence, on purpose.** If Amp rewords the line,
+ * the card goes back to "not metered" rather than showing a figure guessed
+ * from a line nobody has seen — the risk taken is that a format change is
+ * quiet, and the test on a report with no balance line is what keeps that true.
+ * Where a report ever carries more than one balance line, the first is the one
+ * shown: it is the report's own order, and nothing in it says which one pays.
+ *
  * **Sparingly.** The report says account lookups share a limit of 60 requests
  * an hour with the thread lookups Amp itself makes, so a reading is kept for
  * ten minutes and never re-asked within five, however many turns finish.

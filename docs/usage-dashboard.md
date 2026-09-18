@@ -197,9 +197,17 @@ does to another application's file — that would sign Cline out. Cline
 refreshes it whenever it runs, including each turn the desk sends it; between
 times the last reading stands with its own age. The ledger reads OpenCode's
 and Cline's databases the same way it reads nothing else: through
-`openForeignDatabase`, which opens a WAL database whose owner is not running
-`immutable` — a plain read-only open would create `-shm` and `-wal` in the
-owner's folder (measured). Gemini CLI writes a message again as its counts
+`readForeignDatabase`, which never guesses whether the owner is running. A WAL
+database with no `-wal` or `-shm` beside it is opened `immutable` and the read
+is checked afterwards (a plain read-only open would create both files in the
+owner's folder, measured), and is discarded if the file changed meanwhile. One
+with either file is copied, with its log, to a private folder and read there,
+and the copy is trusted only if the source was the same before and after.
+Neither a leftover `-shm` (Cline's has outlived its run by weeks) nor a missing
+one (an owner in exclusive locking mode has none) says anything about the
+owner. Requests an agent priced and requests it did not are never summed into
+one ledger row, so a row's cost and provenance are always one or the other.
+Gemini CLI writes a message again as its counts
 arrive and hides rewound ones without un-spending them, so a chat log is read
 whole each time it changes, at the last record of each call. OpenCode's and
 Cline's figures are session totals, so a session's spend falls on the day it

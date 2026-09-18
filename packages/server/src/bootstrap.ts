@@ -517,7 +517,7 @@ export const localUsageFor = (
     case 'gemini':
       // A Code Assist sign-in has a quota to read; an API key has none, and
       // what its calls cost is in the chat logs either way.
-      return { meter: new GeminiMeter(), ...records('gemini') }
+      return { meter: new GeminiMeter({ env }), ...records('gemini') }
     case 'copilot':
       return { meter: new CopilotMeter() }
     // The ACP server reports no quota, but the `agy` CLI beside it does. It is
