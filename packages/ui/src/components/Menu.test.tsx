@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -331,6 +331,38 @@ describe('Submenu', () => {
     expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
     expect(document.activeElement).toBe(row('Low'))
     sheet.remove()
+  })
+
+  it('→ waits a few frames for a first row the flyout draws late', async () => {
+    const Later = () => {
+      const [ready, setReady] = useState(false)
+      useEffect(() => {
+        const frame = requestAnimationFrame(() => setReady(true))
+        return () => cancelAnimationFrame(frame)
+      }, [])
+      return ready ? (
+        <MenuItem label="Deep" selected={false} onSelect={() => {}} />
+      ) : (
+        <MenuNote>Reading the levels…</MenuNote>
+      )
+    }
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <Later />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    await frame()
+    await frame()
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(row('Deep'))
   })
 
   it('→ leaves the focus in a flyout that took it itself — its filter field', async () => {
