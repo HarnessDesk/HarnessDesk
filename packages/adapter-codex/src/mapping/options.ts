@@ -687,12 +687,14 @@ const sandboxParams = (policy: CodexProtocol.v2.SandboxPolicy): Pick<LikeParams,
     case 'workspaceWrite':
       return {
         sandbox: 'workspace-write',
+        // Every key of Codex's own `[sandbox_workspace_write]` table, and no
+        // other: a key Codex renames stops this compiling.
         config: {
           'sandbox_workspace_write.writable_roots': [...policy.writableRoots],
           'sandbox_workspace_write.network_access': policy.networkAccess,
           'sandbox_workspace_write.exclude_tmpdir_env_var': policy.excludeTmpdirEnvVar,
           'sandbox_workspace_write.exclude_slash_tmp': policy.excludeSlashTmp,
-        },
+        } satisfies Record<`sandbox_workspace_write.${keyof CodexProtocol.v2.SandboxWorkspaceWrite}`, unknown>,
       }
   }
 }

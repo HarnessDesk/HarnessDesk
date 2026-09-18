@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import type { CodexProtocol } from '@harnessdesk/codex'
 import type { AgentEvent, AgentSession } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
+import type { CodexSession } from '../src/session.js'
 
 /**
  * Where a settings change landed is what Codex said, never what was asked.
@@ -140,4 +142,26 @@ test('an update that moves nothing is answered at once, though Codex says nothin
   // update after `thread/start` moves nothing either.
   const second = await runtime.createSession({ cwd: '/w', options: { effort: 'high' } })
   assert.equal(effortOf(second), 'high')
+})
+
+test('a sandbox Codex never says it took is refused, and so is one it puts anywhere else', async (t) => {
+  // Given a workspace sandbox, Codex adds the configuration's writable roots
+  // to it (measured on 0.145.0 and 0.155.0; the fake's are /w). So one asked
+  // for with no roots lands where the thread already is, which Codex answers
+  // with silence, and one with a root of its own lands in a larger sandbox.
+  const { runtime } = await codex(t, { FAKE_CODEX_QUIET_NOOP: '1' }, 200)
+  const session = (await runtime.createSession({ cwd: '/w' })) as CodexSession
+  const workspace = (writableRoots: string[]): CodexProtocol.v2.SandboxPolicy => ({
+    type: 'workspaceWrite',
+    writableRoots,
+    networkAccess: false,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false,
+  })
+  await assert.rejects(session.setSandbox(workspace([])), /took the sandbox without saying where it landed/)
+  await assert.rejects(session.setSandbox(workspace(['/other'])), /different sandbox from the one asked for/)
+  assert.deepEqual(session.startLike().sandbox, workspace(['/w', '/other']), 'held where Codex put it')
+  // The control: a sandbox Codex takes as given is taken.
+  await session.setSandbox({ type: 'readOnly', networkAccess: true })
+  assert.deepEqual(session.startLike().sandbox, { type: 'readOnly', networkAccess: true })
 })

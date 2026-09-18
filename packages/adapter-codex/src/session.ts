@@ -299,12 +299,16 @@ export class CodexSession implements AgentSession {
 
   /**
    * Puts this thread under exactly `policy`, as `setOption` moves a control:
-   * the call resolves when Codex has said where the sandbox landed, and
-   * one Codex took without saying so is refused out loud.
+   * the call resolves when Codex has said where the sandbox landed, and one
+   * Codex took without saying so is refused out loud. So is one Codex put
+   * anywhere else, since a sandbox is not a setting to come near: given a
+   * workspace sandbox, Codex adds the configuration's writable roots to it
+   * (measured on 0.145.0 and 0.155.0), which is a larger one. The thread is
+   * held where Codex put it, as a control is.
    *
    * For what `thread/start` cannot say (`startParamsLike`): a read-only
    * sandbox with network access, and an external sandbox. Codex takes both
-   * as given (measured on 0.145.0 and 0.155.0). A thread already under this
+   * as given (measured on the same versions). A thread already under this
    * policy is left alone.
    */
   async setSandbox(policy: CodexProtocol.v2.SandboxPolicy): Promise<void> {
@@ -313,6 +317,9 @@ export class CodexSession implements AgentSession {
     await this.deps.server.request('thread/settings/update', { threadId: this.id, sandboxPolicy: policy })
     if (this.#announced === before && !(await this.#nextAnnouncement())) {
       throw new Error('Codex took the sandbox without saying where it landed.')
+    }
+    if (!sameSandbox(this.#state.sandbox, policy)) {
+      throw new Error('Codex put the thread in a different sandbox from the one asked for.')
     }
   }
 
@@ -746,8 +753,9 @@ const toCodexInput = (content: UserContent): CodexProtocol.v2.UserInput => {
 /**
  * The turn Codex holds as running, from its refusal of a stop that named
  * another — read the way Codex's own terminal client reads it
- * (`active_turn_interrupt_race`, `tui/src/app.rs`, 0.145.0 and 0.155.0).
- * Null for any other failure.
+ * (`active_turn_interrupt_race`, `tui/src/app.rs`, 0.145.0 and 0.155.0),
+ * and checked against both by `script/probe/review-side-thread.mjs`. Null for
+ * any other failure.
  */
 const heldTurn = (error: unknown): string | null => {
   if (!(error instanceof CodexRpcError)) return null
