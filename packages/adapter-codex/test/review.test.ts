@@ -59,6 +59,10 @@ const about = (events: readonly AgentEvent[], session: AgentSession): AgentEvent
       (event.type === 'session/started' && event.session.id === session.id),
   )
 
+/** Whether a conversation has been told the name a review gives its side thread. */
+const namedForReview = (events: readonly AgentEvent[], session: AgentSession): boolean =>
+  about(events, session).some((event) => event.type === 'session/title' && event.title === 'Review of uncommitted changes')
+
 /** A conversation that has been changed from everything Codex's configuration gives a new one. */
 const changed = async (runtime: CodexRuntime): Promise<AgentSession> => {
   const session = await runtime.createSession({ cwd: '/w/app' })
@@ -72,9 +76,7 @@ const changed = async (runtime: CodexRuntime): Promise<AgentSession> => {
 }
 
 test('a review on a side thread runs inline in a new thread set up like this one', async (t) => {
-  // Held open until the thread has been named: left to itself the fake ends a
-  // review 20 ms after it starts, which a name that comes late does not beat.
-  const { runtime, events, until } = await start(t, { FAKE_CODEX_REVIEW_MS: '60000' })
+  const { runtime, events, until } = await start(t)
   const session = await changed(runtime)
   const before = events.length
 
@@ -103,24 +105,30 @@ test('a review on a side thread runs inline in a new thread set up like this one
   )
   assert.ok(!notices(events).some((message) => /deprecated/.test(message)), 'no deprecation notice reaches anyone')
 
-  // Named for what it reviews, before the review is even over. The name comes in
-  // a notification of its own, written after the reply `review()` returns on, so
-  // it is waited for and not read off the moment `review()` is back.
-  await until(
-    () => about(events, side).some((event) => event.type === 'session/title' && event.title === 'Review of uncommitted changes'),
-    'the review thread to be named',
-  )
-  assert.ok(!about(events, side).some((event) => event.type === 'turn/completed'), 'named while the review is under way')
+  // Named for what it reviews. The name comes in a notification of its own,
+  // written after the reply `review()` returns on, so it is waited for and not
+  // read off the moment `review()` is back. When it comes is the next test's.
+  await until(() => namedForReview(events, side), 'the review thread to be named')
 
-  // Held open, so it is stopped here, as the tests below stop theirs.
-  await side.interrupt()
-  await until(() => about(events, side).some((event) => event.type === 'turn/completed'), 'the review to end')
+  await until(() => about(events, side).some((event) => event.type === 'turn/completed'), 'the review to finish')
   // The conversation it was asked from heard nothing but its own settings.
   assert.deepEqual(
     [...new Set(about(events.slice(before), session).map((event) => event.type))],
     [],
     'the reviewed conversation is left as it is',
   )
+})
+
+test('a review thread is named while its review is still under way', async (t) => {
+  // Held open: left to itself the fake ends a review 20 ms after it starts, and a
+  // name that comes late does not beat that. Nothing here waits for the end.
+  const { runtime, events, until } = await start(t, { FAKE_CODEX_REVIEW_MS: '60000' })
+  const session = await runtime.createSession({ cwd: '/w' })
+  const side = await session.review!({ type: 'uncommitted', delivery: 'detached' })
+  assert.ok(side)
+
+  await until(() => namedForReview(events, side), 'the review thread to be named')
+  assert.ok(!about(events, side).some((event) => event.type === 'turn/completed'), 'the review is still under way')
 })
 
 test('an effort the mode moves is set again once the mode has moved', async (t) => {
