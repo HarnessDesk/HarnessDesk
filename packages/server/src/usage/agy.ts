@@ -48,8 +48,10 @@ const TIMEOUT_MS = 20_000
 const STALE_AFTER_MS = 5 * 60_000
 /**
  * A finished turn refreshes its agent, and a flow can finish one every few
- * seconds. Each read is a process start and a request to Google, so a reading
- * younger than this is answered again — with its own time, not ours.
+ * seconds. Each read is a process start and a request to Google, so an answer
+ * younger than this is given again: a reading with its own time, not ours, and
+ * silence or a failure as they were. Holding only readings left a signed-out
+ * `agy` started after every turn (review round 2 of #769).
  */
 const MIN_INTERVAL_MS = 60_000
 /** Whose figures these are, as the Dashboard names them. */
@@ -76,6 +78,14 @@ interface QuotaSummary {
   readonly description?: string
   readonly buckets?: readonly QuotaBucket[]
   readonly groups?: readonly QuotaGroup[]
+}
+
+/** What one run of agy came to: figures, nothing to say, or a failure. */
+type Answer = { readonly reading: MeterReading | null } | { readonly failure: Error }
+
+const settle = (answer: Answer): MeterReading | null => {
+  if ('failure' in answer) throw answer.failure
+  return answer.reading
 }
 
 interface PrintResult {
@@ -187,7 +197,8 @@ export class AgyMeter implements UsageMeter {
   readonly #command: string | undefined
   readonly #run: (command: string, args: readonly string[]) => Promise<RunResult>
   readonly #now: () => number
-  #last: MeterReading | null = null
+  /** The last answer, and when it was asked for. */
+  #last: { readonly at: number; readonly answer: Answer } | null = null
 
   constructor(options: AgyMeterOptions = {}) {
     this.#command = options.command
@@ -204,17 +215,31 @@ export class AgyMeter implements UsageMeter {
   }
 
   async read(): Promise<MeterReading | null> {
-    if (this.#last && this.#now() - this.#last.fetchedAt < MIN_INTERVAL_MS) return this.#last
+    const at = this.#now()
+    if (this.#last && at - this.#last.at < MIN_INTERVAL_MS) return settle(this.#last.answer)
+    // Not installed starts nothing, so it is not held: installing agy is seen
+    // on the next read rather than a minute later.
     const command = this.#command ?? locate()
     if (command === null) return null
+    let answer: Answer
+    try {
+      answer = { reading: await this.#ask(command) }
+    } catch (cause) {
+      answer = { failure: cause instanceof Error ? cause : new Error(String(cause)) }
+    }
+    this.#last = { at, answer }
+    return settle(answer)
+  }
 
+  /** One run of agy, read: figures, null for nothing to say, or a throw. */
+  async #ask(command: string): Promise<MeterReading | null> {
     const result = await this.#run(command, ['--print', '/usage', '--output-format', 'json', '--log-file', devNull])
     if (result.timedOut) throw new Error(`agy /usage did not answer within ${TIMEOUT_MS / 1000} s`)
 
     const printed = parse(result.stdout)
     if (printed === null || printed.status !== 'SUCCESS') {
       // The telling line is on stderr, not in the JSON, so both are read.
-      if (signedOut([printed?.error ?? '', result.stderr].join('\n'))) return this.#forget()
+      if (signedOut([printed?.error ?? '', result.stderr].join('\n'))) return null
       if (printed === null) {
         const said = firstLine(result.stderr) ?? firstLine(result.stdout)
         throw new Error(`agy /usage answered something that is not its JSON${said ? `: ${said}` : ''}`)
@@ -224,10 +249,10 @@ export class AgyMeter implements UsageMeter {
     }
 
     const lanes = agyLanes(printed.command?.data ?? {})
-    if (lanes.length === 0) return this.#forget()
+    if (lanes.length === 0) return null
 
     const spent = lanes.find((entry) => entry.usageKnown !== false && entry.usedPercent >= 100)
-    this.#last = {
+    return {
       account: null,
       plan: null,
       lanes,
@@ -237,12 +262,6 @@ export class AgyMeter implements UsageMeter {
       staleAfterMs: STALE_AFTER_MS,
       unverified: WHOSE,
     }
-    return this.#last
-  }
-
-  #forget(): null {
-    this.#last = null
-    return null
   }
 }
 

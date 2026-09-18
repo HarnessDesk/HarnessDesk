@@ -218,14 +218,80 @@ test('agy that refuses in other ways, or says nothing, is reported rather than g
 
 test('a signed-out answer forgets the last reading instead of repeating it', async () => {
   let now = NOW
-  const { run } = scripted(answered(JSON.stringify(PRINTED)), SIGNED_OUT, answered(JSON.stringify(PRINTED)))
+  const { calls, run } = scripted(answered(JSON.stringify(PRINTED)), SIGNED_OUT, answered(JSON.stringify(PRINTED)))
   const meter = new AgyMeter({ command: '/opt/agy', run, now: () => now })
   assert.ok(await meter.read())
   now += 61_000
   assert.equal(await meter.read(), null)
-  // And the next read asks again rather than answering from the forgotten one.
+  // Inside the minute it is the silence that is held, never the forgotten figures.
   now += 1_000
+  assert.equal(await meter.read(), null)
+  assert.equal(calls.length, 2)
+  // And after it, agy is asked again.
+  now += 60_000
   assert.ok(await meter.read())
+  assert.equal(calls.length, 3)
+})
+
+test('silence and failure are held for the minute too, not only figures', async () => {
+  // The host refreshes after every finished turn. Holding only a reading meant
+  // a signed-out agy — or one that answered nothing drawable, or failed — was
+  // started again after each of them (#769, review round 2 of the landing).
+  let now = NOW
+  const silent = scripted(SIGNED_OUT, answered(JSON.stringify(PRINTED)))
+  const quiet = new AgyMeter({ command: '/opt/agy', run: silent.run, now: () => now })
+  assert.equal(await quiet.read(), null)
+  now += 30_000
+  assert.equal(await quiet.read(), null)
+  assert.equal(silent.calls.length, 1, 'a signed-out agy is not started again inside the minute')
+  now += 31_000
+  assert.ok(await quiet.read())
+  assert.equal(silent.calls.length, 2)
+
+  now = NOW
+  const empty = scripted(answered(JSON.stringify({ status: 'SUCCESS', command: { name: 'usage', data: { groups: [] } } })))
+  const blank = new AgyMeter({ command: '/opt/agy', run: empty.run, now: () => now })
+  assert.equal(await blank.read(), null)
+  now += 59_000
+  assert.equal(await blank.read(), null)
+  assert.equal(empty.calls.length, 1, 'nor is one with nothing to draw')
+
+  now = NOW
+  const failing = scripted(refusing('retrieving quota summary: HTTP 500'), answered(JSON.stringify(PRINTED)))
+  const broken = new AgyMeter({ command: '/opt/agy', run: failing.run, now: () => now })
+  await assert.rejects(broken.read(), /HTTP 500/)
+  now += 30_000
+  // The same failure, so the card keeps its last figures with it beside them.
+  await assert.rejects(broken.read(), /agy \/usage failed: retrieving quota summary: HTTP 500/)
+  assert.equal(failing.calls.length, 1, 'nor is one that failed')
+  now += 31_000
+  assert.ok(await broken.read())
+  assert.equal(failing.calls.length, 2)
+})
+
+test('an agy that is not installed is looked for again on the next read', { skip: process.platform === 'win32' }, async () => {
+  // Nothing was started, so nothing is held: installing it is seen at once,
+  // not a minute later.
+  const dir = tempDir('hd-agy-path-')
+  const { calls, run } = scripted(answered(JSON.stringify(PRINTED)))
+  const meter = new AgyMeter({ run, now: () => NOW })
+  const path = process.env['PATH']
+  const home = process.env['HOME']
+  process.env['HOME'] = join(dir, 'no-home')
+  try {
+    process.env['PATH'] = join(dir, 'empty')
+    assert.equal(await meter.read(), null)
+    assert.equal(calls.length, 0)
+    // Installed now, inside the same minute.
+    writeFileSync(join(dir, 'agy'), '#!/bin/sh\n')
+    chmodSync(join(dir, 'agy'), 0o755)
+    process.env['PATH'] = dir
+    assert.ok(await meter.read())
+    assert.deepEqual(calls.map((call) => call.command), [join(dir, 'agy')])
+  } finally {
+    process.env['PATH'] = path
+    process.env['HOME'] = home
+  }
 })
 
 test('the real run turns agy’s self-update off, and survives a banner before the JSON', { skip: process.platform === 'win32' }, async () => {
