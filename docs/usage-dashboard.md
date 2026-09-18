@@ -202,7 +202,11 @@ database with no `-wal` or `-shm` beside it is opened `immutable` and the read
 is checked afterwards (a plain read-only open would create both files in the
 owner's folder, measured), and is discarded if the file changed meanwhile. One
 with either file is copied, with its log, to a private folder and read there,
-and the copy is trusted only if the source was the same before and after.
+and the copy is trusted only if the source was the same before and after —
+size and time, not bytes, so a rewrite landing on both by chance would be
+missed; neither agent's writer does this. A database over 1 GiB that may be
+open is refused rather than copied, so a very large store stays on its last
+good rows rather than being copied whole on every scan.
 Neither a leftover `-shm` (Cline's has outlived its run by weeks) nor a missing
 one (an owner in exclusive locking mode has none) says anything about the
 owner. Requests an agent priced and requests it did not are never summed into

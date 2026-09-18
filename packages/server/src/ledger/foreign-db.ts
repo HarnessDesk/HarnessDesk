@@ -36,6 +36,16 @@ import { pathToFileURL } from 'node:url'
  * Null when the file is absent or is not a SQLite database. Anything else that
  * stops a read — a file too large to copy, one that kept changing — throws, so
  * a scan reports it instead of replacing its rows with a torn read.
+ *
+ * Two limits, both deliberate (round 2 review): the consistency check compares
+ * size and modification time, not bytes, so a rewrite that lands on the same
+ * size and the same millisecond would be missed — neither OpenCode's nor
+ * Cline's writer does this, and a byte or version check would cost a read of
+ * the file to buy against a case that has not been observed. And a database
+ * over `SNAPSHOT_LIMIT_BYTES` that its owner may have open is refused rather
+ * than copied, so a very large store stays on its last good rows until it is
+ * quiescent or smaller, rather than paying to copy a file that size on every
+ * scan.
  */
 export interface ForeignReadOptions {
   /** Called between copying and checking the source: the race the check exists for. */

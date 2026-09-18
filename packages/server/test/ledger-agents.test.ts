@@ -308,6 +308,29 @@ test('rows the agent priced and rows it did not stay apart in the store, and add
   store.close()
 })
 
+test('a table that already has vendorCost but not vendored is still migrated, not mistaken for the current shape', () => {
+  // The shape between the two migrations: a store built on an intermediate
+  // version of this branch, with the column but not yet the key bit (round 2
+  // review: the earlier test only covered the shape before either existed).
+  const dir = scratch()
+  const path = join(dir, 'usage.sqlite')
+  const old = new DatabaseSync(path)
+  old.exec(`CREATE TABLE usage (file TEXT NOT NULL, day INTEGER NOT NULL, runtime TEXT NOT NULL, model TEXT NOT NULL,
+    project TEXT NOT NULL, input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
+    cacheRead INTEGER NOT NULL DEFAULT 0, cacheWrite INTEGER NOT NULL DEFAULT 0, reasoning INTEGER NOT NULL DEFAULT 0,
+    requests INTEGER NOT NULL DEFAULT 0, vendorCost REAL, PRIMARY KEY (file, day, runtime, model, project));
+    INSERT INTO usage (file, day, runtime, model, project, input, requests, vendorCost) VALUES ('/a', 1, 'codex', 'm', '', 5, 1, NULL);
+    INSERT INTO usage (file, day, runtime, model, project, input, requests, vendorCost) VALUES ('/b', 1, 'opencode', 'm', '', 5, 1, 0.5);`)
+  old.close()
+  const store = new LedgerStore(path)
+  const rows = [...store.since(0)].sort((a, b) => a.file.localeCompare(b.file))
+  assert.deepEqual(rows.map((row) => [row.file, row.vendorCost]), [
+    ['/a', null],
+    ['/b', 0.5],
+  ])
+  store.close()
+})
+
 test('a ledger from before agents could price their own rows gains the column, empty', () => {
   const dir = scratch()
   const path = join(dir, 'usage.sqlite')
