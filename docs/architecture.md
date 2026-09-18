@@ -133,7 +133,9 @@ name when none is available.
   which folder the conversation worked in refuses — and then it says which,
   rather than asking for a resume the interface does not offer. The folder is
   the agent's word or nothing: an ACP conversation reopens in the folder its
-  agent's `session/list` records, never in the host's own working directory.
+  agent's `session/list` records — or, for an agent that keeps no listing, the
+  one it accepted when this run of the app opened the conversation — never in
+  the host's own working directory.
 - **Transcripts** (`transcripts.ts`) — the host records what the backend does
   not keep. Codex's own protocol says it "explicitly do[es] not persist all
   agent interactions, such as command executions"; Cursor keeps nothing

@@ -606,6 +606,17 @@ export class AcpRuntime implements AgentRuntime {
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
   readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
+  /**
+   * The folder each conversation opened here was opened in, as the agent
+   * accepted it in `session/new`. For an agent that keeps no listing — Gemini
+   * CLI — this is the only word it ever gives on where a conversation works,
+   * so it outlives the agent's restarts, which drop every live session and
+   * leave the host to reopen them on their next use. Only conversations handed
+   * out are kept, in a folder named in full: each is one the host holds open
+   * already, so reopening it there opens nothing new. It goes with the
+   * conversation, when the agent deletes it, and with this runtime.
+   */
+  readonly #openedIn = new Map<SessionId, string>()
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
@@ -1015,6 +1026,7 @@ export class AcpRuntime implements AgentRuntime {
     await this.#connection.stop()
     this.#sessions.clear()
     this.#resuming.clear()
+    this.#openedIn.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -1658,6 +1670,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#tasks?.forget(id)
     this.#titles.delete(id)
     this.#previews.delete(id)
+    this.#openedIn.delete(id)
     const disposition = result?.disposition ?? 'removed'
     const removed = result?.removed?.length ?? 0
     this.#config.logger?.debug?.('session deleted', { session: String(id), removed, disposition })
@@ -2038,6 +2051,7 @@ export class AcpRuntime implements AgentRuntime {
       await session.close()
       throw error
     }
+    if (isAbsolute(options.cwd)) this.#openedIn.set(session.id, options.cwd)
     this.emit({ type: 'session/started', session: session.snapshot() })
     return session
   }
@@ -2099,7 +2113,8 @@ export class AcpRuntime implements AgentRuntime {
 
   /**
    * Where a stored session worked, as the agent's own listing records it —
-   * every page of it — and nowhere else.
+   * every page of it — or, for an agent that keeps no listing, as it accepted
+   * it when this process opened the conversation. Nowhere else.
    *
    * ACP's load takes the folder from the client, and the agent runs the
    * conversation in whatever it is handed. This used to hand over this
@@ -2108,14 +2123,20 @@ export class AcpRuntime implements AgentRuntime {
    * held here with that as its folder, and a conversation's folder is an open
    * root, so every repository under it could be read and branched. A folder
    * the agent does not vouch for is a refusal instead, one that names the
-   * conversation. Gemini CLI keeps no listing at all, and Claude Code's leaves
-   * out a conversation its own store has no folder for.
+   * conversation. Claude Code's listing leaves out a conversation its own store
+   * has no folder for. Gemini CLI keeps no listing at all, so only what it
+   * accepted in `session/new` here says where one works (`#openedIn`). Where a
+   * listing exists it is the agent's word now, and the only one asked.
    */
   async #cwdOf(id: SessionId): Promise<string> {
     const name = this.#config.name
     if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
+      // No listing to ask, so the folder it accepted when this process opened
+      // the conversation, or none. See `#openedIn`.
+      const opened = this.#openedIn.get(id)
+      if (opened !== undefined) return opened
       throw new SessionGoneError(
-        `${name} keeps no list of its conversations, so the folder conversation ${id} worked in is not known.`,
+        `${name} keeps no list of its conversations, and conversation ${id} has not been opened since HarnessDesk started, so the folder it worked in is not known.`,
       )
     }
     let row: AcpSessionRow | undefined

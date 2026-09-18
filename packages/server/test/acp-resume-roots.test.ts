@@ -79,7 +79,7 @@ interface Desk {
  * bridge leaves out when its own listing has no folder for it, or a Cursor chat
  * under a workspace nobody named here.
  */
-const desk = async (t: TestContext): Promise<Desk> => {
+const desk = async (t: TestContext, env: Readonly<Record<string, string>> = {}): Promise<Desk> => {
   // Real paths throughout, so nothing but the rule under test stands between
   // two spellings of one folder: macOS keeps its temporary folders behind
   // /var -> /private/var, and `process.cwd()` answers with the real one.
@@ -121,7 +121,7 @@ const desk = async (t: TestContext): Promise<Desk> => {
     name: 'Fake ACP Agent',
     command: process.execPath,
     args: [FAKE],
-    env: { FAKE_ACP_STORE: store, FAKE_ACP_UNLISTED: 'hidden', FAKE_ACP_OPENS: opens },
+    env: { FAKE_ACP_STORE: store, FAKE_ACP_UNLISTED: 'hidden', FAKE_ACP_OPENS: opens, ...env },
   })
   harness.host.register(agent)
   await agent.start()
@@ -219,4 +219,49 @@ test('the draft probe opens outside the host\'s folder, and no conversation is m
       unopened: outside(unopened),
     },
   )
+})
+
+test('a conversation reopened after its agent restarts opens the folder it was opened in, and no other', async (t) => {
+  // Gemini's shape: `loadSession` and no listing. A catalogue refresh restarts
+  // the idle agent under an open conversation, and the host reopens it on the
+  // next thing said in it (`#reattach`). With no listing to say where, that
+  // reopen was refused, so the conversation ended at every restart.
+  const { client, unopened, listedAt, branchOf, opened } = await desk(t, { FAKE_ACP_NO_LIST: '1' })
+  const created = (await client.call('session/create', { runtime: AGENT, options: { cwd: listedAt } })) as Session
+  const say = (text: string) =>
+    client.call('turn/send', { runtime: AGENT, sessionId: created.id, input: [{ type: 'text', text }] }).then(
+      () => 'sent',
+      (error: Error) => error.message,
+    )
+  const completed = (): number =>
+    client.events.filter((event) => event.type === 'turn/completed' && event.sessionId === created.id).length
+  assert.equal(await say('first'), 'sent')
+  await client.until(() => completed() === 1, 10_000, 'the first turn')
+  assert.equal(
+    ((await client.call('runtime/refreshCatalog', { runtime: AGENT })) as { refreshed: boolean }).refreshed,
+    true,
+  )
+
+  // The next thing said reopens it in the folder it was opened in, which is
+  // open already; the repository in the host's folder is still nobody's.
+  assert.deepEqual(
+    {
+      said: await say('second'),
+      loads: (await opened()).filter((open) => open.method === 'session/load'),
+      unopened: await branchOf(unopened),
+    },
+    {
+      said: 'sent',
+      loads: [{ method: 'session/load', sessionId: String(created.id), cwd: listedAt }],
+      unopened: outside(unopened),
+    },
+  )
+  await client.until(() => completed() === 2, 10_000, 'the second turn')
+  // The control: a conversation the agent kept from an earlier run, never
+  // opened in this one, is still refused.
+  assert.deepEqual(await outcome(client, 'session/resume', 'hidden'), {
+    refused:
+      'Fake ACP Agent could not reopen this conversation: Fake ACP Agent keeps no list of its conversations, and conversation hidden has not been opened since HarnessDesk started, so the folder it worked in is not known.',
+    code: 'sessionGone',
+  })
 })

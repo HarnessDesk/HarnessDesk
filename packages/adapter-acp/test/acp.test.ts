@@ -1943,7 +1943,11 @@ test('a listing asked for the page after a cursor it never gave answers with not
   assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)), ['first'])
 })
 
-test('an agent that keeps no listing cannot say where a conversation worked, so it is not reopened', async (t) => {
+/** The refusal for a conversation an agent with no listing cannot place. */
+const unplaced = (id: string): string =>
+  `Fake ACP Agent keeps no list of its conversations, and conversation ${id} has not been opened since HarnessDesk started, so the folder it worked in is not known.`
+
+test('an agent that keeps no listing cannot say where a conversation not opened here worked, so it is not reopened', async (t) => {
   // Gemini CLI 0.59.0, measured: `loadSession: true`, no `sessionCapabilities`,
   // and `session/list` answered with -32601. It keeps its conversations by
   // folder, so a load anywhere else finds nothing — or, where that folder is
@@ -1957,11 +1961,122 @@ test('an agent that keeps no listing cannot say where a conversation worked, so 
   assert.equal(runtime.info.capabilities.resume, true)
   assert.equal(runtime.info.capabilities.listHistory, false)
 
-  assert.deepEqual(await reopening(runtime, 'stored'), {
-    refused: 'Fake ACP Agent keeps no list of its conversations, so the folder conversation stored worked in is not known.',
+  assert.deepEqual(await reopening(runtime, 'stored'), { refused: unplaced('stored'), gone: true })
+  assert.deepEqual(opened(), [])
+})
+
+test('an agent that keeps no listing reopens a conversation opened here in its own folder, after a restart', async (t) => {
+  // The one word on where a conversation works that an agent with no listing
+  // gives is the folder it accepted in `session/new`, and this process was
+  // there to hear it. A catalogue refresh restarts the agent under an open
+  // conversation, and the host reopens it on its next use.
+  let here = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      here = folderIn(dir, 'here')
+      // Kept by the agent from an earlier run, and never opened in this one.
+      return { earlier: { cwd: folderIn(dir, 'earlier'), turns: [['from before']] } }
+    },
+    { FAKE_ACP_NO_LIST: '1' },
+  )
+  const session = await runtime.createSession({ cwd: here })
+  const tape = record(runtime)
+  await session.send([{ type: 'text', text: 'remember where' }])
+  await tape.until((event) => event.type === 'turn/completed')
+  // The draft probe beside it: a session the agent counts, and no conversation.
+  await runtime.defaultSessionOptions()
+  const probe = opened().find((open) => open.method === 'session/new' && open.sessionId !== String(session.id))
+  assert.ok(probe, 'the probe was opened')
+
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+
+  // Reopened where it was opened, with its turn.
+  assert.deepEqual(await reopening(runtime, String(session.id)), { cwd: here })
+  assert.equal((await runtime.readSession(session.id)).turns.length, 1)
+  // The controls: one from an earlier run is still refused, and so is the
+  // probe, which is nobody's conversation and was never remembered as one.
+  assert.deepEqual(await reopening(runtime, 'earlier'), { refused: unplaced('earlier'), gone: true })
+  assert.deepEqual(await reopening(runtime, probe.sessionId), { refused: unplaced(probe.sessionId), gone: true })
+  // The agent was asked to load one conversation, in its own folder.
+  assert.deepEqual(
+    opened().filter((open) => open.method === 'session/load'),
+    [{ method: 'session/load', sessionId: String(session.id), cwd: here }],
+  )
+})
+
+test('where an agent keeps a listing, the listing is the one word asked, over the folder a conversation was opened in', async (t) => {
+  // The folder a conversation was opened in is the agent's word then; its
+  // listing is its word now. Both are read off the store the fake agent keeps,
+  // which is edited below to make them differ.
+  const { readFileSync, writeFileSync } = await import('node:fs')
+  let openedAt = ''
+  let movedTo = ''
+  let store = ''
+  const { runtime, opened } = await storedAgent(t, (dir) => {
+    openedAt = folderIn(dir, 'opened')
+    movedTo = folderIn(dir, 'moved')
+    store = join(dir, 'sessions.json')
+    return {}
+  })
+  const tape = record(runtime)
+  const moved = await runtime.createSession({ cwd: openedAt })
+  await moved.send([{ type: 'text', text: 'moved later' }])
+  await tape.until((event) => event.type === 'turn/completed' && event.sessionId === moved.id)
+  const dropped = await runtime.createSession({ cwd: openedAt })
+  await dropped.send([{ type: 'text', text: 'dropped later' }])
+  await tape.until((event) => event.type === 'turn/completed' && event.sessionId === dropped.id)
+  // Now its listing puts one in another folder, and no longer has the other.
+  const kept = JSON.parse(readFileSync(store, 'utf8')) as Record<string, { cwd: string }>
+  kept[String(moved.id)]!.cwd = movedTo
+  delete kept[String(dropped.id)]
+  writeFileSync(store, JSON.stringify(kept))
+
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  assert.deepEqual(await reopening(runtime, String(moved.id)), { cwd: movedTo })
+  assert.deepEqual(await reopening(runtime, String(dropped.id)), {
+    refused: `Fake ACP Agent does not list conversation ${dropped.id}, so the folder it worked in is not known.`,
     gone: true,
   })
-  assert.deepEqual(opened(), [])
+  assert.deepEqual(
+    opened().filter((open) => open.method === 'session/load'),
+    [{ method: 'session/load', sessionId: String(moved.id), cwd: movedTo }],
+  )
+})
+
+test('only a conversation handed out, in a folder named in full, is remembered, and only until it is deleted', async (t) => {
+  let refusedAt = ''
+  let deletedAt = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      refusedAt = folderIn(dir, 'refused')
+      deletedAt = folderIn(dir, 'deleted')
+      return {}
+    },
+    { FAKE_ACP_NO_LIST: '1', FAKE_ACP_DELETE: '1' },
+  )
+  // Opened by the agent and then refused here, for a voice it does not have:
+  // nobody was handed it, so nobody holds its folder open.
+  await assert.rejects(runtime.createSession({ cwd: refusedAt, options: { voice: 'operatic' } }))
+  const refused = opened().find((open) => open.cwd === refusedAt)
+  assert.ok(refused, 'the agent opened it before the refusal')
+  // Opened in a folder spelled relative, which the agent reads against its
+  // own working directory: this process's.
+  const relative = await runtime.createSession({ cwd: 'relative-folder' })
+  // Opened, and then deleted from the agent's store.
+  const deleted = await runtime.createSession({ cwd: deletedAt })
+  const tape = record(runtime)
+  await deleted.send([{ type: 'text', text: 'soon gone' }])
+  await tape.until((event) => event.type === 'turn/completed')
+  await runtime.deleteSession(deleted.id)
+
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  for (const id of [refused.sessionId, String(relative.id), String(deleted.id)]) {
+    assert.deepEqual(await reopening(runtime, id), { refused: unplaced(id), gone: true })
+  }
+  // None of them was loaded, anywhere.
+  assert.deepEqual(opened().filter((open) => open.method === 'session/load'), [])
 })
 
 test('a listing that fails refuses the reopen as one that may pass, not with a guess', async (t) => {
