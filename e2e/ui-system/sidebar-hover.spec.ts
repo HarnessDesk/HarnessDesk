@@ -32,25 +32,35 @@ async function setWidth(page: Page, width: number) {
  * So wait for the transitions themselves. `getAnimations()` flushes style
  * before it answers, which lists the one the last change has only just made;
  * ask again after each batch finishes, since one can hand over to the next.
+ * The wait is bounded, and the bound can wake it: an animation that outlasts
+ * `within`, or whose timeline never advances, fails the read by name rather
+ * than holding it until the test's own timeout.
  */
-async function settled(locator: Locator) {
-  return locator.evaluate(async node => {
-    const deadline = performance.now() + 10_000
+async function settled(locator: Locator, within = 10_000) {
+  return locator.evaluate(async (node, within) => {
+    const deadline = performance.now() + within
     for (;;) {
       // Paused and endless animations never finish; only the rest can settle.
       const moving = document.getAnimations().filter(animation =>
         animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
       if (moving.length === 0) break
-      if (performance.now() > deadline) {
-        const names = moving.map(animation => (animation as CSSTransition).transitionProperty ?? (animation as CSSAnimation).animationName)
-        throw new Error(`still moving after 10s: ${names.join(', ')}`)
-      }
       // A transition the next change interrupts rejects; the next pass meets its successor.
-      await Promise.all(moving.map(animation => animation.finished.catch(() => undefined)))
+      const finished = Promise.all(moving.map(animation => animation.finished.catch(() => undefined)))
+      let timer = 0
+      const late = new Promise<'late'>(resolve => {
+        timer = window.setTimeout(resolve, Math.max(0, deadline - performance.now()), 'late')
+      })
+      const outcome = await Promise.race([finished, late])
+      window.clearTimeout(timer)
+      if (outcome === 'late') {
+        const names = moving.filter(animation => animation.playState === 'running').map(animation =>
+          (animation as CSSTransition).transitionProperty ?? (animation as CSSAnimation).animationName ?? (animation.id || 'an animation'))
+        throw new Error(`still moving after ${within}ms: ${names.join(', ')}`)
+      }
     }
     const rect = node.getBoundingClientRect()
     return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
-  })
+  }, within)
 }
 
 async function unobstructed(locator: Locator) {
@@ -59,6 +69,48 @@ async function unobstructed(locator: Locator) {
     return node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
   })
 }
+
+test('settled waits out a transition that still holds the old box', async ({ page }) => {
+  // The delay stands in for the frame a slow runner has not run yet: the
+  // transition exists, and until it starts the box stands where it was. Two
+  // reads 40ms apart agree on that box, which is what the old helper returned.
+  await page.setContent(`
+    <style>#box { transition: padding-left 1ms linear 300ms }</style>
+    <div id="box"><span id="mark">mark</span></div>
+  `)
+  const mark = page.locator('#mark')
+  const start = (await settled(mark)).left
+  const held = await mark.evaluate(node => {
+    node.parentElement!.style.paddingLeft = '100px'
+    return node.getBoundingClientRect().left
+  })
+  expect(held).toBe(start)
+  expect((await settled(mark)).left).toBe(start + 100)
+})
+
+test('settled gives up, by name, on an animation that outlasts its bound', async ({ page }) => {
+  await page.setContent(`
+    <style>
+      @keyframes drift { to { translate: 10px } }
+      #mark { display: inline-block; animation: drift 60s linear }
+    </style>
+    <span id="mark">mark</span>
+  `)
+  await expect(settled(page.locator('#mark'), 300)).rejects.toThrow('still moving after 300ms: drift')
+})
+
+test('settled gives up on an animation whose timeline never advances', async ({ page }) => {
+  // A scroll timeline nobody scrolls is running, finite and never finished,
+  // which is how every animation on the page looks while no frame runs.
+  await page.setContent(`
+    <style>
+      @keyframes slide { to { translate: 10px } }
+      #mark { display: inline-block; animation: slide 1s linear; animation-timeline: scroll(nearest) }
+    </style>
+    <div style="height: 100px; overflow: auto"><div style="height: 1000px"><span id="mark">mark</span></div></div>
+  `)
+  await expect(settled(page.locator('#mark'), 300)).rejects.toThrow('still moving after 300ms: slide')
+})
 
 for (const theme of ['light', 'dark'] as const) {
   test(`workspace hover actions leave its pin and count visible (${theme})`, async ({ page }, testInfo) => {
