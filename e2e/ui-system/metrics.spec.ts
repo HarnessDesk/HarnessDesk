@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 
 import { expect, test } from '@playwright/test'
 
+import { CATALOG_ENTRIES } from '../../packages/ui/src/design/catalog/manifest'
+
 /**
  * Every rendered number in the system, in one table.
  *
@@ -31,6 +33,53 @@ import { expect, test } from '@playwright/test'
 
 const TABLE = fileURLToPath(new URL('../../packages/ui/src/design/metrics.json', import.meta.url))
 const UPDATE = process.env.UPDATE_METRICS === '1'
+
+/**
+ * The tabs to measure, one test each.
+ *
+ * This was one test walking every tab under one 30-second clock, and the
+ * catalogue outgrew it: 24.6s in CI before #762, 27.5s once #762 added tabs,
+ * then 31.0s and a timeout on #777, which touched no tab at all — with nothing
+ * in the failure saying which tab it had reached. Now each tab has its own
+ * clock, a failure names its tab, and a new tab adds a test instead of
+ * seconds to a shared budget.
+ *
+ * Playwright needs the list before any page exists, so it comes from the
+ * manifest rather than from the coverage page the walk used to read. It is
+ * the same list — that page links one tab per entry's `exampleId` — and
+ * `the tabs measured are the tabs the coverage page links to` (below) holds
+ * the two together.
+ */
+const VIEWS = [...new Set(CATALOG_ENTRIES.map((entry) => entry.exampleId))].sort()
+
+/** A key reads `<view>/<component>/<axis>/<value>`, and no view has a slash in it (held below). */
+const viewOf = (key: string) => key.split('/')[0]!
+
+/**
+ * A re-record's rows, tab by tab, until the one write at the end of the file.
+ *
+ * Writing `metrics.json` reloads every page open on the dev server:
+ * `@tailwindcss/vite` scans `packages/ui/src` for class names, and a change
+ * to a scanned file that no module imports is answered with a full reload —
+ * measured on 2026-09-18 landing ~160ms after the write, with the bytes
+ * unchanged. The single walk wrote once and the scale test after it
+ * navigated into that reload, which failed 2 re-records in 5 with "Execution
+ * context was destroyed". Written by each tab's test, it would be a reload
+ * after every tab. So the rows wait here, and the last test in the file
+ * writes them, when no page is left for the reload to land on.
+ *
+ * In memory, so a re-record runs the file serially: one worker, in order,
+ * and the first failure skips everything after it, the write included. A
+ * table is only ever written whole — as the single walk only ever wrote one.
+ */
+const staged = new Map<string, Record<string, unknown>>()
+if (UPDATE) test.describe.configure({ mode: 'serial' })
+
+/** The table the tests hold: in a re-record the one it is about to write, otherwise the file. */
+const recordedTable = (): Record<string, unknown> =>
+  UPDATE
+    ? Object.fromEntries([...staged.values()].flatMap((rows) => Object.entries(rows)))
+    : JSON.parse(readFileSync(TABLE, 'utf8'))
 
 /**
  * Wait until the page stops changing shape.
@@ -154,77 +203,83 @@ test('settle waits out a style update that lands after it looked stable', async 
   expect(fontSize).toBe('14px')
 })
 
-test('every catalogued case composes to the recorded number', async ({ page }, testInfo) => {
-  await page.goto('/design.html?view=coverage')
-  await settle(page)
-  const views = await page.locator('a[href^="?view="]').evaluateAll(nodes =>
-    [...new Set(nodes.map(node => new URL((node as HTMLAnchorElement).href).searchParams.get('view')!))].sort())
-  expect(views.length).toBeGreaterThan(10)
-
-  const measured: Record<string, unknown> = {}
-  const collisions: string[] = []
-  /* The body's size on each view, so a drifted `text` says whether the
-     component moved or the page it inherits from did. */
-  const bodyText: Record<string, string> = {}
-  for (const view of views) {
-    await page.goto(`/design.html?view=${view}`)
-    await settle(page)
-    bodyText[view] = await page.evaluate(() => getComputedStyle(document.body).fontSize)
-    // A board that renders nothing measurable is not a failure; a board that
-    // fails to render is, and the error surfaces as a missing key below.
-    const cases = await page.locator('[data-catalog-variant], [data-catalog-size]').evaluateAll(nodes => {
-      // Only what a person can see; colour belongs to the contrast tests.
-      const px = (value: string) => Math.round(parseFloat(value) * 100) / 100
-      return nodes.map(node => {
-        const axis = node.getAttribute('data-catalog-variant') ? 'variant' : 'size'
-        const css = getComputedStyle(node)
-        /* Which component this case belongs to, not only which axis value it
-           carries. Four different controls render `size/default` on one board;
-           without the component in the key the last one written wins and the
-           other three are unmeasured while the table claims to hold them. */
-        const who = node.getAttribute('data-slot') ?? node.tagName.toLowerCase()
-        return [`${who}/${axis}/${node.getAttribute(`data-catalog-${axis}`)}`, {
-          h: Math.round(node.getBoundingClientRect().height * 100) / 100,
-          text: px(css.fontSize),
-          weight: css.fontWeight,
-          line: css.lineHeight === 'normal' ? 'normal' : px(css.lineHeight),
-          pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft].map(px).join(' '),
-          radius: px(css.borderTopLeftRadius),
-        }] as const
+test.describe('every catalogued case composes to the recorded number', () => {
+  for (const view of VIEWS) {
+    test(view, async ({ page }, testInfo) => {
+      await page.goto(`/design.html?view=${view}`)
+      await settle(page)
+      /* The body's size on this view, so a drifted `text` says whether the
+         component moved or the page it inherits from did. */
+      const bodyText = await page.evaluate(() => getComputedStyle(document.body).fontSize)
+      // A board that renders nothing measurable is not a failure; a board that
+      // fails to render is, and the error surfaces as a missing key below.
+      const cases = await page.locator('[data-catalog-variant], [data-catalog-size]').evaluateAll(nodes => {
+        // Only what a person can see; colour belongs to the contrast tests.
+        const px = (value: string) => Math.round(parseFloat(value) * 100) / 100
+        return nodes.map(node => {
+          const axis = node.getAttribute('data-catalog-variant') ? 'variant' : 'size'
+          const css = getComputedStyle(node)
+          /* Which component this case belongs to, not only which axis value it
+             carries. Four different controls render `size/default` on one board;
+             without the component in the key the last one written wins and the
+             other three are unmeasured while the table claims to hold them. */
+          const who = node.getAttribute('data-slot') ?? node.tagName.toLowerCase()
+          return [`${who}/${axis}/${node.getAttribute(`data-catalog-${axis}`)}`, {
+            h: Math.round(node.getBoundingClientRect().height * 100) / 100,
+            text: px(css.fontSize),
+            weight: css.fontWeight,
+            line: css.lineHeight === 'normal' ? 'normal' : px(css.lineHeight),
+            pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft].map(px).join(' '),
+            radius: px(css.borderTopLeftRadius),
+          }] as const
+        })
       })
+      const measured: Record<string, unknown> = {}
+      const collisions: string[] = []
+      for (const [key, value] of cases) {
+        const full = `${view}/${key}`
+        /* A collision is not a tie to be broken — it means two cases the table
+           claims to hold are really one, and the loser is unmeasured. */
+        if (full in measured) collisions.push(full)
+        measured[full] = value
+      }
+
+      expect(collisions.join('\n') || 'every case has its own key').toBe('every case has its own key')
+
+      if (UPDATE) {
+        staged.set(view, measured)
+        testInfo.annotations.push({ type: 'measured', description: `${Object.keys(measured).length} cases` })
+        return
+      }
+
+      const recorded = recordedTable()
+      const drift = Object.entries(measured)
+        .filter(([key, value]) => JSON.stringify(recorded[key]) !== JSON.stringify(value))
+        .map(([key, value]) =>
+          `${key}\n  recorded ${JSON.stringify(recorded[key])}\n  measured ${JSON.stringify(value)}` +
+            `  (body ${bodyText} on this view)`)
+      const gone = Object.keys(recorded).filter(key => viewOf(key) === view && !(key in measured))
+      await testInfo.attach('metrics', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
+      expect(
+        [...drift, ...gone.map(key => `${key}\n  recorded, no longer rendered`)].join('\n\n') ||
+          'the table holds',
+      ).toBe('the table holds')
     })
-    for (const [key, value] of cases) {
-      const full = `${view}/${key}`
-      /* A collision is not a tie to be broken — it means two cases the table
-         claims to hold are really one, and the loser is unmeasured. */
-      if (full in measured) collisions.push(full)
-      measured[full] = value
-    }
   }
 
-  expect(collisions.join('\n') || 'every case has its own key').toBe('every case has its own key')
-
-  expect(Object.keys(measured).length).toBeGreaterThan(20)
-
-  if (UPDATE) {
-    const ordered = Object.fromEntries(Object.entries(measured).sort(([a], [b]) => a.localeCompare(b)))
-    writeFileSync(TABLE, `${JSON.stringify(ordered, null, 2)}\n`)
-    testInfo.annotations.push({ type: 'recorded', description: `${Object.keys(ordered).length} cases` })
-    return
-  }
-
-  const recorded = JSON.parse(readFileSync(TABLE, 'utf8'))
-  const drift = Object.entries(measured)
-    .filter(([key, value]) => JSON.stringify(recorded[key]) !== JSON.stringify(value))
-    .map(([key, value]) =>
-      `${key}\n  recorded ${JSON.stringify(recorded[key])}\n  measured ${JSON.stringify(value)}` +
-        `  (body ${bodyText[key.split('/')[0]!] ?? '?'} on this view)`)
-  const gone = Object.keys(recorded).filter(key => !(key in measured))
-  await testInfo.attach('metrics', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
-  expect(
-    [...drift, ...gone.map(key => `${key}\n  recorded, no longer rendered`)].join('\n\n') ||
-      'the table holds',
-  ).toBe('the table holds')
+  /**
+   * The walk used to find its tabs by reading the coverage page's links; the
+   * tests above take them from the manifest. Hold the two together, so a link
+   * the coverage page gains from anywhere else is a tab this table would
+   * silently stop measuring.
+   */
+  test('the tabs measured are the tabs the coverage page links to', async ({ page }) => {
+    await page.goto('/design.html?view=coverage')
+    await settle(page)
+    const linked = await page.locator('a[href^="?view="]').evaluateAll(nodes =>
+      [...new Set(nodes.map(node => new URL((node as HTMLAnchorElement).href).searchParams.get('view')!))].sort())
+    expect(linked).toEqual(VIEWS)
+  })
 })
 
 /**
@@ -233,7 +288,7 @@ test('every catalogued case composes to the recorded number', async ({ page }, t
  * consistency rule has to do.
  */
 test('the composed numbers stay on the scale', async ({ page }) => {
-  const recorded: Record<string, { text: number; h: number }> = JSON.parse(readFileSync(TABLE, 'utf8'))
+  const recorded = recordedTable() as Record<string, { text: number; h: number }>
   await page.goto('/design.html?view=foundation')
   await settle(page)
   const scale = await page.evaluate(() => {
@@ -250,4 +305,37 @@ test('the composed numbers stay on the scale', async ({ page }) => {
     .filter(([, value]) => Number.isFinite(value.text) && !steps.includes(value.text))
     .map(([key, value]) => `${key} at ${value.text}px`)
   expect(offScale.join('\n') || 'every case is on the scale').toBe('every case is on the scale')
+})
+
+/**
+ * What the single walk held across the whole table, which no one tab's test
+ * can see: a row recorded for a tab the catalogue no longer has (the walk
+ * never reached it, so it surfaced as "no longer rendered"), and a table too
+ * small to be holding anything.
+ *
+ * In a re-record this is also the one write, which is why it comes last: it
+ * writes only a table every tab was measured into — the whole table, sorted,
+ * exactly as the walk wrote it — and no test is left to navigate into the
+ * reload the write sets off (see `staged`).
+ */
+test('every recorded case belongs to a tab the catalogue still has', async ({}, testInfo) => {
+  expect(VIEWS.length).toBeGreaterThan(10)
+  // `viewOf` reads a key's tab as everything before its first slash.
+  expect(VIEWS.filter(view => view.includes('/'))).toEqual([])
+  const recorded = recordedTable()
+
+  if (UPDATE) {
+    const unmeasured = VIEWS.filter(view => !staged.has(view))
+    expect(unmeasured.join(', ') || 'every tab measured', 'a re-record writes only a whole table').toBe('every tab measured')
+    expect(Object.keys(recorded).length).toBeGreaterThan(20)
+    const ordered = Object.fromEntries(Object.entries(recorded).sort(([a], [b]) => a.localeCompare(b)))
+    writeFileSync(TABLE, `${JSON.stringify(ordered, null, 2)}\n`)
+    testInfo.annotations.push({ type: 'recorded', description: `${Object.keys(ordered).length} cases` })
+    return
+  }
+
+  expect(Object.keys(recorded).length).toBeGreaterThan(20)
+  const orphans = Object.keys(recorded).filter(key => !VIEWS.includes(viewOf(key)))
+  expect(orphans.map(key => `${key}\n  recorded, no longer rendered`).join('\n\n') || 'the table holds')
+    .toBe('the table holds')
 })
