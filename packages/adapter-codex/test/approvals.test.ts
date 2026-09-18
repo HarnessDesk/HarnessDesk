@@ -236,5 +236,64 @@ test('mapPermissionApproval and ApprovalRouter handle Codex v2 permission reques
   })
 })
 
+test('a user-verification elicitation (0.155.0) is cancelled and said, never drawn as a form', () => {
+  const events: AgentEvent[] = []
+  const router = new ApprovalRouter((event) => events.push(event))
+  const answers: unknown[] = []
+  const responder: ServerRequestResponder = {
+    respond: (result) => answers.push(result),
+    fail: () => assert.fail('a verification is answered, not refused'),
+  }
+  const from = { threadId: 't1', turnId: 'turn-1', serverName: 'payments' }
+  const handled = router.handle(
+    {
+      id: 7,
+      method: 'mcpServer/elicitation/request',
+      params: {
+        ...from,
+        mode: 'openai/userVerification',
+        title: 'Confirm the transfer',
+        description: 'Approve it with the key on this device.',
+        challenge: 'c2lnbi1tZQ',
+      },
+    } satisfies CodexProtocol.ServerRequest,
+    responder,
+    () => undefined,
+  )
+  assert.equal(handled, true)
+  // What Codex answers itself on a connection it has not enabled
+  // verification for; the challenge is never signed or echoed.
+  assert.deepEqual(answers, [{ action: 'cancel', content: null, _meta: null }])
+  // Nobody is asked for what nobody here can give, and the person is told
+  // why the tool call that asked is about to fail.
+  assert.equal(router.size, 0)
+  assert.deepEqual(events, [
+    {
+      type: 'notice',
+      sessionId: 't1',
+      level: 'warning',
+      message:
+        'payments asked to verify it is you ("Confirm the transfer"). HarnessDesk cannot do that, so the request was cancelled.',
+    },
+  ])
 
-
+  // The control: a form is still a question for the person.
+  const schema = { type: 'object', properties: {} } as const
+  router.handle(
+    {
+      id: 8,
+      method: 'mcpServer/elicitation/request',
+      params: { ...from, mode: 'form', _meta: null, message: 'Which account?', requestedSchema: schema },
+    } satisfies CodexProtocol.ServerRequest,
+    responder,
+    () => undefined,
+  )
+  assert.equal(router.size, 1)
+  const asked = events.flatMap((event) => (event.type === 'approval/requested' ? [event.approval] : []))
+  assert.equal(asked.length, 1)
+  assert.equal(asked[0]?.type, 'elicitation')
+  if (asked[0]?.type !== 'elicitation') return
+  assert.equal(asked[0].message, 'Which account?')
+  assert.deepEqual(asked[0].schema, schema)
+  assert.equal(answers.length, 1, 'a form waits for the person')
+})
