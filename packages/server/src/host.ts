@@ -61,7 +61,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
-import { MachineSeatingFile, SEATING_FILE } from './agent-seating-file.js'
+import { exportAgentFolders, importAgentFolder } from './agent-files.js'
+import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-file.js'
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
@@ -559,7 +560,9 @@ export class Host {
     })
     // Beside everything else the desk keeps on this machine, so a rig's
     // HARNESSDESK_HOME that moves the state directory moves these with it.
-    this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE))
+    this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE), {
+      log: (message, details) => this.#logger.warn(message, details),
+    })
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1479,6 +1482,8 @@ export class Host {
       agents: this.options.agents?.entries() ?? [],
       preferences: this.#state.state.preferences,
       transcripts: await this.#transcripts.exportAll(),
+      agentFolders: await exportAgentFolders(join(this.#state.directory, 'agents')),
+      seating: await this.#machineSeating.raw(),
     }
   }
 
@@ -1550,8 +1555,54 @@ export class Host {
       else transcripts.skipped += 1
     }
 
-    this.#logger.info('backup restored', { agents, preferences, transcripts })
-    return { agents, preferences, transcripts }
+    const agentFolders = { restored: 0, skipped: 0 }
+    for (const copy of Array.isArray(file.agentFolders) ? file.agentFolders : []) {
+      try {
+        if (await importAgentFolder(join(this.#state.directory, 'agents'), copy)) agentFolders.restored += 1
+        else agentFolders.skipped += 1
+      } catch (error) {
+        agentFolders.skipped += 1
+        this.#logger.warn('an Agent folder from a backup could not be restored', {
+          id: typeof copy === 'object' && copy !== null && 'id' in copy ? copy.id : null,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    const seating = { restored: 0, skipped: 0 }
+    if (typeof file.seating === 'object' && file.seating !== null) {
+      const saved = parseSeating(JSON.stringify(file.seating))
+      const here = await this.#machineSeating.read()
+      const unreadable = here.problems.some((one) => one.id === null)
+      const taken = new Set([...here.entries.map((one) => one.id), ...here.problems.flatMap((one) => one.id ?? [])])
+      for (const entry of saved.entries) {
+        if (unreadable || taken.has(entry.id)) {
+          seating.skipped += 1
+          continue
+        }
+        try {
+          const outcome = await this.#machineSeating.set(entry.id, entry.seats)
+          if (outcome.wrote) {
+            seating.restored += 1
+            taken.add(entry.id)
+          } else {
+            seating.skipped += 1
+          }
+        } catch (error) {
+          seating.skipped += 1
+          this.#logger.warn('a seating entry from a backup could not be restored', {
+            id: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      seating.skipped += saved.problems.filter((one) => one.id !== null).length
+    }
+    if (agentFolders.restored > 0 || seating.restored > 0) {
+      this.#push({ method: 'agent/changed', params: { project: null } })
+    }
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating })
+    return { agents, preferences, transcripts, agentFolders, seating }
   }
 
   /**

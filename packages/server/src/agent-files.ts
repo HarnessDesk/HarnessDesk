@@ -1,10 +1,11 @@
 import { constants, type Stats } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 
 import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
 
-import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, PROJECT_AGENT_DIR } from './agents.js'
+import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, PROJECT_AGENT_DIR, idsIn } from './agents.js'
+import { isReservedId } from './agent-seating-file.js'
 import { seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
@@ -269,6 +270,90 @@ export const copyAgentFolder = async (from: string, to: string): Promise<void> =
       throw new Error(`${from} has no AGENT.md to copy — nothing but links, which are left behind rather than followed.`)
     }
   })
+}
+
+/** What a backup carries of one Agent: its folder's regular text files. */
+export interface AgentFolderCopy {
+  readonly id: string
+  readonly files: readonly { readonly path: string; readonly text: string }[]
+}
+
+/** The most one Agent folder contributes to a backup, across all of its files. */
+const BACKUP_FOLDER_LIMIT = 1024 * 1024
+const utf8 = new TextDecoder('utf-8', { fatal: true })
+
+/** Every Agent folder in this machine's roster, with links inside each folder left behind. */
+export const exportAgentFolders = async (root: string): Promise<AgentFolderCopy[]> => {
+  const copies: AgentFolderCopy[] = []
+  for (const id of await idsIn(root)) {
+    const files: { path: string; text: string }[] = []
+    let total = 0
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))
+      for (const entry of entries) {
+        const path = prefix ? `${prefix}/${entry.name}` : entry.name
+        if (entry.isDirectory()) {
+          await walk(join(dir, entry.name), path)
+        } else if (entry.isFile()) {
+          const bytes = await readFile(join(dir, entry.name))
+          if (bytes.length > AGENT_FILE_LIMIT || total + bytes.length > BACKUP_FOLDER_LIMIT) continue
+          let text: string
+          try {
+            text = utf8.decode(bytes)
+          } catch {
+            continue
+          }
+          total += bytes.length
+          files.push({ path, text })
+        }
+      }
+    }
+    await walk(join(root, id), '')
+    if (files.some((one) => one.path === 'AGENT.md')) copies.push({ id, files })
+  }
+  return copies
+}
+
+/** One relative backup path segment: never a climb, separator, or string the filesystem cannot accept. */
+const isSegment = (name: string): boolean =>
+  name !== '' && name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes('\0')
+
+const isBackupPath = (path: string): boolean =>
+  !isAbsolute(path) && !/^[A-Za-z]:\//.test(path) && path.split('/').every(isSegment)
+
+/** Restores one missing Agent folder transactionally and answers whether it was added. */
+export const importAgentFolder = async (root: string, copy: unknown): Promise<boolean> => {
+  const record = (copy ?? {}) as { id?: unknown; files?: unknown }
+  const id = typeof record.id === 'string' ? record.id : ''
+  if (agentIdOf(id) !== id || isReservedId(id) || !Array.isArray(record.files) || (await exists(join(root, id)))) return false
+  const files: { path: string; text: string }[] = []
+  const filePaths = new Set<string>()
+  const folderPaths = new Set<string>()
+  let total = 0
+  for (const one of record.files) {
+    const file = (one ?? {}) as { path?: unknown; text?: unknown }
+    if (typeof file.path !== 'string' || typeof file.text !== 'string' || !isBackupPath(file.path)) continue
+    const bytes = Buffer.byteLength(file.text, 'utf8')
+    if (bytes > AGENT_FILE_LIMIT || total + bytes > BACKUP_FOLDER_LIMIT) continue
+    const segments = file.path.split('/')
+    const parents = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'))
+    // First wins: a duplicate, a descendant of a file, or a file where an
+    // earlier descendant already made a folder is left out before any write.
+    if (filePaths.has(file.path) || folderPaths.has(file.path) || parents.some((path) => filePaths.has(path))) continue
+    files.push({ path: file.path, text: file.text })
+    filePaths.add(file.path)
+    for (const path of parents) folderPaths.add(path)
+    total += bytes
+  }
+  if (!files.some((one) => one.path === 'AGENT.md')) return false
+  await writeAgentFolder(root, id, async (temporary) => {
+    for (const file of files) {
+      const target = join(temporary, file.path)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, file.text, { encoding: 'utf8', flag: 'wx' })
+    }
+  })
+  return true
 }
 
 /** Reads the source Customize is about to copy, without following a last-step link and without exceeding the roster's limit. */

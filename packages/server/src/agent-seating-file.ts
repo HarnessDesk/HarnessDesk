@@ -156,10 +156,17 @@ export interface SeatingSetOutcome {
   readonly wrote: boolean
 }
 
+export interface MachineSeatingFileOptions {
+  readonly log?: (message: string, details?: unknown) => void
+}
+
 export class MachineSeatingFile {
   #writes: Promise<unknown> = Promise.resolve()
 
-  constructor(readonly path: string) {}
+  constructor(
+    readonly path: string,
+    private readonly options: MachineSeatingFileOptions = {},
+  ) {}
 
   async read(): Promise<MachineSeating> {
     let text: string
@@ -171,6 +178,40 @@ export class MachineSeatingFile {
       return { path: this.path, entries: [], problems: [{ id: null, at: '', text: unreadable(error) }] }
     }
     return { path: this.path, ...parseSeating(text) }
+  }
+
+  /** The file as written for a backup, or null when it is absent or unreadable. */
+  async raw(): Promise<Record<string, unknown> | null> {
+    let text: string
+    try {
+      text = await readFile(this.path, 'utf8')
+    } catch (error) {
+      if ((error as { code?: unknown }).code === 'ENOENT') return null
+      this.options.log?.('seating.json was left out of the backup', {
+        path: this.path,
+        error: messageOf(error),
+      })
+      return null
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (error) {
+      this.options.log?.('seating.json was left out of the backup', {
+        path: this.path,
+        error: `it is not JSON: ${messageOf(error)}`,
+      })
+      return null
+    }
+    const record = asRecord(parsed)
+    if (!record) {
+      this.options.log?.('seating.json was left out of the backup', {
+        path: this.path,
+        error: 'it is not an object of Agent ids to lists of seats',
+      })
+      return null
+    }
+    return record
   }
 
   /**

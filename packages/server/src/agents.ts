@@ -92,7 +92,7 @@ const errnoOf = (error: unknown): string => {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-const idsIn = async (dir: string): Promise<string[]> => {
+export const idsIn = async (dir: string): Promise<string[]> => {
   let entries
   try {
     entries = await readdir(dir, { withFileTypes: true })

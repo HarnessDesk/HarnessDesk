@@ -118,6 +118,17 @@ export interface BackupFile {
     readonly id: string
     readonly data: unknown
   }[]
+  /**
+   * This machine's own Agents, as text files relative to each Agent folder.
+   * `agents` above keeps its older meaning: entries in the runtime registry.
+   * Absent in backups written before Agent folders travelled with them.
+   */
+  readonly agentFolders?: readonly {
+    readonly id: string
+    readonly files: readonly { readonly path: string; readonly text: string }[]
+  }[]
+  /** This machine's `seating.json`, or null when it was absent or could not be read. */
+  readonly seating?: Readonly<Record<string, unknown>> | null
 }
 
 /**
@@ -130,6 +141,8 @@ export interface BackupReport {
   readonly agents: { readonly restored: number; readonly skipped: number }
   readonly preferences: number
   readonly transcripts: { readonly restored: number; readonly skipped: number }
+  readonly agentFolders: { readonly restored: number; readonly skipped: number }
+  readonly seating: { readonly restored: number; readonly skipped: number }
 }
 
 /**
