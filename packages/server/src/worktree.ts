@@ -12,6 +12,7 @@ import { assertAbsolute } from './workspace.js'
 
 import { parsePorcelain } from './porcelain.js'
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { commonDir } from './git-ops.js'
 
 /**
  * Git worktrees, one per conversation that asks for one.
@@ -366,8 +367,29 @@ export const list = async (repoRoot: string, stateDir: string): Promise<Worktree
      `--show-toplevel`). Where git cannot say — a `--separate-git-dir` checkout
      asked from one of its worktrees — the entry stays what git named. */
   const first = entries[0]
-  if (first && !samePath(await canonical(first.path), main)) entries[0] = { ...first, path: main }
+  if (first) {
+    const folder = await mainEntryFolder(first.path, main)
+    if (folder !== first.path) entries[0] = { ...first, path: folder }
+  }
   return entries
+}
+
+/**
+ * The folder the main entry of a worktree listing stands for. Where git named
+ * the folder already, that is it. Where it named a git directory, the folder
+ * is the one that directory's own work tree says (a submodule's
+ * `core.worktree`), taken only if that folder's own metadata agrees with the
+ * repository, as `mainCheckoutOf` requires; and only where git records none (a
+ * `--separate-git-dir` checkout) is it the folder the listing was asked from.
+ * Not simply the folder asked from: a `.git` file that names another
+ * repository leaves that folder a checkout of it, and the main entry is still
+ * the repository's own.
+ */
+export const mainEntryFolder = async (listed: string, asked: string): Promise<string> => {
+  if (samePath(await canonical(listed), asked)) return listed
+  const checkout = await shellCheckoutIdentity(listed)
+  if (checkout && await isMainCheckout(checkout.checkoutRoot, checkout.gitCommonDir)) return checkout.checkoutRoot
+  return asked
 }
 
 /**
@@ -564,6 +586,27 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
  * outside every workspace, so what is confined is its repository, open as its
  * main checkout, as a folder inside it, or as the worktree itself — or sitting
  * inside an open folder, as it does for every other git read.
+ *
+ * The checkouts git lists are not the only ones that count. Git lists a
+ * submodule's main checkout as its git directory, `<super>/.git/modules/<name>`,
+ * and that of a checkout made with `--separate-git-dir` as the directory kept
+ * apart from it, so compared with the listing alone either was refused when
+ * opened on its own, and the refusal named the open folder as the project not
+ * opened. The folder `repositoryRoot` names counts as well, but only when the
+ * repository's database is open by the rule `#confineGitRoot` uses: it lies
+ * inside that folder or an open root, or it is the database of an open
+ * checkout (which is how a submodule or a separate git directory keeps its
+ * `.git` outside its own folder). A folder whose `.git` file names a
+ * repository elsewhere shares its database with nothing open, so it is refused
+ * here as it is there, and so is the repository it names. A failed read of the
+ * database refuses with the same try-again sentence; it is not read as "not
+ * open", and it is not read when the listing already admits the path.
+ *
+ * A worktree of a `--separate-git-dir` checkout is still refused with only
+ * that checkout open. From the worktree, git names the repository's main
+ * checkout by its git directory, and nothing in git records the folder. Let
+ * through, it would get no further: `remove` and `bringHome` list the
+ * repository from that directory, and find no worktree there.
  */
 export const openRepositoryRoot = async (path: string, roots: readonly string[]): Promise<string | null> => {
   // Before git reads it. `git -C` takes a relative path from the host's
@@ -595,7 +638,24 @@ export const openRepositoryRoot = async (path: string, roots: readonly string[])
       ? normInner.toLowerCase().startsWith(prefix.toLowerCase())
       : normInner.startsWith(prefix)
   }
-  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return main
+  const touches = (checkout: string): string[] =>
+    opened.filter((root) => within(root, checkout) || within(checkout, root))
+  if (checkouts.some((checkout) => touches(checkout).length > 0)) return main
+  // The folder git did not list: a submodule's or a separate git directory's
+  // own, or one whose `.git` file points somewhere else. It counts only when
+  // the repository git resolves there is open too.
+  const near = touches(main)
+  if (near.length > 0) {
+    const database = await commonDir(main)
+    if (database !== null) {
+      if (within(database, main) || opened.some((root) => within(database, root))) return main
+      for (const root of near) if ((await commonDir(root)) === database) return main
+      throw new Error(
+        `${path} belongs to ${main}, where git resolves to a repository (${database}) that is not open here. ` +
+          'Open that repository to work in it.',
+      )
+    }
+  }
   throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
 }
 

@@ -2485,6 +2485,198 @@ test('worktree/list refuses a repository nobody opened, and answers for one open
   })
 })
 
+test('worktree/list answers for a submodule, or a checkout made with --separate-git-dir, opened on its own', async (t) => {
+  // Git lists the main checkout of either as its git directory — a
+  // submodule's `<super>/.git/modules/<name>`, the directory a checkout made
+  // with `--separate-git-dir` keeps apart — and never as the folder it is
+  // checked out at. The repository was judged by that listing alone, so with
+  // only that folder open it was refused as a project not opened here, in
+  // the folder's own name.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real, because git lists real paths and the controls compare with them.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-worktree-layouts-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  /** The main checkout as `git worktree list` names it. */
+  const listedMain = async (checkout: string): Promise<string | undefined> =>
+    (await gitIn(checkout, 'worktree', 'list', '--porcelain')).split('\n')[0]?.slice('worktree '.length)
+  type Listed = readonly { path: string; isMain: boolean; branch: string | null }[]
+
+  await t.test('a submodule, through its folder or a worktree of it', async () => {
+    const origin = join(scratch, 'origin')
+    const superproject = join(scratch, 'super')
+    const sub = join(superproject, 'sub')
+    for (const repo of [origin, superproject]) {
+      await mkdir(repo)
+      await gitIn(repo, 'init', '-q', '-b', 'main')
+      await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+    }
+    await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+    // The controls: git lists the submodule by its git directory, and with
+    // nothing of it open it is refused — so what answers below is its folder
+    // being open.
+    assert.equal(await listedMain(sub), join(superproject, '.git', 'modules', 'sub'))
+    await assert.rejects(() => client.call('worktree/list', { root: sub }), /not a project opened here/)
+
+    await client.call('workspace/open', { path: sub })
+    const side = ((await client.call('worktree/create', { root: sub, name: 'side' })) as { path: string }).path
+    for (const root of [sub, side]) {
+      const listed = (await client.call('worktree/list', { root })) as Listed
+      assert.deepEqual(
+        listed.map((entry) => [entry.isMain, entry.branch]),
+        [
+          [true, 'main'],
+          [false, 'harnessdesk/side'],
+        ],
+      )
+      assert.equal(listed[1]?.path, side)
+    }
+  })
+
+  await t.test('a checkout made with --separate-git-dir', async () => {
+    const work = join(scratch, 'work')
+    await gitIn(scratch, 'init', '-q', '-b', 'main', `--separate-git-dir=${join(scratch, 'work.git')}`, work)
+    await gitIn(work, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+    assert.equal(await listedMain(work), join(scratch, 'work.git'))
+    await assert.rejects(() => client.call('worktree/list', { root: work }), /not a project opened here/)
+
+    await client.call('workspace/open', { path: work })
+    const listed = (await client.call('worktree/list', { root: work })) as Listed
+    assert.deepEqual(
+      listed.map((entry) => [entry.isMain, entry.branch]),
+      [[true, 'main']],
+    )
+  })
+})
+
+test('a folder whose .git file names a repository elsewhere is refused by the worktree verbs, as by the git ones, until that repository is open', async (t) => {
+  // Git takes the folder holding such a `.git` file as the checkout, and lists
+  // the folder of the repository the file names instead. Counting the folder a
+  // path is checked out at, as a submodule needs, must not make it a way to the
+  // repository the file names: the folder counts only when the repository
+  // there is open, by the rule the git verbs use (its database lies in an open
+  // root, or is shared with an open checkout).
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-worktree-gitfile-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const named = join(scratch, 'named')
+  const linked = join(scratch, 'linked')
+  await mkdir(named)
+  await gitIn(named, 'init', '-q', '-b', 'main')
+  await gitIn(named, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  await gitIn(named, 'worktree', 'add', '-q', '-b', 'linked', linked)
+  const opened = join(scratch, 'opened')
+  const folder = join(opened, 'folder')
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, '.git'), `gitdir: ${join(named, '.git')}\n`)
+  await client.call('workspace/open', { path: opened })
+
+  const refused = `${folder} belongs to ${folder}, where git resolves to a repository (${join(named, '.git')}) that is not open here. Open that repository to work in it.`
+  const verbs = {
+    'worktree/list': () => client.call('worktree/list', { root: folder }),
+    'worktree/changes': () => client.call('worktree/changes', { path: folder }),
+    'worktree/remove': () => client.call('worktree/remove', { path: folder }),
+    'worktree/bringHome': () => client.call('worktree/bringHome', { path: folder }),
+  }
+  // What the repository it names holds, read before any answer so a call that
+  // got through fails on what it did there.
+  const held = async (): Promise<string> => (await gitIn(named, 'worktree', 'list', '--porcelain')) + (await gitIn(named, 'branch'))
+
+  await t.test('refused by every worktree verb, with the sentence that names the repository', async () => {
+    const before = await held()
+    for (const [verb, call] of Object.entries(verbs)) {
+      await assert.rejects(call, { message: refused }, verb)
+    }
+    assert.equal(await held(), before)
+  })
+
+  await t.test('and by the git pane\'s verbs, which share the rule', async () => {
+    await assert.rejects(() => client.call('git/worktrees', { root: folder }), /git there resolves to a repository .* that is not open/)
+  })
+
+  await t.test('the repository it names, and its worktrees, stay refused', async () => {
+    await assert.rejects(() => client.call('worktree/list', { root: named }), /not a project opened here/)
+    await assert.rejects(() => client.call('worktree/remove', { path: linked }), /not a project opened here/)
+    await assert.rejects(() => client.call('git/status', { root: named }), /outside every open workspace/)
+  })
+
+  await t.test('the control: with that repository open, the folder is read like any checkout of it', async () => {
+    await client.call('workspace/open', { path: named })
+    const listed = (await client.call('worktree/list', { root: folder })) as readonly { path: string }[]
+    assert.deepEqual(
+      listed.map((entry) => entry.path),
+      [named, linked],
+    )
+    // Both listings name the repository's own main checkout, not the folder
+    // that only points at it.
+    const pane = (await client.call('git/worktrees', { root: folder })) as readonly { path: string; isMain: boolean }[]
+    assert.deepEqual(
+      pane.map((entry) => [entry.path, entry.isMain]),
+      [
+        [named, true],
+        [linked, false],
+      ],
+    )
+    // The service still finds no worktree at the folder, so nothing is removed through it.
+    for (const verb of ['worktree/remove', 'worktree/bringHome'] as const) {
+      await assert.rejects(() => client.call(verb, { path: folder }), /is not a worktree of/, verb)
+    }
+  })
+})
+
+test('a database that cannot be read refuses with the try-again sentence, not as a repository that is not open', { skip: process.getuid?.() === 0 }, async (t) => {
+  // A folder admitted only by the repository rule is judged by where git says
+  // its database is. When git cannot say (here, the one open root that could
+  // vouch for it cannot be entered), that is not an answer: the refusal says
+  // to try again, as for the git verbs, and it is not the sentence for a
+  // repository that is not open.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-worktree-unreadable-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const origin = join(scratch, 'origin')
+  const superproject = join(scratch, 'super')
+  for (const repo of [origin, superproject]) {
+    await mkdir(repo)
+    await gitIn(repo, 'init', '-q', '-b', 'main')
+    await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  const inside = join(sub, 'src')
+  await mkdir(inside)
+  const side = ((await (async () => {
+    await client.call('workspace/open', { path: sub })
+    return client.call('worktree/create', { root: sub, name: 'side' })
+  })()) as { path: string }).path
+  await client.call('workspace/forget', { path: sub })
+  await client.call('workspace/open', { path: inside })
+
+  // The control: a folder inside the submodule vouches for it.
+  assert.equal(((await client.call('worktree/list', { root: side })) as readonly unknown[]).length, 2)
+
+  await chmod(inside, 0o000)
+  try {
+    await assert.rejects(() => client.call('worktree/list', { root: side }), {
+      message: 'Git could not confirm which repository this folder belongs to. Try again.',
+    })
+  } finally {
+    await chmod(inside, 0o755)
+  }
+  // And once it can be read again, the same call is answered.
+  assert.equal(((await client.call('worktree/list', { root: side })) as readonly unknown[]).length, 2)
+})
+
 test('worktree/create refuses a repository reached through a link in an open folder, and cuts one in any folder opened here', async (t) => {
   // It checked the root as it was spelled, and a link has no spelling of its
   // own: with one repository open, a link in it to another read as inside it,
@@ -2554,10 +2746,10 @@ test('worktree/create refuses a repository reached through a link in an open fol
   })
 
   await t.test('so does a submodule opened on its own', async () => {
-    // Why this verb is held to open folders rather than to open repositories,
-    // as the other worktree verbs are: git lists a submodule's own checkout as
-    // its git directory, inside the superproject's `.git`, and that rule judges
-    // those checkouts, so it refuses the submodule while it is the folder open.
+    // Git lists a submodule's own checkout as its git directory, inside the
+    // superproject's `.git`, and not as the folder that is open, so a rule
+    // that judged only the listing would refuse the submodule while it is the
+    // folder open.
     const library = join(scratch, 'library')
     const superproject = join(scratch, 'superproject')
     await repository(library)

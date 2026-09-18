@@ -8,7 +8,7 @@ import { isRevisionName } from './git-revision.js'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
 
-import { changes, repositoryRoot, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
+import { changes, mainEntryFolder, repositoryRoot, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
 
@@ -253,7 +253,7 @@ export const list = async (root: string, stateDir: string): Promise<GitWorktree[
   // answers byte for byte as git does.
   const folder = await repositoryRoot(root)
   if (folder === null && !records[0]!.bare) throw new Error('This repository has no valid main checkout to sit beside.')
-  const main = folder !== null && !samePath(await canonical(listed), folder) ? folder : listed
+  const main = folder === null ? listed : await mainEntryFolder(listed, folder)
   const home = await worktreeHome(main, stateDir)
   return Promise.all(
     records.map(async (record, index) => {
