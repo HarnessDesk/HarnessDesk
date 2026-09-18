@@ -165,7 +165,13 @@ where that sits in the noun model:
   standing order, the way a flow seat's always has (`GIT_RULES`), and an
   instruction is exactly what a delegated child is not bound by. Enforcing the
   ceiling at the tool boundary is therefore a requirement of a later phase, and
-  until it lands this bullet describes the goal rather than the product.
+  until it lands this bullet describes the goal rather than the product. What
+  the instruction does do in the meantime is say so: every permission rule ends
+  *anything you hand to a sub-agent or a background agent is held to every rule
+  above*, so a seat is told to carry its ceiling into whatever it delegates.
+  Delegating is otherwise permitted — an earlier rule forbade it because each
+  child "costs a request", which is the billing of one account rather than a
+  property of a ceiling, and what a delegation costs belongs to whoever pays.
 - **Provenance resolves to the Seat.** A commit belongs to the Seat that produced
   it; which delegation inside that turn wrote the line is a detail the transcript
   holds. The chain does not grow a level, because the Seat is the thing with a

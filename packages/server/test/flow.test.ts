@@ -313,6 +313,25 @@ test('a read role is told not to push; a publish role is told exactly what it ma
   assert.match(reviewer, /exactly one of approve, request-changes/)
 })
 
+test('a permission rule is about permission, and it travels with anything delegated', () => {
+  // The rule a seat is handed says what it may do to the repository. It once
+  // also forbade spawning sub-agents because each "costs a request" — true of
+  // one request-billed account, false of the rest, and a billing policy wearing
+  // a permission's clothes. What a delegation costs belongs to the account that
+  // pays for it, not to the ceiling.
+  for (const [permission, rule] of Object.entries(GIT_RULES)) {
+    assert.doesNotMatch(rule, /costs a request|never spawn/i, `${permission} still carries a billing rule`)
+    // The ceiling is an instruction today, not an enforcement, and a child a
+    // seat spawns is not bound by instructions the parent was given. So the
+    // rule says outright that it covers delegated work, as its last line.
+    assert.equal(
+      rule.split('\n').at(-1),
+      '- Anything you hand to a sub-agent or a background agent is held to every rule above.',
+      `${permission} does not carry its ceiling into delegated work`,
+    )
+  }
+})
+
 test('a slot inside a slot is expanded, and an unknown slot is left standing', () => {
   // The git rule is a paragraph that itself says {{repo}}: one pass of
   // String.replace never re-scans what it substituted, and a seat was handed a
