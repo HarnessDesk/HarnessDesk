@@ -82,7 +82,7 @@ never hidden — the rule `lib/plugins.ts` already applies to plugins.
 ---
 name: Code reviewer
 description: Reads a diff it did not write and reports findings.
-permission: read                 # a ceiling. Nothing raises it.
+ceiling: read                    # changes nothing. Nothing raises it.
 answers: [approve, request-changes]
 produces: [review]               # evidence kinds it must leave behind
 skills: [review-checklist]
@@ -101,10 +101,12 @@ history belongs to the conversation store. Copying either into the Agent folder
 creates a second plane holding the same facts, and two planes holding one fact
 is two planes that will disagree.
 
-`permission` is a **ceiling**, not a grant. A Seat gets
+`ceiling` is exactly that: a **ceiling**, not a grant. A Seat gets
 `min(agent ceiling, the step's grant)`, and a step grants `read` unless it says
 otherwise — so writing requires the Agent and the step to agree, and nothing a
-Goal or a flow declares can escalate an Agent.
+Goal or a flow declares can escalate an Agent. The first phase shipped this key
+as `permission:`, and that spelling keeps the meaning it had then; the
+permission section below says how the two meet.
 
 ### Seating: which runtime and model an Agent runs on here
 
@@ -230,14 +232,26 @@ fires, open a Goal running this flow.
 
 ```yaml
 # .harnessdesk/triggers.yml
-- id: review-every-pr         # what arming, history and dedupe attach to
+- id: review-every-pr         # what arming and history attach to
   on: pull-request
-  events: [opened, pushed, commented]
+  events: [opened, pushed]
   opens: { flow: review-pr }
+  goal: [pr]                # one Goal per pull request: a later firing lands in it
+  again: { role: reviewer } # the round a later firing opens in that Goal
+  dedupe: [pr, head, event] # one firing per fact: a redelivery or a restart fires nothing
   concurrency: 4            # at most four Goals open from this trigger at once
-  dedupe: [pr, head, event] # one Goal per fact; a force-push does not open two
   forks: never              # the default: a stranger's pull request does not seat anyone
 ```
+
+**One Goal per thing, one firing per fact.** `goal` names the Goal a firing
+belongs to, and `dedupe` names what makes a firing new; they are different keys
+because they answer different questions. A firing whose `goal` matches a Goal
+still open opens no second one. Its fact lands in that Goal — a `pr` at the new
+head, which leaves everything bound to the old head stale — and `again` opens
+that round there. Without `again` the fact is recorded, and the person decides.
+A firing whose Goal has already wrapped opens a new Goal. `goal` defaults to the
+thing the source is about — the pull request, the issue — and each firing of a
+`schedule` is its own.
 
 `opens: { agent: triager }` is the single-worker case — a degenerate one-role
 flow — and it is the only form an Agent needs to carry on its own.
@@ -780,6 +794,8 @@ rules:
   on: pull-request
   events: [opened, pushed]
   opens: { flow: review-pr }
+  goal: [pr]
+  again: { role: reviewer, title: "Review {{pr}} at {{head}}" }
   concurrency: 4
   dedupe: [pr, head, event]
 ```
@@ -800,8 +816,9 @@ rules:
 ```
 
 1. **The desk watches, not an Agent.** The trigger fires on the forge event and
-   opens one Goal for that pull request, deduped on `(pr, head, event)` so a
-   force-push does not open a second and a restart does not re-open a handled one.
+   opens one Goal for that pull request. `goal: [pr]` sends a later push to the
+   same Goal rather than a second one, and `dedupe: [pr, head, event]` makes a
+   redelivered event or a restart fire nothing twice.
 2. **The first card is born with evidence**: `pr`, the head sha, and the `ci` state
    as it stood.
 3. **Three different Agents, one card each** — `uses` as a list. Three briefs, so
@@ -814,7 +831,8 @@ rules:
    head it read, and `posted` remembers where it landed so a reply can thread
    under it.
 6. **A later push does not need telling.** It makes every `review` at the old head
-   stale, `every: approve` stops holding, and the trigger fires again.
+   stale, so `every: approve` stops holding; and the trigger fires again, into
+   the same Goal, where `again` opens a new reviewer round at the new head.
 
 ### UC4 — a stream of issues, five implementers, three blind reviewers, and a loop
 
@@ -827,6 +845,7 @@ rules:
   events: [labelled]
   label: agent-ready
   opens: { flow: implement-and-review }
+  goal: [issue]
   concurrency: 5            # "five agents" is this number
   dedupe: [issue, event]
 ```
@@ -1002,7 +1021,7 @@ roles:
 | No commit is linked to the session that made it | A ref observer, reconciled by patch-id, with capture health |
 | A waiting role polling for work | A trigger the desk fires |
 | `isolate` means a worktree | A lane: checkout, port range, browser profile |
-| `permission: read`, which may edit and commit | `edit`; `read` changes nothing |
+| `permission: read`, which may edit and commit | `ceiling:` and `grant:`, where `edit` says that and `read` changes nothing; the old key keeps its old meaning until its author rewrites it |
 | A ceiling stated in a paragraph | A ceiling held by the runtime or the desk, and marked *asked* where neither can |
 | Settings › Agents (the installed CLIs) | Settings › Runtimes; Agents becomes the roster of who |
 | `agents/*` wire verbs, mixing a registry with two install verbs | `acp/*` for the registry, `runtime/installs*` for the machine |
@@ -1169,15 +1188,24 @@ So the enforcement phase does four things, in this order of strength:
 4. **Name the ceilings for what they allow**, and show the effective policy on
    every seat, so a person can see what is enforced and what is merely asked.
 
-**`read` is split, not renamed.** `read` comes to mean what it says — the seat
-changes nothing — and a new **`edit`** takes today's meaning: write and commit
-inside its own checkout, never push. The ladder is `read < edit < publish <
-merge`, and the default grant stays `read`, which is now a promise rather than a
-hope. Nothing changes behaviour under its author: a committed flow file's `read`
-keeps its old meaning, and the dry run says so, until the flow migration
-rewrites it as `edit` in a diff the person sees; an `AGENT.md`'s `read` means
-read from the start, because no Agent predates the split except the ones that
-ship with the app, written for it.
+**`read` is split, and the new meaning gets new keys, so no word already written
+changes meaning.** Under an Agent's `ceiling:` and a step's `grant:`, the ladder
+is `read < edit < publish < merge`: `read` means what it says — the seat
+changes nothing — and **`edit`** takes today's meaning, write and commit inside
+its own checkout, never push. The default grant stays `read`, which is now a
+promise rather than a hope.
+
+The key both sides wrote until now, `permission:`, keeps today's meaning
+wherever it is already written — its `read` is what `edit` now names — because a
+word cannot be redefined under files that already use it: the parser cannot
+tell an Agent written before the split from one written after, and only a key
+can. So an `AGENT.md` still on `permission:` is flagged on its row with an
+*Update…* that rewrites the line in a diff its author sees — `ceiling: edit` to
+keep what it did, `ceiling: read` to narrow it. A flow file's `permission:` is
+rewritten as `grant:` by the flow migration, the same way. The one change
+nobody writes: an Agent with no ceiling at all gets the narrowest, `read`, where
+before the split it could edit — the safe direction, and flagged on its row
+until its author writes one.
 
 **When a runtime cannot hold a ceiling at all**, the machine decides, once, in
 Settings: seat it and say so, or refuse to seat it. A conversation a person is

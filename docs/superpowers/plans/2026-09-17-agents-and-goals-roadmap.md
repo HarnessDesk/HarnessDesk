@@ -39,7 +39,7 @@ app that means it is **done**; and what it **needs**.
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Agents foundation** — [#770](https://github.com/HarnessDesk/HarnessDesk/pull/770) | `AGENT.md` in a project and in `~/.harnessdesk/agents/` | — | — (the verbs are pinned unreached) | — |
 | 2 | **Agents in the app** | Agents that ship with the app; `seating.json` | **Agents** (new: the roster); **Runtimes** (today's Agents page); a page per project | Start as an Agent; the refusal sheet; Save as Agent; Agents in a room | 1 |
-| 3 | **Ceilings that hold** | `read · edit · publish · merge` | Permissions › Ceilings; what to do when one cannot be held | *held* or *asked* on every seat; refusals as sentences | 2 |
+| 3 | **Ceilings that hold** | `ceiling:` with `read · edit · publish · merge` | Permissions › Ceilings; what to do when one cannot be held | *held* or *asked* on every seat; refusals as sentences | 2 |
 | 4 | **The evidence ledger** | `checks.yml` | A project's checks; Backup carries the records | Evidence on cards, stale drawn; columns from facts; the Seat record | 2 |
 | 5 | **Goal** | Lanes | Workspaces › Lanes; Goal notifications | Goals in the sidebar; starting one; wrap and its receipt | 2, 4 |
 | 6 | **Flows on the new nouns** | `uses`, `grant`, `evidence:`; the flow migration | A project's flows | A dry run by Agent, seat and ceiling; *Update…* with the diff | 3, 4, 5 |
@@ -138,7 +138,7 @@ page.
 
 ## The phases
 
-### 1. Agents foundation — built, in review as [#770](https://github.com/HarnessDesk/HarnessDesk/pull/770)
+### 1. Agents foundation — merged in [#770](https://github.com/HarnessDesk/HarnessDesk/pull/770)
 
 **Builds.** An Agent is a directory holding an `AGENT.md`. The roster finds
 them project → user → built-in and lists what it shadowed; `agent/seat` opens a
@@ -149,7 +149,8 @@ fits refuses with every candidate's reason. The ACP registry verbs moved to
 **Configuration.** `.harnessdesk/agents/<id>/AGENT.md` and
 `~/.harnessdesk/agents/<id>/AGENT.md`: front matter `name`, `description`,
 `permission`, `answers`, `produces`, `skills` and `prefer`, and the brief as the
-body. The built-in root exists and is empty.
+body. The built-in root exists and is empty. `permission:` is the key phase 3
+keeps for today's meaning and supersedes with `ceiling:`.
 
 **Settings and interface.** None. `agent/list`, `agent/read` and `agent/seat`
 are pinned as unreached until phase 2 gives them a caller.
@@ -183,6 +184,9 @@ are pinned as unreached until phase 2 gives them a caller.
   fails is shown on its Agent's page, never dropped silently.
 - The shipped Agents name runtimes, not models (`prefer: [claude, codex,
   cursor]`).
+- Everything this phase writes — the shipped Agents, *Save as an Agent*,
+  *Customize…* — uses `permission:`, the only key the parser knows until phase
+  3 moves them to `ceiling:`.
 
 **Settings.**
 
@@ -247,8 +251,10 @@ seat an Agent, the sheet lists every candidate and nothing has opened.
 
 **Builds.**
 
-- The ladder `read < edit < publish < merge`. `read` changes nothing; `edit` is
-  today's `read` — write and commit in its own checkout, never push.
+- The ladder `read < edit < publish < merge`, written under new keys — an
+  Agent's `ceiling:`, and from phase 6 a step's `grant:` — so no word already
+  written changes meaning. `read` changes nothing; `edit` is today's `read`:
+  write and commit in its own checkout, never push.
 - Each ceiling mapped onto what each runtime enforces, negotiated per
   capability: a sandbox and an approval policy where a runtime has them, a
   permission mode and deny rules where it has those. Where a runtime has
@@ -265,9 +271,22 @@ seat an Agent, the sheet lists every candidate and nothing has opened.
 
 **Configuration.**
 
-- `permission` in `AGENT.md` and in flow files accepts the four words. A flow
-  file's `read` keeps its old meaning — it is read as `edit`, and its dry run
-  says so — until phase 6 rewrites it.
+- `AGENT.md` gains `ceiling:`, which takes the four words. The key phases 1
+  and 2 wrote, `permission:`, keeps today's meaning wherever it is written: its
+  `read` is what `edit` now names. The shipped Agents move to `ceiling:` in this
+  phase — the reviewers and the judge to `read`, `researcher` and
+  `requirements-analyst` to `edit`, `implementer` to `publish`.
+- An `AGENT.md` with neither key gets the narrowest ceiling, `read`. That is
+  the one change nobody writes, since such an Agent could edit before the
+  split, so it runs in the safe direction and is flagged until its author
+  writes one.
+- A flow file's `permission:` keeps today's meaning, and its dry run says so,
+  until phase 6 rewrites it as `grant:`.
+- Three tests pin the boundary:
+  - an `AGENT.md` written before the split (`permission: read`) keeps its old
+    meaning and is flagged;
+  - one with no key runs as `read` and is flagged;
+  - one with `ceiling: read` runs as read-only and is not flagged.
 - A machine preference for when a runtime cannot hold a ceiling: seat it and
   say so, or refuse. It has two values because it has two situations: a
   conversation someone is watching defaults to the first, and a Goal a trigger
@@ -292,6 +311,9 @@ seat an Agent, the sheet lists every candidate and nothing has opened.
   seat may publish, not merge* — never as a raw tool error.
 - The roster marks an Agent whose ceiling the seat it would take here cannot
   hold.
+- The roster flags every Agent still on `permission:`, or with no ceiling
+  written, with *Update…*. It rewrites the one line in a diff the author sees:
+  `ceiling: edit` to keep what it did, `ceiling: read` to narrow it.
 
 **Done when.** A `read` Agent on a runtime with a read-only sandbox tries to
 write and is visibly stopped by the runtime; a `publish` seat that asks the desk
@@ -427,9 +449,9 @@ ports.
 - The migration: each old agent role — `seat`, `order`, `permission`,
   `outcomes` — becomes an Agent written beside the flow, at
   `.harnessdesk/agents/<flow>-<role>/AGENT.md`, with the order as its brief, the
-  permission as its ceiling, the outcomes as its answers and the seats as its
-  `prefer`. The role then `uses` it, with `grant` set to that permission, and a
-  `read` becomes `edit`, which is what it always meant. A role that listed
+  permission as its `ceiling:`, the outcomes as its answers and the seats as its
+  `prefer`. The role then `uses` it, with `grant:` set to that permission. In
+  both places a `read` is written as `edit`, which is what it always meant. A role that listed
   several seats keeps them as its round's `seats`, one card each, because that
   was a race rather than a preference.
 - The old shape keeps running, marked, until a person updates it. Nothing
@@ -508,8 +530,13 @@ findings; and a merge card once the blocking set is empty.
 
 **Configuration.**
 
-- `.harnessdesk/triggers.yml`, as the spec gives it: an `id` per trigger, and
-  `forks: never` unless it says otherwise.
+- `.harnessdesk/triggers.yml`, as the spec gives it:
+  - an `id` per trigger;
+  - `goal`, the Goal a firing belongs to, so a later push lands in the Goal
+    already open;
+  - `again`, the round that later firing opens there;
+  - `dedupe`, what makes a firing new;
+  - `forks: never`, unless it says otherwise.
 - `budget:` on a trigger — `usd`, `rounds`, `hours`, `without-progress` — bounds
   each Goal it opens.
 - Arming is per machine. A trigger does nothing on a machine until a person arms
@@ -540,9 +567,15 @@ findings; and a merge card once the blocking set is empty.
   expired*, *cancelled*, *out of budget*.
 - A skipped firing is a line under its trigger, not a silent gap.
 
-**Done when.** UC3 unattended, on a test repository: a new pull request opens
-one Goal, and a force-push does not open a second; three blind reviews publish
-together as one pull-request review; and a budget stop is named on the Goal.
+**Done when.** UC3 unattended, on a test repository:
+- a new pull request opens one Goal;
+- a force-push opens a new review round in that same Goal, rather than a second
+  Goal;
+- three blind reviews publish together as one pull-request review;
+- a budget stop is named on the Goal.
+
+The sequence opened → pushed → redelivered → restart is also a test: one Goal,
+one new round for the new head, and nothing fired twice.
 
 **Needs.** 3, 5, 6, 7.
 
@@ -686,9 +719,14 @@ Each one that changes what the desk does is written into the spec as well.
   an Agent's `prefer` on that machine rather than merging with it. *(Spec:
   Seating.)*
 - **Shipped Agents name runtimes, not models.** *(Spec: Seating.)*
-- **`read` is split: `read` changes nothing, and `edit` takes today's
-  meaning.** A flow file's `read` keeps its old meaning until phase 6 rewrites
-  it. *(Spec: Permission.)*
+- **The ladder moves to new keys, so no word already written changes
+  meaning.** Under an Agent's `ceiling:` and a step's `grant:`, `read` changes
+  nothing and `edit` takes today's meaning. The old `permission:` keeps today's
+  meaning wherever it is written, flagged with an *Update…* that rewrites it.
+  *(Spec: Permission.)*
+- **A trigger separates the Goal from the firing.** `goal` says which Goal a
+  firing belongs to, `dedupe` says what makes it new, and `again` says what a
+  later firing opens in a Goal already open. *(Spec: Triggers.)*
 - **What happens when a runtime cannot hold a ceiling is a machine setting**,
   and it refuses by default for a Goal nobody is watching. *(Spec: Permission.)*
 - **Named checks live in `.harnessdesk/checks.yml`, and a command a repository
@@ -718,7 +756,7 @@ parts still hold.
 | 2 | New `docs/agents.md` | The Agent, reintroduced now that a person can reach it: the folder, the three layers, seating and this machine's override, the shipped Agents, starting as one |
 | 2 | `docs/interface.md`, `docs/runtimes.md` | Settings › Agents, Settings › Runtimes and a project's page; starting as an Agent; *Save as an Agent* |
 | 2 | `docs/multi-agent.md` | Seating an Agent in a room |
-| 3 | `docs/flows.md`, `docs/agents.md` | The four ceilings, held and asked; what an old flow file's `read` means |
+| 3 | `docs/flows.md`, `docs/agents.md` | The four ceilings, held and asked; `ceiling:`, and what `permission:` still means in an Agent or flow file written before it |
 | 3 | `docs/agent-capabilities.md`, `docs/interface.md` | Which runtime holds which ceiling, and how; Permissions › Ceilings |
 | 4 | `docs/interface.md`, `docs/multi-agent.md` | Evidence on cards, staleness, columns derived from facts, the Seat record |
 | 4 | `docs/data-boundaries.md` | What the evidence store keeps and where; that a repository's commands wait to be seen |
