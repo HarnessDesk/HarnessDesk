@@ -16,7 +16,7 @@ import type {
   Intent,
 } from '@harnessdesk/protocol'
 
-import { errnoOf, NOTHING_HERE } from './errno.js'
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import {
   cardVars,
   orderVars,
@@ -1184,11 +1184,10 @@ export class Flows implements TeamFlows {
     try {
       names = await readdir(this.#dir)
     } catch (error) {
-      /* Only ENOENT is "no runs yet". Nothing but `#save` writes this folder,
-         so a file where it belongs is not a desk with no runs but one that can
-         keep none — unlike a project's `.harnessdesk`, which is somebody
+      /* Nothing but `#save` writes this folder, so only a folder not made yet
+         is "no runs" — unlike a project's `.harnessdesk`, which is somebody
          else's to make a file of. */
-      if (errnoOf(error) === 'ENOENT') return
+      if (NOTHING_YET.has(errnoOf(error))) return
       this.#unreadable = new Error(
         `The flow runs this desk keeps could not be read — ${
           error instanceof Error ? error.message : String(error)

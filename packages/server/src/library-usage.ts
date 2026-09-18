@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { detectSkillActivations } from '@harnessdesk/agent-inventory'
 import type { LibraryUsage, LibraryUsageEntry } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+
 /**
  * How often each skill actually fired, counted from the transcripts the desk
  * stores.
@@ -71,14 +73,21 @@ const extract = (raw: string): FileFinding['skills'] => {
   return out
 }
 
+export interface LibraryUsageOptions {
+  /** Where a folder the read had to pass over is named. */
+  readonly log?: (message: string, details?: Record<string, unknown>) => void
+}
+
 export class LibraryUsageReader {
   readonly #transcripts: string
   readonly #cachePath: string
+  readonly #log: NonNullable<LibraryUsageOptions['log']>
   #cache: Cache | null = null
 
-  constructor(transcriptsDir: string, cachePath: string) {
+  constructor(transcriptsDir: string, cachePath: string, options: LibraryUsageOptions = {}) {
     this.#transcripts = transcriptsDir
     this.#cachePath = cachePath
+    this.#log = options.log ?? (() => {})
   }
 
   async read(): Promise<LibraryUsage> {
@@ -89,14 +98,32 @@ export class LibraryUsageReader {
     let dirs: readonly string[] = []
     try {
       dirs = await readdir(this.#transcripts)
-    } catch {
+    } catch (error) {
       // No transcripts yet: a fresh desk. Zero conversations is an answer.
+      // A store that will not open is not, and is raised before the prune
+      // below: read as empty, it answered "no skill has ever fired" and
+      // emptied the cache on the way, so the next read re-parsed everything.
+      if (!NOTHING_YET.has(errnoOf(error))) throw error
     }
     for (const dir of dirs) {
       let names: readonly string[] = []
       try {
         names = await readdir(join(this.#transcripts, dir))
-      } catch {
+      } catch (error) {
+        if (!NOTHING_HERE.has(errnoOf(error))) {
+          /* Passed over, and not forgotten. What was counted in it is still
+             true of conversations still on disk, so its findings stay — seen,
+             neither pruned nor left out of the answer — and the folder is
+             named. A stray file here (`.DS_Store`) or a folder removed
+             mid-walk is nothing, and its findings go. */
+          for (const key of Object.keys(cache.files)) {
+            if (key.startsWith(`${dir}/`)) seen.add(key)
+          }
+          this.#log('a folder of stored conversations could not be read, so its skills are counted as they were', {
+            folder: join(this.#transcripts, dir),
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
         continue
       }
       for (const name of names) {

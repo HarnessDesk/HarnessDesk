@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -15,6 +15,7 @@ import {
   wrapContext,
 } from '@harnessdesk/protocol'
 
+import { errnoOf } from '../src/errno.js'
 import { TranscriptStore } from '../src/transcripts.js'
 
 /**
@@ -556,4 +557,112 @@ test('importOne refuses malformed transcript turns that lack items array (#500)'
     const exported = await store.exportAll()
     assert.ok(exported.every((entry) => entry.id !== 'corrupt-turns'))
   })
+})
+
+/*
+ * A folder that cannot be opened is not a store with nothing in it.
+ *
+ * Both readers here answered every failure to open a folder with nothing:
+ * search with no hits, and the backup with fewer conversations — or none —
+ * under a count that read as complete. Only a store never written, and a
+ * stray file beside the runtime folders (Finder leaves `.DS_Store`), are
+ * nothing. The conditions are real rather than stubbed: a mode-000 folder,
+ * a 300-character name, and a folder that points at itself — ELOOP for any
+ * user, root included.
+ */
+
+const errno = (expected: string) => (error: unknown) => {
+  assert.equal(errnoOf(error) || errnoOf((error as Error).cause), expected)
+  return true
+}
+
+test('a store that cannot be opened is raised by search and by the backup, not read as empty', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new TranscriptStore(join(dir, 'n'.repeat(300)))
+  await assert.rejects(store.search('anything'), errno('ENAMETOOLONG'))
+  await assert.rejects(store.exportAll(), errno('ENAMETOOLONG'))
+})
+
+test('a store the mode refuses is raised the same way', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new TranscriptStore(dir)
+  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
+  await store.flush()
+  assert.equal((await store.exportAll()).length, 1, 'readable, the conversation is there')
+
+  await chmod(dir, 0o000)
+  try {
+    const readable = await readdir(dir).then(
+      () => true,
+      () => false,
+    )
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(store.search('websocket'), errno('EACCES'))
+    await assert.rejects(store.exportAll(), errno('EACCES'))
+  } finally {
+    await chmod(dir, 0o700)
+  }
+})
+
+test('a backup refuses an agent’s folder it cannot open, rather than leaving that agent out', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new TranscriptStore(dir)
+  store.record(talk('codex', 'a', [['userMessage', 'kept']]), { now: true })
+  await store.flush()
+  const loop = join(dir, 'claude')
+  await symlink(loop, loop)
+
+  /* "Exported 3 agents and 12 conversations" over a folder of four hundred it
+     could not read is a backup somebody trusts and cannot restore from. */
+  await assert.rejects(store.exportAll(), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.equal(errnoOf(error.cause), 'ELOOP')
+    assert.ok(error.message.includes(loop), 'names the folder it could not read')
+    return true
+  })
+})
+
+test('search reads past an agent’s folder it cannot open, and says which', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const logged: string[] = []
+  const store = new TranscriptStore(dir, (message, details) =>
+    logged.push(`${message} ${JSON.stringify(details ?? {})}`),
+  )
+  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
+  await store.flush()
+  const loop = join(dir, 'claude')
+  await symlink(loop, loop)
+
+  // A palette search is a lookup, not a record: one folder it cannot open
+  // must not cost it the rest, but it is not passed over in silence either.
+  const hits = await store.search('websocket')
+  assert.equal(hits.length, 1, 'what could be read is still found')
+  assert.ok(
+    logged.some((line) => line.includes(JSON.stringify(loop).slice(1, -1)) && line.includes('ELOOP')),
+    'and the folder that could not be is named, with the reason',
+  )
+})
+
+test('a stray file beside the agents’ folders, and a store never written, are nothing', async (t) => {
+  // The control for the four above: these pass against the old catch-all too.
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const logged: string[] = []
+  const store = new TranscriptStore(dir, (message) => logged.push(message))
+  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
+  await store.flush()
+  await writeFile(join(dir, '.DS_Store'), 'Finder was here', 'utf8')
+  assert.equal((await store.search('websocket')).length, 1)
+  assert.equal((await store.exportAll()).length, 1)
+  assert.deepEqual(logged, [], 'and a stray file is not worth a line')
+
+  const never = new TranscriptStore(join(dir, 'never-written'))
+  assert.deepEqual(await never.search('websocket'), [])
+  assert.deepEqual(await never.exportAll(), [])
 })

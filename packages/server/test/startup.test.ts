@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -150,5 +150,61 @@ test('a folder of flow runs that cannot be read does not hold the app shut', asy
   assert.ok(
     logger.errors.some((line) => JSON.stringify(line.details).includes('ELOOP')),
     'and the log records it as an error, with the reason',
+  )
+})
+
+test('a folder of rooms that cannot be read refuses the launch, and stops no flow on its way out', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-startup-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  const rooms = join(stateDir, 'team')
+  await symlink(rooms, rooms)
+  /* A run still going in a room this launch cannot see. The flow engine asks
+     whether each running run's room exists, and stops the ones whose room is
+     gone — so a desk that read "cannot open the rooms" as "no rooms" stopped
+     every flow it had, on disk, for good. */
+  await mkdir(join(stateDir, 'flows'))
+  const run = join(stateDir, 'flows', 'live-run.json')
+  await writeFile(
+    run,
+    JSON.stringify({
+      version: 1,
+      id: 'live-run',
+      room: 'room-1',
+      flow: { name: 'Fix and review', roles: [], rules: [], inputs: [] },
+      state: 'running',
+      vars: {},
+      seats: [],
+      rounds: [],
+      record: [],
+      startedAt: 1,
+    }),
+  )
+  const logger = new ErrorsKept()
+  const host = new Host({
+    logger,
+    state: new StateStore(join(stateDir, 'state.json')),
+    startTimeoutMs: 40,
+    catalogRefreshMs: 0,
+  })
+
+  const refused = await host.start().then(
+    () => null,
+    (error: unknown) => error,
+  )
+  // A quit after a refused start has to work: it is what the shell does next.
+  await host.dispose()
+
+  const kept = JSON.parse(await readFile(run, 'utf8')) as { state: string }
+  assert.equal(kept.state, 'running', 'the run is still live on disk, not stopped for a room nobody could see')
+  /* Refused rather than degraded, because rooms are what the rest of the desk
+     stands on and a desk without them does damage: the run above, and every
+     room's conversations taken as belonging to none. The shell answers a
+     start that rejects with "could not start" and this sentence. */
+  assert.ok(refused instanceof Error, 'the launch was refused')
+  assert.ok(refused.message.includes(rooms), 'naming the folder')
+  assert.match(refused.message, /ELOOP/, 'and the reason')
+  assert.ok(
+    logger.errors.some((line) => JSON.stringify(line.details).includes('ELOOP')),
+    'and the log a diagnostics bundle ships records it',
   )
 })

@@ -745,7 +745,20 @@ export class Host {
     this.#applyBrowserSettings()
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
-    await this.#team.load()
+    /* Let through, unlike the runs below: rooms that cannot be read refuse
+       the launch. Degraded, this desk would come up with no rooms, and the
+       rest of it would believe that — `Flows.load` stops every running run
+       whose room it cannot find, on disk — while nothing on screen could say
+       otherwise, because the team hangs its problems on a room. The shell
+       answers a start that rejects with "could not start" and the sentence
+       `Team.load` wrote: the folder, the reason, and what to do. Recorded
+       first, so a diagnostics bundle carries it too. */
+    await this.#team.load().catch((error: unknown) => {
+      this.#logger.error('the rooms could not be loaded', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    })
     /* After the rooms, because a run reconciles against the board it left
        behind: a quit between the last card of a round finishing and the next
        round opening is a run that has to be asked, on this launch, whether
@@ -1030,6 +1043,7 @@ export class Host {
         this.#libraryUsage ??= new LibraryUsageReader(
           join(this.#state.directory, 'transcripts'),
           join(this.#state.directory, 'cache', 'library-usage.json'),
+          { log: (message, details) => this.#logger.warn(message, details) },
         )
         return this.#libraryUsage
       },
@@ -1145,7 +1159,7 @@ export class Host {
     })
   }
 
-  readonly #localFiles = new LocalFiles()
+  readonly #localFiles = new LocalFiles({ log: (message, details) => this.#logger.warn(message, details) })
 
   /**
    * The reader for a request: the runtime's own view when it declares one,

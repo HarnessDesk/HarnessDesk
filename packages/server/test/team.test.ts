@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -15,6 +15,7 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
+import { errnoOf } from '../src/errno.js'
 import { Team, type TeamPeer, type TeamPort, roomCap } from '../src/team.js'
 
 /**
@@ -4022,4 +4023,123 @@ test('claimNext and readiness checks do not crash when a stored intent has depen
   assert.deepEqual(team.stateFor('room').intents.find((i) => i.id === 1)?.dependsOn, [])
   const result = await team.claimNext(codex)
   assert.match(result, /^Claimed #1 — open work with null dependsOn/)
+})
+
+/*
+ * A folder of rooms that cannot be opened is not a desk with no rooms.
+ *
+ * `load` answered every failure to open its folder with nothing, so a mode, a
+ * bad mount or a name the filesystem will not take brought the desk up with
+ * no rooms — and nothing on that desk could say otherwise, because the only
+ * place the team hangs a problem is on a room. The rest of the desk believed
+ * it too: the flow engine reads a running run whose room it cannot find as a
+ * run whose room is gone, and stops it on disk. Only ENOENT, a desk that has
+ * never made a room, is none. The conditions are real rather than stubbed: a
+ * mode-000 folder for EACCES, and a 300-character name for ENAMETOOLONG,
+ * which no mode and no user can skip.
+ */
+
+const quietPort = (): TeamPort => ({
+  peers: () => [],
+  rootOf: async () => '/repo',
+  send: async () => {},
+  steer: async () => {},
+  changed: () => {},
+  removed: () => {},
+  membershipChanged: () => {},
+  audit: () => {},
+})
+
+/** A refusal a person can act on: the folder, and the failure, in its words. */
+const refusedWith = (errno: string, path: string) => (error: unknown) => {
+  assert.ok(error instanceof Error)
+  assert.equal(errnoOf(error.cause), errno)
+  assert.ok(error.message.includes(path), `the refusal names ${path}`)
+  assert.ok(error.message.includes(errno), 'and says what went wrong')
+  return true
+}
+
+test('a folder of rooms that cannot be read is raised, not loaded as a desk with none', async (t) => {
+  const { team, dir, room } = await rig(t)
+  await team.flush()
+  // Readable, the room is there: so the refusal below is the mode's doing.
+  const before = new Team(dir, quietPort())
+  await before.load()
+  assert.deepEqual(before.states().map((state) => state.id), [room])
+
+  await chmod(dir, 0o000)
+  try {
+    const readable = await readdir(dir).then(
+      () => true,
+      () => false,
+    )
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(new Team(dir, quietPort()).load(), refusedWith('EACCES', dir))
+  } finally {
+    await chmod(dir, 0o700)
+  }
+})
+
+test('a folder of rooms the filesystem refuses outright is raised as well, mode or no mode', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-team-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const folder = join(dir, 'n'.repeat(300))
+  await assert.rejects(new Team(folder, quietPort()).load(), refusedWith('ENAMETOOLONG', folder))
+})
+
+test('a file where the folder of rooms goes is raised: the desk could keep no room there', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-team-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  /* Nothing but the desk writes this folder, so a file in its place is not a
+     desk that never made a room — it is one where every room it makes would
+     fail to save — and ENOTDIR is raised here, where a project's `.harnessdesk`
+     would read as empty. */
+  const folder = join(dir, 'team')
+  await writeFile(folder, 'somebody touched this instead of making it\n', 'utf8')
+  await assert.rejects(new Team(folder, quietPort()).load(), refusedWith('ENOTDIR', folder))
+})
+
+test('inbound settings that cannot be read are raised, not reset to the default for everyone', async (t) => {
+  /* `inbound.json` is written whole from memory, so reading it as absent does
+     two things at once: every conversation set to refuse or hold messages from
+     other agents takes the default instead, and the next change anyone makes
+     writes that loosened map over what was stored. */
+  const { team, dir } = await rig(t)
+  team.setInbound('codex', 'c1', 'refuse')
+  await team.flush()
+  const inbound = join(dir, 'inbound.json')
+  // The control: read back, the refusal stands.
+  const before = new Team(dir, quietPort())
+  await before.load()
+  assert.equal(before.inboundFor('codex', 'c1'), 'refuse')
+
+  // Present and unreadable, for anybody: a folder where the file goes.
+  const stored = await readFile(inbound, 'utf8')
+  await rm(inbound)
+  await mkdir(inbound)
+  await assert.rejects(new Team(dir, quietPort()).load(), refusedWith('EISDIR', inbound))
+
+  // And a file that is there but is not JSON says so too.
+  await rm(inbound, { recursive: true })
+  await writeFile(inbound, stored.slice(0, -1), 'utf8')
+  await assert.rejects(new Team(dir, quietPort()).load(), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.ok(error.message.includes(inbound), 'names the file')
+    assert.ok(error.cause instanceof SyntaxError, 'and keeps the parse failure')
+    return true
+  })
+})
+
+test('a desk that has never made a room loads none, and makes one', async (t) => {
+  // The control for the four above: a folder nobody has made is the one "none".
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-team-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const team = new Team(join(dir, 'team'), quietPort())
+  await team.load()
+  assert.deepEqual(team.states(), [])
+  const made = await team.createRoom('/repo', 'First room')
+  assert.deepEqual(team.states().map((state) => state.id), [made.id])
+  await team.flush()
 })

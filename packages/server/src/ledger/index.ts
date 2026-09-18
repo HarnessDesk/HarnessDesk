@@ -139,7 +139,13 @@ export class Ledger {
     const startedAt = this.#now()
     let targets: ScanTarget[] = []
     try {
-      targets = await listTargets(this.#options.corpora)
+      targets = await listTargets(this.#options.corpora, {
+        unreadable: (folder, error) =>
+          this.#options.log?.('a folder of transcripts could not be read, so the usage in it was not counted', {
+            folder,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      })
     } catch (error) {
       this.#report({
         ...IDLE,

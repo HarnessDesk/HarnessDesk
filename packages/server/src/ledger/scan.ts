@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
+import { errnoOf, NOTHING_HERE } from '../errno.js'
 import type { UsageRow } from './store.js'
 
 /**
@@ -406,14 +407,24 @@ export const scanFile = (target: ScanTarget, offset: number, tail: readonly stri
   target.kind === 'codex' ? scanCodexRollout(target, offset, tail) : scanClaudeTranscript(target, offset, tail)
 
 /** Every `.jsonl` under a root, with the stats a cursor needs. */
-const walkJsonl = async (root: string, limit: number): Promise<{ path: string; size: number; mtime: number }[]> => {
+const walkJsonl = async (
+  root: string,
+  limit: number,
+  unreadable: (folder: string, error: unknown) => void,
+): Promise<{ path: string; size: number; mtime: number }[]> => {
   const found: { path: string; size: number; mtime: number }[] = []
   const visit = async (dir: string): Promise<void> => {
     if (found.length >= limit) return
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      /* These are the agents' own folders. One that is not there is an agent
+         never run, or a folder removed mid-walk: nothing, and not worth a
+         line. One that will not open is passed over, so every other agent is
+         still counted, and reported — it used to leave that agent's numbers
+         frozen, with nothing to tell them from a quiet week. */
+      if (!NOTHING_HERE.has(errnoOf(error))) unreadable(dir, error)
       return
     }
     for (const entry of entries) {
@@ -453,10 +464,19 @@ export const defaultCorpora = (runtimes: readonly { id: string; kind: 'codex' | 
         : join(process.env['CLAUDE_CONFIG_DIR'] ?? homedir(), '.claude', 'projects'),
   }))
 
-export const listTargets = async (corpora: readonly CorpusSpec[], limit = 20_000): Promise<ScanTarget[]> => {
+export const listTargets = async (
+  corpora: readonly CorpusSpec[],
+  options: {
+    readonly limit?: number
+    /** Told of each folder the walk could not open and passed over. */
+    readonly unreadable?: (folder: string, error: unknown) => void
+  } = {},
+): Promise<ScanTarget[]> => {
+  const limit = options.limit ?? 20_000
+  const unreadable = options.unreadable ?? (() => {})
   const targets: ScanTarget[] = []
   for (const corpus of corpora) {
-    for (const file of await walkJsonl(corpus.root, limit)) {
+    for (const file of await walkJsonl(corpus.root, limit, unreadable)) {
       targets.push({ runtime: corpus.runtime, kind: corpus.kind, ...file })
     }
   }

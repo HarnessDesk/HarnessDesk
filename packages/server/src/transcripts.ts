@@ -13,6 +13,7 @@ import type {
 } from '@harnessdesk/protocol'
 import { openingOf } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
 
 /**
@@ -71,6 +72,15 @@ const SETTLE_MS = 800
 
 /** A file name that survives any session id the backends mint. */
 const fileNameOf = (id: string): string => `${encodeURIComponent(id)}.json`
+
+/** Why a backup was refused: a folder of conversations it could not read. */
+const unexported = (error: unknown): Error =>
+  new Error(
+    `The backup was not made: the conversations this desk keeps could not all be read — ${
+      error instanceof Error ? error.message : String(error)
+    }. A backup without them would still look complete, and could not bring them back. Fix that folder, then export again.`,
+    { cause: error },
+  )
 
 /**
  * How a stored turn is recognised in a fresh read.
@@ -166,6 +176,8 @@ const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
 export class TranscriptStore {
   readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session }>()
   readonly #writes = new Map<string, Promise<void>>()
+  /** Folders a search has already named, so one searching per keystroke names each once. */
+  readonly #unsearched = new Set<string>()
 
   constructor(
     private readonly directory: string,
@@ -174,6 +186,15 @@ export class TranscriptStore {
 
   #pathOf(runtime: RuntimeId, id: SessionId): string {
     return join(this.directory, encodeURIComponent(runtime), fileNameOf(id))
+  }
+
+  #unsearchable(folder: string, error: unknown): void {
+    if (this.#unsearched.has(folder)) return
+    this.#unsearched.add(folder)
+    this.log('a folder of stored conversations could not be searched', {
+      folder,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 
   /**
@@ -366,14 +387,24 @@ export class TranscriptStore {
     let runtimes: string[] = []
     try {
       runtimes = await readdir(this.directory)
-    } catch {
-      return [] // No transcript was ever written; nothing to search is a fine answer.
+    } catch (error) {
+      // No transcript was ever written; nothing to search is a fine answer.
+      // A store that will not open is not that, and "no hits" over it is not
+      // an answer at all.
+      if (NOTHING_YET.has(errnoOf(error))) return []
+      throw error
     }
     for (const dir of runtimes) {
       let names: string[] = []
       try {
         names = await readdir(join(this.directory, dir))
-      } catch {
+      } catch (error) {
+        /* A stray file beside the agents' folders — Finder leaves `.DS_Store`
+           — or a folder removed mid-walk is nothing. One that will not open is
+           passed over, because a lookup must not lose every agent to one
+           folder, and named once, because a palette searches on every
+           keystroke. */
+        if (!NOTHING_HERE.has(errnoOf(error))) this.#unsearchable(join(this.directory, dir), error)
         continue
       }
       for (const name of names) {
@@ -414,21 +445,27 @@ export class TranscriptStore {
   /**
    * Every stored transcript, raw, for the backup file. Corrupt files are
    * skipped: a backup that cannot be restored is worse than one file short.
+   *
+   * A *folder* that will not open is different, and refuses the backup: it
+   * is every conversation in it short at once, under a count — "Exported 3
+   * agents and 12 conversations" — that reads as the whole of it.
    */
   async exportAll(): Promise<readonly { runtime: string; id: string; data: unknown }[]> {
     const out: { runtime: string; id: string; data: unknown }[] = []
     let runtimes: string[] = []
     try {
       runtimes = await readdir(this.directory)
-    } catch {
-      return []
+    } catch (error) {
+      if (NOTHING_YET.has(errnoOf(error))) return []
+      throw unexported(error)
     }
     for (const dir of runtimes) {
       let names: string[] = []
       try {
         names = await readdir(join(this.directory, dir))
-      } catch {
-        continue
+      } catch (error) {
+        if (NOTHING_HERE.has(errnoOf(error))) continue
+        throw unexported(error)
       }
       for (const name of names) {
         if (!name.endsWith('.json')) continue

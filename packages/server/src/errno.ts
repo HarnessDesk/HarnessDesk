@@ -20,11 +20,20 @@
  * a real failure, and raised: a path and a reason can be acted on, and zero
  * rows cannot.
  *
- * A folder nothing but the desk writes is narrower. A file where it belongs is
- * not "none yet" but a place nothing can be kept, so only `ENOENT` is nothing
- * there — see `Flows.load`.
+ * A folder nothing but the desk writes is narrower — see `NOTHING_YET`.
  */
 export const NOTHING_HERE: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR'])
+
+/**
+ * The one failure that means "nothing yet" in a folder nothing but the desk
+ * writes: its rooms, its flow runs, its transcripts.
+ *
+ * `ENOENT` is a folder the desk has not needed yet. A *file* where it belongs
+ * is not that — it is a place nothing can be kept, where every save fails and
+ * what the desk said it saved is gone at the next launch — so `ENOTDIR` is
+ * raised here with everything else.
+ */
+export const NOTHING_YET: ReadonlySet<string> = new Set(['ENOENT'])
 
 /** A failure's errno — `ENOENT`, `EACCES` — or `''` when it carries none. */
 export const errnoOf = (error: unknown): string => {
