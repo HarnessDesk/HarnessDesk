@@ -38,6 +38,18 @@ export const assertAbsolute = (path: string): void => {
 }
 
 /**
+ * `assertAbsolute` for the folder a request names as its `cwd`, which most
+ * requests may leave out. Nothing that takes one has a use for a relative one,
+ * and most read it against this process's working directory: the library, for
+ * its scans and for the roots its writes are held to; an agent, which is
+ * spawned from here and has its working directory from this process; and the
+ * confinement checks, once it is a conversation's cwd and so an open root.
+ */
+export const assertAbsoluteCwd = (params: { readonly cwd?: string } | undefined): void => {
+  if (params?.cwd !== undefined) assertAbsolute(params.cwd)
+}
+
+/**
  * Refuses a path that is not under one of the roots the user has opened.
  *
  * Lexical, on the resolved path: `..` segments are collapsed first, so

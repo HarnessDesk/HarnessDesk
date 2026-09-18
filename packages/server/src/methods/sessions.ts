@@ -11,22 +11,9 @@ import {
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
-import { assertAbsolute } from '../workspace.js'
+import { assertAbsoluteCwd } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
-
-/**
- * Refuses a folder for a conversation that is not an absolute path, before any
- * runtime is handed it. The adapters pass a cwd on as given, and an agent reads
- * a relative one against its own working directory, which it has from this
- * process: wherever the app happened to be started. Codex reads an empty one
- * as that directory itself. The conversation's cwd is then an open root, and
- * every confinement check trusts it. A reopen or a fork that names no folder
- * keeps the conversation's own.
- */
-const assertAbsoluteCwd = (options: { readonly cwd?: string } | undefined): void => {
-  if (options?.cwd !== undefined) assertAbsolute(options.cwd)
-}
 
 /**
  * Conversations as the host holds them: listing and search across the
@@ -35,6 +22,7 @@ const assertAbsoluteCwd = (options: { readonly cwd?: string } | undefined): void
  */
 export const sessionMethods = {
   'session/list': async (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     const page = await runtime.listSessions({
       ...(params.cursor ? { cursor: params.cursor } : {}),
@@ -67,6 +55,13 @@ export const sessionMethods = {
   },
 
   'session/create': async (ctx, params) => {
+    // Before any runtime is handed it, here and in a reopen or a fork. The
+    // adapters pass a cwd on as given, and an agent reads a relative one
+    // against its own working directory, which it has from this process:
+    // wherever the app happened to be started. Codex reads an empty one as that
+    // directory itself. The conversation's cwd is then an open root, which
+    // every confinement check trusts. A reopen or a fork that names no folder
+    // keeps the conversation's own.
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
     // Routes resolve here and only here. A client-supplied `route` is

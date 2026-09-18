@@ -1821,6 +1821,111 @@ test('a folder is an open root only when it is absolute, whoever reports it', as
   })
 })
 
+/** Every method that names the folder it is about as its `cwd`. */
+type FolderMethod = {
+  [M in HostMethodName]: 'cwd' extends NamedKeys<HostParams<M>> ? M : never
+}[HostMethodName]
+
+/**
+ * What each method that takes a cwd is asked in the test below, beside that
+ * folder.
+ *
+ * Keyed by every method whose params carry one, so a method added with a cwd
+ * and without a line here fails the build rather than going untested.
+ */
+const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => HostParams<M> } = {
+  'session/list': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/sessionDefaults': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/skills': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/hooks': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/catalog': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/mcp/list': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/imports/detect': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'library/read': (cwd) => ({ cwd }),
+  'library/definition': (cwd) => ({ kind: 'skill', name: 'hd-probe', path: '/nowhere/hd-probe', cwd }),
+  'library/plan': (cwd) => ({ cwd, intents: [] }),
+  'library/apply': (cwd) => ({ cwd, ops: [] }),
+  'terminal/open': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd, size: { rows: 24, cols: 80 } }),
+}
+
+test('a cwd is refused when it is relative, whichever method it is handed to', async (t) => {
+  // Each of these hands its cwd to something that reads a relative one
+  // against the host's working directory. The library resolves it there
+  // itself, for the scans and for the roots its writes are held to. Codex is
+  // spawned with the host's working directory, and its skills, hooks, config
+  // layers and import detection answered for a relative folder from there. An
+  // ACP agent opens its draft probe in it. The rest filter by it or pass it
+  // on, and what an agent makes of a relative one is the agent's business, so
+  // none of them is handed one. The spelling below is the one that would reach
+  // a folder nobody opened, from this process's working directory, which is
+  // the host's; the empty string is refused beside it.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // What the runtime's own surfaces were handed, so a refusal is told apart
+  // from a runtime that took the folder and ignored it.
+  const handed: string[] = []
+  const heard = <T>(cwd: string | undefined, answer: T): T => {
+    if (cwd !== undefined) handed.push(cwd)
+    return answer
+  }
+  const runtime = harness.runtime
+  const defaults = runtime.defaultSessionOptions.bind(runtime)
+  runtime.defaultSessionOptions = (cwd, values) => heard(cwd, defaults(cwd, values))
+  const listSessions = runtime.listSessions.bind(runtime)
+  runtime.listSessions = (query) => heard(query?.cwd, listSessions(query))
+  Object.assign(runtime, {
+    listSkills: async (cwd?: string) => heard(cwd, []),
+    listHooks: async (cwd?: string) => heard(cwd, []),
+    extensions: {
+      catalog: async (cwd?: string) => heard(cwd, { plugins: [], marketplaces: [], loadErrors: [], featured: [] }),
+      mcpServers: async (cwd?: string) => heard(cwd, []),
+      detectImports: async (cwd?: string) => heard(cwd, []),
+    },
+  })
+
+  // A folder nobody opened, with a skill of its own for the library to find.
+  const folder = await mkdtemp(join(tmpdir(), 'hd-cwd-relative-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  await mkdir(join(folder, '.agents', 'skills', 'hd-probe'), { recursive: true })
+  await writeFile(
+    join(folder, '.agents', 'skills', 'hd-probe', 'SKILL.md'),
+    '---\nname: hd-probe\ndescription: A skill only this folder has.\n---\n',
+  )
+
+  const spelled = relative(process.cwd(), folder)
+  // The controls: the spelling is relative, and it leads from the host's
+  // working directory to the folder.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(folder))
+
+  for (const [method, ask] of Object.entries(RELATIVE_FOLDER_ASKS)) {
+    await t.test(method, async () => {
+      for (const cwd of [spelled, '']) {
+        await assert.rejects(() => client.call(method as HostMethodName, ask(cwd)), {
+          message: `${cwd} is not an absolute path.`,
+        })
+      }
+    })
+  }
+
+  // No surface was handed either spelling. Spelled absolutely, the same folder
+  // is handed on, and the library finds its skill there, so what was refused
+  // was the spelling.
+  assert.deepEqual(handed, [])
+  await client.call('runtime/skills', { runtime: FAKE_RUNTIME_ID, cwd: folder })
+  assert.deepEqual(handed, [folder])
+  const library = (await client.call('library/read', { cwd: folder })) as {
+    entries: readonly { name: string; copies: readonly { path: string }[] }[]
+  }
+  assert.deepEqual(
+    library.entries.find((entry) => entry.name === 'hd-probe')?.copies.map((copy) => copy.path),
+    [join(folder, '.agents', 'skills', 'hd-probe')],
+  )
+})
+
 test('worktree/list refuses a repository nobody opened, and answers for one opened through any of its checkouts', async (t) => {
   // It ran `git worktree list` wherever it was pointed, so an absolute path to
   // a repository nobody opened was answered with every checkout's path, branch
