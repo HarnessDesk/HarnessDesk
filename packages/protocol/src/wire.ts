@@ -1,4 +1,4 @@
-import type { AgentEntry, MachineSeating, SeatPlan } from './agent.js'
+import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -1627,6 +1627,51 @@ export interface HostMethods {
   'agent/seating/set': {
     params: { readonly id: string; readonly seats: readonly FlowSeat[] | null }
     result: MachineSeating
+  }
+  /**
+   * Writes a new Agent — *Save as an Agent* — to this machine (`to: 'user'`)
+   * or to a project, and answers its entry. `seat` is the seat the
+   * conversation it is saved from is on: saved to this machine it is the
+   * Agent's `prefer`; saved to a project, `prefer` names its runtime alone and
+   * this machine's `seating.json` keeps the exact seat, because a committed
+   * model name breaks the Agent on every other machine. The brief is a skeleton
+   * to be written in the editor. An Agent by that name already there is a
+   * refusal, never an overwrite.
+   */
+  'agent/create': {
+    params: {
+      readonly name: string
+      readonly description?: string
+      readonly permission: FlowPermission
+      readonly seat: FlowSeat
+      readonly to: 'user' | 'project'
+      readonly project?: string
+    }
+    result: AgentEntry
+  }
+  /**
+   * *Customize…*: copies the Agent found at `from` to this machine or to a
+   * project, where the copy shadows it, and answers the copy's entry. Refused
+   * where the copy would itself be shadowed by what it copies.
+   */
+  'agent/copy': {
+    params: {
+      readonly id: string
+      readonly from: AgentOrigin
+      readonly to: 'user' | 'project'
+      readonly project?: string
+    }
+    result: AgentEntry
+  }
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Needs the desktop app; what ships cannot be removed. */
+  'agent/remove': {
+    params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string }
+    result: null
+  }
+  /** Shows the file an Agent comes from in the OS file browser — the winner, or the copy at `origin`. Needs the desktop app. */
+  'agent/reveal': {
+    params: { readonly id: string; readonly origin?: AgentOrigin; readonly project?: string }
+    result: null
   }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }

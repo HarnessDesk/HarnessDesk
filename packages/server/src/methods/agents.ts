@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path'
+import { rm } from 'node:fs/promises'
+import { dirname, isAbsolute, join } from 'node:path'
 
 import {
   BriefNotHandedOverError,
@@ -7,6 +8,7 @@ import {
   type AgentDefinition,
   type AgentEntry,
   type AgentId,
+  type AgentOrigin,
   type AgentRuntime,
   type FlowSeat,
   type MachineSeating,
@@ -16,6 +18,8 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 
+import { parseAgentDefinition } from '../agent-def.js'
+import { agentIdOf, agentSource, copyAgentFolder, createAgentFolder, projectAgentDir } from '../agent-files.js'
 import {
   agentOrder,
   blockedPlan,
@@ -208,6 +212,127 @@ export const agentMethods = {
     if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
     return seating
   },
+
+  /**
+   * *Save as an Agent*: writes a new folder and its `AGENT.md`, to this
+   * machine or to a project, and answers the entry the roster now lists for
+   * it.
+   *
+   * `seat` is the seat the conversation this is saved from is on. Saved to
+   * this machine it is written as the Agent's own `prefer`. Saved to a
+   * project, `prefer` names only the seat's runtime — a committed model name
+   * breaks the Agent on every machine but its author's — and the exact seat
+   * is kept instead in this machine's `seating.json`, which replaces
+   * `prefer` here and never merges with it.
+   *
+   * Refuses rather than write anything broken or invisible, each check
+   * before anything is written: what is written must parse back as an Agent,
+   * so a name or field the parser would refuse is caught here and not only
+   * once the roster is asked to find what was just written; a copy that
+   * would already be shadowed the moment it lands — a project's own Agent of
+   * this name, when saving to this machine — is refused in the same words
+   * `agent/copy` uses for the same mistake; and when an exact seat must be
+   * kept in `seating.json`, that file is read first, so a file nobody can
+   * read refuses the call before the folder is even made. If keeping the
+   * seat still fails after the folder was made, the folder — made
+   * exclusively by this call, so it is this call's alone — is removed and
+   * the failure is rethrown, rather than left behind minus the seat it
+   * promised.
+   */
+  'agent/create': async (ctx, params) => {
+    const id = agentIdOf(params.name)
+    if (!id) throw new Error(`“${params.name}” leaves nothing to name a folder by — use letters or digits.`)
+    const project = await projectOf(ctx, params.project)
+    const root = await rootOf(ctx, params.to, project)
+    // Committed, a model name breaks the Agent on every other machine: the project names the runtime, this Mac keeps the seat.
+    const bare: FlowSeat = { runtime: params.seat.runtime }
+    const exact = Boolean(params.seat.model || params.seat.effort || params.seat.thinking)
+    const source = agentSource({
+      name: params.name.trim(),
+      description: params.description?.trim() || null,
+      permission: params.permission,
+      prefer: params.to === 'project' ? [bare] : [params.seat],
+    })
+    // What is written must read back — a refusal here, not the confusing one
+    // `found()` would give once the roster is asked to find what cannot parse.
+    const unreadable = parseAgentDefinition(source, id).problems.find((one) => one.level === 'error')
+    if (unreadable) throw new Error(`“${params.name}” cannot be saved: ${unreadable.at} — ${unreadable.text}`)
+    // A copy that would arrive already shadowed is invisible from the moment
+    // it is written. Refused here, in `agent/copy`'s own words for the same mistake.
+    const shadowedBy = await ctx.agents.read(id, project)
+    if (shadowedBy && RANK[shadowedBy.origin] < RANK[params.to]) {
+      throw new Error(
+        `A copy in ${params.to === 'user' ? 'your Agents' : 'the project'} would be shadowed by the ${shadowedBy.origin} “${id}” already there — remove or rename it first.`,
+      )
+    }
+    // This machine's seats must be readable before anything is written, when
+    // an exact seat would need to be kept there.
+    if (params.to === 'project' && exact) {
+      const machine = await ctx.seating.read()
+      const broken = machine.problems.find((one) => one.id === null)
+      if (broken) {
+        throw new Error(
+          `This machine's seats in ${machine.path} cannot be read, so “${params.name}”’s seat could not be kept there: ${broken.text}`,
+        )
+      }
+    }
+    const path = await createAgentFolder(root, id, source)
+    if (params.to === 'project' && exact) {
+      try {
+        await ctx.seating.set(id, [params.seat])
+      } catch (error) {
+        // Made exclusively by this call, so it is this call's alone to undo.
+        await rm(dirname(path), { recursive: true, force: true })
+        throw error
+      }
+    }
+    ctx.push({ method: 'agent/changed', params: { project: params.to === 'project' ? (project ?? null) : null } })
+    return found(await ctx.agents.read(id, project), id)
+  },
+
+  /**
+   * *Customize…*: copies the Agent found at `from` to this machine or to a
+   * project, where the copy shadows it, and answers the copy's entry.
+   * Refused where the copy would itself be shadowed by what it copies — a
+   * copy is only worth making where it comes first.
+   */
+  'agent/copy': async (ctx, params) => {
+    const project = await projectOf(ctx, params.project)
+    const entry = await ctx.agents.read(params.id, project)
+    const source = entry ? copyAt(entry, params.from) : null
+    if (!entry || !source) throw new Error(`There is no ${params.from} Agent called “${params.id}” to copy.`)
+    if (RANK[params.to] >= RANK[params.from]) {
+      throw new Error(
+        `A copy in ${params.to === 'user' ? 'your Agents' : 'the project'} would be shadowed by the ${params.from} one it copies — copy it somewhere that comes first.`,
+      )
+    }
+    const root = await rootOf(ctx, params.to, project)
+    await copyAgentFolder(dirname(source), join(root, params.id))
+    ctx.push({ method: 'agent/changed', params: { project: params.to === 'project' ? (project ?? null) : null } })
+    return found(await ctx.agents.read(params.id, project), params.id)
+  },
+
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Needs the desktop app; what ships cannot be removed. */
+  'agent/remove': async (ctx, params) => {
+    if (!ctx.options.trashPath) throw new Error('Moving an Agent to the Trash needs the desktop app.')
+    const project = await projectOf(ctx, params.project)
+    const entry = await ctx.agents.read(params.id, project)
+    const path = entry ? copyAt(entry, params.origin) : null
+    if (!path) throw new Error(`There is no ${params.origin} Agent called “${params.id}” to remove.`)
+    await ctx.options.trashPath(dirname(path))
+    ctx.push({ method: 'agent/changed', params: { project: params.origin === 'project' ? (project ?? null) : null } })
+    return null
+  },
+
+  /** Shows the file an Agent comes from in the OS file browser — the winner, or the copy at `origin`. Needs the desktop app. */
+  'agent/reveal': async (ctx, params) => {
+    if (!ctx.options.revealPath) throw new Error('Showing a file in the file browser needs the desktop app.')
+    const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
+    const path = entry ? (params.origin ? copyAt(entry, params.origin) : entry.path) : null
+    if (!path) throw new Error(`There is no Agent called “${params.id}” here.`)
+    await ctx.options.revealPath(path)
+    return null
+  },
 } satisfies MethodsUnder<'agent/'>
 
 /**
@@ -280,6 +405,26 @@ const candidatesFor = (
   }
   const entry = machine.entries.find((one) => one.id === definition.id)
   return entry ? { from: 'machine', seats: entry.seats } : { from: 'prefer', seats: definition.prefer }
+}
+
+/** Which tier outranks which: a copy is only worth making where it comes first. */
+const RANK: Readonly<Record<AgentOrigin, number>> = { project: 0, user: 1, builtin: 2 }
+
+/** The file of the copy of an Agent found at one tier — the winner, or one it shadows — or null. */
+const copyAt = (entry: AgentEntry, origin: AgentOrigin): string | null =>
+  entry.origin === origin ? entry.path : (entry.shadows.find((one) => one.origin === origin)?.path ?? null)
+
+/** Where a new or copied Agent goes: this machine's roster, or the project's own, made inside it. */
+const rootOf = async (ctx: HostContext, to: 'user' | 'project', project: string | undefined): Promise<string> => {
+  if (to === 'user') return ctx.agents.roots.user
+  if (!project) throw new Error('Name the project to write the Agent into.')
+  return projectAgentDir(project)
+}
+
+/** The entry just written, which the roster must now list. */
+const found = (entry: AgentEntry | null, id: string): AgentEntry => {
+  if (!entry) throw new Error(`“${id}” was written and is not in the roster — look for it in the folder it was written to.`)
+  return entry
 }
 
 /**

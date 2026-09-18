@@ -393,7 +393,8 @@ const candidateAt = async (place: Place, id: string): Promise<Candidate> => {
 }
 
 export class Agents {
-  constructor(private readonly roots: AgentRoots) {}
+  /** Where this machine's and the built-in Agents are: what a write to one of them is made against. */
+  constructor(readonly roots: AgentRoots) {}
 
   async list(project?: string): Promise<AgentEntry[]> {
     const found = new Map<string, AgentEntry>()

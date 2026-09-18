@@ -58,7 +58,7 @@ export const workspaceMethods = {
   'workspace/browse': (ctx, params) => browseDirectories(ctx.runtimes.files(params.runtime), params.path),
 
   'workspace/readFile': async (ctx, params) => {
-    const path = confine(params.path, ctx.workspaces.openRoots())
+    const path = confine(params.path, ctx.workspaces.fileRoots('read'))
     const bytes = await ctx.runtimes.files(params.runtime).read(path)
     const hash = sha256(bytes)
     if (params.encoding === 'base64') {
@@ -68,17 +68,17 @@ export const workspaceMethods = {
   },
 
   'workspace/stat': (ctx, params) =>
-    ctx.runtimes.files(params.runtime).stat(confine(params.path, ctx.workspaces.openRoots())),
+    ctx.runtimes.files(params.runtime).stat(confine(params.path, ctx.workspaces.fileRoots('read'))),
 
   'preview/ticket': (ctx, params) => {
     // Confinement is checked at issue time and again at redemption, so a
     // workspace being closed between the two closes the window as well.
-    confine(params.path, ctx.workspaces.openRoots())
+    confine(params.path, ctx.workspaces.fileRoots('read'))
     return { ticket: ctx.workspaces.issuePreviewTicket(params.path, params.runtime) }
   },
 
   'file/save': async (ctx, params) => {
-    const path = confine(params.path, ctx.workspaces.openRoots())
+    const path = confine(params.path, ctx.workspaces.fileRoots('write'))
     const files = ctx.runtimes.files(params.runtime)
     if (!files.write) throw new Error('This runtime cannot write files from the interface.')
     // Compare before writing. Not atomic — no filesystem offers that

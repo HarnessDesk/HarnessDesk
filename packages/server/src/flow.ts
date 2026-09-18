@@ -308,6 +308,33 @@ export const seatSpec = (seat: FlowSeat): string =>
     seat.thinking ? '+thinking' : ''
   }`
 
+/** Whether two seats name the same thing — not whether they are the same object. */
+export const sameSeat = (a: FlowSeat, b: FlowSeat): boolean =>
+  a.runtime === b.runtime &&
+  (a.model ?? null) === (b.model ?? null) &&
+  (a.effort ?? null) === (b.effort ?? null) &&
+  (a.thinking ?? false) === (b.thinking ?? false)
+
+/**
+ * Whether a seat can be written as its compact spec and read back as the same
+ * seat.
+ *
+ * The compact form splits a model off after `=` and an effort off after `/`,
+ * switches on `+`, so a runtime, model or effort that itself contains one of
+ * those characters would read back as a different seat while the write looked
+ * fine (`effort: 'high+thinking'` reads back as effort `high` with thinking
+ * on; `runtime: 'cursor=m'` as runtime `cursor`, model `m`). A regex naming
+ * the dangerous characters would have to be kept in step with `parseSeat` by
+ * hand; asking `parseSeat` itself, on what `seatSpec` just wrote, cannot drift
+ * from it. Shared by every writer of a seat — `agent-seating-file.ts`'s
+ * `written()` and `agent-files.ts`'s `seatLines` — so the same seat is judged
+ * the same way in `seating.json` and in an `AGENT.md`'s front matter.
+ */
+export const seatWritesCompactly = (seat: FlowSeat): boolean => {
+  const reread = parseSeat(seatSpec(seat))
+  return typeof reread !== 'string' && sameSeat(seat, reread)
+}
+
 const KINDS: readonly FlowRoleKind[] = ['agent', 'person', 'check']
 
 /**

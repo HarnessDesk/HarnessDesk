@@ -265,6 +265,11 @@ export interface HostOptions {
   readonly pickDirectory?: () => Promise<string | null>
   /** Shows a folder in the OS file browser. Supplied by the desktop shell. */
   readonly revealPath?: (path: string) => Promise<void>
+  /**
+   * Moves a file or folder to the OS Trash, where it can be put back.
+   * Supplied by the desktop shell; without it, removing an Agent says so.
+   */
+  readonly trashPath?: (path: string) => Promise<void>
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -1283,6 +1288,7 @@ export class Host {
       },
       workspaces: {
         openRoots: () => this.#openRoots(),
+        fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
@@ -1368,6 +1374,20 @@ export class Host {
       ...this.registry.snapshot()
         .map((session) => session.cwd)
         .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
+    ]
+  }
+
+  /**
+   * Where the renderer may read or write a file by path: the open roots, and
+   * the roster's own folders — this machine's for both, because a person
+   * edits their own Agents in the desk's editor; the built-in one for reading
+   * only, because nobody edits what ships (*Customize…* copies it first).
+   */
+  #fileRoots(mode: 'read' | 'write'): string[] {
+    return [
+      ...this.#openRoots(),
+      join(this.#state.directory, 'agents'),
+      ...(mode === 'read' ? [builtinAgentRoot()] : []),
     ]
   }
 
@@ -1584,7 +1604,7 @@ export class Host {
     const entry = this.#previewTickets.get(ticket)
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
-    const path = confine(entry.path, this.#openRoots())
+    const path = confine(entry.path, this.#fileRoots('read'))
     const bytes = await this.#files(entry.runtime).read(path)
     const extension = path.split('.').pop()?.toLowerCase()
     const contentType =

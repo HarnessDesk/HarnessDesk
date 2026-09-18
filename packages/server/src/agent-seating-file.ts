@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 import { SEAT_PREFERENCE_LIMIT, type FlowSeat, type MachineSeating, type SeatingProblem } from '@harnessdesk/protocol'
 
-import { asList, asRecord, asText, parseSeat, parseSeatList, seatSpec } from './flow.js'
+import { asList, asRecord, asText, parseSeatList, seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
  * This machine's seats for its Agents: `seating.json` in the state directory.
@@ -114,37 +114,21 @@ export const parseSeating = (
   return { entries, problems }
 }
 
-/** Whether two seats name the same thing — not whether they are the same object. */
-const sameSeat = (a: FlowSeat, b: FlowSeat): boolean =>
-  a.runtime === b.runtime &&
-  (a.model ?? null) === (b.model ?? null) &&
-  (a.effort ?? null) === (b.effort ?? null) &&
-  (a.thinking ?? false) === (b.thinking ?? false)
-
 /**
  * A seat as the file writes it: the compact spec, when reading it back gives
- * the same seat — the long form otherwise.
- *
- * The compact form splits a model off after `=` and an effort off after `/`,
- * switches on `+`, so a runtime, model or effort that itself contains one of
- * those characters would read back as a different seat while this call
- * reported success (`effort: 'high+thinking'` reads back as effort `high`
- * with thinking on; `runtime: 'cursor=m'` as runtime `cursor`, model `m`). A
- * regex naming the dangerous characters would have to be kept in step with
- * `parseSeat` by hand; asking `parseSeat` itself, on what `seatSpec` just
- * wrote, cannot drift from it.
+ * the same seat (`seatWritesCompactly`, shared with `agent-files.ts` so an
+ * `AGENT.md`'s `prefer` and this file agree about which seats need the long
+ * form) — the long form otherwise.
  */
-const written = (seat: FlowSeat): string | Record<string, unknown> => {
-  const compact = seatSpec(seat)
-  const reread = parseSeat(compact)
-  if (typeof reread !== 'string' && sameSeat(seat, reread)) return compact
-  return {
-    runtime: seat.runtime,
-    ...(seat.model ? { model: seat.model } : {}),
-    ...(seat.effort ? { effort: seat.effort } : {}),
-    ...(seat.thinking ? { thinking: true } : {}),
-  }
-}
+const written = (seat: FlowSeat): string | Record<string, unknown> =>
+  seatWritesCompactly(seat)
+    ? seatSpec(seat)
+    : {
+        runtime: seat.runtime,
+        ...(seat.model ? { model: seat.model } : {}),
+        ...(seat.effort ? { effort: seat.effort } : {}),
+        ...(seat.thinking ? { thinking: true } : {}),
+      }
 
 /** Whether two JSON values read the same: an array in the order it is in, an object by its keys, never by theirs. */
 const sameJson = (a: unknown, b: unknown): boolean => {

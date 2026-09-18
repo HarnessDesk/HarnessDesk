@@ -517,6 +517,26 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     id: isFilled,
     seats: (value: unknown, path = '') => (value === null ? null : seatListValidator(value, path)),
   }),
+  'agent/create': shape({
+    name: isFilled,
+    description: optional(isString),
+    permission: grantValidator,
+    seat: flowSeatValidator,
+    to: literalUnion('user', 'project'),
+    project: optional(isString),
+  }),
+  'agent/copy': shape({
+    id: isFilled,
+    from: literalUnion('project', 'user', 'builtin'),
+    to: literalUnion('user', 'project'),
+    project: optional(isString),
+  }),
+  'agent/remove': shape({ id: isFilled, origin: literalUnion('user', 'project'), project: optional(isString) }),
+  'agent/reveal': shape({
+    id: isFilled,
+    origin: optional(literalUnion('project', 'user', 'builtin')),
+    project: optional(isString),
+  }),
 
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),
