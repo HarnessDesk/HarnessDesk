@@ -997,7 +997,8 @@ export interface HostMethods {
   }
   'session/review': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly target: ReviewRequest }
-    result: null
+    /** The conversation a detached review runs in, as `session/fork` answers one; null when it runs in this one. */
+    result: Session | null
   }
 
   'turn/send': {

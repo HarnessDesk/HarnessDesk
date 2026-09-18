@@ -35,8 +35,13 @@ const isAnswer = (item: AgentItem): boolean =>
  * the command echo or background-task report the turn actually began with.
  * A notice belongs beside the prompt rather than inside the work fold, where
  * a turn that is nothing but a notice would fold away to nothing.
+ *
+ * And a review's start: Codex opens a review turn with it, ahead of the
+ * review's own request, and counted as work it took the request into the
+ * fold with it — the turn then opened on "Worked" with no ask above it.
  */
-const opensTurn = (item: AgentItem): boolean => item.type === 'userMessage' || item.type === 'notice'
+const opensTurn = (item: AgentItem): boolean =>
+  item.type === 'userMessage' || item.type === 'notice' || (item.type === 'review' && item.phase === 'entered')
 
 export const splitTurn = (turn: Turn): TurnView => {
   const prompt: AgentItem[] = []

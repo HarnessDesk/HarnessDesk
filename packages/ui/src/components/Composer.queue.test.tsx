@@ -45,7 +45,7 @@ const runtime = (steer: boolean): RuntimeInfo =>
     presentation: { name: 'Alpha Agent' },
   }) as RuntimeInfo
 
-const session = (busy: boolean): Session =>
+const session = (busy: boolean, items: readonly unknown[] = []): Session =>
   ({
     id: 's1',
     runtime: 'alpha',
@@ -56,7 +56,7 @@ const session = (busy: boolean): Session =>
     turns: [
       {
         id: 't1',
-        items: [],
+        items,
         status: busy ? 'inProgress' : 'completed',
       },
     ],
@@ -76,10 +76,13 @@ const mount = ({
   busy,
   steer = false,
   queue = null,
+  items = [],
 }: {
   busy: boolean
   steer?: boolean
   queue?: SessionQueue | null
+  /** What the running turn holds so far. */
+  items?: readonly unknown[]
 }): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -87,7 +90,7 @@ const mount = ({
     activeRuntime: runtime(steer).id,
     health: { state: 'ready' } as AppSnapshot['health'],
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
-    sessions: new Map([[KEY, session(busy)]]),
+    sessions: new Map([[KEY, session(busy, items)]]),
     activeSessionKey: KEY,
     queues: queue ? new Map([[KEY, queue]]) : new Map(),
   }
@@ -161,6 +164,15 @@ describe('the composer while a turn is running', () => {
   it('⌘Enter still queues where the agent cannot take it', () => {
     mount({ busy: true, steer: false })
     type('now please')
+    enter({ meta: true })
+    expect(calls.steer).not.toHaveBeenCalled()
+    expect(calls.queue).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues on ⌘Enter too while the turn is a review, which Codex will not let anything join', () => {
+    mount({ busy: true, steer: true, items: [{ id: 'r', type: 'review', phase: 'entered', review: 'current changes' }] })
+    expect(textarea().placeholder).toBe('Type the next message — it is sent when this turn ends')
+    type('then fix what it finds')
     enter({ meta: true })
     expect(calls.steer).not.toHaveBeenCalled()
     expect(calls.queue).toHaveBeenCalledTimes(1)

@@ -161,6 +161,30 @@ test('a full turn streams to the client and folds into session state', async (t)
   assert.equal(record!.session.turns[0]?.status, 'completed')
 })
 
+test('a review on a side thread answers with its conversation, which the host already holds', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const session = (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  const review = (delivery?: 'detached') =>
+    client.call('session/review', {
+      runtime: FAKE_RUNTIME_ID,
+      sessionId: session.id,
+      target: { type: 'uncommitted', ...(delivery ? { delivery } : {}) },
+    }) as Promise<Session | null>
+
+  assert.equal(await review(), null, 'a review that runs here answers with no other conversation')
+  const side = await review('detached')
+  assert.ok(side && side.id !== session.id, 'a review on a side thread answers with the conversation it runs in')
+  assert.equal(side.cwd, '/w')
+
+  // Held from the first word: the window that opens it sends straight to it.
+  const resumes = harness.runtime.resumes
+  await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: side.id, input: [{ type: 'text', text: 'and?' }] })
+  assert.equal(harness.runtime.resumes, resumes, 'nothing was reopened to send to it')
+})
+
 /**
  * Leaving a working conversation and coming back to it.
  *

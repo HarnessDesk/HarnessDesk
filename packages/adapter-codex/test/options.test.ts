@@ -7,10 +7,12 @@ import {
   noteUnservedModel,
   overlayDraftValues,
   runtimeOptions,
+  sameSandbox,
   sessionOptions,
   stateFromConfig,
   settingsUpdateFor,
   splitStartOptions,
+  startParamsLike,
   stateFromStartResponse,
   stateFromThreadSettings,
   type Catalog,
@@ -72,6 +74,7 @@ const state: ThreadState = {
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
   permissions: ':workspace',
+  sandbox: null,
   serviceTier: null,
   mode: 'default',
 }
@@ -261,6 +264,7 @@ test('a settings notification replaces the state wholesale, keeping only the roo
     approvalPolicy: 'never',
     approvalsReviewer: 'guardian_subagent',
     permissions: ':read-only',
+    sandbox: null,
     serviceTier: 'priority',
     mode: 'plan',
   })
@@ -378,4 +382,112 @@ test('overlay refuses values a live session would refuse', () => {
   const base = stateFromConfig(emptyConfig, draftCatalog, '/repo')
   assert.throws(() => overlayDraftValues(base, { model: 'not-a-model' }, draftCatalog), /not one of the values/)
   assert.throws(() => overlayDraftValues(base, { nonsense: 'x' }, draftCatalog), /no session option named/)
+})
+
+test('a thread set up like another starts with every setting thread/start takes, as Codex reported it', () => {
+  const granular: ThreadState['approvalPolicy'] = {
+    granular: { sandbox_approval: true, rules: false, skill_approval: false, request_permissions: true, mcp_elicitations: false },
+  }
+  const like = startParamsLike({
+    ...state,
+    cwd: '/repo/app',
+    workspaceRoots: ['/repo/app', '/repo/lib'],
+    modelProvider: 'azure',
+    approvalPolicy: granular,
+    approvalsReviewer: 'guardian_subagent',
+    permissions: 'ci',
+  })
+  assert.deepEqual(like, {
+    cwd: '/repo/app',
+    runtimeWorkspaceRoots: ['/repo/app', '/repo/lib'],
+    model: 'gpt-5.5',
+    modelProvider: 'azure',
+    // Null is the standard tier: said, so the configured one is not taken instead.
+    serviceTier: null,
+    // A custom policy is an object no option can spell; it goes back as it came.
+    approvalPolicy: granular,
+    approvalsReviewer: 'guardian_subagent',
+    permissions: 'ci',
+  })
+})
+
+test('a thread its configuration set a sandbox for is started in that sandbox, not on the profile named after it', () => {
+  // Measured on 0.145.0 and 0.155.0: under sandbox_mode workspace-write with
+  // network access and a writable root, a thread started on :workspace has
+  // neither, and one started on sandbox workspace-write has both; its
+  // sandbox_workspace_write keys make it that sandbox whatever config.toml says.
+  const configured = stateFromStartResponse({
+    cwd: '/w',
+    runtimeWorkspaceRoots: ['/w'],
+    model: 'gpt-5.5',
+    modelProvider: 'openai',
+    serviceTier: null,
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
+    sandbox: { type: 'workspaceWrite', writableRoots: ['/extra'], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+    activePermissionProfile: null,
+    reasoningEffort: null,
+  })
+  assert.equal(configured.permissions, ':workspace', 'the control still names the matching profile')
+  const like = startParamsLike(configured)
+  assert.equal(like.sandbox, 'workspace-write')
+  assert.deepEqual(like.config, {
+    'sandbox_workspace_write.writable_roots': ['/extra'],
+    'sandbox_workspace_write.network_access': true,
+    'sandbox_workspace_write.exclude_tmpdir_env_var': false,
+    'sandbox_workspace_write.exclude_slash_tmp': false,
+  })
+  assert.equal('permissions' in like, false, 'thread/start refuses permissions beside a sandbox')
+
+  // A profile chosen since is a profile.
+  const chosen = startParamsLike(overlayDraftValues(configured, { permissions: ':read-only' }, catalog))
+  assert.equal(chosen.permissions, ':read-only')
+  assert.equal('sandbox' in chosen || 'config' in chosen, false)
+})
+
+test('a sandbox thread/start cannot spell is left to be set after it', () => {
+  /** What a start of a thread under `sandbox` says of who may do what. */
+  const says = (sandbox: CodexProtocol.v2.SandboxPolicy): Record<string, unknown> => {
+    const { permissions, sandbox: mode, config } = startParamsLike({ ...state, permissions: ':read-only', sandbox })
+    return Object.fromEntries(Object.entries({ permissions, sandbox: mode, config }).filter(([, value]) => value !== undefined))
+  }
+  // Read-only has no key for its network access, so a start says only the mode.
+  assert.deepEqual(says({ type: 'readOnly', networkAccess: true }), { sandbox: 'read-only' })
+  assert.deepEqual(says({ type: 'dangerFullAccess' }), { sandbox: 'danger-full-access' })
+  // An external sandbox has no mode at all.
+  assert.deepEqual(says({ type: 'externalSandbox', networkAccess: 'enabled' }), {})
+})
+
+test('two policies are one sandbox whatever order their writable roots come in', () => {
+  const policy = (writableRoots: string[], networkAccess = false): CodexProtocol.v2.SandboxPolicy => ({
+    type: 'workspaceWrite',
+    writableRoots,
+    networkAccess,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false,
+  })
+  assert.equal(sameSandbox(policy(['/a', '/b']), policy(['/b', '/a'])), true)
+  assert.equal(sameSandbox(policy(['/a']), policy(['/a', '/b'])), false)
+  assert.equal(sameSandbox(policy(['/a']), policy(['/a'], true)), false)
+  assert.equal(sameSandbox({ type: 'readOnly', networkAccess: false }, { type: 'readOnly', networkAccess: true }), false)
+  assert.equal(sameSandbox(null, policy([])), false)
+  assert.equal(sameSandbox(null, null), true)
+})
+
+test('a drafted sandbox is the one the configuration writes', () => {
+  const state = stateFromConfig(
+    config({
+      sandbox_mode: 'workspace-write',
+      sandbox_workspace_write: { writable_roots: ['/extra'], network_access: true, exclude_tmpdir_env_var: false, exclude_slash_tmp: true },
+    }),
+    draftCatalog,
+    '/repo',
+  )
+  assert.deepEqual(state.sandbox, {
+    type: 'workspaceWrite',
+    writableRoots: ['/extra'],
+    networkAccess: true,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: true,
+  })
 })
