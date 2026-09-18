@@ -36,8 +36,9 @@ const STORE = process.env.FAKE_ACP_STORE ?? null
  *  - FAKE_ACP_LIST_PAGE=<n> answers n rows a page and a `nextCursor` for the
  *    rest, as ACP's `session/list` allows, so a row past the first page is
  *    found only by asking for the next. With FAKE_ACP_LIST_STUCK=1 every page
- *    hands back its own cursor as the next one, which is the loop a client
- *    walking the pages has to notice.
+ *    hands back its own cursor as the next one, and with FAKE_ACP_LIST_ENDLESS=1
+ *    every page names a new next one, past the last row as well: the two
+ *    walks that never end, which a client reading the pages has to notice.
  *  - FAKE_ACP_NO_LIST=1 declares `loadSession` and no listing, and answers
  *    `session/list` as Gemini CLI 0.59.0 does: -32601, "Method not found".
  *  - FAKE_ACP_LIST_FAILS=1 declares a listing and fails every call to it;
@@ -967,8 +968,13 @@ const handlers = {
     if (!(LIST_PAGE > 0)) return reply(id, { sessions: rows })
     const from = Number(params?.cursor ?? 0)
     const rest = from + LIST_PAGE < rows.length
-    // Stuck, every page names itself as the next one.
-    const next = process.env.FAKE_ACP_LIST_STUCK === '1' ? String(from) : rest ? String(from + LIST_PAGE) : null
+    // Stuck, every page names itself as the next one; endless, a new one.
+    const next =
+      process.env.FAKE_ACP_LIST_STUCK === '1'
+        ? String(from)
+        : process.env.FAKE_ACP_LIST_ENDLESS === '1' || rest
+          ? String(from + LIST_PAGE)
+          : null
     reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(next !== null ? { nextCursor: next } : {}) })
   },
   'session/load': (id, params) => {

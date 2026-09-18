@@ -1597,8 +1597,12 @@ export class AcpRuntime implements AgentRuntime {
           }),
         )
       return { data: [...named, ...stored].sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: null }
-    } catch {
-      return { data: live, nextCursor: null }
+    } catch (error) {
+      // A listing that cannot be read to its end is a failure, not a shorter
+      // list. Answered with what was read, or with the live sessions alone, it
+      // was taken for the whole one: the sidebar replaced the list it had with
+      // it, and the archive counted the agent as having answered.
+      throw new Error(`${this.#config.name} could not list its conversations (${describeAcp(error)}).`)
     }
   }
 
@@ -2166,44 +2170,41 @@ export class AcpRuntime implements AgentRuntime {
   /**
    * The agent's `session/list`, a page at a time, until it names no next one.
    *
-   * ACP pages the listing with an opaque cursor. A cursor handed back twice
-   * ends the walk, since it would be asked for forever. A page that fails is
-   * thrown to the caller, which knows what a failure means to it.
+   * ACP pages the listing with an opaque cursor. A walk that cannot reach the
+   * last page throws, because what it read by then is not the list: a page
+   * that fails, a cursor handed back twice, which would be asked for forever,
+   * and a fresh one named on every page past `LISTING_PAGE_LIMIT`, which no
+   * repeat would ever end. The reason is a clause each caller puts in a
+   * sentence of its own.
    */
   async *#listPages(cwd?: string): AsyncGenerator<readonly AcpSessionRow[]> {
     const asked = new Set<string>()
     let cursor: string | null = null
-    do {
+    for (let pages = 0; ; pages += 1) {
+      if (pages === LISTING_PAGE_LIMIT) {
+        throw new Error(`it named a next page ${LISTING_PAGE_LIMIT} times without an end`)
+      }
       const page: AcpSessionPage = await this.#connection.request<AcpSessionPage>('session/list', {
         ...(cwd ? { cwd } : {}),
         ...(cursor === null ? {} : { cursor }),
       })
       yield page.sessions ?? []
       cursor = typeof page.nextCursor === 'string' && page.nextCursor !== '' ? page.nextCursor : null
-      if (cursor !== null) {
-        if (asked.has(cursor)) return
-        asked.add(cursor)
-      }
-    } while (cursor !== null)
+      if (cursor === null) return
+      if (asked.has(cursor)) throw new Error('it named the same next page twice')
+      asked.add(cursor)
+    }
   }
 
   /**
    * Every row of every page, each once: a listing that moved while it was
-   * read can put a row on two pages. A page that fails ends the walk with the
-   * rows read before it, which are still the agent's answer.
+   * read can put a row on two pages. A walk that cannot reach the last page
+   * throws; see `#listPages`.
    */
   async #listedRows(cwd?: string): Promise<AcpSessionRow[]> {
     const rows = new Map<string, AcpSessionRow>()
-    try {
-      for await (const page of this.#listPages(cwd)) {
-        for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
-      }
-    } catch (error) {
-      this.#config.logger?.debug?.('the listing ended at a page that failed', {
-        agent: this.#config.id,
-        read: rows.size,
-        error: describeAcp(error),
-      })
+    for await (const page of this.#listPages(cwd)) {
+      for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
     }
     return [...rows.values()]
   }
@@ -2567,6 +2568,14 @@ interface AcpSessionPage {
   readonly sessions?: readonly AcpSessionRow[]
   readonly nextCursor?: string | null
 }
+
+/**
+ * How many pages of `session/list` are read before the listing is given up.
+ * Every agent measured answers in one page (Antigravity with 665 rows), so a
+ * thousand is room for any paging to come and a bound on an agent that names
+ * a fresh next page forever.
+ */
+const LISTING_PAGE_LIMIT = 1000
 
 /** Antigravity labels an unnamed conversation `Session <id>` in its store. */
 const titleOf = (row: AcpSessionRow, runtimeId: string): string | null => {

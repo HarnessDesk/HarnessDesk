@@ -1898,11 +1898,36 @@ test('a paged listing is listed whole, each conversation once, the draft probe o
   assert.equal(listed.nextCursor, null)
 })
 
+/**
+ * A listing that cannot be read to its end is a failure, not a shorter list.
+ * The sidebar keeps the list it has when a listing fails, and the archive
+ * names an agent that did not answer; a shorter list was taken for the whole
+ * one by both.
+ */
+const unlistable = (why: string): string => `Fake ACP Agent could not list its conversations (${why}).`
+
+test('a listing that fails on any page is a failure, not a shorter list', async (t) => {
+  for (const fails of ['1', 'later']) {
+    await t.test(fails === '1' ? 'on the first page' : 'past the first page', async (t) => {
+      const { runtime } = await storedAgent(
+        t,
+        (dir) => ({
+          first: { cwd: folderIn(dir, 'first') },
+          second: { cwd: folderIn(dir, 'second') },
+          third: { cwd: folderIn(dir, 'third') },
+        }),
+        { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_FAILS: fails },
+      )
+      await assert.rejects(runtime.listSessions(), { message: unlistable('Internal error: the index is locked') })
+    })
+  }
+})
+
 // A bound of its own: `pnpm verify` runs with no test timeout, and a walk that
 // never ends would hang the gate rather than fail it.
-test('a cursor the agent hands back twice ends the walk, and repeats no row', { timeout: 30_000 }, async (t) => {
+test('a cursor the agent hands back twice ends the walk, as a failure', { timeout: 30_000 }, async (t) => {
   // Every page names itself as the next one: without an end, a listing and a
-  // reopen would ask for it forever.
+  // reopen would ask for it forever, and what was read by then is not the list.
   const { runtime } = await storedAgent(
     t,
     (dir) => ({
@@ -1912,24 +1937,29 @@ test('a cursor the agent hands back twice ends the walk, and repeats no row', { 
     }),
     { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_STUCK: '1' },
   )
-  assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)).sort(), ['first', 'second'])
+  await assert.rejects(runtime.listSessions(), { message: unlistable('it named the same next page twice') })
   assert.deepEqual(await reopening(runtime, 'third'), {
-    refused: 'Fake ACP Agent does not list conversation third, so the folder it worked in is not known.',
-    gone: true,
+    refused:
+      'Fake ACP Agent could not list its conversations (it named the same next page twice), so the folder conversation third worked in is not known.',
+    gone: false,
   })
 })
 
-test('a listing that fails past its first page keeps the pages it read', async (t) => {
+test('a listing that names a new next page every time is given up at a bound, not read forever', { timeout: 60_000 }, async (t) => {
+  // Every cursor fresh, so no repeat ever ends it: only a bound on the pages does.
   const { runtime } = await storedAgent(
     t,
-    (dir) => ({
-      first: { cwd: folderIn(dir, 'first') },
-      second: { cwd: folderIn(dir, 'second') },
-      third: { cwd: folderIn(dir, 'third') },
-    }),
-    { FAKE_ACP_LIST_PAGE: '2', FAKE_ACP_LIST_FAILS: 'later' },
+    (dir) => ({ first: { cwd: folderIn(dir, 'first') }, unlisted: { cwd: folderIn(dir, 'unlisted') } }),
+    { FAKE_ACP_LIST_PAGE: '1', FAKE_ACP_LIST_ENDLESS: '1', FAKE_ACP_UNLISTED: 'unlisted' },
   )
-  assert.deepEqual((await runtime.listSessions()).data.map((row) => String(row.id)).sort(), ['first', 'second'])
+  await assert.rejects(runtime.listSessions(), {
+    message: unlistable('it named a next page 1000 times without an end'),
+  })
+  assert.deepEqual(await reopening(runtime, 'unlisted'), {
+    refused:
+      'Fake ACP Agent could not list its conversations (it named a next page 1000 times without an end), so the folder conversation unlisted worked in is not known.',
+    gone: false,
+  })
 })
 
 test('a listing asked for the page after a cursor it never gave answers with nothing', async (t) => {
