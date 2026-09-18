@@ -288,6 +288,22 @@ export const Usage = ({
 
   const scoped = scope === null ? null : (byId.get(scope) ?? null)
 
+  /* The page's own sentence says whose numbers these are, and a card of
+     another sign-in's figures (`report.unverified`: Antigravity's, read through
+     the separately signed-in `agy` CLI) is not "the agent's own". Claiming it
+     there would undo, one line above, what the card's heading says (#769,
+     review round 1). */
+  const borrowed = reports.find(
+    (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
+  )
+  const blurb = scoped
+    ? borrowed?.unverified
+      ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
+      : `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
+    : borrowed
+      ? 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.'
+      : 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine.'
+
   return (
     <AppWindow label="Dashboard">
       <WindowNav onBack={onClose}>
@@ -338,14 +354,7 @@ export const Usage = ({
       </WindowNav>
 
       <WindowPage wide>
-        <PageHead
-          title={scoped ? scoped.presentation.name : 'Dashboard'}
-          blurb={
-            scoped
-              ? `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
-              : 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine.'
-          }
-        />
+        <PageHead title={scoped ? scoped.presentation.name : 'Dashboard'} blurb={blurb} />
 
         <div className={styles.body}>
           <section className={styles.band} aria-label="What is left">

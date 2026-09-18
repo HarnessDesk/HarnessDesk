@@ -103,11 +103,11 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const render = async (report: UsageReport): Promise<void> => {
+const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = null): Promise<void> => {
   await act(async () =>
     root.render(
       <StoreProvider store={storeWith(report)}>
-        <Usage onClose={() => {}} onSignIn={() => {}} runtime={null} />
+        <Usage onClose={() => {}} onSignIn={() => {}} runtime={scope} />
       </StoreProvider>,
     ),
   )
@@ -174,6 +174,23 @@ describe("another sign-in's figures", () => {
     )
     expect(row).toContain('—')
     expect(row).not.toContain('%')
+  })
+
+  // The card's heading says whose they are; the page's own sentence said
+  // "Antigravity's own numbers" one line above it, in both views (#769,
+  // review round 1 of the landing).
+  const figures = [group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 0)]
+
+  it("are never called the agent's own by the page scoped to it", async () => {
+    await render(reportWith(figures, 'gemini-weekly'), antigravity.id)
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain("read from Antigravity's own numbers")
+    expect(text).toContain("Its plan figures are the agy CLI sign-in's, which may not be the account Antigravity runs as.")
+  })
+
+  it('are named by the page across every agent too', async () => {
+    await render(reportWith(figures, 'gemini-weekly'))
+    expect(document.body.textContent ?? '').toContain('A card headed by another sign-in shows that sign-in’s.')
   })
 
   it('keep the chip on the agent when only their source fails (#769, review round 2)', async () => {

@@ -78,6 +78,7 @@ interface UsageReport {
   readonly fetchedAt: number
   readonly staleAfterMs: number
   readonly error: UsageError | null      // stays on the row; never drops the others
+  readonly unverified?: UnverifiedUsage | null  // another sign-in's figures: drawn, never read as the agent's
 }
 ```
 
