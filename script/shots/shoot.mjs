@@ -831,11 +831,15 @@ rules:
     the rig's ACP cast declares models and modes and nothing to think with —
     so these run in the native-Codex rig (HD_SHOTS_NATIVE_CODEX=1).
 
-    The pointer scene walks a real path, from where a hand rests on the row to
-    the flyout's first level, in short steps a frame apart; the flyout is the
-    subject, so the pointer stays where it ended rather than being parked in
-    the corner for the frame (keepPointer). The keyboard scene opens the menu
-    with Enter, walks down to the row and steps in with →.
+    The pointer scene walks a real path, in short steps a frame apart: from
+    where a hand rests on the row, sideways out of it at the row's own height
+    — which the flyout always spans, and where Base UI keeps no clock on the
+    way across — then along the flyout to its first level. (A diagonal spends
+    its middle over the menu's other rows, where Base UI closes a flyout the
+    pointer has not reached within 40ms, so a slow machine would lose it.) The
+    flyout is the subject, so the pointer stays where it ended rather than
+    being parked in the corner for the frame (keepPointer). The keyboard scene
+    opens the menu with Enter, walks down to the row and steps in with →.
   */
   const MODEL_TRIGGER = `[...document.querySelectorAll('button')].find(e => /model and reasoning/i.test(e.title))`
   const REASONING_ROW = `[...document.querySelectorAll('[role="menuitem"]')].find(e => /^Reasoning effort/.test(e.textContent ?? ''))`
@@ -887,7 +891,10 @@ rules:
     await waitForSnapshot(() => cdp.eval(`${REASONING_ROW}?.hasAttribute('data-popup-open') ?? false`), Boolean)
     await sleep(300)
     const level = await box(FIRST_LEVEL)
-    await glide(rest, { x: level.x + 40, y: level.y + level.height / 2 })
+    const flyout = await box(`document.querySelector('[data-slot="dropdown-menu-sub-content"]')`)
+    const inside = { x: Math.min(Math.max(rest.x, flyout.x + 24), flyout.x + flyout.width - 24), y: rest.y }
+    await glide(rest, inside)
+    await glide(inside, { x: level.x + 40, y: level.y + level.height / 2 })
     await sleep(300)
     if (!await cdp.eval(`Boolean(${FIRST_LEVEL}?.matches(':hover'))`)) {
       throw new Error('composer-reasoning: the pointer did not reach the flyout')

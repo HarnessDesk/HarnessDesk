@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { level, modelControl, pointAtLevel, reasoningRow } from './reasoning-menu'
+
 /*
   A flyout is reached by pointing at it.
 
@@ -14,12 +16,10 @@ import { expect, test, type Page } from '@playwright/test'
   hold that too: beside its row when there is room, across it when there is
   not — never above or below it, over the menu's other rows, where the way
   there crosses rows that take the flyout's place. They drive a real pointer
-  the way a hand goes, from where a hand rests on the row to a level.
+  from where a hand rests on the row, out of it and on to a level.
 */
 
-const modelControl = (page: Page) => page.locator('button[title$="odel and reasoning"]')
-const reasoningRow = (page: Page) => page.getByRole('menuitem', { name: /^Reasoning effort/ })
-const low = (page: Page) => page.getByRole('menuitemradio', { name: /^Low/ })
+const low = (page: Page) => level(page, /^Low/)
 
 async function openModelMenu(page: Page, width: number) {
   await page.setViewportSize({ width, height: 800 })
@@ -45,7 +45,7 @@ async function restOnRow(page: Page) {
 for (const width of [1440, 600, 375]) {
   test(`a reasoning level is taken by pointing at it at ${width}px`, async ({ page }, testInfo) => {
     await openModelMenu(page, width)
-    await restOnRow(page)
+    const rest = await restOnRow(page)
     await expect(low(page)).toBeVisible()
     const placed = await low(page).evaluate((node) => {
       const flyout = node.closest('[data-slot="dropdown-menu-sub-content"]')!.getBoundingClientRect()
@@ -64,9 +64,9 @@ for (const width of [1440, 600, 375]) {
     expect(placed.flyout.top).toBeLessThanOrEqual(placed.row.top + 1)
     expect(placed.flyout.bottom).toBeGreaterThanOrEqual(placed.row.bottom - 1)
 
-    // A straight line to the level, crossing the row's edge on the way.
-    const target = (await low(page).boundingBox())!
-    await page.mouse.move(target.x + 40, target.y + target.height / 2, { steps: 24 })
+    // Out of the row — the step that used to close the flyout — and on to
+    // the level.
+    await pointAtLevel(page, rest, /^Low/)
     await expect(low(page)).toBeVisible()
     await page.mouse.down()
     await page.mouse.up()

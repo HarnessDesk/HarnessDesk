@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { level, modelControl, pointAtLevel, reasoningRow } from './reasoning-menu'
+
 /*
   A flyout answers the keys of the menu it opens from.
 
@@ -14,10 +16,7 @@ import { expect, test, type Page } from '@playwright/test'
   Popover's own panel, so ← and → then did nothing at all.
 */
 
-const modelControl = (page: Page) => page.locator('button[title$="odel and reasoning"]')
-const reasoningRow = (page: Page) => page.getByRole('menuitem', { name: /^Reasoning effort/ })
 const manageModels = (page: Page) => page.getByRole('menuitem', { name: /^Manage models/ })
-const level = (page: Page, name: RegExp) => page.getByRole('menuitemradio', { name })
 
 async function openFromTheKeyboard(page: Page) {
   await page.setViewportSize({ width: 1440, height: 800 })
@@ -73,8 +72,7 @@ test('Escape after pointing into the flyout gives the row back to the keyboard',
   await page.mouse.move(rest.x, rest.y - 30)
   await page.mouse.move(rest.x, rest.y, { steps: 4 })
   await expect(reasoningRow(page)).toHaveAttribute('data-popup-open', '')
-  const low = (await level(page, /^Low/).boundingBox())!
-  await page.mouse.move(low.x + 40, low.y + low.height / 2, { steps: 12 })
+  await pointAtLevel(page, rest, /^Low/)
   await expect(level(page, /^Low/)).toBeFocused()
 
   await page.keyboard.press('Escape')
