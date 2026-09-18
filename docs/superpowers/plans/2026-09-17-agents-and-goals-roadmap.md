@@ -158,6 +158,78 @@ when there is something in them.
    and rules over the Agents' own answers and the evidence. The app ships
    starting points as ordinary, editable files, never as code, and every surface
    draws whatever a file declares.
+9. **An Agent is driven, not launched.** Seating one is the easy half. Every
+   phase from 3 on has to hold it to a ceiling, answer what it asks, wait for it
+   without hanging, and keep what it produced when it stops early. The section
+   below says what that takes, learned by doing it.
+
+## Driving an Agent, learned by doing it
+
+This project builds itself the way it will work: on this branch the
+implementations and fixes were written by Codex and reviewed by Claude, each run
+seated on a real HarnessDesk, held to a permission ceiling, and read back as a
+file. It failed in specific ways before it worked, and every one of those
+failures is something a phase below has to get right in the product. They are
+cheap to inherit here and expensive to rediscover in a Goal that has already run
+for an hour.
+
+The driver was a script outside this repository, driving the app over its
+debugger port; what it had to do is written down here instead, because that is
+what the product has to do.
+
+1. **An unanswered approval is indistinguishable from a hang.** An agent that
+   asks to run a command and is never answered simply stops, with no signal that
+   it is waiting. Every request must reach a decided outcome — allowed by the
+   ceiling, refused by it, or visibly *waiting for a person*. "Running" must
+   never be what a waiting agent looks like. *(Phases 3, 7.)*
+2. **A question nobody can answer must end the turn with that as its reason.**
+   Where no person is present, waiting is not a strategy: the driver interrupts
+   after 20 s and records *asked a question nobody can answer* as the outcome.
+   An Agent's brief is written so it decides and says what it assumed. *(Phases
+   3, 7, 8 — a named stop reason, never a silent stall.)*
+3. **A ceiling is held, then read back — or it was only asked for.** The driver
+   sets the runtime's own sandbox control and reads back what actually took
+   (`held: {control, value}`). Measured: Codex holds `:read-only` and
+   `:workspace`; **Claude Code has no read-only control at all** — it offers
+   `plan` — so its read-only can only ever be *asked*. This is exactly why
+   phase 3 draws *held* and *asked* differently, and why a ceiling that cannot be
+   held must refuse rather than proceed hopefully. *(Phase 3.)*
+4. **A stop keeps what was produced.** A timeout interrupts the turn, keeps the
+   partial answer, and exits non-zero. A budget that throws away an hour of work
+   on the way out is worse than no budget. *(Phases 5, 7.)*
+5. **Read the seat back; never trust what was asked for.** Phase 2 already does
+   this — `openedOtherwise` carries the differences between the seat asked for
+   and the one that opened. Keep it: a run reported as Opus that was served
+   something else invalidates everything downstream of it. *(Phase 2, done.)*
+6. **Every run leaves evidence without being asked.** Each run writes what was
+   seated, what was held, every approval answered and what came back
+   (`meta.json`, `approvals.jsonl`, `result.md`). After a write run the
+   approvals file is the only way to audit what it was allowed to do. That is the
+   evidence ledger and the Seat record, in miniature. *(Phases 4, 9.)*
+7. **Context is finite, and it is the real limit on task size.** Codex's window
+   is 258,400 tokens, and one review of a 97 KB diff reached 63% of it in a
+   single turn, because every tool call re-sends the whole context. Work that
+   does not fit gets compacted and redone, which costs more than sizing it right.
+   A Goal's budget must be expressed in something the agent actually runs out of.
+   *(Phases 7, 11.)*
+8. **The reviewer is never the writer's vendor.** Two models from one vendor
+   share blind spots. On this branch a Claude review of Codex's own fix found a
+   claimed red-first proof that was not one, and a security test that had quietly
+   moved below the validator it was there to test — neither visible by reading,
+   only by re-running the mutations. A shape that lets one agent write and
+   approve its own work is a shape that ships that. *(Phases 6, 10.)*
+9. **A shared thing refuses rather than clobbers.** Two hosts on one state
+   directory are two writers on one set of rooms: last write wins and the other
+   disappears. The driver answers that question from the running processes
+   instead of guessing, and refuses to close a desk while another session's run
+   is in flight. Every place two Goals, two flows or two machines can meet needs
+   the same answer. *(Phases 5, 8.)*
+10. **A failure must name itself.** Measured on 2026-09-18: an expired sign-in
+    surfaced as *"Internal error"* on the first turn rather than as a refusal
+    saying the credential had expired, and a model missing from a cast meant a
+    stale binary rather than a typo. A refusal a person cannot act on costs a
+    debugging session each time it is hit. *(Phases 2, 3 — the refusal is a
+    sentence with a fix, rule 1.)*
 
 ## The phases
 
