@@ -65,6 +65,23 @@ test('the reasoning row answers the keys of a vertical menu', async ({ page }) =
   await expect.poll(() => modelControl(page).evaluate((node) => `${node.textContent} ${node.title}`)).toContain('Low')
 })
 
+test('→ has stepped in by the next frame, so a key pressed straight after it lands in the flyout', async ({ page }) => {
+  // Seen in CI: the step-in waited a frame, and a ← pressed straight after →
+  // reached the row first and was lost. Too early is wrong as well — before
+  // Base UI lists the flyout's rows, its ↓ has nowhere to go on from.
+  await openFromTheKeyboard(page)
+  const atNextFrame = await reasoningRow(page).evaluate((node) => {
+    const next = new Promise<string>((resolve) =>
+      requestAnimationFrame(() => resolve(document.activeElement?.textContent ?? '')),
+    )
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    return next
+  })
+  expect(atNextFrame).toMatch(/^Low/)
+  await page.keyboard.press('ArrowDown')
+  await expect(level(page, /^Medium/)).toBeFocused()
+})
+
 test('Escape after pointing into the flyout gives the row back to the keyboard', async ({ page }) => {
   await openFromTheKeyboard(page)
   const row = (await reasoningRow(page).boundingBox())!

@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -277,7 +278,7 @@ export const Submenu = ({
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
   const row = useRef<HTMLButtonElement>(null)
-  const flyout = useRef<HTMLDivElement>(null)
+  const flyout = useRef<HTMLDivElement | null>(null)
   const closedBy = useRef<string | null>(null)
   const [open, setOpen] = useState(false)
   const stepIn = useRef(false)
@@ -310,24 +311,43 @@ export const Submenu = ({
     inert: left to fall out of it, focus landed on the Popover's own panel,
     which takes back focus that drops to the page, and the row was lost.
   */
-  useEffect(() => {
-    if (!open || !stepIn.current) return
+  // → steps onto the flyout's first row just after the commit that draws
+  // it, in which Base UI lists its rows for ↑ and ↓ — and before a key
+  // pressed after → can reach the row: waiting a frame, a slow machine let
+  // that key in first, and it was lost.
+  const land = useCallback((): boolean => {
+    const rows = flyout.current?.querySelectorAll<HTMLElement>(FIRST_ROW) ?? []
+    const first = [...rows].find((candidate) => !passedOver(candidate))
+    if (!first) return false
     stepIn.current = false
+    // A flyout that took the focus itself — a filter field — keeps it.
+    if (document.activeElement === row.current) first.focus({ preventScroll: true })
+    return true
+  }, [])
+  // The flyout is drawn a commit after it opens, its rows with it...
+  const placeFlyout = useCallback(
+    (node: HTMLDivElement | null) => {
+      flyout.current = node
+      if (!node || !stepIn.current) return
+      queueMicrotask(() => {
+        if (stepIn.current) land()
+      })
+    },
+    [land],
+  )
+  // ...unless it opened again while still going, and is drawn already. Rows
+  // that come later still are waited for, three frames at most.
+  useLayoutEffect(() => {
+    if (!open || !stepIn.current) return
     let frame = 0
     let waited = 0
-    const land = (): void => {
-      const rows = flyout.current?.querySelectorAll<HTMLElement>(FIRST_ROW) ?? []
-      const first = [...rows].find((candidate) => !passedOver(candidate))
-      if (!first) {
-        if (waited++ < 3) frame = requestAnimationFrame(land)
-        return
-      }
-      // A flyout that took the focus itself — a filter field — keeps it.
-      if (document.activeElement === row.current) first.focus({ preventScroll: true })
+    const retry = (): void => {
+      if (!stepIn.current || land()) return
+      if (waited++ < 3) frame = requestAnimationFrame(retry)
     }
-    land()
+    queueMicrotask(retry)
     return () => cancelAnimationFrame(frame)
-  }, [open])
+  }, [open, land])
   return (
     <DropdownMenuSub
       onOpenChange={(next, details) => {
@@ -396,7 +416,7 @@ export const Submenu = ({
           a side and slid into the window, the flyout lies across the row
           itself, and the pointer reaches it without leaving the row. */}
       <DropdownMenuSubContent
-        ref={flyout}
+        ref={placeFlyout}
         className={styles.flyout}
         style={width ? { width } : undefined}
         collisionAvoidance={{ fallbackAxisSide: 'none' }}
