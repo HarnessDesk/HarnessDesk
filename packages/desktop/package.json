@@ -22,7 +22,7 @@
     "dist:notarized": "node script/preflight-notarize.mjs && electron-builder --mac --publish never -c.mac.notarize=true && node script/staple-dmgs.mjs"
   },
   "devDependencies": {
-    "electron": "^42.11.1",
+    "electron": "^42.11.3",
     "electron-builder": "^26.8.1"
   },
   "dependencies": {
