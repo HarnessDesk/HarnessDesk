@@ -498,7 +498,7 @@ export class AgentDirectory {
   readonly which?: (command: string) => string | null | Promise<string | null>
       /** The public ACP registry; without one, its requests say so. */
       readonly registry?: Pick<AcpRegistry, 'catalog' | 'resolve' | 'uninstall'> &
-        Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion' | 'cachedIds' | 'cachedAgents'>>
+        Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion' | 'cachedAgents'>>
       /**
        * Every copy of an agent on this machine, and which one answers. With
        * it, a template says which copy it found and a registry entry whose
@@ -557,22 +557,19 @@ export class AgentDirectory {
   }
 
   /**
-   * Whether the public registry lists an agent by this id, as it was last
-   * fetched: its cached document, never the network (`AcpRegistry.cachedIds`).
-   * False when this host reads no registry, or has nothing cached from one.
+   * The public registry's ids and the names it gave them, together, in the
+   * document it last fetched — its cached copy, never the network
+   * (`AcpRegistry.cachedAgents`), one read for both questions a caller judging
+   * an id it has not added asks: is it listed at all (`.has`), and what does
+   * it call it (`.get`). Two separate reads — one for "is it listed", another
+   * for "what is it called" — could straddle a refetch between them and give
+   * one candidate a fix from one document and a name from another; a caller
+   * that needs both takes one snapshot and asks it both questions. Empty when
+   * this host reads no registry, or has nothing cached from one.
    */
-  registryLists(id: string): boolean {
-    return this.options.registry?.cachedIds?.().has(id) ?? false
-  }
-
-  /**
-   * The name the public registry gave this id in the document it last
-   * fetched, or null: this host reads no registry, has nothing cached from
-   * one, or that document does not list the id. Cache only, on the same terms
-   * as `registryLists`.
-   */
-  registryNameOf(id: string): string | null {
-    return this.options.registry?.cachedAgents?.().find((agent) => agent.id === id)?.name ?? null
+  registryNames(): ReadonlyMap<string, string> {
+    const agents = this.options.registry?.cachedAgents?.() ?? []
+    return new Map(agents.map((agent) => [agent.id, agent.name] as const))
   }
 
   /** The catalogue, computed against what is on this machine right now. */

@@ -151,8 +151,8 @@ export type SeatReason =
   | { readonly kind: 'unknownRuntime' }
   /**
    * It cannot be seated right now: its health is not ready — too old, crashed,
-   * still starting — or asking for its account failed. In its own words, or
-   * the failure's.
+   * still starting — or asking for its health, or its account, failed
+   * outright. In its own words, or the failure's.
    */
   | { readonly kind: 'unavailable'; readonly detail: string }
   /** Asked whether it is signed in, it did not answer within `after` milliseconds, and was not waited for. */

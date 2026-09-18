@@ -1557,6 +1557,12 @@ export interface HostMethods {
    * same deadline; one read of the desk serves every Agent asked about. `ids`
    * absent is every Agent in force, in the roster's order; an id nobody
    * defined is answered with why, never dropped.
+   *
+   * "Opening nothing" is about conversations: none is opened for any Agent
+   * named here, and none is named either. Learning an ACP agent's models for
+   * the first time in this process is not a conversation, but it is not free:
+   * it starts that agent's own hidden probe once, the same one a real seating
+   * or the model picker would have started to answer the same question.
    */
   'agent/seat/dry': {
     params: { readonly ids?: readonly string[]; readonly project?: string }

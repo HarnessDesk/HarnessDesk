@@ -71,11 +71,14 @@ export interface SeatOffer {
   /**
    * Why it cannot be seated right now, and absent when nothing says so: its
    * health when that is not ready — too old, crashed, still starting — in its
-   * own words, or the failure that came back when its account was asked for.
-   * Not installed is not this: that is either no offer at all, or one that
-   * says so itself (`notInstalled`). Nor is a runtime that answered nothing
-   * (`silent`) — that is silence, not a reason. When it is set, the rest of
-   * the offer is not consulted, and need not have been read.
+   * own words, or the failure that came back when its health, or its account,
+   * was asked for outright (a runtime whose own read of either throws is
+   * offered this, in the words the failure came back with, rather than
+   * failing the whole desk's read). Not installed is not this: that is either
+   * no offer at all, or one that says so itself (`notInstalled`). Nor is a
+   * runtime that answered nothing (`silent`) — that is silence, not a reason.
+   * When it is set, the rest of the offer is not consulted, and need not have
+   * been read.
    */
   readonly unavailable?: string | null
   /**

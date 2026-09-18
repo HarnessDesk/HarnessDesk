@@ -1,12 +1,14 @@
 import { isAbsolute } from 'node:path'
 
 import {
+  BriefNotHandedOverError,
   isBlocked,
   SeatRefusedError,
   type AgentEntry,
   type AgentRuntime,
   type FlowSeat,
   type ModelInfo,
+  type RuntimeHealth,
   type UsageReport,
 } from '@harnessdesk/protocol'
 
@@ -15,6 +17,7 @@ import {
   blockedPlan,
   candidateOf,
   chooseSeat,
+  describeSeat,
   differencesOf,
   effortWord,
   explainRefusal,
@@ -26,7 +29,6 @@ import {
   type SeatOffer,
   type SeatWords,
 } from '../agent-seating.js'
-import { seatSpec } from '../flow.js'
 import type { OpenedSeat } from '../host.js'
 import { knownAgent } from '../installs/known-agents.js'
 import { SEAT_READ_DEADLINE_MS, within } from '../seat-reads.js'
@@ -55,6 +57,13 @@ export const agentMethods = {
    * nothing. The desk is read once for every runtime any of them names — the
    * same reads, and the same deadline, as a real seating — so a menu listing
    * ten Agents asks each runtime once, not ten times.
+   *
+   * "Opens nothing" means no conversation, for any Agent named here, and
+   * names none either. It does not mean nothing runs: an ACP agent that has
+   * never declared its models yet, in this process, has that answered by
+   * `catalogueOf` → `knownModels`, which starts the agent's own hidden probe
+   * once to learn it (`adapter-acp/src/runtime.ts`) — the same probe a real
+   * seating or the model picker would have started to ask the same question.
    */
   'agent/seat/dry': async (ctx, params) => {
     const roster = await ctx.agents.list(await projectOf(ctx, params.project))
@@ -64,7 +73,7 @@ export const agentMethods = {
       ctx,
       entries.flatMap(({ entry }) => entry?.definition?.prefer ?? []),
     )
-    const words = wordsFor(ctx, desk.catalogues)
+    const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     return entries.map(({ id, entry }) => {
       if (!entry) return blockedPlan(id, `No Agent called “${id}”.`)
       if (!entry.definition || entry.digest === null) return blockedPlan(id, unusable(entry))
@@ -133,7 +142,7 @@ export const agentMethods = {
     const candidates = params.seats?.length ? params.seats : definition.prefer
     const desk = await readDesk(ctx, candidates)
     const offers = desk.offers
-    const words = wordsFor(ctx, desk.catalogues)
+    const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     const said = (list: readonly PassedOver[]) => list.map((one) => candidateOf(one, words))
     const passed: PassedOver[] = []
     for (let rest = candidates; ; ) {
@@ -153,8 +162,12 @@ export const agentMethods = {
         await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
       } catch (error) {
         await ctx.seats.retire(opened.runtime, opened.sessionId)
-        throw new Error(
-          `${definition.name} was seated on ${seatSpec(seat)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
+        // In the seat's own words, never its spec (`SeatCandidate.seat`'s "never
+        // shown" applies here too) — and its own code, the way `SeatRefusedError`
+        // carries one, so a surface can tell this apart from a refusal it never
+        // opened anything for.
+        throw new BriefNotHandedOverError(
+          `${definition.name} was seated on ${describeSeat(seat, words)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
         )
       }
       return ctx.seats.recordAgent(opened.runtime, opened.sessionId, {
@@ -202,27 +215,35 @@ const unusable = (entry: AgentEntry): string => {
 }
 
 /**
+ * A registry snapshot's name for an id, worth showing: never blank or
+ * whitespace, and null both when the id is not there and when the name it
+ * gave it is nothing a label should start with.
+ */
+const registryNameIn = (names: ReadonlyMap<string, string>, id: string): string | null =>
+  names.get(id)?.trim() || null
+
+/**
  * The words a seat is said in here. A runtime added to the desk by the name
  * it presents; one that is not, by the name the desk knows it by
- * (`knownAgent`), or, failing that, the name the public registry gave it in
- * the document it last fetched; and one neither names, by its id, which is
- * the last word left. A model and an effort by the labels its runtime
- * answered with, where it answered.
+ * (`knownAgent`), or, failing that, the name `registryNames` gives it —
+ * `readDesk`'s own snapshot of the public registry (`desk.registryNames`),
+ * the same one `couldAdd` already judged the id against, so a name is never
+ * read from a fresher document than the fix was; and one neither names, by
+ * its id, which is the last word left. A model and an effort by the labels
+ * its runtime answered with, where it answered.
  */
-const wordsFor = (ctx: HostContext, catalogues: ReadonlyMap<string, readonly ModelInfo[]>): SeatWords => {
+const wordsFor = (
+  ctx: HostContext,
+  catalogues: ReadonlyMap<string, readonly ModelInfo[]>,
+  registryNames: ReadonlyMap<string, string> = new Map(),
+): SeatWords => {
   const model = (runtime: string, id: string | null | undefined) =>
     id ? catalogues.get(runtime)?.find((one) => one.id === id) : undefined
-  // Read at most once per id this call meets, however many candidates name it.
-  const registryNames = new Map<string, string | null>()
-  const registryName = (id: string): string | null => {
-    if (!registryNames.has(id)) registryNames.set(id, ctx.options.agents?.registryNameOf(id) ?? null)
-    return registryNames.get(id) ?? null
-  }
   return {
     runtime: (id) => {
       const runtime = ctx.runtimes.get(id)
       if (runtime) return ctx.runtimes.infoOf(runtime).presentation.name
-      return knownAgent(id)?.name ?? registryName(id) ?? id
+      return knownAgent(id)?.name ?? registryNameIn(registryNames, id) ?? id
     },
     model: (runtime, id) => model(runtime, id)?.displayName ?? id,
     effort: (runtime, id, effort) =>
@@ -274,6 +295,14 @@ interface Desk {
   readonly offers: readonly SeatOffer[]
   /** Each runtime's models as it named them, where the list was read — for the words, not the choice. */
   readonly catalogues: ReadonlyMap<string, readonly ModelInfo[]>
+  /**
+   * The public registry's ids and names, from the one cache read this call
+   * made to judge an id neither added nor known — empty when nothing here
+   * ever needed one. Carried so `wordsFor` names a candidate from the same
+   * document `couldAdd` judged it against, never a second, possibly fresher,
+   * read of the same cache.
+   */
+  readonly registryNames: ReadonlyMap<string, string>
 }
 
 /**
@@ -306,6 +335,20 @@ interface Desk {
 export const readDesk = async (ctx: HostContext, candidates: readonly FlowSeat[]): Promise<Desk> => {
   const ids = [...new Set(candidates.map((one) => one.runtime))]
   const runtimes: AgentRuntime[] = []
+  /*
+   * The registry snapshot `couldAdd` and, later, `wordsFor` both judge an id
+   * against — read at most once per call, lazily, the first time this loop
+   * meets an id that is neither added nor `knownAgent`. Two separate reads of
+   * the cache, one here and another when the plan is named, could straddle a
+   * refetch between them and give one candidate a fix from one document and a
+   * name from another; this call reads it once and both questions are put to
+   * that one answer.
+   */
+  let registryNames: ReadonlyMap<string, string> | null = null
+  const registrySnapshot = (): ReadonlyMap<string, string> => {
+    registryNames ??= ctx.options.agents?.registryNames() ?? new Map()
+    return registryNames
+  }
   // An id this desk has not added but could, and one it could not add at
   // all, are not the same refusal — the first is fixed by adding it, the
   // second only by fixing the seats that name it — so which of the two an id
@@ -315,11 +358,11 @@ export const readDesk = async (ctx: HostContext, candidates: readonly FlowSeat[]
     const runtime = ctx.runtimes.get(id)
     if (runtime) {
       runtimes.push(runtime)
-    } else if (!couldAdd(ctx, id)) {
+    } else if (!couldAdd(id, registrySnapshot)) {
       unknown.push({ runtime: id, unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false })
     }
   }
-  if (runtimes.length === 0) return { offers: unknown, catalogues: new Map() }
+  if (runtimes.length === 0) return { offers: unknown, catalogues: new Map(), registryNames: registryNames ?? new Map() }
   const deadline = seatReadDeadline(ctx)
   // Started, not yet awaited: usage is read for every runtime at once, and
   // waiting for it here before a single account or model read even begins is
@@ -339,20 +382,24 @@ export const readDesk = async (ctx: HostContext, candidates: readonly FlowSeat[]
   return {
     offers: [...settled.map((one) => one.offer), ...unknown],
     catalogues: new Map(settled.flatMap((one) => (one.catalogue ? [[one.offer.runtime, one.catalogue] as const] : []))),
+    registryNames: registryNames ?? new Map(),
   }
 }
 
 /**
  * Whether an id this desk has not added is one it could add: an agent the
- * desk knows how to run (`knownAgent`), or one the public registry lists as
- * it was last fetched (`AgentDirectory.registryLists`) — what Settings ›
- * Runtimes offers to add. The registry is read from its cache and never
- * fetched for this: every read a seating makes before it chooses is held to
- * the seating's deadline, and a fetch would not be. With nothing cached, the
+ * desk knows how to run (`knownAgent`), or one `registryNames` — the given
+ * snapshot of the public registry, as it was last fetched — lists. What
+ * Settings › Runtimes offers to add. `registryNames` is read only when
+ * `knownAgent` does not already answer, so a candidate this desk knows of its
+ * own accord never touches the registry cache at all; the snapshot itself is
+ * `readDesk`'s own, read from the cache and never fetched for this (see
+ * `readDesk`): every read a seating makes before it chooses is held to the
+ * seating's deadline, and a fetch would not be. With nothing cached, the
  * desk's own list decides alone.
  */
-const couldAdd = (ctx: HostContext, id: string): boolean =>
-  knownAgent(id) !== undefined || ctx.options.agents?.registryLists(id) === true
+const couldAdd = (id: string, registryNames: () => ReadonlyMap<string, string>): boolean =>
+  knownAgent(id) !== undefined || registryNames().has(id)
 
 /** `seatReadDeadlineMs`, held to a deadline a real timer can use: finite and positive, or the default. */
 const seatReadDeadline = (ctx: HostContext): number => {
@@ -402,10 +449,19 @@ export const offerOf = async (
   deadline: number,
 ): Promise<{ readonly offer: SeatOffer; readonly catalogue: readonly ModelInfo[] | null }> => {
   const id = String(runtime.info.id)
-  const health = runtime.health()
   // Nothing else is read about a runtime that cannot open a conversation; the chooser stops at why.
   const unread = { models: null, efforts: null, signedIn: false, spent: false }
   const only = (offer: SeatOffer) => ({ offer, catalogue: null })
+  let health: RuntimeHealth
+  try {
+    health = runtime.health()
+  } catch (error) {
+    // A runtime that cannot even say whether it is ready is passed over with
+    // that said — the same as one that answered "unavailable" itself — and
+    // not a reason for every other candidate's own read to go unanswered:
+    // one runtime's read failing must not blank the whole desk's plan.
+    return only({ runtime: id, unavailable: messageOf(error), ...unread })
+  }
   /* Added, and its program is missing. Offered with that said rather than
      dropped: a runtime nobody added is fixed by adding it, and this one by
      installing what it runs, and only an offer can carry the difference. */

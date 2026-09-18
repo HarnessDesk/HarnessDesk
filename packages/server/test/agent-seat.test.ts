@@ -577,6 +577,8 @@ interface Pretend {
   readonly accountHangs?: boolean
   /** Asked for its models, it never answers. */
   readonly modelsHang?: boolean
+  /** Bumped every time this runtime's account is read, so a test can count how many times a dry run or a seating asked it. */
+  readonly asks?: { account: number }
 }
 
 const pretendRuntime = (id: string, pretend: Pretend) => {
@@ -594,6 +596,7 @@ const pretendRuntime = (id: string, pretend: Pretend) => {
       return pretend.health ?? { state: 'ready' }
     },
     getAccount: async () => {
+      if (pretend.asks) pretend.asks.account += 1
       if (pretend.accountHangs) return new Promise<never>(() => {})
       if (pretend.accountFails) throw new Error('the account endpoint timed out')
       return { accounts: pretend.signedOut ? [] : [{ kind: 'apiKey', label: 'key' }], signInMethods: [] }
@@ -1014,11 +1017,20 @@ test("a conversation that could not be opened is refused in the runtime's words"
   untouched(seen)
 })
 
-test('a brief that could not be handed over closes the conversation, and nothing is recorded', async () => {
+test('a brief that could not be handed over closes the conversation, is refused with its own code, and nothing is recorded', async () => {
   const seen = await rig('claude=opus-5/high', undefined, { orderFails: 'Claude is not running.' })
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
-    /Reviewer was seated on claude=opus-5\/high, and its brief could not be handed over, so the conversation was closed: Claude is not running\./,
+    (error: Error & { wireCode?: string }) => {
+      assert.equal(error.wireCode, 'briefNotHandedOver')
+      // In the seat's own words, "claude · opus-5 · High" — never its spec,
+      // "claude=opus-5/high", which no surface may render.
+      assert.equal(
+        error.message,
+        'Reviewer was seated on claude · opus-5 · High, and its brief could not be handed over, so the conversation was closed: Claude is not running.',
+      )
+      return true
+    },
   )
   assert.deepEqual(seen.retired, ['claude s1'])
   assert.deepEqual(seen.recorded, [])
@@ -1032,7 +1044,7 @@ test('a brief that could not be handed over stops the seating there: no later se
   })
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
-    /Reviewer was seated on claude=opus-5\/high, and its brief could not be handed over, so the conversation was closed: Claude is not running\./,
+    /Reviewer was seated on claude · opus-5 · High, and its brief could not be handed over, so the conversation was closed: Claude is not running\./,
   )
   assert.equal(seen.created.length, 1)
   assert.deepEqual(seen.retired, ['claude s1'])
@@ -1175,17 +1187,21 @@ test('beside a runtime this desk has, an id nothing could add is still its own r
 
 /**
  * The desk's agent registry, and the public registry behind it as a desk
- * holds it: the document it last fetched, listing these ids, cached under the
- * state directory — or nothing cached at all. The cached copy is stale to the
- * registry the seating is given, so anything that asked it for its document
- * would go to the network; the network fails, and every time it is asked is
- * counted.
+ * holds it: the document it last fetched, listing these ids — each under the
+ * name a test gives it, or its id when a test names only the id — cached
+ * under the state directory, or nothing cached at all when `listed` is null.
+ * The cached copy is stale to the registry the seating is given, so anything
+ * that asked it for its document would go to the network; the network fails,
+ * and every time it is asked is counted.
  */
-const withRegistry = async (listed: readonly string[] | null) => {
+const withRegistry = async (listed: readonly (string | { readonly id: string; readonly name: string })[] | null) => {
   const stateDir = tempDir('hd-agent-seat-registry-')
   if (listed) {
     // Fetched once, as listing the registry in Settings › Runtimes fetches it, and cached.
-    const agents = listed.map((id) => ({ id, name: id, version: '1.0.0', distribution: { npx: { package: `${id}@1.0.0` } } }))
+    const agents = listed.map((one) => {
+      const { id, name } = typeof one === 'string' ? { id: one, name: one } : one
+      return { id, name, version: '1.0.0', distribution: { npx: { package: `${id}@1.0.0` } } }
+    })
     await new AcpRegistry({ stateDir, fetchJson: async () => ({ agents }), which: () => null }).catalog(() => false)
   }
   const fetched: string[] = []
@@ -1357,6 +1373,8 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
   assert.equal(session.settings?.permission, 'read')
+  assert.equal(session.settings?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(session.settings?.passedOver, [])
 
   const opened = seats.opened[0]
   assert.ok(opened)
@@ -1368,10 +1386,14 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.equal(opened.closed, false)
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'every window is told')
   assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
+  assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
 
   // The runtime re-announces its settings whole — a model change does — and
   // has never heard of the Agent. The record stands, in the host and in what
-  // every window is sent.
+  // every window is sent — seatLabel and passedOver survive it exactly as
+  // agent, briefDigest and permission do, not only the three fields Task 5
+  // first laid over settings.
   await client.call('session/options/set', {
     runtime: 'seatfake',
     sessionId: session.id,
@@ -1382,11 +1404,15 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
   assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
+  assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
   const held = harness.host.registry.get(runtimeId('seatfake'), session.id)?.session.settings
   assert.equal(held?.model, 'small')
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
   assert.equal(held?.permission, 'read')
+  assert.equal(held?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(held?.passedOver, [])
 })
 
 test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {
@@ -1444,6 +1470,41 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   assert.equal(held?.permission, undefined)
 })
 
+test('a renderer cannot overwrite what an already-seated conversation is recorded as, either', async (t) => {
+  const { harness, client, work } = await desk(t)
+  const source = await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  assert.equal(session.settings?.agent, 'reviewer')
+
+  // A patch naming every field the host holds, each with a forged value — the
+  // same attack the test above makes on a conversation never seated, made
+  // here on one that really is.
+  await client.call('session/settings', {
+    runtime: 'seatfake',
+    sessionId: session.id,
+    patch: {
+      model: 'small',
+      agent: 'forged',
+      briefDigest: 'forged',
+      permission: 'merge',
+      seatLabel: 'forged',
+      passedOver: [],
+    },
+  })
+  await client.until(() => settingsSeen(client, String(session.id))?.model === 'small', 5_000, 'the patch lands')
+  assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'the real Agent, not the forged one')
+  assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
+  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read', 'the real permission, never the forged one')
+  assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
+  const held = harness.host.registry.get(runtimeId('seatfake'), session.id)?.session.settings
+  assert.equal(held?.agent, 'reviewer')
+  assert.equal(held?.briefDigest, digestOf(source))
+  assert.equal(held?.permission, 'read')
+  assert.equal(held?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(held?.passedOver, [])
+})
+
 test('the wire refuses a grant that is no permission, and more seats than an Agent may prefer', async (t) => {
   const { harness, seats, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=big/high')
@@ -1478,9 +1539,16 @@ test('the wire refuses a grant that is no permission, and more seats than an Age
  */
 
 test('a seat that runs another effort than asked is closed, and the next candidate the Agent named is seated', async () => {
-  const seen = await rig('claude=opus-5/high, claude=sonnet-5/high', { claude: { models: ['opus-5', 'sonnet-5'] } }, {
-    comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}),
-  })
+  const seen = await rig(
+    'claude=opus-5/high, claude=sonnet-5/high',
+    { claude: { models: ['opus-5', 'sonnet-5'] } },
+    {
+      comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}),
+      // The candidate passed over once open was discarded, and its runtime
+      // could not delete it — so it carries what was left of it too.
+      leaves: () => ({ kind: 'kept', archived: 'here' }),
+    },
+  )
   const session = await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.deepEqual(seen.created, [
     { runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' },
@@ -1502,6 +1570,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
           runtimeName: 'claude',
           state: 'passed',
           reason: { kind: 'openedOtherwise', differences: [{ field: 'effort', asked: 'high', running: 'medium' }] },
+          left: { kind: 'kept', archived: 'here' },
           fix: { kind: 'seats' },
         },
       ],
@@ -1875,35 +1944,33 @@ test('usage and the per-runtime reads run concurrently: one deadline settles bot
   )
 })
 
-test('a read that throws does not answer the call while the others still run behind it', async (t) => {
-  // `broken` fails at once; mute's account read and the usage read are still
-  // out, each on a timer. Answering now would leave both running behind a
-  // call that had already returned.
+test('a runtime whose health throws is passed over as unavailable, in its own words, and the others still get their full reads', async (t) => {
+  // `broken` fails at once, and is passed over there and then — one throwing
+  // read must not blank the whole desk's plan. mute's account read and the
+  // usage read are still out, each on a timer, and the call does not answer
+  // until both have settled too: `broken` resolving early must not let
+  // either outlive the call.
   const seen = await rig(
     'broken=m1, mute=m1',
     { broken: { models: ['m1'], healthThrows: 'the bridge went away' }, mute: { models: ['m1'], accountHangs: true } },
     { deadlineMs: 150, usageHangs: true },
   )
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  let outcome = 'pending'
+  let answered: readonly SeatOffer[] | undefined
   void readDesk(seen.ctx, [
     { runtime: 'broken', model: 'm1', thinking: false },
     { runtime: 'mute', model: 'm1', thinking: false },
-  ]).then(
-    () => {
-      outcome = 'answered'
-    },
-    (error: Error) => {
-      outcome = `failed: ${error.message}`
-    },
-  )
+  ]).then((desk) => {
+    answered = desk.offers
+  })
   await flush()
-  assert.equal(outcome, 'pending', 'broken has failed, and the other reads are still out')
+  assert.equal(answered, undefined, "mute's read and the usage read are still out")
   t.mock.timers.tick(150)
   await flush()
-  // The failure is still the answer, once everything it set off has settled —
-  // the usage read included, which said so before the call answered.
-  assert.equal(outcome, 'failed: the bridge went away')
+  assert.deepEqual(answered, [
+    { runtime: 'broken', unavailable: 'the bridge went away', models: null, efforts: null, signedIn: false, spent: false },
+    { runtime: 'mute', silent: 150, models: null, efforts: null, signedIn: false, spent: false },
+  ])
   assert.deepEqual(seen.warned, [
     ['a seating read no usage within its deadline, so the last readings stand in', { afterMs: 150 }],
   ])
@@ -2619,26 +2686,65 @@ test('through the host: a dry run opens nothing, and says each seat in the words
 /*
  * A runtime this desk has not added is named by what it can still find of it:
  * the desk's own name for a runtime it has added and knows; failing that, the
- * name the public registry gave it in the document it last fetched; and only
- * once neither names it, its bare id.
+ * name `knownAgent` gives it; failing that, the name the public registry gave
+ * it in the document it last fetched; and only once nothing names it, its
+ * bare id.
  */
 
-test('a runtime this desk has not added, and does not know, is named as the public registry names it — its id only when nothing does', async () => {
-  const stateDir = tempDir('hd-agent-seat-registry-name-')
-  const agents = [
-    { id: 'listed', name: 'Listed Agent', version: '1.0.0', distribution: { npx: { package: 'listed@1.0.0' } } },
-  ]
-  // Fetched once while the network was there, and cached — exactly as listing
-  // the registry in Settings › Runtimes fetches and caches it.
-  await new AcpRegistry({ stateDir, fetchJson: async () => ({ agents }), which: () => null }).catalog(() => false)
-  const registry = new AcpRegistry({
-    stateDir,
-    freshMs: 0,
-    fetchJson: async () => {
-      throw new Error('the network is not there')
+test('a runtime this desk has not added, but knows of, is named as it knows it — not its id', async () => {
+  // `devin` is a runtime known-agents.ts names but this desk has not added.
+  const seen = await rig('devin=m1, claude=opus-5', { claude: { name: 'Claude', models: ['opus-5'] } })
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(
+    plans[0]?.candidates.map((one) => [one.seat.runtime, one.runtimeName]),
+    [
+      ['devin', knownAgent('devin')?.name],
+      ['claude', 'Claude'],
+    ],
+  )
+  assert.equal(knownAgent('devin')?.name, 'Devin', 'the assertion above is only meaningful if this holds')
+  untouched(seen)
+})
+
+test('a runtime this desk has not added, and does not know, is named as the public registry names it — its id only when nothing does, and a registry-listed id is fixed by add', async () => {
+  const { directory } = await withRegistry([{ id: 'listed', name: 'Listed Agent' }])
+  const seen = await rig('listed=m1, praxis=m1', {}, { directory })
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(
+    plans[0]?.candidates.map((one) => [one.seat.runtime, one.runtimeName, one.fix?.kind ?? null]),
+    [
+      ['listed', 'Listed Agent', 'add'],
+      ['praxis', 'praxis', 'seats'],
+    ],
+  )
+  untouched(seen)
+})
+
+test('a registry name that is blank or only whitespace is not shown — the id is the last word left, not " · "', async () => {
+  const { directory } = await withRegistry([{ id: 'blank', name: '   ' }])
+  const seen = await rig('blank=m1', {}, { directory })
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(plans[0]?.candidates.map((one) => [one.runtimeName, one.label]), [['blank', 'blank · m1']])
+})
+
+test('a dry run over several Agents naming several unknown or registry ids reads the registry cache once', async () => {
+  const reads = { count: 0 }
+  const registry = {
+    catalog: async (): Promise<never> => {
+      throw new Error('not read in this test')
     },
-    which: () => null,
-  })
+    resolve: async (): Promise<never> => {
+      throw new Error('not read in this test')
+    },
+    uninstall: (): void => {
+      throw new Error('not read in this test')
+    },
+    cachedAgents: () => {
+      reads.count += 1
+      return [{ id: 'listed', name: 'Listed Agent', version: '1.0.0', distribution: { npx: { package: 'listed@1.0.0' } } }]
+    },
+  }
+  const stateDir = tempDir('hd-agent-seat-registry-count-')
   const directory = new AgentDirectory({
     store: new AgentRegistryStore(join(stateDir, 'agents.json')),
     build: () => {
@@ -2648,14 +2754,23 @@ test('a runtime this desk has not added, and does not know, is named as the publ
     registry,
   })
   const seen = await rig('listed=m1, praxis=m1', {}, { directory })
-  const plans = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
-  assert.deepEqual(
-    plans[0]?.candidates.map((one) => [one.seat.runtime, one.runtimeName]),
-    [
-      ['listed', 'Listed Agent'],
-      ['praxis', 'praxis'],
-    ],
-  )
+  await mkdir(join(seen.root, 'user', 'second'), { recursive: true })
+  await writeFile(join(seen.root, 'user', 'second', 'AGENT.md'), agentFile('listed=m1, other=m1'), 'utf8')
+
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, {})
+  assert.deepEqual(plans.map((one) => one.id), ['reviewer', 'second'])
+  assert.equal(reads.count, 1, 'one read of the cache named every unknown and registry id across both Agents')
+})
+
+test('one dry run serving several Agents asks each runtime once, not once per Agent', async () => {
+  const asks = { account: 0 }
+  const seen = await rig('claude=opus-5', { claude: { name: 'Claude', models: ['opus-5'], asks } })
+  await mkdir(join(seen.root, 'user', 'second'), { recursive: true })
+  await writeFile(join(seen.root, 'user', 'second', 'AGENT.md'), agentFile('claude=opus-5'), 'utf8')
+
+  const plans = await agentMethods['agent/seat/dry'](seen.ctx, {})
+  assert.deepEqual(plans.map((one) => one.id), ['reviewer', 'second'])
+  assert.equal(asks.account, 1, "claude's account was read once, for both Agents' plans at once")
 })
 
 /*
