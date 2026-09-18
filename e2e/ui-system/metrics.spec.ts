@@ -43,9 +43,41 @@ const UPDATE = process.env.UPDATE_METRICS === '1'
  * already correctly sized both times. A rig that cannot reproduce its own
  * numbers cannot hold anyone else's.
  *
- * So: the fonts, then a fingerprint of what the cascade is currently saying,
- * polled until it repeats. Faces are part of it because a fallback face
- * changes measured heights, not only glyphs.
+ * On 2026-09-17 the same shape came back on a different component, on a cold
+ * GitHub Actions runner only: `Stat`'s outer box, like `IconTile` before it,
+ * takes its type size purely by inheritance — nothing on it sets a `text-*`
+ * utility — and it read 16px against a recorded 14px, again with its box
+ * already the right height. The serving side turned out not to be the
+ * culprit here: this rig's dev server (`@tailwindcss/vite` over Vite) hands
+ * the whole cascade over as one `<style>` tag per navigation, not patched in
+ * place afterward, so `document.styleSheets.length` alone wasn't actually
+ * stale — a local cold-restart repro never caught it moving either. What a
+ * `body`-shaped fingerprint cannot rule out is a *descendant* lagging its
+ * ancestor: proving `body` itself has the right font tells you nothing about
+ * whether some already-painted node several inheritance hops away has been
+ * recomputed against it yet, which is exactly the gap a busy, CPU-starved
+ * runner can open. So the fingerprint below now also samples the actual
+ * cases the caller is about to measure — the same elements, the same
+ * property — because settling on what you are about to read is the only
+ * version of this check that cannot be one frame ahead of itself. The
+ * stylesheet signal is kept but strengthened anyway, from a sheet count to
+ * each sheet's own rule count, since a sheet whose rules are replaced in
+ * place (a CSS-module hot update, elsewhere in this pipeline) would pass the
+ * old count-only check without ever having stopped changing.
+ *
+ * Review on that fix (PR #767) found the loop below still exited as soon as
+ * any two consecutive samples matched, which a richer fingerprint cannot fix
+ * on its own: a value that has not changed *yet* is not a value that will
+ * not change, and two samples one frame apart only rule out the first kind.
+ * The reviewer's own repro made this concrete — a case starting at 16px
+ * whose real, 14px stylesheet lands 100ms later read as "settled" at 16px
+ * after 18ms, because nothing had changed in the one frame gap the old loop
+ * happened to check. So settling is no longer "the last two samples agree";
+ * it is "no sample has disagreed for a real stretch of wall-clock time",
+ * tracked below by resetting the stability clock on every change and only
+ * returning once it has been quiet for `STABLE_MS`. `settle waits out a
+ * style update that lands after it looked stable` (below) pins this down
+ * with the reviewer's own scenario.
  */
 const settle = async (page: import('@playwright/test').Page) => {
   await page.evaluate(async () => {
@@ -53,18 +85,74 @@ const settle = async (page: import('@playwright/test').Page) => {
     const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     const fingerprint = () => {
       const body = getComputedStyle(document.body)
-      return `${document.styleSheets.length}|${body.fontSize}|${body.fontFamily}|${body.backgroundColor}`
+      const sheets = [...document.styleSheets]
+        .map(sheet => {
+          try {
+            return sheet.cssRules.length
+          } catch {
+            return 'x' // cross-origin sheet: opaque to us, and not one we can wait on anyway
+          }
+        })
+        .join(',')
+      // The exact cases the test is about to read, not a proxy for them —
+      // see above. `document.body` can be settled while one of these still
+      // isn't.
+      const cases = [...document.querySelectorAll('[data-catalog-variant], [data-catalog-size]')]
+        .map(node => getComputedStyle(node).fontSize)
+        .join(',')
+      return `${sheets}|${body.fontSize}|${body.fontFamily}|${body.backgroundColor}|${cases}`
     }
-    let previous = ''
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const current = fingerprint()
-      if (current === previous) return
-      previous = current
+    const STABLE_MS = 300 // comfortably past the 100ms delay the review reproduced
+    const TIMEOUT_MS = 6000
+    const start = performance.now()
+    let previous = fingerprint()
+    let stableSince = start
+    while (true) {
       await frame()
+      const now = performance.now()
+      const current = fingerprint()
+      if (current !== previous) {
+        previous = current
+        stableSince = now
+      } else if (now - stableSince >= STABLE_MS) {
+        return
+      }
+      if (now - start >= TIMEOUT_MS) throw new Error(`stylesheets never settled: ${current}`)
     }
-    throw new Error(`stylesheets never settled: ${fingerprint()}`)
   })
 }
+
+/**
+ * The exact race a reviewer found in `settle()` (see the comment above it):
+ * a case that reads one value, keeps it for a single frame, then changes to
+ * its real value 100ms later. A `settle()` that declares victory on the
+ * first repeated sample reads the page here as 16px; this only passes
+ * against the version that waits out a real stretch of quiet.
+ */
+test('settle waits out a style update that lands after it looked stable', async ({ page }) => {
+  await page.setContent(`
+    <!doctype html>
+    <html>
+      <body>
+        <!-- No inline style: it would out-specificity the stylesheet rule
+             below forever, which would make this fixture pass for the wrong
+             reason. Starting unstyled means the browser's 16px default is
+             the honest stand-in for "before the app's CSS has arrived". -->
+        <div data-catalog-size="probe"></div>
+        <script>
+          setTimeout(() => {
+            const style = document.createElement('style')
+            style.textContent = '[data-catalog-size] { font-size: 14px }'
+            document.head.appendChild(style)
+          }, 100)
+        </script>
+      </body>
+    </html>
+  `)
+  await settle(page)
+  const fontSize = await page.locator('[data-catalog-size]').evaluate(node => getComputedStyle(node).fontSize)
+  expect(fontSize).toBe('14px')
+})
 
 test('every catalogued case composes to the recorded number', async ({ page }, testInfo) => {
   await page.goto('/design.html?view=coverage')
