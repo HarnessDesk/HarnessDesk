@@ -86,6 +86,38 @@ carrying the injected `env_key` as its bearer token. That is what lets
 HarnessDesk route a conversation to another model without ever writing to the
 user's `~/.codex/config.toml`.
 
+## `review-side-thread.mjs`
+
+A review on a side thread without Codex's `"detached"` delivery, which 0.155.0
+deprecates: `thread/start` with the reviewed conversation's settings, then
+`review/start` with `delivery: "inline"` on the new thread. It serves its own
+fake Responses endpoint, so it needs nothing but a `codex` binary.
+
+```bash
+node script/probe/review-side-thread.mjs --codex <path to codex>
+```
+
+Every check is a call the Codex adapter makes, or something it relies on, so
+running it against the oldest supported Codex (`MINIMUM_CODEX_VERSION`, 0.145.0)
+and the newest says whether both take the route. Expect `15/15 checks passed`.
+Measured on 0.145.0 and 0.155.0:
+
+- the review's items and its `turn/completed` carry the turn `review/start`
+  answered with, and Codex never announces that turn: the only `turn/started`
+  is the reviewer sub-agent's, under another id, after the review's first
+  item — which is why the adapter opens a review's turn itself
+  (`packages/adapter-codex/src/review-turns.ts`);
+- `turn/interrupt` naming the review's own turn is refused ("expected active
+  turn id … but found …"); naming the reviewer's stops the review, which then
+  ends under its own turn, `interrupted`;
+- a thread with no turn is not listed, named or not.
+
+The last lines are the control, a detached review on the same app-server:
+0.145.0 takes it silently; 0.155.0 sends the `deprecationNotice` and then
+refuses it — "paginated threads do not support detached review" — because
+every thread 0.155.0 starts has paginated history. `--shapes` prints the
+review's notifications whole, the shapes the Codex fixture copies.
+
 ## Re-checking the wire constraint
 
 ```bash
