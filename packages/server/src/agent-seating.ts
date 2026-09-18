@@ -41,8 +41,9 @@ import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
  * What this machine can seat on one runtime, right now. One per runtime — the
  * first that names a runtime is the one read — with that runtime's accounts
  * folded into it by the caller. A runtime this desk could add but has not is
- * the one case with no offer at all; one whose id this desk recognises
- * nothing by still gets an offer, so it can say which (`unknownRuntime`).
+ * the one case with no offer at all; an id that names no runtime on this
+ * desk, and none the desk could add, still gets an offer, so it can say which
+ * (`unknownRuntime`).
  */
 export interface SeatOffer {
   /** The runtime's id, as a seat spec names it: `cursor`, `claude`. */
@@ -55,20 +56,22 @@ export interface SeatOffer {
    */
   readonly notInstalled?: boolean
   /**
-   * The id names no runtime this desk has ever heard of — not a real runtime
-   * left unadded, which is no offer at all, but a spelling nothing
-   * recognises (`prefer: [claude]`, where the real id is `claude-code`). When
-   * it is set the rest of the offer is not consulted, and need not have been
-   * read.
+   * No runtime by this id is on this desk, and none by it can be added:
+   * neither the agents the desk knows how to run nor the public registry, as
+   * last fetched, lists it. Not a runtime left unadded, which is no offer at
+   * all, but a spelling neither list has (`prefer: [claude]`, where the id is
+   * `claude-code`). When it is set the rest of the offer is not consulted,
+   * and need not have been read.
    */
   readonly unknownRuntime?: boolean
   /**
-   * Why it cannot open a conversation right now, in its own words — too old,
-   * crashed, still starting — or absent when it can. Not installed is not
-   * this: that is either no offer at all, or one that says so itself
-   * (`notInstalled`). Nor is a runtime that answered nothing (`silent`) —
-   * that is silence, not a reason. When it is set, the rest of the offer is
-   * not consulted, and need not have been read.
+   * Why it cannot be seated right now, and absent when nothing says so: its
+   * health when that is not ready — too old, crashed, still starting — in its
+   * own words, or the failure that came back when its account was asked for.
+   * Not installed is not this: that is either no offer at all, or one that
+   * says so itself (`notInstalled`). Nor is a runtime that answered nothing
+   * (`silent`) — that is silence, not a reason. When it is set, the rest of
+   * the offer is not consulted, and need not have been read.
    */
   readonly unavailable?: string | null
   /**
@@ -91,7 +94,7 @@ export interface SeatOffer {
    * Efforts, on the same terms as `models`: `high`, not `High`. **Null means
    * not knowable before seating** — a runtime declares its efforts per
    * session, so asking would mean opening one — and a candidate that names an
-   * effort is let through to be held to it once it is open (`differences`).
+   * effort is let through to be held to it once it is open (`differencesOf`).
    */
   readonly efforts: readonly string[] | null
   readonly signedIn: boolean
@@ -159,10 +162,12 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): Sea
 }
 
 /**
- * One `SeatDifference`, worded exactly as `differences` has always worded it
- * — the one place that joins them is `sentenceOf`, below, not each caller.
+ * One `SeatDifference` as a phrase of the host's sentence: the field, what
+ * runs, and what was asked — `on model m2, not m1` — with the runtime's own
+ * words for a switch that will not move, where it gave them. The one place a
+ * difference is worded; `sentenceOf` joins the phrases, and nothing else does.
  */
-const fragmentOf = (difference: SeatDifference): string => {
+export const fragmentOf = (difference: SeatDifference): string => {
   switch (difference.field) {
     case 'model':
       return difference.running === null
@@ -191,7 +196,7 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
     case 'notInstalled':
       return `${runtime} is not installed`
     case 'unknownRuntime':
-      return `${runtime} does not name a runtime this desk knows`
+      return `${runtime} is not a runtime on this desk, and none by that name can be added`
     case 'unavailable':
       return `${runtime} is unavailable: ${reason.detail}`
     case 'noAnswer':
@@ -218,7 +223,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
  * install it, sign in, look at what is wrong with it), its usage, or this
  * machine's seats for the Agent — the last being the answer whenever the seat
  * names something that is not a real choice here: a model or an effort the
- * runtime does not do, or a runtime id that does not exist at all.
+ * runtime does not do, or a runtime that is not on this desk and cannot be
+ * added to it.
  */
 export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
   switch (reason.kind) {
@@ -330,8 +336,13 @@ export const runningOf = (options: readonly ConfigOption[], settings: SessionSet
 }
 
 /**
- * Where what opened differs from the seat that was asked for, a phrase each
- * naming the field, what was asked and what runs; empty when it is the seat.
+ * Where what opened differs from the seat that was asked for, as facts: one
+ * per field that differs, naming the field, what was asked and what runs;
+ * empty when it is the seat. The one place that decides what counts as a
+ * difference. A refusal carries these on its reason, for a surface to word,
+ * and the host's own sentence is built from them (`sentenceOf`, `fragmentOf`)
+ * — never decided a second time — so the fact and the sentence cannot drift
+ * apart.
  *
  * Model and effort are compared only when the seat names them, exactly, as the
  * chooser compares them. Thinking is compared either way, because a seat says
@@ -344,49 +355,10 @@ export const runningOf = (options: readonly ConfigOption[], settings: SessionSet
  * seat that asked for thinking on a model that cannot is refused, and so is
  * one that asked for it *off* on a model that always thinks — `+thinking` is
  * the only switch a spec writes, so an explicit `false` comes from a seating's
- * own `seats`, and is exactly as much a thing asked for as `true` is.
- */
-export const differences = (asked: FlowSeat, running: SeatRunning): string[] => {
-  const found: string[] = []
-  if (asked.model && running.model !== asked.model) {
-    found.push(
-      running.model === null
-        ? `on no model it would name, not ${asked.model}`
-        : `on model ${running.model}, not ${asked.model}`,
-    )
-  }
-  if (asked.effort && running.effort !== asked.effort) {
-    found.push(
-      running.effort === null
-        ? `with no effort setting, not at ${asked.effort} effort`
-        : `at ${running.effort} effort, not ${asked.effort}`,
-    )
-  }
-  const why = running.thinkingFixed ? ` (${quoted(running.thinkingFixed)})` : ''
-  if (asked.thinking === true && !running.thinking) {
-    found.push(`without thinking, which was asked for${why}`)
-  }
-  if (asked.thinking === false && running.thinking) {
-    found.push(`with thinking on, which was asked to be off${why}`)
-  }
-  if (asked.thinking === undefined && running.thinking && running.thinkingFixed === null) {
-    found.push('with thinking on, which was not asked for and would not turn off')
-  }
-  return found
-}
-
-/**
- * The same facts as `differences`, structured for a surface instead of
- * spelled out for the host's own sentence: which field, what was asked, what
- * runs, and — thinking only — the runtime's own words for why it will not
- * move, when it gave one (`SeatDifference.fixed`).
- *
- * The one helper that decides what counts as a difference; `sentenceOf`
- * builds the host's sentence from its output rather than from `differences`
- * again, so the two can never drift apart. Kept apart from `differences`
- * itself only because that function's callers, and its own tests, read a
- * prose fragment already joined to the runtime's quoted words — the one
- * thing this structured form must not carry (AGENTS.md rule 8).
+ * own `seats`, and is exactly as much a thing asked for as `true` is. Where the
+ * runtime said why its switch will not move, its words travel with the
+ * difference (`SeatDifference.fixed`), fitted to one line, for the sentence to
+ * quote.
  */
 export const differencesOf = (asked: FlowSeat, running: SeatRunning): SeatDifference[] => {
   const found: SeatDifference[] = []

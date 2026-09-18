@@ -38,10 +38,13 @@ import {
   type UserContent,
 } from '@harnessdesk/protocol'
 
-import { fixOf, reasonAgainst, type SeatRunning } from '../src/agent-seating.js'
+import { AcpRegistry } from '../src/acp-registry.js'
+import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
+import { chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
 import { Agents } from '../src/agents.js'
 import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
 import type { OpenedSeat } from '../src/host.js'
+import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, offersFor } from '../src/methods/agents.js'
 import type { SeatedAs } from '../src/registry.js'
@@ -455,6 +458,8 @@ interface Pretend {
    */
   readonly modelsUnknown?: boolean
   readonly health?: RuntimeHealth
+  /** Asked for its health, it throws rather than answering: a read that fails outright, not one that is late. */
+  readonly healthThrows?: string
   /** Signed in to nothing. */
   readonly signedOut?: boolean
   /** The account would not answer. */
@@ -476,7 +481,10 @@ const pretendRuntime = (id: string, pretend: Pretend) => {
   }))
   return {
     info: { id: runtimeId(id), capabilities: { account: pretend.keepsOwnAccount !== true } },
-    health: (): RuntimeHealth => pretend.health ?? { state: 'ready' },
+    health: (): RuntimeHealth => {
+      if (pretend.healthThrows) throw new Error(pretend.healthThrows)
+      return pretend.health ?? { state: 'ready' }
+    },
     getAccount: async () => {
       if (pretend.accountHangs) return new Promise<never>(() => {})
       if (pretend.accountFails) throw new Error('the account endpoint timed out')
@@ -527,6 +535,8 @@ const rig = async (
     readonly unmetered?: readonly string[]
     /** What a discarded seat leaves behind, per runtime; nothing unless a test says so. */
     readonly leaves?: (runtime: string) => SeatLeft | null
+    /** The desk's writable agent registry, with the public registry behind it; none unless a test gives one. */
+    readonly directory?: AgentDirectory
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -537,7 +547,9 @@ const rig = async (
   const roster = new Agents({ user, builtin: join(root, 'builtin') })
 
   const created: { runtime: string; model?: string; cwd: string }[] = []
-  const warned: string[] = []
+  /* What the host logged, with the details beside each line: a detail left
+     out is as much a regression as a line left out. */
+  const warned: [string, unknown][] = []
   const titles: string[] = []
   const ordered: string[] = []
   const retired: string[] = []
@@ -570,8 +582,8 @@ const rig = async (
       infoOf: (runtime: { info: unknown }) => runtime.info,
       metered: () => [...runtimes.values()].filter((runtime) => !(options.unmetered ?? []).includes(String(runtime.info.id))),
     },
-    options: { seatReadDeadlineMs: options.deadlineMs ?? 1_000 },
-    logger: { warn: (message: string) => warned.push(message) },
+    options: { seatReadDeadlineMs: options.deadlineMs ?? 1_000, ...(options.directory ? { agents: options.directory } : {}) },
+    logger: { warn: (message: string, details?: unknown) => warned.push([message, details]) },
     usage: () => ({
       reports: async () => {
         if (options.usageHangs) return new Promise<never>(() => {})
@@ -986,20 +998,21 @@ test('each thing the desk knows before opening is its own reason, read from the 
 
 /*
  * `offersFor` decides, for every candidate id this desk has not added, which
- * fix a refusal can honestly offer: *Add* it, when the id names a real
- * runtime (`known-agents.ts`) simply not on this desk yet; or send the reader
- * back to the seats themselves, when nothing recognises the id at all — the
- * `prefer: [claude]` mistake, where the real id is `claude-code`.
+ * fix a refusal can honestly offer: *Add* it, when the id is one the desk
+ * could add — an agent it knows how to run (`known-agents.ts`), or one the
+ * public registry lists in the copy the desk last fetched — or send the
+ * reader back to the seats themselves, when neither lists it: the
+ * `prefer: [claude]` mistake, where the id is `claude-code`.
  */
 
-test('offersFor tells an id nothing knows apart from one the desk could still add', async () => {
+test('offersFor tells an id nothing could add apart from one the desk could still add', async () => {
   const { ctx } = await rig('cursor=m1', {})
   const offers = await offersFor(ctx, [
     { runtime: 'cursor', thinking: false }, // a real runtime (known-agents.ts) — just not added to this desk
-    { runtime: 'claude', thinking: false }, // the spec's own spelling; the real id is claude-code
+    { runtime: 'claude', thinking: false }, // the spec's own spelling; the id is claude-code
   ])
-  // The known-but-unadded id gets no offer at all — exactly as before this
-  // fix — and only the id nothing recognises gets one, marked apart.
+  // The known-but-unadded id gets no offer at all, and only the id nothing
+  // could add gets one, marked apart.
   assert.deepEqual(offers, [
     { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
   ])
@@ -1007,6 +1020,136 @@ test('offersFor tells an id nothing knows apart from one the desk could still ad
   assert.deepEqual(fixOf('cursor', { kind: 'notInstalled', added: false }), { kind: 'add', runtime: 'cursor' })
   assert.deepEqual(reasonAgainst({ runtime: 'claude', thinking: false }, offers), { kind: 'unknownRuntime' })
   assert.deepEqual(fixOf('claude', { kind: 'unknownRuntime' }), { kind: 'seats' })
+})
+
+/** Each candidate passed over, with its reason and what removes it. */
+const fixesFor = (candidates: readonly FlowSeat[], offers: readonly SeatOffer[]) =>
+  chooseSeat(candidates, offers).passed.map((one) => [one.seat.runtime, one.reason, fixOf(one.seat.runtime, one.reason)])
+
+test('beside a runtime this desk has, an id nothing could add is still its own reason — the path a real desk takes', async () => {
+  // A real desk always has a runtime added — Codex, by the wiring — so a
+  // seating there reads offers for it, and the ids nothing could add are
+  // answered beside them, not instead of them as on the empty desk above.
+  const seen = await rig('claude=opus-5, codex=gpt-5.5', { codex: { models: ['gpt-5.5'], signedOut: true } })
+  const candidates: FlowSeat[] = [
+    { runtime: 'claude', model: 'opus-5', thinking: false },
+    { runtime: 'codex', model: 'gpt-5.5', thinking: false },
+  ]
+  const offers = await offersFor(seen.ctx, candidates)
+  assert.deepEqual(offers, [
+    { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false },
+    { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
+  ])
+  assert.deepEqual(fixesFor(candidates, offers), [
+    ['claude', { kind: 'unknownRuntime' }, { kind: 'seats' }],
+    ['codex', { kind: 'signedOut' }, { kind: 'signIn', runtime: 'codex' }],
+  ])
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        [
+          'No seat could be opened for this Agent:',
+          '  claude=opus-5 — claude is not a runtime on this desk, and none by that name can be added',
+          '  codex=gpt-5.5 — codex is signed out',
+        ].join('\n'),
+      )
+      return true
+    },
+  )
+  untouched(seen)
+})
+
+/**
+ * The desk's agent registry, and the public registry behind it as a desk
+ * holds it: the document it last fetched, listing these ids, cached under the
+ * state directory — or nothing cached at all. The cached copy is stale to the
+ * registry the seating is given, so anything that asked it for its document
+ * would go to the network; the network fails, and every time it is asked is
+ * counted.
+ */
+const withRegistry = async (listed: readonly string[] | null) => {
+  const stateDir = tempDir('hd-agent-seat-registry-')
+  if (listed) {
+    // Fetched once, as listing the registry in Settings › Runtimes fetches it, and cached.
+    const agents = listed.map((id) => ({ id, name: id, version: '1.0.0', distribution: { npx: { package: `${id}@1.0.0` } } }))
+    await new AcpRegistry({ stateDir, fetchJson: async () => ({ agents }), which: () => null }).catalog(() => false)
+  }
+  const fetched: string[] = []
+  const registry = new AcpRegistry({
+    stateDir,
+    freshMs: 0,
+    fetchJson: async (url) => {
+      fetched.push(url)
+      throw new Error('the network is not there')
+    },
+    which: () => null,
+  })
+  const directory = new AgentDirectory({
+    store: new AgentRegistryStore(join(stateDir, 'agents.json')),
+    build: () => {
+      throw new Error('nothing is added in these tests')
+    },
+    usageFor: () => null,
+    registry,
+  })
+  return { directory, fetched }
+}
+
+test('an id only the public registry lists is one the desk could add, read from its cached copy — and never fetched', async () => {
+  const { directory, fetched } = await withRegistry(['listed'])
+  const seen = await rig('listed=m1, praxis=m1, codex=gpt-5.5', { codex: { models: ['gpt-5.5'], signedOut: true } }, { directory })
+  // Not an agent this desk knows how to run; only the registry's document names it.
+  assert.equal(knownAgent('listed'), undefined)
+  const candidates: FlowSeat[] = [
+    { runtime: 'listed', model: 'm1', thinking: false },
+    { runtime: 'praxis', model: 'm1', thinking: false },
+    { runtime: 'codex', model: 'gpt-5.5', thinking: false },
+  ]
+  const offers = await offersFor(seen.ctx, candidates)
+  assert.deepEqual(fixesFor(candidates, offers), [
+    ['listed', { kind: 'notInstalled', added: false }, { kind: 'add', runtime: 'listed' }],
+    ['praxis', { kind: 'unknownRuntime' }, { kind: 'seats' }],
+    ['codex', { kind: 'signedOut' }, { kind: 'signIn', runtime: 'codex' }],
+  ])
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        [
+          'No seat could be opened for this Agent:',
+          '  listed=m1 — listed is not installed',
+          '  praxis=m1 — praxis is not a runtime on this desk, and none by that name can be added',
+          '  codex=gpt-5.5 — codex is signed out',
+        ].join('\n'),
+      )
+      return true
+    },
+  )
+  untouched(seen)
+  // The cached copy is long stale, so asking the registry for its document
+  // would have gone to the network. Read for the offers and again for the
+  // seating, and nothing did.
+  assert.deepEqual(fetched, [])
+})
+
+test('with nothing cached from the registry, the agents the desk knows decide alone — and still nothing is fetched', async () => {
+  const { directory, fetched } = await withRegistry(null)
+  const seen = await rig('listed=m1, devin=m1, codex=gpt-5.5', { codex: { models: ['gpt-5.5'] } }, { directory })
+  const candidates: FlowSeat[] = [
+    { runtime: 'listed', model: 'm1', thinking: false },
+    { runtime: 'devin', model: 'm1', thinking: false },
+    { runtime: 'codex', model: 'gpt-5.5', thinking: false },
+  ]
+  assert.deepEqual(fixesFor(candidates, await offersFor(seen.ctx, candidates)), [
+    ['listed', { kind: 'unknownRuntime' }, { kind: 'seats' }],
+    ['devin', { kind: 'notInstalled', added: false }, { kind: 'add', runtime: 'devin' }],
+  ])
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'codex', model: 'gpt-5.5', cwd: '/tmp/x' }])
+  assert.deepEqual(fetched, [])
 })
 
 /*
@@ -1548,14 +1691,61 @@ test('when the only candidate never answers, the refusal says so and nothing is 
   untouched(seen)
 })
 
-test('usage and the per-runtime reads run concurrently: the wait is bounded by the slower one, not their sum', async () => {
-  // Both usage and mute's own account read hang to their deadline. Stacked
-  // in front of each other that is 2x the deadline; run at once, about 1x.
+/** Every promise already able to settle has, and whatever it set off after itself has run. */
+const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+test('usage and the per-runtime reads run concurrently: one deadline settles both, not one after the other', async (t) => {
+  // Usage and mute's own account read both hang to their deadline. Run at
+  // once, both timers start together and one deadline settles the call.
+  // Stacked, the account read's timer would not even start until usage had
+  // settled, and the call would still be waiting when the first ran out.
   const seen = await rig('mute=m1', { mute: { models: ['m1'], accountHangs: true } }, { deadlineMs: 150, usageHangs: true })
-  const started = Date.now()
-  await offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }])
-  const took = Date.now() - started
-  assert.ok(took < 260, `offersFor took ${took} ms for a 150 ms deadline — usage was waited for before the read even began`)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let answered: readonly SeatOffer[] | undefined
+  void offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }]).then((offers) => {
+    answered = offers
+  })
+  t.mock.timers.tick(150)
+  await flush()
+  assert.deepEqual(
+    answered,
+    [{ runtime: 'mute', silent: 150, models: null, efforts: null, signedIn: false, spent: false }],
+    'one deadline in, the call has answered',
+  )
+})
+
+test('a read that throws does not answer the call while the others still run behind it', async (t) => {
+  // `broken` fails at once; mute's account read and the usage read are still
+  // out, each on a timer. Answering now would leave both running behind a
+  // call that had already returned.
+  const seen = await rig(
+    'broken=m1, mute=m1',
+    { broken: { models: ['m1'], healthThrows: 'the bridge went away' }, mute: { models: ['m1'], accountHangs: true } },
+    { deadlineMs: 150, usageHangs: true },
+  )
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let outcome = 'pending'
+  void offersFor(seen.ctx, [
+    { runtime: 'broken', model: 'm1', thinking: false },
+    { runtime: 'mute', model: 'm1', thinking: false },
+  ]).then(
+    () => {
+      outcome = 'answered'
+    },
+    (error: Error) => {
+      outcome = `failed: ${error.message}`
+    },
+  )
+  await flush()
+  assert.equal(outcome, 'pending', 'broken has failed, and the other reads are still out')
+  t.mock.timers.tick(150)
+  await flush()
+  // The failure is still the answer, once everything it set off has settled —
+  // the usage read included, which said so before the call answered.
+  assert.equal(outcome, 'failed: the bridge went away')
+  assert.deepEqual(seen.warned, [
+    ['a seating read no usage within its deadline, so the last readings stand in', { afterMs: 150 }],
+  ])
 })
 
 test('a seatReadDeadlineMs that is not a real deadline falls back to the ten-second default', async (t) => {
@@ -1563,9 +1753,15 @@ test('a seatReadDeadlineMs that is not a real deadline falls back to the ten-sec
   // alone would pass it straight through to a real timer.
   const seen = await rig('mute=m1', { mute: { models: ['m1'], accountHangs: true } }, { deadlineMs: -5 })
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const offers = offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }])
+  // Read once the clock has moved, not awaited: a call still waiting then is
+  // a failure to report, not a test to hang on.
+  let answered: readonly SeatOffer[] | undefined
+  void offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }]).then((offers) => {
+    answered = offers
+  })
   t.mock.timers.tick(SEAT_READ_DEADLINE_MS)
-  assert.deepEqual(await offers, [
+  await flush()
+  assert.deepEqual(answered, [
     { runtime: 'mute', silent: SEAT_READ_DEADLINE_MS, models: null, efforts: null, signedIn: false, spent: false },
   ])
 })
@@ -1591,7 +1787,9 @@ test('usage that never arrives holds no seating: the last reading stands in, and
   await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
   // Spent by the last reading, so passed over; claude has no reading, so is not known to be spent.
   assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
-  assert.deepEqual(seen.warned, ['a seating read no usage within its deadline, so the last readings stand in'])
+  assert.deepEqual(seen.warned, [
+    ['a seating read no usage within its deadline, so the last readings stand in', { afterMs: 30 }],
+  ])
 })
 
 test('usage that fails outright holds no seating either: the last reading stands in, and the log names the failure', async () => {
@@ -1602,8 +1800,10 @@ test('usage that fails outright holds no seating either: the last reading stands
   )
   await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
-  // A distinct message from the "late" branch above: this one failed outright.
-  assert.deepEqual(seen.warned, ['a seating could not read usage, so the last readings stand in'])
+  // A distinct message from the "late" branch above, naming the failure: this one failed outright.
+  assert.deepEqual(seen.warned, [
+    ['a seating could not read usage, so the last readings stand in', { error: 'Error: the usage endpoint timed out' }],
+  ])
 })
 
 test('a runtime whose usage is switched off is not passed over as spent from an old reading', async () => {

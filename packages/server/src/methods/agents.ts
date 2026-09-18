@@ -185,13 +185,16 @@ const openAsAsked = async (
  * What this desk can seat on each runtime the candidates name, read from the
  * desk itself — never assumed, and never a failed read passed off as an answer.
  *
- * - **Installed** is the runtime registry: a runtime this desk has added, with
- *   its program on this machine, is read below for what it offers; one this
- *   desk could add but has not gets no offer at all; one whose id names no
- *   runtime this desk has ever heard of gets an offer that says so, rather
- *   than being read as though it could still be added (`knownAgent`).
+ * - **Installed** is the runtime registry. A runtime this desk has added, with
+ *   its program on this machine, is read below for what it offers; one added
+ *   whose program is not on this machine gets an offer that says so
+ *   (`notInstalled`), and nothing more of it is read. An id this desk has not
+ *   added gets no offer at all when it could be added (`couldAdd`), and an
+ *   offer that says so when it could not (`unknownRuntime`) — never read as
+ *   though adding it would help.
  * - **Unavailable** is its own health when that is not ready — too old,
- *   crashed, still starting — in its own words.
+ *   crashed, still starting — in its own words; or, when asking for its
+ *   account failed outright, that failure, in the words it came back with.
  * - **Silent** is its account not answering within the deadline: nothing else
  *   about the runtime is read, and it is not waited for past it.
  * - **Signed in** is the accounts plane: an account on it, or an agent that keeps
@@ -208,17 +211,16 @@ const openAsAsked = async (
 export const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[]): Promise<SeatOffer[]> => {
   const ids = [...new Set(candidates.map((one) => one.runtime))]
   const runtimes: AgentRuntime[] = []
-  // Nothing this desk has added and nothing it has ever heard of are not the
-  // same refusal — the first is fixed by adding it, the second only by
-  // fixing the seats that named it — but both are "no runtime by this id can
-  // be asked" until a candidate for it is actually checked, so both are
-  // decided here, once, rather than at every candidate that names the id.
+  // An id this desk has not added but could, and one it could not add at
+  // all, are not the same refusal — the first is fixed by adding it, the
+  // second only by fixing the seats that name it — so which of the two an id
+  // is gets decided here, once, rather than at every candidate naming it.
   const unknown: SeatOffer[] = []
   for (const id of ids) {
     const runtime = ctx.runtimes.get(id)
     if (runtime) {
       runtimes.push(runtime)
-    } else if (!knownAgent(id)) {
+    } else if (!couldAdd(ctx, id)) {
       unknown.push({ runtime: id, unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false })
     }
   }
@@ -228,16 +230,30 @@ export const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[
   // waiting for it here before a single account or model read even begins is
   // exactly the wait this deadline exists to bound. `offerOf` awaits it only
   // once it actually needs `reports`, near the end of its own reads, so the
-  // two run concurrently; the explicit await below is what still guarantees
-  // this call does not return — and leave its timer running behind it — before
-  // the usage read has settled one way or the other.
+  // two run concurrently.
   const reports = usageWithin(ctx, runtimes, deadline)
-  const [offers] = await Promise.all([
-    Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline))),
-    reports,
-  ])
-  return [...offers, ...unknown]
+  const offers = runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline))
+  // Every read settles before anything is answered, a failure included.
+  // `Promise.all` gives up at the first read that throws, and this call would
+  // then return with the usage read, and every other runtime's reads, still
+  // running behind it — each on a timer of its own.
+  for (const read of await Promise.allSettled([reports, ...offers])) {
+    if (read.status === 'rejected') throw read.reason
+  }
+  return [...(await Promise.all(offers)), ...unknown]
 }
+
+/**
+ * Whether an id this desk has not added is one it could add: an agent the
+ * desk knows how to run (`knownAgent`), or one the public registry lists as
+ * it was last fetched (`AgentDirectory.registryLists`) — what Settings ›
+ * Runtimes offers to add. The registry is read from its cache and never
+ * fetched for this: every read a seating makes before it chooses is held to
+ * the seating's deadline, and a fetch would not be. With nothing cached, the
+ * desk's own list decides alone.
+ */
+const couldAdd = (ctx: HostContext, id: string): boolean =>
+  knownAgent(id) !== undefined || ctx.options.agents?.registryLists(id) === true
 
 /** `seatReadDeadlineMs`, held to a deadline a real timer can use: finite and positive, or the default. */
 const seatReadDeadline = (ctx: HostContext): number => {

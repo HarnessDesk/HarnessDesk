@@ -177,6 +177,34 @@ test('no cache and no network is an honest empty list', async (t) => {
   assert.match(catalog.unavailable ?? '', /could not be reached/)
 })
 
+test('the cached ids are the last document fetched, however old, and never the network', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  let fetches = 0
+  // Every cached copy is stale to this client: anything that wanted the
+  // document itself would go to the network, and the network is not there.
+  const offline = (url?: string) =>
+    new AcpRegistry({
+      stateDir: dir,
+      ...(url ? { url } : {}),
+      freshMs: 0,
+      fetchJson: async () => {
+        fetches += 1
+        throw new Error('offline')
+      },
+      which: async () => null,
+    })
+
+  assert.deepEqual([...offline().cachedIds()], [], 'nothing cached is nothing listed')
+  // Fetched once while the network was there, and cached.
+  await new AcpRegistry({ stateDir: dir, fetchJson: async () => DOCUMENT, which: async () => null }).catalog(() => false)
+  // The malformed entry is no agent here either, as it is none in the listing.
+  assert.deepEqual([...offline().cachedIds()], ['npx-agent', 'uvx-agent', 'binary-agent', 'verified-agent'])
+  // What was cached from another registry is not this one's document.
+  assert.deepEqual([...offline('https://registry.example.test/registry.json').cachedIds()], [])
+  assert.equal(fetches, 0, 'nothing went to the network to answer')
+})
+
 test('a package-runner entry resolves to its runner, provenance and all', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))

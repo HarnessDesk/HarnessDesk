@@ -385,6 +385,20 @@ export class AcpRegistry {
     }
   }
 
+  /**
+   * The ids the document listed when it was last fetched: the cache on disk,
+   * fresh or stale, and never the network — none when nothing is cached.
+   *
+   * For a caller that must answer now. A seating asks whether an id it cannot
+   * seat is one the desk could still add, and every read it makes before it
+   * chooses is held to its deadline, which a fetch would not be. Last week's
+   * list says whether an agent exists as well as today's does.
+   */
+  cachedIds(): ReadonlySet<string> {
+    const cached = this.#readCache()
+    return new Set(cached ? parseRegistryDocument(cached.document).map((agent) => agent.id) : [])
+  }
+
   /** One entry as the document declares it, or null. No download, no side effect. */
   async describe(id: string): Promise<RegistryAgent | null> {
     const { agents } = await this.#document()

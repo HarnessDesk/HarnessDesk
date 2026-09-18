@@ -137,13 +137,21 @@ export interface SeatDifference {
 export type SeatReason =
   /**
    * No runtime by this id can be asked. `added` false: nothing by that id is
-   * added to the desk. `added` true: it is added, and the program it runs is
-   * not on this machine. One sentence, two fixes.
+   * added to the desk, and one could be. `added` true: it is added, and the
+   * program it runs is not on this machine. One sentence, two fixes.
    */
   | { readonly kind: 'notInstalled'; readonly added: boolean }
-  /** The id names no runtime this desk has ever heard of — not merely absent, as a real id nobody added would be. */
+  /**
+   * No runtime by this id is on this desk, and none by it can be added:
+   * neither the agents the desk knows how to run nor the public registry, as
+   * last fetched, lists it. Not merely absent, as an id that could be added is.
+   */
   | { readonly kind: 'unknownRuntime' }
-  /** It cannot open a conversation right now — too old, crashed, still starting — in its own words. */
+  /**
+   * It cannot be seated right now: its health is not ready — too old, crashed,
+   * still starting — or asking for its account failed. In its own words, or
+   * the failure's.
+   */
   | { readonly kind: 'unavailable'; readonly detail: string }
   /** Asked whether it is signed in, it did not answer within `after` milliseconds, and was not waited for. */
   | { readonly kind: 'noAnswer'; readonly after: number }
@@ -173,7 +181,11 @@ export type SeatFix =
   | { readonly kind: 'usage'; readonly runtime: string }
   /** Something about the runtime itself: its page in Settings › Runtimes. */
   | { readonly kind: 'runtime'; readonly runtime: string }
-  /** The seat asks for what this runtime does not do here: this Mac's seats for the Agent. */
+  /**
+   * The seat asks for what cannot be had here — a model or an effort its
+   * runtime does not do, or a runtime that is not on this desk and cannot be
+   * added to it (`unknownRuntime`): this Mac's seats for the Agent.
+   */
   | { readonly kind: 'seats' }
 
 /**

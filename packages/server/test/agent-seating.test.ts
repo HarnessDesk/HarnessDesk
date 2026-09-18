@@ -5,11 +5,11 @@ import type { ConfigOption, FlowSeat } from '@harnessdesk/protocol'
 
 import {
   chooseSeat,
-  differences,
   differencesOf,
   durationWords,
   explainRefusal,
   fixOf,
+  fragmentOf,
   openedOtherwise,
   passedFor,
   reasonAgainst,
@@ -273,55 +273,62 @@ const running = (over: Partial<SeatRunning> = {}): SeatRunning => ({
   ...over,
 })
 
+/**
+ * What differs, a phrase each, as a refusal words it: what `differencesOf`
+ * decides, in `fragmentOf`'s words — the two halves the host's sentence is
+ * built from, tested as the sentence uses them.
+ */
+const phrases = (asked: FlowSeat, runs: SeatRunning): string[] => differencesOf(asked, runs).map(fragmentOf)
+
 test('an opened seat is held to the model and effort it asked for, and each difference names the field', () => {
   const asked = written('cursor=m1/high')
-  assert.deepEqual(differences(asked, running()), [])
+  assert.deepEqual(phrases(asked, running()), [])
   assert.equal(openedOtherwise(asked, running()), null)
-  assert.deepEqual(differences(asked, running({ model: 'm2' })), ['on model m2, not m1'])
-  assert.deepEqual(differences(asked, running({ model: null })), ['on no model it would name, not m1'])
-  assert.deepEqual(differences(asked, running({ effort: 'medium' })), ['at medium effort, not high'])
-  assert.deepEqual(differences(asked, running({ effort: null })), ['with no effort setting, not at high effort'])
+  assert.deepEqual(phrases(asked, running({ model: 'm2' })), ['on model m2, not m1'])
+  assert.deepEqual(phrases(asked, running({ model: null })), ['on no model it would name, not m1'])
+  assert.deepEqual(phrases(asked, running({ effort: 'medium' })), ['at medium effort, not high'])
+  assert.deepEqual(phrases(asked, running({ effort: null })), ['with no effort setting, not at high effort'])
   assert.equal(
     openedOtherwise(asked, running({ model: 'm2', effort: 'medium' })),
     'cursor runs it on model m2, not m1, and at medium effort, not high',
   )
   // What the seat does not name is not held against it.
-  assert.deepEqual(differences(written('cursor'), running({ model: 'm9', effort: 'low' })), [])
+  assert.deepEqual(phrases(written('cursor'), running({ model: 'm9', effort: 'low' })), [])
 })
 
 test('thinking is held to what the spec says either way, except where the model decides it', () => {
   const thinking = written('cursor=m1/high+thinking')
   const plain = written('cursor=m1/high')
-  assert.deepEqual(differences(thinking, running({ thinking: true })), [])
-  assert.deepEqual(differences(thinking, running({ thinking: false })), ['without thinking, which was asked for'])
+  assert.deepEqual(phrases(thinking, running({ thinking: true })), [])
+  assert.deepEqual(phrases(thinking, running({ thinking: false })), ['without thinking, which was asked for'])
   // Asked on a model that cannot think: refused all the same, in the runtime's words.
   assert.deepEqual(
-    differences(thinking, running({ thinking: false, thinkingFixed: 'M1 has no thinking mode.' })),
+    phrases(thinking, running({ thinking: false, thinkingFixed: 'M1 has no thinking mode.' })),
     ['without thinking, which was asked for (M1 has no thinking mode)'],
   )
   // Not asked, and left on by a switch that would not turn off: that is somebody else's seat.
-  assert.deepEqual(differences(plain, running({ thinking: true })), [
+  assert.deepEqual(phrases(plain, running({ thinking: true })), [
     'with thinking on, which was not asked for and would not turn off',
   ])
   // Not asked, on a model that always thinks: the model asked for, thinking included.
-  assert.deepEqual(differences(plain, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
+  assert.deepEqual(phrases(plain, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
 })
 
 test('a seat that asks for thinking off is held to it — the allowance for a model that always thinks is for silence only', () => {
   // `+thinking` is the only switch the grammar writes, so an explicit `false`
   // comes from a seating's own `seats`, and it is something the caller asked.
   const off: FlowSeat = { runtime: 'cursor', model: 'm1', effort: 'high', thinking: false }
-  assert.deepEqual(differences(off, running({ thinking: false })), [])
-  assert.deepEqual(differences(off, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [
+  assert.deepEqual(phrases(off, running({ thinking: false })), [])
+  assert.deepEqual(phrases(off, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [
     'with thinking on, which was asked to be off (M1 always thinks)',
   ])
-  assert.deepEqual(differences(off, running({ thinking: true })), ['with thinking on, which was asked to be off'])
+  assert.deepEqual(phrases(off, running({ thinking: true })), ['with thinking on, which was asked to be off'])
   assert.equal(
     openedOtherwise(off, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })),
     'cursor runs it with thinking on, which was asked to be off (M1 always thinks)',
   )
   // Said nothing of thinking, on a model that always thinks: still the model asked for.
-  assert.deepEqual(differences(written('cursor=m1/high'), running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
+  assert.deepEqual(phrases(written('cursor=m1/high'), running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
 })
 
 /*
@@ -404,17 +411,22 @@ test('what only an open seat can say is a reason too, worded as the refusal alwa
 })
 
 /*
- * An id that names no runtime at all — `prefer: [claude]`, the spelling the
- * spec itself uses, where the real id is `claude-code` — reads the same "not
- * installed" a reader would expect, but *Add* is a dead end for it: there is
- * nothing to add. It gets its own reason, fixed by editing the seats.
+ * An id that names no runtime on this desk, and none the desk could add —
+ * `prefer: [claude]`, the spelling the spec itself uses, where the id is
+ * `claude-code` — would read the same "not installed" a reader expects, but
+ * *Add* is a dead end for it: there is nothing to add. It gets its own
+ * reason, fixed by editing the seats, and a sentence that claims no more than
+ * that.
  */
 
-test('an id nothing knows is its own reason, fixed by editing the seats — never offered "add"', () => {
+test('an id nothing could add is its own reason, fixed by editing the seats — never offered "add"', () => {
   assert.deepEqual(reasonAgainst(written('praxis'), [offer('praxis', { unknownRuntime: true })]), {
     kind: 'unknownRuntime',
   })
-  assert.equal(sentenceOf('praxis', { kind: 'unknownRuntime' }), 'praxis does not name a runtime this desk knows')
+  assert.equal(
+    sentenceOf('praxis', { kind: 'unknownRuntime' }),
+    'praxis is not a runtime on this desk, and none by that name can be added',
+  )
   assert.deepEqual(fixOf('praxis', { kind: 'unknownRuntime' }), { kind: 'seats' })
 })
 
