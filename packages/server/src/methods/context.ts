@@ -181,7 +181,7 @@ export interface HostContext {
   readonly workspaces: {
     /** Every folder a path may be confined to: open workspaces and live conversations' cwds. */
     openRoots(): string[]
-    /** A repository root the renderer named, confined and made real. */
+    /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
     open(path: string): Promise<HostResult<'workspace/open'>>
     repoOf(cwd: string): Promise<RepoInfo | null>

@@ -24,6 +24,18 @@ import type {
  */
 
 /**
+ * Refuses a path that is not absolute, before anything resolves it.
+ *
+ * `resolve` and `realpath` both read a relative path against the host's working
+ * directory — wherever the app happened to be started — and that is no folder
+ * anybody named. So this has to see the path as it arrived: asked after
+ * resolving, every path is absolute and it never refuses anything.
+ */
+export const assertAbsolute = (path: string): void => {
+  if (!isAbsolute(path)) throw new Error(`${path} is not an absolute path.`)
+}
+
+/**
  * Refuses a path that is not under one of the roots the user has opened.
  *
  * Lexical, on the resolved path: `..` segments are collapsed first, so
@@ -32,7 +44,7 @@ import type {
  * its own side; that is a known limit, not an oversight.
  */
 export const confine = (path: string, roots: readonly string[]): string => {
-  if (!isAbsolute(path)) throw new Error(`${path} is not an absolute path.`)
+  assertAbsolute(path)
   const target = resolve(path)
   const inside = roots.some((root) => {
     const base = resolve(root)
