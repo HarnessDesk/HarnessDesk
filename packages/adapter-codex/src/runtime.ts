@@ -990,7 +990,8 @@ export class CodexRuntime implements AgentRuntime {
    * be read, so one that cannot is opened without them, which its
    * `session/started` already calls unloaded. Nothing reads a fork again on
    * its own, and an empty pane reads as a new conversation, so the person is
-   * told; opening it again from the list reads it.
+   * told what loads it: choosing it in the sidebar, which reads it
+   * (`openSession`), even while it is the conversation on screen.
    */
   async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[]> {
     try {
@@ -1003,7 +1004,7 @@ export class CodexRuntime implements AgentRuntime {
         type: 'notice',
         sessionId: makeSessionId(fork.id),
         level: 'warning',
-        message: 'The branch was made, but its history could not be read yet. Open it again to load it.',
+        message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
       })
       return []
     }

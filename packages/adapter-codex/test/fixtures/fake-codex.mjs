@@ -439,18 +439,28 @@ const unmaterialized = (threadId, what) =>
     ? { code: -32601, message: 'list_turns is not supported yet' }
     : { code: -32600, message: `thread ${threadId} is not materialized yet; ${what} is unavailable before first user message` }
 /**
- * FAKE_CODEX_CHANGE_BETWEEN_LISTINGS=append|revert plays another client
- * writing the thread while it is being read: once per thread, as the items
- * of the whole thread start to be listed — after its turns were — a turn is
- * started (with its items) or the newest one reverted away.
+ * FAKE_CODEX_CHANGE_BETWEEN_LISTINGS plays another client writing the thread
+ * while it is being read, as the items of the whole thread start to be listed
+ * — after its turns were. Once per thread: `append` starts a turn (with its
+ * items), `revert` reverts the newest one away, `grow` gives the newest one
+ * another item. `append-always` starts a turn at every such listing, a
+ * history that never holds still for a read.
  */
 const changedBetweenListings = new Set()
+let lateTurns = 0
 const changeBetweenListings = (threadId, history) => {
   const change = process.env['FAKE_CODEX_CHANGE_BETWEEN_LISTINGS']
-  if (!change || changedBetweenListings.has(threadId)) return
+  if (!change || (change !== 'append-always' && changedBetweenListings.has(threadId))) return
   changedBetweenListings.add(threadId)
-  if (change === 'revert') history.turns = history.turns.slice(0, -1)
-  else history.turns = [...history.turns, pastTurn('turn-late', [asked('late-ask', 'One more thing.'), answered('late-answer', 'Done.')], 1_700_000_900)]
+  if (change === 'revert') {
+    history.turns = history.turns.slice(0, -1)
+  } else if (change === 'grow') {
+    const newest = history.turns.at(-1)
+    history.turns = [...history.turns.slice(0, -1), { ...newest, items: [...newest.items, answered(`${newest.id}-more`, 'And one more thing.')] }]
+  } else {
+    lateTurns += 1
+    history.turns = [...history.turns, pastTurn(`turn-late-${lateTurns}`, [asked(`late-${lateTurns}-ask`, 'One more thing.'), answered(`late-${lateTurns}-answer`, 'Done.')], 1_700_000_900 + lateTurns)]
+  }
 }
 /** FAKE_CODEX_FAIL_TURNS_LISTS=<n> refuses the first n turn listings, as a store that cannot be read does. */
 let turnListingsFailed = 0

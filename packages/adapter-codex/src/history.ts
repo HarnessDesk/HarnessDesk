@@ -70,7 +70,7 @@ const everyPage = async <T>(
   }
 }
 
-/** How many times a paginated history is read before one that keeps moving is taken as it last stood. */
+/** How many times a paginated history is read before one that keeps moving is refused. */
 const READS = 3
 
 /** The id of a thread's newest turn, as Codex lists it now; none for a thread with no turns. */
@@ -94,10 +94,15 @@ const newestTurn = async (server: CodexAppServer, threadId: string): Promise<str
  * Those are two listings, and another client can start a turn, or revert
  * one, between them. The first left its items with no turn to go to; the
  * second left a turn with no items, which Codex no longer holds. Either one
- * moves the thread's newest turn, so that is asked last, and a history whose
- * newest turn is not the one its listing ended on is read again. A turn only
- * gaining items leaves it where it was, and needs no second read. A legacy
- * thread is read whole, in one call.
+ * moves the thread's newest turn, so that is asked after every read, and a
+ * history whose newest turn is not the one its listing ended on is read
+ * again. One still moving after three reads is refused rather than handed
+ * back split, and the refusal is what the caller's fallback is for.
+ *
+ * A turn that only gains items, or finishes, keeps its id and moves nothing.
+ * It is read as the turn listing found it, holding every item the item
+ * listing found: a snapshot of a turn still running, which the next read
+ * brings up to date. A legacy thread is read whole, in one call.
  */
 export const readHistory = async (server: CodexAppServer, thread: Thread): Promise<Turn[]> => {
   try {
@@ -120,7 +125,10 @@ export const readHistory = async (server: CodexAppServer, thread: Thread): Promi
         (cursor) => server.request('thread/items/list', { threadId: thread.id, cursor, limit: PAGE, sortDirection: 'asc' }),
         'items',
       )
-      if (read < READS && (await newestTurn(server, thread.id)) !== turns.at(-1)?.id) continue
+      if ((await newestTurn(server, thread.id)) !== turns.at(-1)?.id) {
+        if (read < READS) continue
+        throw new Error(`This conversation kept changing while its history was read (${READS} times). Open it again to read it.`)
+      }
       const items = new Map(turns.map((turn) => [turn.id, [] as CodexProtocol.v2.ThreadItem[]]))
       for (const entry of entries) items.get(entry.turnId)?.push(entry.item)
       return turns.map((turn) => ({ ...turn, items: items.get(turn.id) ?? [], itemsView: 'full' }))
@@ -138,6 +146,13 @@ export const readHistory = async (server: CodexAppServer, thread: Thread): Promi
  * counted in Codex's own turns — the ones the desk's transcript holds. More
  * turns than it has drops them all, as `thread/rollback` does, and a thread
  * with nothing stored has nothing to drop. A legacy thread is rolled back.
+ *
+ * Unlike a read, the listing and the revert cannot be split by another
+ * client: Undo runs on a session this desk holds, and Codex lets one process
+ * write a thread (`writer-lock.ts`). A turn of this desk's own still running
+ * is the newest turn listed, `inProgress`, and reverting it stops it: Codex
+ * ends it `interrupted` and then says the thread was reverted (measured on
+ * 0.155.0), as the transcript's own last turn goes.
  */
 export const undoTurns = async (server: CodexAppServer, thread: Thread, count: number): Promise<void> => {
   if (!paginated(thread)) {

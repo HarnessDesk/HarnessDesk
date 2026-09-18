@@ -87,7 +87,26 @@ test('a turn started between the two listings is read with its items, not left o
   // items were: its items would name a turn the read does not hold.
   const { runtime } = await start(t, '0.155.0', { FAKE_CODEX_CHANGE_BETWEEN_LISTINGS: 'append' })
   const session = await runtime.readSession(sessionId('thread-paged'))
-  assert.deepEqual(shape(session), [...PAGED, 'turn-late: userMessage, assistantMessage'])
+  assert.deepEqual(shape(session), [...PAGED, 'turn-late-1: userMessage, assistantMessage'])
+})
+
+test('a turn that only gains an item between the two listings is read with it, under its own turn', async (t) => {
+  // The accepted boundary: a turn keeps its id while it grows or finishes,
+  // so it moves nothing, and it is read as the turn listing found it with
+  // every item the item listing found.
+  const { runtime } = await start(t, '0.155.0', { FAKE_CODEX_CHANGE_BETWEEN_LISTINGS: 'grow' })
+  const session = await runtime.readSession(sessionId('thread-paged'))
+  assert.deepEqual(shape(session), [...PAGED.slice(0, 2), 'turn-p3: userMessage, assistantMessage, assistantMessage'])
+})
+
+test('a history still moving after three reads is refused out loud, not handed back split', async (t) => {
+  // A turn starts during every item listing. The read that gives up must
+  // not return turns whose newest items it never saw.
+  const { runtime } = await start(t, '0.155.0', { FAKE_CODEX_CHANGE_BETWEEN_LISTINGS: 'append-always' })
+  await assert.rejects(runtime.readSession(sessionId('thread-paged')), (error: Error) => {
+    assert.equal(error.message, 'This conversation kept changing while its history was read (3 times). Open it again to read it.')
+    return true
+  })
 })
 
 test('a turn reverted between the two listings is not read as a turn with no items', async (t) => {
@@ -188,7 +207,7 @@ test('a fork whose history cannot be read opens without it, says so, and reads w
   const told = events.filter((event) => event.type === 'notice' && event.sessionId === fork.id)
   assert.deepEqual(
     told.map((event) => event.type === 'notice' && `${event.level}: ${event.message}`),
-    ['warning: The branch was made, but its history could not be read yet. Open it again to load it.'],
+    ['warning: The branch was made, but its history could not be read. Choose it in the sidebar to load it.'],
   )
   assert.deepEqual(shape(await runtime.readSession(fork.id)), PAGED)
 })
