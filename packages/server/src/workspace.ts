@@ -309,9 +309,17 @@ export const browseDirectories = async (
   return { path: target, parent: parent === target ? null : parent, entries }
 }
 
+/**
+ * A folder being opened, with its name. Every open folder is a root the
+ * confinement checks trust, so a relative path is refused rather than
+ * resolved: `resolve` would read it against the host's working directory and
+ * open whatever it led to from there. `workspace/open` and `workspace/pick`
+ * both come through here.
+ */
 export const describeWorkspace = async (
   path: string,
 ): Promise<{ path: string; name: string }> => {
+  assertAbsolute(path)
   const resolved = resolve(path)
   const info = await stat(resolved)
   if (!info.isDirectory()) throw new Error(`${resolved} is not a directory`)

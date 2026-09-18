@@ -1599,6 +1599,162 @@ test('git RPCs refuse a relative root, even one that leads into an open reposito
   }
 })
 
+/**
+ * What each worktree verb is handed in the test below, spelled relative: the
+ * open repository for the two that take a folder of it, and a worktree
+ * HarnessDesk made of it for the three that take a worktree.
+ *
+ * Keyed by every `worktree/*` verb on the wire, so a verb added without a line
+ * here fails the build rather than going untested. Against a host that admits
+ * the path, every ask that would change something is turned down after the
+ * fact — a base that names no commit, a worktree holding a file nobody
+ * committed — so the repository and its worktree end as they began.
+ */
+const RELATIVE_WORKTREE_ASKS: {
+  readonly [M in Extract<HostMethodName, `worktree/${string}`>]: {
+    readonly names: 'repository' | 'worktree'
+    readonly ask: (spelled: string) => HostParams<M>
+  }
+} = {
+  'worktree/list': { names: 'repository', ask: (root) => ({ root }) },
+  'worktree/create': { names: 'repository', ask: (root) => ({ root, name: 'made-relative', base: 'not-a-commit' }) },
+  'worktree/changes': { names: 'worktree', ask: (path) => ({ path }) },
+  'worktree/remove': { names: 'worktree', ask: (path) => ({ path }) },
+  'worktree/bringHome': { names: 'worktree', ask: (path) => ({ path }) },
+}
+
+test('worktree RPCs refuse a relative path, even one that leads into an open repository', async (t) => {
+  // `git -C` reads a relative path against the host's working directory, as
+  // `resolve` and `realpath` do, and the worktree verbs handed theirs to git
+  // before anything confined it. So each path below is the relative spelling
+  // that would be let in: from this process's working directory, which is the
+  // host's, to a repository opened here or to a worktree HarnessDesk made of
+  // it. Anything but the refusal — an answer, or a refusal made after the path
+  // was let in — is that spelling admitted.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const repo = await mkdtemp(join(tmpdir(), 'hd-worktree-relative-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await writeFile(join(repo, 'a.txt'), 'one\n')
+  await gitIn(repo, 'add', '.')
+  await gitIn(repo, 'commit', '-qm', 'root commit')
+  await client.call('workspace/open', { path: repo })
+  const side = ((await client.call('worktree/create', { root: repo, name: 'side' })) as { path: string }).path
+  // A file nobody committed, so that removing the worktree or bringing it home
+  // is refused for the dirty tree once the path is let in, and nothing moves.
+  await writeFile(join(side, 'draft.txt'), 'not yet\n')
+
+  const spelled = { repository: relative(process.cwd(), repo), worktree: relative(process.cwd(), side) }
+  // The controls: both spellings are relative, each leads from the host's
+  // working directory where it should, and spelled absolutely the repository
+  // and the worktree are both answered — so a refusal below can only be about
+  // the spelling.
+  assert.equal(isAbsolute(spelled.repository), false)
+  assert.equal(isAbsolute(spelled.worktree), false)
+  assert.equal(await realpath(spelled.repository), await realpath(repo))
+  assert.equal(await realpath(spelled.worktree), await realpath(side))
+  assert.equal(((await client.call('worktree/list', { root: repo })) as readonly unknown[]).length, 2)
+  assert.equal(((await client.call('worktree/changes', { path: side })) as { untracked: number }).untracked, 1)
+
+  for (const [verb, { names, ask }] of Object.entries(RELATIVE_WORKTREE_ASKS)) {
+    await t.test(verb, async () => {
+      await assert.rejects(() => client.call(verb as HostMethodName, ask(spelled[names])), {
+        message: `${spelled[names]} is not an absolute path.`,
+      })
+    })
+  }
+})
+
+test('worktree/list refuses a repository nobody opened, and answers for one opened through any of its checkouts', async (t) => {
+  // It ran `git worktree list` wherever it was pointed, so an absolute path to
+  // a repository nobody opened was answered with every checkout's path, branch
+  // and HEAD commit. It is held to the repositories opened here, as the verbs
+  // that read or change one worktree are, rather than to open folders, as the
+  // git pane's verbs are: after a refused bring-back the store asks it of the
+  // main checkout, which is outside every open folder when the folder open is
+  // one of its linked worktrees.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-worktree-list-'))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repo = join(scratch, 'repo')
+  const linked = join(scratch, 'linked')
+  await mkdir(repo)
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  await gitIn(repo, 'worktree', 'add', '-q', '-b', 'linked', linked)
+
+  await t.test('a repository nobody opened is refused, through any of its checkouts', async () => {
+    await assert.rejects(() => client.call('worktree/list', { root: repo }), /not a project opened here/)
+    await assert.rejects(() => client.call('worktree/list', { root: linked }), /not a project opened here/)
+  })
+
+  await t.test('opened as a linked worktree alone, its main checkout answers', async () => {
+    await client.call('workspace/open', { path: linked })
+    const listed = (await client.call('worktree/list', { root: repo })) as readonly { path: string }[]
+    assert.deepEqual(
+      listed.map((entry) => entry.path),
+      [await realpath(repo), await realpath(linked)],
+    )
+  })
+
+  await t.test('a folder in no repository answers an empty list, not a failed call', async () => {
+    // An ordinary workspace, and the store asks each time one opens.
+    const plain = join(scratch, 'plain')
+    await mkdir(plain)
+    await client.call('workspace/open', { path: plain })
+    assert.deepEqual(await client.call('worktree/list', { root: plain }), [])
+  })
+})
+
+test('a folder is not opened by a relative path, whether the wire or the picker names it', async (t) => {
+  // `describeWorkspace` resolved what it was handed, so a relative path opened
+  // whatever it led to from the host's working directory, and that folder then
+  // counted as open for every confinement check after it. The path below is
+  // the spelling that resolution would open: from this process's working
+  // directory, which is the host's, to a folder nothing has opened.
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-open-relative-'))
+  const spelled = relative(process.cwd(), scratch)
+  // The native picker answers with an absolute path, but the host is the
+  // boundary, and `workspace/pick` opens what it is handed as
+  // `workspace/open` does.
+  const harness = await start({ pickDirectory: async () => spelled })
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+
+  // The controls: the spelling is relative, and it leads from the host's
+  // working directory to the folder.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(scratch))
+
+  await t.test('workspace/open', async () => {
+    await assert.rejects(() => client.call('workspace/open', { path: spelled }), {
+      message: `${spelled} is not an absolute path.`,
+    })
+  })
+  await t.test('workspace/pick', async () => {
+    await assert.rejects(() => client.call('workspace/pick', {}), {
+      message: `${spelled} is not an absolute path.`,
+    })
+  })
+
+  // Neither refusal opened it: nothing is remembered, and a read of it is
+  // still refused. Spelled absolutely, it opens, so what was refused was the
+  // spelling.
+  assert.deepEqual(await client.call('workspace/recent', {}), [])
+  await assert.rejects(() => client.call('git/status', { root: scratch }), /outside every open workspace/)
+  assert.equal(((await client.call('workspace/open', { path: scratch })) as { path: string }).path, scratch)
+})
+
 test('a git root that is not there yet is judged by the folder it would be in, links and all', async (t) => {
   // `realpath` refuses a path that does not exist, and the confinement then
   // compared the path as it was spelled against open folders it had resolved.

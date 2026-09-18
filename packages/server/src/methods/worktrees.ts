@@ -3,7 +3,7 @@ import { resolve, sep } from 'node:path'
 import { isBusy } from '@harnessdesk/protocol'
 
 import { confine } from '../workspace.js'
-import { confineToOpenRepository } from '../worktree.js'
+import { confineToOpenRepository, openRepositoryRoot } from '../worktree.js'
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -12,7 +12,16 @@ import type { MethodsUnder } from './context.js'
  * (`git/worktree*`) live with the rest of git.
  */
 export const worktreeMethods = {
-  'worktree/list': (ctx, params) => ctx.worktrees.list(params.root),
+  // Held to the repositories opened here, as the verbs below are, rather than
+  // to open folders as `git/worktrees` is: after a refused bring-back the store
+  // lists the main checkout, which that dialog also reads through
+  // `worktree/changes`, and which is outside every open folder when the one
+  // open is a linked worktree. A folder in no repository answers an empty
+  // list, not a refusal: the store asks this of every folder it opens.
+  'worktree/list': async (ctx, params) => {
+    const main = await openRepositoryRoot(params.root, ctx.workspaces.openRoots())
+    return main === null ? [] : ctx.worktrees.list(main)
+  },
 
   'worktree/create': (ctx, params) => {
     confine(params.root, ctx.workspaces.openRoots())

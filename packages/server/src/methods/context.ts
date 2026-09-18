@@ -228,6 +228,7 @@ export interface HostContext {
     openRoots(): string[]
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
+    /** Opens a folder, which becomes one of the open roots. A relative path is refused. */
     open(path: string): Promise<HostResult<'workspace/open'>>
     repoOf(cwd: string): Promise<RepoInfo | null>
     boardRootOf(cwd: string): Promise<string | null>
