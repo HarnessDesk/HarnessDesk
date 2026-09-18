@@ -1180,7 +1180,8 @@ test('two sign-ins at once each end once, and cancelling one leaves the other', 
 })
 
 /**
- * Resolves, with how the sign-in child left, once it has gone and the adapter has had its turn with the exit.
+ * Watches the sign-in child, and resolves `left`, with how it left, once it has gone and the adapter has had its turn
+ * with the exit.
  *
  * A flow that has ended reports nothing of the exit its kill causes, so there is no event to wait on, and a sleep
  * passes having seen nothing whenever the exit comes later than it does. The wait is on the child. The adapter hears
@@ -1194,20 +1195,30 @@ test('two sign-ins at once each end once, and cancelling one leaves the other', 
  *
  * `runtime.login()` does not hand out the child it spawns, so the one place to listen from is
  * `ChildProcess.prototype.emit`. The wrapper calls through, answers only to the sign-in command, and is put back
- * when the test ends.
+ * when the test ends. `seen()` says whether it has heard that child at all: a wrapper that matched nothing would leave
+ * `left` waiting on nothing, and the agent the test never got to dispose would keep the file's process alive to the
+ * job's timeout, so the test asks it right after `login()` and fails by name instead.
  */
-const signInChildLeaves = (t: TestContext): Promise<{ code: number | null; signal: NodeJS.Signals | null }> =>
-  new Promise((resolve) => {
+type Left = { code: number | null; signal: NodeJS.Signals | null }
+
+const watchSignInChild = (t: TestContext): { left: Promise<Left>; seen: () => boolean } => {
+  let seen = false
+  const left = new Promise<Left>((resolve) => {
     const emit = ChildProcess.prototype.emit as (this: ChildProcess, event: string | symbol, ...args: unknown[]) => boolean
     t.mock.method(ChildProcess.prototype, 'emit', function (this: ChildProcess, event: string | symbol, ...args: unknown[]) {
       const heard = emit.call(this, event, ...args)
-      if (event === 'close' && this.spawnfile === FAKE_CLI && this.spawnargs[1] === 'login') {
-        const [code, signal] = args as [number | null, NodeJS.Signals | null]
-        setImmediate(() => resolve({ code, signal }))
+      if (this.spawnfile === FAKE_CLI && this.spawnargs[1] === 'login') {
+        seen = true
+        if (event === 'close') {
+          const [code, signal] = args as [number | null, NodeJS.Signals | null]
+          setImmediate(() => resolve({ code, signal }))
+        }
       }
       return heard
     })
   })
+  return { left, seen: () => seen }
+}
 
 test('a cancelled sign-in with a real child ends once, and the kill it causes adds nothing', async (t) => {
   // Round 10 of #134: cancel was tested on a child the test drives by hand, never on a process.
@@ -1215,14 +1226,15 @@ test('a cancelled sign-in with a real child ends once, and the kill it causes ad
   await runtime.start()
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))
-  const leaving = signInChildLeaves(t)
+  const watch = watchSignInChild(t)
   try {
     const start = await runtime.login('cli-browser')
+    assert.ok(watch.seen(), 'the watcher heard the sign-in child, so the wait below can end')
     await runtime.cancelLogin(start.loginId)
     /* The exit the kill causes emits nothing on a healthy adapter, so what is waited on is the child going and the
        adapter having heard it. A sleep in its place passes, having seen nothing, whenever the exit is later than the
        sleep is long. */
-    const left = await leaving
+    const left = await watch.left
     assert.equal(left.code, null, 'the cancel killed the child; it did not leave on its own')
     const ended = events.filter((event) => event.type === 'account/loginCompleted') as { error?: string }[]
     assert.equal(ended.length, 1, 'the flow ended once, by its cancel, and the exit the kill caused added nothing')
