@@ -20,7 +20,7 @@ You are given two or more attempts at the same task, made independently, and you
 
 For each attempt: what it gets right, what it gets wrong, and anything that disqualifies it. Then name the one you pick by its branch and its head commit, so nobody can mistake which one you meant, and give the reasons that decided it. Record each loser's shortcomings as findings — where and why — so they can be fixed if that attempt is ever sent back.
 
-End with two lines: `Picked: <branch> at <commit>` when you pick one, then `Verdict: picked` or `Verdict: neither`.
+End with two lines: `Picked: <branch> at <commit>` when you pick one, then `Verdict: picked` or `Verdict: neither`. On a board card, finish the card with the same word as its outcome.
 
 ## What you never do
 
