@@ -207,6 +207,9 @@ export const asList = (value: unknown): unknown[] | null => (Array.isArray(value
 export const asText = (value: unknown): string | null =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
 
+/** Every field a seat written the long way may name; any other is refused by `seatFromMap`, not ignored. */
+const SEAT_FIELDS = ['runtime', 'model', 'effort', 'thinking'] as const
+
 /**
  * A seat written the long way: every field named, nothing to misread.
  *
@@ -219,8 +222,6 @@ export const asText = (value: unknown): string | null =>
  * genuinely ambiguous without the runtime's model list. So the map is the
  * answer, and the dry run points at it by name when it sees the mistake.
  */
-const SEAT_FIELDS = ['runtime', 'model', 'effort', 'thinking'] as const
-
 export const seatFromMap = (record: Record<string, unknown>): FlowSeat | string => {
   const runtime = asText(record['runtime'])
   if (!runtime?.trim()) return 'a seat needs a runtime — which agent to open'

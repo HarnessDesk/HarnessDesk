@@ -1620,7 +1620,9 @@ export interface HostMethods {
    * clears them (`seats: null`) so its `prefer` applies again. Every other
    * entry is kept as written. Refused while the file as a whole cannot be read,
    * so a hand-edit is never written over; an empty list is refused too — it is
-   * not a way to clear. Every window is told (`agent/changed`).
+   * not a way to clear. Every window is told once for each write
+   * (`agent/changed`); a set that would change nothing writes nothing, and
+   * tells nothing.
    */
   'agent/seating/set': {
     params: { readonly id: string; readonly seats: readonly FlowSeat[] | null }

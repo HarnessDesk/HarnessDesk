@@ -608,6 +608,16 @@ export class FakeRuntime implements AgentRuntime {
   lastCreateOptions: SessionOptions | null = null
   lastResumeOptions: Partial<SessionOptions> | null = null
 
+  /**
+   * Opens a conversation on every setting it is handed, not only its folder
+   * and model — the host's own `agent`, `briefDigest`, `permission`,
+   * `seatLabel` and `passedOver` among them — the way a runtime that copies
+   * its options across might, and the way `updateSettings` here always takes a
+   * whole patch. Off, it keeps `cwd` and `model` alone, as every suite but the
+   * one that forges those fields expects.
+   */
+  echoesAtCreate = false
+
   async createSession(options: SessionOptions): Promise<AgentSession> {
     this.lastCreateOptions = options
     this.#counter += 1
@@ -621,7 +631,10 @@ export class FakeRuntime implements AgentRuntime {
       if (refusal) throw new Error(refusal)
       values[key] = value
     }
-    const session = new FakeSession(this, id, { cwd: options.cwd, model: String(values['model']) }, values)
+    // Everything handed over that is a setting: not the route, the ephemeral switch or the option picks.
+    const { route: _route, ephemeral: _ephemeral, options: _picks, ...handed } = options
+    const settings = { ...(this.echoesAtCreate ? handed : {}), cwd: options.cwd, model: String(values['model']) }
+    const session = new FakeSession(this, id, settings, values)
     this.sessions.set(id, session)
     this.minted.set(String(id), options.cwd)
     this.emit({ type: 'session/started', session: session.snapshot() })

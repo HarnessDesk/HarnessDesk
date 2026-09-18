@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -47,7 +47,7 @@ import { AcpRegistry } from '../src/acp-registry.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
-import { Agents } from '../src/agents.js'
+import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
 import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
 import type { OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
@@ -1360,6 +1360,12 @@ const settingsSeen = (client: Client, id: string): SessionSettings | undefined =
     .filter((event) => String(event.sessionId) === id)
     .at(-1)?.settings
 
+/** The conversation as every window was told of it when it started. */
+const startedSeen = (client: Client, id: string): Session | undefined =>
+  client.events
+    .filter((event): event is Extract<AgentEvent, { type: 'session/started' }> => event.type === 'session/started')
+    .find((event) => String(event.session.id) === id)?.session
+
 /** How many times this window was told to drop one conversation. */
 const removedFor = (client: Client, id: SessionId | string): number =>
   client.notifications.filter(
@@ -1464,11 +1470,56 @@ test('the wire refuses a seating that names no Agent or no folder', async (t) =>
 
 test('a renderer cannot make a conversation wear an Agent the host never seated it as', async (t) => {
   const { harness, client } = await desk(t)
+  // The plain fake opens this conversation on every setting it is handed, the
+  // host's own five among them, the way a runtime that copies its options
+  // across might — so each is really there for the host to take off, and not
+  // missing only because the runtime never kept it.
+  harness.runtime.echoesAtCreate = true
+  const forged = {
+    agent: 'forged',
+    briefDigest: 'forged',
+    permission: 'merge',
+    seatLabel: 'forged',
+    passedOver: [
+      {
+        seat: { runtime: 'forged' },
+        label: 'FORGED · candidate',
+        runtimeName: 'forged',
+        state: 'passed',
+        reason: { kind: 'unavailable', detail: 'forged' },
+        fix: { kind: 'runtime', runtime: 'forged' },
+      },
+    ],
+  } as const
   const session = (await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
-    options: { cwd: '/w', agent: 'forged', briefDigest: 'forged', permission: 'merge', seatLabel: 'forged', passedOver: [] },
+    options: { cwd: '/w', ...forged },
   })) as Session
-  assert.equal(session.settings?.agent, undefined)
+  const theirs = harness.runtime.sessions.get(String(session.id))?.settings()
+  assert.deepEqual(
+    [theirs?.agent, theirs?.briefDigest, theirs?.permission, theirs?.seatLabel, theirs?.passedOver],
+    [forged.agent, forged.briefDigest, forged.permission, forged.seatLabel, forged.passedOver],
+    'the runtime really opened it on the forgery — the rest of this only means something if it did',
+  )
+  const hostOnly = (settings: SessionSettings | undefined) => ({
+    agent: settings?.agent,
+    briefDigest: settings?.briefDigest,
+    permission: settings?.permission,
+    seatLabel: settings?.seatLabel,
+    passedOver: settings?.passedOver,
+  })
+  const none = { agent: undefined, briefDigest: undefined, permission: undefined, seatLabel: undefined, passedOver: undefined }
+  // Not in the answer, which is the record the host keeps (`SessionRegistry.upsert`)…
+  assert.deepEqual(hostOnly(session.settings), none, 'the conversation the call answers')
+  assert.deepEqual(
+    hostOnly(harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings),
+    none,
+    'the conversation the host holds',
+  )
+  // …and not in what every window was told when it started (`seatedSession` on the way out).
+  await client.until(() => startedSeen(client, String(session.id)) !== undefined, 5_000, 'session/started')
+  assert.deepEqual(hostOnly(startedSeen(client, String(session.id))?.settings), none, 'the conversation every window was told of')
+
   // The plain fake echoes a patch back into its settings, the way a runtime might.
   await client.call('session/settings', {
     runtime: FAKE_RUNTIME_ID,
@@ -3018,9 +3069,32 @@ test('an entry this machine cannot read refuses the seating — never the prefer
   assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
 })
 
-test("through the host: this Mac's seats are set and cleared by one verb, and every window is told", async (t) => {
-  const { harness, client } = await desk(t)
-  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+/**
+ * How many times every window was told this machine's own Agents or seats
+ * changed — `project: null`, never one project's. A seating set's notice is
+ * sent before its answer, on the same socket, so it is here once a call is
+ * answered.
+ */
+const machineNotices = (client: Client): number =>
+  client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === null)
+    .length
+
+/**
+ * The reviewer as the open project's own Agent, for a test that counts
+ * `machineNotices`. The roster's watch (`AgentWatch`) tells every window when
+ * a file under a root it follows changes: an Agent written under this
+ * machine's root is a `project: null` notice of the watch's own — the notice a
+ * seating set sends — landing whenever the watch settles, where it could make
+ * a count pass or fail. The project's own is told as the project's.
+ */
+const writeProjectReviewer = async (project: string, prefer: string): Promise<void> => {
+  await mkdir(join(project, PROJECT_AGENT_DIR, 'reviewer'), { recursive: true })
+  await writeFile(join(project, PROJECT_AGENT_DIR, 'reviewer', 'AGENT.md'), agentFile(prefer), 'utf8')
+}
+
+test("through the host: this Mac's seats are set and cleared by one verb, and every window is told of each", async (t) => {
+  const { harness, client, work } = await desk(t)
+  await writeProjectReviewer(work, 'seatfake=big/high')
   const set = (await client.call('agent/seating/set', {
     id: 'reviewer',
     seats: [{ runtime: 'seatfake', model: 'small' }],
@@ -3028,24 +3102,16 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
   assert.equal(set.path, join(harness.stateDir, 'seating.json'))
   assert.deepEqual(set.entries, [{ id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] }])
   assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { reviewer: ['seatfake=small'] })
-  await client.until(
-    () => client.notifications.some((one) => 'method' in one && one.method === 'agent/changed'),
-    2_000,
-    'agent/changed',
-  )
-  assert.deepEqual(
-    client.notifications.find((one): one is { method: 'agent/changed'; params: { project: string | null } } =>
-      'method' in one && one.method === 'agent/changed',
-    )?.params,
-    { project: null },
-    "this machine's own seats, not one project's",
-  )
-  const [plan] = (await client.call('agent/seat/dry', { ids: ['reviewer'] })) as SeatPlan[]
+  assert.equal(machineNotices(client), 1, "every window told once, of this machine's own seats — not one project's")
+  const [plan] = (await client.call('agent/seat/dry', { ids: ['reviewer'], project: work })) as SeatPlan[]
   assert.equal(plan?.from, 'machine')
   assert.deepEqual(plan?.candidates.map((one) => one.label), ['Seat Fake · Small'])
 
+  // Cleared: a write too, so every window is told again — once.
   const cleared = (await client.call('agent/seating/set', { id: 'reviewer', seats: null })) as MachineSeating
   assert.deepEqual(cleared.entries, [])
+  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), {})
+  assert.equal(machineNotices(client), 2, 'the clear told every window once more')
   assert.deepEqual(await client.call('agent/seating/read', {}), cleared)
 })
 
@@ -3060,10 +3126,12 @@ test('the wire refuses more seats than an Agent may name, and the file refuses a
 })
 
 test('a set that changes nothing tells no window; a real change does; a refused one neither', async (t) => {
+  // No Agent is written: setting seats never reads the roster, and an Agent
+  // written under this machine's root would be a notice of the roster's watch
+  // — the very notice counted here (`machineNotices`).
   const { harness, client } = await desk(t)
-  await writeReviewer(harness.stateDir, 'seatfake=big/high')
   const path = join(harness.stateDir, 'seating.json')
-  const changed = () => client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed').length
+  const changed = () => machineNotices(client)
 
   // Clearing an entry that was never set: nothing to write, nothing to tell.
   const cleared = (await client.call('agent/seating/set', { id: 'reviewer', seats: null })) as MachineSeating
@@ -3084,6 +3152,51 @@ test('a set that changes nothing tells no window; a real change does; a refused 
   await client.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] })
   assert.equal(await readFile(path, 'utf8'), before)
   assert.equal(changed(), 1, 'still just the one real change')
+})
+
+/*
+ * Every write is told, and nothing else is. Whether a set wrote is `set()`'s
+ * to say, from inside the queue that orders the writes: a reading the verb
+ * took before queueing cannot tell a write that put back what it had read
+ * from no write at all. Two windows setting one Agent at once — codex to
+ * claude, and back to codex — wrote the file twice, and every window heard
+ * of the first write only, so a window re-reading on that notice stayed on
+ * claude.
+ *
+ * Called on the verb itself, so what is counted is what the verb pushed: no
+ * roster watch is running here to push a notice of its own.
+ */
+
+test('two sets started together are two writes and two notices, and the last notice finds the file as the last write left it', async () => {
+  const path = join(tempDir('hd-agent-seat-'), 'seating.json')
+  await writeFile(path, JSON.stringify({ reviewer: ['codex'] }), 'utf8')
+  const pushed: { notice: unknown; file: unknown }[] = []
+  const ctx = {
+    seating: new MachineSeatingFile(path),
+    // What a window re-reading on the notice would find, the moment it is sent.
+    push: (notice: unknown) => pushed.push({ notice, file: JSON.parse(readFileSync(path, 'utf8')) }),
+  } as never
+  const set = agentMethods['agent/seating/set']
+  const notice = { method: 'agent/changed', params: { project: null } }
+
+  const [first, second] = await Promise.all([
+    set(ctx, { id: 'reviewer', seats: [{ runtime: 'claude' }] }),
+    set(ctx, { id: 'reviewer', seats: [{ runtime: 'codex' }] }),
+  ])
+  assert.deepEqual(pushed, [
+    { notice, file: { reviewer: ['claude'] } },
+    { notice, file: { reviewer: ['codex'] } },
+  ])
+  // Each answers what it wrote, as the wire says: this machine's seats, whole.
+  assert.deepEqual(first, { path, entries: [{ id: 'reviewer', seats: [{ runtime: 'claude' }] }], problems: [] })
+  assert.deepEqual(second, { path, entries: [{ id: 'reviewer', seats: [{ runtime: 'codex' }] }], problems: [] })
+
+  // The list already there: nothing written, nothing told.
+  await set(ctx, { id: 'reviewer', seats: [{ runtime: 'codex' }] })
+  // Refused: nothing written, nothing told.
+  await assert.rejects(() => set(ctx, { id: 'reviewer', seats: [] }), /at least one seat/)
+  assert.equal(pushed.length, 2, 'still one notice for each of the two writes')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['codex'] })
 })
 
 /*
@@ -3109,4 +3222,34 @@ test('a broken entry for another Agent leaves this one alone — seated on its o
   assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   assert.equal(plan?.from, 'prefer')
+})
+
+/*
+ * A file that cannot be read at all is a problem in a sentence of its own,
+ * like every other whole-file problem ("it is not JSON: …"): "it could not be
+ * read: EISDIR: …". So the refusal around it names the file without saying
+ * "cannot be read" a second time.
+ */
+
+test('a seating.json that cannot be read at all refuses the seating in one sentence — never "cannot be read" twice', async () => {
+  const seen = await rig('claude=opus-5', { claude: { models: ['opus-5'] } })
+  const path = join(seen.root, 'seating.json')
+  await mkdir(path)
+  // Node's own words for the failure, so this pins the sentence around them, not their wording.
+  const error = await readFile(path, 'utf8').then(
+    () => '',
+    (failure: Error) => failure.message,
+  )
+  assert.match(error, /EISDIR/)
+  const why = `this machine's seats in ${path} cannot be used: it could not be read: ${error} — edit this machine's seats to fix it.`
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (failure: Error) => {
+      assert.equal(failure.message, `Reviewer cannot be seated: ${why}`)
+      return true
+    },
+  )
+  untouched(seen)
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
 })

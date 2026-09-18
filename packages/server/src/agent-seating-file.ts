@@ -44,6 +44,13 @@ export const SEATING_FILE = 'seating.json'
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
+ * A file that could not be read at all, said as a sentence like every other
+ * problem here ("it is not JSON: …") rather than as the bare error — and in
+ * the same words wherever it is shown: `read()`'s problem, `set()`'s refusal.
+ */
+const unreadable = (error: unknown): string => `it could not be read: ${messageOf(error)}`
+
+/**
  * Whether an id could never truly be its own key. Every object inherits it —
  * read back through `Object.entries`/`JSON.parse` it would sit beside real
  * entries as though it were one, and assigned with `raw[id] = …` it would not
@@ -153,6 +160,18 @@ const sameJson = (a: unknown, b: unknown): boolean => {
   return false
 }
 
+/** What one `set()` did: this machine's seats as they now read, and whether the file was written to get there. */
+export interface SeatingSetOutcome {
+  readonly seating: MachineSeating
+  /**
+   * Whether this call wrote the file. Decided inside the write queue, where
+   * the writes are ordered, so it is true exactly once for every write,
+   * whatever was queued beside it. False for a set that would change nothing:
+   * clearing an entry that was never there, or setting the list already in it.
+   */
+  readonly wrote: boolean
+}
+
 export class MachineSeatingFile {
   #writes: Promise<unknown> = Promise.resolve()
 
@@ -165,7 +184,7 @@ export class MachineSeatingFile {
     } catch (error) {
       // No file is no entries: nobody has chosen seats on this machine yet.
       if ((error as { code?: unknown }).code === 'ENOENT') return { path: this.path, entries: [], problems: [] }
-      return { path: this.path, entries: [], problems: [{ id: null, at: '', text: messageOf(error) }] }
+      return { path: this.path, entries: [], problems: [{ id: null, at: '', text: unreadable(error) }] }
     }
     return { path: this.path, ...parseSeating(text) }
   }
@@ -178,9 +197,13 @@ export class MachineSeatingFile {
    * and a set that would change nothing writes nothing, so clearing an entry
    * that was never there, or setting the list already in it, does not disturb
    * the file's mtime or tell a window anything changed.
+   *
+   * Answers whether it wrote, because only this can say: a caller comparing a
+   * reading of its own, taken outside the queue, with what this answers cannot
+   * tell a write that put back what it had read from no write at all.
    */
-  set(id: string, seats: readonly FlowSeat[] | null): Promise<MachineSeating> {
-    const run = async (): Promise<MachineSeating> => {
+  set(id: string, seats: readonly FlowSeat[] | null): Promise<SeatingSetOutcome> {
+    const run = async (): Promise<SeatingSetOutcome> => {
       // Refused before anything is read or written: accepted, this id would
       // read back indistinguishably from a real entry (`parseSeating` above),
       // and a person could never remove what they cannot see is there.
@@ -206,7 +229,7 @@ export class MachineSeatingFile {
       } catch (error) {
         if ((error as { code?: unknown }).code !== 'ENOENT') {
           throw new Error(
-            `${this.path} was not changed: ${messageOf(error)}. Fix it or remove it first, so what is in it is not lost.`,
+            `${this.path} was not changed: ${unreadable(error)}. Fix it or remove it first, so what is in it is not lost.`,
           )
         }
         text = null // No file yet: the first entry makes it.
@@ -246,14 +269,14 @@ export class MachineSeatingFile {
 
       const before = Object.hasOwn(raw, id) ? raw[id] : undefined
       const after = seats ? pairs.find(([key]) => key === id)?.[1] : undefined
-      if (sameJson(before, after)) return this.read()
+      if (sameJson(before, after)) return { seating: await this.read(), wrote: false }
 
       await mkdir(dirname(this.path), { recursive: true })
       // Write-then-rename, like every file the host owns.
       const temp = `${this.path}.${process.pid}.tmp`
       await writeFile(temp, `${JSON.stringify(Object.fromEntries(pairs), null, 2)}\n`)
       await rename(temp, this.path)
-      return this.read()
+      return { seating: await this.read(), wrote: true }
     }
     // One write at a time, so two quick edits cannot each read the file before the other wrote it.
     const current = this.#writes.then(run, run)

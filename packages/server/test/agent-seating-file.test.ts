@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
+
+import { SEAT_PREFERENCE_LIMIT } from '@harnessdesk/protocol'
 
 import { MachineSeatingFile, parseSeating } from '../src/agent-seating-file.js'
 import { tempDir } from './scratch.js'
@@ -70,10 +73,11 @@ test('setting one Agent leaves every other entry as it was written, in its place
   const path = join(tempDir('hd-seating-'), 'seating.json')
   await writeFile(path, JSON.stringify({ judge: ['codex', 'claude-code+fast'], researcher: ['cursor'] }), 'utf8')
   const file = new MachineSeatingFile(path)
-  const after = await file.set('code-reviewer', [
+  const { seating: after, wrote } = await file.set('code-reviewer', [
     { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
     { runtime: 'cursor', model: 'vendor/model-1' },
   ])
+  assert.equal(wrote, true)
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
     // Broken, and kept exactly as written: it is the person's, and they will fix it.
     judge: ['codex', 'claude-code+fast'],
@@ -97,6 +101,16 @@ test('a file that is not JSON is never written over, and an empty list is not a 
   assert.equal(await readFile(path, 'utf8'), '{ oops')
   const fresh = new MachineSeatingFile(join(tempDir('hd-seating-'), 'seating.json'))
   await assert.rejects(() => fresh.set('judge', []), /at least one seat/)
+})
+
+test('set() holds a list to the limit itself, and writes nothing — the wire in front of it is not its only guard', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  const tooMany = Array.from({ length: SEAT_PREFERENCE_LIMIT + 1 }, () => ({ runtime: 'codex' }))
+  await assert.rejects(
+    () => new MachineSeatingFile(path).set('judge', tooMany),
+    new RegExp(`may name at most ${SEAT_PREFERENCE_LIMIT}, not ${SEAT_PREFERENCE_LIMIT + 1}`),
+  )
+  await assert.rejects(readFile(path, 'utf8'), /ENOENT/, 'nothing was written')
 })
 
 /*
@@ -162,6 +176,61 @@ test('a file that cannot be read for any reason but ENOENT refuses the set, and 
 })
 
 /*
+ * And the one read, proven by what a second would do. Every read of the file
+ * after the first, before it is written, is handed text that is not JSON: the
+ * one read keeps every entry, where the old shape — a second read behind a
+ * bare `catch {}` — took that for an empty file and wrote it down to one
+ * entry. Only reads before the write count: `set()` builds its answer with a
+ * read of its own once the file is written.
+ *
+ * `node:fs/promises` cannot be redefined through its ESM namespace, so it is
+ * patched through its CommonJS face and pushed into the bindings every module
+ * already imported (`syncBuiltinESMExports`) — and put back the same way, so no
+ * other test sees it.
+ */
+
+test('set() reads the file once before it writes it — what a second read would say never reaches the file', async (t) => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  await writeFile(path, JSON.stringify({ judge: ['codex'], researcher: ['cursor'] }), 'utf8')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readFile: (...args: unknown[]) => Promise<unknown>
+    rename: (...args: unknown[]) => Promise<void>
+  }
+  const { readFile: realRead, rename: realRename } = fsp
+  let reads = 0
+  let written = false
+  fsp.readFile = async (...args) => {
+    if (String(args[0]) !== path || written) return realRead(...args)
+    reads += 1
+    return reads === 1 ? realRead(...args) : '{ oops'
+  }
+  fsp.rename = async (...args) => {
+    await realRename(...args)
+    if (String(args[1]) === path) written = true
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readFile = realRead
+    fsp.rename = realRename
+    syncBuiltinESMExports()
+  })
+
+  const { seating, wrote } = await new MachineSeatingFile(path).set('code-reviewer', [{ runtime: 'codex' }])
+  assert.equal(wrote, true)
+  assert.deepEqual(
+    JSON.parse(String(await realRead(path, 'utf8'))),
+    { judge: ['codex'], researcher: ['cursor'], 'code-reviewer': ['codex'] },
+    'every entry kept',
+  )
+  // Also what shows the patch reached the module under test: unpatched, nothing here would count a read.
+  assert.equal(reads, 1, 'read once before it was written')
+  assert.deepEqual(
+    seating.entries.map((one) => one.id),
+    ['judge', 'researcher', 'code-reviewer'],
+  )
+})
+
+/*
  * M4: a seat is written the way that reads back the same seat — the compact
  * form when it does, the long form when a runtime, model or effort itself
  * contains a character the compact grammar reads specially.
@@ -170,7 +239,7 @@ test('a file that cannot be read for any reason but ENOENT refuses the set, and 
 test('an effort with a + in it is written the long way, not split into an effort and a switch', async () => {
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
-  const after = await file.set('judge', [{ runtime: 'codex', effort: 'high+thinking' }])
+  const { seating: after } = await file.set('judge', [{ runtime: 'codex', effort: 'high+thinking' }])
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: [{ runtime: 'codex', effort: 'high+thinking' }] })
   assert.deepEqual(after.entries, [{ id: 'judge', seats: [{ runtime: 'codex', effort: 'high+thinking' }] }])
 })
@@ -178,7 +247,7 @@ test('an effort with a + in it is written the long way, not split into an effort
 test('an effort with a / in it is written the long way, not cut at the slash', async () => {
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
-  const after = await file.set('judge', [{ runtime: 'codex', effort: 'x/y' }])
+  const { seating: after } = await file.set('judge', [{ runtime: 'codex', effort: 'x/y' }])
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: [{ runtime: 'codex', effort: 'x/y' }] })
   assert.deepEqual(after.entries, [{ id: 'judge', seats: [{ runtime: 'codex', effort: 'x/y' }] }])
 })
@@ -186,7 +255,7 @@ test('an effort with a / in it is written the long way, not cut at the slash', a
 test('a runtime with an = in it is written the long way, not read back as a runtime and a model', async () => {
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
-  const after = await file.set('judge', [{ runtime: 'cursor=m' }])
+  const { seating: after } = await file.set('judge', [{ runtime: 'cursor=m' }])
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: [{ runtime: 'cursor=m' }] })
   assert.deepEqual(after.entries, [{ id: 'judge', seats: [{ runtime: 'cursor=m' }] }])
 })
@@ -222,8 +291,9 @@ test('clearing an entry that was never there writes nothing', async (t) => {
     )
     if (writable) return t.skip('this user can write into a folder with mode 555')
     const file = new MachineSeatingFile(path)
-    const after = await file.set('ghost', null)
-    assert.deepEqual(after, { path, entries: [], problems: [] })
+    const { seating, wrote } = await file.set('ghost', null)
+    assert.equal(wrote, false, 'and says so')
+    assert.deepEqual(seating, { path, entries: [], problems: [] })
   } finally {
     await chmod(dir, 0o755)
   }
@@ -234,7 +304,7 @@ test('setting the list already there writes nothing', async (t) => {
   const path = join(dir, 'seating.json')
   const file = new MachineSeatingFile(path)
   const seats = [{ runtime: 'codex', effort: 'high' }]
-  await file.set('judge', seats)
+  assert.equal((await file.set('judge', seats)).wrote, true, 'the first set writes the entry')
   await chmod(dir, 0o555)
   try {
     const writable = await writeFile(join(dir, '.probe'), 'x', 'utf8').then(
@@ -242,8 +312,9 @@ test('setting the list already there writes nothing', async (t) => {
       () => false,
     )
     if (writable) return t.skip('this user can write into a folder with mode 555')
-    const after = await file.set('judge', seats)
-    assert.deepEqual(after.entries, [{ id: 'judge', seats }])
+    const { seating, wrote } = await file.set('judge', seats)
+    assert.equal(wrote, false, 'and says so')
+    assert.deepEqual(seating.entries, [{ id: 'judge', seats }])
   } finally {
     await chmod(dir, 0o755)
   }
@@ -265,8 +336,9 @@ test('two sets started together both land, each on top of what the other wrote',
     file.set('second', [{ runtime: 'claude' }]),
   ])
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { first: ['codex'], second: ['claude'] })
-  assert.deepEqual(first.entries.map((one) => one.id), ['first'])
-  assert.deepEqual(second.entries.map((one) => one.id), ['first', 'second'])
+  assert.deepEqual(first.seating.entries.map((one) => one.id), ['first'])
+  assert.deepEqual(second.seating.entries.map((one) => one.id), ['first', 'second'])
+  assert.deepEqual([first.wrote, second.wrote], [true, true], 'two writes, each saying so')
 })
 
 /*
@@ -279,12 +351,21 @@ test('read() failing with something other than ENOENT — a directory at the pat
   const dir = tempDir('hd-seating-')
   const path = join(dir, 'seating.json')
   await mkdir(path)
+  // Node's own words for the failure, so this pins the sentence around them, not their wording.
+  const error = await readFile(path, 'utf8').then(
+    () => '',
+    (failure: Error) => failure.message,
+  )
+  assert.match(error, /EISDIR/)
   const file = new MachineSeatingFile(path)
   const read = await file.read()
-  assert.equal(read.problems.length, 1)
-  assert.equal(read.problems[0]?.id, null)
-  assert.match(read.problems[0]?.text ?? '', /EISDIR/)
+  // A sentence, like every other problem this file reports ("it is not JSON: …") — never the error bare.
+  assert.deepEqual(read.problems, [{ id: null, at: '', text: `it could not be read: ${error}` }])
   assert.deepEqual(read.entries, [])
+  // And set() refuses the file in the same words.
+  await assert.rejects(() => file.set('judge', [{ runtime: 'codex' }]), {
+    message: `${path} was not changed: it could not be read: ${error}. Fix it or remove it first, so what is in it is not lost.`,
+  })
 })
 
 test('a file whose JSON is not an object — an array — is a problem, not read as naming no Agent', () => {
@@ -295,10 +376,23 @@ test('a file whose JSON is not an object — an array — is a problem, not read
   assert.match(read.problems[0]?.text ?? '', /not an object/)
 })
 
+test('set() refuses a file whose JSON is not an object — a list, a string, null — and leaves it exactly as it was', async () => {
+  for (const text of ['[]', '"x"', 'null']) {
+    const path = join(tempDir('hd-seating-'), 'seating.json')
+    await writeFile(path, text, 'utf8')
+    await assert.rejects(
+      () => new MachineSeatingFile(path).set('judge', [{ runtime: 'codex' }]),
+      /was not changed: it is not an object of Agent ids to lists of seats/,
+      `${text} is refused`,
+    )
+    assert.equal(await readFile(path, 'utf8'), text, `${text} is left byte for byte`)
+  }
+})
+
 test('thinking survives a write and a read, in both the compact and the long form', async () => {
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
-  const after = await file.set('judge', [
+  const { seating: after } = await file.set('judge', [
     { runtime: 'codex', thinking: true },
     { runtime: 'cursor', model: 'vendor/model-1', thinking: true },
   ])

@@ -197,20 +197,18 @@ export const agentMethods = {
   'agent/seating/read': (ctx) => ctx.seating.read(),
 
   'agent/seating/set': async (ctx, params) => {
-    const before = await ctx.seating.read()
-    const after = await ctx.seating.set(params.id, params.seats)
-    // Every plan drawn before this is stale, in every window — but only once
-    // something actually did: a no-op set (clearing an entry that was never
-    // there, or setting the list already in it) must not send every window
-    // back to re-read a file that did not change.
-    if (!sameSeating(before, after)) ctx.push({ method: 'agent/changed', params: { project: null } })
-    return after
+    const { seating, wrote } = await ctx.seating.set(params.id, params.seats)
+    // Every plan drawn before a write is stale, in every window: each write is
+    // told, once, and nothing else is — a set that changes nothing must not
+    // send every window back to re-read a file that did not change. Whether it
+    // wrote is `set()`'s to say, from inside the queue that orders the writes.
+    // A reading taken here before queueing could not tell two sets racing
+    // (codex to claude, and back) from one, and told every window only of the
+    // first — a window re-reading on it stayed on claude.
+    if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
+    return seating
   },
 } satisfies MethodsUnder<'agent/'>
-
-/** Whether two readings of `seating.json` show the same seats and the same problems. Never compares `path`, which does not change. */
-const sameSeating = (a: MachineSeating, b: MachineSeating): boolean =>
-  JSON.stringify(a.entries) === JSON.stringify(b.entries) && JSON.stringify(a.problems) === JSON.stringify(b.problems)
 
 /**
  * The project a request named, held to the folders opened here.
@@ -261,7 +259,10 @@ interface CandidateList {
  * anyway is the quiet kind of substitution. So is a file that cannot be read
  * at all, because nobody can say whether it held an entry for this Agent —
  * which is also why that whole-file refusal never claims to be "for it": the
- * file may never have named this Agent at all.
+ * file may never have named this Agent at all. And it calls the file unusable
+ * rather than unreadable: a whole-file problem already says in a sentence what
+ * went wrong ("it could not be read: …", "it is not JSON: …"), and "cannot be
+ * read: it could not be read" would say it twice.
  */
 const candidatesFor = (
   definition: AgentDefinition,
@@ -271,10 +272,11 @@ const candidatesFor = (
   if (seats?.length) return { from: 'seats', seats }
   const broken = machine.problems.find((one) => one.id === definition.id || one.id === null)
   if (broken) {
-    const where = broken.id === null ? `this machine's seats in ${machine.path}` : `this machine's seats for it in ${machine.path}`
-    return {
-      refused: `${where} cannot be read${broken.at ? ` at ${broken.at}` : ''}: ${broken.text} — edit this machine's seats to fix it.`,
-    }
+    const where =
+      broken.id === null
+        ? `this machine's seats in ${machine.path} cannot be used`
+        : `this machine's seats for it in ${machine.path} cannot be read${broken.at ? ` at ${broken.at}` : ''}`
+    return { refused: `${where}: ${broken.text} — edit this machine's seats to fix it.` }
   }
   const entry = machine.entries.find((one) => one.id === definition.id)
   return entry ? { from: 'machine', seats: entry.seats } : { from: 'prefer', seats: definition.prefer }
