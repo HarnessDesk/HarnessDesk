@@ -43,6 +43,12 @@ export type AgentOrigin = 'project' | 'user' | 'builtin'
 /** The directory name, which an entry has even when its file does not parse. */
 export type AgentId = string
 
+/** Most characters Save as an Agent accepts for the name written into `AGENT.md`. */
+export const AGENT_NAME_LIMIT = 80
+
+/** Most characters Save as an Agent accepts for the optional description written twice into `AGENT.md`. */
+export const AGENT_DESCRIPTION_LIMIT = 500
+
 /** One Agent as a listing shows it, with what it hid. */
 export interface AgentEntry {
   /**

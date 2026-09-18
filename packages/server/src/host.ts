@@ -1403,6 +1403,9 @@ export class Host {
    * the roster's own folders — this machine's for both, because a person
    * edits their own Agents in the desk's editor; the built-in one for reading
    * only, because nobody edits what ships (*Customize…* copies it first).
+   * `confine` compares path text by design, so a user Agent folder linked to a
+   * dotfiles checkout is read and saved through that link, just as the roster
+   * reads it. The built-in root never joins the write list.
    */
   #fileRoots(mode: 'read' | 'write'): string[] {
     return [

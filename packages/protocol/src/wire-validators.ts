@@ -1,4 +1,4 @@
-import { SEAT_PREFERENCE_LIMIT } from './agent.js'
+import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   ClientToHost,
@@ -124,6 +124,14 @@ const isFilled: Validator<string> = (value, path = '') => {
   if (text.trim() === '') throw new ValidationError(path, 'expected a non-empty string')
   return text
 }
+
+/** A string held to the file field's public limit before it reaches the host. */
+const atMost = (limit: number, read: Validator<string> = isString): Validator<string> =>
+  (value, path = '') => {
+    const text = read(value, path)
+    if (text.length > limit) throw new ValidationError(path, `expected at most ${limit} characters, got ${text.length}`)
+    return text
+  }
 
 /**
  * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
@@ -518,8 +526,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     seats: (value: unknown, path = '') => (value === null ? null : seatListValidator(value, path)),
   }),
   'agent/create': shape({
-    name: isFilled,
-    description: optional(isString),
+    name: atMost(AGENT_NAME_LIMIT, isFilled),
+    description: optional(atMost(AGENT_DESCRIPTION_LIMIT)),
     permission: grantValidator,
     seat: flowSeatValidator,
     to: literalUnion('user', 'project'),

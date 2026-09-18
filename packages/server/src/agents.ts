@@ -44,7 +44,7 @@ const FILE = 'AGENT.md'
  * different standing order from the one somebody wrote, and nothing would say
  * so.
  */
-const LIMIT = 256 * 1024
+export const AGENT_FILE_LIMIT = 256 * 1024
 
 /**
  * How an `AGENT.md` is opened: to read, and without waiting.
@@ -380,11 +380,11 @@ const candidateAt = async (place: Place, id: string): Promise<Candidate> => {
     if (!info.isFile()) {
       return { at: 'unread', why: `this is not a regular file — it is ${kindOf(info)} — so it was not read` }
     }
-    const bytes = await readAtMost(handle, LIMIT)
+    const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
     if (bytes === null) {
       return {
         at: 'unread',
-        why: `this file is larger than ${LIMIT / 1024} KiB, so it was not read: a brief is read whole or not at all`,
+        why: `this file is larger than ${AGENT_FILE_LIMIT / 1024} KiB, so it was not read: a brief is read whole or not at all`,
       }
     }
     return { at: 'text', source: bytes.toString('utf8') }

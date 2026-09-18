@@ -59,9 +59,9 @@ const unreadable = (error: unknown): string => `it could not be read: ${messageO
  * it keeps the same rule for itself, and for every other name every object
  * answers to on its own.
  */
-const isReservedId = (id: string): boolean => id === '__proto__' || id in Object.prototype
+export const isReservedId = (id: string): boolean => id === '__proto__' || id in Object.prototype
 
-const reservedIdText = (id: string): string =>
+export const reservedIdText = (id: string): string =>
   `"${id}" is not read as an Agent id — every object answers to it on its own, so it is never truly this Agent's; rename it`
 
 /** What one file's text says: the entries that read, in order, and why the others did not. Pure. */

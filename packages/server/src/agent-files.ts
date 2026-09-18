@@ -1,9 +1,10 @@
-import { cp, lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { constants, type Stats } from 'node:fs'
+import { copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
 import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
 
-import { PROJECT_AGENT_DIR } from './agents.js'
+import { AGENT_FILE_LIMIT, PROJECT_AGENT_DIR } from './agents.js'
 import { seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
@@ -91,7 +92,7 @@ export const agentSource = (agent: {
  * step is refused whether it leads in or out, because telling the two apart
  * means following it.
  */
-export const projectAgentDir = async (project: string): Promise<string> => {
+const projectAgentDirWalk = async (project: string, create: boolean): Promise<string> => {
   const within = await realpath(project)
   let at = within
   for (const step of PROJECT_AGENT_DIR.split('/')) {
@@ -101,26 +102,122 @@ export const projectAgentDir = async (project: string): Promise<string> => {
       throw new Error(`${at} is a link, so no Agent was written through it: a project's Agents are written only inside it.`)
     }
     if (info && !info.isDirectory()) throw new Error(`${at} is not a folder, so no Agent was written there.`)
-    if (!info) await mkdir(at)
+    if (!info) {
+      if (!create) throw new Error(`${at} is no longer the Agent folder this call wrote into.`)
+      await mkdir(at)
+    }
   }
   return at
 }
 
-/** Writes a new Agent's folder and file, or refuses if an Agent by that name is there. Answers the file's path. */
-export const createAgentFolder = async (root: string, id: string, source: string): Promise<string> => {
+export const projectAgentDir = (project: string): Promise<string> => projectAgentDirWalk(project, true)
+
+interface Identity {
+  readonly dev: number
+  readonly ino: number
+}
+
+const identityOf = (info: Stats): Identity => ({ dev: info.dev, ino: info.ino })
+const sameIdentity = (left: Identity, right: Stats): boolean => left.dev === right.dev && left.ino === right.ino
+const errnoOf = (error: unknown): string => String((error as { code?: unknown } | null)?.code ?? '')
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+export interface CreatedAgentFolder {
+  readonly path: string
+  readonly root: string
+  readonly rootIdentity: Identity
+  readonly folderIdentity: Identity
+  readonly fileIdentity: Identity
+}
+
+const alreadyThere = (root: string, id: string): Error => new Error(`There is already an Agent called “${id}” in ${root}.`)
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await lstat(path)
+    return true
+  } catch (error) {
+    if (errnoOf(error) === 'ENOENT') return false
+    throw error
+  }
+}
+
+/** Removes only the unpredictable temporary tree this call made, and only while its parent and identity are unchanged. */
+const removeTemporary = async (root: string, rootIdentity: Identity, temporary: string, temporaryIdentity: Identity): Promise<string | null> => {
+  const currentRoot = await lstat(root).catch(() => null)
+  if (!currentRoot || !sameIdentity(rootIdentity, currentRoot)) return 'its temporary parent changed before cleanup'
+  const currentTemporary = await lstat(temporary).catch(() => null)
+  if (!currentTemporary) return null
+  if (!sameIdentity(temporaryIdentity, currentTemporary)) return 'its temporary folder was replaced before cleanup'
+  // This is the only recursive removal in this module: the random folder and every child were made by this call.
+  await rm(temporary, { recursive: true, force: true })
+  return null
+}
+
+/** Builds a folder out of sight, then gives it its final name in one move. */
+const writeAgentFolder = async (
+  root: string,
+  id: string,
+  write: (temporary: string) => Promise<void>,
+): Promise<CreatedAgentFolder> => {
   await mkdir(root, { recursive: true })
   const folder = join(root, id)
+  if (await exists(folder)) throw alreadyThere(root, id)
+  const rootIdentity = identityOf(await lstat(root))
+  const temporary = await mkdtemp(join(root, `.harnessdesk-agent-${id}-`))
+  const temporaryIdentity = identityOf(await lstat(temporary))
+  let moved = false
   try {
-    await mkdir(folder)
-  } catch (error) {
-    if ((error as { code?: unknown }).code === 'EEXIST') {
-      throw new Error(`There is already an Agent called “${id}” in ${root}.`)
+    await write(temporary)
+    const currentRoot = await lstat(root)
+    if (!sameIdentity(rootIdentity, currentRoot)) throw new Error(`${root} changed before the Agent could be put in place.`)
+    const currentTemporary = await lstat(temporary)
+    if (!sameIdentity(temporaryIdentity, currentTemporary)) {
+      throw new Error(`${temporary} was replaced before the Agent could be put in place.`)
     }
+    if (await exists(folder)) throw alreadyThere(root, id)
+    await rename(temporary, folder)
+    moved = true
+  } catch (error) {
+    if (!moved) {
+      const left = await removeTemporary(root, rootIdentity, temporary, temporaryIdentity)
+      if (left) throw new Error(`${messageOf(error)} The temporary Agent folder was left in place because ${left}.`)
+    }
+    if (['EEXIST', 'ENOTEMPTY'].includes(errnoOf(error))) throw alreadyThere(root, id)
     throw error
   }
   const path = join(folder, 'AGENT.md')
-  await writeFile(path, source, { encoding: 'utf8', flag: 'wx' })
-  return path
+  const folderInfo = await lstat(folder)
+  const fileInfo = await lstat(path)
+  return {
+    path,
+    root,
+    rootIdentity,
+    folderIdentity: identityOf(folderInfo),
+    fileIdentity: identityOf(fileInfo),
+  }
+}
+
+/** Writes a new Agent's folder and file, or refuses if an Agent by that name is there. */
+export const createAgentFolder = (root: string, id: string, source: string): Promise<CreatedAgentFolder> =>
+  writeAgentFolder(root, id, async (temporary) => {
+    await writeFile(join(temporary, 'AGENT.md'), source, { encoding: 'utf8', flag: 'wx' })
+  })
+
+/** Copies regular files and folders, one by one; links and special files stay behind. */
+const copyTree = async (from: string, to: string): Promise<void> => {
+  for (const entry of await readdir(from, { withFileTypes: true })) {
+    const source = join(from, entry.name)
+    const destination = join(to, entry.name)
+    const info = await lstat(source)
+    if (info.isSymbolicLink()) continue
+    if (info.isDirectory()) {
+      await mkdir(destination)
+      await copyTree(source, destination)
+    } else if (info.isFile()) {
+      await copyFile(source, destination, constants.COPYFILE_EXCL)
+    }
+  }
 }
 
 /**
@@ -141,27 +238,66 @@ export const createAgentFolder = async (root: string, id: string, source: string
  * left to fail later in a stranger's sentence than this one.
  */
 export const copyAgentFolder = async (from: string, to: string): Promise<void> => {
-  const id = to.split('/').pop() ?? to
-  if (await lstat(to).then(() => true, () => false)) {
-    throw new Error(`There is already an Agent called “${id}” in ${dirname(to)}.`)
-  }
-  await mkdir(dirname(to), { recursive: true })
+  const id = basename(to)
   const real = await realpath(from)
-  await cp(real, to, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    filter: async (source) => {
-      const info = await lstat(source)
-      return info.isDirectory() || info.isFile()
-    },
+  await writeAgentFolder(dirname(to), id, async (temporary) => {
+    await copyTree(real, temporary)
+    const hasBrief = await lstat(join(temporary, 'AGENT.md')).then(
+      (info) => info.isFile(),
+      () => false,
+    )
+    if (!hasBrief) {
+      throw new Error(`${from} has no AGENT.md to copy — nothing but links, which are left behind rather than followed.`)
+    }
   })
-  const hasBrief = await lstat(join(to, 'AGENT.md')).then(
-    (info) => info.isFile(),
-    () => false,
-  )
-  if (!hasBrief) {
-    await rm(to, { recursive: true, force: true })
-    throw new Error(`${from} has no AGENT.md to copy — nothing but links, which are left behind rather than followed.`)
+}
+
+/** Reads the source Customize is about to copy, without following a last-step link and without exceeding the roster's limit. */
+export const readAgentSource = async (path: string): Promise<string> => {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) throw new Error(`${path} is not a regular Agent file.`)
+    const bytes = Buffer.allocUnsafe(AGENT_FILE_LIMIT + 1)
+    let filled = 0
+    while (filled < bytes.length) {
+      const read = await handle.read(bytes, filled, bytes.length - filled, filled)
+      if (read.bytesRead === 0) return bytes.subarray(0, filled).toString('utf8')
+      filled += read.bytesRead
+    }
+    throw new Error(`${path} is too large to copy: an Agent file is read whole or not at all.`)
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * Undoes a project Save after its seating write failed. Every pathname and inode is checked again first; the one
+ * `AGENT.md` this call wrote is unlinked, and its folder is removed only if nothing else has appeared in it.
+ */
+export const rollbackCreatedAgent = async (created: CreatedAgentFolder, project: string): Promise<string | null> => {
+  let root: string
+  try {
+    root = await projectAgentDirWalk(project, false)
+  } catch (error) {
+    return messageOf(error)
+  }
+  if (root !== created.root) return 'the project now reaches a different Agent folder'
+  const rootInfo = await lstat(root).catch(() => null)
+  if (!rootInfo || !sameIdentity(created.rootIdentity, rootInfo)) return 'the project Agent folder was replaced'
+  const folder = dirname(created.path)
+  const folderInfo = await lstat(folder).catch(() => null)
+  if (!folderInfo) return null
+  if (!sameIdentity(created.folderIdentity, folderInfo)) return 'the Agent folder was replaced'
+  const fileInfo = await lstat(created.path).catch(() => null)
+  if (!fileInfo) return 'the Agent file was already removed while its folder stayed'
+  if (!sameIdentity(created.fileIdentity, fileInfo)) return 'the Agent file was replaced'
+  await unlink(created.path)
+  try {
+    await rmdir(folder)
+    return null
+  } catch (error) {
+    if (errnoOf(error) === 'ENOTEMPTY') return 'the Agent folder changed after it was written'
+    throw error
   }
 }
