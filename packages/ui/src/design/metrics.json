@@ -103,6 +103,54 @@
     "pad": "4 8 4 8",
     "radius": 8
   },
+  "badge/badge/variant/default": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/badge/variant/destructive": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/badge/variant/outline": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/badge/variant/secondary": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/tabs-list/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "1 1 1 1",
+    "radius": 6
+  },
+  "badge/tabs-list/variant/line": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "button/button/size/chip": {
     "h": 24,
     "text": 12,
@@ -566,53 +614,5 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 6
-  },
-  "tools/badge/variant/default": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
-  },
-  "tools/badge/variant/destructive": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
-  },
-  "tools/badge/variant/outline": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
-  },
-  "tools/badge/variant/secondary": {
-    "h": 20,
-    "text": 12,
-    "weight": "500",
-    "line": 16,
-    "pad": "1 6 1 6",
-    "radius": 8
-  },
-  "tools/tabs-list/variant/default": {
-    "h": 26,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "1 1 1 1",
-    "radius": 6
-  },
-  "tools/tabs-list/variant/line": {
-    "h": 26,
-    "text": 14,
-    "weight": "400",
-    "line": 21,
-    "pad": "0 0 0 0",
-    "radius": 0
   }
 }
