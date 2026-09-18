@@ -2,7 +2,6 @@ import { resolve, sep } from 'node:path'
 
 import { isBusy } from '@harnessdesk/protocol'
 
-import { confine } from '../workspace.js'
 import { confineToOpenRepository, openRepositoryRoot } from '../worktree.js'
 import type { MethodsUnder } from './context.js'
 
@@ -23,9 +22,18 @@ export const worktreeMethods = {
     return main === null ? [] : ctx.worktrees.list(main)
   },
 
-  'worktree/create': (ctx, params) => {
-    confine(params.root, ctx.workspaces.openRoots())
-    return ctx.worktrees.create(params.root, {
+  // Held to open folders, as `git/worktreeAdd` is, with real paths on both
+  // sides. The lexical check before it could not see a link: with A open,
+  // `A/elsewhere -> B` passed as inside A, and `git -C` followed the link and
+  // cut a worktree and a branch in B, which nobody opened. Not the repository
+  // rule the verbs around it use: the store asks this of the open folder
+  // itself, and that rule judges the checkouts `git worktree list` names,
+  // which for a submodule or a `--separate-git-dir` checkout is its git
+  // directory, so it refuses the very folder that is open. Git then runs in
+  // the path that was judged, not in the wire's spelling resolved again.
+  'worktree/create': async (ctx, params) => {
+    const root = await ctx.workspaces.confineGitRoot(params.root)
+    return ctx.worktrees.create(root, {
       name: params.name,
       ...(params.base ? { base: params.base } : {}),
     })

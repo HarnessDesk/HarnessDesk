@@ -84,23 +84,35 @@ test('a terminal with nowhere to run is refused in the name of the runtime that 
   )
 })
 
-test('a worktree is only created under an open workspace, and the service is not asked otherwise', async () => {
+/**
+ * The handler's half of the boundary: the host's git confinement decides, and
+ * the service is asked about the folder it answered with, links resolved, not
+ * about the spelling off the wire.
+ */
+test('a worktree is only created where the git confinement admits, in the folder it answers with', async () => {
   const open = tempDir('hd-methods-open-')
   const elsewhere = tempDir('hd-methods-elsewhere-')
-  let created = 0
+  const link = join(open, 'link')
+  const real = join(open, 'real')
+  const asked: string[] = []
   const ctx = contextWith({
-    workspaces: { openRoots: () => [open] },
+    workspaces: {
+      confineGitRoot: async (root: string) => {
+        if (root === link) return real
+        throw new Error(`${root} is outside every open workspace.`)
+      },
+    },
     worktrees: {
-      create: async () => {
-        created += 1
+      create: async (root: string) => {
+        asked.push(root)
         return { path: join(open, 'wt'), branch: 'wt' }
       },
     },
   })
-  await assert.rejects(dispatch(ctx, 'worktree/create', { root: elsewhere, name: 'wt' }))
-  assert.equal(created, 0)
-  await dispatch(ctx, 'worktree/create', { root: open, name: 'wt' })
-  assert.equal(created, 1)
+  await assert.rejects(dispatch(ctx, 'worktree/create', { root: elsewhere, name: 'wt' }), /outside every open workspace/)
+  assert.deepEqual(asked, [], 'the service is not asked about a root the confinement refused')
+  await dispatch(ctx, 'worktree/create', { root: link, name: 'wt' })
+  assert.deepEqual(asked, [real])
 })
 
 /**
