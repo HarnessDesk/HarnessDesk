@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path'
 
 import {
   isBlocked,
+  SeatRefusedError,
   type AgentEntry,
   type AgentRuntime,
   type FlowSeat,
@@ -12,6 +13,7 @@ import {
 import {
   agentOrder,
   blockedPlan,
+  candidateOf,
   chooseSeat,
   differencesOf,
   effortWord,
@@ -128,12 +130,15 @@ export const agentMethods = {
 
     const permission = permissionWithin(definition.permission, params.permission ?? 'read')
     const candidates = params.seats?.length ? params.seats : definition.prefer
-    const { offers } = await readDesk(ctx, candidates)
+    const desk = await readDesk(ctx, candidates)
+    const offers = desk.offers
+    const words = wordsFor(ctx, desk.catalogues)
+    const said = (list: readonly PassedOver[]) => list.map((one) => candidateOf(one, words))
     const passed: PassedOver[] = []
     for (let rest = candidates; ; ) {
       const chosen = chooseSeat(rest, offers)
       passed.push(...chosen.passed)
-      if (!chosen.seat) throw new Error(explainRefusal(passed))
+      if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
       const seat = chosen.seat
       // Every candidate above the one chosen was passed over, so what is left starts just below it.
       rest = rest.slice(chosen.passed.length + 1)
@@ -155,6 +160,8 @@ export const agentMethods = {
         agent: definition.id,
         briefDigest: digest,
         permission,
+        seatLabel: opened.label,
+        passedOver: said(passed),
       })
     }
   },

@@ -1,3 +1,5 @@
+import type { SeatCandidate } from './agent.js'
+
 /**
  * Failures a client can do something about, named on the wire.
  *
@@ -123,3 +125,30 @@ export const reopenRefusedByAgent = (error: unknown): boolean => {
   const { code, rpcCode } = error as { code?: unknown; rpcCode?: unknown }
   return code === -32602 || rpcCode === -32602
 }
+
+/** What a failure carries for the interface beyond its sentence, read structurally; null when nothing. */
+export const wireDataOf = (error: unknown): unknown => {
+  const data = error instanceof Error ? (error as { wireData?: unknown })['wireData'] : undefined
+  return data ?? null
+}
+
+/**
+ * No seat could be opened for an Agent, and here is every candidate and why.
+ *
+ * The sentence is the host's, for its log and for a banner. The candidates
+ * are what the refusal sheet is drawn from: a list with a fix on every line is
+ * only possible when the list arrives as a list, and reading it back out of
+ * the English would break the first time a sentence was improved.
+ */
+export class SeatRefusedError extends Error {
+  readonly wireCode = 'seatRefused'
+  constructor(
+    message: string,
+    readonly wireData: { readonly candidates: readonly SeatCandidate[] },
+  ) {
+    super(message)
+    this.name = 'SeatRefusedError'
+  }
+}
+
+export const isSeatRefused = (error: unknown): boolean => wireCodeOf(error) === 'seatRefused'

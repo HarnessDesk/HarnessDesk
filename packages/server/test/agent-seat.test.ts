@@ -28,6 +28,7 @@ import {
   type RuntimeHealth,
   type RuntimeId,
   type RuntimeInfo,
+  type SeatCandidate,
   type SeatLeft,
   type SeatPlan,
   type Session,
@@ -793,7 +794,11 @@ test("the seat is told the narrower of the Agent's ceiling and the seating's gra
       ...(grant ? { permission: grant } : {}),
     })
     assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
-    assert.deepEqual(seen.recorded, [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: held }], said)
+    assert.deepEqual(
+      seen.recorded,
+      [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: held, seatLabel: 'claude', passedOver: [] }],
+      said,
+    )
     assert.equal(session.settings?.permission, held, said)
   }
 })
@@ -1395,20 +1400,22 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   const { harness, client } = await desk(t)
   const session = (await client.call('session/create', {
     runtime: FAKE_RUNTIME_ID,
-    options: { cwd: '/w', agent: 'forged', briefDigest: 'forged', permission: 'merge' },
+    options: { cwd: '/w', agent: 'forged', briefDigest: 'forged', permission: 'merge', seatLabel: 'forged', passedOver: [] },
   })) as Session
   assert.equal(session.settings?.agent, undefined)
   // The plain fake echoes a patch back into its settings, the way a runtime might.
   await client.call('session/settings', {
     runtime: FAKE_RUNTIME_ID,
     sessionId: session.id,
-    patch: { agent: 'forged', briefDigest: 'forged', permission: 'merge' },
+    patch: { agent: 'forged', briefDigest: 'forged', permission: 'merge', seatLabel: 'forged', passedOver: [] },
   })
   await client.until(() => settingsSeen(client, String(session.id)) !== undefined, 5_000, 'the echoed settings')
   assert.equal(settingsSeen(client, String(session.id))?.agent, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, undefined)
   // Least of all what it may do: a permission a renderer could write is a permission anybody could.
   assert.equal(settingsSeen(client, String(session.id))?.permission, undefined)
+  assert.equal(settingsSeen(client, String(session.id))?.seatLabel, undefined)
+  assert.equal(settingsSeen(client, String(session.id))?.passedOver, undefined)
   const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
   assert.equal(held?.agent, undefined)
   assert.equal(held?.permission, undefined)
@@ -1459,7 +1466,24 @@ test('a seat that runs another effort than asked is closed, and the next candida
   assert.deepEqual(seen.retired, ['claude s1'], 'the first was closed')
   assert.equal(String(session.id), 's2')
   assert.deepEqual(seen.ordered, [orderFor('read', '/tmp/x')], 'the brief went once, to the seat that was kept')
-  assert.deepEqual(seen.recorded, [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: 'read' }])
+  assert.deepEqual(seen.recorded, [
+    {
+      agent: 'reviewer',
+      briefDigest: digestOf(seen.source),
+      permission: 'read',
+      seatLabel: 'claude',
+      passedOver: [
+        {
+          seat: { runtime: 'claude', model: 'opus-5', effort: 'high' },
+          label: 'claude · opus-5 · High',
+          runtimeName: 'claude',
+          state: 'passed',
+          reason: { kind: 'openedOtherwise', differences: [{ field: 'effort', asked: 'high', running: 'medium' }] },
+          fix: { kind: 'seats' },
+        },
+      ],
+    },
+  ])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
   assert.equal(seen.alive(), 1, 'the seat kept is the only one left')
 })
@@ -2515,5 +2539,73 @@ test('a runtime this desk has not added, and does not know, is named as the publ
       ['listed', 'Listed Agent'],
       ['praxis', 'praxis'],
     ],
+  )
+})
+
+/*
+ * What the seating passed over, as a list: on the refusal, for the sheet that
+ * lists every candidate with its fix; and on the seat it kept, for the card
+ * that says what it runs and what it passed on the way.
+ */
+
+test('a refusal carries every candidate as a surface shows it, beside the sentence', async () => {
+  const seen = await rig(
+    'cursor=gemini-3.8-flash/high, claude=opus-5/high',
+    { cursor: { name: 'Cursor', models: ['gemini-3.8-flash'], signedOut: true }, claude: { name: 'Claude', models: ['opus-5'] } },
+    { comesBackAs: () => ({ effort: 'medium' }), leaves: () => ({ kind: 'kept', archived: 'here' }) },
+  )
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error & { wireCode?: string; wireData?: { candidates: readonly SeatCandidate[] } }) => {
+      assert.equal(error.wireCode, 'seatRefused')
+      assert.match(error.message, /^No seat could be opened for this Agent:/)
+      assert.deepEqual(
+        error.wireData?.candidates.map((one) => [one.label, one.reason?.kind, one.fix?.kind, one.left?.kind ?? null]),
+        [
+          ['Cursor · gemini-3.8-flash · High', 'signedOut', 'signIn', null],
+          ['Claude · opus-5 · High', 'openedOtherwise', 'seats', 'kept'],
+        ],
+      )
+      return true
+    },
+  )
+})
+
+test('the seat kept records what it runs and every candidate passed over on the way', async () => {
+  const seen = await rig('cursor=gemini-3.8-flash/high, claude=opus-5/high', {
+    cursor: { name: 'Cursor', models: ['gemini-3.8-flash'], signedOut: true },
+    claude: { name: 'Claude', models: ['opus-5'] },
+  })
+  const session = await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  // The rig's read-back label is the runtime's id; the host's is the desk's words (below).
+  assert.equal(session.settings?.seatLabel, 'claude')
+  assert.deepEqual(
+    session.settings?.passedOver?.map((one) => [one.label, one.reason]),
+    [['Cursor · gemini-3.8-flash · High', { kind: 'signedOut' }]],
+  )
+})
+
+test('through the host: the seat kept arrives with what it runs, and a refusal with its candidates', async (t) => {
+  const { harness, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'ghost=m1, seatfake=big/high')
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  assert.equal(session.settings?.seatLabel, 'Seat Fake · Big · High')
+  assert.deepEqual(
+    // No `AgentDirectory` is wired into this harness and `ghost` is not a known
+    // agent either, so it is not offered "add" — the same "not a runtime on this
+    // desk, nor one it knows how to add" a seating itself would say, fixed by
+    // editing the seats rather than by *Add* (see the dry-run test above).
+    session.settings?.passedOver?.map((one) => [one.label, one.fix]),
+    [['ghost · m1', { kind: 'seats' }]],
+  )
+
+  await writeReviewer(harness.stateDir, 'ghost=m1')
+  await assert.rejects(
+    client.call('agent/seat', { id: 'reviewer', cwd: work }),
+    (error: Error & { code?: string; data?: { candidates: readonly SeatCandidate[] } }) => {
+      assert.equal(error.code, 'seatRefused')
+      assert.deepEqual(error.data?.candidates.map((one) => [one.label, one.state]), [['ghost · m1', 'passed']])
+      return true
+    },
   )
 })

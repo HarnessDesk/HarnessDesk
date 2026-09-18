@@ -638,8 +638,9 @@ export const parseClientMessage = (raw: unknown): ClientToHost => {
   return { id, method, params } as WireRequest
 }
 
-export const wireError = (code: string, message: string, details?: string | null): WireError => ({
+export const wireError = (code: string, message: string, details?: string | null, data?: unknown): WireError => ({
   code,
   message,
   details: details ?? null,
+  ...(data !== undefined && data !== null ? { data } : {}),
 })

@@ -113,7 +113,12 @@ export class Client {
         // transport: a failure the interface is meant to *act* on is told
         // apart by its code, never by reading its English.
         else if ('ok' in message) {
-          reject(Object.assign(new Error(message.error.message), { code: message.error.code }))
+          reject(
+            Object.assign(new Error(message.error.message), {
+              code: message.error.code,
+              ...(message.error.data !== undefined ? { data: message.error.data } : {}),
+            }),
+          )
         }
       })
       this.#socket.send(JSON.stringify({ id, method, params }))

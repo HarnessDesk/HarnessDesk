@@ -1,3 +1,4 @@
+import type { SeatCandidate } from './agent.js'
 import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
@@ -58,6 +59,17 @@ export interface SessionSettings {
    * phase; until then this records the instruction, not a guarantee.
    */
   readonly permission?: FlowPermission
+  /**
+   * What the seat runs, as the desk said it when the seat was kept — read
+   * back from the conversation, never the request: "Claude · Opus 5 · High".
+   * Held like `agent`, by the host alone.
+   */
+  readonly seatLabel?: string
+  /**
+   * Every candidate the seating passed over before it kept this one, each
+   * with its reason and its fix, as a surface shows them. Held like `agent`.
+   */
+  readonly passedOver?: readonly SeatCandidate[]
 }
 
 /** Options accepted when opening a session. All are advisory; runtimes may clamp. */

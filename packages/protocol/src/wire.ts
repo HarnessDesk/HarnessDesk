@@ -1941,6 +1941,12 @@ export interface WireError {
   readonly code: string
   readonly message: string
   readonly details?: string | null
+  /**
+   * What a failure with a way out carries for the interface to draw it, when
+   * a sentence is not enough — a seating's refusal lists every candidate with
+   * its reason and its fix. Read only by a caller that knows the code.
+   */
+  readonly data?: unknown
 }
 
 export type WireResponse =
