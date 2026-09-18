@@ -313,11 +313,15 @@ test('(F2a) a project opened with an Agent directory that leads out is followed 
   await mkdir(elsewhere)
   await symlink(elsewhere, join(project, '.harnessdesk', 'agents'))
   const { said, changed } = heard()
-  const watch = new AgentWatch({ roots: [], changed, settleMs: 30 })
+  const probe = recording()
+  const watch = new AgentWatch({ roots: [], changed, settleMs: 30, watchFn: probe.watchFn })
   t.after(() => watch.dispose())
   await watch.watchProjects([project])
 
-  // The link leads out: no notice for what it points at (re-affirms the property above).
+  // The link leads out: the walk-up watches `.harnessdesk` itself, for the
+  // name `agents` — proved live on what that watch reports before any silence
+  // from it is trusted, the same way as the property above.
+  await proveWatching(probe, join(project, '.harnessdesk'), 'the watch on .harnessdesk, above the link that leads out')
   await mkdir(join(elsewhere, 'scout'))
   await writeFile(join(elsewhere, 'scout', 'AGENT.md'), brief('Look.'))
   await pause(500)
@@ -342,8 +346,14 @@ test('(F2b) a project missing at open is followed once it exists, on the very ne
   await mkdir(join(project, '.harnessdesk', 'agents', 'scout'), { recursive: true })
   await watch.watchProjects([project]) // re-opened with the identical set
 
-  await writeFile(join(project, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief('Look.'))
-  await until(() => said.some((one) => one === project), 're-opening a project that now exists is what follows it')
+  // Repeatable, so this passes only once the re-opened watch has actually
+  // attached — not only when a single write happens to land after it does.
+  let n = 0
+  await proveLive(
+    () => said.some((one) => one === project),
+    () => writeFile(join(project, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief(`Look ${n++}.`)),
+    're-opening a project that now exists is what follows it',
+  )
 })
 
 test('(F2c) a watch that could not be made is logged once and retried on its own backoff', async (t) => {
