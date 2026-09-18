@@ -5,6 +5,7 @@ import type {
   ArchiveFilter,
   BackupFile,
   BackupReport,
+  FlowSeat,
   HostMethodName,
   HostParams,
   HostResult,
@@ -25,17 +26,18 @@ import type {
 } from '@harnessdesk/protocol'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 
+import type { Agents } from '../agents.js'
 import type { SessionArchive } from '../archive.js'
 import type { AuditLog } from '../audit.js'
 import type { CatalogRefresher } from '../catalog-refresher.js'
 import type { CredentialBroker } from '../credentials.js'
 import type { EditorPlane } from '../editor-plane.js'
-import type { ExtensionHost, HostOptions, ModelRouteRecord } from '../host.js'
+import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger } from '../ledger/index.js'
 import type { LibraryUsageReader } from '../library-usage.js'
 import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
-import type { SessionRecord, SessionRegistry } from '../registry.js'
+import type { SeatedAs, SessionRecord, SessionRegistry } from '../registry.js'
 import type { StateStore } from '../state.js'
 import type { Flows } from '../flows.js'
 import type { Team } from '../team.js'
@@ -76,6 +78,13 @@ export interface HostContext {
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows
+  /**
+   * The Agent roster: who can be seated, and what each one is for.
+   *
+   * Not `options.agents`, which is the ACP registry — the runtimes this desk
+   * can start. An Agent is who does the work; a runtime is what it runs on.
+   */
+  readonly agents: Agents
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher
@@ -129,6 +138,42 @@ export interface HostContext {
     busyElsewhere(runtime: AgentRuntime, id: SessionId, error: unknown): Promise<SessionBusyError>
     /** Why a conversation could not be reopened, in a sentence that names the agent. */
     cannotReopen(runtime: AgentRuntime, error: unknown): string
+  }
+
+  /**
+   * Conversations the desk opens for a seat rather than for a person at a
+   * composer: a flow's roles, and an Agent.
+   *
+   * The same three verbs the flow engine's port is built from, so there is
+   * one way to open a seat — one set of picks applied, one set of switches
+   * nobody asked for turned off, one read-back of what is running — and what
+   * a flow and an Agent are seated on cannot drift apart.
+   */
+  readonly seats: {
+    /**
+     * Opens a conversation on the seat, in `cwd`, named `title`, puts it on
+     * the seat's picks, and answers with what it is actually running, read
+     * back once the picks are in. A pick the runtime declines is not an
+     * error here: the caller compares, and decides. A failure leaves nothing
+     * open: a conversation that opened and then failed is closed first.
+     */
+    open(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat>
+    /** Hands a seated conversation its standing order: one message, one turn. */
+    order(runtime: string, sessionId: string, text: string): Promise<void>
+    /**
+     * Closes a conversation a seating opened and will not use, and lets the
+     * host's handle on it go. Resolves once it is gone, so the next seat can
+     * be opened without two ever being open at once.
+     */
+    retire(runtime: string, sessionId: string): Promise<void>
+    /**
+     * Records which Agent a conversation was seated as, the digest of the
+     * brief it was handed and the permission it was told it holds, tells every
+     * window, and answers the conversation as the host now holds it. Kept by
+     * the host from then on, over whatever the runtime re-announces
+     * (`SessionRecord.seatedAs`).
+     */
+    recordAgent(runtime: string, sessionId: string, seated: SeatedAs): Session
   }
 
   readonly queue: {

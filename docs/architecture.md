@@ -291,7 +291,7 @@ These only exist because no vendor owns the desk:
 - **Gateway accounts** — an account of an agent that pays its own way, through
   the same loopback gateway: the models stay the agent's own, and the
   credential stays in the broker
-  ([agents.md](agents.md#gateway-accounts)).
+  ([runtimes.md](runtimes.md#gateway-accounts)).
 - **Model routes** — a backend's conversations against another
   Responses-speaking endpoint, through a per-route loopback gateway
   (`packages/responses-gateway`) that holds the key in its own process

@@ -1220,8 +1220,22 @@ export class AcpRuntime implements AgentRuntime {
    * agent last declared — learned from the draft probe, which costs nothing
    * until it is prompted. Opening it here is what fills the settings
    * catalogue for an agent nobody has talked to yet.
+   *
+   * The picker's answer: a catalogue the agent never managed to declare is
+   * drawn as nothing, not as an error. `knownModels` is how a caller that must
+   * tell the two apart asks.
    */
   async listModels(): Promise<readonly ModelInfo[]> {
+    return (await this.knownModels()) ?? []
+  }
+
+  /**
+   * The models, or null while the agent has never declared them — every
+   * conversation it was asked to open failed, the draft probe included. One
+   * that opened a conversation and named no model has answered: it offers
+   * none, and that is an empty list.
+   */
+  async knownModels(): Promise<readonly ModelInfo[] | null> {
     if (this.#catalog.length === 0 && this.#health.state === 'ready') {
       try {
         await this.#openProbe()
@@ -1233,7 +1247,7 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     this.#catalogRead = true
-    return this.#catalog
+    return this.#catalogKnown ? this.#catalog : null
   }
 
   /**
@@ -1308,6 +1322,8 @@ export class AcpRuntime implements AgentRuntime {
    * model changes as drafts are tried, and the agent's default does not.
    */
   #learnCatalog(result: AcpNewSessionResult): void {
+    // A conversation opened, so the agent has said what it offers — nothing included.
+    this.#catalogKnown = true
     const modelOption = result.configOptions?.find((option) => option.id === 'model' && option.type === 'select')
     const models: readonly AcpModel[] = result.models?.availableModels ??
       (modelOption?.options ?? []).map((option) => ({
@@ -1737,6 +1753,13 @@ export class AcpRuntime implements AgentRuntime {
   #signIn: SignInObservation = { state: 'unknown' }
   /** The agent's models as last declared, for the settings catalogue. */
   #catalog: readonly ModelInfo[] = []
+  /**
+   * Whether the agent has declared its models at all, which an empty
+   * `#catalog` cannot say: it is empty both before anything was learned and
+   * after an agent answered that it offers none. Kept, like `#catalog`, across
+   * a restart — the old process's answer is still the last one given.
+   */
+  #catalogKnown = false
   /** The model the agent chose for itself, before any draft pick moved it. */
   #catalogDefault: string | null = null
   /** Whether the catalogue has been handed out, which is what makes a later change news. */
@@ -2614,6 +2637,36 @@ const noticeOf = (update: Extract<AcpSessionUpdate, { sessionUpdate: 'user_messa
   return text.length > 0 ? text : null
 }
 
+/**
+ * The controls an answer names, laid over the ones held: each it names takes
+ * the answer's value, and each it leaves out is kept where it was.
+ *
+ * ACP calls the answer to `session/set_config_option` the full set of
+ * controls, and an agent that keeps to that loses nothing here. One that does
+ * not is real: claude-acp answers a change to a control it keeps itself with
+ * those controls alone, and read as the full set, that answer would take the
+ * model and effort controls off the conversation. The cost runs the other
+ * way, and is the smaller one: a control an agent really withdrew with such a
+ * change stays drawn until it next announces its controls, which is taken
+ * whole.
+ */
+const overlaid = (
+  held: readonly AcpConfigOption[],
+  answered: readonly AcpConfigOption[],
+): readonly AcpConfigOption[] => {
+  const named = new Map(answered.map((option) => [option.id, option]))
+  return [
+    ...held.map((option) => named.get(option.id) ?? option),
+    ...answered.filter((option) => !held.some((one) => one.id === option.id)),
+  ]
+}
+
+/** The model a `model` control holds, when there is one holding a model id. */
+const modelIn = (options: readonly AcpConfigOption[]): string | null => {
+  const control = options.find((option) => option.id === 'model')
+  return typeof control?.currentValue === 'string' ? control.currentValue : null
+}
+
 class AcpSession implements AgentSession {
   readonly id: SessionId
   readonly runtime
@@ -2622,6 +2675,14 @@ class AcpSession implements AgentSession {
   #modes: AcpSessionModeState | null
   #models: AcpModelState | null
   #configOptions: readonly AcpConfigOption[]
+  /**
+   * How many times the agent has re-declared its controls on its own
+   * (`config_option_update`) and its model (`current_model_update`). A setter
+   * compares before and after its call: whatever the agent announced while the
+   * call was open is its word on where the pick landed, and is kept over the
+   * value that was asked for (`setOption`).
+   */
+  readonly #announced = { options: 0, model: 0 }
   #turns: Turn[] = []
   #currentTurn: MutableTurn | null = null
   /** What the agent has said about tokens, if anything. Null until it does. */
@@ -2776,6 +2837,27 @@ class AcpSession implements AgentSession {
     return options
   }
 
+  /**
+   * Asks the agent to move one control, and then holds what the agent says it
+   * moved to — which is not always what was asked for.
+   *
+   * An agent may settle a pick somewhere else and answer the call without an
+   * error. Cursor's bridge does it by design: a pick changes what is *wanted*,
+   * and the session runs the nearest variant the family has, so thinking asked
+   * of a variant without it runs without it. The bridge says so in a
+   * `config_option_update` sent before its answer, and answers with nothing.
+   * Writing the value asked for over that announcement, as this once did,
+   * left the session reporting a variant it was not running — and every reader
+   * above it repeated the claim as a fact: a seat's read-back, a flow's label,
+   * the picker.
+   *
+   * So what a control holds once the call is answered is what the answer
+   * names; failing that, what the agent announced while the call was open; and
+   * only where the agent said nothing about it at all, the value asked for.
+   * That last is the agent's claim, made by accepting the call without a word,
+   * and not a reading of anything — an agent that settles a pick elsewhere and
+   * never says so cannot be told from one that took it.
+   */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
     if (!option) throw new Error(`${this.#host.agentName} has no session option named ${JSON.stringify(id)}.`)
@@ -2794,23 +2876,46 @@ class AcpSession implements AgentSession {
       const modelOption = this.#configOptions.find((entry) => entry.id === 'model')
       const currentModel = this.#models?.currentModelId ?? (modelOption && typeof modelOption.currentValue === 'string' ? modelOption.currentValue : null)
       if (currentModel === value) return
-      const response = await this.#host.connection.request<{ configOptions?: readonly AcpConfigOption[]; models?: AcpModelState }>(modelOption ? 'session/set_config_option' : 'session/set_model',
+      const before = { ...this.#announced }
+      const response = await this.#host.connection.request<{
+        configOptions?: readonly AcpConfigOption[] | null
+        models?: AcpModelState | null
+      } | null>(modelOption ? 'session/set_config_option' : 'session/set_model',
         modelOption
           ? { sessionId: this.id, configId: 'model', value }
           : { sessionId: this.id, modelId: value },
       )
+      /* One model, which an agent may keep twice: as its model list, and as a
+         `model` control beside it. What it says on either channel is its word
+         on both, so a channel it said nothing on takes the model it said on
+         the other — never the value asked for, which it once took even when
+         the agent had announced the model settled elsewhere, leaving the
+         control a seat reads back holding the request. The value asked for
+         stands only where the agent said nothing about the model at all, and
+         that is its claim, as for every other control. */
+      const optionsSaid = response?.configOptions != null || this.#announced.options !== before.options
+      const listSaid = response?.models != null || this.#announced.model !== before.model
+      const announced =
+        (this.#announced.options !== before.options ? modelIn(this.#configOptions) : null) ??
+        (this.#announced.model !== before.model ? (this.#models?.currentModelId ?? null) : null)
+      // A model decides which controls exist, so an answer listing them is the list.
       if (response?.configOptions) this.#configOptions = response.configOptions
-      else if (modelOption) {
+      if (response?.models) this.#models = response.models
+      const settled =
+        modelIn(response?.configOptions ?? []) ?? response?.models?.currentModelId ?? announced ?? (value as string)
+      if (!optionsSaid) {
         this.#configOptions = this.#configOptions.map((entry) =>
-          entry.id === 'model' ? { ...entry, currentValue: value as string } : entry,
+          entry.id === 'model' ? { ...entry, currentValue: settled } : entry,
         )
       }
-      if (response?.models) this.#models = response.models
-      else if (this.#models) this.#models = { ...this.#models, currentModelId: value as string }
+      if (!listSaid && this.#models) this.#models = { ...this.#models, currentModelId: settled }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
       const declared = this.#configOptions.find((entry) => entry.id === id)
-      await this.#host.connection.request('session/set_config_option', {
+      const before = this.#announced.options
+      const response = await this.#host.connection.request<{
+        configOptions?: readonly AcpConfigOption[] | null
+      } | null>('session/set_config_option', {
         sessionId: this.id,
         // ACP's field is `configId` (SessionConfigId); the SDK's validator
         // rejects anything else with "Invalid params". Boolean options also
@@ -2819,9 +2924,14 @@ class AcpSession implements AgentSession {
         ...(declared?.type === 'boolean' ? { type: 'boolean' as const } : {}),
         value,
       })
-      this.#configOptions = this.#configOptions.map((entry) =>
-        entry.id === id ? { ...entry, currentValue: value as string | boolean } : entry,
-      )
+      const answered = response?.configOptions ?? null
+      if (answered) this.#configOptions = overlaid(this.#configOptions, answered)
+      const said = this.#announced.options !== before || (answered?.some((entry) => entry.id === id) ?? false)
+      if (!said) {
+        this.#configOptions = this.#configOptions.map((entry) =>
+          entry.id === id ? { ...entry, currentValue: value as string | boolean } : entry,
+        )
+      }
     }
     this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
   }
@@ -3223,6 +3333,7 @@ class AcpSession implements AgentSession {
       case 'current_model_update': {
         if (this.#models) {
           this.#models = { ...this.#models, currentModelId: update.currentModelId }
+          this.#announced.model += 1
           this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
           this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
         }
@@ -3237,6 +3348,7 @@ class AcpSession implements AgentSession {
       }
       case 'config_option_update': {
         this.#configOptions = update.configOptions
+        this.#announced.options += 1
         this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
         return
       }

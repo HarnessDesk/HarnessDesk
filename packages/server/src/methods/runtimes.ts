@@ -1,6 +1,6 @@
 import { findOption, refuseOptionValue, type AgentRuntime, type ConfigOption, type OptionValue } from '@harnessdesk/protocol'
 
-import type { AccountRuntimePrefix } from './accounts.js'
+import type { AccountRuntimePrefix, InstallRuntimePrefix } from './accounts.js'
 import type { MethodsUnder } from './context.js'
 import type { RuntimeExtensionPrefix } from './runtime-extensions.js'
 
@@ -96,7 +96,7 @@ export const runtimeMethods = {
     await runtime.logout()
     return null
   },
-} satisfies MethodsUnder<'runtime/', AccountRuntimePrefix | RuntimeExtensionPrefix>
+} satisfies MethodsUnder<'runtime/', AccountRuntimePrefix | InstallRuntimePrefix | RuntimeExtensionPrefix>
 
 /**
  * Refuses a value the option does not take, in the protocol's own words, so a

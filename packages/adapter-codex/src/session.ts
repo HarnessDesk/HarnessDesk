@@ -38,11 +38,23 @@ import { CODEX_RUNTIME_ID, mapSummary, mapUsage, nameFromMessage, stripContext }
  *
  * The thread's settings are held in Codex's own vocabulary (`ThreadState`) and
  * projected into options on demand. Changes go through
- * `thread/settings/update`, and Codex answers every one with a
- * `thread/settings/updated` notification carrying the whole settings record —
- * that notification, not the request, is what the state is replaced from, so
- * the interface always shows what Codex believes rather than what was asked.
+ * `thread/settings/update`, and Codex follows every one that changes anything
+ * with a `thread/settings/updated` notification carrying the whole settings
+ * record — that notification, not the request, is what the state is replaced
+ * from, so the interface always shows what Codex believes rather than what was
+ * asked. `setOption` says how a change waits for it.
  */
+
+/**
+ * How long a settings change waits for Codex to say where it landed, once
+ * Codex has taken it without saying so yet.
+ *
+ * Codex writes `thread/settings/updated` straight after its answer — a
+ * millisecond after it, measured on 0.149.0 — so this only runs out when that
+ * word is not coming, and running out refuses a change that may have been
+ * made. Generous for that reason: it ends a wait, it does not race one.
+ */
+const SETTLE_MS = 5_000
 
 export interface CodexSessionDeps {
   /** Which Codex account owns this thread — the runtime it was started on. */
@@ -63,6 +75,8 @@ export interface CodexSessionDeps {
    * name; anything Codex made is Codex's to name, and it does.
    */
   readonly created?: boolean
+  /** How long a settings change waits for Codex's word on it; `SETTLE_MS` when absent. */
+  readonly settleMs?: number
 }
 
 export class CodexSession implements AgentSession {
@@ -112,6 +126,15 @@ export class CodexSession implements AgentSession {
    * the same reason, and in the same place, `AcpSession` holds its own.
    */
   #usage: SessionUsage | null = null
+  /**
+   * How many times Codex has said what this thread's settings are
+   * (`thread/settings/updated`). A setter compares it before and after its
+   * call: whatever Codex said while the call was open is its word on where the
+   * change landed, and the state already holds it.
+   */
+  #announced = 0
+  /** Setters waiting on Codex's next word about the settings; `noteSettings` wakes them. */
+  readonly #listening = new Set<() => void>()
 
   constructor(private readonly deps: CodexSessionDeps) {
     this.runtime = deps.runtime ?? CODEX_RUNTIME_ID
@@ -183,9 +206,30 @@ export class CodexSession implements AgentSession {
   }
 
   /**
-   * Applies a change through `thread/settings/update`. The value is checked
-   * against the declared choices first: Codex accepts an unknown model id
-   * without complaint and only fails later, at the first turn.
+   * Asks Codex to move one control, and then holds where Codex says it moved
+   * to — which need not be where it was asked to go.
+   *
+   * The value is checked against the declared choices first: Codex accepts an
+   * unknown model id without complaint and only fails later, at the first turn.
+   *
+   * `thread/settings/update` is answered with `{}`, which says only that the
+   * change was taken; where it landed is `thread/settings/updated`, and the
+   * state is replaced from that (`noteSettings`), never from the request. This
+   * once wrote the request in the moment the answer came. Where Codex put a
+   * change elsewhere, the thread reported the request until the notification
+   * caught up — and when both arrived in one read, for good, because the
+   * notification is dispatched before the answer's continuation runs, so the
+   * request was written over it. Every reader above repeated the claim as a
+   * fact: a seat's read-back, a flow's label, the picker.
+   *
+   * So the call resolves when Codex has said where the change landed: at its
+   * answer when that word came before it or with it, or when it follows. An
+   * update that moves nothing Codex last reported is announced by nothing at
+   * all (measured on 0.149.0: `{}`, and no notification), so that one resolves
+   * at its answer, on what Codex already said. A change Codex took and never
+   * announced within `settleMs` is refused out loud, as a feature Codex
+   * silently declines to flip is: the control keeps what Codex last said, and
+   * the request is written nowhere a reader could take it for a reading.
    */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
@@ -193,16 +237,47 @@ export class CodexSession implements AgentSession {
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new Error(refusal)
     const update = settingsUpdateFor(id, value, this.#state, this.#catalog)
+    const moves = movesAnything(this.#state, update)
+    const before = this.#announced
     await this.deps.server.request('thread/settings/update', { threadId: this.id, ...update })
-    // Codex also sends `thread/settings/updated`, which replaces this
-    // wholesale; applying the known effect now means the interface does not
-    // show the old value during the gap.
-    this.#replaceState(applyUpdate(this.#state, update))
+    if (moves && this.#announced === before && !(await this.#nextAnnouncement())) {
+      const held = findOption(this.options(), id) ?? option
+      throw new Error(
+        `Codex took the change to ${option.label} (${labelOf(option, value)}) without saying where it landed — the last it said was ${labelOf(held, held.currentValue)}.`,
+      )
+    }
+    this.deps.emit({ type: 'session/options', sessionId: this.id, options: this.options() })
+  }
+
+  /**
+   * True at Codex's next word on this thread's settings; false once `settleMs`
+   * has passed without one.
+   *
+   * Running out is only decided after the pipe has been read once more: a
+   * timer due while the host was busy runs before the input that waited
+   * behind it, so a notification already written would lose to its own
+   * deadline — `setImmediate` runs after that read. Never unref'd: the timer
+   * is the promise's one sure resolver, and an awaited promise whose resolver
+   * does not hold the event loop is one Node 22 abandons.
+   */
+  #nextAnnouncement(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const settle = (said: boolean) => {
+        clearTimeout(timer)
+        this.#listening.delete(heard)
+        resolve(said)
+      }
+      const heard = () => settle(true)
+      const timer = setTimeout(() => setImmediate(() => settle(false)), this.deps.settleMs ?? SETTLE_MS)
+      this.#listening.add(heard)
+    })
   }
 
   /** Called by the runtime on `thread/settings/updated` — Codex's word on the matter. */
   noteSettings(settings: CodexProtocol.v2.ThreadSettings): void {
+    this.#announced += 1
     this.#replaceState(stateFromThreadSettings(settings, this.#state))
+    for (const heard of [...this.#listening]) heard()
   }
 
   /** Called by the runtime when the catalogue was refetched, e.g. after sign-in. */
@@ -478,7 +553,26 @@ const settingsChanged = (a: ThreadState, b: ThreadState): boolean =>
   a.modelProvider !== b.modelProvider ||
   a.workspaceRoots.join('\0') !== b.workspaceRoots.join('\0')
 
-/** The state a successful `thread/settings/update` with these fields leaves behind. */
+/**
+ * Whether an update moves anything Codex last reported — which is whether
+ * Codex will say anything about it: it announces a change, and answers one
+ * that moves nothing with `{}` alone (measured on 0.149.0). Every value an
+ * option writes is a string or null, so identity is the comparison.
+ */
+const movesAnything = (
+  state: ThreadState,
+  update: Omit<CodexProtocol.v2.ThreadSettingsUpdateParams, 'threadId'>,
+): boolean => {
+  const next = applyUpdate(state, update)
+  return (Object.keys(next) as (keyof ThreadState)[]).some((key) => next[key] !== state[key])
+}
+
+/** A value as its control words it: the choice's label, or the value itself where the control has none. */
+const labelOf = (option: ConfigOption, value: OptionValue): string =>
+  (option.type === 'select' ? option.choices.find((choice) => choice.value === value)?.label : undefined) ??
+  String(value)
+
+/** What a `thread/settings/update` with these fields asks for, laid over the state — a prediction, never a reading. */
 const applyUpdate = (
   state: ThreadState,
   update: Omit<CodexProtocol.v2.ThreadSettingsUpdateParams, 'threadId'>,

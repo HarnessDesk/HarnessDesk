@@ -11,7 +11,7 @@ You run agents, and you will never read this repository's source.
 | --- | --- |
 | [getting-started.md](getting-started.md) | Install an agent — or three — sign in, run a first session; keyboard; troubleshooting |
 | [interface.md](interface.md) | Every surface of the window, and why each is shaped the way it is |
-| [agents.md](agents.md) | Which copy of an agent runs, where the model list comes from and why it is sometimes wrong, and multiple accounts |
+| [runtimes.md](runtimes.md) | Which copy of a runtime — an installed agent CLI — runs, where the model list comes from and why it is sometimes wrong, and multiple accounts |
 | [agent-capabilities.md](agent-capabilities.md) | What each agent declares it can do, surveyed out of the running app — a control it has no answer for is not drawn |
 | [message-queue.md](message-queue.md) | Typing while the agent works — what Enter does in every case |
 | [background-tasks.md](background-tasks.md) | Work an agent starts that outlives the turn, and how each agent reports it |

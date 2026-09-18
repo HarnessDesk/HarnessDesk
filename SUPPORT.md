@@ -22,7 +22,7 @@ Before either, the short version of most answers:
   **Help → Open Diagnostics Folder** opens the folder containing the log and
   any crash reports under `crashes/`.
 - The model list is the agent's own; when it looks wrong,
-  [docs/agents.md#where-the-model-list-comes-from](docs/agents.md#where-the-model-list-comes-from)
+  [docs/runtimes.md#where-the-model-list-comes-from](docs/runtimes.md#where-the-model-list-comes-from)
   explains whose fact it is.
 
 Security reports take a different door: [SECURITY.md](SECURITY.md), privately.

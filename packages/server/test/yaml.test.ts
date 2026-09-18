@@ -249,3 +249,31 @@ order: |
 
 
 
+
+test('a key named __proto__ is refused by name, wherever a key is written, and nothing reaches a prototype', () => {
+  /* To JavaScript, `map['__proto__'] = value` writes no key: it swaps the
+     map's prototype, so whatever is under it answers for every field the
+     document leaves unset. A reader that honoured it would read fields no
+     line of the file names. */
+  const refuses = (source: string, line: number): void => {
+    assert.throws(
+      () => parseYaml(source),
+      (error: unknown) => {
+        assert.ok(error instanceof YamlError, `expected a YamlError for:\n${source}`)
+        assert.equal(error.line, line, source)
+        assert.match(error.message, /"__proto__"/)
+        return true
+      },
+    )
+  }
+  refuses('a: 1\n__proto__: {b: 2}\n', 2)
+  refuses('a: 1\n"__proto__":\n  b: 2\n', 2)
+  refuses('list:\n  - __proto__: {b: 2}\n', 2)
+  refuses('list:\n  - a: 1\n    __proto__: {b: 2}\n', 3)
+  refuses('a: {__proto__: {b: 2}}\n', 1)
+  refuses("a: [{'__proto__': {b: 2}}]\n", 1)
+  // A key that only looks like it is an ordinary key.
+  const kept = parseYaml('__proto: 1\nproto__: 2\n') as Record<string, unknown>
+  assert.deepEqual(kept, { __proto: 1, proto__: 2 })
+  assert.equal(Object.getPrototypeOf(kept), Object.prototype)
+})

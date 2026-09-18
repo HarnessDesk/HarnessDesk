@@ -1,3 +1,4 @@
+import { SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   ClientToHost,
@@ -22,6 +23,7 @@ import {
   type Validator,
 } from './validate.js'
 import type { EditorEvent } from './editor.js'
+import type { FlowPermission, FlowSeat } from './flow.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId } from './ids.js'
@@ -115,6 +117,42 @@ export const approvalDecisionValidator: Validator<ApprovalDecision> = taggedUnio
  * not even the right shape should not get that far.
  */
 const isRuntimeId: Validator<RuntimeId> = (value, path = '') => runtimeId(isString(value, path))
+
+/** A string with something in it. An empty id or folder names nothing, and would be read as "the default". */
+const isFilled: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (text.trim() === '') throw new ValidationError(path, 'expected a non-empty string')
+  return text
+}
+
+/**
+ * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
+ * spec parses to. Checked field by field because it is handed to the seating
+ * as it arrives, and a seat's runtime is what names the conversation opened.
+ */
+const flowSeatValidator = shape({
+  runtime: isFilled,
+  model: optional(isString),
+  effort: optional(isString),
+  thinking: optional(isBoolean),
+}) as Validator<FlowSeat>
+
+/**
+ * The permissions a seating may grant. Keyed by `FlowPermission`, so a fourth
+ * permission stops this compiling rather than being refused here while every
+ * file that reads the word goes on taking it.
+ */
+const GRANTS: Readonly<Record<FlowPermission, true>> = { read: true, publish: true, merge: true }
+const grantValidator = literalUnion(...(Object.keys(GRANTS) as FlowPermission[]))
+
+/** The seats one seating tries in the Agent's place: no more than its `prefer` may name. */
+const seatListValidator: Validator<FlowSeat[]> = (value, path = '') => {
+  const seats = arrayOf(flowSeatValidator)(value, path)
+  if (seats.length > SEAT_PREFERENCE_LIMIT) {
+    throw new ValidationError(path, `expected at most ${SEAT_PREFERENCE_LIMIT} seats, got ${seats.length}`)
+  }
+  return seats
+}
 
 const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
   installSkill: shape({
@@ -310,9 +348,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     decision: approvalDecisionValidator,
   }),
 
-  'agents/catalog': isObject,
-  'agents/registry': isObject,
-  'agents/register': shape({
+  'acp/catalog': isObject,
+  'acp/registry': isObject,
+  'acp/register': shape({
     template: optional(isString),
     registry: optional(shape({ id: isString })),
     custom: optional(
@@ -325,10 +363,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
       }),
     ),
   }),
-  'agents/remove': shape({ runtime: isString }),
-  'agents/installs': shape({ runtime: isString }),
-  'agents/installs/use': shape({ runtime: isString, path: nullableString }),
-  'agents/update': shape({ runtime: isString }),
+  'acp/remove': shape({ runtime: isString }),
+  'runtime/installs': shape({ runtime: isString }),
+  'runtime/installs/use': shape({ runtime: isString, path: nullableString }),
+  'acp/update': shape({ runtime: isString }),
 
   'workspace/recent': isObject,
   'workspace/open': shape({ path: isString }),
@@ -463,6 +501,16 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'flow/stop': shape({ run: isString }),
   'flow/runs': shape({ room: isString }),
+
+  'agent/list': shape({ project: optional(isString) }),
+  'agent/read': shape({ id: isString, project: optional(isString) }),
+  'agent/seat': shape({
+    id: isFilled,
+    cwd: isFilled,
+    project: optional(isString),
+    seats: optional(seatListValidator),
+    permission: optional(grantValidator),
+  }),
 
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),

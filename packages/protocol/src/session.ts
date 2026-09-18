@@ -1,3 +1,4 @@
+import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -23,6 +24,40 @@ export interface SessionSettings {
   /** What the session is currently on, for display. Changed through the `model` option. */
   readonly model: string
   readonly modelProvider?: string
+  /**
+   * The Agent this conversation was seated as, when it was seated as one.
+   *
+   * Written by the host and by nothing else: it is laid back over whatever a
+   * runtime re-announces, and taken off a conversation the host never seated,
+   * so a reader can trust it when it is there. A patch that names it changes
+   * nothing.
+   */
+  readonly agent?: string
+  /**
+   * Content hash of the brief it was handed, captured at seating. Named for the
+   * digest it is: `brief` alone would read as the prose, and the prose goes to
+   * the standing order, not here. It is the `AgentEntry.digest` of the file the
+   * Agent was read from, so a front-matter change is a different brief too.
+   *
+   * A project Agent is versioned by git; a user-level one is versioned by
+   * nothing. The hash is what makes "at the version of its brief" answerable
+   * either way, and it is the same reason a flow run freezes its flow. Held
+   * like `agent`, by the host alone.
+   */
+  readonly briefDigest?: string
+  /**
+   * What the conversation was told it may do to the checkout it works in: the
+   * narrower of its Agent's ceiling and what the seating granted, which is
+   * `read` unless the seating said otherwise. Held like `agent`, by the host
+   * alone.
+   *
+   * Told, and not enforced. It reaches the conversation as the rule in its
+   * standing order — the sentence a flow seat of the same permission is handed
+   * — and nothing at the tool surface holds it to that rule yet, so a runtime
+   * that delegates hands its child none of it. That enforcement is a later
+   * phase; until then this records the instruction, not a guarantee.
+   */
+  readonly permission?: FlowPermission
 }
 
 /** Options accepted when opening a session. All are advisory; runtimes may clamp. */

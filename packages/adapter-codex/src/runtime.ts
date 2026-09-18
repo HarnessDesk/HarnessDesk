@@ -123,6 +123,15 @@ export interface CodexRuntimeOptions {
    * person's own words. Nothing is sent for an empty answer.
    */
   readonly instructions?: () => string
+  /**
+   * How long a change to a thread's settings waits for Codex to say where it
+   * landed (`thread/settings/updated`) once Codex has taken it, before the
+   * change is refused as unconfirmed. Codex says so in the same breath as its
+   * answer, so the default is generous: the limit ends a wait for a word that
+   * is not coming, and is not a race with one that is. See
+   * `CodexSession.setOption`.
+   */
+  readonly settleMs?: number
 }
 
 /**
@@ -231,6 +240,8 @@ export class CodexRuntime implements AgentRuntime {
   readonly #id: RuntimeId
   readonly #name: string
   readonly #sharesHistory: boolean
+  /** How long a thread's settings change waits for Codex's word on it; see `CodexSession.setOption`. */
+  readonly #settleMs: number | undefined
   /** Where this instance's Codex keeps its rollouts, for `salvageSession`. */
   readonly #codexHome: string | null
   /** Resolved once and refreshed on start; see `AgentRuntime.sessionStore`. */
@@ -240,6 +251,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#id = options.id ?? CODEX_RUNTIME_ID
     this.#name = options.name ?? 'Codex'
     this.#sharesHistory = options.sharesHistory ?? false
+    this.#settleMs = options.settleMs
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
     this.#binaryPath = options.binaryPath ?? null
@@ -972,6 +984,7 @@ export class CodexRuntime implements AgentRuntime {
       catalog,
       projection,
       created,
+      ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onClosed: (id) => {
         this.#sessions.delete(id)

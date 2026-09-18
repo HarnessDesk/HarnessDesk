@@ -59,6 +59,12 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
+  'agent/list':
+    'the Agent roster reaches the wire before any screen shows it — the roster in Settings that calls this is a later phase of the agents plan',
+  'agent/read':
+    'likewise — opening one Agent from that roster is the same later phase',
+  'agent/seat':
+    'likewise — seating an Agent from that roster is the same later phase',
 }
 
 /**

@@ -44,7 +44,7 @@ not know is the custom-command form in the same dialog, or one entry in
 `account` is what lets Settings › Agents show who is signed in and sign in for
 you; `executable` matters when the command is a bridge that embeds its own copy
 of the agent, pointing the bridge at the newest installed CLI on your machine.
-Details in [agents.md](agents.md) and [interface.md](interface.md).
+Details in [runtimes.md](runtimes.md) and [interface.md](interface.md).
 
 ### DeepSeek Harness
 

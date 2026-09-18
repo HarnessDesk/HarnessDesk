@@ -1,18 +1,18 @@
-# Agents: installs, models, and accounts
+# Runtimes: installs, models, and accounts
 
-HarnessDesk bundles no agent. It drives whatever you installed on your Mac,
-and on a real machine that is rarely one thing: binaries arrive by several
-roads at different versions, each declaring its own models and keeping its
-own credentials.
+HarnessDesk bundles no runtime — no agent CLI of its own. It drives whatever
+you installed on your Mac, and on a real machine that is rarely one thing:
+binaries arrive by several roads at different versions, each declaring its
+own models and keeping its own credentials.
 
 This document describes the rules and machinery for all three surfaces:
-which copy of an agent answers and how the app finds it, where the model
+which copy of a runtime answers and how the app finds it, where the model
 list comes from and why it is sometimes wrong, and how to hold more than
-one account of the same agent.
+one account of the same runtime.
 
-## Which copy of an agent runs
+## Which copy of a runtime runs
 
-An agent arrives by several roads — `brew install`, `npm i -g`, a vendor's
+A runtime arrives by several roads — `brew install`, `npm i -g`, a vendor's
 `curl | sh`, `uv tool install`, a download HarnessDesk made from the ACP
 registry, or the copy inside a vendor's own application. Each road leaves a
 different binary at a different version with a different model list. The
@@ -42,21 +42,21 @@ ten ACP agents on top of the three the desk already drove:
 3. **Downloads made by the desk had no update story.** Registry rows
    recorded `registry: {id, version}` for updates, but nothing read the
    field.
-4. **Some agents require more than an executable.** OpenClaw's ACP bridge is
+4. **Some runtimes require more than an executable.** OpenClaw's ACP bridge is
    mute without its Gateway daemon, and the Gateway refuses configuration
    files written by another OpenClaw version — the development machine's
    `openclaw.json` was invalid for installed 2026.8.2 on the day this was
-   built. Furthermore, agents such as Hermes and OpenClaw are not in the
+   built. Furthermore, runtimes such as Hermes and OpenClaw are not in the
    public registry at all.
 
 ### The discovery rule
 
 **The row's command is the fallback. Your newest usable copy is what runs.**
 
-Before every start, the host searches for every copy of the agent it knows
+Before every start, the host searches for every copy of the runtime it knows
 how to locate, asks each for its version, and hands the runtime the newest
-candidate meeting the agent's floor — unless you pinned a specific copy in
-settings, in which case that copy runs. When nothing installed qualifies,
+candidate meeting its floor — unless you pinned a specific copy in settings,
+in which case that copy runs. When nothing installed qualifies,
 the row runs as written: a package runner fetches its pinned version, or a
 download the desk previously made answers.
 
@@ -67,7 +67,7 @@ frequently older than an update in another folder.
 The corollaries:
 
 - **Yours first, ours on request.** Adding an entry from the ACP registry
-  whose agent already exists on your machine downloads nothing. The row
+  whose runtime already exists on your machine downloads nothing. The row
   points at the installed copy and records the registry version as
   `deferred`. The registry's managed build remains one click away in
   settings if ever wanted.
@@ -75,7 +75,7 @@ The corollaries:
   version with a timeout. A binary that fails to answer is marked
   unreadable and never chosen. Symlinks are resolved to real paths before
   two candidate locations count as two copies.
-- **Too old is listed, not run.** Each agent specifies a version floor. For
+- **Too old is listed, not run.** Each runtime specifies a version floor. For
   example, Gemini CLI gained `--acp` in 0.58.0, pi-acp requires pi 0.80.4
   for `--mode rpc`, and Codex requires 0.145.0 for turn-tagged thread
   items. A copy below the floor is displayed with the update command for
@@ -104,23 +104,23 @@ The corollaries:
               ▼
         Resolve launch executable       before every start, and on each check
               │
-              ├─ Agent table:  names, well-known folders, version floors,
-              │                and validation checks
-              ├─ Find copies:  PATH × command names, vendor install folders,
-              │                the row's command, and the desk's download folder
-              │                → probe each for version → deduplicate symlinks
-              ├─ Rank copies:  newest meeting the floor, or your pinned copy
-              ├─ Preflight:    the agent's own config check       ⎫ on start
-              ├─ Daemon:       the external service it requires   ⎭ only
+              ├─ Runtime table:  names, well-known folders, version floors,
+              │                  and validation checks
+              ├─ Find copies:    PATH × command names, vendor install folders,
+              │                  the row's command, and the desk's download folder
+              │                  → probe each for version → deduplicate symlinks
+              ├─ Rank copies:    newest meeting the floor, or your pinned copy
+              ├─ Preflight:      the runtime's own config check     ⎫ on start
+              ├─ Daemon:         the external service it requires   ⎭ only
               ▼
-        Run chosen copy                 or report why the agent cannot start,
-        (replaces the row's command         with the agent's error and remediation
+        Run chosen copy                 or report why the runtime cannot start,
+        (replaces the row's command         with the runtime's error and remediation
          for this start only)               commands formatted in Settings
 ```
 
 One scan settles one decision: the judgment made at launch is handed to the
 runtime description rather than evaluated again, avoiding dozens of
-concurrent machine-wide scans when multiple agents start.
+concurrent machine-wide scans when multiple runtimes start.
 
 Preflight checks (`openclaw config validate`) and daemon checks run only
 upon starting the process. Routine re-checks (the half-hourly refresh tick
@@ -142,7 +142,7 @@ The implementation sits in `packages/server/src/installs/`:
   npm global prefixes, `uv/tools`, `pipx/venvs`, `.bun`, `.cargo`, `.app`
   bundles, vendor installer folders, and `<state>/acp-agents`), providing
   the appropriate update command.
-- `known-agents.ts` — Data table of supported agents: command names,
+- `known-agents.ts` — Data table of supported runtimes: command names,
   install paths, version arguments, ACP arguments, minimum floors,
   distribution packages, credential homes, auth mechanisms, daemons, and
   preflight validators.
@@ -173,27 +173,27 @@ Navigate to **Settings › Agents › [Agent]** to view its **Install** section:
   provides unique value — when actively running, or when representing a
   replaceable download.
 - **Manual setup:** If no installed copies are found, displays the one-line
-  terminal command to install the agent locally.
-- **Agent home and authentication:** Displays the agent's home directory,
+  terminal command to install the runtime locally.
+- **Runtime home and authentication:** Displays the runtime's home directory,
   environment variable overrides (such as `OPENCLAW_STATE_DIR` or
   `CLAUDE_CONFIG_DIR`), and sign-in instructions or terminal login commands.
-- **Roster view:** The agent list displays account counts when present and
-  status badges when an agent is not ready. Agents needing no accounts omit
+- **Roster view:** The runtime list displays account counts when present and
+  status badges when a runtime is not ready. Runtimes needing no accounts omit
   redundant status text.
-- **Startup failures:** When an agent fails preflight or daemon checks, the
-  interface presents the agent's raw stderr findings in a scrolling pane
+- **Startup failures:** When a runtime fails preflight or daemon checks, the
+  interface presents the runtime's raw stderr findings in a scrolling pane
   alongside actionable remediation commands formatted as code blocks.
 - **Add agent dialog:** Templates display detected versions (e.g., "Found
-  opencode 1.18.29 via Homebrew"). When an agent is already installed,
+  opencode 1.18.29 via Homebrew"). When a runtime is already installed,
   registry cards indicate detection and switch the action button to *Add*
   rather than *Download*.
 
-### Supported agents, as measured
+### Supported runtimes, as measured
 
-Measured across agent CLIs, installer packages, and help outputs on
+Measured across runtime CLIs, installer packages, and help outputs on
 2026-09-05, and GitHub Copilot on 2026-09-12:
 
-| Agent | Launch / Bridge | Floor | Roads & Update | Home & State | Authentication |
+| Runtime | Launch / Bridge | Floor | Roads & Update | Home & State | Authentication |
 | --- | --- | --- | --- | --- | --- |
 | Gemini CLI | `gemini --acp` | 0.58.0 | npm `@google/gemini-cli`, brew `gemini-cli`, npx | `~/.gemini` | `/auth` browser sign-in; accepts `GEMINI_API_KEY` (`GOOGLE_API_KEY` only once Vertex AI is chosen) |
 | OpenClaw | `openclaw acp` + Gateway | — | npm `openclaw` | `~/.openclaw` (`OPENCLAW_STATE_DIR`, `--profile`) | Gateway token (`gateway.auth.token`, `OPENCLAW_GATEWAY_TOKEN`) |
@@ -236,7 +236,7 @@ form rather than an automatic template. See
   (`OPENCLAW_HIDE_BANNER=1`, `OPENCLAW_SUPPRESS_NOTES=1`) to prevent
   protocol corruption over stdout. Per-session MCP servers are rejected by
   the OpenClaw bridge, so plugin tools do not reach OpenClaw sessions.
-- **Launchers, not agents:** GitHub Copilot's Homebrew cask and npm
+- **Launchers, not runtimes:** GitHub Copilot's Homebrew cask and npm
   package both install a launcher that fetches the release for the platform
   on first run and updates it in place, under `~/Library/Caches/copilot` on
   macOS and `$XDG_CACHE_HOME/copilot` elsewhere. `--version` therefore
@@ -291,7 +291,7 @@ form rather than an automatic template. See
 ## Where the model list comes from
 
 HarnessDesk maintains no static list of models within the application.
-It reflects the models declared by the running agent process when it starts.
+It reflects the models declared by the running runtime process when it starts.
 Every model picker discrepancy stems from the same issue: the process
 responding is not the one expected.
 
@@ -352,7 +352,7 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
    their raw strings rather than dropped. Synthetic labels must never
    collide with prospective vendor names (`xhigh` was previously labelled
    "Max" until Codex introduced a literal `max`).
-2. **Drive your installed agent rather than an embedded copy.** Codex
+2. **Drive your installed runtime rather than an embedded copy.** Codex
    discovery scans candidate paths and selects the newest binary
    (`HARNESSDESK_CODEX_BINARY` provides an override). ACP agents follow
    the same rule. When a registry entry uses a bridge shim, it specifies an
@@ -373,21 +373,21 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
    logs the condition.
 3. **Query catalogues dynamically.** The active catalogue is retained for
    the process lifetime, cleared on restart or account change, and
-   refreshed periodically. If an agent binary changes on disk, the runtime
+   refreshed periodically. If a runtime's binary changes on disk, the process
    restarts onto it once idle. Model metadata is never persisted to disk by
    HarnessDesk.
-4. **Surface outdated agents beside the model list.** When an agent
+4. **Surface outdated runtimes beside the model list.** When a runtime
    publishes an npm package, the host checks npm's `latest` dist-tag once
    daily (cached in `<state>/update-checks.json`; set
    `HARNESSDESK_NO_UPDATE_CHECK=1` to disable). If an update is available,
-   an advisory appears in the model selection menu and in agent settings
+   an advisory appears in the model selection menu and in runtime settings
    displaying the upgrade command. The notice is purely informative; no
    features are disabled.
 5. **Parse protocols forward-compatibly.** Generated protocol types are
    aligned with vendor releases, but adapters treat enums (modes, reasoning
    efforts, model IDs) as open strings at runtime. Newer options pass
    through older HarnessDesk builds unimpeded. When a model or setting is
-   unsupported, the agent rejects it directly; HarnessDesk does not
+   unsupported, the runtime rejects it directly; HarnessDesk does not
    filter options based on static lists.
 
 ### Keeping models current
@@ -399,7 +399,7 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
                  │    the CLI path via environment variable             │
                  ├──────────────────────────────────────────────────────┤
                  │ 2. Start process and query catalogue                 │
-                 │    Agent process advertises its available models     │
+                 │    Runtime process advertises its available models   │
                  ├──────────────────────────────────────────────────────┤
                  │ 3. Render declared options                           │
                  │    Model picker populates directly from output;      │
@@ -422,7 +422,7 @@ Catalogue freshness is managed across runtimes:
   away (`STALE_AFTER_MS = 10 * 60 * 1000`).
 - **Binary checks:** Re-runs installation discovery. If a newer version or
   altered path is detected while no conversation turn is in flight, the
-  agent process restarts onto the new binary. Codex persists session state
+  runtime process restarts onto the new binary. Codex persists session state
   independently, so conversations resume without losing progress.
 - **Catalogue re-reads:** Codex refreshes its model lists in place and
   updates open sessions. Because ACP defines no catalog refresh request,
@@ -443,20 +443,20 @@ Why this architecture protects older installations:
    and displayed directly in the model option description alongside the
    remediation advisory.
 3. **Cache invalidation across restarts.** Because model catalogues are not
-   persisted across runs, an agent upgrade is immediately reflected upon
+   persisted across runs, a runtime upgrade is immediately reflected upon
    process restart without stale cache interference.
 4. **Open string mappings.** Reasoning effort levels and options pass
    through as strings. In Codex 0.149.0, reasoning effort transitioned from
    an enum to an open string.
-5. **Direct runtime validation.** If an option is invalid, the agent
-   runtime provides a rejection explanation via its disabled state.
+5. **Direct runtime validation.** If an option is invalid, the runtime
+   provides a rejection explanation via its disabled state.
 
 ### Reasoning effort
 
-Reasoning effort is declared dynamically by the agent per model and rendered
+Reasoning effort is declared dynamically by the runtime per model and rendered
 in the composer's effort control:
 
-| Agent | Source of levels | Application mechanism |
+| Runtime | Source of levels | Application mechanism |
 | --- | --- | --- |
 | Codex | Declared per model in its model catalogue | Applied through thread settings updates |
 | Claude Code | Declared per model (low…max on Opus/Fable/Sonnet, none on Haiku) forwarded by `packages/claude-acp` | `--effort` at spawn; mid-conversation updates re-spawn with `--resume`; initial turn changes run `/effort` |
@@ -470,18 +470,18 @@ style controls, records selected settings in `~/.harnessdesk/claude-acp/`,
 and identifies as `bridge 0.1.0`. The "Default" selection passes no
 `--effort` parameter, allowing Claude Code's terminal defaults to govern.
 
-Model catalogue lists cannot be unified across agents: the same underlying
+Model catalogue lists cannot be unified across runtimes: the same underlying
 weights are exposed as `claude-fable-5[1m]` in Claude Code,
 `claude-fable-5-thinking-xhigh` in Cursor, and remain unavailable in Codex.
 Availability depends strictly on the account authenticated to each runtime.
 
-### Verifying what an agent serves
+### Verifying what a runtime serves
 
-To inspect what models an agent offers:
+To inspect what models a runtime offers:
 
 - **Inside HarnessDesk:** Open the model picker at the bottom of the
   composer, or navigate to **Settings › Models** to see every model
-  advertised by the active agent and choose which models are shown in the
+  advertised by the active runtime and choose which models are shown in the
   picker.
 - **Cursor in a terminal:** Run `cursor-agent models` to print all models
   advertised by the Cursor CLI.
@@ -493,11 +493,12 @@ To inspect what models an agent offers:
 
 #### Signing in
 
-A person with four agents installed has four accounts to keep alive, and the
+A person with four runtimes installed has four accounts to keep alive, and the
 one that is signed out is rarely the one in front of them. So sign-in is a
-**roster, not a modal for the current agent**: every registered agent down the
-left with its state, the one selected on the right with the way in. Below the
-roster sits the public ACP registry, where new agents can be added in one click.
+**roster, not a modal for the current runtime**: every registered runtime
+down the left with its state, the one selected on the right with the way in.
+Below the roster sits the public ACP registry, where new agents can be added
+in one click.
 
 There are four flow shapes, and the page knows the shapes rather than any
 vendor — a runtime declares which one it has, and the right control appears:
@@ -510,11 +511,11 @@ vendor — a runtime declares which one it has, and the right control appears:
 | `external` | what to do instead, when HarnessDesk cannot drive the flow directly |
 
 **The key never comes back.** A pasted secret goes straight to the host and
-into the credential broker, which hands it to the agent as an environment
-variable when that agent next starts. It is never in the snapshot, never
+into the credential broker, which hands it to the runtime as an environment
+variable when that runtime next starts. It is never in the snapshot, never
 logged, and there is no method that returns it — so once one is stored the
 page states that fact and offers to replace it, rather than pretending to
-display a secret it does not have. The agent that authenticates this way is
+display a secret it does not have. The runtime that authenticates this way is
 declared in the registry, not detected:
 
 ```json
@@ -534,30 +535,30 @@ a keychain that is not there is worse than no promise.
 
 The same file can be read by both, and a blob written under one cipher is
 meaningless to the other. Each entry records which cipher wrote it; a reader
-that cannot decrypt one treats it as **absent** and logs why, so the agent
+that cannot decrypt one treats it as **absent** and logs why, so the runtime
 shows as signed out and the field comes back. Treating it as absent rather
 than throwing is what keeps one unreadable entry from taking down the account
-read for every agent.
+read for every runtime.
 
-#### Getting the key into the agent, and knowing where it already is
+#### Getting the key into the runtime, and knowing where it already is
 
 Two things make a stored key real.
 
-**An agent reads its environment when it starts.** A key stored while it is
+**A runtime reads its environment when it starts.** A key stored while it is
 running reaches the next process, not the running one. Storing now signals the
 runtime to restart immediately to pick it up, and reports what happened: *"Key
 stored. DeepSeek Harness restarted with it."* A turn in flight is never killed;
 in that case the interface reports that the key will apply on the next start.
 
 Unlike a catalogue refresh this restarts even when sessions are open and the
-agent cannot resume them. An agent missing its key fails every turn, so a
+runtime cannot resume them. A runtime missing its key fails every turn, so a
 conversation held open against it is worth nothing — whereas refusing to
 restart leaves the user with no way to get the key in.
 
 **The key may already be somewhere else.** DeepSeek Harness reads one from its
 environment, from `~/.dsh/.credentials.yaml` — the file its own Models page
 writes — and from two `.env` layers, in that precedence. HarnessDesk knowing
-only its own broker meant "Not signed in" about an agent that ran as expected,
+only its own broker meant "Not signed in" about a runtime that ran as expected,
 and a field offered for a key already there. The registry declares those
 other locations:
 
@@ -591,29 +592,28 @@ shows — "4% left · Weekly · resets 4:00 PM" — and the blocked banner fires
 on a reached limit. An account's Settings page shows the prepaid balance beside
 the windows, a zero included.
 
-## Multiple accounts of the same agent
+## Multiple accounts of the same runtime
 
 Codex maintains a single credential in `$CODEX_HOME/auth.json`. Signing in a
 second time overwrites the existing credentials. The CLI provides no profile
 flag or `--account` argument, and account status checks return a single
-active account. Other supported coding agents share this single-identity
-model.
+active account. Other supported runtimes share this single-identity model.
 
 Supporting multiple accounts therefore requires running an independent
-agent process with a dedicated credential directory. In HarnessDesk,
+runtime process with a dedicated credential directory. In HarnessDesk,
 multiple accounts and gateway accounts are currently implemented for
-Codex; other agents operate with their single workstation identity.
+Codex; other runtimes operate with their single workstation identity.
 
 ### The credential home as a symlink farm
 
 Configuring an empty directory for a secondary `CODEX_HOME` would isolate
 credentials, but it would also isolate session history. All Codex accounts
 on a workstation share access to existing sessions; the isolation boundary
-lies between agent vendors (Codex versus Claude), not between accounts of
-the same agent.
+lies between runtime vendors (Codex versus Claude), not between accounts of
+the same runtime.
 
 HarnessDesk constructs a symlink farm for each secondary account slot:
-every entry in the primary agent home is mirrored as a symlink, with the
+every entry in the primary runtime home is mirrored as a symlink, with the
 exception of authentication credentials:
 
 ```
@@ -624,10 +624,10 @@ exception of authentication credentials:
   state_5.sqlite       -> ~/.codex/state_5.sqlite
   config.toml          -> ~/.codex/config.toml
   skills               -> ~/.codex/skills
-  …                       (all remaining files in the agent home)
+  …                       (all remaining files in the runtime home)
 ```
 
-Session rollouts, SQLite databases, agent configuration, skills, and
+Session rollouts, SQLite databases, runtime configuration, skills, and
 plugins point to the identical bytes on disk. Only authentication state
 diverges.
 
@@ -651,7 +651,7 @@ Five items are excluded from symlinking:
 
 Two directories must exist before symlinking can succeed:
 `thread-writer-locks` and `mcp-oauth-locks`. If a slot is created before the
-agent has opened its first session, these directories do not yet exist in the
+runtime has opened its first session, these directories do not yet exist in the
 primary home. Left unlinked, secondary accounts would create independent,
 unshared lock folders.
 
@@ -663,7 +663,7 @@ single thread). For `mcp-oauth-locks`, Codex synchronises token store updates
 across processes (`rmcp-client/src/oauth/store_lock.rs`). The host ensures
 these directories exist in the primary home before constructing symlinks.
 
-The symlink farm is rebuilt on every process start. When an agent updates a
+The symlink farm is rebuilt on every process start. When a runtime updates a
 file via an atomic write (creating a new file and renaming it), the symlink
 is replaced by a regular file. Re-evaluating links on startup prevents slots
 from drifting into detached local copies.
@@ -676,7 +676,7 @@ instead of sequential counters prevents recycled identifiers from
 inheriting detached state.
 
 Each runtime appears independently across the sidebar, composer selectors,
-and usage cards. Account slot metadata records parent agent linkages,
+and usage cards. Account slot metadata records parent runtime linkages,
 credential locations, and removal permissions.
 
 Extra accounts exhibit two specific behavioral differences:
@@ -727,20 +727,20 @@ HarnessDesk prevents duplicate entries:
 
 ### Gateway accounts
 
-A gateway account runs the identical agent binary, shares the symlink farm,
+A gateway account runs the identical runtime binary, shares the symlink farm,
 and accesses the same model catalog as the primary account, but routes
 billing away from the vendor subscription to an external endpoint: a direct
 API key, an enterprise gateway, or a managed proxy such as Vercel AI
 Gateway.
 
-Gateway accounts decouple agent execution from subscription limits,
+Gateway accounts decouple runtime execution from subscription limits,
 enabling teams to use enterprise billing or API credit pools without
 changing their developer environment.
 
 Key implementation details:
 
 - **Native model fidelity:** Gateway accounts are restricted to the
-  agent's native models (e.g., routing Codex to `openai/gpt-5.6-sol` via a
+  runtime's native models (e.g., routing Codex to `openai/gpt-5.6-sol` via a
   gateway). This preserves Codex's Responses API payload features:
   plugin namespaces, web search, session persistence options, and
   multi-agent blocks. Translating requests to non-native models strips these
@@ -750,7 +750,7 @@ Key implementation details:
   your primary `~/.codex/config.toml`.
 - **Credential isolation:** Gateway slots never create an `auth.json`. The
   upstream API key is stored exclusively in the HarnessDesk credential
-  broker. The agent's local `config.toml` is written with a loopback
+  broker. The runtime's local `config.toml` is written with a loopback
   address and a one-time token:
   ```toml
   model_provider = "harnessdesk_gateway"
@@ -771,5 +771,5 @@ Key implementation details:
 - **Verification:** Verified via `script/probe/gateway-account.mjs` against
   `codex exec` (tested against codex-cli 0.149.0): requests complete with
   exit code 0, usage metrics record accurately, upstream credentials
-  remain shielded from the agent environment, and plugin tools operate
+  remain shielded from the runtime environment, and plugin tools operate
   without modification.

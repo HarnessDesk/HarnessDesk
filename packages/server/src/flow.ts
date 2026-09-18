@@ -88,7 +88,7 @@ const SIMULATION_ROUNDS = 24
  */
 const OUTCOME_CEILING = 12
 
-const problem = (level: 'error' | 'warning', at: string, text: string): FlowProblem => ({
+export const problem = (level: 'error' | 'warning', at: string, text: string): FlowProblem => ({
   level,
   at,
   text,
@@ -190,14 +190,21 @@ export const ROUND_SLOTS = ['from', 'answered'] as const
 
 // -------------------------------------------------------------------- reading
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
+/* These four read plain data out of parsed YAML, and they are exported because
+   `AGENT.md` is read by the same grammar: the spec says an Agent's `prefer`
+   uses the seat form a role's `seats` uses, "parsed by the same code", and two
+   copies of `asText` are how the two formats begin disagreeing about one file. */
+
+export const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
 
-const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
+/** Whether this *is* a list. Null for everything else — it does not wrap. */
+export const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
 
-const asText = (value: unknown): string | null =>
+/** A scalar as it was written. Null for a map or a list, which is not text. */
+export const asText = (value: unknown): string | null =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
 
 /**
@@ -259,7 +266,17 @@ export const seatSpec = (seat: FlowSeat): string =>
   }`
 
 const KINDS: readonly FlowRoleKind[] = ['agent', 'person', 'check']
-const PERMISSIONS: readonly FlowPermission[] = ['read', 'publish', 'merge']
+
+/**
+ * The permissions, written against the union rather than beside it: a record
+ * keyed by `FlowPermission` stops compiling the day a fourth one is added, the
+ * way `GIT_RULES` does, where a hand-kept list would go on compiling and go on
+ * refusing the new word — in two files, since `AGENT.md` reads the same field.
+ */
+const PERMISSION_WORDS: Readonly<Record<FlowPermission, true>> = { read: true, publish: true, merge: true }
+
+/** Whether a written word is a permission. Own keys only, so `toString` is not. */
+export const isPermission = (word: string): word is FlowPermission => Object.hasOwn(PERMISSION_WORDS, word)
 
 const readGuard = (value: unknown, at: string, problems: FlowProblem[]): FlowGuard | null => {
   if (value === null || value === undefined) return null
@@ -418,8 +435,8 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
       problems.push(problem('error', `${at}.kind`, `"${kind}" is not a kind — it is agent, person or check`))
       continue
     }
-    const permission = (asText(record['permission']) ?? 'read') as FlowPermission
-    if (!PERMISSIONS.includes(permission)) {
+    const permission = asText(record['permission']) ?? 'read'
+    if (!isPermission(permission)) {
       problems.push(
         problem('error', `${at}.permission`, `"${permission}" is not a permission — it is read, publish or merge`),
       )
@@ -896,11 +913,11 @@ export const dryRun = (
  * failure this exists to prevent.
  */
 export const GIT_RULES: Readonly<Record<FlowPermission, string>> = {
-  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, never push, never merge, never reset or force anything, and never spawn a sub-agent or a background agent — each of those costs a request, and doing the work here costs nothing extra.',
+  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, never push, never merge, never reset or force anything.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   publish:
-    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, and never spawn a sub-agent or a background agent — each of those costs a request, and doing the work here costs nothing extra.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.',
+    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   merge:
-    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, and never spawn a sub-agent or a background agent — each of those costs a request, and doing the work here costs nothing extra.\n- You publish and you merge. You may branch, commit, push your own branch, open a pull request, and merge one that a card asks you to merge. You may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Merge only what the card names, and only if it says so — never something you decide is ready.',
+    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration.\n- You publish and you merge. You may branch, commit, push your own branch, open a pull request, and merge one that a card asks you to merge. You may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Merge only what the card names, and only if it says so — never something you decide is ready.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
 }
 
 /** What the standing order is filled with for one seat. */

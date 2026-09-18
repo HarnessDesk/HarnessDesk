@@ -3,7 +3,14 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
-import { isFolderGone, isSessionGone, sessionId, type AgentEvent, wrapContext } from '@harnessdesk/protocol'
+import {
+  isFolderGone,
+  isSessionGone,
+  sessionId,
+  type AgentEvent,
+  type AgentRuntime,
+  wrapContext,
+} from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
 
@@ -1230,6 +1237,46 @@ test('the catalogue is the agent\'s models, each with the levels it declared', a
     assert.equal(after.find((model) => model.id === 'small')?.isDefault, true)
   } finally {
     await runtime.dispose()
+  }
+})
+
+/*
+ * Two questions about the catalogue, with different answers when it could not
+ * be read. The picker's — what is there to draw — is answered with what is
+ * known, which is nothing, exactly as it always was. A seating's — does this
+ * agent offer that model — must not take "could not say" for "offers none",
+ * so `knownModels` answers null until the agent has declared its models once.
+ */
+
+test('a catalogue the agent never managed to declare is unknown, though the picker still draws it empty', async () => {
+  // Every conversation this agent is asked to open fails, the draft probe included.
+  const runtime = make({ FAKE_ACP_SERVER_ERROR: '1' })
+  await runtime.start()
+  try {
+    assert.deepEqual(await runtime.listModels(), [], 'the picker is answered as it always was')
+    const asked: AgentRuntime = runtime
+    assert.equal(await asked.knownModels?.(), null, 'and a seating is told nothing is known')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a catalogue the agent declared is known — and one that declares no models is known to have none', async () => {
+  const declared: AgentRuntime = make()
+  const none: AgentRuntime = new AcpRuntime({
+    id: 'variant',
+    name: 'Variant',
+    command: process.execPath,
+    args: [fileURLToPath(new URL('./fixtures/variant-acp-agent.mjs', import.meta.url))],
+    env: { VARIANT_NO_MODELS: '1' },
+  })
+  await Promise.all([declared.start(), none.start()])
+  try {
+    assert.deepEqual((await declared.knownModels?.())?.map((model) => model.id), ['small', 'large'])
+    assert.deepEqual(await none.knownModels?.(), [], 'it opened a conversation and named no model: that is an answer')
+    assert.deepEqual(await none.listModels(), [])
+  } finally {
+    await Promise.all([declared.dispose(), none.dispose()])
   }
 })
 

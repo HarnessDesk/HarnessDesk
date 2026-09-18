@@ -1,3 +1,4 @@
+import type { AgentEntry } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -9,7 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { FlowDryRun, FlowFile, FlowRun } from './flow.js'
+import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
   LibraryDefinition,
@@ -470,7 +471,7 @@ export interface AcpRegistryCatalogInfo {
 }
 
 /**
- * What `agents/register` accepts: a known template, an entry from the public
+ * What `acp/register` accepts: a known template, an entry from the public
  * ACP registry, or a command of the user's own.
  */
 export interface AgentRegisterRequest {
@@ -1112,38 +1113,38 @@ export interface HostMethods {
    * availability depends on what is installed on the machine right now, and
    * the answer is only worth computing while the add-agent surface is open.
    */
-  'agents/catalog': { params: Record<string, never>; result: readonly AgentTemplateInfo[] }
+  'acp/catalog': { params: Record<string, never>; result: readonly AgentTemplateInfo[] }
   /** The public ACP registry, read through the host's cache. */
-  'agents/registry': { params: Record<string, never>; result: AcpRegistryCatalogInfo }
+  'acp/registry': { params: Record<string, never>; result: AcpRegistryCatalogInfo }
   /**
    * Registers an ACP agent — a known template, or a custom command — writes it
    * to the registry, and brings it up. The new row arrives as `runtime/added`
    * before this resolves; failing to *start* is the runtime's own health to
    * report, exactly as it is for an account that was just added.
    */
-  'agents/register': {
+  'acp/register': {
     params: AgentRegisterRequest
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }
   /**
-   * Unregisters an agent that `agents/register` (or a hand-edited registry)
+   * Unregisters an agent that `acp/register` (or a hand-edited registry)
    * added. The agent's own software, configuration and history are untouched
    * — the registry points at a command, it does not manage software. Refused
    * for runtimes the registry does not own: Codex, and account slots.
    */
-  'agents/remove': { params: { readonly runtime: RuntimeId }; result: null }
+  'acp/remove': { params: { readonly runtime: RuntimeId }; result: null }
   /**
    * Every copy of the agent on this machine, looked for afresh, and which
    * one answers. The same answer rides on `RuntimeInfo.install`; this is the
    * way to ask again after installing or removing something.
    */
-  'agents/installs': { params: { readonly runtime: RuntimeId }; result: InstallInfo }
+  'runtime/installs': { params: { readonly runtime: RuntimeId }; result: InstallInfo }
   /**
    * Pins one copy as the one that answers, or `null` to go back to the
    * newest-wins rule. Takes effect on the next start; a runtime with no turn
    * in flight is restarted onto it at once.
    */
-  'agents/installs/use': {
+  'runtime/installs/use': {
     params: { readonly runtime: RuntimeId; readonly path: string | null }
     result: InstallInfo
   }
@@ -1153,7 +1154,7 @@ export interface HostMethods {
    * belong to the person's package manager, and the interface names the
    * command instead of offering a button.
    */
-  'agents/update': {
+  'acp/update': {
     params: { readonly runtime: RuntimeId }
     result: { readonly runtime: RuntimeId; readonly info: RuntimeInfo }
   }
@@ -1526,6 +1527,71 @@ export interface HostMethods {
   'flow/stop': { params: { readonly run: string }; result: FlowRun }
   /** Every run this room has had, oldest first. */
   'flow/runs': { params: { readonly room: string }; result: readonly FlowRun[] }
+
+  // -- agents: who does the work, as opposed to the runtime it runs on. Read
+  // only: an Agent is a file, and writing one is editing that file.
+  /**
+   * Every Agent there is to seat, one per id: a project's own when `project`
+   * names one, then this machine's, then those built in. What a winner beat is
+   * listed on it rather than dropped, and an Agent whose file will not parse is
+   * listed with its problems rather than hidden.
+   *
+   * `project` is held host-side to the folders opened here, or the top of the
+   * repository one sits in. A directory of this machine's roster that exists
+   * and cannot be read fails the call, with its path and reason. Nothing in a
+   * project does: a project's Agent directory that leads out of the project,
+   * or cannot be read, is one entry saying why, and names nothing beyond it.
+   */
+  'agent/list': {
+    params: { readonly project?: string }
+    result: readonly AgentEntry[]
+  }
+  /** One Agent by its directory name, chosen exactly as `agent/list` chooses; null when nobody defined it. */
+  'agent/read': {
+    params: { readonly id: string; readonly project?: string }
+    result: AgentEntry | null
+  }
+  /**
+   * Opens a conversation as an Agent: the first of its seats this machine can
+   * offer, handed the Agent's brief once as its standing order — the brief as
+   * written, then the rule of the permission the seat holds — and recorded in
+   * its settings as that Agent, that brief and that permission (`agent`,
+   * `briefDigest`, `permission`).
+   *
+   * The permission is the narrower of the Agent's ceiling and `permission`, the
+   * grant, which is `read` when the call makes none: a grant never reaches past
+   * the ceiling. It is an instruction, the one a flow seat of that permission is
+   * handed, and nothing at the tool surface enforces it yet.
+   *
+   * Refuses, and never substitutes. A seat is read back once it is open — a
+   * runtime drops a pick it declines rather than failing, and an agent may
+   * settle one on the nearest thing it has — and one running a model, effort
+   * or thinking other than the one asked for is closed and passed
+   * over like any other candidate, the next one tried. Only when every
+   * candidate has failed is the call refused: nothing is left open, and the
+   * refusal is one list naming every candidate and why it failed, whether that
+   * was found before opening or after. One seat is open at a time.
+   *
+   * The Agent is chosen exactly as `agent/read` chooses it, `project` held to
+   * the same folders; an Agent whose file will not parse is refused with its
+   * problem. `cwd` is where the conversation works, and must be absolute.
+   */
+  'agent/seat': {
+    params: {
+      readonly id: string
+      readonly cwd: string
+      readonly project?: string
+      /**
+       * Overrides the Agent's own preference for this one seating. Empty is no
+       * override; longer than `SEAT_PREFERENCE_LIMIT` is refused, as a `prefer`
+       * list that long is.
+       */
+      readonly seats?: readonly FlowSeat[]
+      /** What this seating grants, narrowed to the Agent's ceiling. `read` when absent. */
+      readonly permission?: FlowPermission
+    }
+    result: Session
+  }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {
