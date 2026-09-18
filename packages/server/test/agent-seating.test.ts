@@ -69,6 +69,22 @@ test('a spent lane is passed over', () => {
   assert.match(chosen.passed[0]?.why ?? '', /spent/)
 })
 
+test('a model whose own window is spent is passed over, and the runtime still seats another', () => {
+  // Gemini CLI reports a lane per model, scoped by the model id. With no
+  // account-wide lane that runtime is not spent while another model has room,
+  // so the candidate asking for the spent one has to be told here (#769).
+  const offers = [offer('gemini', { models: ['gemini-2.5-pro', 'gemini-2.5-flash'], spentModels: ['gemini-2.5-pro'] })]
+  const chosen = chooseSeat([seat('gemini', 'gemini-2.5-pro'), seat('gemini', 'gemini-2.5-flash')], offers)
+  assert.equal(chosen.seat?.model, 'gemini-2.5-flash')
+  assert.equal(chosen.passed[0]?.why, "gemini's window for gemini-2.5-pro is spent")
+  // A scope that is not a model id — a group of models — asks nothing of a candidate.
+  const byGroup = chooseSeat([seat('antigravity', 'm1')], [offer('antigravity', { spentModels: ['Gemini Models'] })])
+  assert.equal(byGroup.seat?.runtime, 'antigravity')
+  // And a candidate that names no model is not judged by one.
+  const unnamed = chooseSeat([seat('gemini')], offers)
+  assert.equal(unnamed.seat?.runtime, 'gemini')
+})
+
 test('a model the runtime does not offer is passed over, and the model is named', () => {
   const chosen = chooseSeat([seat('cursor', 'gone', 'high'), seat('claude', 'm1', 'high')], [offer('cursor'), offer('claude')])
   assert.equal(chosen.seat?.runtime, 'claude')

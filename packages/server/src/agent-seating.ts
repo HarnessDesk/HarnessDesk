@@ -66,6 +66,14 @@ export interface SeatOffer {
    * binds one model only is not this: the runtime still answers on the others.
    */
   readonly spent: boolean
+  /**
+   * Models whose own window is spent: a lane scoped to exactly that model id,
+   * the way Gemini CLI reports its quota. The runtime still answers on its
+   * other models, so only a candidate asking for one of these is passed over.
+   * A scope that is not a model id ("Opus", "Gemini Models") matches no
+   * candidate and changes nothing.
+   */
+  readonly spentModels?: readonly string[]
 }
 
 export interface PassedOver {
@@ -102,6 +110,7 @@ const whyNot = (seat: FlowSeat, offers: readonly SeatOffer[]): string | null => 
       return `cannot tell whether ${seat.runtime} offers ${seat.model}: its model list could not be read`
     }
     if (!offer.models.includes(seat.model)) return `${seat.runtime} does not offer ${seat.model}`
+    if (offer.spentModels?.includes(seat.model)) return `${seat.runtime}'s window for ${seat.model} is spent`
   }
   if (seat.effort && offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
     return `${seat.runtime} does not offer ${seat.effort} effort`

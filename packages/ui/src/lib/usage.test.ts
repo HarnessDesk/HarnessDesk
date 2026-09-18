@@ -6,11 +6,13 @@ import {
   bindingLane,
   byUrgency,
   describeReport,
+  drawnReport,
   formatAge,
   formatCountdown,
   formatCountdownShort,
   formatMoney,
   gatedUntil,
+  isBlocked,
   pace,
   planLabel,
   runway,
@@ -254,25 +256,86 @@ describe('describeReport', () => {
     expect(view.tone).toBe('bad')
   })
 
-  it('lets a scoped lane block only when the account reports no wide one', () => {
-    // The contract every source we read satisfies is that an account-wide
-    // window exists; with none, the scoped lanes are the whole of what we
-    // know and the least left of them binds. A source that ever arrives
-    // shaped like this fails here rather than quietly blocking an account.
-    const onlyScoped = [
-      lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
-      lane({ id: 'weekly:opus', usedPercent: 20, scope: 'Opus' }),
+  it('steps around a spent scope when the account reports no wide lane', () => {
+    // Antigravity's shape, measured 2026-09-17: a weekly limit per group of
+    // models and none for the account. The Gemini group is spent and the
+    // Claude one is untouched, and the agent runs Claude Opus as happily as
+    // ever — so the account is not out, and its headline is the scope that
+    // still has room, not the one that has none.
+    const groups = [
+      lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models', resetsAt: NOON + 6 * DAY }),
+      lane({ id: '3p-weekly', usedPercent: 0, scope: 'Claude and GPT models', resetsAt: null }),
     ]
-    const view = describeReport(report({ lanes: onlyScoped }), { now: NOON, maxLanes: 3 })
-    expect(view.blocked).toBe(true)
-    // And with an account-wide lane beside them it goes back to being a fact
-    // about one model, whichever of them is spent.
+    const view = describeReport(report({ lanes: groups, reached: 'gemini-weekly' }), { now: NOON, maxLanes: 3 })
+    expect(view.blocked).toBe(false)
+    expect(view.hero?.id).toBe('3p-weekly')
+    expect(view.hero?.remainingPercent).toBe(100)
+    // The spent one is still on the card, and still named as what ran out.
+    expect(view.all.map((row) => row.id)).toEqual(['gemini-weekly', '3p-weekly'])
+    expect(view.reachedLane?.scope).toBe('Gemini Models')
+    expect(view.tone).toBe('warn')
+    // And with an account-wide lane beside them it is a fact about one model,
+    // whichever of them is spent, exactly as before.
     const withWide = describeReport(
-      report({ lanes: [...onlyScoped, lane({ id: 'weekly', usedPercent: 63 })] }),
+      report({ lanes: [...groups, lane({ id: 'weekly', usedPercent: 63 })] }),
       { now: NOON, maxLanes: 4 },
     )
     expect(withWide.blocked).toBe(false)
     expect(withWide.hero?.id).toBe('weekly')
+  })
+
+  it('waits for the first scope back when every scope is spent', () => {
+    const spent = [
+      lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models', resetsAt: NOON + 6 * DAY }),
+      lane({ id: '3p-weekly', usedPercent: 100, scope: 'Claude and GPT models', resetsAt: NOON + 2 * DAY }),
+      lane({ id: 'other', usedPercent: 100, scope: 'Other', resetsAt: null }),
+    ]
+    const view = describeReport(report({ lanes: spent }), { now: NOON, maxLanes: 3 })
+    expect(view.blocked).toBe(true)
+    expect(view.hero?.id).toBe('3p-weekly')
+    expect(view.tone).toBe('bad')
+  })
+
+  it('does not let an unmeasured scope stand in for a spent one', () => {
+    // Unknown is not evidence of room, but it is not evidence of none either:
+    // the account is not called out while a scope might still answer.
+    const view = describeReport(
+      report({
+        lanes: [
+          lane({ id: 'a', usedPercent: 100, scope: 'A' }),
+          lane({ id: 'b', usedPercent: 0, scope: 'B', usageKnown: false }),
+        ],
+      }),
+      { now: NOON, maxLanes: 3 },
+    )
+    expect(view.blocked).toBe(false)
+    expect(view.hero?.id).toBe('b')
+  })
+
+  it("draws another sign-in's figures without making them the account's", () => {
+    const other = {
+      whose: 'agy CLI sign-in',
+      lanes: [lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models' })],
+      reached: 'gemini-weekly',
+      fetchedAt: NOON - HOUR,
+      staleAfterMs: HOUR,
+    }
+    const borrowed = report({ account: 'Google account', unverified: other })
+    const drawn = drawnReport(borrowed)
+    expect(drawn.account).toBe('agy CLI sign-in')
+    expect(drawn.lanes).toBe(other.lanes)
+    expect(drawn.reached).toBe('gemini-weekly')
+    expect(drawn.fetchedAt).toBe(NOON - HOUR)
+    // The report itself is untouched, and it is the one everything else reads.
+    expect(borrowed.lanes).toEqual([])
+    expect(isBlocked(borrowed)).toBe(false)
+    // An account with lanes of its own is drawn as itself.
+    const own = report({ lanes: [lane({ id: 'weekly', usedPercent: 10 })], unverified: other })
+    expect(drawnReport(own)).toBe(own)
+    // Its source failing is drawn with its figures, and is not the report's.
+    const failing = report({ unverified: { ...other, error: { message: 'agy /usage failed: HTTP 503' } } })
+    expect(drawnReport(failing).error?.message).toBe('agy /usage failed: HTTP 503')
+    expect(failing.error).toBeNull()
   })
 
   it('marks a lane with no usage figure as unknown rather than empty', () => {
@@ -388,6 +451,20 @@ describe('runway', () => {
 
   it('does not pretend an unmetered roster is healthy', () => {
     expect(runway([report({})], nameFor, NOON).headline).toBe('No agent here reports plan usage.')
+    // Another sign-in's figures are not the agent's, so they are still not
+    // "plan usage" here — but the line says what the card below is showing,
+    // rather than contradicting it (#769, found launching the app).
+    const other = {
+      whose: 'agy CLI sign-in',
+      lanes: [lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models' })],
+      reached: 'gemini-weekly',
+      fetchedAt: NOON,
+      staleAfterMs: HOUR,
+    }
+    const borrowed = runway([report({ unverified: other })], nameFor, NOON)
+    expect(borrowed.headline).toBe("No agent here reports its own plan usage — a shows another sign-in's.")
+    expect(borrowed.metered).toBe(0)
+    expect(borrowed.exhausted).toEqual([])
   })
 
   it('treats a reached limit as out even when the lane reads fine', () => {

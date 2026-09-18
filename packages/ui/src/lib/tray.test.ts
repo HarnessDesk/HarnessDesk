@@ -185,3 +185,32 @@ describe('describeTray', () => {
     expect(summary.agents[0]?.detail).toBe('88% left')
   })
 })
+
+/*
+ * A report whose only figures are another sign-in's (#769): Antigravity's quota
+ * read through the separately signed-in `agy` CLI, every group spent. Its own
+ * lanes are empty, which is what this surface reads; the figures sit under
+ * `unverified`, where only the Dashboard card draws them.
+ */
+const OTHER_SIGN_IN = {
+  whose: 'agy CLI sign-in',
+  lanes: [
+    { id: 'gemini-weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+    { id: '3p-weekly', label: 'Weekly', scope: 'Claude and GPT models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+  ],
+  reached: 'gemini-weekly',
+  fetchedAt: NOON,
+  staleAfterMs: 5 * 60_000,
+}
+
+describe("another sign-in's figures", () => {
+  it('put no figure on the menu bar or the agent row', () => {
+    const summary = tray({
+      runtimes: [runtime('antigravity', 'Antigravity')],
+      accountsByRuntime: { antigravity: signedIn } as never,
+      usage: [report('antigravity', [], { unverified: OTHER_SIGN_IN } as Partial<UsageReport>)],
+    })
+    expect(summary.title).not.toBe('0%')
+    expect(JSON.stringify(summary)).not.toMatch(/Gemini Models|0% left/)
+  })
+})

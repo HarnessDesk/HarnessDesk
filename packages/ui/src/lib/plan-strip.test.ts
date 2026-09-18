@@ -335,3 +335,33 @@ describe('two accounts, one agent', () => {
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('88%')
   })
 })
+
+/*
+ * A report whose only figures are another sign-in's (#769): Antigravity's quota
+ * read through the separately signed-in `agy` CLI, every group spent. Its own
+ * lanes are empty, which is what this surface reads; the figures sit under
+ * `unverified`, where only the Dashboard card draws them.
+ */
+const OTHER_SIGN_IN = {
+  whose: 'agy CLI sign-in',
+  lanes: [
+    { id: 'gemini-weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+    { id: '3p-weekly', label: 'Weekly', scope: 'Claude and GPT models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+  ],
+  reached: 'gemini-weekly',
+  fetchedAt: NOON,
+  staleAfterMs: 5 * 60_000,
+}
+
+describe("another sign-in's figures", () => {
+  it('put no meter on the agent in the header strip', () => {
+    const view = strip({
+      runtimes: [runtime('antigravity', 'Antigravity')],
+      accountsByRuntime: { antigravity: signedIn } as never,
+      usage: [report('antigravity', [], { unverified: OTHER_SIGN_IN } as Partial<UsageReport>)],
+      sessionRuntime: runtimeId('antigravity'),
+    })
+    expect(view.anchor?.kind).not.toBe('meter')
+    expect(JSON.stringify(view)).not.toMatch(/Gemini Models|0% left/)
+  })
+})
