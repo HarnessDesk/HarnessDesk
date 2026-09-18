@@ -1556,11 +1556,13 @@ export interface HostMethods {
    * offer, handed the Agent's brief once as its standing order, and recorded in
    * its settings as that Agent and that brief (`agent`, `briefDigest`).
    *
-   * Refuses, and never substitutes. When no candidate can be seated, nothing is
-   * opened and the refusal names every candidate it tried and why each failed.
-   * A seat is also read back once it is open — a runtime drops a pick it
-   * declines rather than failing — and one running a model, effort or thinking
-   * other than the one asked for is closed and refused, naming what differed.
+   * Refuses, and never substitutes. A seat is read back once it is open — a
+   * runtime drops a pick it declines rather than failing — and one running a
+   * model, effort or thinking other than the one asked for is closed and passed
+   * over like any other candidate, the next one tried. Only when every
+   * candidate has failed is the call refused: nothing is left open, and the
+   * refusal is one list naming every candidate and why it failed, whether that
+   * was found before opening or after. One seat is open at a time.
    *
    * The Agent is chosen exactly as `agent/read` chooses it, `project` held to
    * the same folders; an Agent whose file will not parse is refused with its

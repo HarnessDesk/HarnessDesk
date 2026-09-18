@@ -70,6 +70,10 @@ class SeatFake extends FakeRuntime {
   /** What the last conversation on this agent left switched on, which a new one inherits. */
   inherited: { thinking: boolean; fast: boolean } = { thinking: true, fast: true }
   readonly opened: SeatSession[] = []
+  /** The next conversation opens, then fails the first time it is asked what it is running. */
+  breakNext = false
+  /** Called as each conversation is asked for, before it exists. */
+  beforeCreate: (() => void) | null = null
 
   constructor() {
     super({ id: runtimeId('seatfake'), name: 'Seat Fake' })
@@ -86,6 +90,7 @@ class SeatFake extends FakeRuntime {
   }
 
   override async createSession(options: SessionOptions): Promise<AgentSession> {
+    this.beforeCreate?.()
     const id = sessionId(`seat-${this.opened.length + 1}`)
     const session = new SeatSession(this, id, options.cwd, {
       model: 'big',
@@ -109,6 +114,10 @@ class SeatFake extends FakeRuntime {
     this.opened.push(session)
     this.minted.set(String(id), options.cwd)
     this.emit({ type: 'session/started', session: session.snapshot() })
+    if (this.breakNext) {
+      this.breakNext = false
+      session.broken = true
+    }
     return session
   }
 }
@@ -120,6 +129,8 @@ class SeatSession implements AgentSession {
   /** Every message it was sent, as text. */
   readonly sent: string[] = []
   closed = false
+  /** Opened, and then lost: asked what it is running, it fails. */
+  broken = false
   title: string | null = null
   #values: SeatValues
   #turns = 0
@@ -147,6 +158,7 @@ class SeatSession implements AgentSession {
   }
 
   options(): readonly ConfigOption[] {
+    if (this.broken) throw new Error('Seat Fake lost this conversation part-way through opening it')
     const small = this.#values.model === 'small'
     return [
       {
@@ -352,6 +364,44 @@ test('a pick the runtime drops is reported in the label and logged, and the flow
   )
 })
 
+/*
+ * The flow's one use of the retire it shares with an Agent: a start that cannot
+ * seat every role closes the seats it had opened. They are let go by the host as
+ * well as closed — a closed handle the host kept holding was a conversation it
+ * would still route turns to, and over ACP, where closing is no call at all, a
+ * seat that was never really put down.
+ */
+test('a flow that cannot seat every role closes the seats it opened, and the host lets them go', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  const room = (await client.call('team/room/create', { root: work, name: 'Seat room' })) as TeamState
+  const source = `
+name: Two seats
+roles:
+  first:
+    kind: agent
+    seat: seatfake=big/high
+    permission: read
+    outcomes: [done]
+    order: Do the first thing.
+  second:
+    kind: agent
+    seat: seatfake=huge
+    permission: read
+    outcomes: [done]
+    order: Do the second thing.
+seed:
+  role: first
+  title: The first thing
+`
+  await assert.rejects(client.call('flow/start', { room: room.id, source }), /"huge" is not one of the values Model offers/)
+  const [first] = seats.opened
+  assert.ok(first && seats.opened.length === 1)
+  assert.equal(first.closed, true)
+  assert.deepEqual(first.sent, [], 'no order went to a seat of a run that never started')
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), first.id)?.live ?? null, null)
+  assert.deepEqual(await client.call('flow/runs', { room: room.id }), [])
+})
+
 // ------------------------------------------------------ the method, by itself
 
 /** An Agent file as a person writes one, with the candidates it prefers. */
@@ -402,7 +452,8 @@ const rig = async (
   options: {
     readonly reports?: readonly UsageReport[]
     readonly comesBackAs?: (seat: FlowSeat) => Partial<SeatRunning>
-    readonly openFails?: string
+    /** Why opening this seat fails, or null when it opens. */
+    readonly openFails?: (seat: FlowSeat) => string | null
     readonly orderFails?: string
   } = {},
 ) => {
@@ -419,6 +470,12 @@ const rig = async (
   const retired: string[] = []
   const recorded: SeatedAs[] = []
   const asked: (string | undefined)[] = []
+  /* Seats this call has open right now, and every moment a second was opened
+     beside one. Letting a seat go takes a turn of the event loop here, so a
+     retire that is not waited for is a retire still in flight when the next
+     seat opens. */
+  let alive = 0
+  const overlaps: string[] = []
   const runtimes = new Map(Object.entries(desk).map(([id, pretend]) => [id, pretendRuntime(id, pretend)]))
 
   const ctx = {
@@ -441,7 +498,10 @@ const rig = async (
     usage: () => ({ reports: async () => options.reports ?? [] }),
     seats: {
       open: async (seat: FlowSeat, where: { cwd: string; title: string }): Promise<OpenedSeat> => {
-        if (options.openFails) throw new Error(options.openFails)
+        const fails = options.openFails?.(seat)
+        if (fails) throw new Error(fails)
+        if (alive > 0) overlaps.push(`${seat.runtime} opened while ${alive} other seat(s) were still open`)
+        alive += 1
         created.push({ runtime: seat.runtime, ...(seat.model ? { model: seat.model } : {}), cwd: where.cwd })
         titles.push(where.title)
         const honest: SeatRunning = {
@@ -462,6 +522,8 @@ const rig = async (
         ordered.push(text)
       },
       retire: async (runtime: string, id: string) => {
+        await new Promise((resolve) => setImmediate(resolve))
+        alive -= 1
         retired.push(`${runtime} ${id}`)
       },
       recordAgent: (runtime: string, id: string, seated: SeatedAs): Session => {
@@ -480,7 +542,7 @@ const rig = async (
       },
     },
   } as never
-  return { ctx, source, created, titles, ordered, retired, recorded, asked, root }
+  return { ctx, source, created, titles, ordered, retired, recorded, asked, root, overlaps, alive: () => alive }
 }
 
 /** Nothing was opened, handed a brief, closed or recorded. */
@@ -558,7 +620,7 @@ test('an effort nothing can list before seating is let through, and the seat is 
   assert.equal(session.settings?.agent, 'reviewer')
 })
 
-test('a seat that comes back on another effort is closed and refused, and never handed the brief', async () => {
+test('a seat that comes back on another effort is closed, and with no other candidate the call is refused and no brief sent', async () => {
   const seen = await rig('claude=opus-5/high', undefined, { comesBackAs: () => ({ effort: 'medium' }) })
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
@@ -566,7 +628,7 @@ test('a seat that comes back on another effort is closed and refused, and never 
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  claude=opus-5/high — claude opened at medium effort, not high — so it was closed',
+          '  claude=opus-5/high — claude runs it at medium effort, not high',
       )
       return true
     },
@@ -577,7 +639,7 @@ test('a seat that comes back on another effort is closed and refused, and never 
   assert.deepEqual(seen.recorded, [])
 })
 
-test('a +thinking seat that comes back without thinking is closed and refused, in the runtime\'s words', async () => {
+test('a +thinking seat that comes back without thinking is closed and passed over, in the runtime\'s words', async () => {
   const seen = await rig('claude=opus-5/high+thinking', undefined, {
     comesBackAs: () => ({ thinking: false, thinkingFixed: 'Opus 5 has no thinking mode here.' }),
   })
@@ -587,7 +649,7 @@ test('a +thinking seat that comes back without thinking is closed and refused, i
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  claude=opus-5/high+thinking — claude opened without thinking, which was asked for (Opus 5 has no thinking mode here) — so it was closed',
+          '  claude=opus-5/high+thinking — claude runs it without thinking, which was asked for (Opus 5 has no thinking mode here)',
       )
       return true
     },
@@ -597,7 +659,7 @@ test('a +thinking seat that comes back without thinking is closed and refused, i
   assert.deepEqual(seen.recorded, [])
 })
 
-test('a seat that comes back on another model is closed and refused, the candidates above it named too', async () => {
+test('a seat that comes back on another model is closed and passed over, the candidates above it named too', async () => {
   const seen = await rig('cursor=gemini-3.8-flash/high, claude=opus-5/high', undefined, {
     comesBackAs: () => ({ model: 'sonnet-5' }),
   })
@@ -608,7 +670,7 @@ test('a seat that comes back on another model is closed and refused, the candida
         error.message,
         'No seat could be opened for this Agent:\n' +
           '  cursor=gemini-3.8-flash/high — cursor is not installed\n' +
-          '  claude=opus-5/high — claude opened on model sonnet-5, not opus-5 — so it was closed',
+          '  claude=opus-5/high — claude runs it on model sonnet-5, not opus-5',
       )
       return true
     },
@@ -652,7 +714,7 @@ test('an Agent whose file will not parse is refused with its problem, and nothin
 })
 
 test("a conversation that could not be opened is refused in the runtime's words", async () => {
-  const seen = await rig('claude=opus-5/high', undefined, { openFails: 'The agent is not running.' })
+  const seen = await rig('claude=opus-5/high', undefined, { openFails: () => 'The agent is not running.' })
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
     (error: Error) => {
@@ -675,6 +737,22 @@ test('a brief that could not be handed over closes the conversation, and nothing
   )
   assert.deepEqual(seen.retired, ['claude s1'])
   assert.deepEqual(seen.recorded, [])
+})
+
+test('a brief that could not be handed over stops the seating there: no later seat is opened', async () => {
+  // The handing-over failed, but the brief may still have reached that
+  // conversation; a second seat could leave two at work on one brief.
+  const seen = await rig('claude=opus-5/high, claude=sonnet-5/high', { claude: { models: ['opus-5', 'sonnet-5'] } }, {
+    orderFails: 'Claude is not running.',
+  })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    /Reviewer was seated on claude=opus-5\/high, and its brief could not be handed over, so the conversation was closed: Claude is not running\./,
+  )
+  assert.equal(seen.created.length, 1)
+  assert.deepEqual(seen.retired, ['claude s1'])
+  assert.deepEqual(seen.recorded, [])
+  assert.equal(seen.alive(), 0)
 })
 
 /** One account's standing, a weekly lane for each figure given — the account's own, or one model's. */
@@ -817,7 +895,7 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.equal(held?.briefDigest, digestOf(source))
 })
 
-test('through the host: a seat the runtime opens on something else is closed, refused, and never handed the brief', async (t) => {
+test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {
   const { harness, seats, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=small/high+thinking')
 
@@ -825,7 +903,7 @@ test('through the host: a seat the runtime opens on something else is closed, re
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        '  seatfake=small/high+thinking — seatfake opened at medium effort, not high, and without thinking, which was asked for (Small has no thinking mode) — so it was closed',
+        '  seatfake=small/high+thinking — seatfake runs it at medium effort, not high, and without thinking, which was asked for (Small has no thinking mode)',
     )
     return true
   })
@@ -864,4 +942,120 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   assert.equal(settingsSeen(client, String(session.id))?.agent, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, undefined)
   assert.equal(harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings?.agent, undefined)
+})
+
+// ------------------------------------------------------ down the preference list
+
+/*
+ * A seat that opens on something other than it asked for is passed over like
+ * any other candidate, and the next one the Agent named is tried. The next one
+ * is something the Agent asked for, so trying it substitutes nothing — and a
+ * fact found after opening must not end a seating that the same fact, found
+ * before, would only have moved past. One seat at a time: whatever was opened
+ * and not kept is closed, and let go, before the next is opened.
+ */
+
+test('a seat that runs another effort than asked is closed, and the next candidate the Agent named is seated', async () => {
+  const seen = await rig('claude=opus-5/high, claude=sonnet-5/high', { claude: { models: ['opus-5', 'sonnet-5'] } }, {
+    comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}),
+  })
+  const session = await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [
+    { runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' },
+    { runtime: 'claude', model: 'sonnet-5', cwd: '/tmp/x' },
+  ])
+  assert.deepEqual(seen.retired, ['claude s1'], 'the first was closed')
+  assert.equal(String(session.id), 's2')
+  assert.deepEqual(seen.ordered, ['Read the diff.'], 'the brief went once, to the seat that was kept')
+  assert.deepEqual(seen.recorded, [{ agent: 'reviewer', briefDigest: digestOf(seen.source) }])
+  assert.deepEqual(seen.overlaps, [], 'never two seats at once')
+  assert.equal(seen.alive(), 1, 'the seat kept is the only one left')
+})
+
+test('when every candidate fails, before opening or after, the refusal names each with its own reason and nothing is left open', async () => {
+  const seen = await rig(
+    'cursor=gemini-3.8-flash/high, claude=opus-5/high, codex=gpt-5.3/xhigh, claude=opus-5/high+thinking, claude=sonnet-5/high',
+    { claude: { models: ['opus-5', 'sonnet-5'] }, codex: { models: ['gpt-5.3'], signedOut: true } },
+    {
+      comesBackAs: (seat) =>
+        seat.thinking ? { thinking: false, thinkingFixed: 'Opus 5 has no thinking mode here.' } : { effort: 'medium' },
+      openFails: (seat) => (seat.model === 'sonnet-5' ? 'The agent is not running.' : null),
+    },
+  )
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        [
+          'No seat could be opened for this Agent:',
+          '  cursor=gemini-3.8-flash/high — cursor is not installed',
+          '  claude=opus-5/high — claude runs it at medium effort, not high',
+          '  codex=gpt-5.3/xhigh — codex is signed out',
+          '  claude=opus-5/high+thinking — claude runs it without thinking, which was asked for (Opus 5 has no thinking mode here)',
+          '  claude=sonnet-5/high — claude could not open a conversation: The agent is not running.',
+        ].join('\n'),
+      )
+      return true
+    },
+  )
+  assert.equal(seen.created.length, 2, 'the two that opened')
+  assert.deepEqual(seen.retired, ['claude s1', 'claude s2'], 'and both were closed')
+  assert.deepEqual(seen.ordered, [])
+  assert.deepEqual(seen.recorded, [])
+  assert.deepEqual(seen.overlaps, [])
+  assert.equal(seen.alive(), 0, 'no seat is left open')
+})
+
+test('through the host: one seat at a time — each that fails is closed and let go before the next is opened', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  const source = await writeReviewer(harness.stateDir, 'seatfake=big/high, seatfake=small/high, seatfake=big/low')
+  const held = (one: SeatSession) => harness.host.registry.get(runtimeId('seatfake'), one.id)?.live ?? null
+  const overlaps: string[] = []
+  seats.beforeCreate = () => {
+    for (const one of seats.opened) {
+      if (!one.closed) overlaps.push(`${String(one.id)} was still open`)
+      if (held(one) !== null) overlaps.push(`${String(one.id)} was still held by the host`)
+    }
+  }
+  // The first opens, then is lost part-way through being put on its picks.
+  seats.breakNext = true
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  assert.deepEqual(overlaps, [], 'never two seats at once')
+  const [lost, other, kept] = seats.opened
+  assert.ok(lost && other && kept && seats.opened.length === 3)
+  assert.deepEqual([lost.closed, other.closed, kept.closed], [true, true, false])
+  assert.deepEqual([held(lost), held(other)], [null, null], 'the host holds only the seat it kept')
+  assert.ok(held(kept))
+  assert.equal(String(kept.id), String(session.id))
+  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], ['Read the diff.']])
+  assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, 'max-mode': false })
+  assert.equal(session.settings?.agent, 'reviewer')
+  assert.equal(session.settings?.briefDigest, digestOf(source))
+})
+
+test('through the host: when every candidate fails the refusal names each, and no conversation is left open', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'ghost=m1, seatfake=small/high, seatfake=small/medium+thinking')
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      [
+        'No seat could be opened for this Agent:',
+        '  ghost=m1 — ghost is not installed',
+        '  seatfake=small/high — seatfake runs it at medium effort, not high',
+        '  seatfake=small/medium+thinking — seatfake runs it without thinking, which was asked for (Small has no thinking mode)',
+      ].join('\n'),
+    )
+    return true
+  })
+  assert.equal(seats.opened.length, 2)
+  for (const one of seats.opened) {
+    assert.equal(one.closed, true)
+    assert.deepEqual(one.sent, [])
+    assert.equal(harness.host.registry.get(runtimeId('seatfake'), one.id)?.live ?? null, null)
+    assert.equal(harness.host.registry.get(runtimeId('seatfake'), one.id)?.session.settings?.agent, undefined)
+  }
 })

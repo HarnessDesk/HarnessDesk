@@ -2,8 +2,9 @@ import { isAbsolute } from 'node:path'
 
 import { isBlocked, type AgentRuntime, type FlowSeat, type UsageReport } from '@harnessdesk/protocol'
 
-import { chooseSeat, explainRefusal, openedOtherwise, type SeatOffer } from '../agent-seating.js'
+import { chooseSeat, explainRefusal, openedOtherwise, type PassedOver, type SeatOffer } from '../agent-seating.js'
 import { seatSpec } from '../flow.js'
+import type { OpenedSeat } from '../host.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
 /**
@@ -25,24 +26,33 @@ export const agentMethods = {
   'agent/read': async (ctx, params) => ctx.agents.read(params.id, await projectOf(ctx, params.project)),
 
   /**
-   * Opens a conversation as an Agent, or refuses and opens nothing.
+   * Opens a conversation as an Agent, or refuses and leaves nothing open.
    *
    * Refuse, never substitute: a review signed by a model that did not write it
    * is worse than no review. So what can be known before a conversation exists
    * — installed, working, signed in, unspent, offering the model — is checked
    * before one is opened, and what only an open conversation can say is read
-   * back from it and compared with what was asked. A seat running anything
-   * else is closed, and the refusal says what differed. It is not replaced by
-   * the next candidate: a runtime that opened on something other than it was
-   * asked for is a finding about this desk, the refusal is where the person
-   * learns it, and every further try would open — and leave in that runtime's
-   * history — another conversation.
+   * back from it and compared with what was asked. A seat that will not open,
+   * or opens running anything else, is closed and passed over, and the next
+   * candidate the Agent named is tried — exactly as a candidate found wanting
+   * before opening is. The next candidate is one the Agent asked for, so trying
+   * it substitutes nothing; and whether a fact came to light before opening or
+   * after must not decide whether the seating goes on. Only when every
+   * candidate has failed is the call refused, with one list: every candidate,
+   * and why.
+   *
+   * One seat at a time. A seat that is not kept is closed, and let go by the
+   * host, before the next is opened, so one seating never has two conversations
+   * open at once; the most it can open and close is the length of `prefer`.
    *
    * The brief goes over once, as the standing order, through the same order
    * path a flow's seats are given theirs by. Re-sending it every turn would pay
-   * for it every turn and say nothing new. Only then is the conversation
-   * recorded as the Agent and the brief it was handed — a conversation whose
-   * brief never arrived was not handed one.
+   * for it every turn and say nothing new. A seat whose brief could not be
+   * handed over is closed and the call fails there, not down the list: the
+   * brief may have reached that conversation although the handing-over failed,
+   * and trying another seat could leave two at work on it. Only once the brief
+   * is over is the conversation recorded as the Agent and the brief it was
+   * handed — a conversation whose brief never arrived was not handed one.
    */
   'agent/seat': async (ctx, params) => {
     // The host would resolve a relative folder against wherever it was started.
@@ -65,32 +75,31 @@ export const agentMethods = {
     }
 
     const candidates = params.seats?.length ? params.seats : definition.prefer
-    const chosen = chooseSeat(candidates, await offersFor(ctx, candidates))
-    if (!chosen.seat) throw new Error(explainRefusal(chosen.passed))
-    const seat = chosen.seat
-    const refuse = (why: string): Error => new Error(explainRefusal([...chosen.passed, { seat, why }]))
+    const offers = await offersFor(ctx, candidates)
+    const passed: PassedOver[] = []
+    for (let rest = candidates; ; ) {
+      const chosen = chooseSeat(rest, offers)
+      passed.push(...chosen.passed)
+      if (!chosen.seat) throw new Error(explainRefusal(passed))
+      const seat = chosen.seat
+      // Every candidate above the one chosen was passed over, so what is left starts just below it.
+      rest = rest.slice(chosen.passed.length + 1)
+      const opened = await openAsAsked(ctx, seat, { cwd: params.cwd, title: definition.name })
+      if (typeof opened === 'string') {
+        passed.push({ seat, why: opened })
+        continue
+      }
 
-    let opened
-    try {
-      opened = await ctx.seats.open(seat, { cwd: params.cwd, title: definition.name })
-    } catch (error) {
-      throw refuse(`${seat.runtime} could not open a conversation: ${messageOf(error)}`)
+      try {
+        await ctx.seats.order(opened.runtime, opened.sessionId, definition.brief)
+      } catch (error) {
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw new Error(
+          `${definition.name} was seated on ${seatSpec(seat)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
+        )
+      }
+      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, { agent: definition.id, briefDigest: digest })
     }
-    const otherwise = openedOtherwise(seat, opened.running)
-    if (otherwise !== null) {
-      await ctx.seats.retire(opened.runtime, opened.sessionId)
-      throw refuse(otherwise)
-    }
-
-    try {
-      await ctx.seats.order(opened.runtime, opened.sessionId, definition.brief)
-    } catch (error) {
-      await ctx.seats.retire(opened.runtime, opened.sessionId)
-      throw new Error(
-        `${definition.name} was seated on ${seatSpec(seat)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
-      )
-    }
-    return ctx.seats.recordAgent(opened.runtime, opened.sessionId, { agent: definition.id, briefDigest: digest })
   },
 } satisfies MethodsUnder<'agent/'>
 
@@ -122,6 +131,32 @@ const projectOf = async (ctx: HostContext, project: string | undefined): Promise
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/**
+ * Opens one candidate and holds it to what it asked for: the open seat, or why
+ * it cannot be kept — and then nothing of it is left open.
+ *
+ * A seat that fails part-way through opening is closed by the host before the
+ * failure reaches here; one that opens on something else is closed here, and
+ * the close is waited for, so the next candidate is only opened once this one
+ * is gone.
+ */
+const openAsAsked = async (
+  ctx: HostContext,
+  seat: FlowSeat,
+  where: { readonly cwd: string; readonly title: string },
+): Promise<OpenedSeat | string> => {
+  let opened: OpenedSeat
+  try {
+    opened = await ctx.seats.open(seat, where)
+  } catch (error) {
+    return `${seat.runtime} could not open a conversation: ${messageOf(error)}`
+  }
+  const otherwise = openedOtherwise(seat, opened.running)
+  if (otherwise === null) return opened
+  await ctx.seats.retire(opened.runtime, opened.sessionId)
+  return otherwise
+}
 
 /**
  * What this desk can seat on each runtime the candidates name, read from the

@@ -277,7 +277,7 @@ test('an opened seat is held to the model and effort it asked for, and each diff
   assert.deepEqual(differences(asked, running({ effort: null })), ['with no effort setting, not at high effort'])
   assert.equal(
     openedOtherwise(asked, running({ model: 'm2', effort: 'medium' })),
-    'cursor opened on model m2, not m1, and at medium effort, not high — so it was closed',
+    'cursor runs it on model m2, not m1, and at medium effort, not high',
   )
   // What the seat does not name is not held against it.
   assert.deepEqual(differences(written('cursor'), running({ model: 'm9', effort: 'low' })), [])

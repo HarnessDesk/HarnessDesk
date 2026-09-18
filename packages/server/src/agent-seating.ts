@@ -23,7 +23,9 @@ import { seatSpec } from './flow.js'
  * session can say — a runtime declares its efforts per session, and drops a
  * pick it has no place for rather than failing — is checked against what the
  * session reports once it is open. A pre-check that guesses and a post-check
- * that trusts are the same defect.
+ * that trusts are the same defect. Either way a candidate that fails is passed
+ * over, the next one tried, and the reason worded as a fact about the seat, so
+ * a refusal is one list whichever half found each reason.
  */
 
 /**
@@ -213,10 +215,12 @@ export const differences = (asked: FlowSeat, running: SeatRunning): string[] => 
 }
 
 /**
- * Why a seat that opened cannot be kept, as the line its refusal carries, or
- * null when it is running what was asked.
+ * Why a seat that opened cannot be kept, as its line in a refusal, or null
+ * when it is running what was asked. Worded, like every reason before opening,
+ * as what is true of the seat — "claude runs it at medium effort, not high" —
+ * and not as what was done about it, so a refusal reads as one list.
  */
 export const openedOtherwise = (asked: FlowSeat, running: SeatRunning): string | null => {
   const found = differences(asked, running)
-  return found.length === 0 ? null : `${asked.runtime} opened ${found.join(', and ')} — so it was closed`
+  return found.length === 0 ? null : `${asked.runtime} runs it ${found.join(', and ')}`
 }

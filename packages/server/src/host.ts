@@ -2111,7 +2111,12 @@ export class Host {
    * never copied from the request: a runtime drops a pick it has no place for
    * rather than failing (see `#applySeatPicks`). What to do about a difference
    * is the caller's. A flow says it in the seat's label and carries on; an
-   * Agent is refused rather than seated on something it did not ask for.
+   * Agent passes the seat over rather than keep something it did not ask for.
+   *
+   * It answers with an open seat or with nothing open. A conversation that
+   * opened and then failed on the way to being handed back is closed here,
+   * because nothing else knows it is there to close it — and a caller that
+   * goes on to open the next seat must not be leaving one behind.
    */
   async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
@@ -2123,16 +2128,21 @@ export class Host {
         ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
       },
     })
-    const session = this.#attach(runtime, live.id, live)
-    await live.setTitle(where.title).catch(() => {})
-    await this.#names.set(runtime.info.id, live.id, where.title)
-    await this.#applySeatPicks(live, seat)
-    const ran = live.options()
-    return {
-      runtime: String(runtime.info.id),
-      sessionId: String(session.id),
-      running: runningOf(ran, live.settings()),
-      label: this.#labelOf(seat.runtime, ran),
+    try {
+      const session = this.#attach(runtime, live.id, live)
+      await live.setTitle(where.title).catch(() => {})
+      await this.#names.set(runtime.info.id, live.id, where.title)
+      await this.#applySeatPicks(live, seat)
+      const ran = live.options()
+      return {
+        runtime: String(runtime.info.id),
+        sessionId: String(session.id),
+        running: runningOf(ran, live.settings()),
+        label: this.#labelOf(seat.runtime, ran),
+      }
+    } catch (error) {
+      await this.#letGo(runtime.info.id, live.id, live)
+      throw error
     }
   }
 
@@ -2142,11 +2152,31 @@ export class Host {
     await live.send([{ type: 'text', text }])
   }
 
-  /** Closes a conversation a seating opened and will not use, and drops what it was waiting to be asked. */
+  /** Closes a conversation a seating opened and will not use, and lets it go. */
   async #retireSeat(runtime: string, sessionId: string): Promise<void> {
     const id = makeSessionId(sessionId)
-    await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
-    this.registry.get(runtime as RuntimeId, id)?.approvals.clear()
+    await this.#letGo(runtime as RuntimeId, id, this.registry.get(runtime as RuntimeId, id)?.live)
+  }
+
+  /**
+   * Closes one handle, and lets the host's record of it go as `session/close`
+   * does: nothing it was waiting to be asked, and no live handle kept on it.
+   *
+   * A handle is not gone because it was closed. Over ACP closing is no call at
+   * all — dropping the handle is the whole gesture — so a record still holding
+   * one is a conversation the desk would go on routing turns to, and a room
+   * would go on counting. Only the handle that was closed is let go: one a
+   * reopen put there in the meantime is somebody else's.
+   */
+  async #letGo(runtime: RuntimeId, id: SessionId, live: AgentSession | null | undefined): Promise<void> {
+    await live?.close().catch(() => {})
+    const record = this.registry.get(runtime, id)
+    if (!record) return
+    record.approvals.clear()
+    if (live && record.live === live) {
+      record.live = null
+      record.detached = false
+    }
   }
 
   /**

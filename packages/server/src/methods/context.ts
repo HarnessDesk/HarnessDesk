@@ -154,12 +154,17 @@ export interface HostContext {
      * Opens a conversation on the seat, in `cwd`, named `title`, puts it on
      * the seat's picks, and answers with what it is actually running, read
      * back once the picks are in. A pick the runtime declines is not an
-     * error here: the caller compares, and decides.
+     * error here: the caller compares, and decides. A failure leaves nothing
+     * open: a conversation that opened and then failed is closed first.
      */
     open(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
     order(runtime: string, sessionId: string, text: string): Promise<void>
-    /** Closes a conversation a seating opened and will not use. */
+    /**
+     * Closes a conversation a seating opened and will not use, and lets the
+     * host's handle on it go. Resolves once it is gone, so the next seat can
+     * be opened without two ever being open at once.
+     */
     retire(runtime: string, sessionId: string): Promise<void>
     /**
      * Records which Agent a conversation was seated as and the digest of the
