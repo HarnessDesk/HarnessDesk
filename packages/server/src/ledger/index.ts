@@ -11,16 +11,19 @@ import { runtimeId, type LedgerDay,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
-import { listTargets, scanFile, type CorpusSpec, type ScanTarget } from './scan.js'
+import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
  *
- * Everything the ledger says is a *list-price equivalent*: what these tokens
+ * Most of what the ledger says is a *list-price equivalent*: what these tokens
  * would have cost at public API rates. That is a useful number — it is how a
  * person decides whether a plan is worth keeping — and it is not an invoice,
  * which is why every total it produces carries its provenance and its coverage.
+ * Where an agent records what it billed (OpenCode, Cline), that figure is used
+ * as it stands and the total says so: `vendorMetered`, or `mixed` beside
+ * list-priced rows.
  *
  * Design: `docs/usage-dashboard.md`.
  */
@@ -59,6 +62,15 @@ interface Priced {
   readonly tokens: number
   readonly priced: number
   readonly unpriced: number
+  /** Of `priced`, the requests whose cost the agent reported rather than we computed. */
+  readonly vendor: number
+}
+
+/** What a set of priced requests is, said once for the card and the bands alike. */
+const provenanceOf = (priced: number, vendor: number): SpendSummary['provenance'] => {
+  if (priced === 0) return 'unknown'
+  if (vendor === 0) return 'listPrice'
+  return vendor === priced ? 'vendorMetered' : 'mixed'
 }
 
 export class Ledger {
@@ -179,8 +191,9 @@ export class Ledger {
     for (const target of pending) {
       const cursor = full ? null : this.#store.cursor(target.path)
       // A file that shrank was rewritten, not appended to: its rows go and it
-      // is read from the start, which the file-keyed rows make safe.
-      const rewritten = cursor !== null && target.size < cursor.offset
+      // is read from the start, which the file-keyed rows make safe. A kind
+      // that is always rewritten is always read that way.
+      const rewritten = (cursor !== null && target.size < cursor.offset) || wholeFile(target.kind)
       const from = rewritten || cursor === null ? 0 : cursor.offset
       const tail = rewritten || cursor === null ? [] : cursor.tail
       try {
@@ -235,14 +248,18 @@ export class Ledger {
 
   #price(row: UsageRow): Priced {
     const tokens = row.input + row.output + row.cacheRead + row.cacheWrite
+    // What the agent billed is what it cost, a free model's zero included.
+    if (typeof row.vendorCost === 'number') {
+      return { cost: row.vendorCost, tokens, priced: row.requests, unpriced: 0, vendor: row.requests }
+    }
     const rates: ModelRates | null = this.#pricing.rateFor(row.model)
-    if (!rates) return { cost: 0, tokens, priced: 0, unpriced: row.requests }
+    if (!rates) return { cost: 0, tokens, priced: 0, unpriced: row.requests, vendor: 0 }
     const cost =
       row.input * rates.input +
       row.output * rates.output +
       row.cacheRead * rates.cacheRead +
       row.cacheWrite * rates.cacheWrite
-    return { cost, tokens, priced: row.requests, unpriced: 0 }
+    return { cost, tokens, priced: row.requests, unpriced: 0, vendor: 0 }
   }
 
   /** The money half of one agent's card. */
@@ -258,6 +275,7 @@ export class Ledger {
     let todayTokens = 0
     let priced = 0
     let unpriced = 0
+    let vendor = 0
     const byDay = new Map<number, { cost: number; tokens: number }>()
     for (const row of rows) {
       const cost = this.#price(row)
@@ -265,6 +283,7 @@ export class Ledger {
       windowTokens += cost.tokens
       priced += cost.priced
       unpriced += cost.unpriced
+      vendor += cost.vendor
       if (row.day === today) {
         todayCost += cost.cost
         todayTokens += cost.tokens
@@ -281,7 +300,7 @@ export class Ledger {
       windowDays: days,
       todayTokens,
       windowTokens,
-      provenance: anyPriced ? 'listPrice' : 'unknown',
+      provenance: provenanceOf(priced, vendor),
       coverage: {
         priced,
         unpriced,
@@ -306,6 +325,7 @@ export class Ledger {
     let totalTokens = 0
     let priced = 0
     let unpriced = 0
+    let vendor = 0
     interface Group {
       label: string
       /** Distinct paths behind one basename, so a collision can be told apart. */
@@ -324,6 +344,7 @@ export class Ledger {
       totalTokens += cost.tokens
       priced += cost.priced
       unpriced += cost.unpriced
+      vendor += cost.vendor
 
       // A model or a project is one thing however many agents touched it —
       // "what did this project cost" is the question the pivot is named for,
@@ -408,10 +429,10 @@ export class Ledger {
       currency: 'USD',
       totalCost: anyPriced ? totalCost : null,
       totalTokens,
-      // Everything the ledger prices is list price. A request it could not
-      // price is a hole in the coverage, not a second kind of source, and the
-      // counts below are where that is said.
-      provenance: anyPriced ? 'listPrice' : 'unknown',
+      // List price, the agents' own figures, or both. A request that could
+      // not be priced either way is a hole in the coverage, not a third kind
+      // of source, and the counts below are where that is said.
+      provenance: provenanceOf(priced, vendor),
       coverage,
       rows: ordered,
       daily: [...daily.values()].sort((a, b) => a.day - b.day),
@@ -435,5 +456,5 @@ const projectPath = (path: string): string => {
 }
 
 export { Pricing } from './pricing.js'
-export { defaultCorpora, type CorpusSpec } from './scan.js'
+export { corpusRoot, defaultCorpora, type CorpusKind, type CorpusSpec } from './scan.js'
 export { LedgerStore } from './store.js'

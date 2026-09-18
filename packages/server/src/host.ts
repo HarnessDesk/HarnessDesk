@@ -733,11 +733,13 @@ export class Host {
    */
   bindUsage(
     runtime: RuntimeId,
-    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind'] },
+    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string },
   ): void {
     if (binding.meter) this.#meters.set(runtime, binding.meter)
     if (binding.corpus) {
-      const [spec] = defaultCorpora([{ id: runtime, kind: binding.corpus }])
+      const [spec] = binding.root
+        ? [{ runtime, kind: binding.corpus, root: binding.root }]
+        : defaultCorpora([{ id: runtime, kind: binding.corpus }])
       if (spec) this.#corpora.push(spec)
     }
   }

@@ -98,9 +98,9 @@ it; `check-layering.mjs` only forbids it above.
 | --- | --- | --- | --- |
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
-| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`) | one request, cached |
-| 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models) | one process start and one request, at most once a minute |
-| 4 | The local ledger — the agent's own transcripts | tokens and list-price cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl` | one incremental scan |
+| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached |
+| 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
+| 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
 Tier 2 is the discovery that makes this cheap. Claude Code caches its full
 utilization payload — every lane, the reset times, the plan, the account, and
@@ -177,6 +177,69 @@ on. A bucket that is untouched reports a reset of
 "now plus a week" that moves on every read, so a full bucket's reset is drawn
 as no date at all. Every lane is scoped to a group of models — see the
 headline rule below for what that does to the card.
+
+**The rest of the roster, measured 2026-09-18.** Six agents read "not
+metered" on the development machine: Antigravity (above), Amp, Cline, Gemini
+CLI, OpenCode and Qwen Code. Each was checked in its own source for what it
+can say, and each now says it:
+
+| Agent | What it offers a client | What the card shows |
+| --- | --- | --- |
+| Amp | `amp usage` prints the balance in a short report its server writes (no JSON form); account lookups share a limit of 60 an hour with Amp's own. `amp-acp` forwards none of the SDK's per-message `usage`. | the balance, `$10.00 left`, re-asked at most every five minutes |
+| Cline | Its CLI's account screen asks `api.cline.bot` for the user and the billed account's balance (micro-dollars), with the session in `providers.json`. Its ACP server drops the engine's `usage` event. Its `sessions.db` keeps each session's usage and `totalCost`. | the balance, plus the spend Cline billed |
+| Gemini CLI | A Code Assist sign-in has a quota (the existing meter); an API key has none anywhere. Its chat logs carry tokens and model per call. | spend at list price |
+| OpenCode | Zen's balance has no endpoint an API key can read (requested upstream, anomalyco/opencode#10448). Go's limits do: `GET /zen/go/v1/usage` with the Go key returns the rolling 5-hour, weekly and monthly windows (`status`, `percent`, `resetsAt`) — not read by the desk yet, for want of a Go subscription to measure against. It sends `usage_update` (context, session cost) and keeps each session's tokens and `cost` in `opencode.db`. | spend at the cost OpenCode recorded, a free model's `$0` included |
+| Qwen Code | No quota endpoint. Its transcripts record `usageMetadata` per call. | spend at list price |
+
+The token Cline's meter uses is **never refreshed**: refreshing rotates the
+refresh token, and without writing the new pair back — which the desk never
+does to another application's file — that would sign Cline out. Cline
+refreshes it whenever it runs, including each turn the desk sends it; between
+times the last reading stands with its own age. A second Cline account is
+moved with `--data-dir` on the row, not an environment variable — Cline has
+none for it — so the sign-in and the spend are both read from that folder
+when the row carries the flag (round 3 review: the binding read only
+`CLINE_DATA_DIR`, which a `--data-dir` row never sets, and missed it).
+`CLINE_DB_DATA_DIR` still names the database on its own even then, exactly as
+it does with no override: the two flags move different things, and a row can
+set one without the other (round 4 review). Amp's meter, and the `amp`
+binary it runs, read the row's own environment too, not the host process's —
+a second Amp account moves the same way, through `PATH` (round 4 review: the
+binding built a bare `AmpMeter()` and always asked the host's own `amp`).
+And beneath every one of those variables sits the plainest one: a row that
+isolates an agent with a bare `HOME` — the ordinary way, ahead of any of the
+above — moves every one of these paths with it, `~` in `--data-dir` included,
+because that is what the row's own process resolves `homedir()` to (round 5
+review: each fallback still read the desk's own `homedir()` when the row set
+only `HOME`, so a `HOME`-isolated row's sign-in and spend were the desk's).
+The ledger reads OpenCode's
+and Cline's databases the same way it reads nothing else: through
+`readForeignDatabase`, which never guesses whether the owner is running. A WAL
+database with no `-wal` or `-shm` beside it is opened `immutable` and the read
+is checked afterwards (a plain read-only open would create both files in the
+owner's folder, measured), and is discarded if the file changed meanwhile. One
+with either file is copied, with its log, to a private folder and read there,
+and the copy is trusted only if the source was the same before and after —
+size and time, not bytes, so a rewrite landing on both by chance would be
+missed; neither agent's writer does this. A database over 1 GiB that may be
+open is refused rather than copied, so a very large store stays on its last
+good rows rather than being copied whole on every scan.
+Neither a leftover `-shm` (Cline's has outlived its run by weeks) nor a missing
+one (an owner in exclusive locking mode has none) says anything about the
+owner. Requests an agent priced and requests it did not are never summed into
+one ledger row, so a row's cost and provenance are always one or the other.
+Gemini CLI writes a message again as its counts
+arrive and hides rewound ones without un-spending them, so a chat log is read
+whole each time it changes, at the last record of each call. OpenCode's and
+Cline's figures are session totals, so a session's spend falls on the day it
+was last touched.
+
+Where an agent records what it billed, that figure is the one used, and the
+spend says so: `vendorMetered` for those rows alone, `mixed` beside list-priced
+ones. A prepaid balance counts as usage reported in the line above the cards,
+so an overdrawn Cline reads "Cline is out of credits." rather than "No agent
+here reports plan usage."; its card says the balance waits for a top-up, not
+a reset; and the Accounts rail shows the balance where a percentage would go.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps

@@ -481,6 +481,27 @@ export interface RunwaySummary {
   readonly detail: string
 }
 
+/** Whether a report carries a balance a person could read — a finite one. */
+const hasBalance = (report: UsageReport): boolean =>
+  typeof report.credits?.remaining === 'number' && Number.isFinite(report.credits.remaining)
+
+/** A report with no window at all: whatever it has spent is a balance, not a quota. */
+const isBalanceOnly = (report: UsageReport): boolean => bindingLane(report.lanes) === null && hasBalance(report)
+
+/**
+ * What to call more than one spent account. Amp and Cline have only a
+ * balance, so a plural sentence has to say "credits" when every one of them
+ * is balance-only, "quota" when none is, and both when it is a mix — the
+ * word a single spent account already gets, said for a group (review round 4:
+ * this used to say "quota" even when every exhausted account was a balance).
+ */
+const exhaustedWord = (reports: readonly UsageReport[]): string => {
+  const credits = reports.filter(isBalanceOnly).length
+  if (credits === 0) return 'quota'
+  if (credits === reports.length) return 'credits'
+  return 'credits or quota'
+}
+
 /**
  * The one line above the cards.
  *
@@ -493,7 +514,10 @@ export const runway = (
   nameFor: (report: UsageReport) => string,
   now: number,
 ): RunwaySummary => {
-  const metered = reports.filter((report) => bindingLane(report.lanes) !== null)
+  // A prepaid balance is usage reported as much as a window is: Amp's and
+  // Cline's accounts have nothing else, and one of them at zero cannot run a
+  // turn, which this line exists to say before anyone reads a card.
+  const metered = reports.filter((report) => bindingLane(report.lanes) !== null || hasBalance(report))
   // Figures for another sign-in (`unverified`) never count as an agent's own,
   // here or anywhere; they are only named, so the line above a card full of
   // them does not read as a contradiction of it.
@@ -513,11 +537,12 @@ export const runway = (
     .filter((at): at is number => at !== null && at > now)
   const nextReturn = returns.length > 0 ? Math.min(...returns) : null
 
+  const only = exhausted[0]
   const headline =
-    exhausted.length === 1
-      ? `${nameFor(exhausted[0] as UsageReport)} is out of quota.`
+    exhausted.length === 1 && only
+      ? `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
-        ? `${exhausted.length} agents are out of quota.`
+        ? `${exhausted.length} agents are out of ${exhaustedWord(exhausted)}.`
         : low.length === 1
           ? `${nameFor(low[0] as UsageReport)} is running low.`
           : low.length > 1
@@ -596,6 +621,69 @@ export const formatMoney = (amount: number | null, currency = 'USD'): string | n
  * — which carry different shapes around the same two facts — say it the same
  * way.
  */
+/**
+ * What the figures in the money band are, after "Last 30 days —".
+ *
+ * The band said "what these tokens would have cost at public API rates. Not a
+ * bill." of every total, which stopped being true the day an agent's own cost
+ * could be counted: OpenCode's and Cline's figures are what they recorded, a
+ * free model's zero included, and some of those are bills.
+ */
+export const spendHint = (provenance: SpendSummary['provenance'] | undefined): string => {
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'what the agents recorded these tokens cost.'
+    case 'mixed':
+      return 'what the agents recorded, where they did, and public API rates for the rest. Not all of it is a bill.'
+    default:
+      return 'what these tokens would have cost at public API rates. Not a bill.'
+  }
+}
+
+/**
+ * How the page's own sentence names what the work cost. "At public rates" was
+ * all of it until agents recorded their own costs; where they do, it is only
+ * part of it. Until the ledger arrives it reads as list price, as the band's
+ * own subtitle does.
+ */
+export const costClause = (provenance: SpendSummary['provenance'] | undefined): string => {
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'what the work cost as the agents recorded it'
+    case 'mixed':
+      return 'what the work cost as the agents recorded it or at public rates'
+    default:
+      return 'what the work cost at public rates'
+  }
+}
+
+/**
+ * The caveat under the *Where it went* table.
+ *
+ * A row is short only when a call in it has no price at all. With none short,
+ * it says where the prices came from: a public rate is no longer the only
+ * source, since Cline and OpenCode record what each call cost them.
+ */
+export const pricedNote = (
+  unpriced: number,
+  provenance: SpendSummary['provenance'] | undefined,
+): string => {
+  if (unpriced === 1) {
+    return 'One of these rows includes a model with no public price, so its cost is lower than shown.'
+  }
+  if (unpriced > 1) {
+    return `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`
+  }
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'Every call in this window carries the cost its agent recorded, so none is left out.'
+    case 'mixed':
+      return "Every call in this window carries a cost — its agent's record or a public price — so none is left out."
+    default:
+      return 'Every call in this window has a public price, so these figures are exact.'
+  }
+}
+
 export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string => {
   switch (spend.provenance) {
     case 'listPrice':

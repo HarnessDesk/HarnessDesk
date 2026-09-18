@@ -187,17 +187,30 @@ const openCodeIdentity = (context: IdentityContext): Account | null => {
  * bare key names nobody. `--data-dir` on the row moves the folder; a row
  * that moves only `--config` is not guessed at.
  */
+/**
+ * The folder `--data-dir` on the row points Cline at, resolved the way Cline
+ * itself resolves it: relative to where Cline runs (the row's `cwd`, or the
+ * desk's own directory, which an agent started without one inherits), `~`
+ * expanded against the given home. Null when the row does not move it —
+ * Cline has no environment variable for `--data-dir`, so this argument is
+ * the only place a moved account is named. Shared with the usage binding
+ * (`bootstrap.ts`), so a moved account is read the same way whichever asks.
+ */
+export const clineDataDirOverride = (context: Pick<IdentityContext, 'args' | 'cwd' | 'home'>): string | null => {
+  const dataDir = flagValue(context.args ?? [], '--data-dir')
+  if (dataDir === null) return null
+  const home = context.home ?? homedir()
+  return resolve(context.cwd ?? process.cwd(), dataDir.replace(/^~(?=$|\/)/, home))
+}
+
 const clineIdentity = (context: IdentityContext): Account | null => {
   const args = context.args ?? []
-  const dataDir = flagValue(args, '--data-dir')
-  if (dataDir === null && flagValue(args, '--config') !== null) return null
+  const override = clineDataDirOverride(context)
+  // A row that moves only `--config` is not guessed at: that flag says
+  // nothing about where the data — and the account inside it — living.
+  if (override === null && flagValue(args, '--config') !== null) return null
   const home = context.home ?? homedir()
-  // A relative folder is relative to where Cline runs: the row's `cwd`, or
-  // the desk's own directory, which an agent started without one inherits.
-  const folder =
-    dataDir === null
-      ? join(home, '.cline', 'data')
-      : resolve(context.cwd ?? process.cwd(), dataDir.replace(/^~(?=$|\/)/, home))
+  const folder = override ?? join(home, '.cline', 'data')
   const settings = readJson(join(folder, 'settings', 'providers.json'))
   const provider = flagValue(args, '--provider', '-P') ?? nonEmpty(at(settings, 'lastUsedProvider')) ?? 'cline'
   const auth = at(settings, 'providers', provider, 'settings', 'auth')

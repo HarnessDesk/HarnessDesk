@@ -192,3 +192,15 @@ test('Gemini keeps the tightest bucket per model, and stays quiet without a lice
   const stale = new GeminiMeter({ credentialsPath: path, now: () => 10_000, fetch: answering(200, {}) })
   assert.equal(await stale.read(), null, 'an expired token is left for the CLI to refresh')
 })
+
+test('GeminiMeter reads a bare HOME on its own, not only through an explicit home option', () => {
+  // `localUsageFor` passes `home` explicitly, so this path is otherwise
+  // untested through it — pinned here directly (#772, review round 5: the
+  // fallback existed but nothing constructed the meter to exercise it).
+  const withHome = new GeminiMeter({ env: { HOME: '/accounts/two' } })
+  assert.deepEqual(withHome.watchPaths(), ['/accounts/two/.gemini/oauth_creds.json'])
+
+  // GEMINI_CLI_HOME still wins over a plain HOME, same account or not.
+  const both = new GeminiMeter({ env: { HOME: '/accounts/two', GEMINI_CLI_HOME: '/accounts/three' } })
+  assert.deepEqual(both.watchPaths(), ['/accounts/three/.gemini/oauth_creds.json'])
+})
