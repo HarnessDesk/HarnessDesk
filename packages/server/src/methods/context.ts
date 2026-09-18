@@ -156,7 +156,13 @@ export interface HostContext {
      * the seat's picks, and answers with what it is actually running, read
      * back once the picks are in. A pick the runtime declines is not an
      * error here: the caller compares, and decides. A failure leaves nothing
-     * open: a conversation that opened and then failed is closed first.
+     * open: a conversation that opened and then failed is discarded first
+     * (`discard`), the failure is thrown as it came, and what the discard
+     * left is noted beside it (`leftOnFailure` in `agent-seating.ts`).
+     *
+     * The conversation is held for the seating until it is kept
+     * (`recordAgent`), retired, or discarded; only while it is held can it be
+     * discarded.
      */
     open(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
@@ -170,7 +176,14 @@ export interface HostContext {
     /**
      * Takes a seat a seating opened and passed over out of the world: closed,
      * let go, deleted where its runtime keeps it, forgotten by the desk, and
-     * dropped from every window. Answers what could not be removed, or null.
+     * dropped from every window. Answers what it was left as, or null when
+     * nothing is left.
+     *
+     * Only ever the conversation the seating itself opened, untouched: one a
+     * window read, reopened or wrote to while it was open, one a turn started
+     * on, or one the desk already held under that id, is only closed and left
+     * as it is (`inUse`, `alreadyHeld`). One its runtime cannot or will not
+     * delete is archived and keeps its name (`kept`, `undeleted`).
      */
     discard(runtime: string, sessionId: string): Promise<SeatLeft | null>
     /**

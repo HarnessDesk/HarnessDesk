@@ -53,6 +53,7 @@ import {
   type ContributionId,
   type ScopeQuery,
   type SecretReload,
+  type SeatArchived,
   type SeatLeft,
   type PublicationItem,
   runtimeId,
@@ -60,7 +61,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
-import { runningOf, type SeatRunning } from './agent-seating.js'
+import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { Agents } from './agents.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
@@ -150,6 +151,37 @@ export interface OpenedSeat {
   readonly running: SeatRunning
   /** How the desk describes it: "Cursor · Gemini 3.8 Flash · High · thinking". */
   readonly label: string
+}
+
+/**
+ * A conversation a seating has opened and not yet kept or let go — what a
+ * discard has to know to delete only what its seating opened and nobody else
+ * touched (`Host#discardSeat`).
+ *
+ * Kept beside the registry, not on its record: a record is the conversation's,
+ * and outlives the seating; this lives exactly as long as the seating's hold on
+ * it.
+ */
+interface SeatInHand {
+  /**
+   * The handle the seating opened it on: the one a discard closes, whatever a
+   * reopen has put on the record since. A handle on the record that is not this
+   * one is somebody else's.
+   */
+  readonly live: AgentSession
+  /**
+   * The desk held a record under this id before the seating opened it: the
+   * runtime answered with a conversation the desk already knew, whose record,
+   * name and row are somebody's. Never the seating's to delete.
+   */
+  readonly alreadyHeld: boolean
+  /** A window asked something of it — read it, reopened it, wrote to it — while the seating held it. */
+  reached: boolean
+  /**
+   * Past the point of no return: being deleted or archived. Nothing a window
+   * asks may start on it now, because nothing that starts could be kept.
+   */
+  removing: boolean
 }
 
 /** One permission-policy rule, as stored in preferences. */
@@ -531,6 +563,8 @@ export class Host {
          say it is — a flow says it in the label, and carries on. */
       seat: async (seat, where) => {
         const opened = await this.#openSeat(seat, where)
+        // A flow keeps every seat it opens, so the seating's hold ends here (`#seating`).
+        this.#seating.delete(sessionKey(opened.runtime, opened.sessionId))
         return { runtime: opened.runtime, sessionId: opened.sessionId, label: opened.label }
       },
       order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
@@ -1040,9 +1074,37 @@ export class Host {
   // ------------------------------------------------------------------ methods
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
+    this.#noteReach(params)
     // Validated by the wire layer against the same table the handler's type
     // reads from; see `methods/index.ts` for what the table guarantees.
     return dispatch(this.#context, method, params)
+  }
+
+  /**
+   * A window asked something of one conversation. When a seating holds it, the
+   * seating may no longer delete it (`#discardSeat`) — and once the seating is
+   * past the point of no return, the ask is refused rather than let start on a
+   * conversation that is going.
+   *
+   * Here, at the one door every window's request comes through, and before the
+   * request does anything: a read, a reopen or a message still on its way when
+   * a discard decides is one the discard has already heard of. Everything that
+   * names a conversation counts — a person who opened it is about to use it,
+   * and an empty conversation kept is a smaller mistake than a used one
+   * deleted.
+   */
+  #noteReach(params: unknown): void {
+    if (this.#seating.size === 0 || typeof params !== 'object' || params === null) return
+    const { runtime, sessionId } = params as { readonly runtime?: unknown; readonly sessionId?: unknown }
+    if (typeof runtime !== 'string' || typeof sessionId !== 'string') return
+    const inHand = this.#seating.get(sessionKey(runtime, sessionId))
+    if (!inHand) return
+    if (inHand.removing) {
+      throw new SessionGoneError(
+        'This conversation was opened for a seat that was passed over, and it is being removed.',
+      )
+    }
+    inHand.reached = true
   }
 
 
@@ -1119,6 +1181,8 @@ export class Host {
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
         discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
         recordAgent: (runtime, sessionId, seated) => {
+          // Kept: the seating's hold ends, and the conversation is the Agent's (`#seating`).
+          this.#seating.delete(sessionKey(runtime, sessionId))
           const record = this.registry.seatAs(runtime as RuntimeId, makeSessionId(sessionId), seated)
           // Every window holding this conversation learns it, not only the one that asked.
           if (record.session.settings) {
@@ -2115,6 +2179,15 @@ export class Host {
   }
 
   /**
+   * Conversations a seating has opened and not yet kept or let go, by session
+   * key: the only conversations `#discardSeat` will ever delete, and only while
+   * nobody else has had a hand in them. Entered as each is opened
+   * (`#openSeat`); left when the seat is kept (a flow's `seat`, `recordAgent`),
+   * retired, or discarded.
+   */
+  readonly #seating = new Map<string, SeatInHand>()
+
+  /**
    * Opens a conversation on a seat, puts it on the seat's picks, and answers
    * with what it is actually running — the one way the desk opens a
    * conversation for a seat, whether a flow's role or an Agent asked for it.
@@ -2131,10 +2204,24 @@ export class Host {
    * opened and then failed on the way to being handed back is discarded here
    * (`#discardSeat`), because nothing else knows it is there to close it —
    * and a caller that goes on to open the next seat must not be leaving one
-   * behind.
+   * behind. The failure goes on exactly as it was thrown, and what the discard
+   * left of the conversation is noted beside it (`leftOnFailure`).
+   *
+   * The seating holds what it opened until its caller keeps it or lets it go
+   * (`#seating`), so that a discard can tell the conversation it opened, and
+   * nobody else touched, from one it must leave alone. What the desk already
+   * holds on the runtime is looked at before the conversation is asked for: a
+   * runtime that answers with an id the desk holds has handed back somebody's
+   * conversation, not a new one.
    */
   async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
+    const held = new Set(
+      this.registry
+        .all()
+        .filter((record) => record.runtime === runtime.info.id)
+        .map((record) => String(record.session.id)),
+    )
     const live = await runtime.createSession({
       cwd: where.cwd,
       ...(seat.model ? { model: seat.model } : {}),
@@ -2142,6 +2229,12 @@ export class Host {
         ...(seat.effort ? { effort: seat.effort } : {}),
         ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
       },
+    })
+    this.#seating.set(sessionKey(runtime.info.id, live.id), {
+      live,
+      alreadyHeld: held.has(String(live.id)),
+      reached: false,
+      removing: false,
     })
     try {
       const session = this.#attach(runtime, live.id, live)
@@ -2156,8 +2249,17 @@ export class Host {
         label: this.#labelOf(seat.runtime, ran),
       }
     } catch (error) {
-      // Passed over part-way through opening, so discarded like any other seat passed over.
-      await this.#discardSeat(runtime.info.id, live.id, live).catch(() => null)
+      // Passed over part-way through opening, so discarded like any other seat
+      // passed over — and what that left is noted on the failure, not dropped.
+      const left = await this.#discardSeat(runtime.info.id, live.id).catch((failure: unknown) => {
+        this.#logger.warn('a seat lost part-way through opening could not be discarded', {
+          runtime: String(runtime.info.id),
+          session: String(live.id),
+          error: describeError(failure),
+        })
+        return null
+      })
+      noteLeftOnFailure(error, left)
       throw error
     }
   }
@@ -2168,65 +2270,193 @@ export class Host {
     await live.send([{ type: 'text', text }])
   }
 
-  /** Closes a conversation a seating opened and will not use, and lets it go. */
+  /** Closes a conversation a seating opened and will not use, and lets it go — the seating's hold with it. */
   async #retireSeat(runtime: string, sessionId: string): Promise<void> {
     const id = makeSessionId(sessionId)
+    this.#seating.delete(sessionKey(runtime, id))
     await this.#letGo(runtime as RuntimeId, id, this.registry.get(runtime as RuntimeId, id)?.live)
   }
 
   /**
    * Takes a seat a seating opened and passed over out of the world: closed,
    * let go, removed where its runtime keeps it, forgotten by the desk, and
-   * dropped from every window. Answers what could not be removed, or null.
+   * dropped from every window — unless it is not the seating's alone to take.
+   * Answers what it was left as, or null when nothing is left.
+   *
+   * Only a conversation the seating itself opened, and nobody else touched, is
+   * ever deleted. It is a row in every window from its `session/started`,
+   * titled with the Agent's name, for as long as the seating holds it — across
+   * the title, the name, every pick and the read-back — and a person can open
+   * that row and write in it. So once the seating's own handle is let go, and
+   * before anything that cannot be undone, it is looked at once more
+   * (`#leaveAsItIs`). One somebody had a hand in, or one the desk already held
+   * under that id, is only closed, as a retired seat is, and left as it is: its
+   * record, its name and its row. Nothing is awaited between that look and the
+   * delete being on its way, and from then on a window's request for it is
+   * refused (`#noteReach`), so nothing can start on it in between.
    *
    * What "removed" means is the runtime's. One that can delete is asked to:
    * Codex erases the thread from its own history, and the Claude Code and
    * Cursor bridges move whatever their agent wrote to the Trash — for a
    * conversation that never took a message, nothing but the bridge's own
-   * bookkeeping. Nothing a person wrote is lost either way, because the brief
-   * goes only to the seat that is kept.
+   * bookkeeping. One that cannot has no way in to its own store from here, and
+   * the desk cannot tell whether it recorded a conversation nobody spoke in;
+   * so it is archived — in the runtime's own archive when it has one, the
+   * desk's otherwise — and keeps its name, so that if it was recorded it stays
+   * out of the list and explained. One that is asked and refuses gets the same.
    *
-   * One that cannot has no way in to its own store from here, and the desk
-   * cannot tell whether it recorded a conversation nobody spoke in. So the
-   * desk forgets what it holds and archives the conversation — in the
-   * runtime's own archive when it has one, the desk's otherwise — so that if
-   * it was recorded it does not come back as a row, and says so.
+   * The record and every window's row go before any file is touched, and each
+   * file after that is a best effort of its own (`#forgetSeat`): a file that
+   * will not write neither brings the rows back nor ends a seating that is
+   * about to try its next candidate.
    */
-  async #discardSeat(runtime: RuntimeId, id: SessionId, live?: AgentSession | null): Promise<SeatLeft | null> {
-    const owner = this.#runtimes.get(runtime)
-    await this.#letGo(runtime, id, live === undefined ? this.registry.get(runtime, id)?.live : live)
-    let left: SeatLeft | null = null
-    if (owner?.info.capabilities.deleteHistory) {
-      try {
-        await owner.deleteSession(id)
-      } catch (error) {
-        left = { kind: 'undeleted', detail: describeError(error) }
-        this.#logger.warn('a seat passed over could not be deleted where its runtime keeps it', {
+  async #discardSeat(runtime: RuntimeId, id: SessionId): Promise<SeatLeft | null> {
+    const key = sessionKey(runtime, id)
+    const inHand = this.#seating.get(key)
+    // Only a seating's own conversation is discarded; anything else is a caller's mistake, and said so.
+    if (!inHand) throw new Error(`No seating holds conversation ${String(id)}, so there is none of it to discard.`)
+    try {
+      await this.#letGo(runtime, id, inHand.live)
+      // From this look to the delete on its way nothing is awaited, so nothing can start on it in between.
+      const leave = this.#leaveAsItIs(inHand, runtime, id)
+      if (leave) {
+        this.#logger.info('a seat passed over was left as it is, not deleted', {
           runtime: String(runtime),
           session: String(id),
-          error: describeError(error),
+          why: leave.kind,
+        })
+        return leave
+      }
+      inHand.removing = true
+      const owner = this.#runtimes.get(runtime)
+      if (!owner) {
+        this.#logger.warn('a seat passed over could not be deleted: its runtime was gone', {
+          runtime: String(runtime),
+          session: String(id),
         })
       }
-    } else if (owner) {
-      left = { kind: 'kept' }
+      // The runtime first, because whether it deleted decides what the desk keeps.
+      const asked = owner ? await this.#askToDelete(owner, id) : null
+      // Then out of the host's records and every window, before any file is touched.
+      this.registry.delete(runtime, id)
+      this.#push({ method: 'session/removed', params: { runtime, sessionId: id } })
+      const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
+      await this.#forgetSeat(runtime, id, left)
+      return left
+    } finally {
+      this.#seating.delete(key)
+    }
+  }
+
+  /**
+   * Why a seat passed over must be left as it is, or null when it is the
+   * seating's alone: opened by it, and touched by nobody else.
+   *
+   * Touched is anything the desk can see: a window that asked anything of it
+   * (`SeatInHand.reached`); a turn it watched start, or a message waiting for
+   * it, on its record; a send, a queue or a reopen still on its way; a handle on
+   * its record other than the one the seating opened. A turn that started some
+   * other way than a window asking — a room's post, say — is on the record too.
+   */
+  #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
+    if (inHand.alreadyHeld) return { kind: 'alreadyHeld' }
+    const key = sessionKey(runtime, id)
+    const record = this.registry.get(runtime, id)
+    const touched =
+      inHand.reached ||
+      this.#sendingNow.has(key) ||
+      this.#draining.has(key) ||
+      this.#reattaching.has(key) ||
+      (record !== undefined &&
+        (record.session.turns.length > 0 ||
+          record.watched.size > 0 ||
+          record.queue.messages.length > 0 ||
+          (record.live !== null && record.live !== inHand.live)))
+    return touched ? { kind: 'inUse' } : null
+  }
+
+  /**
+   * Asks a passed-over seat's runtime to delete it where it keeps it: deleted;
+   * `cannot`, for a runtime with no delete to ask; or refused, in its words.
+   * What the desk does about one still there is its caller's (`#archiveSeat`).
+   */
+  async #askToDelete(owner: AgentRuntime, id: SessionId): Promise<'deleted' | 'cannot' | { readonly refused: string }> {
+    if (!owner.info.capabilities.deleteHistory) return 'cannot'
+    try {
+      await owner.deleteSession(id)
+      return 'deleted'
+    } catch (error) {
+      this.#logger.warn('a seat passed over could not be deleted where its runtime keeps it, so it is archived instead', {
+        runtime: String(owner.info.id),
+        session: String(id),
+        error: describeError(error),
+      })
+      return { refused: describeError(error) }
+    }
+  }
+
+  /**
+   * What a passed-over seat is left as, once its runtime has answered: nothing
+   * when it deleted it; otherwise out of the list (`#archiveSeat`) and said to
+   * be — `kept` by a runtime with no delete, `undeleted` by one that refused.
+   */
+  async #leftAs(
+    owner: AgentRuntime,
+    id: SessionId,
+    asked: 'deleted' | 'cannot' | { readonly refused: string },
+  ): Promise<SeatLeft | null> {
+    if (asked === 'deleted') return null
+    const archived = await this.#archiveSeat(owner, id)
+    return asked === 'cannot' ? { kind: 'kept', archived } : { kind: 'undeleted', detail: asked.refused, archived }
+  }
+
+  /**
+   * Puts a passed-over seat the desk could not delete out of the list, the way
+   * `session/archive` does: in the runtime's own archive when it keeps one, the
+   * desk's otherwise, never both. Answers where — or that it could not.
+   */
+  async #archiveSeat(owner: AgentRuntime, id: SessionId): Promise<SeatArchived> {
+    try {
+      if (owner.info.capabilities.archiveHistory) {
+        await owner.archiveSession(id, true)
+        return 'runtime'
+      }
+      await this.#archive.set(owner.info.id, id, true)
+      return 'here'
+    } catch (error) {
+      this.#logger.warn('a seat passed over could not be archived', {
+        runtime: String(owner.info.id),
+        session: String(id),
+        error: describeError(error),
+      })
+      return 'failed'
+    }
+  }
+
+  /**
+   * What the desk keeps about a passed-over seat, let go of once the seat is
+   * out of the registry and every window: its transcript, always; its archive
+   * mark and its name only once it is gone where its runtime keeps it — one
+   * that may still be listed keeps both, so it stays hidden and explained. Each
+   * is a best effort of its own, logged when it fails.
+   */
+  async #forgetSeat(runtime: RuntimeId, id: SessionId, left: SeatLeft | null): Promise<void> {
+    const forgets: [string, () => Promise<void>][] = [['transcript', () => this.#transcripts.forget(runtime, id)]]
+    if (left === null) {
+      forgets.push(['archive mark', () => this.#archive.forget(runtime, id)], ['name', () => this.#names.forget(runtime, id)])
+    }
+    for (const [what, forget] of forgets) {
       try {
-        if (owner.info.capabilities.archiveHistory) await owner.archiveSession(id, true)
-        else await this.#archive.set(runtime, id, true)
+        await forget()
       } catch (error) {
-        this.#logger.warn('a seat passed over could not be archived', {
+        this.#logger.warn('a seat passed over could not be forgotten everywhere', {
           runtime: String(runtime),
           session: String(id),
+          what,
           error: describeError(error),
         })
       }
     }
-    await this.#transcripts.forget(runtime, id)
-    // The archive mark is what hides a kept one; only a deleted one loses it.
-    if (left === null) await this.#archive.forget(runtime, id)
-    await this.#names.forget(runtime, id)
-    this.registry.delete(runtime, id)
-    this.#push({ method: 'session/removed', params: { runtime, sessionId: id } })
-    return left
   }
 
   /**

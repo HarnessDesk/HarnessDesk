@@ -83,11 +83,13 @@ export interface AgentEntry {
 
 /**
  * The most seats an Agent's `prefer` may name, and a seating's own `seats` in
- * its place. Every seat that opens and is then passed over leaves a closed,
- * empty conversation in that runtime's history, and an Agent arrives in a
- * clone: an uncapped list is somebody else's repository littering your agents'
- * histories. A longer list is refused where it is read, never cut short — a
- * list cut at the cap is a different list from the one its author wrote.
+ * its place. Every seat that opens and is then passed over costs a
+ * conversation: deleted where its runtime can delete one, but archived where
+ * it cannot, and possibly still in that runtime's own history (`SeatLeft`).
+ * An Agent arrives in a clone, so an uncapped list is somebody else's
+ * repository opening conversations on your agents. A longer list is refused
+ * where it is read, never cut short — a list cut at the cap is a different
+ * list from the one its author wrote.
  */
 export const SEAT_PREFERENCE_LIMIT = 8
 
@@ -189,15 +191,53 @@ export type SeatFix =
   | { readonly kind: 'seats' }
 
 /**
- * What a seat passed over after opening may have left behind, where the desk
- * could not remove all of it. Null (on `PassedOver.left`) when nothing is.
+ * What a seat passed over after it opened was left as, wherever that is
+ * anything but gone. Null (on `PassedOver.left`) when nothing is left: it was
+ * deleted where its runtime keeps it, and the desk forgot it.
+ *
+ * The desk deletes only a conversation its seating opened and nobody else
+ * touched. The first two kinds are ones it could not delete — a runtime with
+ * no way to, or one that refused; the next two, ones it would not; the last,
+ * one whose runtime was gone before it could be asked.
  */
 export type SeatLeft =
   /**
    * The runtime keeps its own history and offers no way to remove a
    * conversation from it. Whether it recorded one that never took a message
-   * the desk cannot tell; it archived it, so a row does not come back.
+   * the desk cannot tell, so it may still be there; the desk kept its name and
+   * put it out of the list (`archived` says where, or that it could not).
    */
-  | { readonly kind: 'kept' }
-  /** The runtime was asked to delete it, and refused, in these words. */
-  | { readonly kind: 'undeleted'; readonly detail: string }
+  | { readonly kind: 'kept'; readonly archived: SeatArchived }
+  /**
+   * The runtime was asked to delete it, and refused, in these words. The desk
+   * kept its name and put it out of the list instead (`archived`).
+   */
+  | { readonly kind: 'undeleted'; readonly detail: string; readonly archived: SeatArchived }
+  /**
+   * Somebody had a hand in it while it was open — a window read it, reopened
+   * it or wrote to it, or a turn started on it, or a message waited for it —
+   * so it was only closed, as a retired seat is, and left as it is: nothing
+   * deleted, archived or forgotten.
+   */
+  | { readonly kind: 'inUse' }
+  /**
+   * The runtime answered with a conversation the desk already held under that
+   * id — one with its own record, name and row — so it was only closed and
+   * left as it is. It was never the seating's to delete.
+   */
+  | { readonly kind: 'alreadyHeld' }
+  /**
+   * Its runtime was gone from the desk before it could be asked to delete it,
+   * so it may still be in that runtime's history. The desk kept its name, and
+   * had no archive to put it in: which one a runtime uses is the runtime's to
+   * say.
+   */
+  | { readonly kind: 'unasked' }
+
+/**
+ * Where a conversation the desk could not delete was put out of the list: the
+ * desk's own archive (`here`), the runtime's own (`runtime`) — always, for a
+ * runtime that keeps one, since two archives would disagree — or nowhere,
+ * because archiving it failed (`failed`), so it may still be listed.
+ */
+export type SeatArchived = 'here' | 'runtime' | 'failed'

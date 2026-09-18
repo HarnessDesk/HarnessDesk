@@ -7,6 +7,7 @@ import {
   chooseSeat,
   differencesOf,
   explainRefusal,
+  leftOnFailure,
   passedFor,
   permissionWithin,
   type PassedOver,
@@ -44,7 +45,7 @@ export const agentMethods = {
    * — installed, working, signed in, unspent, offering the model — is checked
    * before one is opened, and what only an open conversation can say is read
    * back from it and compared with what was asked. A seat that will not open,
-   * or opens running anything else, is closed and passed over, and the next
+   * or opens running anything else, is discarded and passed over, and the next
    * candidate the Agent named is tried — exactly as a candidate found wanting
    * before opening is. The next candidate is one the Agent asked for, so trying
    * it substitutes nothing; and whether a fact came to light before opening or
@@ -52,9 +53,14 @@ export const agentMethods = {
    * candidate has failed is the call refused, with one list: every candidate,
    * and why.
    *
-   * One seat at a time. A seat that is not kept is closed, and let go by the
-   * host, before the next is opened, so one seating never has two conversations
-   * open at once; the most it can open and close is the length of `prefer`.
+   * Discarded is the host's word (`HostContext['seats']['discard']`): closed,
+   * deleted where its runtime keeps it, and forgotten by the desk — unless
+   * somebody used it while it was open, and then only closed and left as it
+   * is. What each was left as is said on its line.
+   *
+   * One seat at a time. A seat that is not kept is discarded by the host before
+   * the next is opened, so one seating never has two conversations open at
+   * once; the most it can open is the length of `prefer`.
    *
    * The brief goes over once, as the standing order, through the same order
    * path a flow's seats are given theirs by. Re-sending it every turn would pay
@@ -160,9 +166,12 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * candidate passed over with why — and then nothing of it is left open.
  *
  * A seat that fails part-way through opening is discarded by the host before
- * the failure reaches here; one that opens on something else is discarded
- * here (`ctx.seats.discard`), and the discard is waited for, so the next
- * candidate is only opened once this one is gone.
+ * the failure reaches here, and what that left is noted on the failure
+ * (`leftOnFailure`); one that opens on something else is discarded here
+ * (`ctx.seats.discard`), and the discard is waited for, so the next candidate
+ * is only opened once this one is gone. Either way, what the conversation was
+ * left as goes on the candidate's line — left as it is, because somebody used
+ * it, or archived, because it could not be deleted — never dropped.
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -173,7 +182,8 @@ const openAsAsked = async (
   try {
     opened = await ctx.seats.open(seat, where)
   } catch (error) {
-    return passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) })
+    const left = leftOnFailure(error)
+    return { ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }), ...(left ? { left } : {}) }
   }
   const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened

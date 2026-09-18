@@ -230,10 +230,10 @@ test('empty front matter closes, and is the same as no front matter', () => {
 })
 
 test('a prefer list longer than eight is refused whole, never cut short', () => {
-  /* Every seat that opens and is passed over leaves an empty conversation in
-     that agent's history, and an Agent arrives in a clone — so the list is
-     capped. Cutting it at eight would try a different list from the one
-     written, quietly; the author is told instead. */
+  /* Every seat that opens and is passed over costs a conversation — one an
+     agent that cannot delete may keep in its history — and an Agent arrives in
+     a clone, so the list is capped. Cutting it at eight would try a different
+     list from the one written, quietly; the author is told instead. */
   const seats = (count: number) => Array.from({ length: count }, (_, index) => `claude=m${index}`).join(', ')
   const long = parseAgentDefinition(`---\nname: Long\nprefer: [${seats(9)}]\n---\nWork.\n`, 'long')
   assert.equal(long.agent, null)
@@ -241,7 +241,7 @@ test('a prefer list longer than eight is refused whole, never cut short', () => 
     {
       level: 'error',
       at: 'prefer',
-      text: 'it names 9 seats, and an Agent may name at most 8 — each seat that opens and is passed over leaves an empty conversation in that agent’s history, so keep the ones worth trying',
+      text: 'it names 9 seats, and an Agent may name at most 8 — each seat that opens and is passed over costs a conversation, which an agent that cannot delete one may keep in its history, so keep the ones worth trying',
     },
   ])
   // Eight is allowed.

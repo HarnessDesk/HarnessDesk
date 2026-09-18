@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, rmSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -29,6 +30,7 @@ import {
   type RuntimeInfo,
   type SeatLeft,
   type Session,
+  type SessionDeletion,
   type SessionId,
   type SessionOptions,
   type SessionSettings,
@@ -69,6 +71,34 @@ import { tempDir } from './scratch.js'
  */
 
 /**
+ * A point a fake stops at until the test lets it through — and says when
+ * something has got there, so the test can act while it waits. Once open, it
+ * stays open: whatever reaches it after goes straight through.
+ */
+const gate = () => {
+  let arrive!: () => void
+  let release!: () => void
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve
+  })
+  const opened = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return {
+    /** Settles when the first caller gets here. */
+    reached,
+    /** Where the fake stops: says it got here, and waits to be let through. */
+    pass: async (): Promise<void> => {
+      arrive()
+      await opened
+    },
+    /** Lets everything waiting here, and everything after, through. */
+    open: (): void => release(),
+  }
+}
+type Gate = ReturnType<typeof gate>
+
+/**
  * A runtime with the controls a seat puts a conversation on — model, effort,
  * thinking, and the two switches nobody asks for — and the habit that makes
  * reading them back necessary: a pick it has no place for is dropped, not
@@ -92,6 +122,21 @@ class SeatFake extends FakeRuntime {
   breakNext = false
   /** Called as each conversation is asked for, before it exists. */
   beforeCreate: (() => void) | null = null
+  /**
+   * Where a test can hold the fake while it acts: naming a conversation (the
+   * first thing a seat does once it is open), closing one, deleting one.
+   */
+  readonly stops: { title?: Gate; close?: Gate; delete?: Gate } = {}
+  /**
+   * The id the next conversation is given instead of the next in turn — an
+   * agent handing back one the desk already holds, as one that numbers its
+   * conversations afresh after a restart would.
+   */
+  mintAs: string | null = null
+  /** Asked to delete, it refuses in these words. */
+  deleteRefusal: string | null = null
+  /** Conversations reopened, each on a handle of its own. */
+  readonly reopened: SeatSession[] = []
 
   constructor(identity: { readonly id?: string; readonly capabilities?: Partial<RuntimeCapabilities> } = {}) {
     super({
@@ -113,7 +158,8 @@ class SeatFake extends FakeRuntime {
 
   override async createSession(options: SessionOptions): Promise<AgentSession> {
     this.beforeCreate?.()
-    const id = sessionId(`seat-${this.opened.length + 1}`)
+    const id = sessionId(this.mintAs ?? `seat-${this.opened.length + 1}`)
+    this.mintAs = null
     const session = new SeatSession(this, id, options.cwd, {
       model: 'big',
       effort: 'medium',
@@ -141,6 +187,36 @@ class SeatFake extends FakeRuntime {
       session.broken = true
     }
     return session
+  }
+
+  /** Its own conversations, read as its store has them: under its own id, not the base fixture's. */
+  override async readSession(id: SessionId): Promise<Session> {
+    const held = this.#latest(id)
+    if (!held) return super.readSession(id)
+    const { options: _options, settings: _settings, ...transcript } = held.snapshot()
+    return transcript
+  }
+
+  /** Reopened on a handle of its own — a conversation it still has, that is; a deleted one is gone. */
+  override async resumeSession(id: SessionId): Promise<AgentSession> {
+    this.resumes += 1
+    const held = this.#latest(id)
+    if (!held) throw new Error(`Seat Fake has no record of conversation ${String(id)}.`)
+    const session = new SeatSession(this, held.id, held.settings().cwd, held.values())
+    this.reopened.push(session)
+    return session
+  }
+
+  override async deleteSession(id: SessionId): Promise<SessionDeletion> {
+    await this.stops.delete?.pass()
+    if (this.deleteRefusal) throw new Error(this.deleteRefusal)
+    return super.deleteSession(id)
+  }
+
+  /** The newest handle on a conversation it still has, or nothing once it is deleted. */
+  #latest(id: SessionId): SeatSession | undefined {
+    if (this.deleted.includes(String(id))) return undefined
+    return [...this.reopened, ...this.opened].reverse().find((one) => String(one.id) === String(id))
   }
 }
 
@@ -278,10 +354,12 @@ class SeatSession implements AgentSession {
     if (patch.model !== undefined) await this.setOption('model', patch.model)
   }
   async setTitle(title: string): Promise<void> {
+    await this.owner.stops.title?.pass()
     this.title = title
     this.owner.emit({ type: 'session/title', sessionId: this.id, title })
   }
   async close(): Promise<void> {
+    await this.owner.stops.close?.pass()
     this.closed = true
     this.owner.emit({ type: 'session/closed', sessionId: this.id })
   }
@@ -1215,6 +1293,28 @@ const settingsSeen = (client: Client, id: string): SessionSettings | undefined =
     .filter((event) => String(event.sessionId) === id)
     .at(-1)?.settings
 
+/** How many times this window was told to drop one conversation. */
+const removedFor = (client: Client, id: SessionId | string): number =>
+  client.notifications.filter(
+    (one) => 'method' in one && one.method === 'session/removed' && String(one.params.sessionId) === String(id),
+  ).length
+
+/** The name the desk keeps for a conversation, as `names.json` has it, or null. */
+const nameOn = async (stateDir: string, runtime: string, id: SessionId | string): Promise<string | null> => {
+  const raw = await readFile(join(stateDir, 'names.json'), 'utf8').catch(() => null)
+  if (raw === null) return null
+  const { entries } = JSON.parse(raw) as { entries: { runtime: string; sessionId: string; name: string }[] }
+  return entries.find((one) => one.runtime === runtime && one.sessionId === String(id))?.name ?? null
+}
+
+/** The desk's own archive marks, as `archive.json` has them: `[runtime, id]` each. */
+const archivedOn = async (stateDir: string): Promise<[string, string][]> => {
+  const raw = await readFile(join(stateDir, 'archive.json'), 'utf8').catch(() => null)
+  if (raw === null) return []
+  const { entries } = JSON.parse(raw) as { entries: { runtime: string; sessionId: string }[] }
+  return entries.map((one) => [one.runtime, one.sessionId])
+}
+
 test('through the host: seated on its picks, handed the brief once, and recorded — a record the runtime cannot take away', async (t) => {
   const { harness, seats, client, work } = await desk(t)
   const source = await writeReviewer(harness.stateDir, 'seatfake=big/high')
@@ -1316,7 +1416,7 @@ test('the wire refuses a grant that is no permission, and more seats than an Age
     return true
   }
   await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work, permission: 'admin' }), badRequest)
-  // Every seat that opens and is passed over leaves an empty conversation behind, so the list is capped.
+  // Every seat that opens and is passed over costs a conversation, so the list is capped.
   const nine = Array.from({ length: 9 }, () => ({ runtime: 'seatfake', model: 'big', effort: 'high' }))
   await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work, seats: nine }), badRequest)
   assert.deepEqual(seats.opened, [], 'nothing was opened for either')
@@ -1419,6 +1519,14 @@ test('through the host: one seat at a time — each that fails is closed and let
   assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, 'max-mode': false })
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
+  // Discarded, not merely closed — the one lost part-way through opening too,
+  // by the failure path a flow's seats share: deleted where the runtime keeps
+  // it, out of the host's records, and out of every window.
+  assert.deepEqual(seats.deleted, [String(lost.id), String(other.id)])
+  for (const one of [lost, other]) {
+    assert.equal(harness.host.registry.get(runtimeId('seatfake'), one.id), undefined, `no record of ${String(one.id)}`)
+    await client.until(() => removedFor(client, one.id) === 1, 2_000, `session/removed for ${String(one.id)}`)
+  }
 })
 
 test('through the host: when every candidate fails the refusal names each, and no conversation is left open', async (t) => {
@@ -1535,7 +1643,7 @@ for (const [answer, how] of [
     // agent, `variant` declares no `_harnessdesk/session/delete` — so each is
     // archived here instead, and the refusal says so on its own line.
     const archived =
-      "the conversation it opened stays in variant's own history, which it cannot delete from; it is archived here"
+      "the conversation it opened may stay in variant's own history, which the desk cannot delete from; it is archived here"
     await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
       assert.equal(
         error.message,
@@ -1842,23 +1950,59 @@ test('a seat passed over once open is discarded, not merely closed; one whose br
   assert.deepEqual(ordered.discarded, [], 'a brief may have reached it, so it is not the desk’s to delete')
 })
 
-test('what a runtime could not remove is said on its own line of the refusal', async () => {
-  const seen = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, {
-    comesBackAs: () => ({ effort: 'medium' }),
-    leaves: () => ({ kind: 'kept' }),
+/*
+ * What each passed-over conversation was left as, on its own line — no more
+ * than the desk knows: a runtime with no delete *may* keep it, "archived here"
+ * only when the desk's archive took it, and the runtime's own words for a
+ * refused delete, quoted because the clause goes on after them.
+ */
+for (const [left, words] of [
+  [
+    { kind: 'kept', archived: 'here' },
+    "the conversation it opened may stay in claude's own history, which the desk cannot delete from; it is archived here",
+  ],
+  [
+    { kind: 'kept', archived: 'runtime' },
+    "the conversation it opened may stay in claude's own history, which the desk cannot delete from; it is in claude's own archive",
+  ],
+  [
+    { kind: 'kept', archived: 'failed' },
+    "the conversation it opened may stay in claude's own history, which the desk cannot delete from; archiving it failed, so it may still be listed",
+  ],
+  [
+    { kind: 'undeleted', detail: 'The thread is locked.', archived: 'here' },
+    'the conversation it opened could not be deleted: “The thread is locked”; it is archived here',
+  ],
+  [
+    { kind: 'undeleted', detail: 'The thread is locked.', archived: 'failed' },
+    'the conversation it opened could not be deleted: “The thread is locked”; archiving it failed, so it may still be listed',
+  ],
+  [{ kind: 'inUse' }, 'the conversation it opened was used meanwhile, so it was left as it is'],
+  [{ kind: 'alreadyHeld' }, 'the conversation it opened is one the desk already held, so it was left as it is'],
+  [
+    { kind: 'unasked' },
+    'claude was gone before it could be asked to delete the conversation it opened, which may stay in its history',
+  ],
+] as const satisfies readonly (readonly [SeatLeft, string])[]) {
+  const said = 'archived' in left ? `${left.kind}, ${left.archived}` : left.kind
+  test(`what a passed-over seat was left as is said on its own line of the refusal — ${said}`, async () => {
+    const seen = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, {
+      comesBackAs: () => ({ effort: 'medium' }),
+      leaves: () => left,
+    })
+    await assert.rejects(
+      () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+      (error: Error) => {
+        assert.equal(
+          error.message,
+          'No seat could be opened for this Agent:\n' +
+            `  claude=opus-5/high — claude runs it at medium effort, not high (${words})`,
+        )
+        return true
+      },
+    )
   })
-  await assert.rejects(
-    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
-    (error: Error) => {
-      assert.equal(
-        error.message,
-        'No seat could be opened for this Agent:\n' +
-          "  claude=opus-5/high — claude runs it at medium effort, not high (the conversation it opened stays in claude's own history, which it cannot delete from; it is archived here)",
-      )
-      return true
-    },
-  )
-})
+}
 
 test('through the host: a seat passed over is deleted where its runtime keeps it, forgotten by the desk, and dropped from every window', async (t) => {
   const { harness, seats, client, work } = await desk(t)
@@ -1898,19 +2042,338 @@ test('through the host: a runtime that cannot delete keeps what it keeps, archiv
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened stays in keeper's own history, which it cannot delete from; it is archived here)",
+        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)",
     )
     return true
   })
   const [opened] = keeper.opened
   assert.ok(opened)
   assert.deepEqual(keeper.deleted, [], 'nothing was asked of a runtime that cannot delete')
-  const archive = JSON.parse(await readFile(join(harness.stateDir, 'archive.json'), 'utf8')) as {
-    entries: { runtime: string; sessionId: string }[]
-  }
-  assert.deepEqual(
-    archive.entries.map((one) => [one.runtime, one.sessionId]),
-    [['keeper', String(opened.id)]],
-  )
+  assert.deepEqual(await archivedOn(harness.stateDir), [['keeper', String(opened.id)]])
+  // It may still be listed in the agent's history, so it keeps its name: hidden, and explained.
+  assert.equal(await nameOn(harness.stateDir, 'keeper', opened.id), 'Reviewer')
   assert.equal(harness.host.registry.get(runtimeId('keeper'), opened.id), undefined)
+})
+
+/*
+ * Never a conversation somebody used. A candidate is a row in every window
+ * from its `session/started`, titled with the Agent's name, until the seating
+ * decides about it — across the title, the name, every pick and the read-back —
+ * and a person can open that row and write in it. The desk deletes only what
+ * its seating opened and nobody else touched; anything else is closed and left
+ * as it is, and its line says so.
+ */
+
+/** The candidate a seating on `seatfake=small/high` opens, held at its naming while the test acts. */
+const heldAtNaming = async (t: TestContext) => {
+  const rigged = await desk(t)
+  await writeReviewer(rigged.harness.stateDir, 'seatfake=small/high')
+  const naming = gate()
+  rigged.seats.stops.title = naming
+  const seating = rigged.client.call('agent/seat', { id: 'reviewer', cwd: rigged.work })
+  await naming.reached
+  const [candidate] = rigged.seats.opened
+  assert.ok(candidate)
+  return { ...rigged, seating, candidate, naming }
+}
+
+/** The refusal of a seating whose one candidate, `seatfake=small/high`, was left as it is for `words`. */
+const refusedLeaving = (words: string) => (error: Error) => {
+  assert.equal(
+    error.message,
+    'No seat could be opened for this Agent:\n' +
+      `  seatfake=small/high — seatfake runs it at medium effort, not high (${words})`,
+  )
+  return true
+}
+
+const USED = 'the conversation it opened was used meanwhile, so it was left as it is'
+
+test('through the host: a message a person sends the candidate before it is read back keeps it — nothing deleted, and its line says so', async (t) => {
+  const { harness, seats, client, seating, candidate, naming } = await heldAtNaming(t)
+  // The row every window drew from its session/started: a person opens it and writes.
+  await client.call('turn/queue', {
+    runtime: 'seatfake',
+    sessionId: candidate.id,
+    input: [{ type: 'text', text: 'Is anyone there?' }],
+  })
+  naming.open()
+  const refused = await seating.then(
+    () => assert.fail('the seating was expected to be refused'),
+    (error: Error) => error,
+  )
+
+  assert.deepEqual(candidate.sent, ['Is anyone there?'], 'the message reached it')
+  assert.deepEqual(seats.deleted, [], 'nothing was deleted')
+  assert.deepEqual([...seats.archived], [], 'or archived')
+  const record = harness.host.registry.get(runtimeId('seatfake'), candidate.id)
+  assert.ok(record, 'its record stays')
+  assert.equal(record.session.turns.length, 1)
+  assert.equal(await nameOn(harness.stateDir, 'seatfake', candidate.id), 'Reviewer', 'and its name')
+  assert.equal(removedFor(client, candidate.id), 0, 'and its row in every window')
+  assert.equal(candidate.closed, true, 'the seating closed the handle it opened, as a retired seat is')
+  refusedLeaving(USED)(refused)
+})
+
+test('through the host: a reopen that lands while the seat is being let go keeps its handle, and nothing is removed', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=small/high')
+  const closing = gate()
+  seats.stops.close = closing
+  const seating = client.call('agent/seat', { id: 'reviewer', cwd: work })
+  await closing.reached
+  const [candidate] = seats.opened
+  assert.ok(candidate)
+  // Passed over, and being let go — and a person opens its row meanwhile.
+  await client.call('session/resume', { runtime: 'seatfake', sessionId: candidate.id })
+  const [reopened] = seats.reopened
+  assert.ok(reopened && seats.reopened.length === 1)
+  closing.open()
+  const refused = await seating.then(
+    () => assert.fail('the seating was expected to be refused'),
+    (error: Error) => error,
+  )
+
+  assert.deepEqual(seats.deleted, [], 'nothing was deleted')
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), candidate.id)?.live, reopened, 'the host still holds the reopen')
+  assert.equal(reopened.closed, false, 'which is open')
+  assert.equal(candidate.closed, true, 'and only the handle the seating opened was closed')
+  assert.equal(removedFor(client, candidate.id), 0, 'no window was told to drop it')
+  refusedLeaving(USED)(refused)
+})
+
+test('through the host: a reopen before the read-back keeps its own handle — the seating closes only the one it opened', async (t) => {
+  const { harness, seats, client, seating, candidate, naming } = await heldAtNaming(t)
+  await client.call('session/resume', { runtime: 'seatfake', sessionId: candidate.id })
+  const [reopened] = seats.reopened
+  assert.ok(reopened)
+  naming.open()
+
+  await assert.rejects(seating, refusedLeaving(USED))
+  assert.equal(candidate.closed, true, 'the seating closed the handle it opened')
+  assert.equal(reopened.closed, false, 'and left the person’s alone')
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), candidate.id)?.live, reopened)
+})
+
+test('through the host: a window that only opened the candidate keeps it — a person looking at a conversation is about to use it', async (t) => {
+  const { harness, seats, client, seating, candidate, naming } = await heldAtNaming(t)
+  // A read leaves no turn, no queued message and no handle of its own: only the ask itself says it happened.
+  await client.call('session/read', { runtime: 'seatfake', sessionId: candidate.id })
+  naming.open()
+
+  await assert.rejects(seating, refusedLeaving(USED))
+  assert.deepEqual(seats.deleted, [])
+  assert.ok(harness.host.registry.get(runtimeId('seatfake'), candidate.id))
+  assert.equal(removedFor(client, candidate.id), 0)
+})
+
+test('through the host: a turn that starts on the candidate any other way — a room’s post, say — keeps it too', async (t) => {
+  const { harness, seats, client, seating, candidate, naming } = await heldAtNaming(t)
+  // No window asked anything of it; the agent reports a turn starting all the same.
+  seats.emit({
+    type: 'turn/started',
+    sessionId: candidate.id,
+    turn: { id: turnId('from-elsewhere'), items: [], status: 'inProgress' },
+  })
+  naming.open()
+
+  await assert.rejects(seating, refusedLeaving(USED))
+  assert.deepEqual(seats.deleted, [])
+  assert.ok(harness.host.registry.get(runtimeId('seatfake'), candidate.id))
+  assert.equal(removedFor(client, candidate.id), 0)
+})
+
+test('through the host: once the candidate is being deleted, a window that asks for it is refused, and nothing comes back', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=small/high')
+  const deleting = gate()
+  seats.stops.delete = deleting
+  const seating = client.call('agent/seat', { id: 'reviewer', cwd: work })
+  await deleting.reached
+  const [candidate] = seats.opened
+  assert.ok(candidate)
+  // Past the point of no return: a reopen now would be a live handle on a conversation about to be erased.
+  await assert.rejects(
+    client.call('session/resume', { runtime: 'seatfake', sessionId: candidate.id }),
+    (error: Error & { code?: unknown }) => {
+      assert.equal(error.code, 'sessionGone')
+      assert.equal(error.message, 'This conversation was opened for a seat that was passed over, and it is being removed.')
+      return true
+    },
+  )
+  deleting.open()
+
+  await assert.rejects(seating, (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n  seatfake=small/high — seatfake runs it at medium effort, not high',
+    )
+    return true
+  })
+  assert.deepEqual(seats.deleted, [String(candidate.id)])
+  assert.deepEqual(seats.reopened, [], 'no handle was opened on it')
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), candidate.id), undefined, 'and no record came back')
+  await client.until(() => removedFor(client, candidate.id) === 1, 2_000, 'session/removed for the candidate')
+})
+
+test('through the host: a runtime that hands back a conversation the desk already holds keeps it — it was never the seating’s', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  // A conversation somebody started on this agent, which the desk holds.
+  const theirs = (await client.call('session/create', { runtime: 'seatfake', options: { cwd: work } })) as Session
+  await writeReviewer(harness.stateDir, 'seatfake=small/high')
+  // Asked for a new one, the agent answers with that same id.
+  seats.mintAs = String(theirs.id)
+
+  await assert.rejects(
+    client.call('agent/seat', { id: 'reviewer', cwd: work }),
+    refusedLeaving('the conversation it opened is one the desk already held, so it was left as it is'),
+  )
+  assert.deepEqual(seats.deleted, [])
+  assert.ok(harness.host.registry.get(runtimeId('seatfake'), theirs.id), 'its record stays')
+  assert.equal(removedFor(client, theirs.id), 0)
+})
+
+/*
+ * What could not be deleted is archived and keeps its name, and its line says
+ * where it went — in the runtime's own words when the runtime refused.
+ */
+
+for (const [archiveHistory, where] of [
+  [true, "it is in refuser's own archive"],
+  [false, 'it is archived here'],
+] as const) {
+  test(`through the host: a delete the runtime refuses is archived and named, and said in its words — ${where}`, async (t) => {
+    const { harness, client, work } = await desk(t)
+    const refuser = new SeatFake({ id: 'refuser', capabilities: { archiveHistory } })
+    refuser.deleteRefusal = 'The thread is locked by another writer.'
+    harness.host.register(refuser)
+    await refuser.start()
+    await writeReviewer(harness.stateDir, 'refuser=small/high')
+
+    await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          `  refuser=small/high — refuser runs it at medium effort, not high (the conversation it opened could not be deleted: “The thread is locked by another writer”; ${where})`,
+      )
+      return true
+    })
+    const [opened] = refuser.opened
+    assert.ok(opened)
+    assert.deepEqual(refuser.deleted, [])
+    // Out of the list: in the runtime's own archive when it keeps one, the desk's when it does not — never both.
+    assert.deepEqual([...refuser.archived], archiveHistory ? [String(opened.id)] : [])
+    assert.deepEqual(await archivedOn(harness.stateDir), archiveHistory ? [] : [['refuser', String(opened.id)]])
+    // And explained, if it is ever listed.
+    assert.equal(await nameOn(harness.stateDir, 'refuser', opened.id), 'Reviewer')
+    assert.equal(harness.host.registry.get(runtimeId('refuser'), opened.id), undefined)
+    await client.until(() => removedFor(client, opened.id) === 1, 2_000, 'session/removed for it')
+  })
+}
+
+test("through the host: a runtime that cannot delete but keeps an archive has it put there, not in the desk's", async (t) => {
+  const { harness, client, work } = await desk(t)
+  const keeper = new SeatFake({ id: 'keeper', capabilities: { deleteHistory: false, archiveHistory: true } })
+  harness.host.register(keeper)
+  await keeper.start()
+  await writeReviewer(harness.stateDir, 'keeper=small/high')
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is in keeper's own archive)",
+    )
+    return true
+  })
+  const [opened] = keeper.opened
+  assert.ok(opened)
+  assert.deepEqual([...keeper.archived], [String(opened.id)])
+  assert.deepEqual(await archivedOn(harness.stateDir), [], 'nothing written down here for a runtime with its own')
+  assert.deepEqual(keeper.deleted, [])
+})
+
+test('through the host: when archiving fails as well, the line says so rather than claiming it is archived', async (t) => {
+  const { harness, client, work, heard } = await desk(t)
+  const keeper = new SeatFake({ id: 'keeper', capabilities: { deleteHistory: false, archiveHistory: false } })
+  harness.host.register(keeper)
+  await keeper.start()
+  await writeReviewer(harness.stateDir, 'keeper=small/high')
+  // The desk's archive cannot be written: a directory stands where its file goes.
+  await mkdir(join(harness.stateDir, 'archive.json'))
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; archiving it failed, so it may still be listed)",
+    )
+    return true
+  })
+  assert.ok(heard.said.includes('a seat passed over could not be archived'))
+})
+
+test('through the host: a seat lost part-way through opening says what it was left as, too', async (t) => {
+  const { harness, client, work } = await desk(t)
+  const keeper = new SeatFake({ id: 'keeper', capabilities: { deleteHistory: false, archiveHistory: false } })
+  keeper.breakNext = true
+  harness.host.register(keeper)
+  await keeper.start()
+  await writeReviewer(harness.stateDir, 'keeper=big/high')
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        "  keeper=big/high — keeper could not open a conversation: Seat Fake lost this conversation part-way through opening it (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)",
+    )
+    return true
+  })
+  const [lost] = keeper.opened
+  assert.ok(lost)
+  assert.deepEqual(await archivedOn(harness.stateDir), [['keeper', String(lost.id)]])
+})
+
+test('through the host: a runtime gone before its seat could be deleted is said to be, not taken for one that left nothing', async (t) => {
+  const { harness, seats, client, seating, candidate, naming } = await heldAtNaming(t)
+  // Taken off the desk while its seat is being opened.
+  await harness.host.unregister(runtimeId('seatfake'))
+  naming.open()
+
+  await assert.rejects(
+    seating,
+    refusedLeaving(
+      'seatfake was gone before it could be asked to delete the conversation it opened, which may stay in its history',
+    ),
+  )
+  assert.deepEqual(seats.deleted, [], 'nothing could be asked of it')
+  // Nothing can open it from here, so the row goes — but its name stays, for if the runtime comes back.
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), candidate.id), undefined)
+  await client.until(() => removedFor(client, candidate.id) === 1, 2_000, 'session/removed for it')
+  assert.equal(await nameOn(harness.stateDir, 'seatfake', candidate.id), 'Reviewer')
+})
+
+test('through the host: a name file that will not write neither keeps a passed-over seat on screen nor ends the seating', async (t) => {
+  const { harness, seats, client, work, heard } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=small/high, seatfake=big/high')
+  const names = join(harness.stateDir, 'names.json')
+  const closing = gate()
+  seats.stops.close = closing
+  const seating = client.call('agent/seat', { id: 'reviewer', cwd: work })
+  await closing.reached
+  // The first candidate is passed over and named already; its name file now cannot be written.
+  rmSync(names, { force: true })
+  mkdirSync(names)
+  // Put right before the next candidate is named, so only the forgetting meets it.
+  seats.beforeCreate = () => rmSync(names, { recursive: true, force: true })
+  closing.open()
+
+  const session = (await seating) as Session
+  const [passed, kept] = seats.opened
+  assert.ok(passed && kept && seats.opened.length === 2)
+  assert.equal(String(session.id), String(kept.id), 'the seating went on to the next candidate')
+  assert.deepEqual(seats.deleted, [String(passed.id)])
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), passed.id), undefined)
+  await client.until(() => removedFor(client, passed.id) === 1, 2_000, 'session/removed for the seat passed over')
+  assert.ok(heard.said.includes('a seat passed over could not be forgotten everywhere'))
 })

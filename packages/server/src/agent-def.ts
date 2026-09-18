@@ -173,7 +173,7 @@ export const parseAgentDefinition = (
       problem(
         'error',
         'prefer',
-        `it names ${listed.length} seats, and an Agent may name at most ${SEAT_PREFERENCE_LIMIT} — each seat that opens and is passed over leaves an empty conversation in that agent’s history, so keep the ones worth trying`,
+        `it names ${listed.length} seats, and an Agent may name at most ${SEAT_PREFERENCE_LIMIT} — each seat that opens and is passed over costs a conversation, which an agent that cannot delete one may keep in its history, so keep the ones worth trying`,
       ),
     )
   }

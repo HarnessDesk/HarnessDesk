@@ -333,22 +333,7 @@ export class AppStore {
           })
         }
         if (notification.method === 'session/removed') {
-          /* Deleted, or opened for a seat and passed over: either way nothing
-             holds it now, and a window that kept it would draw a row the
-             host can no longer answer for. */
-          const key = sessionKey(notification.params.runtime, notification.params.sessionId)
-          const sessions = new Map(this.#snapshot.sessions)
-          const queues = new Map(this.#snapshot.queues)
-          const tasks = new Map(this.#snapshot.tasks)
-          sessions.delete(key)
-          queues.delete(key)
-          tasks.delete(key)
-          this.#patch({
-            sessions,
-            queues,
-            tasks,
-            history: this.#snapshot.history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key),
-          })
+          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
         }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
@@ -2190,6 +2175,48 @@ export class AppStore {
     this.forgetPlanEdits(key)
     await this.loadHistory({ reset: true })
     return outcome
+  }
+
+  /**
+   * A conversation the host no longer holds — deleted, or opened for a seat
+   * and passed over — taken out of this window, whichever window asked for it
+   * to go. `session/removed` is all most windows hear of it, so everything here
+   * that points at it goes on that alone: its row and its history row, its
+   * queue and background tasks, the approvals it was waiting on, and the pane
+   * or panel showing it — and with them the focus, which follows the panes.
+   * Nothing is asked of the host for it: the host has already let it go.
+   *
+   * A window that never held it is left exactly as it was — no new snapshot,
+   * so nothing on screen draws again for a conversation it never showed.
+   */
+  #dropRemoved(key: SessionKey): void {
+    const { sessions, queues, tasks, history, approvals } = this.#snapshot
+    const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
+    const docked = mountedViewsIn(this.#snapshot.workbench).filter(
+      (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
+    )
+    const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
+    const waiting = approvals.some((entry) => entry.key === key)
+    const held =
+      sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting || shown.length > 0 || docked.length > 0
+    if (!held) return
+    // Where it was on screen first, so the focus moves with the panes rather
+    // than being left on a conversation nothing can open any more.
+    for (const pane of shown) this.#setLayout(showIn(this.#snapshot.layout, pane.id, emptyView()))
+    for (const entry of docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+    const nextSessions = new Map(sessions)
+    const nextQueues = new Map(queues)
+    const nextTasks = new Map(tasks)
+    nextSessions.delete(key)
+    nextQueues.delete(key)
+    nextTasks.delete(key)
+    this.#patch({
+      sessions: nextSessions,
+      queues: nextQueues,
+      tasks: nextTasks,
+      history: listed ? history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : history,
+      approvals: waiting ? approvals.filter((entry) => entry.key !== key) : approvals,
+    })
   }
 
   async renameSession(title: string, key = this.#snapshot.activeSessionKey): Promise<void> {

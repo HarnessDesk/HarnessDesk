@@ -2,6 +2,7 @@ import type {
   ConfigOption,
   FlowPermission,
   FlowSeat,
+  SeatArchived,
   SeatDifference,
   SeatFix,
   SeatLeft,
@@ -111,7 +112,10 @@ export interface PassedOver {
   readonly why: string
   /** The same fact, for a surface to word and to offer the fix for (`fixOf`). */
   readonly reason: SeatReason
-  /** What its opening left behind that could not be removed; absent or null when nothing is. */
+  /**
+   * What the conversation it opened was left as, when it opened one and that
+   * is anything but gone; absent or null when nothing is left.
+   */
   readonly left?: SeatLeft | null
 }
 
@@ -268,11 +272,58 @@ export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly Sea
   return { seat: null, passed }
 }
 
-/** What a passed-over seat left behind, as a clause of its line. */
-export const leftWords = (runtime: string, left: SeatLeft): string =>
-  left.kind === 'kept'
-    ? `the conversation it opened stays in ${runtime}'s own history, which it cannot delete from; it is archived here`
-    : `the conversation it opened could not be deleted: ${quoted(left.detail)}`
+/**
+ * What a passed-over seat's conversation was left as, as a clause of its line.
+ * No more than the desk knows: a runtime with no delete *may* keep what it
+ * opened, and "archived here" is said only when the desk's archive took it.
+ * The runtime's own words for a refused delete are quoted, because the clause
+ * goes on after them.
+ */
+export const leftWords = (runtime: string, left: SeatLeft): string => {
+  switch (left.kind) {
+    case 'kept':
+      return `the conversation it opened may stay in ${runtime}'s own history, which the desk cannot delete from; ${archivedWords(runtime, left.archived)}`
+    case 'undeleted':
+      return `the conversation it opened could not be deleted: “${quoted(left.detail)}”; ${archivedWords(runtime, left.archived)}`
+    case 'inUse':
+      return 'the conversation it opened was used meanwhile, so it was left as it is'
+    case 'alreadyHeld':
+      return 'the conversation it opened is one the desk already held, so it was left as it is'
+    case 'unasked':
+      return `${runtime} was gone before it could be asked to delete the conversation it opened, which may stay in its history`
+  }
+}
+
+/** Where a conversation the desk could not delete went instead, as the end of a clause. */
+const archivedWords = (runtime: string, archived: SeatArchived): string => {
+  switch (archived) {
+    case 'here':
+      return 'it is archived here'
+    case 'runtime':
+      return `it is in ${runtime}'s own archive`
+    case 'failed':
+      return 'archiving it failed, so it may still be listed'
+  }
+}
+
+/**
+ * What discarding a seat that failed part-way through opening left behind,
+ * kept beside the failure rather than inside it. The failure goes on exactly as
+ * it was thrown — its words, its class, its wire code — so a flow reads it as
+ * it always has; an Agent's seating reads this as well (`leftOnFailure`), and
+ * says it on that candidate's line. Weak, so a failure nobody reads takes its
+ * note with it.
+ */
+const leftByFailure = new WeakMap<object, SeatLeft>()
+
+/** Notes what a failed seat's discard left behind on the failure it threw. Nothing is noted for null. */
+export const noteLeftOnFailure = (failure: unknown, left: SeatLeft | null): void => {
+  if (left !== null && typeof failure === 'object' && failure !== null) leftByFailure.set(failure, left)
+}
+
+/** What a failed seat's discard left behind, as noted on the failure; null when nothing was. */
+export const leftOnFailure = (failure: unknown): SeatLeft | null =>
+  typeof failure === 'object' && failure !== null ? (leftByFailure.get(failure) ?? null) : null
 
 /**
  * The refusal, a line per candidate. Each is quoted by `seatSpec`, in the

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  approvalId,
   itemId,
   runtimeId,
   sessionId,
@@ -14,7 +15,7 @@ import {
 
 import type { TransportEvents } from '../lib/transport'
 import type { PaneId } from './layout'
-import { panes } from './layout'
+import { panes, sessionOf } from './layout'
 import { AppStore } from './store'
 
 /**
@@ -428,21 +429,83 @@ describe('turns dropped under the window', () => {
   })
 })
 
+/**
+ * A conversation the host removed — deleted, or opened for a seat and passed
+ * over. `session/removed` is all most windows hear of it, so it has to take out
+ * everything in the window that points at it: not only in the window that
+ * asked for a delete, which closes its own pane itself.
+ */
 describe('a conversation the host removed', () => {
-  it('leaves this window: its row, its queue and its background tasks', () => {
-    const handlers = (store.transport as unknown as {
-      handlers: {
-        onEvent(runtime: RuntimeId, event: AgentEvent): void
-        onNotification(notification: unknown): void
-      }
-    }).handlers
-    handlers.onEvent(RUNTIME, { type: 'session/started', session: session({ title: 'Code reviewer' }) })
-    expect(store.getSnapshot().sessions.has(KEY)).toBe(true)
+  const handlers = () => (store.transport as unknown as { handlers: TransportEvents }).handlers
+  const removed = (id = ID) =>
+    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id } })
+  const asked = (method: HostMethodName) =>
+    vi.mocked(store.transport.request).mock.calls.filter(([called]) => called === method)
 
-    handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID } })
+  it('leaves the window that was showing it: its row and history row, its queue and tasks, its approvals, its pane and the focus', async () => {
+    answers['session/read'] = session({ title: 'Code reviewer' })
+    answers['session/resume'] = session({ title: 'Code reviewer' })
+    await store.openSession(ID, { runtime: RUNTIME })
+    handlers().onEvent(RUNTIME, {
+      type: 'session/queue',
+      sessionId: ID,
+      queue: {
+        status: 'waiting',
+        reason: null,
+        messages: [{ id: 'q-1', input: [{ type: 'text', text: 'And then?' }], queuedAt: 0, state: 'queued' }],
+      },
+    })
+    handlers().onEvent(RUNTIME, {
+      type: 'session/tasks',
+      sessionId: ID,
+      tasks: [{ id: 'task-1', label: 'npm test', kind: 'command', state: 'running', stoppable: true }],
+    })
+    handlers().onEvent(RUNTIME, {
+      type: 'approval/requested',
+      approval: {
+        id: approvalId('ap-1'),
+        sessionId: ID,
+        requestedAt: 0,
+        type: 'command',
+        command: 'rm -rf build',
+        cwd: '/w',
+        actions: [],
+        options: [{ id: 'opt-0', label: 'Allow', intent: 'approve' }],
+      },
+    })
+    // Everything it is to be taken out of, it is in first.
+    const before = store.getSnapshot()
+    expect(before.sessions.has(KEY)).toBe(true)
+    expect(before.history.some((row) => sessionKey(row.runtime, row.id) === KEY)).toBe(true)
+    expect(before.queues.has(KEY)).toBe(true)
+    expect(before.tasks.has(KEY)).toBe(true)
+    expect(before.approvals.some((one) => one.key === KEY)).toBe(true)
+    expect(panesOf().some((pane) => sessionOf(pane) === KEY)).toBe(true)
+    expect(before.activeSessionKey).toBe(KEY)
 
-    expect(store.getSnapshot().sessions.has(KEY)).toBe(false)
-    expect(store.getSnapshot().queues.has(KEY)).toBe(false)
-    expect(store.getSnapshot().tasks.has(KEY)).toBe(false)
+    // This window asked for nothing: the notification is all it hears.
+    removed()
+
+    const after = store.getSnapshot()
+    expect(after.sessions.has(KEY)).toBe(false)
+    expect(after.history.some((row) => sessionKey(row.runtime, row.id) === KEY)).toBe(false)
+    expect(after.queues.has(KEY)).toBe(false)
+    expect(after.tasks.has(KEY)).toBe(false)
+    expect(after.approvals.some((one) => one.key === KEY)).toBe(false)
+    expect(panesOf().some((pane) => sessionOf(pane) === KEY)).toBe(false)
+    // The split tree the window keeps and draws from, not only its mirror.
+    expect(panes(after.workbench.main.root).some((pane) => sessionOf(pane) === KEY)).toBe(false)
+    expect(after.activeSessionKey).toBe(null)
+    // Nothing is asked of the host for a conversation it has already let go.
+    expect(asked('session/close')).toHaveLength(0)
+  })
+
+  it('leaves a window that never held it exactly as it was', () => {
+    handlers().onEvent(RUNTIME, { type: 'session/started', session: session({ title: 'Code reviewer' }) })
+    const before = store.getSnapshot()
+
+    removed(sessionId('held-elsewhere'))
+
+    expect(store.getSnapshot()).toBe(before)
   })
 })
