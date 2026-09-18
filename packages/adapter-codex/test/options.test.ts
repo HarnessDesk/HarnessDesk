@@ -11,6 +11,7 @@ import {
   stateFromConfig,
   settingsUpdateFor,
   splitStartOptions,
+  startParamsLike,
   stateFromStartResponse,
   stateFromThreadSettings,
   type Catalog,
@@ -378,4 +379,31 @@ test('overlay refuses values a live session would refuse', () => {
   const base = stateFromConfig(emptyConfig, draftCatalog, '/repo')
   assert.throws(() => overlayDraftValues(base, { model: 'not-a-model' }, draftCatalog), /not one of the values/)
   assert.throws(() => overlayDraftValues(base, { nonsense: 'x' }, draftCatalog), /no session option named/)
+})
+
+test('a thread set up like another starts with every setting thread/start takes, as Codex reported it', () => {
+  const granular: ThreadState['approvalPolicy'] = {
+    granular: { sandbox_approval: true, rules: false, skill_approval: false, request_permissions: true, mcp_elicitations: false },
+  }
+  const like = startParamsLike({
+    ...state,
+    cwd: '/repo/app',
+    workspaceRoots: ['/repo/app', '/repo/lib'],
+    modelProvider: 'azure',
+    approvalPolicy: granular,
+    approvalsReviewer: 'guardian_subagent',
+    permissions: 'ci',
+  })
+  assert.deepEqual(like, {
+    cwd: '/repo/app',
+    runtimeWorkspaceRoots: ['/repo/app', '/repo/lib'],
+    model: 'gpt-5.5',
+    modelProvider: 'azure',
+    // Null is the standard tier: said, so the configured one is not taken instead.
+    serviceTier: null,
+    // A custom policy is an object no option can spell; it goes back as it came.
+    approvalPolicy: granular,
+    approvalsReviewer: 'guardian_subagent',
+    permissions: 'ci',
+  })
 })

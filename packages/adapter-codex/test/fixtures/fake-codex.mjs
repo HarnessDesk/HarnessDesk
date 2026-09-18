@@ -137,9 +137,19 @@ const settingsState = {
   sandboxType: 'workspaceWrite',
   model: 'gpt-5.5',
   serviceTier: null,
-  effort: null,
+  // FAKE_CODEX_CONFIGURED_EFFORT is `model_reasoning_effort` in config.toml.
+  effort: process.env['FAKE_CODEX_CONFIGURED_EFFORT'] ?? null,
   mode: 'default',
+  modelProvider: 'openai',
+  workspaceRoots: ['/w'],
 }
+/**
+ * What the configuration gives a thread nobody said anything about. A new
+ * thread starts here, as a real one starts from `config.toml`, never from
+ * whatever the last thread was changed to — which is what lets a test tell
+ * a setting carried across from one that was never lost.
+ */
+const CONFIGURED = { ...settingsState }
 const sandboxPolicy = () =>
   settingsState.permissions
     ? (SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace'])
@@ -152,7 +162,7 @@ const threadSettings = () => ({
   sandboxPolicy: sandboxPolicy(),
   activePermissionProfile: settingsState.permissions ? { id: settingsState.permissions, extends: null } : null,
   model: settingsState.model,
-  modelProvider: 'openai',
+  modelProvider: settingsState.modelProvider,
   serviceTier: settingsState.serviceTier,
   effort: settingsState.effort,
   summary: null,
@@ -186,6 +196,8 @@ const applySettings = (params, { sandboxKey }) => {
     return 'failed to load configuration: default_permissions requires a `[permissions]` table'
   }
   if (params.model != null) settingsState.model = params.model
+  if (params.modelProvider != null) settingsState.modelProvider = params.modelProvider
+  if (params.runtimeWorkspaceRoots != null) settingsState.workspaceRoots = [...params.runtimeWorkspaceRoots]
   if (params.permissions != null) settingsState.permissions = params.permissions
   if (params[sandboxKey] != null) {
     settingsState.permissions = null
@@ -215,10 +227,10 @@ const startResponse = () => ({
   // it has been stored.
   thread: thread({ preview: '' }),
   model: settingsState.model,
-  modelProvider: 'openai',
+  modelProvider: settingsState.modelProvider,
   serviceTier: settingsState.serviceTier,
   cwd: settingsState.cwd,
-  runtimeWorkspaceRoots: ['/w'],
+  runtimeWorkspaceRoots: [...settingsState.workspaceRoots],
   instructionSources: [],
   approvalPolicy: settingsState.approvalPolicy,
   approvalsReviewer: settingsState.approvalsReviewer,
@@ -477,6 +489,113 @@ const startBackground = (command, { fails = false } = {}) => {
     completedAtMs: nowMs(),
   })
   return processId
+}
+
+/**
+ * An inline review, notification for notification as 0.155.0 plays one
+ * (`script/probe/review-side-thread.mjs --shapes`; 0.145.0 is the same):
+ *
+ * - no `turn/started` for the review's own turn, whose id the answer, every
+ *   item and the `turn/completed` carry;
+ * - a `turn/started` under another id — the reviewer sub-agent's, forwarded —
+ *   which nothing names again;
+ * - an `agentMessage` the reviewer began, started and never completed,
+ *   because Codex withholds the reviewer's words for the findings it renders.
+ *
+ * FAKE_CODEX_REVIEW_MS holds the review open that long before its findings,
+ * for a caller that has to see it working, or stop it; 20 ms otherwise.
+ * Stopping one is Codex's way too: `turn/interrupt` has to name the
+ * reviewer's turn, not the review's (`stopReview`).
+ */
+let reviews = 0
+/** Per thread, the review running on it: its turn, the reviewer's, and the timer that ends it. */
+const runningReviews = new Map()
+const playReview = (id, params) => {
+  reviews += 1
+  const threadId = params.threadId
+  const turnId = `review-turn-${reviews}`
+  const reviewerTurnId = `reviewer-turn-${reviews}`
+  const hint = params.target.type === 'uncommittedChanges' ? 'current changes' : params.target.type
+  const on = (method, item, at) => notify(method, { threadId, turnId, item, ...at })
+  send({
+    id,
+    result: {
+      turn: {
+        id: turnId,
+        items: [{ type: 'userMessage', id: turnId, clientId: null, content: [{ type: 'text', text: hint, text_elements: [] }] }],
+        itemsView: 'notLoaded',
+        status: 'inProgress',
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+      },
+      reviewThreadId: threadId,
+    },
+  })
+  const entered = { type: 'enteredReviewMode', id: `entered-${reviews}`, review: hint }
+  on('item/started', entered, { startedAtMs: nowMs() })
+  on('item/completed', entered, { completedAtMs: nowMs() })
+  notify('thread/status/changed', { threadId, status: { type: 'active', activeFlags: [] } })
+  const startedAtMs = nowMs()
+  notify('turn/started', {
+    threadId,
+    turn: { id: reviewerTurnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: null, durationMs: null },
+  })
+  const asked = {
+    type: 'userMessage',
+    id: `asked-${reviews}`,
+    clientId: null,
+    content: [{ type: 'text', text: 'Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.', text_elements: [] }],
+  }
+  on('item/started', asked, { startedAtMs: nowMs() })
+  on('item/completed', asked, { completedAtMs: nowMs() })
+  on('item/started', { type: 'agentMessage', id: `withheld-${reviews}`, text: '', phase: null, memoryCitation: null, delivery: null, questions: null }, { startedAtMs: nowMs() })
+  const timer = setTimeout(() => {
+    runningReviews.delete(threadId)
+    const findings = 'One cosmetic finding.\n\nReview comment:\n\n- [P2] Greeting lost its punctuation — README.md:1-1\n  The edit drops the full stop the other lines keep.'
+    const exited = { type: 'exitedReviewMode', id: `exited-${reviews}`, review: findings }
+    on('item/started', exited, { startedAtMs: nowMs() })
+    on('item/completed', exited, { completedAtMs: nowMs() })
+    const answer = { type: 'agentMessage', id: `findings-${reviews}`, text: findings, phase: null, memoryCitation: null, delivery: null, questions: null }
+    on('item/started', answer, { startedAtMs: nowMs() })
+    on('item/completed', answer, { completedAtMs: nowMs() })
+    notify('thread/status/changed', { threadId, status: { type: 'idle' } })
+    // Timed from the reviewer's start, as Codex times it.
+    notify('turn/completed', {
+      threadId,
+      turn: { id: turnId, items: [answer], itemsView: 'summary', status: 'completed', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - startedAtMs },
+    })
+  }, Number(process.env['FAKE_CODEX_REVIEW_MS'] ?? 20))
+  runningReviews.set(threadId, { turnId, reviewerTurnId, timer, reviews, startedAtMs })
+}
+
+/**
+ * `turn/interrupt` on a thread with a review running, measured on 0.145.0
+ * and 0.155.0: Codex checks the turn against the one it holds as running,
+ * which is the reviewer's, and the stopped review then ends under its own.
+ */
+const stopReview = (id, params) => {
+  const review = runningReviews.get(params.threadId)
+  if (params.turnId !== review.reviewerTurnId) {
+    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${review.reviewerTurnId}` } })
+    return
+  }
+  clearTimeout(review.timer)
+  runningReviews.delete(params.threadId)
+  send({ id, result: {} })
+  const on = (method, item, at) => notify(method, { threadId: params.threadId, turnId: review.turnId, item, ...at })
+  const exited = { type: 'exitedReviewMode', id: `exited-${review.reviews}`, review: 'Reviewer failed to output a response.' }
+  on('item/started', exited, { startedAtMs: nowMs() })
+  on('item/completed', exited, { completedAtMs: nowMs() })
+  const said = { type: 'agentMessage', id: `stopped-${review.reviews}`, text: 'Review was interrupted. Please re-run /review and wait for it to complete.', phase: null, memoryCitation: null, delivery: null, questions: null }
+  on('item/started', said, { startedAtMs: nowMs() })
+  on('item/completed', said, { completedAtMs: nowMs() })
+  notify('thread/status/changed', { threadId: params.threadId, status: { type: 'idle' } })
+  notify('turn/completed', {
+    threadId: params.threadId,
+    turn: { id: review.turnId, items: [], itemsView: 'notLoaded', status: 'interrupted', error: null, startedAt: Math.floor(review.startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - review.startedAtMs },
+  })
 }
 
 /**
@@ -767,17 +886,27 @@ rl.on('line', (line) => {
         })
         return
       }
+      Object.assign(settingsState, CONFIGURED)
       const problem = applySettings(params ?? {}, { sandboxKey: 'sandbox' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
-      send({ id, result: startResponse() })
+      // A new thread is in the folder it was started in, as Codex reports it.
+      send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
       notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
       })
+      // FAKE_CODEX_ECHO_STARTS=1 says what the thread was started with, the
+      // way a test reads a request. Off by default: it is a toast in the app.
+      if (process.env['FAKE_CODEX_ECHO_STARTS'] === '1') {
+        notify('warning', {
+          threadId: THREAD,
+          message: `STARTED ${JSON.stringify({ ...params, dynamicTools: undefined, developerInstructions: undefined })}`,
+        })
+      }
       return
     }
 
@@ -815,8 +944,25 @@ rl.on('line', (line) => {
       return
 
     case 'review/start':
-      send({ id, result: { turn: { id: 'review-turn', items: [], itemsView: 'full', status: 'inProgress', error: null }, reviewThreadId: 'review-1' } })
       notify('warning', { threadId: params.threadId, message: `REVIEW ${params.target.type} ${params.delivery ?? 'default'}` })
+      if (params.delivery === 'detached') {
+        /* 0.155.0's answer, measured: every detached review is deprecated out
+           loud, and one on a thread with paginated history — every thread
+           0.155.0 starts — is then refused. */
+        notify('deprecationNotice', {
+          summary: 'review/start with delivery "detached" is deprecated and will be removed in a future release.',
+          details:
+            'Use thread/start followed by review/start with delivery "inline" for a separate review thread, or thread/fork followed by turn/start with your own review instructions.',
+        })
+        send({ id, error: { code: -32600, message: 'paginated threads do not support detached review' } })
+        return
+      }
+      // Codex's own check, word for word (`review_request_from_target`).
+      if (params.target.type === 'baseBranch' && !params.target.branch.trim()) {
+        send({ id, error: { code: -32600, message: 'branch must not be empty' } })
+        return
+      }
+      playReview(id, params)
       return
 
     case 'thread/settings/update': {
@@ -1176,7 +1322,8 @@ rl.on('line', (line) => {
         id,
         result: {
           data: [
-            { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },
+            // FAKE_CODEX_PLAN_EFFORT gives Plan an effort of its own other than the model's default.
+            { name: 'Plan', mode: 'plan', model: null, reasoning_effort: process.env['FAKE_CODEX_PLAN_EFFORT'] ?? 'medium' },
             { name: 'Default', mode: 'default', model: null, reasoning_effort: null },
           ],
         },
@@ -1482,6 +1629,10 @@ rl.on('line', (line) => {
       return
 
     case 'turn/interrupt':
+      if (runningReviews.has(params.threadId)) {
+        stopReview(id, params)
+        return
+      }
       send({ id, result: {} })
       notify('turn/completed', {
         threadId: THREAD,
@@ -1505,7 +1656,7 @@ rl.on('line', (line) => {
 
     case 'thread/name/set':
       send({ id, result: {} })
-      notify('thread/name/updated', { threadId: THREAD, threadName: params.name })
+      notify('thread/name/updated', { threadId: params.threadId, threadName: params.name })
       return
 
     default:

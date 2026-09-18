@@ -112,6 +112,12 @@ export interface AccountStatus {
  * What to review. The kinds are the ones a code agent has in common — the
  * working tree, a branch, a commit, or free-form instructions — so the shape
  * is shared rather than Codex's.
+ *
+ * `delivery` is where the review runs: `inline` in the conversation it was
+ * asked from, `detached` in a new conversation of its own, which the one it
+ * was asked from never hears about. Those are the desk's words, not a wire
+ * value to pass on: Codex has a `"detached"` delivery of its own, deprecated
+ * in 0.155.0, and the Codex adapter never sends it.
  */
 export type ReviewRequest =
   | { readonly type: 'uncommitted'; readonly delivery?: 'inline' | 'detached' }
@@ -1054,10 +1060,13 @@ export interface AgentSession {
   setMemoryMode?(enabled: boolean): Promise<void>
   /**
    * Reviews a set of changes. `inline` runs it in this conversation; `detached`
-   * on a side thread. What can be reviewed is the backend's to define; the
-   * shell passes a target through unread.
+   * in a new conversation set up like this one — its folder, model and
+   * permissions — which this one never hears about. Resolves with that new
+   * conversation, so the shell can open it, or with null when the review runs
+   * here. What can be reviewed is the backend's to define; the shell passes a
+   * target through unread.
    */
-  review?(target: ReviewRequest): Promise<void>
+  review?(target: ReviewRequest): Promise<AgentSession | null>
   updateSettings(patch: Partial<SessionSettings>): Promise<void>
   /**
    * The runtime's controls for this session, as of now. Changes arrive as a

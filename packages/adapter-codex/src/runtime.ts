@@ -32,6 +32,7 @@ import {
   type OptionValue,
   type Page,
   type RateLimits,
+  type ResolvedModelRoute,
   type RuntimeHealth,
   type RuntimeId,
   type RuntimeInfo,
@@ -70,6 +71,7 @@ import {
   type ThreadState,
 } from './mapping/options.js'
 import { CODEX_RUNTIME_ID, mapSession, mapSummary } from './mapping/session.js'
+import { ReviewTurns } from './review-turns.js'
 import { salvageSession } from './salvage.js'
 import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
@@ -230,6 +232,8 @@ export class CodexRuntime implements AgentRuntime {
   /** The shell sessions a thread has left running; see `RuntimeTasks`. */
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
+  /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
+  readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #version: string | null = null
@@ -286,8 +290,12 @@ export class CodexRuntime implements AgentRuntime {
 
     this.#disposeServer.push(
       this.#server.onNotification((notification) => {
-        this.#track(notification)
-        for (const event of mapNotification(notification, this.#id)) this.#emit(event)
+        // A review's turn is told as any other turn is before anything reads
+        // it; see `ReviewTurns`.
+        for (const seen of this.#reviewTurns.see(notification)) {
+          this.#track(seen)
+          for (const event of mapNotification(seen, this.#id)) this.#emit(event)
+        }
       }),
       this.#server.onServerRequest((request, responder) =>
         this.#onServerRequest(request, responder),
@@ -872,8 +880,51 @@ export class CodexRuntime implements AgentRuntime {
       ...this.#developerInstructions(),
       ...start,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, true)
+    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
+      created: true,
+      route: options.route ?? null,
+    })
     return this.#applyAfterStart(session, after)
+  }
+
+  /**
+   * A new thread set up like `like`, for work that has to leave `like` as it
+   * is — the review on a side thread (`CodexSession.review`).
+   *
+   * Started as a new conversation is: this desk's plugin tools and standing
+   * instruction, and registered here, so its turns, approvals and settings
+   * reach the interface like any other thread's. It is set up with what Codex
+   * last said of `like`, and with `like`'s route when it has one. Mode and
+   * effort follow as settings updates, each only where the new thread does
+   * not already have it — judged just before it is sent, because a mode
+   * brings an effort with it, so an effort that matched at the start may not
+   * once the mode has moved. One Codex refuses closes the thread and says
+   * why, as a new conversation's would.
+   */
+  async #startBeside(like: CodexSession): Promise<CodexSession> {
+    const { start, route, after } = like.startLike()
+    const projection = new ToolProjection()
+    const dynamicTools = this.#projectTools(projection, { workspaceRoot: start.cwd })
+    const response = await this.#server.request('thread/start', {
+      ...start,
+      ...(route ? routeParams(route) : {}),
+      ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
+      ...this.#developerInstructions(),
+    })
+    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
+      created: true,
+      route,
+    })
+    try {
+      for (const [id, value] of after) {
+        if (findOption(session.options(), id)?.currentValue === value) continue
+        await session.setOption(id, value)
+      }
+    } catch (error) {
+      await session.close()
+      throw error
+    }
+    return session
   }
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
@@ -895,7 +946,9 @@ export class CodexRuntime implements AgentRuntime {
     // `dynamicTools` is only accepted on thread/start, so a resumed thread keeps
     // whatever tool set it was created with. The session reports that as stale
     // rather than pretending newly loaded plugins are available.
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
+    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
+      route: options.route ?? null,
+    })
     return this.#applyAfterStart(session, after)
   }
 
@@ -936,7 +989,9 @@ export class CodexRuntime implements AgentRuntime {
       ...this.#developerInstructions(),
       ...start,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
+    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
+      route: options.route ?? null,
+    })
     return this.#applyAfterStart(session, after)
   }
 
@@ -972,8 +1027,16 @@ export class CodexRuntime implements AgentRuntime {
     thread: CodexProtocol.v2.Thread,
     state: ThreadState,
     projection: ToolProjection,
-    created = false,
+    opened: {
+      /** Started here rather than resumed or forked — see `CodexSessionDeps.created`. */
+      readonly created?: boolean
+      /** The model route it was opened on, which a thread set up like it needs again. */
+      readonly route?: ResolvedModelRoute | null
+    } = {},
   ): Promise<CodexSession> {
+    const created = opened.created ?? false
+    // Whatever was heard of this thread before it was opened here is over.
+    this.#reviewTurns.forget(thread.id)
     const catalog = await this.#catalog.load(state.cwd)
     const session = new CodexSession({
       runtime: this.#id,
@@ -984,10 +1047,14 @@ export class CodexRuntime implements AgentRuntime {
       catalog,
       projection,
       created,
+      route: opened.route ?? null,
+      startBeside: (like) => this.#startBeside(like),
+      interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onClosed: (id) => {
         this.#sessions.delete(id)
+        this.#reviewTurns.forget(id)
         this.tasks.forget(id)
       },
       emit: (event) => this.#emit(event),
@@ -1265,6 +1332,7 @@ export class CodexRuntime implements AgentRuntime {
       // never arrive. The catalogue goes too: the new process asks its vendor
       // afresh, and may be answered differently — or be a different binary.
       this.#sessions.clear()
+      this.#reviewTurns.clear()
       this.tasks.dispose()
       this.#catalog.invalidate()
       this.#catalog.forgetWarning()
@@ -1336,27 +1404,31 @@ const startParamsFor = (
     start: {
       ...(options.model ? { model: options.model } : {}),
       ...start,
-      // A model route becomes a provider defined only for this thread, via
-      // thread/start's dotted config overrides — the user's own config.toml
-      // is never written (probed working: script/probe/appserver-inject.mjs).
-      // The gateway token rides the base URL, so the provider needs no
-      // env_key and nothing lands in this process's environment.
-      ...(route
-        ? {
-            modelProvider: ROUTE_PROVIDER,
-            ...(route.model ? { model: route.model } : {}),
-            config: {
-              [`model_providers.${ROUTE_PROVIDER}.name`]: route.name,
-              [`model_providers.${ROUTE_PROVIDER}.base_url`]: route.endpoint,
-              [`model_providers.${ROUTE_PROVIDER}.wire_api`]: route.wireProtocol,
-              [`model_providers.${ROUTE_PROVIDER}.request_max_retries`]: 1,
-              [`model_providers.${ROUTE_PROVIDER}.stream_max_retries`]: 1,
-            },
-          }
-        : {}),
+      ...(route ? { ...routeParams(route), ...(route.model ? { model: route.model } : {}) } : {}),
     },
     after,
   }
 }
+
+/**
+ * A model route as thread-verb fields: a provider defined only for this
+ * thread, via thread/start's dotted config overrides — the user's own
+ * config.toml is never written (probed working:
+ * script/probe/appserver-inject.mjs). The gateway token rides the base URL,
+ * so the provider needs no env_key and nothing lands in this process's
+ * environment.
+ */
+const routeParams = (
+  route: ResolvedModelRoute,
+): { modelProvider: string; config: Record<string, string | number> } => ({
+  modelProvider: ROUTE_PROVIDER,
+  config: {
+    [`model_providers.${ROUTE_PROVIDER}.name`]: route.name,
+    [`model_providers.${ROUTE_PROVIDER}.base_url`]: route.endpoint,
+    [`model_providers.${ROUTE_PROVIDER}.wire_api`]: route.wireProtocol,
+    [`model_providers.${ROUTE_PROVIDER}.request_max_retries`]: 1,
+    [`model_providers.${ROUTE_PROVIDER}.stream_max_retries`]: 1,
+  },
+})
 
 export { makeSessionId }

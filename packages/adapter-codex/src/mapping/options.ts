@@ -597,6 +597,40 @@ export const splitStartOptions = (
   return { start, after }
 }
 
+/** The `thread/start` fields `startParamsLike` fills — a folder always among them. */
+export type LikeParams = Pick<
+  CodexProtocol.v2.ThreadStartParams,
+  | 'runtimeWorkspaceRoots'
+  | 'model'
+  | 'modelProvider'
+  | 'serviceTier'
+  | 'approvalPolicy'
+  | 'approvalsReviewer'
+  | 'permissions'
+> & { readonly cwd: string }
+
+/**
+ * What a new thread is started with to be set up like one that exists: every
+ * setting `thread/start` takes, as Codex last reported it for that thread —
+ * never as that thread was opened, since a model or profile changed since is
+ * the one the person is looking at.
+ *
+ * Codex's own values, passed back as they came: a custom approval policy is
+ * an object no option can spell, and a null tier is the standard one. Effort
+ * and mode have no field on the verb and are not here; they follow as
+ * settings updates.
+ */
+export const startParamsLike = (state: ThreadState): LikeParams => ({
+  cwd: state.cwd,
+  runtimeWorkspaceRoots: [...state.workspaceRoots],
+  model: state.model,
+  modelProvider: state.modelProvider,
+  serviceTier: state.serviceTier,
+  approvalPolicy: state.approvalPolicy,
+  approvalsReviewer: state.approvalsReviewer,
+  permissions: state.permissions,
+})
+
 // ------------------------------------------------------- runtime-wide options
 
 export const FEATURE_PREFIX = 'feature.'

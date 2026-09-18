@@ -2,9 +2,18 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionId, sessionKey, type Session, type WorkspaceEntry, type Worktree } from '@harnessdesk/protocol'
+import {
+  NO_CAPABILITIES,
+  runtimeId,
+  sessionId,
+  sessionKey,
+  type RuntimeInfo,
+  type Session,
+  type WorkspaceEntry,
+  type Worktree,
+} from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitControl } from './Conversation'
 
@@ -170,4 +179,45 @@ it('names the branch a draft is pointed at from the draft, though the worktree l
   expect(chip()?.title).toBe(`harnessdesk/checkout-retry · worktree — ${TREE}`)
   expect(glyph()).toMatch(/lucide-git-branch(\s|$)/)
   expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
+})
+
+it("reviews its own conversation's changes — a room column's member, not the one the window has focused", () => {
+  // A member's column in a room mounts this chip too, while the window's
+  // focus is on another conversation entirely.
+  const codex = runtimeId('codex')
+  const member = sessionKey(codex, sessionId('member'))
+  const focused = sessionKey(codex, sessionId('focused'))
+  const review = vi.fn(async () => {})
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    workspace: MAIN,
+    workspaces: [MAIN],
+    runtimes: [{ id: codex, name: 'Codex', presentation: { name: 'Codex' }, capabilities: { ...NO_CAPABILITIES, review: true } } as unknown as RuntimeInfo],
+    activeRuntime: codex,
+    activeSessionKey: focused,
+    sessions: new Map([
+      [member, { ...conversation(ROOT), id: sessionId('member'), runtime: codex }],
+      [focused, { ...conversation(ROOT), id: sessionId('focused'), runtime: codex }],
+    ]),
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, review } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PaneProvider scope={{ paneId: 'room:member', view: { kind: 'conversation', session: member }, sessionKey: member }}>
+          <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />
+        </PaneProvider>
+      </StoreProvider>,
+    )
+  })
+
+  expect(menu()).toContain('Review uncommitted changes')
+  const row = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === 'Review uncommitted changes',
+  )
+  act(() => {
+    row!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  expect(review).toHaveBeenCalledWith({ type: 'uncommitted', delivery: 'detached' }, member)
 })

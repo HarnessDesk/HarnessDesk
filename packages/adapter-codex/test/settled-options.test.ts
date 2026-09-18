@@ -80,8 +80,13 @@ for (const [order, how] of [
 test('a change Codex takes and never announces is refused, and the control keeps what Codex last said', async (t) => {
   // Codex announces an update only when it changes something (measured on
   // 0.149.0). Asked for high on a thread at low, this Codex settles on low —
-  // no change, so no word at all.
-  const { runtime } = await codex(t, { FAKE_CODEX_EFFORT_SETTLES: 'high:low', FAKE_CODEX_QUIET_NOOP: '1' }, 200)
+  // no change, so no word at all. Every thread starts at low, as config.toml
+  // says here, so a conversation opened below starts where the first one is.
+  const { runtime } = await codex(
+    t,
+    { FAKE_CODEX_EFFORT_SETTLES: 'high:low', FAKE_CODEX_QUIET_NOOP: '1', FAKE_CODEX_CONFIGURED_EFFORT: 'low' },
+    200,
+  )
   const session = await runtime.createSession({ cwd: '/w', options: { effort: 'low' } })
   assert.equal(effortOf(session), 'low')
 
