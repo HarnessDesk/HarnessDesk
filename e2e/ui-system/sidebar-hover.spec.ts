@@ -114,7 +114,11 @@ test('settled gives up on an animation whose timeline never advances', async ({ 
     </style>
     <div style="height: 100px; overflow: auto"><div style="height: 1000px"><span id="mark">mark</span></div></div>
   `)
-  await expect(settled(page.locator('#mark'), 300)).rejects.toThrow('still moving after 300ms: slide')
+  const mark = page.locator('#mark')
+  // The control: without scroll-driven animations this would be a 1s clock,
+  // and the case above over again.
+  expect(await mark.evaluate(node => node.getAnimations()[0]?.timeline?.constructor.name)).toBe('ScrollTimeline')
+  await expect(settled(mark, 300)).rejects.toThrow('still moving after 300ms: slide')
 })
 
 for (const theme of ['light', 'dark'] as const) {
