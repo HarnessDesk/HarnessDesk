@@ -5,8 +5,55 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.2.2 — 2026-09-17
 
+One canonical UI system replaces the parallel implementations that had begun
+to disagree with each other — a shared type scale, a neutral grey ramp, one
+row height per column, one measure for a reading page, and a map of the
+transcript itself for finding your way back through a long conversation.
+Alongside it: the ACP protocol driven properly for signing in and out, a
+profile picture that becomes the face HarnessDesk wears in the Dock, and a
+pass over usage limits, search and room ordering.
+
+- **HarnessDesk's interface now draws from one design system, not several
+  that had drifted apart** — the sidebar, window bars, composer, settings
+  pages and every dialog were rebuilt on one set of canonical controls. The
+  type scale settles on a handful of named sizes instead of scattered pixel
+  values; the neutral ramp that carried a faint blue tint across every grey
+  surface reads as grey now; every row in every column — navigation,
+  sessions, a settings list — stands the height it should always have; and
+  the reading column widens from 736px to 768px (48rem), room enough for a
+  line of code that used to wrap. The sidebar's rows line up on one inset,
+  the composer is sized to a line of text rather than a paragraph, and the
+  window's bars share one padding instead of three different rhythms.
+- **A map of the transcript runs down the left edge of a long conversation**
+  — each turn's ask and its answer gets a mark on a rail beside the
+  scrollbar. Moving along it magnifies the marks near your pointer and shows
+  the first words of what's there, and pressing one jumps straight to it —
+  turning "the bit about the retries" into a place you can see instead of a
+  scroll you have to remember. The rail only appears once a conversation is
+  long enough to need it.
+- **UI migration regressions repaired** — menus show their contents again,
+  Settings rows grow around descriptions, avatar artwork keeps its size, and
+  selected, current, running, failed and drop-target states retain their
+  cues. The hand-off dialog no longer runs its choices off the edge of the
+  screen, and opening a folded tool call no longer paints a grey band over
+  content that was already visible underneath it.
+- **Antigravity's Sign in and Sign out actually work now** — both were
+  driving `agy`, the Antigravity IDE's own CLI, and neither command it
+  offered could do the job: Sign out was refused every time, and Sign in
+  could report success while touching nothing. The desk now drives the ACP
+  protocol the agent's own server supports for both. Auditing every other
+  agent with declared account commands found the same class of bug in
+  OpenCode — its status read a provider listing as a session state, so a
+  conversation could open onto a sign-in wall while OpenCode was signed in
+  and running; it now reads OpenCode's own session file instead. The sign-in
+  sheet itself, which had been rendering at under half its intended width
+  with every method's name and description running off the edge, now opens
+  at full size.
+- **Your profile picture becomes your Dock icon** — HarnessDesk's icon in
+  the Dock and app switcher now follows whichever avatar you've set as your
+  profile picture, so the running app matches the seat you're signed in as.
 - **The app's own face is one of the faces you can wear** — Settings › You now
   offers the icon in six colourways before the whales: on white, on near-black,
   in silver, on Blueprint blue, blue on white, and the mark with no plate at
@@ -17,15 +64,32 @@ move is real work and is not news to a person weighing an upgrade.
   picking a picture changed the Dock icon, but picking the default again left
   that face there: the icon it went back to was in a format the app cannot
   read, so nothing happened at all.
-- **UI migration regressions repaired** — menus show their contents again,
-  Settings rows grow around descriptions, avatar artwork keeps its size, and
-  selected, current, running, failed and drop-target states retain their cues.
+- **Choose which usage window an agent leads with** — an account tracking
+  more than one quota (a five-hour window and a weekly one, say) now lets you
+  set which one the header, tray, Dashboard, Settings and sidebar show
+  first; a window that's actually spent still takes precedence over your
+  preference.
+- **A room no longer prints an answer twice** — two prompts landing in the
+  same conversation within the same second spliced the first one's answer to
+  itself end-to-end with no separator. The ACP adapter now refuses a second
+  prompt while one is still in flight rather than silently overwriting it
+  mid-turn.
+- **Opening a search result reveals it in the sidebar** — jumping to a
+  session from search now scrolls to and highlights that row, even when its
+  project group is collapsed, far down the list, or folded into an overflow
+  menu.
+- **Rooms and sessions in the sidebar sort by when you last used them**,
+  rather than an order that didn't track use — pinned sessions still lead
+  the list.
 - **Antigravity session names use the opening prompt** — ACP no longer lets the
   agent's `Session <id>` placeholder hide the first ask in the session tree.
 - **Cline ACP auto-approval is honored** — Cline's auto-approve setting now
   appears in the permissions control and automatically accepts covered tool
-  calls. The Claude ACP bridge's Claude Agent SDK and MCP SDK dependencies are
-  refreshed alongside cross-agent ACP regression coverage.
+  calls, with its Claude/MCP dependencies refreshed and cross-agent ACP
+  regression coverage added. The Claude ACP bridge itself moved onto
+  Anthropic's official Claude Agent ACP package, in place of the deprecated
+  third-party one it shipped on, carrying over HarnessDesk's own controls and
+  compatibility extensions.
 
 ## 0.2.0 — 2026-09-14
 
