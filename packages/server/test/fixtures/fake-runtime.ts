@@ -23,6 +23,7 @@ import {
   type OptionValue,
   type Page,
   type RateLimits,
+  type ReviewRequest,
   type RuntimeFiles,
   type RuntimeHealth,
   type RuntimeId,
@@ -308,7 +309,7 @@ export class FakeRuntime implements AgentRuntime {
       undo: false,
       compaction: false,
       memory: false,
-      review: false,
+      review: true,
       extensionStore: false,
       hooks: false,
       pluginTools: false,
@@ -860,6 +861,15 @@ export class FakeSession implements AgentSession {
     this.title = title
     this.host.titles.push(title)
     this.host.emit({ type: 'session/title', sessionId: this.id, title })
+  }
+
+  /**
+   * A review on a side thread is a conversation of its own, started in this
+   * one's folder, as Codex's adapter starts one; any other runs here.
+   */
+  async review(target: ReviewRequest): Promise<AgentSession | null> {
+    if (target.delivery !== 'detached') return null
+    return this.host.createSession({ cwd: this.#settings.cwd })
   }
 
   async close(): Promise<void> {

@@ -30,7 +30,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, REPOS, rigRuntimeId } from './cast.mjs'
@@ -560,7 +560,7 @@ rules:
     /** One conversation, mid-work: reasoning, a plan and tool calls. */
     conversation: { leaveOverlay: true, expect: 'Worked for', run: async () => {
       // Native Codex remains available for the terminal smoke. Its adapter
-      // fixture deliberately reports /w, so the camera conversation uses ACP
+      // fixture plays every turn in /w, so the camera conversation uses ACP
       // and the real staged repository instead.
       const runtime = process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? rigRuntimeId('claude-code') : 'codex'
       const key = await seat(cdp, { work: REPO, runtime, picks: {} })
@@ -859,7 +859,7 @@ rules:
       await sleep(8)
     }
   }
-  const press = async (key) => {
+  const pressKey = async (key) => {
     const code = { Enter: 13, ArrowDown: 40, ArrowRight: 39 }[key]
     const base = { key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code }
     await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
@@ -903,12 +903,12 @@ rules:
   SCENES['composer-reasoning-keys'] = { leaveOverlay: true, expect: 'How hard the model thinks', run: async () => {
     await stageCodexComposer()
     await cdp.eval(`${MODEL_TRIGGER}.focus(); true`)
-    await press('Enter')
+    await pressKey('Enter')
     await waitForSnapshot(() => box(REASONING_ROW), Boolean)
     for (let step = 0; step < 12 && !await cdp.eval(`${REASONING_ROW} === document.activeElement`); step += 1) {
-      await press('ArrowDown')
+      await pressKey('ArrowDown')
     }
-    await press('ArrowRight')
+    await pressKey('ArrowRight')
     await waitForSnapshot(() => cdp.eval(`${FIRST_LEVEL} === document.activeElement`), Boolean)
   } }
   SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
@@ -996,6 +996,166 @@ rules:
     const selector = '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]'
     await hover(selector)
   } }
+  /**
+   * "Review uncommitted changes", on the native Codex adapter over its
+   * fixture, which plays a review notification for notification as Codex
+   * 0.155.0 does and answers the deprecated detached delivery as 0.155.0
+   * does. The camera cast's `codex` row is an ACP stand-in that reviews
+   * nothing, so these need HD_SHOTS_NATIVE_CODEX=1.
+   *
+   * The same scenes photograph a build from before the change: point
+   * HD_SHOTS_APP at a checkout of it, and the click is answered as it used to
+   * be. FAKE_CODEX_REVIEW_MS holds the review open for a frame of it working.
+   */
+  let reviewed = null
+  const stageReview = async () => {
+    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') throw new Error('the review scenes need HD_SHOTS_NATIVE_CODEX=1')
+    // One conversation for both scenes, put back on screen for the second.
+    if (reviewed) {
+      await cdp.eval(`${STORE}.openSession(${q(splitKey(reviewed).sessionId)}, { runtime: 'codex' })`, 60_000)
+      await sleep(900)
+      return reviewed
+    }
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+    const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+    // The fixture's turn asks before it lists the folder, and ends once answered.
+    await waitForSnapshot(() => cdp.eval(`${STORE}.getSnapshot().approvals.length`), (pending) => pending > 0)
+    await answerApprovals(cdp)
+    await waitForSnapshot(
+      () => cdp.eval(`${STORE}.getSnapshot().sessions.get(${q(key)})?.turns.at(-1)?.status ?? null`),
+      (status) => status === 'completed',
+    )
+    // The fixture reports its own bookkeeping as warnings; none of it is the app's.
+    await dismissNotices(cdp)
+    await sleep(600)
+    reviewed = key
+    return key
+  }
+  /**
+   * The fixture's echoes of what it was asked — `TOOLS_DECLARED …`,
+   * `REVIEW …` — which exist for its tests and arrive as warnings. Only
+   * those: a toast the app raised is what these frames are about.
+   */
+  const dismissFixtureEchoes = () => cdp.eval(`(() => {
+    const store = ${STORE}
+    for (const notice of store.getSnapshot().notices ?? []) {
+      if (/^(TOOLS_DECLARED|REVIEW) /.test(notice.message)) store.dismissNotice(notice.id)
+    }
+    return true
+  })()`)
+  /**
+   * A person's click: trusted mouse events at the middle of the element, the
+   * events a pointer sends — where `click` calls the element's own `click()`.
+   * Found by a selector, or by the text it starts with.
+   */
+  const press = async ({ selector = null, text = null }, { wait = 4000 } = {}) => {
+    const locate = () => cdp.json(`(() => {
+      const wanted = ${q(text)}
+      const all = ${selector ? `[...document.querySelectorAll(${q(selector)})]` : `[...document.querySelectorAll('button, [role="button"], [role="menuitem"]')].filter((e) => (e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)`}
+      const shown = all.filter((e) => {
+        if (e.closest('[aria-hidden="true"], [inert]')) return false
+        const r = e.getBoundingClientRect()
+        return r.width > 0 && r.height > 0 && e.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))
+      })
+      // A selector names its element: the first one, in document order. Text
+      // is matched by the smallest element carrying it, as \`click\` does.
+      const el = ${selector ? 'shown[0]' : 'shown.sort((a, b) => (a.textContent ?? \'\').length - (b.textContent ?? \'\').length)[0]'}
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    })()`)
+    let point = await locate()
+    for (let waited = 0; !point && waited < wait; waited += 200) {
+      await sleep(200)
+      point = await locate()
+    }
+    if (!point) return false
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+    await sleep(900)
+    return true
+  }
+  const openGitMenu = async () => {
+    if (!(await press({ selector: 'header button[title*=" — "]' }))) throw new Error('no git control in the conversation header')
+  }
+  /**
+   * What the store holds once the item is chosen, checked beside the frame:
+   * the conversation it was chosen in exactly as it was, and — on this
+   * build — the review's own conversation, named for it, on screen, holding
+   * the review. A build from before the change is checked for the opposite.
+   */
+  const reviewState = () => cdp.json(`(() => {
+    const s = ${STORE}.getSnapshot()
+    const original = s.sessions.get(${q(reviewed)})
+    const side = s.activeSessionKey !== ${q(reviewed)} ? s.sessions.get(s.activeSessionKey) : null
+    const said = (turn) => turn.items.map((item) => item.type === 'review' ? 'review ' + item.phase : item.type)
+    return {
+      original: original ? original.turns.map((turn) => ({ status: turn.status, items: said(turn) })) : null,
+      side: side ? { title: side.title ?? null, turns: side.turns.map((turn) => ({ status: turn.status, items: said(turn) })) } : null,
+      notices: (s.notices ?? []).map((notice) => notice.level + ': ' + notice.message),
+    }
+  })()`)
+  let untouched = null
+  const checkReview = (settled) => async () => {
+    const state = await reviewState()
+    say(`store  ${JSON.stringify(state)}`)
+    if (JSON.stringify(state.original) !== untouched) throw new Error('the conversation the review was asked from changed')
+    if (process.env['HD_SHOTS_REVIEW_EXPECT']) {
+      if (state.side) throw new Error('a build from before the change opened a conversation for the review')
+      return
+    }
+    if (state.side?.title !== 'Review of uncommitted changes') throw new Error('the review did not open a conversation of its own')
+    const [turn] = state.side.turns
+    if (state.side.turns.length !== 1 || turn.items[0] !== 'review entered' || !settled.includes(turn.status)) {
+      throw new Error(`the review's conversation does not hold one review turn that is ${settled.join(' or ')}`)
+    }
+    if (state.notices.some((notice) => /deprecat|detached|review\/start/.test(notice))) throw new Error('a toast still names the wire')
+  }
+  /** The menu, with the item on it. */
+  SCENES['review-menu'] = { leaveOverlay: true, expect: 'Review uncommitted changes', run: async () => {
+    await stageReview()
+    await openGitMenu()
+  } }
+  /**
+   * What choosing it does: the review in a conversation of its own, and what
+   * it found — or, held open by FAKE_CODEX_REVIEW_MS, the review working.
+   * HD_SHOTS_REVIEW_EXPECT names what a build from before the change shows
+   * instead.
+   */
+  SCENES.review = {
+    leaveOverlay: true,
+    expect: process.env['HD_SHOTS_REVIEW_EXPECT'] ?? 'Review of uncommitted changes',
+    run: async () => {
+      await stageReview()
+      untouched = JSON.stringify((await reviewState()).original)
+      await openGitMenu()
+      if (!(await press({ text: 'Review uncommitted changes' }))) throw new Error('no "Review uncommitted changes" in the git menu')
+      await sleep(1500)
+      await dismissFixtureEchoes()
+      // Unfolded, as the conversation scene is: the review's steps are the point.
+      await click('Worked', null, { wait: 1500 })
+    },
+    verify: checkReview(['completed', 'inProgress']),
+  }
+  /**
+   * Stopped halfway, which is Codex's own check to pass: the stop has to name
+   * the reviewer's turn, which the desk never shows. Needs the review held
+   * open (FAKE_CODEX_REVIEW_MS) long enough to be stopped.
+   */
+  SCENES['review-stopped'] = {
+    leaveOverlay: true,
+    expect: 'Review was interrupted',
+    run: async () => {
+      await SCENES.review.run()
+      if (!(await press({ text: 'Stop' }))) throw new Error('no Stop button while the review runs — is FAKE_CODEX_REVIEW_MS set?')
+      await sleep(1200)
+    },
+    verify: checkReview(['interrupted']),
+  }
+
   SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
     await cdp.eval(`${STORE}.askSettings('extensions'); true`)
     await sleep(1200)

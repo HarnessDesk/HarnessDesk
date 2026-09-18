@@ -282,7 +282,10 @@ export const sessionMethods = {
   'session/review': async (ctx, params) => {
     const live = await ctx.sessions.live(params)
     if (!live.review) throw new Error('This runtime cannot review changes.')
-    await live.review(params.target)
-    return null
+    const side = await live.review(params.target)
+    /* A review in a conversation of its own comes back as that conversation,
+       attached here as a fork's is: the host holds its handle from the first
+       word, so the window that opens it can send to it without reopening it. */
+    return side ? ctx.sessions.attach(ctx.runtimes.resolve(params), side.id, side) : null
   },
 } satisfies MethodsUnder<'session/' | 'transcripts/'>

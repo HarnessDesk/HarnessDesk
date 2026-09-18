@@ -140,16 +140,45 @@ const settingsState = {
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
   permissions: null,
-  sandboxType: 'workspaceWrite',
+  // With no profile active, the sandbox is a mode over the thread's
+  // `[sandbox_workspace_write]` configuration, or a policy set whole.
+  sandboxMode: 'workspace-write',
+  sandboxConfig: { writable_roots: ['/w'], network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false },
+  sandboxPolicy: null,
   model: 'gpt-5.5',
   serviceTier: null,
-  effort: null,
+  // FAKE_CODEX_CONFIGURED_EFFORT is `model_reasoning_effort` in config.toml.
+  effort: process.env['FAKE_CODEX_CONFIGURED_EFFORT'] ?? null,
   mode: 'default',
+  modelProvider: 'openai',
+  workspaceRoots: ['/w'],
 }
-const sandboxPolicy = () =>
-  settingsState.permissions
-    ? (SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace'])
-    : { ':read-only': SANDBOX_FOR_PROFILE[':read-only'], workspaceWrite: SANDBOX_FOR_PROFILE[':workspace'], readOnly: SANDBOX_FOR_PROFILE[':read-only'], dangerFullAccess: SANDBOX_FOR_PROFILE[':danger-full-access'] }[settingsState.sandboxType]
+/**
+ * What the configuration gives a thread nobody said anything about. A new
+ * thread starts here, as a real one starts from `config.toml`, never from
+ * whatever the last thread was changed to — which is what lets a test tell
+ * a setting carried across from one that was never lost.
+ */
+const CONFIGURED = { ...settingsState }
+const sandboxPolicy = () => {
+  if (settingsState.permissions) return SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace']
+  if (settingsState.sandboxPolicy) return settingsState.sandboxPolicy
+  const written = settingsState.sandboxConfig
+  switch (settingsState.sandboxMode) {
+    case 'read-only':
+      return { type: 'readOnly', networkAccess: false }
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+    default:
+      return {
+        type: 'workspaceWrite',
+        writableRoots: [...written.writable_roots],
+        networkAccess: written.network_access,
+        excludeTmpdirEnvVar: written.exclude_tmpdir_env_var,
+        excludeSlashTmp: written.exclude_slash_tmp,
+      }
+  }
+}
 
 const threadSettings = () => ({
   cwd: settingsState.cwd,
@@ -158,7 +187,7 @@ const threadSettings = () => ({
   sandboxPolicy: sandboxPolicy(),
   activePermissionProfile: settingsState.permissions ? { id: settingsState.permissions, extends: null } : null,
   model: settingsState.model,
-  modelProvider: 'openai',
+  modelProvider: settingsState.modelProvider,
   serviceTier: settingsState.serviceTier,
   effort: settingsState.effort,
   summary: null,
@@ -192,14 +221,31 @@ const applySettings = (params, { sandboxKey }) => {
     return 'failed to load configuration: default_permissions requires a `[permissions]` table'
   }
   if (params.model != null) settingsState.model = params.model
+  if (params.modelProvider != null) settingsState.modelProvider = params.modelProvider
+  if (params.runtimeWorkspaceRoots != null) settingsState.workspaceRoots = [...params.runtimeWorkspaceRoots]
+  // `sandbox_workspace_write.*` keys in a thread verb's `config` stand in for
+  // config.toml's own, as they do in Codex.
+  for (const [key, value] of Object.entries(params.config ?? {})) {
+    const field = /^sandbox_workspace_write\.(.+)$/.exec(key)?.[1]
+    if (field) settingsState.sandboxConfig = { ...settingsState.sandboxConfig, [field]: value }
+  }
   if (params.permissions != null) settingsState.permissions = params.permissions
-  if (params[sandboxKey] != null) {
+  if (sandboxKey === 'sandbox' && params.sandbox != null) {
     settingsState.permissions = null
-    const value = params[sandboxKey]
-    settingsState.sandboxType =
-      value === 'read-only' || value?.type === 'readOnly' ? 'readOnly'
-      : value === 'danger-full-access' || value?.type === 'dangerFullAccess' ? 'dangerFullAccess'
-      : 'workspaceWrite'
+    settingsState.sandboxMode = params.sandbox
+    settingsState.sandboxPolicy = null
+  }
+  if (sandboxKey === 'sandboxPolicy' && params.sandboxPolicy != null) {
+    /* Measured on 0.145.0 and 0.155.0: a workspace policy given to a thread
+       with no profile active gains the thread's configured writable roots,
+       first; any other policy, or one given over a profile, is taken as it
+       came. */
+    const given = params.sandboxPolicy
+    settingsState.sandboxPolicy =
+      given.type === 'workspaceWrite' && settingsState.permissions === null
+        ? { ...given, writableRoots: [...new Set([...settingsState.sandboxConfig.writable_roots, ...given.writableRoots])] }
+        : given
+    settingsState.permissions = null
   }
   if (params.approvalPolicy != null) settingsState.approvalPolicy = params.approvalPolicy
   if (params.approvalsReviewer != null) settingsState.approvalsReviewer = params.approvalsReviewer
@@ -221,10 +267,10 @@ const startResponse = () => ({
   // it has been stored.
   thread: thread({ preview: '' }),
   model: settingsState.model,
-  modelProvider: 'openai',
+  modelProvider: settingsState.modelProvider,
   serviceTier: settingsState.serviceTier,
   cwd: settingsState.cwd,
-  runtimeWorkspaceRoots: ['/w'],
+  runtimeWorkspaceRoots: [...settingsState.workspaceRoots],
   instructionSources: [],
   approvalPolicy: settingsState.approvalPolicy,
   approvalsReviewer: settingsState.approvalsReviewer,
@@ -589,6 +635,140 @@ const startBackground = (command, { fails = false } = {}) => {
 }
 
 /**
+ * An inline review, notification for notification as 0.155.0 plays one
+ * (`script/probe/review-side-thread.mjs --shapes`; 0.145.0 is the same):
+ *
+ * - no `turn/started` for the review's own turn, whose id the answer, every
+ *   item and the `turn/completed` carry;
+ * - a `turn/started` under another id — the reviewer sub-agent's, forwarded —
+ *   which nothing names again;
+ * - an `agentMessage` the reviewer began, started and never completed,
+ *   because Codex withholds the reviewer's words for the findings it renders.
+ *
+ * FAKE_CODEX_REVIEW_MS holds the review open that long before its findings,
+ * for a caller that has to see it working, or stop it; 20 ms otherwise.
+ * Stopping one is Codex's way too: `turn/interrupt` has to name the
+ * reviewer's turn, or no turn at all, never the review's (`stopReview`).
+ * FAKE_CODEX_REVIEWER_MS holds back the reviewer's `turn/started` that long,
+ * and FAKE_CODEX_REVIEWER_FIRST=1 sends it before the review's first item —
+ * neither is what either Codex does, and the adapter must not care.
+ * FAKE_CODEX_REVIEWER_UNANNOUNCED=1 starts the reviewer without forwarding
+ * its `turn/started` at all, and FAKE_CODEX_NO_STARTUP_INTERRUPT=1 checks a
+ * stop naming no turn like any other: a Codex neither version is, which the
+ * adapter must still be able to stop.
+ */
+let reviews = 0
+/** Per thread, the review running on it: its turn, the reviewer's, and the timer that ends it. */
+const runningReviews = new Map()
+const playReview = (id, params) => {
+  reviews += 1
+  const threadId = params.threadId
+  const turnId = `review-turn-${reviews}`
+  const reviewerTurnId = `reviewer-turn-${reviews}`
+  const hint = params.target.type === 'uncommittedChanges' ? 'current changes' : params.target.type
+  const on = (method, item, at) => notify(method, { threadId, turnId, item, ...at })
+  send({
+    id,
+    result: {
+      turn: {
+        id: turnId,
+        items: [{ type: 'userMessage', id: turnId, clientId: null, content: [{ type: 'text', text: hint, text_elements: [] }] }],
+        itemsView: 'notLoaded',
+        status: 'inProgress',
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+      },
+      reviewThreadId: threadId,
+    },
+  })
+  const startedAtMs = nowMs()
+  const review = { turnId, reviewerTurnId, reviewerStarted: false, reviewerTimer: null, timer: null, reviews, startedAtMs }
+  const reviewerStarts = () => {
+    review.reviewerStarted = true
+    if (process.env['FAKE_CODEX_REVIEWER_UNANNOUNCED'] === '1') return
+    notify('turn/started', {
+      threadId,
+      turn: { id: reviewerTurnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: null, durationMs: null },
+    })
+  }
+  const first = process.env['FAKE_CODEX_REVIEWER_FIRST'] === '1'
+  if (first) reviewerStarts()
+  const entered = { type: 'enteredReviewMode', id: `entered-${reviews}`, review: hint }
+  on('item/started', entered, { startedAtMs: nowMs() })
+  on('item/completed', entered, { completedAtMs: nowMs() })
+  notify('thread/status/changed', { threadId, status: { type: 'active', activeFlags: [] } })
+  const lag = Number(process.env['FAKE_CODEX_REVIEWER_MS'] ?? 0)
+  if (!first && lag > 0) review.reviewerTimer = setTimeout(reviewerStarts, lag)
+  else if (!first) reviewerStarts()
+  const asked = {
+    type: 'userMessage',
+    id: `asked-${reviews}`,
+    clientId: null,
+    content: [{ type: 'text', text: 'Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.', text_elements: [] }],
+  }
+  on('item/started', asked, { startedAtMs: nowMs() })
+  on('item/completed', asked, { completedAtMs: nowMs() })
+  on('item/started', { type: 'agentMessage', id: `withheld-${reviews}`, text: '', phase: null, memoryCitation: null, delivery: null, questions: null }, { startedAtMs: nowMs() })
+  review.timer = setTimeout(() => {
+    runningReviews.delete(threadId)
+    clearTimeout(review.reviewerTimer)
+    const findings = 'One cosmetic finding.\n\nReview comment:\n\n- [P2] Greeting lost its punctuation — README.md:1-1\n  The edit drops the full stop the other lines keep.'
+    const exited = { type: 'exitedReviewMode', id: `exited-${reviews}`, review: findings }
+    on('item/started', exited, { startedAtMs: nowMs() })
+    on('item/completed', exited, { completedAtMs: nowMs() })
+    const answer = { type: 'agentMessage', id: `findings-${reviews}`, text: findings, phase: null, memoryCitation: null, delivery: null, questions: null }
+    on('item/started', answer, { startedAtMs: nowMs() })
+    on('item/completed', answer, { completedAtMs: nowMs() })
+    notify('thread/status/changed', { threadId, status: { type: 'idle' } })
+    // Timed from the reviewer's start, as Codex times it.
+    notify('turn/completed', {
+      threadId,
+      turn: { id: turnId, items: [answer], itemsView: 'summary', status: 'completed', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - startedAtMs },
+    })
+  }, Number(process.env['FAKE_CODEX_REVIEW_MS'] ?? 20))
+  runningReviews.set(threadId, review)
+}
+
+/**
+ * `turn/interrupt` on a thread with a review running, measured on 0.145.0
+ * and 0.155.0: Codex checks a named turn against the one it holds as
+ * running — the reviewer's, and before the reviewer has started, none —
+ * while a stop naming no turn is its "startup interrupt" and is not checked.
+ * The refusals are Codex's words. The stopped review then ends under its own
+ * turn.
+ */
+const stopReview = (id, params) => {
+  const review = runningReviews.get(params.threadId)
+  const checked = params.turnId !== '' || process.env['FAKE_CODEX_NO_STARTUP_INTERRUPT'] === '1'
+  if (checked && !review.reviewerStarted) {
+    send({ id, error: { code: -32600, message: 'no active turn to interrupt' } })
+    return
+  }
+  if (checked && params.turnId !== review.reviewerTurnId) {
+    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${review.reviewerTurnId}` } })
+    return
+  }
+  clearTimeout(review.timer)
+  clearTimeout(review.reviewerTimer)
+  runningReviews.delete(params.threadId)
+  send({ id, result: {} })
+  const on = (method, item, at) => notify(method, { threadId: params.threadId, turnId: review.turnId, item, ...at })
+  const exited = { type: 'exitedReviewMode', id: `exited-${review.reviews}`, review: 'Reviewer failed to output a response.' }
+  on('item/started', exited, { startedAtMs: nowMs() })
+  on('item/completed', exited, { completedAtMs: nowMs() })
+  const said = { type: 'agentMessage', id: `stopped-${review.reviews}`, text: 'Review was interrupted. Please re-run /review and wait for it to complete.', phase: null, memoryCitation: null, delivery: null, questions: null }
+  on('item/started', said, { startedAtMs: nowMs() })
+  on('item/completed', said, { completedAtMs: nowMs() })
+  notify('thread/status/changed', { threadId: params.threadId, status: { type: 'idle' } })
+  notify('turn/completed', {
+    threadId: params.threadId,
+    turn: { id: review.turnId, items: [], itemsView: 'notLoaded', status: 'interrupted', error: null, startedAt: Math.floor(review.startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - review.startedAtMs },
+  })
+}
+
+/**
  * A user verification, the elicitation mode 0.155.0 added: an MCP server
  * asking Codex to have the person sign a challenge with a key enrolled on the
  * device. Real Codex routes one only to its own in-process terminal UI and
@@ -880,17 +1060,27 @@ rl.on('line', (line) => {
         })
         return
       }
+      Object.assign(settingsState, CONFIGURED)
       const problem = applySettings(params ?? {}, { sandboxKey: 'sandbox' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
-      send({ id, result: startResponse() })
+      // A new thread is in the folder it was started in, as Codex reports it.
+      send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
       notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
       })
+      // FAKE_CODEX_ECHO_STARTS=1 says what the thread was started with, the
+      // way a test reads a request. Off by default: it is a toast in the app.
+      if (process.env['FAKE_CODEX_ECHO_STARTS'] === '1') {
+        notify('warning', {
+          threadId: THREAD,
+          message: `STARTED ${JSON.stringify({ ...params, dynamicTools: undefined, developerInstructions: undefined })}`,
+        })
+      }
       return
     }
 
@@ -911,6 +1101,13 @@ rl.on('line', (line) => {
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
+      }
+      /* FAKE_CODEX_RESUMED_SANDBOX is a policy another client put the thread
+         under, which it is resumed in: JSON, as Codex reports one. */
+      const resumed = process.env['FAKE_CODEX_RESUMED_SANDBOX']
+      if (method === 'thread/resume' && resumed && params?.permissions == null && params?.sandbox == null) {
+        settingsState.permissions = null
+        settingsState.sandboxPolicy = JSON.parse(resumed)
       }
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })
@@ -985,8 +1182,25 @@ rl.on('line', (line) => {
       return
 
     case 'review/start':
-      send({ id, result: { turn: { id: 'review-turn', items: [], itemsView: 'full', status: 'inProgress', error: null }, reviewThreadId: 'review-1' } })
       notify('warning', { threadId: params.threadId, message: `REVIEW ${params.target.type} ${params.delivery ?? 'default'}` })
+      if (params.delivery === 'detached') {
+        /* 0.155.0's answer, measured: every detached review is deprecated out
+           loud, and one on a thread with paginated history — every thread
+           0.155.0 starts — is then refused. */
+        notify('deprecationNotice', {
+          summary: 'review/start with delivery "detached" is deprecated and will be removed in a future release.',
+          details:
+            'Use thread/start followed by review/start with delivery "inline" for a separate review thread, or thread/fork followed by turn/start with your own review instructions.',
+        })
+        send({ id, error: { code: -32600, message: 'paginated threads do not support detached review' } })
+        return
+      }
+      // Codex's own check, word for word (`review_request_from_target`).
+      if (params.target.type === 'baseBranch' && !params.target.branch.trim()) {
+        send({ id, error: { code: -32600, message: 'branch must not be empty' } })
+        return
+      }
+      playReview(id, params)
       return
 
     case 'thread/settings/update': {
@@ -1346,7 +1560,8 @@ rl.on('line', (line) => {
         id,
         result: {
           data: [
-            { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },
+            // FAKE_CODEX_PLAN_EFFORT gives Plan an effort of its own other than the model's default.
+            { name: 'Plan', mode: 'plan', model: null, reasoning_effort: process.env['FAKE_CODEX_PLAN_EFFORT'] ?? 'medium' },
             { name: 'Default', mode: 'default', model: null, reasoning_effort: null },
           ],
         },
@@ -1651,6 +1866,10 @@ rl.on('line', (line) => {
       return
 
     case 'turn/interrupt':
+      if (runningReviews.has(params.threadId)) {
+        stopReview(id, params)
+        return
+      }
       send({ id, result: {} })
       notify('turn/completed', {
         threadId: THREAD,
@@ -1674,7 +1893,7 @@ rl.on('line', (line) => {
 
     case 'thread/name/set':
       send({ id, result: {} })
-      notify('thread/name/updated', { threadId: THREAD, threadName: params.name })
+      notify('thread/name/updated', { threadId: params.threadId, threadName: params.name })
       return
 
     default:

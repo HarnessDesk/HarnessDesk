@@ -65,6 +65,15 @@ export interface ThreadState {
   readonly approvalsReviewer: ApprovalsReviewer
   /** The active profile id, derived from the legacy sandbox field when Codex reports none. */
   readonly permissions: string
+  /**
+   * The sandbox Codex reports when no profile is active: one the
+   * configuration's `sandbox_mode` set up, or a policy another client put the
+   * thread under. Null while a profile is active. `permissions` then names
+   * the built-in profile of the same kind, which is not the same sandbox: a
+   * thread started on that profile loses the configuration's network access
+   * and writable roots (measured on 0.145.0 and 0.155.0).
+   */
+  readonly sandbox: CodexProtocol.v2.SandboxPolicy | null
   readonly serviceTier: string | null
   readonly mode: CodexProtocol.ModeKind
 }
@@ -97,6 +106,7 @@ export const stateFromStartResponse = (response: StartLike): ThreadState => ({
   approvalPolicy: response.approvalPolicy,
   approvalsReviewer: response.approvalsReviewer,
   permissions: response.activePermissionProfile?.id ?? profileForSandbox(response.sandbox),
+  sandbox: response.activePermissionProfile ? null : response.sandbox,
   serviceTier: response.serviceTier,
   mode: 'default',
 })
@@ -113,6 +123,7 @@ export const stateFromThreadSettings = (
   approvalPolicy: settings.approvalPolicy,
   approvalsReviewer: settings.approvalsReviewer,
   permissions: settings.activePermissionProfile?.id ?? profileForSandbox(settings.sandboxPolicy),
+  sandbox: settings.activePermissionProfile ? null : settings.sandboxPolicy,
   serviceTier: settings.serviceTier,
   mode: settings.collaborationMode.mode,
 })
@@ -136,6 +147,7 @@ export const stateFromConfig = (
     (configured && catalog.models.find((entry) => entry.id === configured)) ||
     catalog.models.find((entry) => entry.isDefault) ||
     catalog.models[0]
+  const written = config.sandbox_workspace_write
   const sandbox: CodexProtocol.v2.SandboxPolicy =
     config.sandbox_mode === 'read-only'
       ? { type: 'readOnly', networkAccess: false }
@@ -143,10 +155,10 @@ export const stateFromConfig = (
         ? { type: 'dangerFullAccess' }
         : {
             type: 'workspaceWrite',
-            writableRoots: [],
-            networkAccess: false,
-            excludeTmpdirEnvVar: false,
-            excludeSlashTmp: false,
+            writableRoots: [...(written?.writable_roots ?? [])],
+            networkAccess: written?.network_access ?? false,
+            excludeTmpdirEnvVar: written?.exclude_tmpdir_env_var ?? false,
+            excludeSlashTmp: written?.exclude_slash_tmp ?? false,
           }
   return {
     cwd,
@@ -157,6 +169,7 @@ export const stateFromConfig = (
     approvalPolicy: config.approval_policy ?? 'on-request',
     approvalsReviewer: config.approvals_reviewer ?? 'user',
     permissions: profileForSandbox(sandbox),
+    sandbox,
     serviceTier: config.service_tier ?? model?.defaultServiceTier ?? null,
     mode: 'default',
   }
@@ -221,7 +234,7 @@ export const overlayDraftValues = (
         next = { ...next, mode: text as CodexProtocol.ModeKind }
         break
       case 'permissions':
-        next = { ...next, permissions: text }
+        next = { ...next, permissions: text, sandbox: null }
         break
       case 'approvals':
         next = { ...next, approvalPolicy: text as Exclude<AskForApproval, object> }
@@ -258,6 +271,22 @@ const profileForSandbox = (sandbox: CodexProtocol.v2.SandboxPolicy): string => {
     default:
       return ':workspace'
   }
+}
+
+/**
+ * Whether two policies are one sandbox. Writable roots are a set: the same
+ * roots in another order are the same sandbox, and asking Codex for it again
+ * would be answered by nothing, as an update that moves nothing is.
+ */
+export const sameSandbox = (
+  a: CodexProtocol.v2.SandboxPolicy | null,
+  b: CodexProtocol.v2.SandboxPolicy | null,
+): boolean => a === b || (a !== null && b !== null && sandboxKey(a) === sandboxKey(b))
+
+const sandboxKey = (policy: CodexProtocol.v2.SandboxPolicy): string => {
+  const fields: Record<string, unknown> = { ...policy }
+  if (policy.type === 'workspaceWrite') fields['writableRoots'] = [...new Set(policy.writableRoots)].sort()
+  return JSON.stringify(Object.keys(fields).sort().map((key) => [key, fields[key]]))
 }
 
 // ----------------------------------------------------------------- vocabulary
@@ -595,6 +624,79 @@ export const splitStartOptions = (
     }
   }
   return { start, after }
+}
+
+/** The `thread/start` fields `startParamsLike` fills — a folder always among them. */
+export type LikeParams = Pick<
+  CodexProtocol.v2.ThreadStartParams,
+  | 'runtimeWorkspaceRoots'
+  | 'model'
+  | 'modelProvider'
+  | 'serviceTier'
+  | 'approvalPolicy'
+  | 'approvalsReviewer'
+  | 'permissions'
+  | 'sandbox'
+  | 'config'
+> & { readonly cwd: string }
+
+/**
+ * What a new thread is started with to be set up like one that exists: every
+ * setting `thread/start` takes, as Codex last reported it for that thread —
+ * never as that thread was opened, since a model or profile changed since is
+ * the one the person is looking at.
+ *
+ * Codex's own values, passed back as they came: a custom approval policy is
+ * an object no option can spell, and a null tier is the standard one. Who
+ * may do what is the profile when one is active, and otherwise the sandbox
+ * itself (`sandboxParams`) — never the profile named after its mode, which
+ * is a narrower sandbox (`ThreadState.sandbox`). Effort and mode have no
+ * field on the verb and are not here; they follow as settings updates, as
+ * does a sandbox the verb cannot spell.
+ */
+export const startParamsLike = (state: ThreadState): LikeParams => ({
+  cwd: state.cwd,
+  runtimeWorkspaceRoots: [...state.workspaceRoots],
+  model: state.model,
+  modelProvider: state.modelProvider,
+  serviceTier: state.serviceTier,
+  approvalPolicy: state.approvalPolicy,
+  approvalsReviewer: state.approvalsReviewer,
+  ...(state.sandbox === null ? { permissions: state.permissions } : sandboxParams(state.sandbox)),
+})
+
+/**
+ * A sandbox as `thread/start` takes it: its mode, and a workspace sandbox's
+ * details as the `config` keys that set them in `config.toml`, which stand in
+ * for the configuration's own — so the thread starts in exactly this sandbox,
+ * whatever the configuration says (measured on 0.145.0 and 0.155.0).
+ * `thread/settings/update` is not the way for those details: given a
+ * workspace sandbox, it adds the configuration's writable roots to the ones
+ * it was asked for. A read-only sandbox's network access has no key, and an
+ * external sandbox no mode; those are set once the thread has started
+ * (`CodexSession.setSandbox`).
+ */
+const sandboxParams = (policy: CodexProtocol.v2.SandboxPolicy): Pick<LikeParams, 'sandbox' | 'config'> => {
+  switch (policy.type) {
+    case 'readOnly':
+      return { sandbox: 'read-only' }
+    case 'dangerFullAccess':
+      return { sandbox: 'danger-full-access' }
+    case 'externalSandbox':
+      return {}
+    case 'workspaceWrite':
+      return {
+        sandbox: 'workspace-write',
+        // Every key of Codex's own `[sandbox_workspace_write]` table, and no
+        // other: a key Codex renames stops this compiling.
+        config: {
+          'sandbox_workspace_write.writable_roots': [...policy.writableRoots],
+          'sandbox_workspace_write.network_access': policy.networkAccess,
+          'sandbox_workspace_write.exclude_tmpdir_env_var': policy.excludeTmpdirEnvVar,
+          'sandbox_workspace_write.exclude_slash_tmp': policy.excludeSlashTmp,
+        } satisfies Record<`sandbox_workspace_write.${keyof CodexProtocol.v2.SandboxWorkspaceWrite}`, unknown>,
+      }
+  }
 }
 
 // ------------------------------------------------------- runtime-wide options

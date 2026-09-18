@@ -59,10 +59,11 @@ test('compaction reaches Codex and surfaces its own marker', async (t) => {
   await until(() => notices(events).some((message) => /compacted/i.test(message)))
 })
 
-test('review passes the target kind and delivery through', async (t) => {
+test('review passes the target kind through, and asks Codex only for inline reviews', async (t) => {
   const { session, events, until } = await start(t)
   await session.review!({ type: 'uncommitted', delivery: 'detached' })
-  await until(() => notices(events).includes('REVIEW uncommittedChanges detached'))
+  await until(() => notices(events).includes('REVIEW uncommittedChanges inline'))
   await session.review!({ type: 'commit', sha: 'abc' })
-  await until(() => notices(events).includes('REVIEW commit default'))
+  await until(() => notices(events).includes('REVIEW commit inline'))
+  assert.ok(!notices(events).some((message) => message.includes('detached')))
 })
