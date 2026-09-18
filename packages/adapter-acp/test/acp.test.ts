@@ -1901,6 +1901,37 @@ test("a listed folder that is not absolute is not read against this process's", 
   assert.deepEqual(opened(), [])
 })
 
+test('the draft probe opens in the home folder, and is never handed out as a conversation', async (t) => {
+  const { homedir } = await import('node:os')
+  const { runtime, opened } = await storedAgent(t, () => ({}))
+  // Named no folder, the draft is opened in the user's own — not in this
+  // process's working directory, which depends on how the app was started.
+  await runtime.defaultSessionOptions()
+  const drafts = opened()
+  assert.equal(drafts.length, 1)
+  assert.equal(drafts[0]!.method, 'session/new')
+  assert.equal(drafts[0]!.cwd, homedir())
+  const probe = drafts[0]!.sessionId
+
+  // A real session, but no conversation: not listed, not found by a search
+  // for anything, and neither read nor reopened by its id.
+  assert.deepEqual((await runtime.listSessions()).data, [])
+  assert.deepEqual((await runtime.searchSessions('')).data, [])
+  const refusal = `Fake ACP Agent has no conversation ${probe}.`
+  assert.deepEqual(await reopening(runtime, probe), { refused: refusal, gone: true })
+  assert.equal(
+    await runtime.readSession(sessionId(probe)).then(
+      () => 'read',
+      (error: Error) => error.message,
+    ),
+    refusal,
+  )
+  // And it is still the probe: the next question about a draft is answered by
+  // it, without a second one being opened.
+  await runtime.defaultSessionOptions()
+  assert.deepEqual(opened(), drafts)
+})
+
 /**
  * `SessionOptions.model` is a request, not a decoration.
  *

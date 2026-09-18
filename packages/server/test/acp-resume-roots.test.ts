@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
-import type { Session } from '@harnessdesk/protocol'
+import type { Session, SessionSummary } from '@harnessdesk/protocol'
 
 import { Client, start, stop, type Harness } from './fixtures/harness.js'
 
@@ -22,7 +22,9 @@ import { Client, start, stop, type Harness } from './fixtures/harness.js'
  * that failed, a row on a later page — it fell back to this process's working
  * directory and loaded the conversation there. That is the dev checkout under
  * `pnpm dev`, and `/` when the app is started from Finder, which holds every
- * repository on the machine.
+ * repository on the machine. The draft probe, the session the adapter opens to
+ * read what a new conversation would offer, opened there too, and could be
+ * read by its id like any conversation.
  *
  * In a file of its own because it moves this process's working directory,
  * which is the host's: that is the folder under test.
@@ -182,6 +184,39 @@ test('a conversation its agent does not list opens no folder, least of all the h
       read: { refused: refusal, code: 'sessionGone' },
       unopened: outside(unopened),
       loads: [{ method: 'session/load', sessionId: 'listed', cwd: listedAt }],
+    },
+  )
+})
+
+test('the draft probe opens outside the host\'s folder, and no conversation is made of it', async (t) => {
+  const { client, hostCwd, unopened, branchOf, opened } = await desk(t)
+  assert.equal(process.cwd(), hostCwd)
+  assert.equal(await branchOf(unopened), outside(unopened))
+
+  // Named no folder, the draft opens one of its own choosing, once.
+  await client.call('runtime/sessionDefaults', { runtime: AGENT })
+  const drafts = (await opened()).filter((open) => open.method === 'session/new')
+  assert.equal(drafts.length, 1)
+  const probe = drafts[0]!
+  const refusal = `Fake ACP Agent has no conversation ${probe.sessionId}.`
+  // A search for anything would find it if it were a conversation; its id,
+  // read or reopened, would make it one.
+  assert.deepEqual(
+    {
+      where: probe.cwd,
+      searched: (
+        (await client.call('session/search', { runtime: AGENT, query: '' })) as { data: readonly SessionSummary[] }
+      ).data.map((row) => String(row.id)),
+      read: await outcome(client, 'session/read', probe.sessionId),
+      resumed: await outcome(client, 'session/resume', probe.sessionId),
+      unopened: await branchOf(unopened),
+    },
+    {
+      where: homedir(),
+      searched: [],
+      read: { refused: refusal, code: 'sessionGone' },
+      resumed: { refused: `Fake ACP Agent could not reopen this conversation: ${refusal}`, code: 'sessionGone' },
+      unopened: outside(unopened),
     },
   )
 })

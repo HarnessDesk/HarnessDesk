@@ -1602,6 +1602,10 @@ export class AcpRuntime implements AgentRuntime {
     const needle = query.toLowerCase()
     return {
       data: [...this.#sessions.values()]
+        // The draft probe is no conversation, here as in `listSessions`. Its
+        // preview is empty, so a search for nothing found it, and its id was
+        // then read as one — in the folder the probe was opened in.
+        .filter((session) => session.id !== this.#probeId)
         .map((session) => session.summary())
         .filter((summary) => (summary.preview ?? '').toLowerCase().includes(needle)),
       nextCursor: null,
@@ -1610,7 +1614,7 @@ export class AcpRuntime implements AgentRuntime {
 
   async readSession(id: SessionId): Promise<Session> {
     const live = this.#sessions.get(id)
-    if (live) return live.snapshot()
+    if (live && id !== this.#probeId) return live.snapshot()
     // ACP has no read-only fetch; loading *is* reading. Free of tokens: a
     // load replays the stored conversation, it does not prompt anything.
     const loaded = await this.resumeSession(id)
@@ -1732,7 +1736,13 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async #startProbe(cwd?: string): Promise<AcpSession> {
-    const where = cwd ?? process.cwd()
+    // Named no folder, the draft is opened in the user's own. ACP opens no
+    // session without one, and this process's working directory is no answer:
+    // it is `/` when the app is started from Finder and the checkout under
+    // `pnpm dev`, so what a draft offered depended on how the app was launched. The
+    // home folder is the same however it was, and holds the agent's own
+    // settings, which are what a conversation has before a folder is chosen.
+    const where = cwd ?? homedir()
     const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where })
     const probe = AcpSession.probe(this, opened, where)
     // Registered so the agent's follow-up notifications (an agent may
@@ -2027,6 +2037,10 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async resumeSession(id: SessionId): Promise<AgentSession> {
+    // The draft probe is a session the agent counts, and no conversation.
+    // Handed out by its id it was held as one, and its folder opened with it;
+    // a turn sent to it would vanish into a session that never speaks.
+    if (id === this.#probeId) throw new SessionGoneError(`${this.#config.name} has no conversation ${id}.`)
     const live = this.#sessions.get(id)
     if (live) return live
     const inFlight = this.#resuming.get(id)
