@@ -40,10 +40,12 @@ import {
   type TurnId,
   type UsageReport,
   type UserContent,
+  type MachineSeating,
 } from '@harnessdesk/protocol'
 
 import { AcpRegistry } from '../src/acp-registry.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
+import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
 import { Agents } from '../src/agents.js'
 import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
@@ -648,6 +650,8 @@ const rig = async (
     readonly leaves?: (runtime: string) => SeatLeft | null
     /** The desk's writable agent registry, with the public registry behind it; none unless a test gives one. */
     readonly directory?: AgentDirectory
+    /** What `seating.json` holds on this machine, written before the seating; no file when absent. */
+    readonly machine?: string
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -655,6 +659,7 @@ const rig = async (
   const source = agentFile(prefer, options.permission)
   await mkdir(join(user, 'reviewer'), { recursive: true })
   await writeFile(join(user, 'reviewer', 'AGENT.md'), source, 'utf8')
+  if (options.machine !== undefined) await writeFile(join(root, 'seating.json'), options.machine, 'utf8')
   const roster = new Agents({ user, builtin: join(root, 'builtin') })
 
   const created: { runtime: string; model?: string; cwd: string }[] = []
@@ -688,6 +693,7 @@ const rig = async (
         throw new Error(`${project} is outside every open workspace. Open its folder first to read from it.`)
       },
     },
+    seating: new MachineSeatingFile(join(root, 'seating.json')),
     runtimes: {
       get: (id: string) => runtimes.get(id),
       infoOf: (runtime: { info: unknown }) => runtime.info,
@@ -2839,4 +2845,89 @@ test('through the host: the seat kept arrives with what it runs, and a refusal w
       return true
     },
   )
+})
+
+/*
+ * This machine's seats: an entry replaces the Agent's prefer here, a seating's
+ * own seats replace both, and an entry that cannot be read refuses the seating
+ * rather than fall back to the list it replaced.
+ */
+
+test("this machine's entry replaces the Agent's prefer, and is not merged with it", async () => {
+  const seen = await rig(
+    'cursor=gemini-3.8-flash',
+    { claude: { name: 'Claude', models: ['opus-5'] }, cursor: { name: 'Cursor', models: ['gemini-3.8-flash'] } },
+    { machine: JSON.stringify({ reviewer: ['claude=opus-5'] }) },
+  )
+  // Cursor is seatable, and first in prefer: merged, it would have been taken.
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'machine')
+  assert.deepEqual(plan?.candidates.map((one) => one.label), ['Claude · opus-5'])
+})
+
+test("a seating's own seats beat this machine's", async () => {
+  const seen = await rig(
+    'cursor=gemini-3.8-flash',
+    { claude: { models: ['opus-5'] }, cursor: { models: ['gemini-3.8-flash'] } },
+    { machine: JSON.stringify({ reviewer: ['claude=opus-5'] }) },
+  )
+  await agentMethods['agent/seat'](seen.ctx, {
+    id: 'reviewer',
+    cwd: '/tmp/x',
+    seats: [{ runtime: 'cursor', model: 'gemini-3.8-flash' }],
+  })
+  assert.deepEqual(seen.created, [{ runtime: 'cursor', model: 'gemini-3.8-flash', cwd: '/tmp/x' }])
+})
+
+test('an entry this machine cannot read refuses the seating — never the prefer it replaced — and blocks the plan', async () => {
+  const seen = await rig('claude=opus-5', { claude: { models: ['opus-5'] } }, {
+    machine: JSON.stringify({ reviewer: ['claude=opus-5', 'claude+fast'] }),
+  })
+  const why = `this Mac's seats for it in ${join(seen.root, 'seating.json')} cannot be read at [1]: "+fast" is not a switch a seat takes — the only one is +thinking`
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(error.message, `Reviewer cannot be seated: ${why}`)
+      return true
+    },
+  )
+  untouched(seen)
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+})
+
+test("through the host: this Mac's seats are set and cleared by one verb, and every window is told", async (t) => {
+  const { harness, client } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  const set = (await client.call('agent/seating/set', {
+    id: 'reviewer',
+    seats: [{ runtime: 'seatfake', model: 'small' }],
+  })) as MachineSeating
+  assert.equal(set.path, join(harness.stateDir, 'seating.json'))
+  assert.deepEqual(set.entries, [{ id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] }])
+  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { reviewer: ['seatfake=small'] })
+  await client.until(
+    () => client.notifications.some((one) => 'method' in one && one.method === 'agent/changed'),
+    2_000,
+    'agent/changed',
+  )
+  const [plan] = (await client.call('agent/seat/dry', { ids: ['reviewer'] })) as SeatPlan[]
+  assert.equal(plan?.from, 'machine')
+  assert.deepEqual(plan?.candidates.map((one) => one.label), ['Seat Fake · Small'])
+
+  const cleared = (await client.call('agent/seating/set', { id: 'reviewer', seats: null })) as MachineSeating
+  assert.deepEqual(cleared.entries, [])
+  assert.deepEqual(await client.call('agent/seating/read', {}), cleared)
+})
+
+test('the wire refuses more seats than an Agent may name, and the file refuses an empty list', async (t) => {
+  const { client } = await desk(t)
+  const nine = Array.from({ length: 9 }, () => ({ runtime: 'seatfake' }))
+  await assert.rejects(client.call('agent/seating/set', { id: 'reviewer', seats: nine }), (error: Error & { code?: string }) => {
+    assert.equal(error.code, 'badRequest')
+    return true
+  })
+  await assert.rejects(client.call('agent/seating/set', { id: 'reviewer', seats: [] }), /at least one seat/)
 })

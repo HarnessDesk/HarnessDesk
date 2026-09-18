@@ -27,6 +27,7 @@ import type {
 } from '@harnessdesk/protocol'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 
+import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { Agents } from '../agents.js'
 import type { SessionArchive } from '../archive.js'
 import type { AuditLog } from '../audit.js'
@@ -86,6 +87,8 @@ export interface HostContext {
    * can start. An Agent is who does the work; a runtime is what it runs on.
    */
   readonly agents: Agents
+  /** This machine's seats for its Agents: `seating.json`, which replaces an Agent's `prefer` here. */
+  readonly seating: MachineSeatingFile
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher

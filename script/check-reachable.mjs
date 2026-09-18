@@ -67,6 +67,9 @@ const UNREACHED = {
     'likewise — seating an Agent from that roster is the same later phase',
   'agent/seat/dry':
     'likewise — every menu that lists Agents is drawn from it, and those menus are the second half of the same phase',
+  'agent/seating/read':
+    "likewise — an Agent's page reads this machine's seats for it, in the second half of the same phase",
+  'agent/seating/set': 'likewise — the same page edits them',
 }
 
 /**

@@ -288,3 +288,24 @@ export interface SeatPlan {
    */
   readonly blocked: string | null
 }
+
+/** One thing wrong with this machine's seating file, and whose entry it is in. */
+export interface SeatingProblem {
+  /** The Agent whose entry it is; null when the file as a whole could not be read. */
+  readonly id: AgentId | null
+  /** Where in the entry — `[2]` — or empty for the entry or the file as a whole. */
+  readonly at: string
+  readonly text: string
+}
+
+/**
+ * This machine's seats for its Agents, as `seating.json` holds them: every
+ * entry that reads, in the file's order, and every one that does not, with why.
+ * An entry replaces its Agent's `prefer` here; it never merges with it.
+ */
+export interface MachineSeating {
+  /** Where the file is: `seating.json` in the desk's state directory. */
+  readonly path: string
+  readonly entries: readonly { readonly id: AgentId; readonly seats: readonly FlowSeat[] }[]
+  readonly problems: readonly SeatingProblem[]
+}

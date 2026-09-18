@@ -1,4 +1,4 @@
-import type { AgentEntry, SeatPlan } from './agent.js'
+import type { AgentEntry, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -1609,6 +1609,23 @@ export interface HostMethods {
     }
     result: Session
   }
+  /**
+   * This machine's seats for its Agents — `seating.json` in the state
+   * directory — as read: every entry that reads, in the file's order, and
+   * every one that does not, with where and why. Never committed.
+   */
+  'agent/seating/read': { params: Record<string, never>; result: MachineSeating }
+  /**
+   * Sets one Agent's seats on this machine, replacing its `prefer` here, or
+   * clears them (`seats: null`) so its `prefer` applies again. Every other
+   * entry is kept as written. Refused while the file as a whole cannot be read,
+   * so a hand-edit is never written over; an empty list is refused too — it is
+   * not a way to clear. Every window is told (`agent/changed`).
+   */
+  'agent/seating/set': {
+    params: { readonly id: string; readonly seats: readonly FlowSeat[] | null }
+    result: MachineSeating
+  }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {
@@ -2056,6 +2073,17 @@ export type WireNotification =
        */
       readonly method: 'session/removed'
       readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    }
+  | {
+      /**
+       * The roster changed under one of its roots, or this machine's seats for
+       * it did: every listing and every dry run drawn from them is stale.
+       * `project` names the project whose own Agents changed; null means this
+       * machine's — its Agents or its seats — or the built-in ones, which
+       * every listing shows.
+       */
+      readonly method: 'agent/changed'
+      readonly params: { readonly project: string | null }
     }
   | {
       /** Base64 output from a terminal. Every client receives it; a pane shows its own. */

@@ -512,6 +512,11 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     seats: optional(seatListValidator),
     permission: optional(grantValidator),
   }),
+  'agent/seating/read': isObject,
+  'agent/seating/set': shape({
+    id: isFilled,
+    seats: (value: unknown, path = '') => (value === null ? null : seatListValidator(value, path)),
+  }),
 
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),

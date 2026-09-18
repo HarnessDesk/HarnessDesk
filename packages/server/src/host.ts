@@ -61,6 +61,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
+import { MachineSeatingFile, SEATING_FILE } from './agent-seating-file.js'
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { Agents } from './agents.js'
 import type { InstallService } from './installs/service.js'
@@ -412,6 +413,15 @@ export class Host {
    * request names. Read afresh on every ask — an Agent is a file somebody edits.
    */
   readonly #agents: Agents
+  /**
+   * This machine's seats for its Agents: `seating.json`, beside `agents/` in
+   * the state directory. Replaces an Agent's `prefer` here, never merges with
+   * it — precedence is a seating's own `seats`, then this, then `prefer`.
+   *
+   * Named apart from `#seating` (below), which is a different thing: the
+   * conversations a seating has opened and not yet kept or let go.
+   */
+  readonly #machineSeating: MachineSeatingFile
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -500,6 +510,9 @@ export class Host {
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
     // a HARNESSDESK_HOME that moves the state directory moves these with it.
     this.#agents = new Agents({ user: join(this.#state.directory, 'agents'), builtin: builtinAgentRoot() })
+    // Beside everything else the desk keeps on this machine, so a rig's
+    // HARNESSDESK_HOME that moves the state directory moves these with it.
+    this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE))
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1127,6 +1140,7 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       agents: this.#agents,
+      seating: this.#machineSeating,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,

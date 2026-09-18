@@ -4,11 +4,15 @@ import {
   BriefNotHandedOverError,
   isBlocked,
   SeatRefusedError,
+  type AgentDefinition,
   type AgentEntry,
+  type AgentId,
   type AgentRuntime,
   type FlowSeat,
+  type MachineSeating,
   type ModelInfo,
   type RuntimeHealth,
+  type SeatPlan,
   type UsageReport,
 } from '@harnessdesk/protocol'
 
@@ -67,18 +71,26 @@ export const agentMethods = {
    */
   'agent/seat/dry': async (ctx, params) => {
     const roster = await ctx.agents.list(await projectOf(ctx, params.project))
+    const machine = await ctx.seating.read()
     const ids = params.ids ?? roster.map((one) => one.id)
-    const entries = ids.map((id) => ({ id, entry: roster.find((one) => one.id === id) ?? null }))
+    const weighed = ids.map((id): Weighed => {
+      const entry = roster.find((one) => one.id === id)
+      if (!entry) return { plan: blockedPlan(id, `No Agent called “${id}”.`) }
+      if (!entry.definition || entry.digest === null) return { plan: blockedPlan(id, unusable(entry)) }
+      const list = candidatesFor(entry.definition, machine)
+      if ('refused' in list) return { plan: blockedPlan(id, list.refused, 'machine') }
+      return { id, list }
+    })
     const desk = await readDesk(
       ctx,
-      entries.flatMap(({ entry }) => entry?.definition?.prefer ?? []),
+      weighed.flatMap((one) => ('list' in one ? one.list.seats : [])),
     )
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
-    return entries.map(({ id, entry }) => {
-      if (!entry) return blockedPlan(id, `No Agent called “${id}”.`)
-      if (!entry.definition || entry.digest === null) return blockedPlan(id, unusable(entry))
-      return planSeats(id, entry.definition.prefer, desk.offers, words)
-    })
+    return weighed.map((one) =>
+      'plan' in one
+        ? one.plan
+        : planSeats(one.id, one.list.seats, desk.offers, words, one.list.from === 'machine' ? 'machine' : 'prefer'),
+    )
   },
 
   /**
@@ -139,7 +151,9 @@ export const agentMethods = {
     if (!definition || digest === null) throw new Error(unusable(entry))
 
     const permission = permissionWithin(definition.permission, params.permission ?? 'read')
-    const candidates = params.seats?.length ? params.seats : definition.prefer
+    const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
+    if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
+    const candidates = list.seats
     const desk = await readDesk(ctx, candidates)
     const offers = desk.offers
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
@@ -179,6 +193,15 @@ export const agentMethods = {
       })
     }
   },
+
+  'agent/seating/read': (ctx) => ctx.seating.read(),
+
+  'agent/seating/set': async (ctx, params) => {
+    const after = await ctx.seating.set(params.id, params.seats)
+    // Every plan drawn before this is stale, in every window.
+    ctx.push({ method: 'agent/changed', params: { project: null } })
+    return after
+  },
 } satisfies MethodsUnder<'agent/'>
 
 /**
@@ -213,6 +236,49 @@ const unusable = (entry: AgentEntry): string => {
   const problem = entry.problems.find((one) => one.level === 'error')
   return `${entry.path} cannot be used: ${problem ? `${problem.at} — ${problem.text}` : 'it could not be read'}`
 }
+
+/**
+ * The seats one Agent tries here, highest precedence first: a seating's own
+ * `seats`, then this machine's entry for it, then its `prefer` — each replacing
+ * the next, never merged with it.
+ *
+ * An entry this machine has for it that cannot be read is a refusal, never a
+ * fall back to `prefer`: the person replaced that list here, and seating on it
+ * anyway is the quiet kind of substitution. So is a file that cannot be read
+ * at all, because nobody can say whether it held an entry for this Agent.
+ */
+const candidatesFor = (
+  definition: AgentDefinition,
+  machine: MachineSeating,
+  seats?: readonly FlowSeat[],
+):
+  | { readonly from: 'seats' | 'machine' | 'prefer'; readonly seats: readonly FlowSeat[] }
+  | { readonly refused: string } => {
+  if (seats?.length) return { from: 'seats', seats }
+  const broken = machine.problems.find((one) => one.id === definition.id || one.id === null)
+  if (broken) {
+    return {
+      refused: `this Mac's seats for it in ${machine.path} cannot be read${broken.at ? ` at ${broken.at}` : ''}: ${broken.text}`,
+    }
+  }
+  const entry = machine.entries.find((one) => one.id === definition.id)
+  return entry ? { from: 'machine', seats: entry.seats } : { from: 'prefer', seats: definition.prefer }
+}
+
+/**
+ * One Agent, weighed for `agent/seat/dry`: already blocked, or a candidate
+ * list still waiting on the desk's own reads. Given its own name rather than
+ * inferred, so the union stays the one written here — combining these two
+ * shapes through plain, unannotated return statements pads each with the
+ * other's keys as optional `undefined`, which defeats the `'plan' in one` /
+ * `'list' in one` checks below that tell them apart.
+ */
+type Weighed =
+  | { readonly plan: SeatPlan }
+  | {
+      readonly id: AgentId
+      readonly list: { readonly from: 'seats' | 'machine' | 'prefer'; readonly seats: readonly FlowSeat[] }
+    }
 
 /**
  * A registry snapshot's name for an id, worth showing: never blank or
