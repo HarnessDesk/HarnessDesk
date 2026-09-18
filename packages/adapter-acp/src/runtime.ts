@@ -2150,7 +2150,7 @@ export class AcpRuntime implements AgentRuntime {
         if (row) break
       }
     } catch (error) {
-      // Not gone: a listing that failed this time may not the next.
+      // Not gone: a listing that failed this time may not fail the next.
       throw new Error(
         `${name} could not list its conversations (${describeAcp(error)}), so the folder conversation ${id} worked in is not known.`,
       )
