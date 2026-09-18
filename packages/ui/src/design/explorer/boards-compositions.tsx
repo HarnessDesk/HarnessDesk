@@ -57,11 +57,16 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
+  Badge,
   IconTile,
   InputGroupAddon,
   InputGroupInput,
   InputGroup,
   KeyValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   KeyValueRow,
   ListRow,
   ListRows,
@@ -123,6 +128,7 @@ import {
 } from '../ui'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
+import { IconBoard } from './icon-board'
 import styles from './explorer.module.css'
 
 /**
@@ -157,6 +163,14 @@ const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
 const ATTACHMENT_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
 const ATTACHMENT_CATALOG_STATES = ['default', 'loading', 'error'] as const
 const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical'] as const
+const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'] as const
+const BADGE_CATALOG_SIZES = ['default'] as const
+const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
+
+const TABS_CATALOG_VARIANTS = ['default', 'line'] as const
+const TABS_CATALOG_SIZES = ['default'] as const
+const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
+
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
 const ICON_TILE_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
@@ -378,6 +392,41 @@ const SectionBoard = () => (
       padding and need their hover ground to reach the card&rsquo;s edge.
     </Rule>
   </>
+)
+
+
+/**
+ * Badge and Tabs — the two primitives that had no board.
+ *
+ * Both are shipped: `Badge` in the conversation, the composer controls, the
+ * skill sheet and a channel; `Tabs` in the changes review, extensions and the
+ * plugins section. Their only appearance in this catalogue used to be inside
+ * `showcase/ToolsPage`, a drawing of the tool panes — so the one place a
+ * reader could see a badge was a place where no badge the app ships had ever
+ * been rendered. Deleting the drawing left two primitives undocumented, which
+ * is how they came to be here.
+ */
+const BadgeTabsBoard = () => (
+  <div className={styles.stack} data-catalog-sizes={[...BADGE_CATALOG_SIZES, ...TABS_CATALOG_SIZES].join(' ')}>
+    <div className={styles.matrix} data-catalog-states={BADGE_CATALOG_STATES.join(' ')}>
+      {BADGE_CATALOG_VARIANTS.map((variant) => (
+        <Badge key={variant} variant={variant} data-catalog-variant={variant}>
+          {variant}
+        </Badge>
+      ))}
+    </div>
+
+    {TABS_CATALOG_VARIANTS.map((variant) => (
+      <Tabs key={variant} defaultValue="one" data-catalog-states={TABS_CATALOG_STATES.join(' ')}>
+        <TabsList variant={variant} data-catalog-variant={variant}>
+          <TabsTrigger value="one">One</TabsTrigger>
+          <TabsTrigger value="two">Two</TabsTrigger>
+        </TabsList>
+        <TabsContent value="one">The first panel.</TabsContent>
+        <TabsContent value="two">The second.</TabsContent>
+      </Tabs>
+    ))}
+  </div>
 )
 
 const TileBoard = () => (
@@ -1149,6 +1198,20 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Section · Toolbar',
     about: 'A titled region of a page — the shell almost every screen wants on top of a card.',
     render: SectionBoard,
+  },
+  {
+    id: 'badge',
+    title: 'Badge · Tabs',
+    about:
+      'A small standing label, and the two ways a set of panels names itself — a track with a raised active tab, and an underline with no track at all.',
+    render: BadgeTabsBoard,
+  },
+  {
+    id: 'icons',
+    title: 'The icon set',
+    about:
+      'Every glyph the app has, enumerated from the module rather than listed here — so the board cannot fall behind the set. The tile board beside this one judges the container; this one judges the set: one weight, no duplicates, no two arrows meaning the same thing.',
+    render: IconBoard,
   },
   {
     id: 'tile',

@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import {
   runtimeId,
@@ -10,8 +10,8 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { Button } from '../design'
 import { AppWindowMode } from '../components/AppWindow'
+import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { applyProfile, type ProfilePatch } from '../lib/profile'
@@ -26,6 +26,14 @@ import {
   previewWorkspace,
   previewWorkspaces,
 } from './sidebar-fixture'
+import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
+/* The editor surface opens this file, and is given this file — its real
+   source, read at build time. Edit `brands.ts` and the editor shows the edit;
+   nothing here restates what the file says. Not a `design/ui` module on
+   purpose: `ui-architecture` refuses any import from those but the public
+   barrel, and a text read is still an import to it — rightly, since the rule
+   is about what a screen may reach, not about why. */
+import editorSource from '../lib/brands.ts?raw'
 
 /**
  * The host a production screen needs in order to be mounted anywhere else.
@@ -1102,6 +1110,21 @@ class PreviewStore {
             },
           },
         }
+      /* The repository the git pane shows — `git-fixture.ts`. Reads only;
+         a write verb from the pane falls through to `null` like any other
+         method this page does not implement. */
+      if (method === 'workspace/readFile') {
+        const path = (params as { path?: string } | undefined)?.path ?? ''
+        if (path.endsWith('lib/brands.ts'))
+          return { content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
+        return null
+      }
+      if (method === 'workspace/stat') return { kind: 'file', isSymlink: false, modifiedAt: now }
+      if (method === 'git/log') return gitLog()
+      if (method === 'git/refs') return gitRefs()
+      if (method === 'git/status') return gitStatus()
+      if (method === 'git/worktrees') return gitWorktrees()
+      if (method === 'git/commit') return gitCommit((params as { sha?: string } | undefined)?.sha ?? '')
       if (method === 'audit/query') return []
       if (method === 'library/plan') return { plannedAt: now, ops: [] }
       return null
@@ -1132,53 +1155,25 @@ export const store = new Proxy(new PreviewStore(), {
       return typeof value === 'function' ? value.bind(target) : value
     }
     if (typeof property === 'symbol') return Reflect.get(target, property, receiver)
+    /* A subscription must answer synchronously with its unsubscribe.
+       `onTerminal` is the store's one `on…` verb and returns `() => void`; the
+       async floor below handed back a Promise instead, so the terminal pane
+       called `offLive()` on it during cleanup and threw — which is how the
+       tools surface mounted a browser and an editor and a crash where the
+       terminal should be. Keyed on the store's own naming, so the next
+       subscription added to the store is answered correctly without anyone
+       having to remember this file. */
+    if (/^on[A-Z]/.test(property)) {
+      return (...args: unknown[]) => {
+        console.warn(`[preview] store.${property} is not implemented here`, ...args)
+        return () => {}
+      }
+    }
     return async (...args: unknown[]) => {
       console.warn(`[preview] store.${String(property)} is not implemented here`, ...args)
     }
   },
 }) as unknown as AppStore
-
-/**
- * One screen's crash is one screen's crash.
- *
- * React unmounts the whole root on an uncaught render error, so without this
- * a single broken frame blanks the page and takes every other screen — and
- * the reason to open this page at all — with it.
- *
- * It logs as well as renders, because a component going blank sends most
- * people to DevTools before the page; and the message is a button, because
- * an error boundary latches — without a way to clear it, fixing the bug and
- * letting HMR swap the module still shows the old error until a full reload.
- */
-export class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  override state: { error: Error | null } = { error: null }
-
-  static getDerivedStateFromError(error: Error): { error: Error } {
-    return { error }
-  }
-
-  override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[preview] a frame threw while rendering', error, info.componentStack)
-  }
-
-  override render(): ReactNode {
-    if (this.state.error) {
-      return (
-        <Button variant="destructive" size="panel"
-          type="button"
-          className="block text-left"
-          onClick={() => this.setState({ error: null })}
-          title="Render this frame again — use it after fixing the cause."
-        >
-          This screen threw while rendering: {this.state.error.message}
-          <span className="mt-1 block text-muted-foreground">Click to retry.</span>
-        </Button>
-      )
-    }
-    return this.props.children
-  }
-}
-
 
 /**
  * Mount a production screen: the store under it, the app's window mode around
@@ -1197,3 +1192,5 @@ export const Mount = ({ children }: { children: ReactNode }) => (
     </AppWindowMode.Provider>
   </StoreProvider>
 )
+
+export { Boundary }

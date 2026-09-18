@@ -2,10 +2,6 @@
   "version": 1,
   "surfaces": [
     {
-      "id": "surface.dashboard",
-      "implementationPath": "packages/ui/src/design/showcase/Showcase.tsx"
-    },
-    {
       "id": "surface.group",
       "implementationPath": "packages/ui/src/components/TeamBoardPane.tsx"
     },
@@ -27,7 +23,7 @@
     },
     {
       "id": "surface.panels",
-      "implementationPath": "packages/ui/src/design/showcase/PanelPlayground.tsx"
+      "implementationPath": "packages/ui/src/panels/Workbench.tsx"
     },
     {
       "id": "surface.propagation",
@@ -35,7 +31,7 @@
     },
     {
       "id": "surface.tools",
-      "implementationPath": "packages/ui/src/design/showcase/ToolsPage.tsx"
+      "implementationPath": "packages/ui/src/components/BrowserPane.tsx"
     }
   ]
 }

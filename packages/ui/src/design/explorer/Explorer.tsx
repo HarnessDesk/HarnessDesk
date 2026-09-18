@@ -1,13 +1,12 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 
+import { Boundary } from '../../preview/boundary'
+import { PropagationPage } from '../showcase/PropagationPage'
+
 import { Button, Input } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
 import { COMPOSITION_BOARDS } from './boards-compositions'
-import { PanelPlayground } from '../showcase/PanelPlayground'
-import { PropagationPage } from '../showcase/PropagationPage'
-import { Showcase } from '../showcase/Showcase'
-import { ToolsPage } from '../showcase/ToolsPage'
 
 /**
  * The whole-screen surfaces, behind a split.
@@ -24,7 +23,9 @@ const ComposerSurface = lazy(() => surfaceModule().then((m) => ({ default: m.Com
 const ConversationSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ConversationSurface })))
 const GitSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => surfaceModule().then((m) => ({ default: m.GroupSurface })))
+const PanelsSurface = lazy(() => surfaceModule().then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => surfaceModule().then((m) => ({ default: m.RailSurface })))
+const ToolsSurface = lazy(() => surfaceModule().then((m) => ({ default: m.ToolsSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -100,13 +101,6 @@ const DIALS = [
  */
 const SURFACES = [
   {
-    id: 'showcase',
-    title: 'Dashboard',
-    about:
-      'A page that does not exist, built only out of parts that do. Every board here shows a component against a plain ground with its states beside it, which is the right way to check one and a poor way to judge one: a stat tile that looks confident alone can be illegible in a row of four. The knobs below change the composition; the bar above changes the design underneath it.',
-    render: Showcase,
-  },
-  {
     id: 'group',
     title: 'Group project',
     about:
@@ -146,21 +140,21 @@ const SURFACES = [
     title: 'Panels',
     about:
       'The panel system, driven by nothing but itself: the real chrome over the real model, with `useState` where the app has a store and coloured stubs where the app has features. That is the argument, made by construction — if docking, resizing, collapsing and expanding all work with no store, no socket and no agent, then the model owes nothing to the features and a feature owes nothing to its position. Drag a tab onto another area; only the areas that view declares will light up. Press Expand twice. Collapse the bottom panel and note that its tabs stay, because that is the way back.',
-    render: PanelPlayground,
-  },
-  {
-    id: 'propagation',
-    title: 'Foundation propagation',
-    about:
-      'The deterministic browser-integration surface: real Settings furniture, Composer, portal dialog, menu, board, CodeMirror, and the xterm option bridge under one test-only token scope.',
-    render: PropagationPage,
+    render: PanelsSurface,
   },
   {
     id: 'tools',
     title: 'Browser · Terminal · Editor',
     about:
       'Every tool in the frame they share. What differs between the panes is only what a terminal genuinely is versus what a browser genuinely is; everything else — the header, the mark, the subject line, the tab strip, whether the body pads or bleeds — is one component, which is what stops five panes drifting into five layouts.',
-    render: ToolsPage,
+    render: ToolsSurface,
+  },
+  {
+    id: 'propagation',
+    title: 'Foundation propagation',
+    about:
+      'Not a screen — a test rig, kept on this page because two browser specs drive it. Every part of it is a production implementation (Settings furniture, Composer, a portal dialog, a menu, a board, CodeMirror, the xterm option bridge) gathered under one test-only token scope, so that one token change can be shown reaching all of them at once.',
+    render: PropagationPage,
   },
 ] as const
 
@@ -383,15 +377,24 @@ export const Explorer = () => {
             <>
               <h1 className={styles.boardTitle}>{surface.title}</h1>
               <p className={styles.boardAbout}>{surface.about}</p>
-              <Suspense fallback={<p className={styles.boardAbout}>Mounting the screen…</p>}>
-                <surface.render />
-              </Suspense>
+              <Boundary key={surface.id}>
+                <Suspense fallback={<p className={styles.boardAbout}>Mounting the screen…</p>}>
+                  <surface.render />
+                </Suspense>
+              </Boundary>
             </>
           ) : board ? (
             <>
               <h1 className={styles.boardTitle}>{board.title}</h1>
               <p className={styles.boardAbout}>{board.about}</p>
-              <board.render />
+              {/* One board's crash is one board's crash. Without this an
+                  uncaught render error unmounts the whole explorer, and every
+                  tab after the broken one disappears with it — which is how a
+                  bad icon board once took thirty tabs down with it. Keyed so a
+                  latched error clears when you move to another board. */}
+              <Boundary key={board.id}>
+                <board.render />
+              </Boundary>
             </>
           ) : (
             <FoundationBoard />

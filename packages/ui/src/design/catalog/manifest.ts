@@ -88,14 +88,19 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
-  badge: 'packages/ui/src/design/showcase/ToolsPage.tsx',
+  /* Shown on the compositions board, beside the panes it resizes. Its example
+     used to be `showcase/PanelPlayground.tsx`, where coloured rectangles stood
+     in for every feature — so the handle was documented against a drawing of
+     the thing it drags. */
+  'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   card: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'hover-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   input: 'packages/ui/src/design/explorer/boards.tsx',
   'radio-group': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'scroll-area': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   select: 'packages/ui/src/design/explorer/boards-compositions.tsx',
-  tabs: 'packages/ui/src/design/showcase/ToolsPage.tsx',
+  tabs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   textarea: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   toast: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   tooltip: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -107,11 +112,11 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
    the named interactive board but is not expressed as CVA axes. */
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'alert-dialog', 'avatar', 'avatar-stack', 'board',
-  'breadcrumb', 'browser-chrome', 'card', 'chart', 'checkbox', 'composer',
+  'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'dropdown-menu', 'empty-state', 'field',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
-  'spark', 'stepper', 'table', 'toast', 'tool-pane', 'turn', 'tooltip',
+  'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'DockPanel', 'PublicationCard', 'RefusedAction',
 ])
@@ -131,7 +136,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   board: ['default'],
   breadcrumb: ['default'],
   button: ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
-  'browser-chrome': ['default'],
   card: ['default'],
   chart: ['default'],
   checkbox: ['default'],
@@ -198,7 +202,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   board: ['default', 'loading', 'empty', 'populated'],
   breadcrumb: ['default', 'active'],
   button: ['default', 'hover', 'focus-visible', 'disabled'],
-  'browser-chrome': ['default', 'loading', 'error'],
   card: ['default', 'hover', 'selected'],
   chart: ['default', 'loading', 'empty', 'populated'],
   checkbox: ['unchecked', 'checked', 'indeterminate', 'focus-visible', 'disabled'],
@@ -286,6 +289,11 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  /* The workbench is the example: it is what docks, seams and expands, and the
+     Panels surface mounts exactly this file. The old example was the
+     playground, which drove the same model with coloured rectangles standing
+     in for every feature. */
+  DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
@@ -351,7 +359,6 @@ export const CANONICAL_UI_MODULES = [
   ['board', 'kanban', 'Scrollable board and columns'],
   ['breadcrumb', 'adopted', 'Hierarchical location trail'],
   ['button', 'button', 'All action and icon buttons'],
-  ['browser-chrome', 'tools', 'First-party browser frame'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
   ['composer', 'composer', 'Shared composer presentation shell'],
@@ -390,7 +397,6 @@ export const CANONICAL_UI_MODULES = [
   ['toggle-group', 'control', 'Segmented and multi-toggle behavior'],
   ['tool-pane', 'tools', 'Shared tool-pane chrome'],
   ['tone', 'foundation', 'Typed semantic tone mapping'],
-  ['turn', 'conversation', 'Transcript turn anatomy'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
 ] as const satisfies readonly ModuleSeed[]
 
@@ -427,15 +433,14 @@ export const CANONICAL_PATTERN_MODULES = [
  * it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
-  ['surface.dashboard', 'showcase', 'Composed dashboard', 'packages/ui/src/design/showcase/Showcase.tsx', true],
   ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
   ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
   ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx'],
   ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx'],
   ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/components/GitPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
-  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/design/showcase/PanelPlayground.tsx', true],
+  ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx'],
   ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
-  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/design/showcase/ToolsPage.tsx', true],
+  ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx'],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
