@@ -1,7 +1,6 @@
 import { expect, it } from 'vitest'
 
 import host from './Workbench.module.css?raw'
-import prototype from '../design/showcase/panel-playground.module.css?raw'
 
 /**
  * How a panel hides the views that are not in front.
@@ -24,9 +23,10 @@ import prototype from '../design/showcase/panel-playground.module.css?raw'
  *                             its whole screen coming back; a webview tears
  *                             down its surface and returns blank.
  *
- * The prototype in the design explorer draws the same layers, and the two
- * files have to agree about this or the surface built to validate the panel
- * system stops predicting it.
+ * This used to assert the same three properties twice — once here and once in
+ * the design explorer's panel prototype, which drew its own copy of the layers
+ * and had to be kept in step. The prototype is gone: the Panels surface mounts
+ * this file now, so there is one set of layers and nothing to keep in step.
  */
 
 /* The declarations only — the comment inside this rule names `display: none`
@@ -39,10 +39,7 @@ const hiddenLayerRule = (css: string): string => {
 }
 
 it('a hidden layer is invisible, moved out of the way, and still has a size', () => {
-  for (const [name, css] of [
-    ['the app', host],
-    ['the prototype', prototype],
-  ] as const) {
+  for (const [name, css] of [['the app', host]] as const) {
     const rule = hiddenLayerRule(css)
     expect(rule, `${name}: a hidden layer must leave the focus order`).toContain('visibility: hidden')
     expect(rule, `${name}: a webview ignores ancestor visibility, so move it out of the clip`).toContain(
@@ -89,34 +86,30 @@ const atRules = (sheet: string): string[] => {
 /** A sheet as the flat matcher can read it: no comments, and no at-rule blocks, which it would read into. */
 const flat = (sheet: string): string => atRules(bare(sheet)).reduce((rest, block) => rest.replace(block, ''), bare(sheet))
 
-it('collapses a panel to its tabs in the sidebar only, and the two sheets agree (review of #183, rounds 5 and 6)', () => {
+it('collapses a panel to its tabs in the sidebar only (review of #183, rounds 5 and 6)', () => {
   // The rule matcher below is flat: a [data-collapsed] rule inside an at-rule, or nested in another rule,
   // would drop out of the comparison without a word. An at-rule holding one fails here, and the rest are taken
   // out before the matcher reads, as the workbench's reduced-motion block is (#192); nesting fails outright.
   // Read without comments, so a comment that only mentions an at-rule isn't one (round 7).
-  for (const sheet of [host, prototype]) {
-    for (const block of atRules(bare(sheet))) expect(block).not.toContain('[data-collapsed]')
-    expect(flat(sheet)).not.toMatch(/\{[^}]*\{|&/)
-  }
+  for (const block of atRules(bare(host))) expect(block).not.toContain('[data-collapsed]')
+  expect(flat(host)).not.toMatch(/\{[^}]*\{|&/)
   const collapsing = (sheet: string) =>
     [...flat(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
       .filter((rule) => /flex:\s*none/.test(rule[2] ?? ''))
       .flatMap((rule) => (rule[1] ?? '').split(',').map((selector) => selector.trim()))
       .filter((selector) => selector.includes('[data-collapsed]'))
   expect(collapsing(host).length).toBeGreaterThan(0)
-  expect(collapsing(prototype)).toEqual(collapsing(host))
   // Only the sidebar lays its panels out in a column. In the row docks, flex: none gives back width,
   // and a collapsed bottom strip shrank to its tabs (353 px of 1199 in the app).
   for (const selector of collapsing(host)) expect(selector.startsWith('.sidebar ')).toBe(true)
 })
 
-it('both splits give the seam a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {
+it('the seam has a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {
   const hitArea = (sheet: string) =>
     [...flat(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
       .filter((rule) => (rule[1] ?? '').includes('.splitSeam::after'))
       .map((rule) => `${(rule[1] ?? '').trim()} { ${(rule[2] ?? '').trim().replace(/\s+/g, ' ')} }`)
   expect(hitArea(host)).toHaveLength(3)
-  expect(hitArea(prototype)).toEqual(hitArea(host))
   expect(hitArea(host).join('\n')).toContain('inset: 0 -4px')
   expect(hitArea(host).join('\n')).toContain('inset: -4px 0')
 })

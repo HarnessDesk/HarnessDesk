@@ -218,7 +218,9 @@ What floats, and how far. A menu sits just off the surface; a dialog sits over t
 | --- | --- |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
 | `--hd-shadow-sm` | `0 1px 2px rgba(0, 0, 0, 0.08)` |
+| `--hd-shadow-raised` | `0 2px 10px rgba(0, 0, 0, 0.08)` |
 | `--hd-shadow` | `0 6px 24px rgba(0, 0, 0, 0.16)` |
+| `--hd-shadow-notice` | `0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08)` |
 | `--hd-shadow-lg` | `0 24px 60px rgba(0, 0, 0, 0.3)` |
 
 ### Focus
@@ -246,7 +248,10 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-header` | `30` |
 | `--hd-z-notice` | `35` |
 | `--hd-z-drawer` | `40` |
+| `--hd-z-window` | `45` |
+| `--hd-z-palette` | `47` |
 | `--hd-z-popover` | `50` |
+| `--hd-z-sheet` | `60` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |
 
@@ -946,6 +951,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `looseIcon` | 0 | Makes "change the icon set" a search across the app instead of one edit. |
 | `danglingToken` | 0 | A silent no-op: the declaration does nothing. |
 | `crossImport` | 0 | Rebuilding one screen changes another. |
+| `rawZIndex` | 0 | Two layers claim the same plane, and the one that wins is the one written later. |
 | `rawRadius` | 0 | Will not follow a shape change. |
 | `offGrid` | 0 | Will not follow a density change. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |

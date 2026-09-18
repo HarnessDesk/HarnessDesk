@@ -230,7 +230,7 @@ a:hover {
   top: 46px;
   left: 0;
   right: 0;
-  z-index: 35;
+  z-index: var(--hd-z-notice);
   display: flex;
   flex-direction: column;
   align-items: center;

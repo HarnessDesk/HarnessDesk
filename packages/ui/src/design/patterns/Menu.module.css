@@ -39,7 +39,7 @@
   border-radius: var(--hd-radius);
   background: var(--hd-card);
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.2),
+    var(--hd-shadow), /* desk: 0 10px 30px rgba(0,0,0,.2) -> one floating rung */
     inset 0 0 0 1px var(--hd-border-strong);
 }
 

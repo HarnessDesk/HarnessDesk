@@ -163,9 +163,13 @@ test('every catalogued case composes to the recorded number', async ({ page }, t
 
   const measured: Record<string, unknown> = {}
   const collisions: string[] = []
+  /* The body's size on each view, so a drifted `text` says whether the
+     component moved or the page it inherits from did. */
+  const bodyText: Record<string, string> = {}
   for (const view of views) {
     await page.goto(`/design.html?view=${view}`)
     await settle(page)
+    bodyText[view] = await page.evaluate(() => getComputedStyle(document.body).fontSize)
     // A board that renders nothing measurable is not a failure; a board that
     // fails to render is, and the error surfaces as a missing key below.
     const cases = await page.locator('[data-catalog-variant], [data-catalog-size]').evaluateAll(nodes => {
@@ -212,7 +216,9 @@ test('every catalogued case composes to the recorded number', async ({ page }, t
   const recorded = JSON.parse(readFileSync(TABLE, 'utf8'))
   const drift = Object.entries(measured)
     .filter(([key, value]) => JSON.stringify(recorded[key]) !== JSON.stringify(value))
-    .map(([key, value]) => `${key}\n  recorded ${JSON.stringify(recorded[key])}\n  measured ${JSON.stringify(value)}`)
+    .map(([key, value]) =>
+      `${key}\n  recorded ${JSON.stringify(recorded[key])}\n  measured ${JSON.stringify(value)}` +
+        `  (body ${bodyText[key.split('/')[0]!] ?? '?'} on this view)`)
   const gone = Object.keys(recorded).filter(key => !(key in measured))
   await testInfo.attach('metrics', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
   expect(
