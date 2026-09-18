@@ -139,8 +139,115 @@ const filesIn = (suffix, reject = () => false) =>
 const cssFiles = () => filesIn('.css')
 const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 
-/** Strip comments so prose about a value is not counted as the value. */
-const bare = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '')
+/*
+ * Where a CSS string that opens at `start` ends: past its closing quote, with
+ * escapes skipped — or at an unescaped newline, which ends a string by the
+ * grammar and keeps one stray quote from swallowing a whole stylesheet.
+ */
+const stringEnd = (text, start) => {
+  const quote = text[start]
+  let index = start + 1
+  while (index < text.length) {
+    const char = text[index]
+    if (char === '\\') index += 2
+    else if (char === quote) return index + 1
+    else if (char === '\n') return index
+    else index += 1
+  }
+  return text.length
+}
+
+/* Whether a `url(` token opens at `index` — the function name itself, not the
+   end of some longer identifier. */
+const urlAt = (text, index) =>
+  (text[index] === 'u' || text[index] === 'U') &&
+  /^url\(/i.test(text.slice(index, index + 4)) &&
+  !(index > 0 && /[\w-]/.test(text[index - 1]))
+
+/**
+ * Strip comments so prose about a value is not counted as the value.
+ *
+ * Only real comments. This was one pattern over the raw text, so a `/*`
+ * inside a string opened a "comment" that ran to the next `*\/` anywhere —
+ * `content: "/*"; color: red; content: "*\/"` lost the `color` between them,
+ * and a raw colour slipped past the audit (#762 review). So it scans: strings
+ * are copied whole, and an unquoted `url(...)` is copied through its `)`,
+ * because the grammar reads everything there as the address — a `/*` inside
+ * one is part of a path, not a comment.
+ */
+const bare = (css) => {
+  let out = ''
+  let index = 0
+  while (index < css.length) {
+    const char = css[index]
+    if (char === '"' || char === "'") {
+      const end = stringEnd(css, index)
+      out += css.slice(index, end)
+      index = end
+    } else if (char === '/' && css[index + 1] === '*') {
+      const close = css.indexOf('*/', index + 2)
+      index = close === -1 ? css.length : close + 2
+    } else if (urlAt(css, index)) {
+      let open = index + 4
+      while (/\s/.test(css[open] ?? '')) open += 1
+      if (css[open] === '"' || css[open] === "'") {
+        out += css.slice(index, open)
+        index = open
+      } else {
+        const close = css.indexOf(')', open)
+        const end = close === -1 ? css.length : close + 1
+        out += css.slice(index, end)
+        index = end
+      }
+    } else {
+      out += char
+      index += 1
+    }
+  }
+  return out
+}
+
+/*
+ * A value with its strings and every `url(...)` blanked — what is left is what
+ * the value itself says. A URL's payload is an image or a reference, never a
+ * colour of this stylesheet's, however much it looks like one; and the
+ * closing paren is found by depth outside strings, so a quoted payload that
+ * holds `translate(1)` does not end the URL early and leave its tail exposed
+ * (#762 review).
+ */
+const plainOf = (value) => {
+  let out = ''
+  let index = 0
+  while (index < value.length) {
+    const char = value[index]
+    if (char === '"' || char === "'") {
+      out += ' '
+      index = stringEnd(value, index)
+    } else if (urlAt(value, index)) {
+      let depth = 0
+      let at = index + 3
+      while (at < value.length) {
+        const inner = value[at]
+        if (inner === '"' || inner === "'") {
+          at = stringEnd(value, at)
+          continue
+        }
+        if (inner === '(') depth += 1
+        else if (inner === ')' && (depth -= 1) === 0) {
+          at += 1
+          break
+        }
+        at += 1
+      }
+      out += ' '
+      index = at
+    } else {
+      out += char
+      index += 1
+    }
+  }
+  return out
+}
 
 /**
  * Every declaration in a stylesheet, whatever its property.
@@ -171,30 +278,28 @@ export const declarationsOf = (css) => {
     if (declaration) found.push(declaration)
     buffer = ''
   }
-  let quote = null
   let depth = 0
-  for (let index = 0; index < text.length; index += 1) {
+  let index = 0
+  while (index < text.length) {
     const char = text[index]
-    if (quote) {
-      buffer += char
-      if (char === '\\' && index + 1 < text.length) buffer += text[(index += 1)]
-      else if (char === quote) quote = null
-    } else if (char === '"' || char === "'") {
-      quote = char
-      buffer += char
-    } else if (char === '(') {
-      depth += 1
-      buffer += char
-    } else if (char === ')') {
-      depth = Math.max(0, depth - 1)
-      buffer += char
-    } else if (depth === 0 && char === '{') {
+    if (char === '"' || char === "'") {
+      // the same notion of a string as `bare` and `plainOf` — one definition
+      const end = stringEnd(text, index)
+      buffer += text.slice(index, end)
+      index = end
+      continue
+    }
+    index += 1
+    if (char === '(') depth += 1
+    else if (char === ')') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && char === '{') {
       buffer = ''
+      continue
     } else if (depth === 0 && (char === ';' || char === '}')) {
       flush()
-    } else {
-      buffer += char
+      continue
     }
+    buffer += char
   }
   flush()
   return found
@@ -202,14 +307,10 @@ export const declarationsOf = (css) => {
 
 /* `property: value`, split at the first colon outside a string or parentheses. */
 const splitDeclaration = (raw) => {
-  let quote = null
   let depth = 0
   for (let index = 0; index < raw.length; index += 1) {
     const char = raw[index]
-    if (quote) {
-      if (char === '\\') index += 1
-      else if (char === quote) quote = null
-    } else if (char === '"' || char === "'") quote = char
+    if (char === '"' || char === "'") index = stringEnd(raw, index) - 1
     else if (char === '(') depth += 1
     else if (char === ')') depth = Math.max(0, depth - 1)
     else if (char === ':' && depth === 0) {
@@ -266,7 +367,7 @@ const AUTHOR_NAMES =
 
 /** Whether a value writes a colour out: hex, a colour function or a named colour, outside `url()` and strings. */
 export const rawColourIn = (value, { names = true } = {}) => {
-  const plain = value.replace(/url\([^)]*\)/gi, ' ').replace(/(["'])(?:\\.|(?!\1)[^\\])*\1/g, ' ')
+  const plain = plainOf(value)
   return (
     /#[0-9a-fA-F]{3,8}\b/.test(plain) ||
     /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i.test(plain) ||

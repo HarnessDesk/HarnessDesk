@@ -628,8 +628,9 @@ unable to see:
 
 - `rawColour` named five properties and `box-shadow` was not one of them, so ten
   hand-written shadows sat outside a count that said there were none. It now
-  reads every declaration, whatever its property, through a tokenizer that
-  knows a `;` inside a string or parentheses does not end one; and it counts
+  reads every declaration, whatever its property, through a scanner that knows
+  what a string, a comment and a `url()` are — a `;`, a `/*` or a `)` inside a
+  string ends nothing, and a URL's payload is never read as a colour; and it counts
   a colour however it is spelled — hex, a colour function, or a name like
   `red`. The exemptions are named rather than left out: masks, which read
   alpha, and — for colour names only — the properties whose values are names

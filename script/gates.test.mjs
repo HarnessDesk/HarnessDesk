@@ -1599,3 +1599,27 @@ test('a colour word is a name where authors write names (#762)', () => {
   assert.deepEqual(rawColours('.a { animation: pulse 1s #fff; }').map(({ property }) => property), ['animation'])
   assert.deepEqual(rawColours('.a { mask-image: linear-gradient(black, transparent); }'), [])
 })
+
+/* The second #762 re-review: two regex passes around the tokenizer did not
+   know what a string is — comment stripping, and `url()` blanking. */
+test('comment markers inside a string are not a comment (#762)', () => {
+  const css = '.a::before { content: "/*"; color: red; content: "*/"; }'
+  assert.deepEqual(declarationsOf(css).map(({ property }) => property), ['content', 'color', 'content'])
+  assert.deepEqual(rawColours(css).map(({ property }) => property), ['color'])
+  // a real comment still goes, apostrophe and all, without opening a string
+  assert.deepEqual(rawColours(".a { /* it's a note, don't count it: #fff */ color: red }").map(({ property }) => property), ['color'])
+  // an unquoted url() is an address: a `/*` there is a path, not a comment
+  assert.deepEqual(
+    declarationsOf('.a { background: url(img/*.png); color: red }').map(({ property }) => property),
+    ['background', 'color'],
+  )
+})
+
+test('a quoted url() ends at its own paren, not one inside its string (#762)', () => {
+  assert.deepEqual(rawColours(`.a { background: url("data:image/svg+xml,<svg transform='translate(1)' fill='red'/>"); }`), [])
+  assert.deepEqual(rawColours(".a { background: url('x(1).png') red; }").map(({ property }) => property), ['background'])
+})
+
+test('a stray quote ends at the line, and does not hide the rest of a stylesheet (#762)', () => {
+  assert.deepEqual(rawColours('.a { content: "unterminated\n  ; color: red }').map(({ property }) => property), ['color'])
+})
