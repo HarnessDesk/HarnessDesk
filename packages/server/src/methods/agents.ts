@@ -47,10 +47,10 @@ import {
   type SeatOffer,
   type SeatWords,
 } from '../agent-seating.js'
-import type { OpenedSeat } from '../host.js'
-import { knownAgent } from '../installs/known-agents.js'
 import { AGENT_FILE_LIMIT, PROJECT_AGENT_DIR } from '../agents.js'
 import { sameSeat } from '../flow.js'
+import type { OpenedSeat } from '../host.js'
+import { knownAgent } from '../installs/known-agents.js'
 import { SEAT_READ_DEADLINE_MS, within } from '../seat-reads.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
@@ -284,8 +284,11 @@ export const agentMethods = {
     const parsed = parseAgentDefinition(source, id)
     const unreadable = parsed.problems.find((one) => one.level === 'error')
     if (unreadable) throw new Error(`“${params.name}” cannot be saved: ${unreadable.at} — ${unreadable.text}`)
-    if (!parsed.agent || !sameSavedFields(parsed.agent, params.name, params.description ?? null, params.permission, prefer)) {
-      throw new Error(`“${params.name}” cannot be saved because its fields do not read back exactly as given.`)
+    const mismatched = parsed.agent
+      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.permission, prefer)
+      : 'definition'
+    if (mismatched) {
+      throw new Error(`“${params.name}” cannot be saved because its ${mismatched} does not read back exactly as given.`)
     }
     // A copy that would arrive already shadowed is invisible from the moment
     // it is written. Refused here, in `agent/copy`'s own words for the same mistake.
@@ -298,11 +301,8 @@ export const agentMethods = {
     // Unless this Save is itself replacing the entry, an older machine entry
     // would silently win over the `prefer` being written now.
     if (kept && !(params.to === 'project' && exact)) {
-      const desk = await readDesk(ctx, kept.seats)
-      const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
-      const seats = kept.seats.map((one) => describeSeat(one, words)).join(', ')
       throw new Error(
-        `This Mac already has seats for “${id}” (${seats}), and they would win over the one you are saving. Change or clear them on its page first, or pick another name.`,
+        `This Mac already has seats for “${id}”, and they would win over the one you are saving. Change or clear them on its page first, or pick another name.`,
       )
     }
     // This machine's seats must be readable before anything is written, when
@@ -544,7 +544,7 @@ const rootOf = async (ctx: HostContext, to: 'user' | 'project', project: string 
 }
 
 /** The exact entry just written, which the roster must now list and parse. */
-const found = (
+export const found = (
   entry: AgentEntry | null,
   expected: { readonly id: string; readonly origin: AgentOrigin; readonly path: string },
 ): AgentEntry => {
@@ -556,19 +556,21 @@ const found = (
   return entry
 }
 
-/** The fields Save owns must survive its own writer and parser byte for meaning. */
-const sameSavedFields = (
+/** Which field Save owns did not survive its own writer and parser byte for meaning. */
+const savedFieldMismatch = (
   definition: AgentDefinition,
   name: string,
   description: string | null,
   permission: AgentDefinition['permission'],
   prefer: readonly FlowSeat[],
-): boolean =>
-  definition.name === name &&
-  (definition.description ?? null) === description &&
-  definition.permission === permission &&
-  definition.prefer.length === prefer.length &&
-  definition.prefer.every((seat, index) => sameSeat(seat, prefer[index] ?? { runtime: '' }))
+): 'name' | 'description' | 'permission' | 'preferred seats' | null => {
+  if (definition.name !== name) return 'name'
+  if ((definition.description ?? null) !== description) return 'description'
+  if (definition.permission !== permission) return 'permission'
+  if (definition.prefer.length !== prefer.length) return 'preferred seats'
+  if (!definition.prefer.every((seat, index) => sameSeat(seat, prefer[index]!))) return 'preferred seats'
+  return null
+}
 
 /**
  * One Agent, weighed for `agent/seat/dry`: already blocked, or a candidate

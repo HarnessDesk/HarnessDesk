@@ -1,20 +1,21 @@
 import assert from 'node:assert/strict'
-import { lstat, mkdir, readFile, readdir, realpath, rename, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import {
   parseClientMessage,
+  ValidationError,
   type AgentEntry,
   type MachineSeating,
 } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from '../src/agent-def.js'
-import { agentIdOf, agentSource, copyAgentFolder, createAgentFolder, projectAgentDir } from '../src/agent-files.js'
+import { agentIdOf, agentSource, copyAgentFolder, createAgentFolder, projectAgentDir, writeAgentFolder } from '../src/agent-files.js'
 import { SEATING_FILE } from '../src/agent-seating-file.js'
 import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
 import { Host, StateStore, type HostOptions } from '../src/index.js'
-import { agentMethods } from '../src/methods/agents.js'
+import { agentMethods, found } from '../src/methods/agents.js'
 import type { HostContext } from '../src/methods/context.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { shippedAgentsCopy, silent } from './fixtures/harness.js'
@@ -119,6 +120,40 @@ test('a folder is copied whole, its links left behind, and never over one that i
   await assert.rejects(() => copyAgentFolder(from, to), /already an Agent called “scout”/)
 })
 
+test('a new Agent folder has the mode a plain mkdir in the same parent would have', async () => {
+  const root = tempDir('hd-agent-files-mode-')
+  const ordinary = join(root, 'ordinary')
+  await mkdir(ordinary)
+  await createAgentFolder(root, 'scout', '---\nname: Scout\n---\nLook.\n')
+
+  assert.equal((await stat(join(root, 'scout'))).mode & 0o777, (await stat(ordinary)).mode & 0o777)
+})
+
+test('a legal long Agent folder name can be customized without making an even longer temporary name', async () => {
+  const root = tempDir('hd-agent-files-long-')
+  const id = 'a'.repeat(240)
+  const from = join(root, 'from', id)
+  await mkdir(from, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Long Agent\n---\nLook.\n')
+  const to = join(root, 'to', id)
+
+  await copyAgentFolder(from, to)
+  assert.match(await readFile(join(to, 'AGENT.md'), 'utf8'), /Long Agent/)
+})
+
+test('an EEXIST raised while writing a temporary Agent keeps its real error instead of claiming the final name collided', async () => {
+  const root = tempDir('hd-agent-files-inner-collision-')
+  const inner = Object.assign(new Error('two source entries collided'), { code: 'EEXIST' })
+
+  await assert.rejects(
+    () => writeAgentFolder(root, 'scout', async () => Promise.reject(inner)),
+    (error: unknown) => {
+      assert.equal(error, inner)
+      return true
+    },
+  )
+})
+
 /**
  * Correction 5: the roster reads this machine's own folders straight through
  * a link at their top — a dotfiles checkout linked into place — so `from`
@@ -213,11 +248,44 @@ test('the wire and the handler both refuse an Agent name over 80 characters and 
   await assert.rejects(() => create({} as HostContext, request('Scout', 'x'.repeat(501)).params), /at most 500/)
 })
 
+test('the wire validates every Agent file verb before a handler can see it', () => {
+  const request = (method: string, params: unknown) => ({ id: 1, method, params })
+  const refused = [
+    request('agent/remove', { id: 'scout', origin: 'builtin' }),
+    request('agent/copy', { id: 'scout', from: 'builtin', to: 'builtin' }),
+    request('agent/create', { name: 42, permission: 'read', seat, to: 'user' }),
+    request('agent/copy', { id: 42, from: 'builtin', to: 'user' }),
+    request('agent/remove', { id: 'scout', origin: 'user', project: 42 }),
+    request('agent/reveal', { id: 'scout', origin: 42 }),
+  ]
+  for (const message of refused) assert.throws(() => parseClientMessage(message), ValidationError)
+})
+
+test('the entry returned after a write must have a definition, the requested origin, and the exact written path', () => {
+  const path = '/agents/scout/AGENT.md'
+  const definition = parseAgentDefinition('---\nname: Scout\n---\nLook.\n', 'scout').agent
+  assert.ok(definition)
+  const entry: AgentEntry = {
+    definition,
+    id: 'scout',
+    origin: 'user',
+    path,
+    digest: 'digest',
+    shadows: [],
+    problems: [],
+  }
+  const expected = { id: 'scout', origin: 'user' as const, path }
+
+  assert.throws(() => found({ ...entry, definition: null }, expected), /did not read back/)
+  assert.throws(() => found({ ...entry, origin: 'project' }, expected), /did not read back/)
+  assert.throws(() => found({ ...entry, path: '/agents/other/AGENT.md' }, expected), /did not read back/)
+})
+
 test('through the host: Save refuses fields that do not read back exactly and a source the roster would not read, before making a folder', async (t) => {
   const { stateDir, client, project } = await desk(t)
   await assert.rejects(
     client.call('agent/create', { name: ' Checker ', permission: 'read', seat, to: 'project', project }),
-    /do not read back exactly/,
+    /name does not read back exactly/,
   )
   assert.equal(
     await lstat(join(project, PROJECT_AGENT_DIR)).then(() => true, () => false),
@@ -274,6 +342,40 @@ test('a failed seat write removes the Agent this call made, without a recursive 
     /seat write failed/,
   )
   assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false), false)
+})
+
+test('rollback treats an already-removed Agent file as done and preserves the seating error', async () => {
+  const project = tempDir('hd-agent-rollback-missing-file-project-')
+  const folder = join(project, PROJECT_AGENT_DIR, 'scratch')
+  const { ctx } = await handlerDesk(project, async () => {
+    await unlink(join(folder, 'AGENT.md'))
+    throw new Error('seat write failed')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    (error: unknown) => {
+      assert.equal((error as Error).message, 'seat write failed')
+      return true
+    },
+  )
+  assert.equal(await lstat(folder).then(() => true, () => false), false)
+})
+
+test('rollback reports an unlink refusal without replacing the seating error', async () => {
+  const project = tempDir('hd-agent-rollback-unlink-refused-project-')
+  const folder = join(project, PROJECT_AGENT_DIR, 'scratch')
+  const { ctx } = await handlerDesk(project, async () => {
+    await chmod(folder, 0o500)
+    throw new Error('seat write failed')
+  })
+  try {
+    await assert.rejects(
+      () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+      /seat write failed.*left in place.*could not be removed/,
+    )
+  } finally {
+    await chmod(folder, 0o700)
+  }
 })
 
 test('rollback removes only its AGENT.md when another file appeared in the folder, and says why the folder stayed', async () => {
@@ -408,9 +510,24 @@ test('through the host: Save refuses this Mac’s older seats by name, before wr
       seat: { runtime: 'claude-code', model: 'opus-5' },
       to: 'user',
     }),
-    /This Mac already has seats for “checker” \(Fake Runtime · Fake One · High\), and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+    /This Mac already has seats for “checker”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
   )
   assert.equal(await lstat(join(stateDir, 'agents', 'checker')).then(() => true, () => false), false)
+})
+
+test('a stale-seat refusal does not read runtimes, accounts, catalogues or usage after deciding to refuse', async () => {
+  const project = tempDir('hd-agent-stale-seat-project-')
+  const { ctx } = await handlerDesk(
+    project,
+    async () => {
+      throw new Error('the seating writer must not be called')
+    },
+    [{ id: 'checker', seats: [{ runtime: 'fake', model: 'fake-1', effort: 'high' }] }],
+  )
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Checker', permission: 'read', seat, to: 'user' }),
+    /This Mac already has seats for “checker”, and they would win/,
+  )
 })
 
 /**
@@ -525,6 +642,18 @@ test('the Remove handler itself refuses a built-in Agent even when no wire valid
     /built-in Agent cannot be removed/,
   )
   assert.equal(trashed, false)
+})
+
+test('Remove and Reveal say that their OS action needs the desktop app when it is unavailable', async () => {
+  const ctx = { options: {} } as HostContext
+  await assert.rejects(
+    () => agentMethods['agent/remove'](ctx, { id: 'scout', origin: 'user' }),
+    /Moving an Agent to the Trash needs the desktop app/,
+  )
+  await assert.rejects(
+    () => agentMethods['agent/reveal'](ctx, { id: 'scout' }),
+    /Showing a file in the file browser needs the desktop app/,
+  )
 })
 
 test("through the host: a project Agent-directory placeholder is never copied, trashed or revealed as though it were an Agent", async (t) => {

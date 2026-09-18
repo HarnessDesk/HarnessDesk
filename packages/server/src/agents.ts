@@ -34,6 +34,9 @@ export interface AgentRoots {
 /** Where a project keeps the Agents it shares with everyone who clones it. */
 export const PROJECT_AGENT_DIR = join('.harnessdesk', 'agents')
 
+/** A sibling used while an Agent is assembled before its one final rename. */
+export const AGENT_TEMP_PREFIX = '.harnessdesk-agent-'
+
 const FILE = 'AGENT.md'
 
 /**
@@ -103,7 +106,9 @@ const idsIn = async (dir: string): Promise<string[]> => {
      answers as nothing. Dropping links here hid every linked Agent without a
      word. */
   return entries
-    .filter((one) => one.isDirectory() || one.isSymbolicLink())
+    // Hide only this module's transaction namespace. Other dot-prefixed names
+    // remain visible as broken Agents rather than silently disappearing.
+    .filter((one) => !one.name.startsWith(AGENT_TEMP_PREFIX) && (one.isDirectory() || one.isSymbolicLink()))
     .map((one) => one.name)
     .sort()
 }

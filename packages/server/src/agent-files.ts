@@ -1,10 +1,10 @@
 import { constants, type Stats } from 'node:fs'
-import { copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
 
-import { AGENT_FILE_LIMIT, PROJECT_AGENT_DIR } from './agents.js'
+import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, PROJECT_AGENT_DIR } from './agents.js'
 import { seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
@@ -122,6 +122,16 @@ const sameIdentity = (left: Identity, right: Stats): boolean => left.dev === rig
 const errnoOf = (error: unknown): string => String((error as { code?: unknown } | null)?.code ?? '')
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+type CheckedStat = { readonly at: 'found'; readonly info: Stats } | { readonly at: 'missing' } | { readonly at: 'error'; readonly reason: string }
+
+const checkedStat = async (path: string): Promise<CheckedStat> => {
+  try {
+    return { at: 'found', info: await lstat(path) }
+  } catch (error) {
+    return errnoOf(error) === 'ENOENT' ? { at: 'missing' } : { at: 'error', reason: messageOf(error) }
+  }
+}
+
 export interface CreatedAgentFolder {
   readonly path: string
   readonly root: string
@@ -155,7 +165,7 @@ const removeTemporary = async (root: string, rootIdentity: Identity, temporary: 
 }
 
 /** Builds a folder out of sight, then gives it its final name in one move. */
-const writeAgentFolder = async (
+export const writeAgentFolder = async (
   root: string,
   id: string,
   write: (temporary: string) => Promise<void>,
@@ -164,10 +174,15 @@ const writeAgentFolder = async (
   const folder = join(root, id)
   if (await exists(folder)) throw alreadyThere(root, id)
   const rootIdentity = identityOf(await lstat(root))
-  const temporary = await mkdtemp(join(root, `.harnessdesk-agent-${id}-`))
+  // The component has a fixed, short bound independent of `id`, so a legal
+  // long Agent name never makes the transaction name exceed NAME_MAX.
+  const temporary = await mkdtemp(join(root, AGENT_TEMP_PREFIX))
   const temporaryIdentity = identityOf(await lstat(temporary))
   let moved = false
   try {
+    // `mkdtemp` deliberately starts at 0700. The final Agent is an ordinary
+    // directory, so give it the mode `mkdir` would have under this process's umask.
+    await chmod(temporary, 0o777 & ~process.umask())
     await write(temporary)
     const currentRoot = await lstat(root)
     if (!sameIdentity(rootIdentity, currentRoot)) throw new Error(`${root} changed before the Agent could be put in place.`)
@@ -176,14 +191,18 @@ const writeAgentFolder = async (
       throw new Error(`${temporary} was replaced before the Agent could be put in place.`)
     }
     if (await exists(folder)) throw alreadyThere(root, id)
-    await rename(temporary, folder)
+    try {
+      await rename(temporary, folder)
+    } catch (error) {
+      if (['EEXIST', 'ENOTEMPTY'].includes(errnoOf(error))) throw alreadyThere(root, id)
+      throw error
+    }
     moved = true
   } catch (error) {
     if (!moved) {
       const left = await removeTemporary(root, rootIdentity, temporary, temporaryIdentity)
       if (left) throw new Error(`${messageOf(error)} The temporary Agent folder was left in place because ${left}.`)
     }
-    if (['EEXIST', 'ENOTEMPTY'].includes(errnoOf(error))) throw alreadyThere(root, id)
     throw error
   }
   const path = join(folder, 'AGENT.md')
@@ -283,21 +302,32 @@ export const rollbackCreatedAgent = async (created: CreatedAgentFolder, project:
     return messageOf(error)
   }
   if (root !== created.root) return 'the project now reaches a different Agent folder'
-  const rootInfo = await lstat(root).catch(() => null)
-  if (!rootInfo || !sameIdentity(created.rootIdentity, rootInfo)) return 'the project Agent folder was replaced'
+  const rootRead = await checkedStat(root)
+  if (rootRead.at === 'error') return `the project Agent folder could not be checked: ${rootRead.reason}`
+  if (rootRead.at === 'missing' || !sameIdentity(created.rootIdentity, rootRead.info)) return 'the project Agent folder was replaced'
   const folder = dirname(created.path)
-  const folderInfo = await lstat(folder).catch(() => null)
-  if (!folderInfo) return null
-  if (!sameIdentity(created.folderIdentity, folderInfo)) return 'the Agent folder was replaced'
-  const fileInfo = await lstat(created.path).catch(() => null)
-  if (!fileInfo) return 'the Agent file was already removed while its folder stayed'
-  if (!sameIdentity(created.fileIdentity, fileInfo)) return 'the Agent file was replaced'
-  await unlink(created.path)
+  const folderRead = await checkedStat(folder)
+  if (folderRead.at === 'error') return `the Agent folder could not be checked: ${folderRead.reason}`
+  if (folderRead.at === 'missing') return null
+  if (!sameIdentity(created.folderIdentity, folderRead.info)) return 'the Agent folder was replaced'
+  const fileRead = await checkedStat(created.path)
+  if (fileRead.at === 'error') return `the Agent file could not be checked: ${fileRead.reason}`
+  if (fileRead.at === 'found' && !sameIdentity(created.fileIdentity, fileRead.info)) return 'the Agent file was replaced'
+  if (fileRead.at === 'found') {
+    try {
+      await unlink(created.path)
+    } catch (error) {
+      if (errnoOf(error) !== 'ENOENT') return `the Agent file could not be removed: ${messageOf(error)}`
+    }
+  }
   try {
     await rmdir(folder)
     return null
   } catch (error) {
-    if (errnoOf(error) === 'ENOTEMPTY') return 'the Agent folder changed after it was written'
-    throw error
+    const code = errnoOf(error)
+    if (code === 'ENOENT') return null
+    if (code === 'ENOTEMPTY' || code === 'EEXIST') return 'the Agent folder changed after it was written'
+    if (code === 'ENOTDIR') return 'the Agent folder was replaced before cleanup'
+    return `the Agent folder could not be removed: ${messageOf(error)}`
   }
 }
