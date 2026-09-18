@@ -2,7 +2,18 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ContextMenu, Menu, MenuItem, MenuNote, MenuToggle, Submenu, dismissOverlays, useContextMenu } from '../design'
+import {
+  ContextMenu,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuNote,
+  MenuToggle,
+  PopoverFilterInput,
+  Submenu,
+  dismissOverlays,
+  useContextMenu,
+} from '../design'
 
 /**
  * The menu's contract, exercised through the DOM: a row closes the menu or
@@ -230,6 +241,117 @@ describe('Submenu', () => {
     key(row('Effort'), 'ArrowDown')
     expect(document.activeElement).toBe(row('Manage'))
     expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('↓ on its row stops where the menu’s own ↓ stops: on a row disabled for a reason, past one that cannot take the focus', () => {
+    // The choices come in groups, as a select's do.
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+          <div>
+            <MenuLabel>Cloud</MenuLabel>
+            <MenuItem label="Terra" selected={false} disabled="Needs a plan." onSelect={() => {}} />
+            <MenuItem label="Sol" selected={false} onSelect={() => {}} />
+          </div>
+          <div>
+            <MenuLabel>Local</MenuLabel>
+            <MenuItem label="Mini" selected={false} disabled="Needs a plan." onSelect={() => {}} />
+            <MenuItem label="Nano" selected={false} onSelect={() => {}} />
+          </div>
+        </Menu>,
+      )
+    })
+    // The menu's own ↓ stops on a row disabled for a reason — it keeps the
+    // focus, so the reason can be read — and so does ↓ on the row.
+    act(() => row('Sol').focus())
+    key(row('Sol'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Mini'))
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Terra'))
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+
+    // None of this app's rows is natively disabled, but one that cannot take
+    // the focus — natively disabled, or not drawn — the menu passes by, and
+    // so does the row.
+    row('Terra').disabled = true
+    row('Mini').disabled = true
+    act(() => row('Sol').focus())
+    key(row('Sol'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Nano'))
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Sol'))
+    row('Sol').style.display = 'none'
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Nano'))
+  })
+
+  it('↓ on the last row goes round to the first row the menu can focus', () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <MenuItem label="Gone" onSelect={() => {}} />
+          <MenuItem label="Locked" disabled="Not on this plan." onSelect={() => {}} />
+          <MenuItem label="Plain" onSelect={() => {}} />
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    row('Gone').disabled = true
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowDown')
+    expect(document.activeElement).toBe(row('Locked'))
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('→ lands past a first row that cannot take the focus', async () => {
+    const sheet = document.head.appendChild(document.createElement('style'))
+    sheet.textContent = '.gone { display: none }'
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="Effort">
+            <MenuItem label="Gone" className="gone" selected={false} onSelect={() => {}} />
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('Effort').focus())
+    key(row('Effort'), 'ArrowRight')
+    await frame()
+    expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(row('Low'))
+    sheet.remove()
+  })
+
+  it('→ leaves the focus in a flyout that took it itself — its filter field', async () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <Submenu label="More models">
+            {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+            <PopoverFilterInput autoFocus placeholder="Type to filter" />
+            <MenuItem label="Tiny" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    await frame()
+    act(() => row('More models').focus())
+    key(row('More models'), 'ArrowRight')
+    await frame()
+    await frame()
+    expect(row('More models').getAttribute('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(document.querySelector('input[placeholder="Type to filter"]'))
   })
 
   it('→ opens it onto its first choice, past the note above it', async () => {

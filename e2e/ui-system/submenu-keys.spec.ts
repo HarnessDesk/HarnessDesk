@@ -95,3 +95,42 @@ test('↓ from a row whose flyout the pointer opened moves on and closes it', as
   await expect(manageModels(page)).toBeFocused()
   await expect(level(page, /^Low/)).toBeHidden()
 })
+
+test.describe('with the flyout’s own motion', () => {
+  // The flyout takes 150ms to come in and 150ms to go; the suite otherwise
+  // runs with motion reduced, which would leave no time between the two.
+  test.use({ reducedMotion: 'no-preference' })
+
+  test('keys pressed back to back, while the flyout is still coming or going, end where they say', async ({ page }) => {
+    await openFromTheKeyboard(page)
+
+    // → and at once Escape, or ←: the flyout is still coming in.
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Escape')
+    await expect(level(page, /^Low/)).toBeHidden()
+    await expect(reasoningRow(page)).toBeFocused()
+    await expect(modelControl(page)).toHaveAttribute('data-open', '')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowLeft')
+    await expect(level(page, /^Low/)).toBeHidden()
+    await expect(reasoningRow(page)).toBeFocused()
+
+    // Escape, or ←, and at once →: the flyout is still going.
+    await page.keyboard.press('ArrowRight')
+    await expect(level(page, /^Low/)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('ArrowRight')
+    await expect(level(page, /^Low/)).toBeFocused()
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowRight')
+    await expect(level(page, /^Low/)).toBeFocused()
+
+    // Escape and at once ↓: the row has the focus back before the flyout has
+    // gone, so ↓ moves on from it.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('ArrowDown')
+    await expect(manageModels(page)).toBeFocused()
+    await expect(level(page, /^Low/)).toBeHidden()
+    await expect(modelControl(page)).toHaveAttribute('data-open', '')
+  })
+})

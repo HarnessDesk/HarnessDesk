@@ -43,10 +43,31 @@ export const useMenuClose = (): (() => void) => useScope().close
 
 const ROW_SELECTOR = '[role^="menuitem"]:not([disabled]),[role="switch"]:not([disabled])'
 
-/** The rows a menu's arrows visit — Base UI's navigation stops on a disabled row too. */
+/**
+ * The rows a menu's arrows visit. A row disabled for a reason is one: it is
+ * `aria-disabled`, not natively disabled, so it keeps the focus and its
+ * reason can be read — Base UI's navigation stops on it too.
+ */
 const LEVEL_ROW = '[role^="menuitem"],[role="switch"]'
 
-/** Where → lands in a flyout: its first row that is on — never a note or a label. */
+/**
+ * A row the arrows pass by, by Base UI's own rule (`isListIndexDisabled`,
+ * `isElementVisible`): one that cannot take the focus — natively disabled,
+ * or not drawn.
+ */
+const passedOver = (element: HTMLElement): boolean => {
+  if (element.matches(':disabled') || !element.isConnected) return true
+  const style = getComputedStyle(element)
+  if (style.visibility === 'hidden' || style.visibility === 'collapse') return true
+  if (typeof element.checkVisibility === 'function') return !element.checkVisibility()
+  return style.display === 'none' || style.display === 'contents'
+}
+
+/**
+ * Where → lands in a flyout: its first row that is on — never a note or a
+ * label, nor a row disabled for a reason. → goes in to choose; the arrows
+ * inside still stop on those rows.
+ */
 const FIRST_ROW =
   '[role^="menuitem"]:not([disabled]):not([aria-disabled="true"]),[role="switch"]:not([disabled]):not([aria-disabled="true"])'
 
@@ -295,7 +316,8 @@ export const Submenu = ({
     let frame = 0
     let waited = 0
     const land = (): void => {
-      const first = flyout.current?.querySelector<HTMLElement>(FIRST_ROW)
+      const rows = flyout.current?.querySelectorAll<HTMLElement>(FIRST_ROW) ?? []
+      const first = [...rows].find((candidate) => !passedOver(candidate))
       if (!first) {
         if (waited++ < 3) frame = requestAnimationFrame(land)
         return
@@ -342,18 +364,19 @@ export const Submenu = ({
         onKeyDown={(event) => {
           // ↓ is the menu's key, not a way into the flyout. Base UI's own
           // handler for it is skipped, and with it — the skip is carried on
-          // the event as it bubbles — the menu's, so the step is taken here:
-          // the next row of this level, round to the first as the menu loops.
-          // ↑ never opened the flyout and is left to the menu.
+          // the event as it bubbles — the menu's, so the step is taken here,
+          // by the menu's rule: the next row of this level that can take the
+          // focus, round to the first as the menu loops. ↑ never opened the
+          // flyout and is left to the menu.
           if (event.key !== 'ArrowDown') return
           ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
-          const level = event.currentTarget.closest<HTMLElement>('[role="menu"]')
-          const rows = level ? [...level.querySelectorAll<HTMLElement>(LEVEL_ROW)] : []
-          const next = rows[(rows.indexOf(event.currentTarget) + 1) % rows.length]
-          if (!next) return
           event.preventDefault()
           event.stopPropagation()
-          next.focus()
+          const level = event.currentTarget.closest<HTMLElement>('[role="menu"]')
+          const rows = level ? [...level.querySelectorAll<HTMLElement>(LEVEL_ROW)] : []
+          const at = rows.indexOf(event.currentTarget)
+          const onward = [...rows.slice(at + 1), ...rows.slice(0, Math.max(at, 0))]
+          onward.find((candidate) => !passedOver(candidate))?.focus()
         }}
       >
         {icon !== undefined && <span className={styles.icon}>{icon}</span>}
