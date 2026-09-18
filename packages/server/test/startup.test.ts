@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -103,5 +103,52 @@ test('a runtime that arrives late is still announced', async (t) => {
     seen.map((health) => health.state),
     ['ready'],
     'and said so on the channel the window listens to',
+  )
+})
+
+/** Every error the host logs, whichever scope it logs it under. */
+class ErrorsKept extends Logger {
+  readonly errors: { message: string; details?: unknown }[] = []
+  constructor() {
+    super('test', { level: 'error', console: false })
+  }
+  override child(): Logger {
+    return this
+  }
+  override error(message: string, details?: unknown): void {
+    this.errors.push({ message, details })
+  }
+}
+
+test('a folder of flow runs that cannot be read does not hold the app shut', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-startup-'))
+  /* A folder that points at itself: every open of it is ELOOP, for any user —
+     root included, whom a mode-000 folder would not refuse. */
+  const runs = join(stateDir, 'flows')
+  await symlink(runs, runs)
+  const logger = new ErrorsKept()
+  const host = new Host({
+    logger,
+    state: new StateStore(join(stateDir, 'state.json')),
+    startTimeoutMs: 40,
+    catalogRefreshMs: 0,
+  })
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+
+  /* Raised out of `load`, and not out of here: one folder that will not open
+     costs flows, not every conversation and room on the desk, which is what a
+     rejection here costs — the shell answers it with "could not start" and
+     quits. */
+  await host.start()
+
+  /* Where somebody meets it: starting a flow, the one thing a desk that cannot
+     read its runs must not do. The refusal carries the reason. */
+  await assert.rejects(host.call('flow/start', { room: 'any', source: 'name: Tidy' }), /ELOOP/)
+  assert.ok(
+    logger.errors.some((line) => JSON.stringify(line.details).includes('ELOOP')),
+    'and the log records it as an error, with the reason',
   )
 })

@@ -749,8 +749,19 @@ export class Host {
     /* After the rooms, because a run reconciles against the board it left
        behind: a quit between the last card of a round finishing and the next
        round opening is a run that has to be asked, on this launch, whether
-       its board moved on without it. */
-    await this.#flows.load()
+       its board moved on without it.
+
+       And caught, not let through: a folder of runs that will not open costs
+       flows, not the desk. Let through, it would cost every conversation and
+       every room — the shell answers a start that rejects with "could not
+       start" and quits — the way one silent runtime once held the whole app
+       shut. The engine keeps the reason and refuses to start a flow with it,
+       which is where somebody meets it; this line is the record. */
+    await this.#flows.load().catch((error: unknown) => {
+      this.#logger.error('the flow runs this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.

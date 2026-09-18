@@ -293,7 +293,9 @@ a running flow: stop it, edit, start again. Stopping keeps the cards as the
 record and tells every seat to stand down.
 
 A room runs one flow at a time. Two would open cards into one board and neither
-could tell which were its own.
+could tell which were its own. For the same reason, a desk that cannot read the
+runs it keeps starts none until it can: it could not tell whether a room is
+already running one. The refusal names the folder and the reason.
 
 ---
 
