@@ -465,7 +465,9 @@ const runPrompt = async (id, params) => {
   // `deleg spawn` starts one and leaves it running; `deleg finish` reports the
   // same id as completed, which a later turn can do — that is the sequence
   // that put a second row on the wrong turn. `deleg floor` reports a child
-  // whose output count is still a streaming placeholder.
+  // whose output count is still a streaming placeholder. `deleg refused` and
+  // `deleg cancelled` report a running child and then end the turn some way
+  // other than as asked: the row is there, and the turn is not a finished one.
   if (text.startsWith('deleg ')) {
     const [, verb] = text.split(/\s+/)
     const one = (over) => ({
@@ -477,7 +479,7 @@ const runPrompt = async (id, params) => {
       calls: 1,
       ...over,
     })
-    if (verb === 'spawn') {
+    if (verb === 'spawn' || verb === 'refused' || verb === 'cancelled') {
       notify('_harnessdesk/delegation/changed', {
         sessionId: state.id,
         delegations: [one({ state: 'running', usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedReadTokens: 0, cachedWriteTokens: 0, outputExact: true } })],
@@ -498,7 +500,9 @@ const runPrompt = async (id, params) => {
         delegated: { inputTokens: 900, outputTokens: 1, totalTokens: 901, outputExact: false },
       })
     }
-    return reply(id, { stopReason: 'end_turn' })
+    return reply(id, {
+      stopReason: verb === 'refused' ? 'refusal' : verb === 'cancelled' ? 'cancelled' : 'end_turn',
+    })
   }
   // A turn that reports cache writes, and one that says nothing about them —
   // the pair that decides whether a running total may claim to be exact.

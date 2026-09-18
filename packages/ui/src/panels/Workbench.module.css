@@ -506,11 +506,15 @@
   transition: opacity var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
-/* The app shortens every transition's duration when motion is reduced, but
-   not a delay: with no fade to see, the dim goes at once rather than staying
-   in the way unseen. */
+/* The app zeroes every transition's duration when motion is reduced, but
+   not a delay. With no fade or slide to see, the dim and the sidebar go at
+   once rather than staying in the way unseen: the dim still taking presses
+   meant for the conversation, and a sidebar with no width, or no longer on
+   screen, still holding controls Tab reaches. */
 @media (prefers-reduced-motion: reduce) {
-  .scrim {
+  .scrim,
+  .sidebar[data-hidden],
+  .shell[data-narrow] .sidebar {
     transition: none;
   }
 }
