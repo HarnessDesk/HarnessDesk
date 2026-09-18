@@ -509,6 +509,39 @@ test('declining an approval is carried through to the runtime', async (t) => {
   assert.ok(commandItems.size > 0, 'the command was proposed, so there is something to have declined')
 })
 
+test('a user verification (0.155.0) is answered cancel over the wire, and the person is told, not asked', async (t) => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const tape = recorder(runtime)
+
+  const session = await runtime.createSession({ cwd: '/w' })
+  const from = tape.events.length
+  await session.send([{ type: 'text', text: 'verify Confirm the transfer' }])
+  await tape.until((events) => events.slice(from).some((event) => event.type === 'turn/completed'))
+  const turn = tape.events.slice(from)
+
+  // The fake's agent repeats what reached it on the wire, so the answer is
+  // checked where it landed rather than where it was written.
+  const said = turn.flatMap((event) =>
+    event.type === 'item/completed' && event.item.type === 'assistantMessage' ? [event.item.text] : [],
+  )
+  assert.deepEqual(said, ['The verification came back "cancel" with nothing signed.'])
+  assert.deepEqual(
+    turn.filter((event) => event.type === 'notice'),
+    [
+      {
+        type: 'notice',
+        sessionId: session.id,
+        level: 'warning',
+        message:
+          'payments asked to verify it is you ("Confirm the transfer"). HarnessDesk cannot do that, so the request was cancelled.',
+      },
+    ],
+  )
+  assert.equal(turn.some((event) => event.type === 'approval/requested'), false, 'nobody is asked to sign anything')
+})
+
 test('answering an unknown approval fails loudly rather than silently', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())
