@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { watch, type FSWatcher } from 'node:fs'
-import { chmod, mkdir, mkdtemp, realpath, symlink, unlink, writeFile } from 'node:fs/promises'
+import { EventEmitter } from 'node:events'
+import { renameSync, realpathSync, symlinkSync, watch, type FSWatcher } from 'node:fs'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { test } from 'node:test'
 
 import { AgentWatch, type WatchFn } from '../src/agent-watch.js'
-import { Client, start, stop } from './fixtures/harness.js'
+import { Agents } from '../src/agents.js'
+import { builtinAgentRoot } from '../src/host.js'
+import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /**
@@ -75,6 +78,56 @@ const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, wha
   }
 }
 
+/** `until`, for a check that has to read something to answer. */
+const untilRead = async (check: () => Promise<boolean>, what: string, ms = 5_000) => {
+  const end = Date.now() + ms
+  while (!(await check())) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
+    await pause(20)
+  }
+}
+
+/**
+ * The real `watch`, remembering every folder it was asked to watch — as a real
+ * path, at the moment it was asked — and every one that has reported anything
+ * since. A walk-up's watch on a folder above a root raises no notice until the
+ * one name it waits for appears, which happens once; so its liveness is proved
+ * on what the watch itself reports (`proveWatching`), and where the watch was
+ * ever pointed can be checked afterwards.
+ */
+const recording = () => {
+  const watched: string[] = []
+  const reported = new Set<string>()
+  const watchFn: WatchFn = (dir, options, listener) => {
+    let real = dir
+    try {
+      real = realpathSync(dir)
+    } catch {
+      // Recorded as asked; the real `watch` below answers for a folder that is not there.
+    }
+    watched.push(real)
+    return watch(dir, options, (event, filename) => {
+      reported.add(real)
+      listener(event, filename)
+    })
+  }
+  return { watchFn, watched, reported }
+}
+
+/**
+ * Proves the watch on `dir` itself is live: a scratch file is touched in it
+ * until that watch has reported something. No walk-up waits for a name like
+ * the scratch file's, so it raises no notice of its own.
+ */
+const proveWatching = async (probe: ReturnType<typeof recording>, dir: string, what: string): Promise<void> => {
+  const real = await realpath(dir)
+  let n = 0
+  await proveLive(() => probe.reported.has(real), () => writeFile(join(dir, `.probe-${n++}`), ''), what)
+}
+
+/** A watcher that reports nothing on its own: for a test that says by hand what a watch reported. */
+const quietWatcher = (): FSWatcher => Object.assign(new EventEmitter(), { close: () => {} }) as unknown as FSWatcher
+
 test('a change under a watched root is a notice, and a burst of them is fewer notices than changes', async (t) => {
   const root = tempDir('hd-agent-watch-')
   await mkdir(join(root, 'scout'))
@@ -105,14 +158,15 @@ test('a change under a watched root is a notice, and a burst of them is fewer no
 test('a root that is not there yet is watched for, and followed once it appears', async (t) => {
   const home = tempDir('hd-agent-watch-')
   const root = join(home, 'agents')
+  const probe = recording()
   const { said, changed } = heard()
-  const watch = new AgentWatch({ roots: [root], changed, settleMs: 30 })
+  const watch = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn: probe.watchFn })
   t.after(() => watch.dispose())
-  // The ancestor watch (on `home`, for the name `agents`) needs a moment to
-  // attach before the one change it is waiting for can be made — a root
-  // appearing for the first time is not repeatable, so this one step keeps a
-  // fixed pause, as setup rather than as proof.
-  await pause(150)
+  // A root appearing for the first time happens once, so the ancestor watch
+  // (on `home`, for the name `agents`) is proved to be listening before it is
+  // made — on what that watch itself reports, rather than a guess at how long
+  // it takes to attach. A change made a moment too early is simply missed.
+  await proveWatching(probe, home, 'the watch on the folder above the root')
   await mkdir(join(root, 'scout'), { recursive: true })
   await until(() => said.length > 0, 'the root appearing')
   said.length = 0
@@ -403,7 +457,11 @@ test('(F7) a top-level link inside a project is followed where it still resolves
   await mkdir(join(project, '.harnessdesk', 'agents'), { recursive: true })
   await mkdir(shared, { recursive: true })
   await writeFile(join(shared, 'AGENT.md'), brief('Original.'))
-  await symlink(shared, join(project, '.harnessdesk', 'agents', 'scout'))
+  // Relative, as a link committed to a repository is. The roster takes an
+  // absolute target only where it names the project's own real path, and
+  // `tempDir` spells the project through /var, a link to /private/var — so an
+  // absolute link here is one the roster refuses, and the watch refuses it too.
+  await symlink(join('..', '..', 'shared', 'scout'), join(project, '.harnessdesk', 'agents', 'scout'))
   const { said, changed } = heard()
   const watch = new AgentWatch({ roots: [], changed, settleMs: 30 })
   t.after(() => watch.dispose())
@@ -423,7 +481,7 @@ test('(F7) a top-level link inside a project is followed where it still resolves
   await mkdir(movedTo, { recursive: true })
   await writeFile(join(movedTo, 'AGENT.md'), brief('Elsewhere now.'))
   await unlink(join(project, '.harnessdesk', 'agents', 'scout'))
-  await symlink(movedTo, join(project, '.harnessdesk', 'agents', 'scout'))
+  await symlink(join('..', '..', 'shared', 'moved'), join(project, '.harnessdesk', 'agents', 'scout'))
   // The retarget is itself a change under the watched root and is its own
   // notice; wait it out and clear before judging only what follows.
   await until(() => said.length > 0, 'the retarget’s own notice')
@@ -465,8 +523,11 @@ test('(F8) through the host: a folder inside a linked worktree gets the worktree
   // still be correct, but is not what this test is about, and racing it
   // against the host's own startup work is not a risk worth taking on.
   await mkdir(join(treeReal, '.harnessdesk', 'agents', 'scout'), { recursive: true })
+  // And one in the main checkout, which a watch on it would find directly too.
+  const repoReal = await realpath(repo)
+  await mkdir(join(repoReal, '.harnessdesk', 'agents', 'main-scout'), { recursive: true })
 
-  const harness = await start()
+  const harness = await start({ builtinAgents: await shippedAgentsCopy() })
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
@@ -483,6 +544,21 @@ test('(F8) through the host: a folder inside a linked worktree gets the worktree
     `agent/changed naming the worktree’s own top (${treeReal})`,
     8_000,
   )
+
+  /* (G6) The main checkout is not watched: `agent/list` refuses it as a
+     project while only a folder of the linked worktree is open
+     (`confineGitRoot`), so no Agent read reaches it, and a watch there would
+     be telling windows about Agents none of them can list. Proved live just
+     above, on the same host's watch, so the silence below is the watch's. */
+  await settled()
+  client.notifications.length = 0
+  await writeFile(join(repoReal, '.harnessdesk', 'agents', 'main-scout', 'AGENT.md'), brief('In the main checkout.'))
+  await pause(600)
+  assert.deepEqual(
+    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed'),
+    [],
+    'a change in the main checkout of a linked worktree tells no window',
+  )
 })
 
 /*
@@ -497,6 +573,7 @@ test('(F8) through the host: a folder inside a linked worktree gets the worktree
 
 test('(F1, host) an older #watchProjects call finishing late does not re-add a project a newer one dropped', async (t) => {
   const fakeGitDir = await mkdtemp(join(tmpdir(), 'hd-agent-watch-fakegit-'))
+  t.after(() => rm(fakeGitDir, { recursive: true, force: true }))
   const fakeGit = join(fakeGitDir, 'git')
   await writeFile(fakeGit, '#!/bin/sh\nsleep 3\nexit 1\n')
   await chmod(fakeGit, 0o755)
@@ -505,7 +582,7 @@ test('(F1, host) an older #watchProjects call finishing late does not re-add a p
     process.env['PATH'] = realPath
   })
 
-  const harness = await start()
+  const harness = await start({ builtinAgents: await shippedAgentsCopy() })
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
@@ -590,32 +667,49 @@ test('(F9) a watcher’s own error is logged once and recovers on the same backo
 })
 
 /*
- * F10 — nothing this module makes may be the reason a process stays up: a
- * live, un-disposed watcher (`persistent: false`) and a pending, un-disposed
- * settle timer (`unref`'d) must both let a process holding nothing else exit
- * on its own. Run as a child so the claim is about the process, not about one
- * Node API's own bookkeeping.
+ * F10 — nothing this module makes may be the reason a process stays up. A
+ * live, un-disposed watcher and a link watcher beside it (`persistent: false`),
+ * a pending, un-disposed settle timer and a pending retry of a watch that could
+ * not be made (`unref`'d) must all let a process holding nothing else exit on
+ * its own. Run as a child so the claim is about the process, not about one
+ * Node API's own bookkeeping; any one of the four left holding the process
+ * keeps it past the parent's timeout.
  */
 
-test('(F10) a live watch and a pending notice, never disposed, do not keep a process alive on their own', async () => {
+test('(F10) a live watch, a linked folder, a pending notice and a pending retry, never disposed, do not keep a process alive on their own', async () => {
   const root = tempDir('hd-agent-watch-child-')
   await mkdir(join(root, 'scout'), { recursive: true })
+  // A top-level link, so a link watcher is made beside the root's own.
+  const linked = tempDir('hd-agent-watch-child-linked-')
+  await symlink(linked, join(root, 'linked'))
+  // A second root whose watch can never be made, so a retry of it is always pending.
+  const failing = tempDir('hd-agent-watch-child-failing-')
   const target = new URL('../src/agent-watch.js', import.meta.url).href
   const script = `
-    import { writeFileSync } from 'node:fs'
+    import { realpathSync, watch, writeFileSync } from 'node:fs'
     import { join } from 'node:path'
     import { AgentWatch } from ${JSON.stringify(target)}
-    new AgentWatch({ roots: [${JSON.stringify(root)}], changed: () => {}, settleMs: 5000 })
+    const failing = realpathSync(${JSON.stringify(failing)})
+    new AgentWatch({
+      roots: [${JSON.stringify(root)}, ${JSON.stringify(failing)}],
+      changed: () => {},
+      settleMs: 5000,
+      log: () => {},
+      watchFn: (dir, options, listener) => {
+        if (realpathSync(dir) === failing) throw Object.assign(new Error('EMFILE: too many open files, watch'), { code: 'EMFILE' })
+        return watch(dir, options, listener)
+      },
+    })
     setTimeout(() => {
       writeFileSync(join(${JSON.stringify(root)}, 'scout', 'AGENT.md'), '---\\nname: Scout\\n---\\nLook.\\n')
     }, 100)
     // A ref'd timer whose only job is to keep this process alive long enough
     // for the write's own fs event to arrive and the settle timer to be
     // armed — without it, this process could exit before that event ever
-    // arrives, which would prove nothing either way. A live recursive watcher
-    // and a pending 5s settle timer are both outstanding by the time this
-    // fires, and dispose() is deliberately never called: neither may be the
-    // reason the process is still here after it.
+    // arrives, which would prove nothing either way. A live recursive watcher,
+    // a link watcher, a pending 5s settle timer and a retry on its backoff are
+    // all outstanding by the time this fires, and dispose() is deliberately
+    // never called: none may be the reason the process is still here after it.
     setTimeout(() => {}, 900)
   `
   const startedAt = Date.now()
@@ -633,7 +727,9 @@ test("through the host: an Agent written into this machine's roster is a notice 
   // is not a risk this test needs to take.
   const stateDir = tempDir('hd-agent-watch-host-')
   await mkdir(join(stateDir, 'agents', 'scout'), { recursive: true })
-  const harness = await start({}, stateDir)
+  // A copy of the shipped Agents: an edit to the real folder while this runs
+  // would be a `project: null` notice too, and would pass this vacuously.
+  const harness = await start({ builtinAgents: await shippedAgentsCopy() }, stateDir)
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
@@ -645,4 +741,510 @@ test("through the host: an Agent written into this machine's roster is a notice 
     () => writeFile(join(harness.stateDir, 'agents', 'scout', 'AGENT.md'), brief(`Look ${n++}.`)),
     'agent/changed',
   )
+})
+
+/*
+ * G1 — a link out at any step above the Agent directory is walked past, never
+ * given up on. With `.harnessdesk` itself leading out, the walk-up used to
+ * stop at the first folder that resolved outside, leaving no watch at all:
+ * replacing the link with a real folder went unnoticed until the project was
+ * opened again.
+ */
+
+test('(G1) a project whose .harnessdesk leads out is watched from its own folder, and followed once the link is a real folder', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const project = join(root, 'project')
+  const elsewhere = join(root, 'elsewhere')
+  await mkdir(project)
+  await mkdir(join(elsewhere, 'agents', 'scout'), { recursive: true })
+  await writeFile(join(elsewhere, 'agents', 'scout', 'AGENT.md'), brief('Outside.'))
+  await symlink(elsewhere, join(project, '.harnessdesk'))
+  const projectReal = await realpath(project)
+  const probe = recording()
+  const { said, changed } = heard()
+  const watch = new AgentWatch({ roots: [], changed, settleMs: 30, watchFn: probe.watchFn })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([project])
+
+  // The project's own folder is watched, for the name `.harnessdesk`, and is live.
+  await proveWatching(probe, project, 'the watch on the project’s own folder')
+  // What the link leads to raises nothing.
+  await writeFile(join(elsewhere, 'agents', 'scout', 'AGENT.md'), brief('Outside, changed.'))
+  await pause(600)
+  assert.deepEqual(said, [], 'what a link out of the project leads to raises nothing')
+
+  // The link replaced by a real folder, and an Agent written into it: noticed without a re-open…
+  await unlink(join(project, '.harnessdesk'))
+  await mkdir(join(project, '.harnessdesk', 'agents', 'scout'), { recursive: true })
+  await writeFile(join(project, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief('Inside.'))
+  // `some`, not `includes`: the `deepEqual` above narrowed `said` to an empty tuple's type.
+  await until(() => said.some((one) => one === project), 'a notice once .harnessdesk is a real folder')
+  // …and followed down to the Agent directory itself.
+  await settled()
+  said.length = 0
+  let n = 0
+  await proveLive(
+    () => said.some((one) => one === project),
+    () => writeFile(join(project, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief(`Inside ${n++}.`)),
+    'a notice for an Agent written into the real folder',
+  )
+  // And at no point was anything outside the project watched.
+  assert.ok(
+    probe.watched.length > 0 && probe.watched.every((dir) => dir === projectReal || dir.startsWith(projectReal + sep)),
+    `only folders inside the project were watched: ${probe.watched.join(', ')}`,
+  )
+})
+
+/*
+ * G2 — a failure that keeps happening backs off, and its run of failures is
+ * logged once. A watcher made and then failing every time used to be made
+ * again every 200ms, forever, with a line each round: the success of making it
+ * reset the backoff before it failed.
+ */
+
+/** How long each G2 test watches the retries: 0, 200, 600 and 1400ms fit, the next is at 3000. */
+const RETRY_WINDOW_MS = 2_500
+
+test('(G2) a watcher that fails every time it is made backs off, and its run of failures is logged once', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const logs: unknown[] = []
+  let attempts = 0
+  const failsOnceMade: WatchFn = () => {
+    attempts += 1
+    const watcher = quietWatcher()
+    setImmediate(() => watcher.emit('error', Object.assign(new Error('EIO: simulated'), { code: 'EIO' })))
+    return watcher
+  }
+  const watch = new AgentWatch({ roots: [root], changed: () => {}, settleMs: 30, watchFn: failsOnceMade, log: (message) => logs.push(message) })
+  t.after(() => watch.dispose())
+  await pause(RETRY_WINDOW_MS)
+  assert.ok(attempts >= 2, `made ${attempts} time(s): a failed watch is retried`)
+  // Doubling from 200ms, a retry can come no sooner: 0, 200, 600, 1400 are all that fit.
+  assert.ok(attempts <= 4, `made ${attempts} times in ${RETRY_WINDOW_MS}ms: the backoff was reset by the making, not by the watch working`)
+  assert.equal(logs.length, 1, `${logs.length} lines for one run of failures`)
+})
+
+test('(G2) a watch that cannot be made at all backs off the same way, and is logged once', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const logs: unknown[] = []
+  let attempts = 0
+  const neverMade: WatchFn = () => {
+    attempts += 1
+    throw Object.assign(new Error('EMFILE: too many open files, watch'), { code: 'EMFILE' })
+  }
+  const watch = new AgentWatch({ roots: [root], changed: () => {}, settleMs: 30, watchFn: neverMade, log: (message) => logs.push(message) })
+  t.after(() => watch.dispose())
+  await pause(RETRY_WINDOW_MS)
+  assert.ok(attempts >= 2, `tried ${attempts} time(s): a failed watch is retried`)
+  assert.ok(attempts <= 4, `tried ${attempts} times in ${RETRY_WINDOW_MS}ms`)
+  assert.equal(logs.length, 1, `${logs.length} lines for one run of failures`)
+})
+
+/**
+ * Watches made by hand: each is quiet until a test makes it report an event or
+ * fail, so what ends a run of failures can be driven exactly.
+ */
+const byHand = () => {
+  const made: { readonly watcher: FSWatcher; readonly listener: (event: string, filename: string | Buffer | null) => void }[] = []
+  const watchFn: WatchFn = (_dir, _options, listener) => {
+    const watcher = quietWatcher()
+    made.push({ watcher, listener })
+    return watcher
+  }
+  return { watchFn, made }
+}
+
+const failure = () => Object.assign(new Error('EIO: simulated'), { code: 'EIO' })
+
+test('(G2) a watch that reports an event has worked: a failure after it starts a new run, logged again', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const { watchFn, made } = byHand()
+  const logs: unknown[] = []
+  const watch = new AgentWatch({ roots: [root], changed: () => {}, settleMs: 30, watchFn, log: (message) => logs.push(message) })
+  t.after(() => watch.dispose())
+  await until(() => made.length === 1, 'the first watch')
+  made[0]?.watcher.emit('error', failure())
+  await until(() => made.length === 2, 'the retry')
+  assert.equal(logs.length, 1)
+  // It reports something — it works — and then fails at once.
+  made[1]?.listener('change', 'AGENT.md')
+  made[1]?.watcher.emit('error', failure())
+  assert.equal(logs.length, 2, 'a failure after the watch worked was taken for the same run')
+})
+
+test('(G2) a watch that stayed up as long as the wait before it has worked: a failure after it starts a new run, logged again', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const { watchFn, made } = byHand()
+  const logs: unknown[] = []
+  const watch = new AgentWatch({ roots: [root], changed: () => {}, settleMs: 30, watchFn, log: (message) => logs.push(message) })
+  t.after(() => watch.dispose())
+  await until(() => made.length === 1, 'the first watch')
+  made[0]?.watcher.emit('error', failure())
+  await until(() => made.length === 2, 'the retry, after a 200ms wait')
+  assert.equal(logs.length, 1)
+  // Up, and quiet, for longer than the 200ms it waited for; then it fails.
+  await pause(300)
+  made[1]?.watcher.emit('error', failure())
+  assert.equal(logs.length, 2, 'a failure after the watch stayed up was taken for the same run')
+})
+
+/*
+ * G5 — a remembered folder's git top level is asked once, the way `#repoOf`
+ * is, until a folder is forgotten. Every open used to ask git once for every
+ * remembered folder, and one on a stalled volume held every call for git's
+ * timeout. Counted with a stand-in for `git` that records what it was asked
+ * and hands on to the real one.
+ */
+
+test('(G5) through the host: a remembered folder’s git top level is asked once, until a folder is forgotten', async (t) => {
+  const realGit = execFileSync('/bin/sh', ['-c', 'command -v git']).toString().trim()
+  const countingDir = tempDir('hd-agent-watch-countgit-')
+  const asked = join(countingDir, 'asked.log')
+  await writeFile(asked, '')
+  await writeFile(join(countingDir, 'git'), `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(asked)}\nexec ${JSON.stringify(realGit)} "$@"\n`)
+  await chmod(join(countingDir, 'git'), 0o755)
+  const realPath = process.env['PATH']
+  process.env['PATH'] = `${countingDir}:${realPath ?? ''}`
+  t.after(() => {
+    process.env['PATH'] = realPath
+  })
+
+  const harness = await start({ builtinAgents: await shippedAgentsCopy() })
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const first = tempDir('hd-agent-watch-first-')
+  const second = tempDir('hd-agent-watch-second-')
+  const topLevelAsks = async (folder: string): Promise<number> =>
+    (await readFile(asked, 'utf8')).split('\n').filter((line) => line === `-C ${folder} rev-parse --show-toplevel`).length
+
+  // Two asks per open of a new folder, with the same words: the open's own
+  // `git status` asks where the top is, and so does the roster's watch.
+  await client.call('workspace/open', { path: first })
+  await untilRead(async () => (await topLevelAsks(first)) >= 2, 'the first open asking git about its folder')
+  await pause(300)
+  const before = await topLevelAsks(first)
+  assert.equal(before, 2, 'the open and the watch each asked once')
+  await client.call('workspace/open', { path: second })
+  // Proof the second open's watch asked git about what it holds: its own folder.
+  await untilRead(async () => (await topLevelAsks(second)) >= 2, 'the second open asking git about its folder')
+  await pause(300)
+  assert.equal(await topLevelAsks(first), before, 'opening a second folder asked git about the first one again')
+
+  // Forgetting a folder is when every answer is asked for again.
+  await client.call('workspace/forget', { path: second })
+  await untilRead(async () => (await topLevelAsks(first)) === before + 1, 'git asked again about the first folder once a folder was forgotten')
+})
+
+/*
+ * G7 — no late notice for a closed project. A walk-up's look at the name it
+ * was waiting for is asynchronous, and one that comes back after the project
+ * closed used to be a notice anyway. What the watches report is said by hand,
+ * so the look and the close land in exactly that order.
+ */
+
+test('(G7) a walk-up whose look comes back after its project closed tells nobody', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const closing = join(root, 'closing')
+  const staying = join(root, 'staying')
+  await mkdir(closing)
+  await mkdir(staying)
+  const listeners = new Map<string, (event: string, filename: string | Buffer | null) => void>()
+  const heardByFolder: WatchFn = (dir, _options, listener) => {
+    listeners.set(realpathSync(dir), listener)
+    return quietWatcher()
+  }
+  const { said, changed } = heard()
+  const watch = new AgentWatch({ roots: [], changed, settleMs: 30, watchFn: heardByFolder })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([closing, staying])
+  const [closingReal, stayingReal] = await Promise.all([realpath(closing), realpath(staying)])
+  await until(() => listeners.has(closingReal) && listeners.has(stayingReal), 'both walk-ups to watch their project’s own folder')
+
+  // The walk-up's own path, live: on the project that stays open, the name it waits for appears and is a notice.
+  await mkdir(join(staying, '.harnessdesk'))
+  listeners.get(stayingReal)?.('rename', '.harnessdesk')
+  await until(() => said.includes(staying), 'a notice for the project that stayed open')
+
+  // The same report for the other project, and the project closed before the walk-up's look comes back.
+  await mkdir(join(closing, '.harnessdesk'))
+  listeners.get(closingReal)?.('rename', '.harnessdesk')
+  void watch.watchProjects([staying])
+  await pause(600)
+  assert.ok(!said.includes(closing), 'a project closed while its walk-up was looking was told of anyway')
+})
+
+/*
+ * G8 — a root's link watchers live and die with it. The link watchers were
+ * closed only by a rescan that could read the root, so a root that went away
+ * left them watching.
+ */
+
+test('(G8) a root’s link watchers go when the root goes', async (t) => {
+  const home = tempDir('hd-agent-watch-home-')
+  const root = join(home, 'agents')
+  await mkdir(root)
+  const elsewhere = tempDir('hd-agent-watch-elsewhere-')
+  await writeFile(join(elsewhere, 'AGENT.md'), brief('Original.'))
+  await symlink(elsewhere, join(root, 'scout'))
+  const { said, changed } = heard()
+  const watch = new AgentWatch({ roots: [root], changed, settleMs: 30 })
+  t.after(() => watch.dispose())
+  await settled()
+  said.length = 0
+
+  // The link is followed, and live.
+  let n = 0
+  await proveLive(() => said.length > 0, () => writeFile(join(elsewhere, 'AGENT.md'), brief(`Look ${n++}.`)), 'a notice for the linked folder')
+  await settled()
+  said.length = 0
+
+  // The root goes — the link with it, not what it pointed at — and that is itself a notice.
+  await rm(root, { recursive: true })
+  await until(() => said.length > 0, 'a notice for the root going')
+  await settled()
+  said.length = 0
+  await writeFile(join(elsewhere, 'AGENT.md'), brief('After the root went.'))
+  await pause(600)
+  assert.deepEqual(said, [], 'a link watcher outlived the root it was read from')
+})
+
+/*
+ * The other half of G8: two readings of a root's top level can finish out of
+ * order, and only the later one may be applied. The first reading is held, by
+ * the test-only `onRescan`, between reading the link and applying it; the link
+ * is pointed elsewhere and a later reading applies that; then the first is let
+ * go.
+ */
+
+test('(G8) a reading of a root’s links that a later one overtook applies nothing', async (t) => {
+  const home = tempDir('hd-agent-watch-home-')
+  const first = tempDir('hd-agent-watch-first-')
+  const second = tempDir('hd-agent-watch-second-')
+  await writeFile(join(first, 'AGENT.md'), brief('First.'))
+  await writeFile(join(second, 'AGENT.md'), brief('Second.'))
+  await symlink(first, join(home, 'scout'))
+  const { said, changed } = heard()
+  let holdNext = false
+  // Asserted, not annotated: set inside a callback, which narrowing from `null` would not see.
+  let release = null as (() => void) | null
+  const watch = new AgentWatch({
+    roots: [home],
+    changed,
+    settleMs: 30,
+    onRescan: () => {
+      if (!holdNext) return
+      holdNext = false
+      return new Promise<void>((resolve) => {
+        release = resolve
+      })
+    },
+  })
+  t.after(() => {
+    release?.()
+    watch.dispose()
+  })
+  await settled()
+  said.length = 0
+  let n = 0
+  await proveLive(() => said.length > 0, () => writeFile(join(first, 'AGENT.md'), brief(`First ${n++}.`)), 'the link followed to where it first led')
+  await settled()
+  said.length = 0
+
+  // A reading that sees "scout leads to first", held before it applies that.
+  holdNext = true
+  await writeFile(join(home, 'nudge'), 'a change at the top level, which reads it again')
+  await until(() => release !== null, 'a reading of the top level to be held')
+  await settled()
+  said.length = 0
+
+  // The link now leads to second, and a later reading applies that.
+  await unlink(join(home, 'scout'))
+  await symlink(second, join(home, 'scout'))
+  await until(() => said.length > 0, 'the change to the link’s own notice')
+  await settled()
+  said.length = 0
+  await proveLive(() => said.length > 0, () => writeFile(join(second, 'AGENT.md'), brief(`Second ${n++}.`)), 'the link followed to where it leads now')
+  await settled()
+  said.length = 0
+
+  // The held reading finishes last. Where the link leads now is still watched, and where it used to lead is not.
+  release?.()
+  await settled()
+  await proveLive(() => said.length > 0, () => writeFile(join(second, 'AGENT.md'), brief(`Second ${n++}.`)), 'the link still followed to where it leads now')
+  await settled()
+  said.length = 0
+  await writeFile(join(first, 'AGENT.md'), brief('Stale.'))
+  await pause(600)
+  assert.deepEqual(said, [], 'a reading that was overtaken put back a link watcher the later one had closed')
+})
+
+/*
+ * G9 — a project's links are judged the way the roster judges them: step by
+ * step, never looking outside (`resolveWithin`). A link that leaves the
+ * project and comes back resolves inside by `realpath`, and was watched,
+ * though the roster refuses to read it.
+ */
+
+test('(G9) a link that leaves a project and comes back is not watched, just as the roster does not read it', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const outside = join(root, 'outside')
+  await mkdir(outside)
+  // A top-level link in the Agent directory that leaves the project and comes back into it.
+  const project = join(root, 'project')
+  await mkdir(join(project, '.harnessdesk', 'agents', 'real'), { recursive: true })
+  await mkdir(join(project, 'shared', 'scout'), { recursive: true })
+  await writeFile(join(project, 'shared', 'scout', 'AGENT.md'), brief('Original.'))
+  await symlink(join('..', 'project', 'shared', 'scout'), join(outside, 'back'))
+  await symlink(join('..', '..', '..', 'outside', 'back'), join(project, '.harnessdesk', 'agents', 'scout'))
+  // An Agent directory that itself leaves its project and comes back into it.
+  const other = join(root, 'other')
+  await mkdir(join(other, '.harnessdesk'), { recursive: true })
+  await mkdir(join(other, 'real-agents', 'scout'), { recursive: true })
+  await writeFile(join(other, 'real-agents', 'scout', 'AGENT.md'), brief('Original.'))
+  await symlink(join('..', 'other', 'real-agents'), join(outside, 'agents-back'))
+  await symlink(join('..', '..', 'outside', 'agents-back'), join(other, '.harnessdesk', 'agents'))
+
+  // The roster reads neither.
+  const roster = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
+  const read = await roster.list(project)
+  assert.match(read.find((one) => one.id === 'scout')?.problems[0]?.text ?? '', /links outside the project/)
+  const readOther = await roster.list(other)
+  assert.match(readOther.find((one) => one.id === '.harnessdesk/agents')?.problems[0]?.text ?? '', /links outside the project/)
+
+  const { said, changed } = heard()
+  const watch = new AgentWatch({ roots: [], changed, settleMs: 30 })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([project, other])
+  let n = 0
+  await proveLive(
+    () => said.includes(project),
+    () => writeFile(join(project, '.harnessdesk', 'agents', 'real', 'AGENT.md'), brief(`Look ${n++}.`)),
+    'a notice for the project’s own real Agent',
+  )
+  await settled()
+  said.length = 0
+
+  await writeFile(join(project, 'shared', 'scout', 'AGENT.md'), brief('Changed.'))
+  await writeFile(join(other, 'real-agents', 'scout', 'AGENT.md'), brief('Changed.'))
+  await pause(600)
+  assert.deepEqual(said, [], 'the watch followed a link the roster refuses to read')
+})
+
+/*
+ * The roster's walk trusts the project's real path, found when the project
+ * was opened, to still be one. So the system's own answer is asked as well,
+ * once the walk says "inside", and must agree: a project folder swapped for a
+ * link to somewhere else — here, in the one moment between the project being
+ * resolved and its follow looking — is not watched there.
+ */
+
+test('(G9) a project whose own folder is swapped for a link while it is followed is not watched where the link leads', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const project = join(root, 'project')
+  const outside = join(root, 'outside')
+  await mkdir(join(project, '.harnessdesk', 'agents', 'real'), { recursive: true })
+  await mkdir(join(outside, '.harnessdesk', 'agents', 'scout'), { recursive: true })
+  await writeFile(join(outside, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief('Outside.'))
+  const outsideReal = await realpath(outside)
+  const legitimate = tempDir('hd-agent-watch-project-')
+  await mkdir(join(legitimate, '.harnessdesk', 'agents', 'real'), { recursive: true })
+  const probe = recording()
+  const { said, changed } = heard()
+  let swapped = false
+  const watch = new AgentWatch({
+    roots: [],
+    changed,
+    settleMs: 30,
+    watchFn: probe.watchFn,
+    onFollow: (follow) => {
+      if (swapped || follow.scope !== project) return
+      swapped = true
+      renameSync(project, join(root, 'project-was'))
+      symlinkSync(outside, project)
+    },
+  })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([project, legitimate])
+  assert.ok(swapped)
+  let n = 0
+  await proveLive(
+    () => said.includes(legitimate),
+    () => writeFile(join(legitimate, '.harnessdesk', 'agents', 'real', 'AGENT.md'), brief(`Look ${n++}.`)),
+    'a notice for the other project, proving the watch is live',
+  )
+  await settled()
+  said.length = 0
+  await writeFile(join(outside, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief('Outside, changed.'))
+  await pause(600)
+  assert.deepEqual(said, [], 'a change where the swapped folder leads raised a notice')
+  assert.ok(
+    probe.watched.every((dir) => dir !== outsideReal && !dir.startsWith(outsideReal + sep)),
+    `a folder outside the project was watched: ${probe.watched.join(', ')}`,
+  )
+})
+
+/*
+ * G4 — the tests that count `agent/changed` point their host's built-in root
+ * at a copy, so an edit to `packages/server/agents` cannot land in a count.
+ * This one does not: it is the app's own setup, and proves the real folder the
+ * Agents ship in is watched. Only the folder's own times are touched — nothing
+ * in it changes, and nothing that lists it sees a difference — and they are
+ * put back.
+ */
+
+test('(G4) through the host: the Agents that ship with the app are watched where they ship', async (t) => {
+  // No `agents` in this state directory, so a notice for this machine's roster can only be the built-in one's.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const shipped = builtinAgentRoot()
+  const was = await stat(shipped)
+  t.after(() => utimes(shipped, was.atime, was.mtime))
+  const namedNull = () =>
+    client.notifications.some((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === null)
+  let n = 0
+  await proveLive(
+    namedNull,
+    async () => {
+      const at = new Date(was.mtimeMs + ++n * 1_000)
+      await utimes(shipped, at, at)
+    },
+    'agent/changed for the Agents that ship with the app',
+  )
+})
+
+test('(G4) through the host: a host pointed at a copy of the shipped Agents watches the copy, and not the real folder', async (t) => {
+  const copy = await shippedAgentsCopy()
+  const harness = await start({ builtinAgents: copy })
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const shipped = builtinAgentRoot()
+  const was = await stat(shipped)
+  t.after(() => utimes(shipped, was.atime, was.mtime))
+  const agentChanged = () => client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed')
+  // Listed from the copy, as the app lists it from the real one.
+  const listed = (await client.call('agent/list', {})) as { readonly id: string; readonly origin: string; readonly path: string }[]
+  const builtin = listed.filter((one) => one.origin === 'builtin')
+  assert.ok(builtin.length > 0 && builtin.every((one) => one.path.startsWith(copy + sep)), 'the built-in Agents are read from the copy')
+  // The copy is watched…
+  let n = 0
+  await proveLive(
+    () => agentChanged().length > 0,
+    async () => {
+      const at = new Date(Date.now() + ++n * 1_000)
+      await utimes(copy, at, at)
+    },
+    'agent/changed for the copy',
+  )
+  await settled()
+  client.notifications.length = 0
+  // …and the real folder, touched the same way, is not.
+  const at = new Date(was.mtimeMs + 60_000)
+  await utimes(shipped, at, at)
+  await pause(600)
+  assert.deepEqual(agentChanged(), [], 'the real shipped folder is still watched by a host pointed at a copy')
 })

@@ -15,6 +15,7 @@ import {
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
+import { shippedAgentsCopy } from './fixtures/harness.js'
 
 /**
  * The quit reaches every runtime before a catalogue re-read can resume.
@@ -237,6 +238,8 @@ test('a host disposed before start() ever runs makes no roster watch', async (t)
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
     catalogRefreshMs: 0,
+    // Counted below: a copy, so no edit to the real shipped folder can be one.
+    builtinAgents: await shippedAgentsCopy(),
   })
   const pushed: unknown[] = []
   host.addBroadcaster((notification) => pushed.push(notification))

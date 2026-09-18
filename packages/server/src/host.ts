@@ -270,6 +270,15 @@ export interface HostOptions {
    * Supplied by the desktop shell; without it, removing an Agent says so.
    */
   readonly trashPath?: (path: string) => Promise<void>
+  /**
+   * Where the Agents that ship with the app are read from, watched and opened
+   * for reading. The app never passes this: they are `builtinAgentRoot()`.
+   * A test that counts `agent/changed` points it at a copy, because the real
+   * folder is this checkout's `packages/server/agents`, which somebody may be
+   * editing while the tests run — and to a host watching it, every edit there
+   * is a notice to every window.
+   */
+  readonly builtinAgents?: string
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -457,6 +466,14 @@ export class Host {
    * however many conversations the history lists in it.
    */
   readonly #repos = new Map<string, Promise<RepoInfo | null>>()
+  /**
+   * Each remembered folder's git top level, for the roster's watch, cached the
+   * way `#repos` is: an open asks git about the folder it adds, not again
+   * about every folder already remembered, and a folder on a stalled volume
+   * holds the watch up until its first answer only, not on every open.
+   * Cleared where the board roots are, when a folder is forgotten.
+   */
+  readonly #topLevels = new Map<string, Promise<string | null>>()
   readonly #terminals = new Terminals((notification) => this.#push(notification))
   /**
    * The editor plane. Held here, and not in the extension host, because it is
@@ -536,7 +553,10 @@ export class Host {
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
     // a HARNESSDESK_HOME that moves the state directory moves these with it.
-    this.#agents = new Agents({ user: join(this.#state.directory, 'agents'), builtin: builtinAgentRoot() })
+    this.#agents = new Agents({
+      user: join(this.#state.directory, 'agents'),
+      builtin: options.builtinAgents ?? builtinAgentRoot(),
+    })
     // Beside everything else the desk keeps on this machine, so a rig's
     // HARNESSDESK_HOME that moves the state directory moves these with it.
     this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE))
@@ -893,7 +913,7 @@ export class Host {
        made yet, and does not run again once it has. */
     if (!this.#disposed) {
       this.#agentWatch = new AgentWatch({
-        roots: [join(this.#state.directory, 'agents'), builtinAgentRoot()],
+        roots: [this.#agents.roots.user, this.#agents.roots.builtin],
         changed: (project) => this.#push({ method: 'agent/changed', params: { project } }),
         log: (message, details) => this.#logger.warn(message, details),
       })
@@ -1295,6 +1315,7 @@ export class Host {
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
         forgetBoardRoots: () => {
           this.#boardRoots.clear()
+          this.#topLevels.clear()
           // The same moment the roster's watch lets go of a project that is no longer open.
           void this.#watchProjects()
         },
@@ -1387,7 +1408,7 @@ export class Host {
     return [
       ...this.#openRoots(),
       join(this.#state.directory, 'agents'),
-      ...(mode === 'read' ? [builtinAgentRoot()] : []),
+      ...(mode === 'read' ? [this.#agents.roots.builtin] : []),
     ]
   }
 
@@ -1767,15 +1788,15 @@ export class Host {
   }
 
   /**
-   * Points the roster's watch at every open project: each open folder, the
-   * top of the repository it sits in, and that folder's own git top level —
-   * a project keeps its Agents at the top of its repository, a person often
-   * opens a folder inside it, and for a linked worktree those are two
-   * different folders. `agent/list` admits either: `confineGitRoot` follows a
-   * project path to `gitOps.topLevel` of an open root, which for a linked
-   * worktree is that worktree's own top, never the main checkout `#repoOf`
-   * answers with. Both are watched rather than one replacing the other, since
-   * the sidebar's own grouping (`repo.root`) is a real reader too.
+   * Points the roster's watch at every open project: each open folder and its
+   * own git top level — a project keeps its Agents at the top of its
+   * repository, and a person often opens a folder inside it. `confineGitRoot`
+   * admits the top level as a project for `agent/list` on the open folder's
+   * account, and for a linked worktree it is that worktree's own top. The
+   * main checkout `#repoOf` answers with for a linked worktree is not added:
+   * `confineGitRoot` does not admit it on the worktree's account, so no Agent
+   * read reaches it through the worktree. The top level is asked once per
+   * folder (`#topLevelOf`).
    *
    * Called without being waited on from two places that can race each other —
    * opening a folder, and forgetting one — so every call reads its own
@@ -1795,14 +1816,22 @@ export class Host {
       this.#state.state.workspaces.map(async (entry) => {
         if (typeof entry?.path !== 'string' || entry.path === '') return
         roots.add(entry.path)
-        const [repo, top] = await Promise.all([this.#repoOf(entry.path).catch(() => null), gitOps.topLevel(entry.path)])
-        if (repo?.root) roots.add(repo.root)
+        const top = await this.#topLevelOf(entry.path)
         if (top) roots.add(top)
       }),
     )
     // Superseded while this was asking git: whatever it found is stale, and the call that made it stale already applied its own.
     if (generation !== this.#watchGeneration) return
     await watch.watchProjects([...roots])
+  }
+
+  /** A folder's git top level, asked of git once per folder until a folder is forgotten (`#topLevels`). */
+  #topLevelOf(cwd: string): Promise<string | null> {
+    const held = this.#topLevels.get(cwd)
+    if (held) return held
+    const asked = gitOps.topLevel(cwd).catch(() => null)
+    this.#topLevels.set(cwd, asked)
+    return asked
   }
 
   /** What the host knows about a runtime, by id — null for one it does not hold. */

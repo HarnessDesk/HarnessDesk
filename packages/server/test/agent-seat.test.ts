@@ -56,7 +56,7 @@ import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
 import type { SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
-import { Client, start, stop } from './fixtures/harness.js'
+import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /**
@@ -408,7 +408,9 @@ class Heard extends Logger {
 /** A host on the real socket with the seat fake beside the plain one, and a folder open. */
 const desk = async (t: TestContext) => {
   const heard = new Heard()
-  const harness = await start({ logger: heard })
+  // A copy of the shipped Agents: two tests here count `agent/changed`, and an
+  // edit to the real folder while they run would be one more.
+  const harness = await start({ logger: heard, builtinAgents: await shippedAgentsCopy() })
   t.after(() => stop(harness))
   const seats = new SeatFake()
   harness.host.register(seats)

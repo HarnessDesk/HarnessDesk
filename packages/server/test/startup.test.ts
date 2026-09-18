@@ -8,6 +8,7 @@ import type { RuntimeHealth, RuntimeId, Unsubscribe } from '@harnessdesk/protoco
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { shippedAgentsCopy } from './fixtures/harness.js'
 
 /**
  * Starting up when one agent will not.
@@ -262,6 +263,8 @@ test('start() does not wait on a slow answer to whether a remembered folder is a
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
     catalogRefreshMs: 0,
+    // Waited on below: a copy, so no edit to the real shipped folder can be it.
+    builtinAgents: await shippedAgentsCopy(),
   })
   const pushed: unknown[] = []
   host.addBroadcaster((notification) => pushed.push(notification))

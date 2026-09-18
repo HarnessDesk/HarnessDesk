@@ -119,7 +119,7 @@ const realRoot = async (dir: string): Promise<string | null> => {
 }
 
 /** Where a path inside a project led: to a real path still inside it, to nothing, or out of it. */
-type Resolved =
+export type Resolved =
   | { readonly to: 'inside'; readonly path: string }
   | { readonly to: 'nothing' }
   | { readonly to: 'outside' }
@@ -149,8 +149,11 @@ type Resolved =
  * What it reached is used at once — listed, or opened. A directory on the way
  * swapped for a link in between is not caught: that takes something writing
  * inside the project while it is being listed, which a clone cannot do.
+ *
+ * The roster's watch (`agent-watch.ts`) judges a project's paths with this
+ * same walk, so that what is watched and what is read never disagree.
  */
-const resolveWithin = async (root: string, from: string, steps: readonly string[]): Promise<Resolved> => {
+export const resolveWithin = async (root: string, from: string, steps: readonly string[]): Promise<Resolved> => {
   const rootSteps = root.split(sep).filter(Boolean)
   const pending = [...steps]
   let at = from
