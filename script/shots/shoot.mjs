@@ -27,7 +27,7 @@
  *   node script/shots/shoot.mjs --scene session-hover --reduced-motion
  *                                                 # as a reader who asked for less motion sees it
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -35,7 +35,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
-import { CAST, REPOS, rigRuntimeId } from './cast.mjs'
+import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
+import { runScene } from './scene.mjs'
 import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
@@ -1337,6 +1338,92 @@ rules:
     await sleep(1200)
   } }
 
+  /* ------------------------------------ when an agent's own history is wrong */
+
+  /**
+   * Three scenes for what the desk says when an agent's history cannot be
+   * trusted. None of them writes the sentence itself: each flips a file beside
+   * the agent's store, which `agent.mjs` reads on every listing, so the frame
+   * is the real adapter and host answering a real error. A scene puts the file
+   * back in `finish`, so the next scene, and the next take, start whole.
+   *
+   * The first two leave a banner on screen, so each is shot in a take of its
+   * own: an error stays until it is put away, and would ride along in the
+   * frame of whatever is shot after it.
+   */
+  const storeOf = (agent) => join(HOME, 'stores', `${agent}.json`)
+  const switchFile = (agent, suffix) => storeOf(agent).replace(/\.json$/, `.${suffix}`)
+
+  /**
+   * A sidebar row whose agent has since stopped listing it, clicked. The app
+   * will not reopen a conversation in a folder nobody vouched for, and says
+   * which conversation, and why.
+   */
+  let forgotten = null
+  SCENES['resume-refused'] = {
+    leaveOverlay: true,
+    expect: 'so the folder it worked in is not known',
+    run: async () => {
+      await SCENES.desk.run()
+      const title = 'Pin the flaky inventory test'
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes(${q(title)})`), Boolean)
+      // History cleared in another window: the sidebar still has the row, the agent no longer does.
+      forgotten = readFileSync(storeOf('claude-code'), 'utf8')
+      const rows = JSON.parse(forgotten)
+      delete rows['claude-code-1']
+      writeFileSync(storeOf('claude-code'), JSON.stringify(rows, null, 1))
+      if (!(await click(title))) throw new Error(`no "${title}" row in the sidebar`)
+    },
+    finish: () => {
+      if (forgotten) writeFileSync(storeOf('claude-code'), forgotten)
+      forgotten = null
+    },
+  }
+
+  /**
+   * The agent the sidebar is listing cannot answer. The sidebar keeps the
+   * history it had and says why, where it used to show only what was open.
+   */
+  const listAgain = async () => {
+    await cdp.eval(`${STORE}.loadHistory({ reset: true })`, 60_000)
+    await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('could not list its conversations')`), Boolean, { attempts: 60 })
+  }
+  SCENES['history-list-failed'] = {
+    expect: 'could not list its conversations',
+    run: async () => {
+      await SCENES.desk.run()
+      await cdp.eval(`${STORE}.selectRuntime(${q(rigRuntimeId('claude-code'))})`, 60_000)
+      writeFileSync(switchFile('claude-code', 'list-fails'), '')
+      await listAgain()
+    },
+    // A warning fades on its own; each theme's frame asks again if it has.
+    verify: async () => {
+      if (!(await cdp.eval(`document.body.innerText.includes('could not list its conversations')`))) await listAgain()
+    },
+    finish: () => rmSync(switchFile('claude-code', 'list-fails'), { force: true }),
+  }
+
+  /**
+   * Every agent answering one row a page, as ACP allows. The sidebar lists
+   * whole what an agent has; taken against a build from before the change, it
+   * lists the first page of each and nothing after it.
+   */
+  SCENES['history-paged'] = {
+    expect: 'Make the webhook receiver',
+    run: async () => {
+      for (const agent of CAST) writeFileSync(switchFile(agent.id, 'page'), '1')
+      await SCENES.desk.run()
+      await cdp.eval(`${STORE}.loadHistory({ reset: true })`, 60_000)
+      await sleep(1500)
+    },
+    verify: async () => {
+      say(`conversations listed: ${await cdp.eval(`${STORE}.getSnapshot().history.length`)} of ${Object.values(CONVERSATIONS).flat().length}`)
+    },
+    finish: () => {
+      for (const agent of CAST) rmSync(switchFile(agent.id, 'page'), { force: true })
+    },
+  }
+
   /* Every `--scene` on the line, not just the first: a take is usually two or
      three scenes, and silently shooting only one of them is the kind of miss
      you find after the app has been shut down. */
@@ -1360,22 +1447,24 @@ rules:
     const scene = SCENES[name]
     if (!scene) throw new Error(`no scene "${name}" — have ${Object.keys(SCENES).join(', ')}`)
     say(`— ${name}`)
-    if (scene.leaveOverlay) await leaveOverlay()
-    await scene.run()
-    for (const theme of THEMES) {
-      await setTheme(theme)
-      if (!scene.hover && !scene.keepPointer) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
-      if (scene.hover) {
-        await hover(scene.hover)
-        if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
-          throw new Error(name + ': pointer did not hover the target: ' + await cdp.eval(`(() => {
-            const node = document.querySelector(${q(scene.hover)}), r = node.getBoundingClientRect()
-            return JSON.stringify({ rect: r.toJSON(), hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.className, pointer: getComputedStyle(node).pointerEvents, hovered: [...document.querySelectorAll(':hover')].map(node => node.className), scale: visualViewport.scale })
-          })()`))
+    await runScene(scene, {
+      leaveOverlay,
+      themes: THEMES,
+      photograph: async (theme) => {
+        await setTheme(theme)
+        if (!scene.hover && !scene.keepPointer) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
+        if (scene.hover) {
+          await hover(scene.hover)
+          if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
+            throw new Error(name + ': pointer did not hover the target: ' + await cdp.eval(`(() => {
+              const node = document.querySelector(${q(scene.hover)}), r = node.getBoundingClientRect()
+              return JSON.stringify({ rect: r.toJSON(), hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.className, pointer: getComputedStyle(node).pointerEvents, hovered: [...document.querySelectorAll(':hover')].map(node => node.className), scale: visualViewport.scale })
+            })()`))
+          }
         }
-      }
-      await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
-    }
+        await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
+      },
+    })
   }
   if (has('interactive')) {
     say('Isolated app ready for native interaction. Press Return here to close it.')

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -71,7 +71,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, repositoryOf } from './worktree.js'
+import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
@@ -550,6 +550,11 @@ export class Host {
           at: Date.now(),
         })
       },
+      confine: (folder) => this.#confineRoom(folder),
+      /* Straight to the service, not through `worktree/create`'s rule: the
+         room's folder was judged by `confine` before the first seat, on the
+         room's rule, and the folder rule alone would refuse a room made from
+         a linked worktree, which works in the main checkout. */
       isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
       run: (command, where) => runCheck(command, where),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
@@ -1156,6 +1161,7 @@ export class Host {
       workspaces: {
         openRoots: () => this.#openRoots(),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
@@ -1227,15 +1233,23 @@ export class Host {
    * Where the renderer may read: the workspaces the user opened and the
    * working directories of sessions it is looking at. Everything else is
    * refused before any reader is asked.
+   *
+   * Only those spelled absolutely. Every check that holds a path to these —
+   * `confine`, `#confineGitRoot`, `openRepositoryRoot` — reads a relative one
+   * against this process's working directory, which is no folder anybody
+   * opened. The wire refuses one before it can become a root, but a
+   * conversation's cwd is whatever its agent reports, and one read or reopened
+   * from the agent's store carries the folder the agent wrote down; the
+   * workspaces come back from the state file.
    */
   #openRoots(): string[] {
     return [
       ...this.#state.state.workspaces
         .map((entry) => entry?.path)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0),
+        .filter((path): path is string => typeof path === 'string' && isAbsolute(path)),
       ...this.registry.snapshot()
         .map((session) => session.cwd)
-        .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
+        .filter((cwd): cwd is string => typeof cwd === 'string' && isAbsolute(cwd)),
     ]
   }
 
@@ -1271,6 +1285,31 @@ export class Host {
       }
       throw refusal
     }
+  }
+
+  /**
+   * Where a room may work: in a folder opened here or in a repository opened
+   * here, by the folder rule above or by the repository rule the worktree
+   * verbs answer to, whichever admits it. A room's folder is where its flows
+   * are read from, and where they seat agents and cut worktrees.
+   *
+   * The room dialog asks for both kinds. It names the project of the folder
+   * open (`projectRootOf`), which for a linked worktree is its main checkout:
+   * outside every open folder while only the worktree is open, so the folder
+   * rule refuses it although its repository is open. And a room can be made in
+   * a folder in no repository, which the repository rule has nothing to say
+   * about. Neither rule admits a folder the desk does not already let the
+   * renderer branch in or check out, and both see through links.
+   */
+  async #confineRoom(folder: string): Promise<void> {
+    assertAbsolute(folder)
+    if (await this.#confineGitRoot(folder).then(() => true, () => false)) return
+    if ((await openRepositoryRoot(folder, this.#openRoots()).catch(() => null)) !== null) return
+    // Where it leads, as the folder rule says it: a link in an open folder
+    // otherwise reads as a folder inside it.
+    throw new Error(
+      `${await this.#realPath(folder)} is outside every folder and repository opened here. Open it first.`,
+    )
   }
 
   /**

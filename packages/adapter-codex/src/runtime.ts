@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
 import {
   CodexAppServer,
   CodexError,
@@ -500,7 +501,11 @@ export class CodexRuntime implements AgentRuntime {
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
   ): Promise<readonly ConfigOption[]> {
-    const where = cwd ?? process.cwd()
+    // Named no folder, the draft is read as the user's own, as the ACP
+    // adapter's is. This process's working directory depends on how the app
+    // was started — `/` from Finder, the checkout under `pnpm dev` — so a
+    // project layer found there was a default nobody chose.
+    const where = cwd ?? homedir()
     const [{ config }, catalog] = await Promise.all([
       this.#server.request('config/read', { cwd: where }),
       this.#catalog.load(where),

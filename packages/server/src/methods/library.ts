@@ -3,36 +3,50 @@ import { join } from 'node:path'
 import { applyLibrary, planLibrary, readDefinition, readLibrary } from '@harnessdesk/agent-inventory'
 import { runtimeId } from '@harnessdesk/protocol'
 
+import { assertAbsoluteCwd } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
 /**
  * One library, every agent: the skills and MCP servers on the machine, which
  * agents load each one, and the plan/apply pair that writes into an agent's
  * own configuration.
+ *
+ * A cwd is the project whose own directories count, and each verb refuses a
+ * relative one before the engine sees it: the engine resolves it against this
+ * process's working directory, for what it reads and for the roots its writes
+ * are held to.
  */
 export const libraryMethods = {
-  'library/read': (ctx, params) => readLibrary(ctx.runtimes.inventory(), { cwd: params.cwd }),
+  'library/read': (ctx, params) => {
+    assertAbsoluteCwd(params)
+    return readLibrary(ctx.runtimes.inventory(), { cwd: params.cwd })
+  },
 
-  'library/definition': (ctx, params) =>
+  'library/definition': (ctx, params) => {
+    assertAbsoluteCwd(params)
     // Synchronous and small: one file and a bounded directory listing.
     // It is not worth a worker, and the sheet that asked for it wants it
     // in the same frame it opened in.
-    readDefinition(
+    return readDefinition(
       { kind: params.kind, name: params.name, path: params.path },
       params.cwd !== undefined ? { cwd: params.cwd } : {},
-    ),
+    )
+  },
 
-  'library/plan': (ctx, params) =>
+  'library/plan': (ctx, params) => {
+    assertAbsoluteCwd(params)
     // Plan touches nothing; what it answers with is the evidence the
     // person confirms. The same brand-deduped roster as the read, so a
     // column and its install target can never disagree about which
     // runtime an agent is.
-    planLibrary(ctx.runtimes.inventory(), params.intents, {
+    return planLibrary(ctx.runtimes.inventory(), params.intents, {
       libraryDir: join(ctx.state.directory, 'library'),
       cwd: params.cwd,
-    }),
+    })
+  },
 
   'library/apply': async (ctx, params) => {
+    assertAbsoluteCwd(params)
     // Writing into another program's configuration is the most
     // destructive thing this app does. The engine re-checks every
     // target — inside a known root, not read-only, unchanged since the

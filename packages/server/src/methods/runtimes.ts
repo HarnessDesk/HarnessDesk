@@ -1,5 +1,6 @@
 import { findOption, refuseOptionValue, type AgentRuntime, type ConfigOption, type OptionValue } from '@harnessdesk/protocol'
 
+import { assertAbsoluteCwd } from '../workspace.js'
 import type { AccountRuntimePrefix, InstallRuntimePrefix } from './accounts.js'
 import type { MethodsUnder } from './context.js'
 import type { RuntimeExtensionPrefix } from './runtime-extensions.js'
@@ -44,6 +45,7 @@ export const runtimeMethods = {
   },
 
   'runtime/sessionDefaults': (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     if (!runtime.defaultSessionOptions) return []
     return runtime.defaultSessionOptions(params.cwd, params.values)
@@ -60,6 +62,7 @@ export const runtimeMethods = {
   },
 
   'runtime/skills': (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     // Optional on the interface: a runtime without skills says so by not
     // implementing it, rather than by returning a misleading empty list.
@@ -74,6 +77,7 @@ export const runtimeMethods = {
   },
 
   'runtime/hooks': (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     return runtime.listHooks ? runtime.listHooks(params.cwd) : []
   },

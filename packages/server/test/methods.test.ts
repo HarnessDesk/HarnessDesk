@@ -84,23 +84,69 @@ test('a terminal with nowhere to run is refused in the name of the runtime that 
   )
 })
 
-test('a worktree is only created under an open workspace, and the service is not asked otherwise', async () => {
+/**
+ * The handler's half of the boundary: the host's git confinement decides, and
+ * the service is asked about the folder it answered with, links resolved, not
+ * about the spelling off the wire.
+ */
+test('a worktree is only created where the git confinement admits, in the folder it answers with', async () => {
   const open = tempDir('hd-methods-open-')
   const elsewhere = tempDir('hd-methods-elsewhere-')
-  let created = 0
+  const link = join(open, 'link')
+  const real = join(open, 'real')
+  const asked: string[] = []
   const ctx = contextWith({
-    workspaces: { openRoots: () => [open] },
+    workspaces: {
+      confineGitRoot: async (root: string) => {
+        if (root === link) return real
+        throw new Error(`${root} is outside every open workspace.`)
+      },
+    },
     worktrees: {
-      create: async () => {
-        created += 1
+      create: async (root: string) => {
+        asked.push(root)
         return { path: join(open, 'wt'), branch: 'wt' }
       },
     },
   })
-  await assert.rejects(dispatch(ctx, 'worktree/create', { root: elsewhere, name: 'wt' }))
-  assert.equal(created, 0)
-  await dispatch(ctx, 'worktree/create', { root: open, name: 'wt' })
-  assert.equal(created, 1)
+  await assert.rejects(dispatch(ctx, 'worktree/create', { root: elsewhere, name: 'wt' }), /outside every open workspace/)
+  assert.deepEqual(asked, [], 'the service is not asked about a root the confinement refused')
+  await dispatch(ctx, 'worktree/create', { root: link, name: 'wt' })
+  assert.deepEqual(asked, [real])
+})
+
+/**
+ * The same for a room, with one difference: the engine is handed the path as
+ * it was asked for. A room in a folder in no repository is keyed by the open
+ * folder as it is spelled, which is where the conversations in it resolve to,
+ * so a room made at the resolved path of a folder opened through a link is one
+ * none of them can join.
+ */
+test('a room is only made where the room confinement admits, at the path it was asked for', async () => {
+  const made: string[] = []
+  const ctx = contextWith({
+    workspaces: {
+      confineRoom: async (folder: string) => {
+        if (folder !== '/open/through-a-link') {
+          throw new Error(`${folder} is outside every folder and repository opened here. Open it first.`)
+        }
+      },
+    },
+    team: {
+      createRoom: async (root: string) => {
+        made.push(root)
+        return { id: 'room-1' }
+      },
+      stateFor: (id: string) => ({ id }),
+    },
+  })
+  await assert.rejects(
+    dispatch(ctx, 'team/room/create', { root: '/elsewhere', name: 'Elsewhere' }),
+    /outside every folder and repository opened here/,
+  )
+  assert.deepEqual(made, [], 'nothing is made where the confinement refused')
+  await dispatch(ctx, 'team/room/create', { root: '/open/through-a-link', name: 'Here' })
+  assert.deepEqual(made, ['/open/through-a-link'])
 })
 
 /**
