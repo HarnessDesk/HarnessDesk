@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentItem, Session, SubagentItem } from '@harnessdesk/protocol'
+import type { AgentItem, AgentSession, Session, SubagentItem } from '@harnessdesk/protocol'
 
 import { AcpRuntime } from '../src/index.js'
 
@@ -40,35 +40,63 @@ const subagents = (session: Session): readonly { turn: number; item: SubagentIte
       .map((item) => ({ turn: index, item })),
   )
 
-/** Sends one prompt and waits for the turn to close. */
+/**
+ * Sends one prompt, then reads the session until that turn has closed and
+ * `ready` holds of what the test reads next, and hands back that reading.
+ *
+ * No fixed sleep can stand in for this. `send` resolves when the runtime
+ * accepts the prompt, not when the turn ends, so the wait has to cover the
+ * agent's whole answer; and the delegation push is a notification rather
+ * than part of the prompt's reply, so it may land after the turn has closed.
+ * 50 ms covered both until a loaded machine ran past it.
+ *
+ * The deadline is a ceiling for an adapter that never gets there, not a
+ * budget for a slow one: a passing run returns on the first reading that
+ * shows the state.
+ */
 const ask = async (
-  session: { send(input: readonly { type: 'text'; text: string }[]): Promise<unknown> },
+  runtime: AcpRuntime,
+  session: AgentSession,
   text: string,
-): Promise<void> => {
-  await session.send([{ type: 'text', text }])
-  // The delegation push is a notification, not part of the prompt reply, so
-  // it can land a tick after the turn closes.
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  ready: (read: Session) => boolean = () => true,
+): Promise<Session> => {
+  const turn = await session.send([{ type: 'text', text }])
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    const read = await runtime.readSession(session.id)
+    const status = read.turns.find(({ id }) => id === turn)?.status
+    if (status !== undefined && status !== 'inProgress' && ready(read)) return read
+    if (Date.now() > deadline) {
+      const rows = subagents(read).map(({ turn: at, item }) => `${item.status} on turn ${at}`)
+      throw new Error(`"${text}" never settled: its turn is ${status ?? 'missing'}, rows [${rows.join(', ')}]`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
 }
+
+/** A child has been reported, wherever it was put. */
+const reported = (read: Session): boolean => subagents(read).length > 0
 
 test('a child that outlives its turn is updated where it started, not appended to the turn in flight', async () => {
   const runtime = make()
   await runtime.start()
   try {
     const session = await runtime.createSession({ cwd: WORKDIR })
-    await ask(session, 'deleg spawn')
-
-    const started = subagents(await runtime.readSession(session.id))
+    const started = subagents(await ask(runtime, session, 'deleg spawn', reported))
     assert.equal(started.length, 1, 'one row after the first turn')
     assert.equal(started[0]?.turn, 0)
     assert.equal(started[0]?.item.status, 'inProgress')
 
     // A second turn, during which the *first* turn's child reports that it
     // finished. The list is pushed whole every time anything in it moves, so
-    // this payload names a delegation turn 2 never made.
-    await ask(session, 'deleg finish')
-
-    const after = subagents(await runtime.readSession(session.id))
+    // this payload names a delegation turn 2 never made. The wait is for any
+    // row that has stopped running, wherever it went: where it went is for
+    // the checks below to say.
+    const after = subagents(
+      await ask(runtime, session, 'deleg finish', (read) =>
+        subagents(read).some(({ item }) => item.status !== 'inProgress'),
+      ),
+    )
     assert.equal(after.length, 1, 'still one row — the child was not duplicated into turn 2')
     assert.equal(after[0]?.turn, 0, 'and it stayed on the turn that started it')
     assert.equal(after[0]?.item.status, 'completed', 'updated in place rather than left stuck')
@@ -83,9 +111,9 @@ test('an output count that is still a floor stays a floor across the boundary', 
   await runtime.start()
   try {
     const session = await runtime.createSession({ cwd: WORKDIR })
-    await ask(session, 'deleg floor')
+    const read = await ask(runtime, session, 'deleg floor', reported)
 
-    const [row] = subagents(await runtime.readSession(session.id))
+    const [row] = subagents(read)
     assert.ok(row)
     assert.equal(row.item.usage?.outputTokens, 1)
     // The whole point: 1 is what was counted, not what was produced. Without
@@ -94,8 +122,7 @@ test('an output count that is still a floor stays a floor across the boundary', 
     assert.equal(row.item.usage?.outputExact, false)
     assert.equal(row.item.members[0]?.usage?.outputExact, false)
 
-    const usage = (await runtime.readSession(session.id)).usage
-    assert.equal(usage?.delegated?.outputExact, false, 'and the session share says so too')
+    assert.equal(read.usage?.delegated?.outputExact, false, 'and the session share says so too')
   } finally {
     await runtime.dispose()
   }
@@ -106,11 +133,13 @@ test('an exact delegation carries no exactness claim at all', async () => {
   await runtime.start()
   try {
     const session = await runtime.createSession({ cwd: WORKDIR })
-    await ask(session, 'deleg spawn')
-    const [row] = subagents(await runtime.readSession(session.id))
+    const [row] = subagents(await ask(runtime, session, 'deleg spawn', reported))
+    // There first: a row that never arrived carries no flag either, and on a
+    // loaded machine the check below passed for exactly that reason.
+    assert.ok(row)
     // Absent, not `true`: writing the flag on every ordinary reading would
     // make an unremarkable count look like a claim.
-    assert.equal(row?.item.usage?.outputExact, undefined)
+    assert.equal(row.item.usage?.outputExact, undefined)
   } finally {
     await runtime.dispose()
   }
@@ -122,22 +151,19 @@ test('a session total drops its cache-write count once any turn is silent about 
   try {
     const session = await runtime.createSession({ cwd: WORKDIR })
 
-    await ask(session, 'writes')
-    const first = (await runtime.readSession(session.id)).usage
+    const first = (await ask(runtime, session, 'writes')).usage
     assert.equal(first?.last.cacheWriteTokens, 50)
     assert.equal(first?.total.cacheWriteTokens, 50, 'one reporting turn is a knowable total')
 
     // A turn that says nothing about writes. Summing it as zero would leave
     // an exact-looking 50 for a conversation whose second half is unknown.
-    await ask(session, 'nowrites')
-    const second = (await runtime.readSession(session.id)).usage
+    const second = (await ask(runtime, session, 'nowrites')).usage
     assert.equal(second?.last.cacheWriteTokens, undefined)
     assert.equal(second?.total.cacheWriteTokens, undefined, 'the total is unknown, not 50')
 
     // And it does not come back: the gap is permanent, so a later reporting
     // turn cannot make the whole conversation look measured again.
-    await ask(session, 'writes')
-    const third = (await runtime.readSession(session.id)).usage
+    const third = (await ask(runtime, session, 'writes')).usage
     assert.equal(third?.last.cacheWriteTokens, 50)
     assert.equal(third?.total.cacheWriteTokens, undefined)
   } finally {
