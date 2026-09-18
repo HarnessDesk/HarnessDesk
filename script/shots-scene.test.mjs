@@ -71,15 +71,20 @@ test('a scene with nothing to put back runs as it always did', async () => {
 })
 
 test('a scene that fails and then fails to put back reports why it failed', async () => {
-  const { scene, around } = staged({
+  const { seen, scene, around } = staged({
     run: async () => {
+      seen.push('run')
       throw new Error('the row was not there')
     },
     finish: async () => {
+      seen.push('finish')
       throw new Error('the store could not be written')
     },
   })
   await assert.rejects(runScene(scene, around), /the row was not there/)
+  // The message alone would pass if `finish` were skipped on this path and the
+  // original error simply carried through unchanged — this pins that it ran.
+  assert.deepEqual(seen, ['run', 'finish'])
 })
 
 test('a scene that only fails to put back is reported, having got its frames', async () => {
