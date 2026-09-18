@@ -332,6 +332,24 @@ export class AppStore {
             historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
         }
+        if (notification.method === 'session/removed') {
+          /* Deleted, or opened for a seat and passed over: either way nothing
+             holds it now, and a window that kept it would draw a row the
+             host can no longer answer for. */
+          const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+          const sessions = new Map(this.#snapshot.sessions)
+          const queues = new Map(this.#snapshot.queues)
+          const tasks = new Map(this.#snapshot.tasks)
+          sessions.delete(key)
+          queues.delete(key)
+          tasks.delete(key)
+          this.#patch({
+            sessions,
+            queues,
+            tasks,
+            history: this.#snapshot.history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key),
+          })
+        }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
           const { report } = notification.params

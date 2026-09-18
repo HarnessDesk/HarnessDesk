@@ -2023,6 +2023,16 @@ export type WireNotification =
       readonly params: { readonly runtime: RuntimeId }
     }
   | {
+      /**
+       * A conversation the host no longer holds and no window should draw:
+       * deleted, or opened for a seat and passed over. Without this a window
+       * kept the row the conversation's `session/started` gave it until it was
+       * reloaded — and a reload brought it back from the host's own record.
+       */
+      readonly method: 'session/removed'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    }
+  | {
       /** Base64 output from a terminal. Every client receives it; a pane shows its own. */
       readonly method: 'terminal/output'
       readonly params: { readonly terminalId: string; readonly stream: 'stdout' | 'stderr'; readonly data: string }

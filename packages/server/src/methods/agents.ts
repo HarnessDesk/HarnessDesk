@@ -159,10 +159,10 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * Opens one candidate and holds it to what it asked for: the open seat, or the
  * candidate passed over with why — and then nothing of it is left open.
  *
- * A seat that fails part-way through opening is closed by the host before the
- * failure reaches here; one that opens on something else is closed here, and
- * the close is waited for, so the next candidate is only opened once this one
- * is gone.
+ * A seat that fails part-way through opening is discarded by the host before
+ * the failure reaches here; one that opens on something else is discarded
+ * here (`ctx.seats.discard`), and the discard is waited for, so the next
+ * candidate is only opened once this one is gone.
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -177,8 +177,8 @@ const openAsAsked = async (
   }
   const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened
-  await ctx.seats.retire(opened.runtime, opened.sessionId)
-  return passedFor(seat, { kind: 'openedOtherwise', differences: found })
+  const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
+  return { ...passedFor(seat, { kind: 'openedOtherwise', differences: found }), left }
 }
 
 /**

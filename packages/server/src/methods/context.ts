@@ -15,6 +15,7 @@ import type {
   RuntimeFiles,
   RuntimeId,
   RuntimeInfo,
+  SeatLeft,
   SecretReload,
   Session,
   SessionBusyError,
@@ -166,6 +167,12 @@ export interface HostContext {
      * be opened without two ever being open at once.
      */
     retire(runtime: string, sessionId: string): Promise<void>
+    /**
+     * Takes a seat a seating opened and passed over out of the world: closed,
+     * let go, deleted where its runtime keeps it, forgotten by the desk, and
+     * dropped from every window. Answers what could not be removed, or null.
+     */
+    discard(runtime: string, sessionId: string): Promise<SeatLeft | null>
     /**
      * Records which Agent a conversation was seated as, the digest of the
      * brief it was handed and the permission it was told it holds, tells every

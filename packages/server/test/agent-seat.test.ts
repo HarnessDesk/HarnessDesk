@@ -23,8 +23,11 @@ import {
   type FlowSeat,
   type ModelInfo,
   type OptionValue,
+  type RuntimeCapabilities,
   type RuntimeHealth,
+  type RuntimeId,
   type RuntimeInfo,
+  type SeatLeft,
   type Session,
   type SessionId,
   type SessionOptions,
@@ -87,8 +90,12 @@ class SeatFake extends FakeRuntime {
   /** Called as each conversation is asked for, before it exists. */
   beforeCreate: (() => void) | null = null
 
-  constructor() {
-    super({ id: runtimeId('seatfake'), name: 'Seat Fake' })
+  constructor(identity: { readonly id?: string; readonly capabilities?: Partial<RuntimeCapabilities> } = {}) {
+    super({
+      id: runtimeId(identity.id ?? 'seatfake'),
+      name: 'Seat Fake',
+      ...(identity.capabilities ? { capabilities: identity.capabilities } : {}),
+    })
     // The name a label is built from; the base fixture's is fixed.
     const info = this.info
     ;(this as { info: RuntimeInfo }).info = { ...info, presentation: { ...info.presentation, name: 'Seat Fake' } }
@@ -137,7 +144,7 @@ class SeatFake extends FakeRuntime {
 type SeatValues = { model: string; effort: string; thinking: boolean; fast: boolean; 'max-mode': boolean }
 
 class SeatSession implements AgentSession {
-  readonly runtime = runtimeId('seatfake')
+  readonly runtime: RuntimeId
   /** Every message it was sent, as text. */
   readonly sent: string[] = []
   closed = false
@@ -153,6 +160,7 @@ class SeatSession implements AgentSession {
     private readonly cwd: string,
     values: SeatValues,
   ) {
+    this.runtime = owner.info.id
     this.#values = this.#fit(values)
   }
 
@@ -517,6 +525,8 @@ const rig = async (
     readonly deadlineMs?: number
     /** Runtime ids whose usage the person has switched off — left out of `ctx.runtimes.metered()`. */
     readonly unmetered?: readonly string[]
+    /** What a discarded seat leaves behind, per runtime; nothing unless a test says so. */
+    readonly leaves?: (runtime: string) => SeatLeft | null
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -531,6 +541,7 @@ const rig = async (
   const titles: string[] = []
   const ordered: string[] = []
   const retired: string[] = []
+  const discarded: string[] = []
   const recorded: SeatedAs[] = []
   const asked: (string | undefined)[] = []
   /* Seats this call has open right now, and every moment a second was opened
@@ -599,6 +610,13 @@ const rig = async (
         alive -= 1
         retired.push(`${runtime} ${id}`)
       },
+      discard: async (runtime: string, id: string): Promise<SeatLeft | null> => {
+        await new Promise((resolve) => setImmediate(resolve))
+        alive -= 1
+        retired.push(`${runtime} ${id}`)
+        discarded.push(`${runtime} ${id}`)
+        return options.leaves?.(runtime) ?? null
+      },
       recordAgent: (runtime: string, id: string, seated: SeatedAs): Session => {
         recorded.push(seated)
         return {
@@ -615,7 +633,21 @@ const rig = async (
       },
     },
   } as never
-  return { ctx, source, created, titles, ordered, retired, recorded, asked, root, overlaps, warned, alive: () => alive }
+  return {
+    ctx,
+    source,
+    created,
+    titles,
+    ordered,
+    retired,
+    discarded,
+    recorded,
+    asked,
+    root,
+    overlaps,
+    warned,
+    alive: () => alive,
+  }
 }
 
 /** Nothing was opened, handed a brief, closed or recorded. */
@@ -1356,15 +1388,20 @@ for (const [answer, how] of [
     })
     await writeReviewer(harness.stateDir, 'variant=fam/high+thinking, variant=fam/medium')
 
+    // Neither candidate's runtime can delete what it opened — a bare ACP
+    // agent, `variant` declares no `_harnessdesk/session/delete` — so each is
+    // archived here instead, and the refusal says so on its own line.
+    const archived =
+      "the conversation it opened stays in variant's own history, which it cannot delete from; it is archived here"
     await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
       assert.equal(
         error.message,
         [
           'No seat could be opened for this Agent:',
           // High has no thinking variant: asked for, thinking is settled off.
-          '  variant=fam/high+thinking — variant runs it without thinking, which was asked for',
+          `  variant=fam/high+thinking — variant runs it without thinking, which was asked for (${archived})`,
           // Medium comes with thinking, and turning it off is declined.
-          '  variant=fam/medium — variant runs it with thinking on, which was not asked for and would not turn off',
+          `  variant=fam/medium — variant runs it with thinking on, which was not asked for and would not turn off (${archived})`,
         ].join('\n'),
       )
       return true
@@ -1584,4 +1621,96 @@ test('a runtime whose usage is switched off is not passed over as spent from an 
   // `silenced` is first in `prefer`: were its old 100% reading consulted, it
   // would be passed over as spent and `claude` seated instead.
   assert.deepEqual(seen.created, [{ runtime: 'silenced', model: 'm1', cwd: '/tmp/x' }])
+})
+
+/*
+ * A seat passed over leaves nothing behind: not in the runtime's history, not
+ * in the desk's records, not as a row in any window. What a runtime cannot
+ * remove is said, on the candidate's own line.
+ */
+
+test('a seat passed over once open is discarded, not merely closed; one whose brief may have arrived is only closed', async () => {
+  const passed = await rig('claude=opus-5/high, claude=sonnet-5/high', { claude: { models: ['opus-5', 'sonnet-5'] } }, {
+    comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}),
+  })
+  await agentMethods['agent/seat'](passed.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(passed.discarded, ['claude s1'])
+
+  const ordered = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, { orderFails: 'Claude is not running.' })
+  await assert.rejects(() => agentMethods['agent/seat'](ordered.ctx, { id: 'reviewer', cwd: '/tmp/x' }))
+  assert.deepEqual(ordered.retired, ['claude s1'])
+  assert.deepEqual(ordered.discarded, [], 'a brief may have reached it, so it is not the desk’s to delete')
+})
+
+test('what a runtime could not remove is said on its own line of the refusal', async () => {
+  const seen = await rig('claude=opus-5/high', { claude: { models: ['opus-5'] } }, {
+    comesBackAs: () => ({ effort: 'medium' }),
+    leaves: () => ({ kind: 'kept' }),
+  })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          "  claude=opus-5/high — claude runs it at medium effort, not high (the conversation it opened stays in claude's own history, which it cannot delete from; it is archived here)",
+      )
+      return true
+    },
+  )
+})
+
+test('through the host: a seat passed over is deleted where its runtime keeps it, forgotten by the desk, and dropped from every window', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=small/high, seatfake=big/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const [passed, kept] = seats.opened
+  assert.ok(passed && kept && seats.opened.length === 2)
+  assert.equal(String(kept.id), String(session.id))
+  // Where the runtime keeps it…
+  assert.deepEqual(seats.deleted, [String(passed.id)])
+  // …and everything the desk held: its record, and the name it was given.
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), passed.id), undefined)
+  const names = await readFile(join(harness.stateDir, 'names.json'), 'utf8').catch(() => '')
+  assert.equal(names.includes(String(passed.id)), false, 'the name the seat was given is gone')
+  // …and every window, which took it in from its session/started.
+  await client.until(
+    () =>
+      client.notifications.some(
+        (one) => 'method' in one && one.method === 'session/removed' && String(one.params.sessionId) === String(passed.id),
+      ),
+    2_000,
+    'session/removed for the seat passed over',
+  )
+  // The kept seat is untouched.
+  assert.ok(harness.host.registry.get(runtimeId('seatfake'), kept.id))
+})
+
+test('through the host: a runtime that cannot delete keeps what it keeps, archived, and the refusal says so', async (t) => {
+  const { harness, client, work } = await desk(t)
+  const keeper = new SeatFake({ id: 'keeper', capabilities: { deleteHistory: false, archiveHistory: false } })
+  harness.host.register(keeper)
+  await keeper.start()
+  await writeReviewer(harness.stateDir, 'keeper=small/high')
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened stays in keeper's own history, which it cannot delete from; it is archived here)",
+    )
+    return true
+  })
+  const [opened] = keeper.opened
+  assert.ok(opened)
+  assert.deepEqual(keeper.deleted, [], 'nothing was asked of a runtime that cannot delete')
+  const archive = JSON.parse(await readFile(join(harness.stateDir, 'archive.json'), 'utf8')) as {
+    entries: { runtime: string; sessionId: string }[]
+  }
+  assert.deepEqual(
+    archive.entries.map((one) => [one.runtime, one.sessionId]),
+    [['keeper', String(opened.id)]],
+  )
+  assert.equal(harness.host.registry.get(runtimeId('keeper'), opened.id), undefined)
 })

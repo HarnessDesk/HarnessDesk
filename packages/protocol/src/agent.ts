@@ -175,3 +175,17 @@ export type SeatFix =
   | { readonly kind: 'runtime'; readonly runtime: string }
   /** The seat asks for what this runtime does not do here: this Mac's seats for the Agent. */
   | { readonly kind: 'seats' }
+
+/**
+ * What a seat passed over after opening may have left behind, where the desk
+ * could not remove all of it. Null (on `PassedOver.left`) when nothing is.
+ */
+export type SeatLeft =
+  /**
+   * The runtime keeps its own history and offers no way to remove a
+   * conversation from it. Whether it recorded one that never took a message
+   * the desk cannot tell; it archived it, so a row does not come back.
+   */
+  | { readonly kind: 'kept' }
+  /** The runtime was asked to delete it, and refused, in these words. */
+  | { readonly kind: 'undeleted'; readonly detail: string }

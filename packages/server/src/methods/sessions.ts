@@ -159,6 +159,8 @@ export const sessionMethods = {
       await record.live?.close().catch(() => {})
       ctx.registry.delete(runtime.info.id, id)
     }
+    // Every window, not only the one that asked: another may be drawing it.
+    ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id } })
     return {
       disposition: outcome?.disposition ?? 'removed',
       ...(outcome?.removed !== undefined ? { removed: outcome.removed } : {}),

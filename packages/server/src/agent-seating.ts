@@ -4,6 +4,7 @@ import type {
   FlowSeat,
   SeatDifference,
   SeatFix,
+  SeatLeft,
   SeatReason,
   SessionSettings,
 } from '@harnessdesk/protocol'
@@ -107,6 +108,8 @@ export interface PassedOver {
   readonly why: string
   /** The same fact, for a surface to word and to offer the fix for (`fixOf`). */
   readonly reason: SeatReason
+  /** What its opening left behind that could not be removed; absent or null when nothing is. */
+  readonly left?: SeatLeft | null
 }
 
 /**
@@ -259,6 +262,12 @@ export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly Sea
   return { seat: null, passed }
 }
 
+/** What a passed-over seat left behind, as a clause of its line. */
+export const leftWords = (runtime: string, left: SeatLeft): string =>
+  left.kind === 'kept'
+    ? `the conversation it opened stays in ${runtime}'s own history, which it cannot delete from; it is archived here`
+    : `the conversation it opened could not be deleted: ${quoted(left.detail)}`
+
 /**
  * The refusal, a line per candidate. Each is quoted by `seatSpec`, in the
  * grammar `prefer` is written in, because that is the text a person can find
@@ -268,7 +277,9 @@ export const explainRefusal = (passed: readonly PassedOver[]): string => {
   if (passed.length === 0) {
     return 'No seat could be opened for this Agent: it has no seat to try — add one to the prefer list in its AGENT.md.'
   }
-  const lines = passed.map((one) => `  ${seatSpec(one.seat)} — ${one.why}`)
+  const lines = passed.map(
+    (one) => `  ${seatSpec(one.seat)} — ${one.why}${one.left ? ` (${leftWords(one.seat.runtime, one.left)})` : ''}`,
+  )
   return `No seat could be opened for this Agent:\n${lines.join('\n')}`
 }
 

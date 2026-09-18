@@ -427,3 +427,22 @@ describe('turns dropped under the window', () => {
     expect(turnsHere()).toEqual(['t-1'])
   })
 })
+
+describe('a conversation the host removed', () => {
+  it('leaves this window: its row, its queue and its background tasks', () => {
+    const handlers = (store.transport as unknown as {
+      handlers: {
+        onEvent(runtime: RuntimeId, event: AgentEvent): void
+        onNotification(notification: unknown): void
+      }
+    }).handlers
+    handlers.onEvent(RUNTIME, { type: 'session/started', session: session({ title: 'Code reviewer' }) })
+    expect(store.getSnapshot().sessions.has(KEY)).toBe(true)
+
+    handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID } })
+
+    expect(store.getSnapshot().sessions.has(KEY)).toBe(false)
+    expect(store.getSnapshot().queues.has(KEY)).toBe(false)
+    expect(store.getSnapshot().tasks.has(KEY)).toBe(false)
+  })
+})
