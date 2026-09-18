@@ -210,11 +210,23 @@ const DropdownMenuSubContent = ({
   align = 'start',
   side = 'right',
   sideOffset = 0,
+  collisionAvoidance,
+  sticky,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Popup> &
-  Pick<React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  Pick<
+    React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>,
+    'align' | 'side' | 'sideOffset' | 'collisionAvoidance' | 'sticky'
+  >) => (
   <DropdownMenuPrimitive.Portal>
-    <DropdownMenuPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} className="z-(--hd-z-popover)">
+    <DropdownMenuPrimitive.Positioner
+      align={align}
+      side={side}
+      sideOffset={sideOffset}
+      collisionAvoidance={collisionAvoidance}
+      sticky={sticky}
+      className="z-(--hd-z-popover)"
+    >
       <DropdownMenuPrimitive.Popup
         data-slot="dropdown-menu-sub-content"
         className={cn(

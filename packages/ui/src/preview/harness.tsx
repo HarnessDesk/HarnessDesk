@@ -3,9 +3,11 @@ import type { ReactNode } from 'react'
 import {
   runtimeId,
   sessionKey,
+  type OptionValue,
   type RuntimeInfo,
   type Session,
   type SessionId,
+  type SessionKey,
   type TeamPeerInfo,
   type TeamState,
 } from '@harnessdesk/protocol'
@@ -884,6 +886,18 @@ class PreviewStore {
     this.patch({ editorPrefs: { ...this.#snapshot.editorPrefs, ...prefs } })
   setListPrefs = (prefs: Partial<AppSnapshot['listPrefs']>): void =>
     this.patch({ listPrefs: { ...this.#snapshot.listPrefs, ...prefs } })
+
+  // --- the composer's controls ---------------------------------------------
+  // A choice lands on the conversation the way the host's answer would, so a
+  // control reads back what was picked rather than the fixture's first word.
+  setOption = async (id: string, value: OptionValue, key: SessionKey = PREVIEW_SESSION_KEY): Promise<void> => {
+    const session = this.#snapshot.sessions.get(key)
+    if (!session?.options) return
+    const options = session.options.map((option) =>
+      option.id === id ? ({ ...option, currentValue: value } as typeof option) : option,
+    )
+    this.patch({ sessions: new Map(this.#snapshot.sessions).set(key, { ...session, options }) })
+  }
 
   // --- arranging the list --------------------------------------------------
   /*

@@ -248,9 +248,42 @@ export const Submenu = ({
   children: ReactNode
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const row = useRef<HTMLButtonElement>(null)
+  const closedBy = useRef<string | null>(null)
+  /*
+    A level here is a Base UI `Menu.Root` with no `Menu.Trigger` — the
+    Popover, or a pointer, opens it — and Base UI 1.7 names a root menu's
+    node in its floating tree only through its trigger. So a flyout is filed
+    with no parent, and cannot tell its own menu from anywhere else.
+
+    That matters the moment the pointer leaves this row, which it must do to
+    reach the flyout: Base UI answers a row losing the pointer by focusing the
+    menu itself, and the flyout read that as focus leaving for somewhere
+    unrelated and closed. It closed before the pointer could arrive, so a
+    choice in it could not be taken with the mouse at all.
+
+    While its flyout is open the row keeps the focus instead — the way a
+    native menu keeps a submenu's row lit — and the flyout closes when the
+    pointer takes another row, leaves the flyout's reach, or a key says so.
+    If the pointer wandered off without taking another row, the reset the
+    row skipped is made once the flyout has gone, so no row stays lit that
+    nothing is pointing at.
+  */
   return (
-    <DropdownMenuSub>
+    <DropdownMenuSub
+      onOpenChange={(open, details) => {
+        closedBy.current = open ? null : details.reason
+      }}
+      onOpenChangeComplete={(open) => {
+        const element = row.current
+        if (open || closedBy.current !== 'trigger-hover' || !element) return
+        if (element === document.activeElement && !element.matches(':hover')) {
+          element.closest<HTMLElement>('[role="menu"]')?.focus({ preventScroll: true })
+        }
+      }}
+    >
       <DropdownMenuSubTrigger
+        ref={row}
         render={<button type="button" disabled={Boolean(disabled)} />}
         nativeButton
         className={styles.row}
@@ -259,6 +292,10 @@ export const Submenu = ({
         openOnHover
         delay={110}
         closeDelay={220}
+        onPointerLeave={(event) => {
+          if (!event.currentTarget.hasAttribute('data-popup-open')) return
+          ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
+        }}
       >
         {icon !== undefined && <span className={styles.icon}>{icon}</span>}
         <span className={styles.body}>
@@ -268,7 +305,20 @@ export const Submenu = ({
         {value !== undefined && <span className={styles.value}>{value}</span>}
         <ChevronIcon size={14} className={styles.chevron} />
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className={styles.flyout} style={width ? { width } : undefined}>
+      {/* Beside its row, or over the menu at its row — never above or below
+          it. With no room on either side Base UI turned the flyout onto the
+          other axis, over the menu's other rows, and the way there crossed
+          them: a hand resting at the row's far end set off along a safe
+          triangle so thin for a short flyout that its first step fell
+          outside it, and the row it crossed took the flyout's place. Kept to
+          a side and slid into the window, the flyout lies across the row
+          itself, and the pointer reaches it without leaving the row. */}
+      <DropdownMenuSubContent
+        className={styles.flyout}
+        style={width ? { width } : undefined}
+        collisionAvoidance={{ fallbackAxisSide: 'none' }}
+        sticky
+      >
         {children}
       </DropdownMenuSubContent>
     </DropdownMenuSub>

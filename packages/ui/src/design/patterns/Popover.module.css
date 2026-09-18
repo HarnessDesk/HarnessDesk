@@ -218,7 +218,11 @@
   color: var(--hd-secondary-foreground);
 }
 
+/* A command is copied whole, so it moves to a line of its own before it
+   breaks — and breaks only when it is longer than the menu is wide. */
 .updateNote code {
+  display: inline-block;
+  max-width: 100%;
   font-family: var(--hd-font-code);
   font-size: var(--hd-text-xs);
   padding: 1px 4px;

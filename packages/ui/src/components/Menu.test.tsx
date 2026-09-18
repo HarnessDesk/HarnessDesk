@@ -205,6 +205,35 @@ describe('Submenu', () => {
     expect(document.activeElement).toBe(row('More models'))
   })
 
+  it('stays open while the pointer leaves its row on the way to it', async () => {
+    act(() => {
+      root.render(
+        <Menu close={() => {}}>
+          <MenuItem label="Plain" onSelect={() => {}} />
+          <Submenu label="Effort">
+            <MenuItem label="Low" selected={false} onSelect={() => {}} />
+          </Submenu>
+        </Menu>,
+      )
+    })
+    click(row('Effort'))
+    const effort = row('Effort')
+    act(() => effort.focus())
+    expect(effort.getAttribute('aria-expanded')).toBe('true')
+    // The pointer leaves the row for the menu around it — the way to a flyout
+    // always crosses the row's edge, and Base UI answers a row losing the
+    // pointer by focusing the menu itself.
+    const level = effort.closest('[role="menu"]')
+    if (!level) throw new Error('the row is not in a menu')
+    act(() => {
+      level.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+      effort.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: level }))
+    })
+    await act(async () => {})
+    expect(effort.getAttribute('aria-expanded')).toBe('true')
+    expect(row('Low')).toBeTruthy()
+  })
+
   it('hovering a sibling row closes it', async () => {
     vi.useFakeTimers()
     act(() => {
