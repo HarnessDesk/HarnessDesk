@@ -9,14 +9,21 @@
 
 import readline from 'node:readline'
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
 // mocked. Codex resolves an installed package's icon to an absolute path.
 const ICON = fileURLToPath(new URL('./plugin-icon.svg', import.meta.url))
 
-const version = process.env['FAKE_CODEX_VERSION'] ?? '0.149.0'
+/* The build this stand-in plays. `FAKE_CODEX_VERSION_FILE` names a file holding
+   the version, read each time the process starts: a rig upgrades "Codex" under
+   a desk that is already running — a process whose environment cannot change —
+   by writing the file, and the next `--version` and the next app-server are the
+   new build. Without the file, the variable; without either, 0.149.0. */
+const versionFile = process.env['FAKE_CODEX_VERSION_FILE']
+const installed = versionFile && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : ''
+const version = installed || (process.env['FAKE_CODEX_VERSION'] ?? '0.149.0')
 const mode = process.env['FAKE_CODEX_MODE'] ?? 'turn'
 /** Whether the release played is `0.<minor>.0` or later, for what arrived with one. */
 const since = (minor) => Number(version.split('.')[1]) >= minor
