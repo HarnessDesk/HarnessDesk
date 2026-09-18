@@ -22,7 +22,15 @@
   backdrop-filter: blur(2px);
 }
 
+/* On the backdrop's layer, and after it in the tree. `DialogOverlay` carries
+   `z-(--hd-z-dialog)`, and a positioned box at that layer paints over a
+   positioned sibling at `auto` whatever their order — which laid the scrim
+   over the surface and every answer in it, so a pointer could not answer and
+   the dialog itself was drawn blurred. `DialogContent` gives its own overlay
+   and viewport this same layer for the same reason, and the one written
+   second wins the tie. */
 .viewport {
+  z-index: var(--hd-z-dialog);
   display: grid;
   place-items: center;
   padding: var(--hd-space-6);
