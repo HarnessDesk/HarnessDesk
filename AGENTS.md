@@ -3,7 +3,8 @@
 Read `docs/architecture.md` first — `docs/interface.md` if the work is
 user-facing — and `docs/decisions.md` for why a surface is the way it is, which
 is the fastest way to find the reasoning behind one before changing it.
-`CHANGELOG.md` says what has already shipped.
+`CHANGELOG.md` says what has already shipped. Cutting a release is
+`docs/release.md`, not a thing to improvise.
 Then take the work from the issue or the request that brought you here.
 
 Maintainers also keep private working files in the root checkout — `PLAN.md` and
