@@ -485,6 +485,23 @@ export interface RunwaySummary {
 const hasBalance = (report: UsageReport): boolean =>
   typeof report.credits?.remaining === 'number' && Number.isFinite(report.credits.remaining)
 
+/** A report with no window at all: whatever it has spent is a balance, not a quota. */
+const isBalanceOnly = (report: UsageReport): boolean => bindingLane(report.lanes) === null && hasBalance(report)
+
+/**
+ * What to call more than one spent account. Amp and Cline have only a
+ * balance, so a plural sentence has to say "credits" when every one of them
+ * is balance-only, "quota" when none is, and both when it is a mix — the
+ * word a single spent account already gets, said for a group (review round 4:
+ * this used to say "quota" even when every exhausted account was a balance).
+ */
+const exhaustedWord = (reports: readonly UsageReport[]): string => {
+  const credits = reports.filter(isBalanceOnly).length
+  if (credits === 0) return 'quota'
+  if (credits === reports.length) return 'credits'
+  return 'credits or quota'
+}
+
 /**
  * The one line above the cards.
  *
@@ -523,9 +540,9 @@ export const runway = (
   const only = exhausted[0]
   const headline =
     exhausted.length === 1 && only
-      ? `${nameFor(only)} is out of ${bindingLane(only.lanes) === null && hasBalance(only) ? 'credits' : 'quota'}.`
+      ? `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
-        ? `${exhausted.length} agents are out of quota.`
+        ? `${exhausted.length} agents are out of ${exhaustedWord(exhausted)}.`
         : low.length === 1
           ? `${nameFor(low[0] as UsageReport)} is running low.`
           : low.length > 1

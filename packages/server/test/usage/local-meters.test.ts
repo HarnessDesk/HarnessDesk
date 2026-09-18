@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 
 import { localUsageFor, ownCli } from '../../src/bootstrap.js'
 import { knownAgent } from '../../src/installs/known-agents.js'
+import { tempDir } from '../scratch.js'
 
 /**
  * Which agent rows earn a local usage meter.
@@ -126,6 +129,42 @@ test('a moved Gemini home moves the sign-in and the spend together, so one card 
     assert.deepEqual(plain?.meter?.watchPaths(), [`${home}/.gemini/oauth_creds.json`])
     assert.equal(plain?.root, `${home}/.gemini/tmp`)
   }
+})
+
+test('an Amp row with its own PATH is asked with that PATH, not the host process’s', async () => {
+  // The row can carry a second Amp account through its own PATH (and HOME,
+  // for the installer fallback); the meter has to find and run *that* amp,
+  // not whatever the host process already had (#772, review round 4).
+  const dir = tempDir('hd-amp-bind-')
+  const bin = join(dir, 'bin')
+  mkdirSync(bin)
+  const script = join(bin, 'amp')
+  // Amp's own $, not the shell's $1 (the script's first argument, "usage").
+  writeFileSync(script, ['#!/bin/sh', 'echo "**Individual credits:** \\$10 remaining"', 'echo "Signed in as row@example.com"', ''].join('\n'))
+  chmodSync(script, 0o755)
+
+  const amp = localUsageFor(row({ id: 'amp-acp', command: 'amp-acp', env: { PATH: bin } }))
+  const reading = await amp?.meter?.read()
+  assert.equal(reading?.account, 'row@example.com', 'the row’s own amp answered, not the host’s PATH')
+  assert.equal(reading?.credits?.remaining, 10)
+})
+
+test('a Cline row with --data-dir still lets CLINE_DB_DATA_DIR name the database on its own', () => {
+  // The two flags name different things — settings and account state versus
+  // the database alone — and a row can set one without the other, the way
+  // corpusRoot already honours CLINE_DB_DATA_DIR ahead of the data folder
+  // when there is no override (#772, review round 4).
+  const moved = localUsageFor(
+    row({
+      id: 'cline-work',
+      command: 'cline',
+      args: ['--acp', '--data-dir', '/work/second-cline'],
+      env: { CLINE_DB_DATA_DIR: '/work/second-cline-db' },
+    }),
+    knowledge('cline'),
+  )
+  assert.deepEqual(moved?.meter?.watchPaths(), ['/work/second-cline/settings/providers.json'], 'settings still follow --data-dir')
+  assert.equal(moved?.root, '/work/second-cline-db/sessions.db', 'the database follows CLINE_DB_DATA_DIR, not the override')
 })
 
 test('a Cline row moved with --data-dir is read from there, sign-in and spend together', () => {

@@ -199,8 +199,14 @@ times the last reading stands with its own age. A second Cline account is
 moved with `--data-dir` on the row, not an environment variable — Cline has
 none for it — so the sign-in and the spend are both read from that folder
 when the row carries the flag (round 3 review: the binding read only
-`CLINE_DATA_DIR`, which a `--data-dir` row never sets, and missed it). The
-ledger reads OpenCode's
+`CLINE_DATA_DIR`, which a `--data-dir` row never sets, and missed it).
+`CLINE_DB_DATA_DIR` still names the database on its own even then, exactly as
+it does with no override: the two flags move different things, and a row can
+set one without the other (round 4 review). Amp's meter, and the `amp`
+binary it runs, read the row's own environment too, not the host process's —
+a second Amp account moves the same way, through `PATH` (round 4 review: the
+binding built a bare `AmpMeter()` and always asked the host's own `amp`).
+The ledger reads OpenCode's
 and Cline's databases the same way it reads nothing else: through
 `readForeignDatabase`, which never guesses whether the owner is running. A WAL
 database with no `-wal` or `-shm` beside it is opened `immutable` and the read

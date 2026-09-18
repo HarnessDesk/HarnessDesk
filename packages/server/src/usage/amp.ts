@@ -76,6 +76,13 @@ export const ampBalance = (report: string): AmpBalance | null => {
 export interface AmpMeterOptions {
   /** The CLI to run; found on PATH, then where Amp's installer puts it, when absent. */
   readonly command?: string
+  /**
+   * The row's own environment, for `PATH` and `HOME` — a row can carry a
+   * second Amp account this way, and both finding the binary and running it
+   * have to agree on which one (review round 4: the meter used to ignore
+   * this and always ask the host's own `amp`).
+   */
+  readonly env?: NodeJS.ProcessEnv
   readonly run?: (command: string, args: readonly string[]) => Promise<RunResult>
   readonly now?: () => number
 }
@@ -84,13 +91,15 @@ export class AmpMeter implements UsageMeter {
   readonly id = 'amp-account'
   readonly source: UsageSource = { kind: 'api', label: 'from Amp' }
   readonly #command: string | undefined
+  readonly #env: NodeJS.ProcessEnv
   readonly #run: (command: string, args: readonly string[]) => Promise<RunResult>
   readonly #now: () => number
   #last: MeterReading | null = null
 
   constructor(options: AmpMeterOptions = {}) {
     this.#command = options.command
-    this.#run = options.run ?? ((command, args) => runForOutput(command, args, { timeoutMs: TIMEOUT_MS }))
+    this.#env = options.env ?? process.env
+    this.#run = options.run ?? ((command, args) => runForOutput(command, args, { timeoutMs: TIMEOUT_MS, env: definedEnv(this.#env) }))
     this.#now = options.now ?? Date.now
   }
 
@@ -101,7 +110,7 @@ export class AmpMeter implements UsageMeter {
 
   async read(): Promise<MeterReading | null> {
     if (this.#last && this.#now() - this.#last.fetchedAt < MIN_INTERVAL_MS) return this.#last
-    const command = this.#command ?? locate()
+    const command = this.#command ?? locate(this.#env)
     if (command === null) return null
 
     const result = await this.#run(command, ['usage', '--no-color'])
@@ -131,10 +140,17 @@ export class AmpMeter implements UsageMeter {
   }
 }
 
+/** `RunOptions.env` has no room for `undefined`, which `process.env` does. */
+const definedEnv = (env: NodeJS.ProcessEnv): Record<string, string> => {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+  return out
+}
+
 /** PATH first, because that is the copy the person runs; the installer's place second. */
-const locate = (): string | null => {
-  const found = whichOnPath(COMMAND)
+const locate = (env: NodeJS.ProcessEnv): string | null => {
+  const found = whichOnPath(COMMAND, { env })
   if (found !== null) return found
-  const installed = join(homedir(), INSTALLED)
+  const installed = join(env['HOME']?.trim() || homedir(), INSTALLED)
   return process.platform !== 'win32' && existsSync(installed) ? installed : null
 }

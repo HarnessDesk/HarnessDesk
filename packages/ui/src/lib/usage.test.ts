@@ -486,6 +486,23 @@ describe('runway', () => {
     expect(runway([report({ credits: { remaining: Number.NaN, unit: 'USD' } })], nameFor, NOON).metered).toBe(0)
   })
 
+  it('calls more than one spent account by what it actually ran out of', () => {
+    // Two spent balances have no quota at all; the plural line used to say
+    // "quota" for them regardless (#772, review round 4).
+    const ampOut = report({ runtime: runtimeId('amp'), credits: { remaining: 0, unit: 'USD' }, reached: 'credits' })
+    const clineOut = report({ runtime: runtimeId('cline'), credits: { remaining: -0.016, unit: 'USD' }, reached: 'credits' })
+    const windowOut = report({
+      runtime: runtimeId('alpha'),
+      lanes: [lane({ id: 'w', usedPercent: 100 })],
+      reached: 'w',
+    })
+    expect(runway([ampOut, clineOut], nameFor, NOON).headline).toBe('2 agents are out of credits.')
+    expect(runway([windowOut, report({ runtime: runtimeId('beta'), lanes: [lane({ id: 'w2', usedPercent: 100 })], reached: 'w2' })], nameFor, NOON).headline).toBe(
+      '2 agents are out of quota.',
+    )
+    expect(runway([ampOut, windowOut], nameFor, NOON).headline).toBe('2 agents are out of credits or quota.')
+  })
+
   it('treats a reached limit as out even when the lane reads fine', () => {
     const summary = runway(
       [report({ runtime: runtimeId('alpha'), reached: 'rate_limit_reached', lanes: [lane({ id: 'w', usedPercent: 40 })] })],

@@ -530,13 +530,17 @@ export const localUsageFor = (
       // `--data-dir` moves Cline's folder; there is no environment variable
       // for it, so a row that runs `cline --data-dir <dir> --acp` is read
       // from there — sign-in and spend together — rather than from whatever
-      // `CLINE_DATA_DIR` or the process home happen to hold.
+      // `CLINE_DATA_DIR` or the process home holds. `CLINE_DB_DATA_DIR` still
+      // wins for the database alone, exactly as `corpusRoot` gives it
+      // precedence when there is no override: the two flags name different
+      // things, and a row can set one without the other (review round 4).
       const override = clineDataDirOverride({ args: agent.args, cwd: agent.cwd })
       if (override === null) return { meter: new ClineMeter({ env }), ...records('cline') }
+      const dbDataDir = env['CLINE_DB_DATA_DIR']?.trim()
       return {
         meter: new ClineMeter({ env, settingsPath: join(override, 'settings', 'providers.json') }),
         corpus: 'cline',
-        root: join(override, 'db', 'sessions.db'),
+        root: join(dbDataDir || join(override, 'db'), 'sessions.db'),
       }
     }
     case 'opencode':
@@ -553,7 +557,7 @@ export const localUsageFor = (
     // answers for the account both of them are signed in as.
     case 'amp':
     case 'amp-acp':
-      return { meter: new AmpMeter() }
+      return { meter: new AmpMeter({ env }) }
     default:
       return null
   }
