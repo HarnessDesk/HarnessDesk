@@ -326,7 +326,9 @@
 }
 
 .search[data-clear] .input {
-  padding-right: calc(var(--hd-icon-target) + var(--hd-space-2));
+  /* The clear button's own square plus the inset it sits at, so the last
+     character stops a step short of it rather than under its edge. */
+  padding-right: calc(var(--hd-btn-h-sm) + var(--hd-space-2));
 }
 
 .searchClear {

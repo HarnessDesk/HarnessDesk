@@ -390,8 +390,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-page-row-h` | `` |
 | `--hd-page-row-padding` | `` |
-| `--hd-page-search-h` | `` |
-| `--hd-page-search-radius` | `` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-page-group-gap` | `` |
 | `--hd-btn-shadow` | `none` |
@@ -816,10 +814,9 @@ than "Limit reached".
 
 A search field: the input with the glass inside it.
 
-Every list on a settings page that grows past a screen gets one of these,
-and before this each drew its own — some with the glyph, some without, at
-three heights. One shape, so "this narrows the list below" reads the same
-on every page.
+Every list that grows past a screen gets one of these, and before this each
+drew its own — some with the glyph, some without, at three heights. One
+shape, so "this narrows the list below" reads the same on every page.
 
 ### `Field`
 
