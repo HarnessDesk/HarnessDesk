@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
 import type { UsageRow } from './store.js'
 
 /**
@@ -406,21 +407,35 @@ export const scanFile = (target: ScanTarget, offset: number, tail: readonly stri
   target.kind === 'codex' ? scanCodexRollout(target, offset, tail) : scanClaudeTranscript(target, offset, tail)
 
 /** Every `.jsonl` under a root, with the stats a cursor needs. */
-const walkJsonl = async (root: string, limit: number): Promise<{ path: string; size: number; mtime: number }[]> => {
+const walkJsonl = async (
+  root: string,
+  limit: number,
+  unreadable: (folder: string, error: unknown) => void,
+): Promise<{ path: string; size: number; mtime: number }[]> => {
   const found: { path: string; size: number; mtime: number }[] = []
-  const visit = async (dir: string): Promise<void> => {
+  const visit = async (dir: string, depth: number): Promise<void> => {
     if (found.length >= limit) return
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      /* The root is the agent's own history, and has to be a folder: one that
+         is not there is an agent never run, not worth a line, but a file at
+         it or above it is a broken home and not an idle agent. Below the
+         root, a folder that vanished or became a file between the listing and
+         the read is the walk racing the agent, and nothing. Anything else is
+         passed over, so every other agent is still counted, and reported — it
+         used to leave that agent's numbers frozen, with nothing to tell them
+         from a quiet week. */
+      const nothing = depth === 0 ? NOTHING_YET : NOTHING_HERE
+      if (!nothing.has(errnoOf(error))) unreadable(dir, error)
       return
     }
     for (const entry of entries) {
       if (found.length >= limit) return
       const full = join(dir, entry.name)
       if (entry.isDirectory()) {
-        await visit(full)
+        await visit(full, depth + 1)
         continue
       }
       if (!entry.name.endsWith('.jsonl')) continue
@@ -432,7 +447,7 @@ const walkJsonl = async (root: string, limit: number): Promise<{ path: string; s
       }
     }
   }
-  await visit(root)
+  await visit(root, 0)
   return found
 }
 
@@ -453,10 +468,19 @@ export const defaultCorpora = (runtimes: readonly { id: string; kind: 'codex' | 
         : join(process.env['CLAUDE_CONFIG_DIR'] ?? homedir(), '.claude', 'projects'),
   }))
 
-export const listTargets = async (corpora: readonly CorpusSpec[], limit = 20_000): Promise<ScanTarget[]> => {
+export const listTargets = async (
+  corpora: readonly CorpusSpec[],
+  options: {
+    readonly limit?: number
+    /** Told of each folder the walk could not open and passed over. */
+    readonly unreadable?: (folder: string, error: unknown) => void
+  } = {},
+): Promise<ScanTarget[]> => {
+  const limit = options.limit ?? 20_000
+  const unreadable = options.unreadable ?? (() => {})
   const targets: ScanTarget[] = []
   for (const corpus of corpora) {
-    for (const file of await walkJsonl(corpus.root, limit)) {
+    for (const file of await walkJsonl(corpus.root, limit, unreadable)) {
       targets.push({ runtime: corpus.runtime, kind: corpus.kind, ...file })
     }
   }

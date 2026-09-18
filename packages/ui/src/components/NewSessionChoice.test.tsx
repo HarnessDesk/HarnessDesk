@@ -280,3 +280,33 @@ it('counts the rooms a project already has when the folder you have open is a su
   )
   expect(note?.textContent).toContain('One room already in this project: Checkout rewrite')
 })
+
+it('says a project has no flows when the host says it has none', async () => {
+  // The control for the test below: an empty list is the one answer that reads as "none".
+  const { store } = rig()
+  render(store)
+  act(() => choice('A room').click())
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(document.body.textContent).toContain('No flows in this project yet')
+})
+
+it('says why a project’s flows could not be read, rather than that it has none', async () => {
+  /* A folder the host was refused used to arrive here as `[]`, one layer after
+     the host stopped sending it that way — and read as the sentence above: the
+     same words as the truth, with no path and no reason in them to act on. */
+  const { store } = rig()
+  ;(store.listFlows as ReturnType<typeof vi.fn>).mockRejectedValue(
+    new Error("EACCES: permission denied, scandir '/repo/.harnessdesk/flows'"),
+  )
+  render(store)
+  act(() => choice('A room').click())
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(document.body.textContent).toContain(
+    "EACCES: permission denied, scandir '/repo/.harnessdesk/flows'",
+  )
+  expect(document.body.textContent).not.toContain('No flows in this project yet')
+})

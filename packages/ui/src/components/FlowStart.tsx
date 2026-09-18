@@ -57,6 +57,10 @@ export const FlowStart = ({
 }) => {
   const store = useStore()
   const [files, setFiles] = useState<readonly FlowFile[] | null>(null)
+  /* Why the project's flows could not be listed, when they could not. Kept
+     apart from `files`, because an empty list is a claim — this project has
+     none — and a folder the host was refused has not made it. */
+  const [unlisted, setUnlisted] = useState<string | null>(null)
   const [path, setPath] = useState<string>(NONE)
   const [source, setSource] = useState<string>('')
   const [vars, setVars] = useState<Record<string, string>>({})
@@ -68,10 +72,12 @@ export const FlowStart = ({
     void store
       .listFlows(root)
       .then((found) => {
-        if (live) setFiles(found)
+        if (!live) return
+        setUnlisted(null)
+        setFiles(found)
       })
-      .catch(() => {
-        if (live) setFiles([])
+      .catch((error: unknown) => {
+        if (live) setUnlisted(error instanceof Error ? error.message : String(error))
       })
     return () => {
       live = false
@@ -128,6 +134,14 @@ export const FlowStart = ({
     },
     [errors, onChange, path, source, vars],
   )
+
+  if (unlisted !== null) {
+    return (
+      <Banner tone="danger" title="The flows in this project could not be read">
+        {unlisted}
+      </Banner>
+    )
+  }
 
   if (files !== null && files.length === 0) {
     return (

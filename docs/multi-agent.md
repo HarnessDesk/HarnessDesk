@@ -152,7 +152,9 @@ under the project if working alone.
 Membership and presence are distinct facts, and the room rail tracks both:
 
 - **Membership** is persisted state. A conversation remains a member across
-  quits, host relaunches, agent restarts, and closed panes.
+  quits, host relaunches, agent restarts, and closed panes. A desk that cannot
+  read the rooms it keeps does not open with none: it stops, and says which
+  folder and why.
 - **Presence** indicates whether the host currently holds an open handle to the
   agent process.
 

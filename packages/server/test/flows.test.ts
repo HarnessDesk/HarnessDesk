@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { sessionKey, type RuntimeId, type TeamState } from '@harnessdesk/protocol'
 
-import { Flows, runCheck, type FlowPort } from '../src/flows.js'
+import { FLOW_DIR, Flows, runCheck, type FlowPort } from '../src/flows.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 
 /**
@@ -1850,4 +1850,171 @@ rules:
   // Reviewer can claim card 3
   const claimed = await one.team.claimNext(reviewer)
   assert.match(claimed, /^Claimed #3/)
+})
+
+/*
+ * A folder that cannot be opened is not a folder with nothing in it.
+ *
+ * Both readers here — the project's flows and the desk's own runs — answered
+ * every failure to open their folder with nothing, so a mode, a bad mount or a
+ * name the filesystem will not take arrived as "no flows" or "no runs": the
+ * same answer as the truth, with no path and no reason in it to act on. The
+ * tests below use real filesystem conditions rather than stubs — a mode-000
+ * folder for EACCES, and a 300-character name for ENAMETOOLONG, which no mode
+ * and no user can skip, so each guarantee still holds where the mode test
+ * skips as root.
+ */
+
+/** A desk that only notes what it was asked, so a refusal can be shown to have cost nothing. */
+const asking = (asked: string[]): FlowPort => ({
+  seat: async () => {
+    asked.push('seat')
+    return { runtime: 'cursor', sessionId: 'x', label: 'cursor' }
+  },
+  order: async () => void asked.push('order'),
+  reseat: async () => 'cursor',
+  retire: async () => {},
+  join: async () => void asked.push('join'),
+  isolate: async () => '/repo',
+  run: async () => ({ status: 0 }),
+  changed: () => {},
+  log: () => {},
+})
+
+const errno = (expected: string) => (error: unknown) => {
+  assert.equal((error as { code?: unknown }).code, expected)
+  return true
+}
+
+test('a flows folder that cannot be read is raised, not listed as a project with none', async (t) => {
+  const one = await rig(t)
+  const root = join(one.dir, 'project')
+  const folder = join(root, FLOW_DIR)
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, 'review.yml'), REVIEW, 'utf8')
+  // Readable, it lists: so the refusal below is the mode's doing and nothing else's.
+  assert.deepEqual(
+    (await one.flows.list(root)).map((file) => file.name),
+    ['Fix and review'],
+  )
+
+  await chmod(folder, 0o000)
+  try {
+    const readable = await readdir(folder).then(
+      () => true,
+      () => false,
+    )
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(one.flows.list(root), errno('EACCES'))
+  } finally {
+    await chmod(folder, 0o700)
+  }
+})
+
+test('a project root the filesystem refuses outright is raised as well', async (t) => {
+  const one = await rig(t)
+  await assert.rejects(one.flows.list(join(one.dir, 'n'.repeat(300))), errno('ENAMETOOLONG'))
+})
+
+test('a project with no flows folder, or with a .harnessdesk that is a file, offers none', async (t) => {
+  const one = await rig(t)
+  const bare = join(one.dir, 'bare')
+  await mkdir(bare, { recursive: true })
+  assert.deepEqual(await one.flows.list(bare), [])
+
+  /* The other half of the rule, and why ENOTDIR is not raised here: a project
+     that keeps a `.harnessdesk` *file* has no flows in it, and refusing every
+     listing it asks for would be a worse answer than an empty one. This passes
+     against the old catch-all too, on purpose — it is what stops a later
+     tidy-up from promoting ENOTDIR to an error without reddening. */
+  const marked = join(one.dir, 'marked')
+  await mkdir(marked, { recursive: true })
+  await writeFile(join(marked, '.harnessdesk'), 'somebody touched this instead of making it\n', 'utf8')
+  assert.deepEqual(await one.flows.list(marked), [])
+})
+
+test('stored runs that cannot be read are raised, and no flow starts on top of them', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  await one.flows.flush()
+  const folder = join(one.dir, 'flows')
+
+  const asked: string[] = []
+  const second = new Flows(folder, one.team, asking(asked))
+  await chmod(folder, 0o000)
+  try {
+    const readable = await readdir(folder).then(
+      () => true,
+      () => false,
+    )
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(second.load(), errno('EACCES'))
+    /* The run above is live in this room, on disk, where this desk cannot see
+       it. "No runs" would let a second flow open cards into the same board —
+       the one thing a room running one flow at a time exists to prevent — so
+       the refusal says what could not be read, and where. */
+    const names = (error: unknown): boolean =>
+      error instanceof Error && error.message.includes(folder) && /EACCES/.test(error.message)
+    await assert.rejects(
+      second.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it again' } }),
+      names,
+    )
+    assert.throws(() => second.runsFor(one.room), names)
+    assert.deepEqual(asked, [], 'nobody was seated, joined or spoken to')
+  } finally {
+    await second.flush()
+    await chmod(folder, 0o700)
+  }
+})
+
+test('a runs folder the filesystem refuses outright is raised as well, mode or no mode', async (t) => {
+  const one = await rig(t)
+  const asked: string[] = []
+  const second = new Flows(join(one.dir, 'n'.repeat(300)), one.team, asking(asked))
+  try {
+    await assert.rejects(second.load(), errno('ENAMETOOLONG'))
+    await assert.rejects(
+      second.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } }),
+      /ENAMETOOLONG/,
+    )
+    assert.throws(() => second.runsFor(one.room), /ENAMETOOLONG/)
+    assert.deepEqual(asked, [])
+  } finally {
+    await second.flush()
+  }
+})
+
+test('a file where the runs folder goes is raised: the desk could keep no run there', async (t) => {
+  const one = await rig(t)
+  const folder = join(one.dir, 'runs')
+  await writeFile(folder, 'somebody touched this instead of making it\n', 'utf8')
+  /* Unlike a project's `.harnessdesk`, which is somebody else's to make a file
+     of, this folder is written by the desk and nothing else. A file in its
+     place is not a desk with no runs — it is a desk where every save would
+     fail and every run would be gone on the next launch — so ENOTDIR is
+     raised here, and only ENOENT is "none yet". */
+  const asked: string[] = []
+  const second = new Flows(folder, one.team, asking(asked))
+  try {
+    await assert.rejects(second.load(), errno('ENOTDIR'))
+    await assert.rejects(
+      second.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } }),
+      /ENOTDIR/,
+    )
+    assert.deepEqual(asked, [])
+  } finally {
+    await second.flush()
+  }
+})
+
+test('a desk that has never kept a run loads none, and starts one', async (t) => {
+  // The control for the three above: a folder nobody has made is the one "nothing".
+  const one = await rig(t)
+  await one.flows.load()
+  assert.deepEqual(one.flows.runsFor(one.room), [])
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
 })

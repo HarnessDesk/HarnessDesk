@@ -16,6 +16,7 @@ import type {
   Intent,
 } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import {
   cardVars,
   orderVars,
@@ -222,6 +223,18 @@ export class Flows implements TeamFlows {
   /** Seats that have exhausted their re-arm budget, so 'stopped answering' is recorded once per seat. */
   #stoppedSeats = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
+  /**
+   * Why the runs this desk keeps could not be read at launch, or null when
+   * they could.
+   *
+   * Held, because the failure outlives `load`. A desk that cannot read its
+   * runs cannot say which are still going, and answering "none" would let a
+   * second flow start in a room whose first is live on disk — two runs opening
+   * cards into one board, neither able to tell which are its own. So asking
+   * what a room is running, and starting a flow, both raise this instead,
+   * until a launch can read the folder again.
+   */
+  #unreadable: Error | null = null
 
   constructor(dir: string, team: Team, port: FlowPort) {
     this.#dir = dir
@@ -245,13 +258,20 @@ export class Flows implements TeamFlows {
    * A file that does not parse is listed *with its problem* rather than left
    * out: a flow that has gone missing from the picker because somebody
    * mistyped a line is the one failure a picker must not have.
+   *
+   * A folder that will not open is raised rather than listed as empty, for the
+   * same reason one level up: "no flows in this project yet" over a folder the
+   * desk was refused is that failure for every flow at once, and the error
+   * names the folder and the reason. Only a folder nobody has made, or a
+   * `.harnessdesk` somebody made a file, has none.
    */
   async list(root: string): Promise<FlowFile[]> {
     let names: string[]
     try {
       names = await readdir(join(root, FLOW_DIR))
-    } catch {
-      return []
+    } catch (error) {
+      if (NOTHING_HERE.has(errnoOf(error))) return []
+      throw error
     }
     const files: FlowFile[] = []
     for (const name of names.sort()) {
@@ -290,6 +310,15 @@ export class Flows implements TeamFlows {
 
   /** Every run this room has had, oldest first. */
   runsFor(room: string): FlowRun[] {
+    if (this.#unreadable) throw this.#unreadable
+    return this.#runsIn(room)
+  }
+
+  /**
+   * The same answer without the refusal, for pushing a change of a run this
+   * desk holds — which it only can once its runs were read.
+   */
+  #runsIn(room: string): StoredRun[] {
     return [...this.#runs.values()]
       .filter((run) => run.room === room)
       .sort((a, b) => a.startedAt - b.startedAt)
@@ -312,6 +341,7 @@ export class Flows implements TeamFlows {
    * reach by pressing something.
    */
   async start(request: FlowStart): Promise<FlowRun> {
+    if (this.#unreadable) throw this.#unreadable
     if (!this.#team.hasRoom(request.room)) {
       throw new Error(`There is no room ${request.room}.`)
     }
@@ -1145,13 +1175,26 @@ export class Flows implements TeamFlows {
    * forever. Asking the board is also what recovers a run whose round was
    * half opened, and it is the same question `#advance` asks in the ordinary
    * case — one code path, exercised on every launch.
+   *
+   * A folder of runs that will not open is raised, and kept — see
+   * `#unreadable` for why it outlives this call.
    */
   async load(): Promise<void> {
-    let names: string[] = []
+    let names: string[]
     try {
       names = await readdir(this.#dir)
-    } catch {
-      return
+    } catch (error) {
+      /* Nothing but `#save` writes this folder, so only a folder not made yet
+         is "no runs" — unlike a project's `.harnessdesk`, which is somebody
+         else's to make a file of. */
+      if (NOTHING_YET.has(errnoOf(error))) return
+      this.#unreadable = new Error(
+        `The flow runs this desk keeps could not be read — ${
+          error instanceof Error ? error.message : String(error)
+        }. Until they can be, it cannot tell which flows are running, so it will not start another on top of one. Fix that folder, then restart HarnessDesk.`,
+        { cause: error },
+      )
+      throw error
     }
     for (const name of names) {
       if (!name.endsWith('.json')) continue
@@ -1247,7 +1290,7 @@ export class Flows implements TeamFlows {
 
   #save(id: string): FlowRun {
     const run = this.#runs.get(id) as StoredRun
-    this.#port.changed(run.room, this.runsFor(run.room))
+    this.#port.changed(run.room, this.#runsIn(run.room))
     const file = join(this.#dir, `${encodeURIComponent(id)}.json`)
     /* Written whole and renamed into place, the way the board is: a reader
        that catches a half-written run is a run that reads as gone. */

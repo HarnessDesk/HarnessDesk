@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, createReadStream, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, createReadStream, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -656,4 +656,145 @@ test('a dated id carries a date that exists, in either spelling (review of #238,
   assert.equal(pricing.rateFor('claude-opus-4'), null, 'nor the twenty-ninth, in a year that has none')
   assert.equal(pricing.rateFor('claude-sonnet-5')?.input, 3 / 1_000_000, 'the hyphenated spelling is a date')
   assert.equal(pricing.rateFor('claude-haiku-5')?.input, 1 / 1_000_000, 'the control: a leap day is one')
+})
+
+/*
+ * A folder of transcripts that cannot be opened is not an agent that did no work.
+ *
+ * The walk answered every folder it could not open with nothing, so a mode or
+ * a bad mount stopped one agent's usage being counted with nothing said: the
+ * scan finished, the numbers froze where they were, and nothing on screen or
+ * in the log told them apart from a quiet week. These are the agents' own
+ * folders, not the desk's, so one that is not there — an agent never run —
+ * is nothing, and must stay silent. One that will not open is passed over
+ * for the rest, and said.
+ */
+
+const quietLedger = (dir: string, corpora: { runtime: string; kind: 'codex' | 'claude'; root: string }[], logged: string[]) =>
+  new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora,
+    pricing: new Pricing({
+      cachePath: join(dir, 'cache.json'),
+      overlayPath: join(dir, 'missing.json'),
+      fetchCatalogue: async () => ({}),
+    }),
+    now: () => NOON,
+    log: (message, details) => logged.push(`${message} ${JSON.stringify(details ?? {})}`),
+  })
+
+test('an agent’s folder that cannot be opened is said, and the other agents are still counted', async () => {
+  const dir = scratch()
+  const claude = join(dir, 'claude-projects')
+  mkdirSync(claude)
+  writeFileSync(join(claude, 'session.jsonl'), claudeLine('msg_1', { input_tokens: 10, output_tokens: 10 }))
+  // A folder that points at itself: ELOOP for any user, root included.
+  const codex = join(dir, 'codex-sessions')
+  symlinkSync(codex, codex)
+  const logged: string[] = []
+  const ledger = quietLedger(
+    dir,
+    [
+      { runtime: 'codex', kind: 'codex', root: codex },
+      { runtime: 'claude-code', kind: 'claude', root: claude },
+    ],
+    logged,
+  )
+  await ledger.scan()
+  assert.equal(ledger.progress.filesDone, 1, 'the agent whose folder opened was counted')
+  assert.ok(
+    logged.some((line) => line.includes(codex) && line.includes('ELOOP')),
+    'and the one whose folder did not is named, with the reason',
+  )
+  ledger.close()
+})
+
+test('a folder inside an agent’s transcripts that cannot be opened is said, and the rest is counted', async (t) => {
+  const dir = scratch()
+  const root = join(dir, 'claude-projects')
+  mkdirSync(join(root, 'open'), { recursive: true })
+  mkdirSync(join(root, 'locked'), { recursive: true })
+  writeFileSync(join(root, 'open', 'a.jsonl'), claudeLine('msg_1', { input_tokens: 10, output_tokens: 10 }))
+  writeFileSync(join(root, 'locked', 'b.jsonl'), claudeLine('msg_2', { input_tokens: 10, output_tokens: 10 }))
+  chmodSync(join(root, 'locked'), 0o000)
+  try {
+    let readable = true
+    try {
+      readdirSync(join(root, 'locked'))
+    } catch {
+      readable = false
+    }
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    const logged: string[] = []
+    const ledger = quietLedger(dir, [{ runtime: 'claude-code', kind: 'claude', root }], logged)
+    await ledger.scan()
+    assert.equal(ledger.progress.filesDone, 1, 'the folder that opened was counted')
+    assert.ok(
+      logged.some((line) => line.includes(join(root, 'locked')) && line.includes('EACCES')),
+      'and the folder that did not is named, with the reason',
+    )
+    ledger.close()
+  } finally {
+    chmodSync(join(root, 'locked'), 0o700)
+  }
+})
+
+test('a file where an agent’s transcripts folder goes is said, not read as an agent never run', async () => {
+  /* ENOENT is the one silence at a corpus root, because that folder is the
+     agent's own and has to be a folder. A file at it, or at any folder above
+     it, is a broken home rather than an idle agent: nothing can have been
+     written there, and a view that shows nothing is the silent answer this
+     walk exists to stop giving. (Review of #765.) */
+  const dir = scratch()
+  const claude = join(dir, 'claude-projects')
+  mkdirSync(claude)
+  writeFileSync(join(claude, 'session.jsonl'), claudeLine('msg_1', { input_tokens: 10, output_tokens: 10 }))
+  const file = join(dir, 'sessions-is-a-file')
+  writeFileSync(file, 'somebody touched this instead of making it\n')
+  const home = join(dir, 'codex-home-is-a-file')
+  writeFileSync(home, 'and this one\n')
+  const under = join(home, 'sessions')
+  const logged: string[] = []
+  const ledger = quietLedger(
+    dir,
+    [
+      { runtime: 'codex', kind: 'codex', root: file },
+      { runtime: 'codex-work', kind: 'codex', root: under },
+      { runtime: 'claude-code', kind: 'claude', root: claude },
+    ],
+    logged,
+  )
+  await ledger.scan()
+  assert.equal(ledger.progress.filesDone, 1, 'the agent whose folder opened was still counted')
+  for (const root of [file, under]) {
+    assert.ok(
+      logged.some((line) => line.includes(root) && line.includes('ENOTDIR')),
+      `${root} is named, with the reason`,
+    )
+  }
+  ledger.close()
+})
+
+test('an agent that has never been run has no folder, and that is not worth a line', async () => {
+  // The control for the two above: this passes against the old catch-all too.
+  const dir = scratch()
+  const claude = join(dir, 'claude-projects')
+  mkdirSync(claude)
+  writeFileSync(join(claude, 'session.jsonl'), claudeLine('msg_1', { input_tokens: 10, output_tokens: 10 }))
+  const logged: string[] = []
+  const ledger = quietLedger(
+    dir,
+    [
+      { runtime: 'codex', kind: 'codex', root: join(dir, 'never-made') },
+      { runtime: 'claude-code', kind: 'claude', root: claude },
+    ],
+    logged,
+  )
+  await ledger.scan()
+  assert.equal(ledger.progress.filesDone, 1)
+  assert.deepEqual(logged, [])
+  ledger.close()
 })

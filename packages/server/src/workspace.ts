@@ -11,6 +11,8 @@ import type {
   Unsubscribe,
 } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+
 /**
  * Workspace file services.
  *
@@ -103,6 +105,11 @@ export const fuzzyScore = (candidate: string, query: string): number | null => {
 export interface SearchOptions {
   readonly limit?: number
   readonly signal?: AbortSignal
+  /**
+   * Told of a folder inside the tree that would not open. The search passes
+   * over it for the rest of the tree; the root is different, and raised.
+   */
+  readonly unreadable?: (folder: string, error: unknown) => void
 }
 
 export const searchFiles = async (
@@ -121,7 +128,19 @@ export const searchFiles = async (
     let entries
     try {
       entries = await readdir(directory, { withFileTypes: true })
-    } catch {
+    } catch (error) {
+      /* The root has to be a folder, so only a project that has gone is
+         nothing there. One that will not open, or is a file, is raised — "no
+         files match" over it is how a project macOS will not let the app read
+         (EPERM, until Files and Folders is granted) looked empty. Below the
+         root, a folder removed or replaced mid-walk is nothing, and anything
+         else is passed over for the rest of the tree, and reported. */
+      if (depth === 0) {
+        if (NOTHING_YET.has(errnoOf(error))) return
+        throw error
+      }
+      if (NOTHING_HERE.has(errnoOf(error))) return
+      options.unreadable?.(directory, error)
       return
     }
 
@@ -152,14 +171,35 @@ export const searchFiles = async (
 
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
 
+export interface LocalFilesOptions {
+  /** Where a folder a search had to pass over is named. */
+  readonly log?: (message: string, details?: Record<string, unknown>) => void
+}
+
 /** HarnessDesk's own reader, with the same shape a runtime's view has. */
 export class LocalFiles implements RuntimeFiles {
+  readonly #log: NonNullable<LocalFilesOptions['log']>
+  /** Folders a search has already named: a search runs per keystroke, the line once. */
+  readonly #unreadable = new Set<string>()
+
+  constructor(options: LocalFilesOptions = {}) {
+    this.#log = options.log ?? (() => {})
+  }
+
   async write(path: string, data: Uint8Array): Promise<void> {
     await writeFile(path, data)
   }
 
   async search(roots: readonly string[], query: string, limit: number): Promise<readonly FileMatch[]> {
-    const pages = await Promise.all(roots.map((root) => searchFiles(root, query, { limit })))
+    const unreadable = (folder: string, error: unknown): void => {
+      if (this.#unreadable.has(folder)) return
+      this.#unreadable.add(folder)
+      this.#log('a folder in the project could not be searched', {
+        folder,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+    const pages = await Promise.all(roots.map((root) => searchFiles(root, query, { limit, unreadable })))
     return pages
       .flat()
       .sort((a, b) => b.score - a.score)

@@ -25,6 +25,8 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_YET } from './errno.js'
+
 /**
  * The team plane: one board and one channel per workspace, host-owned.
  *
@@ -724,13 +726,25 @@ export class Team {
     await this.#writes
   }
 
-  /** Reads every persisted board, so a fresh window can be handed them all. */
+  /**
+   * Reads every persisted board, so a fresh window can be handed them all.
+   *
+   * A folder that will not open is raised, never read as a desk with no rooms.
+   * Nothing on such a desk could say otherwise — the team hangs its problems
+   * on a room — and the rest of the desk would act on it: the flow engine
+   * stops every running run whose room it cannot find, on disk. The host
+   * lets this refuse the launch; see `Host.start`.
+   */
   async load(): Promise<void> {
     let names: string[]
     try {
       names = await readdir(this.#dir)
-    } catch {
-      return
+    } catch (error) {
+      if (NOTHING_YET.has(errnoOf(error))) return
+      throw new Error(
+        `The rooms this desk keeps could not be read — ${errorText(error)}. Opening without them would stop every flow running in one, so HarnessDesk will not. Fix that folder, or move it aside to start with no rooms, then open HarnessDesk again.`,
+        { cause: error },
+      )
     }
     /* Every board's root as the file recorded it, keyed by id, for the
        migration pass below. Collected rather than resolved inline: the read
@@ -802,14 +816,23 @@ export class Team {
       }
     }
     await this.#migrateRoots(recordedRoots)
+    const inbound = join(this.#dir, 'inbound.json')
     try {
-      const raw = JSON.parse(await readFile(join(this.#dir, 'inbound.json'), 'utf8')) as Record<
-        string,
-        TeamInbound
-      >
+      const raw = JSON.parse(await readFile(inbound, 'utf8')) as Record<string, TeamInbound>
       this.#inbound = new Map(Object.entries(raw))
-    } catch {
-      // Absent means everyone accepts, which is the default anyway.
+    } catch (error) {
+      // No file is no conversation with a mode of its own: each takes the default.
+      if (NOTHING_YET.has(errnoOf(error))) return
+      /* Anything else is raised, a parse failure included. The file is written
+         whole from memory (`#persistInbound`), so reading it as absent would
+         put every conversation set to refuse or hold on the default at once,
+         and the next change anybody made would write that over what was
+         stored. The path is named here because a read's own message does not
+         carry one. */
+      throw new Error(
+        `The inbound settings in ${inbound} could not be read — ${errorText(error)}. Opening without them would put every conversation on the default for messages from other agents, and the next change would overwrite them. Fix that file, or move it aside to start from the default, then open HarnessDesk again.`,
+        { cause: error },
+      )
     }
   }
 
