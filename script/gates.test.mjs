@@ -12,6 +12,7 @@ import {
   NAMED_COLOURS,
   rawColours,
   rawZIndexes,
+  screenAppearanceOf,
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
@@ -436,24 +437,29 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
 })
 
 
-test('a burn-down category is gated on a ceiling that may only fall', () => {
+test('each burn-down category is gated on a ceiling that may only fall', () => {
   const clean = zeroes()
-  const ceiling = { ...clean, patternClass: 126 }
 
-  // At the ceiling: the debt is recorded, so the gate is quiet.
-  const held = compareBaseline({ ...clean, patternClass: 126 }, ceiling)
-  assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
+  for (const key of ['patternClass', 'screenAppearance']) {
+    const ceiling = { ...clean, [key]: 126 }
 
-  // Above it: a screen just re-declared another pattern.
-  const grown = compareBaseline({ ...clean, patternClass: 127 }, ceiling)
-  assert.equal(grown.worse, true)
-  assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+    // At the ceiling: the debt is recorded, so the gate is quiet.
+    const held = compareBaseline({ ...clean, [key]: 126 }, ceiling)
+    assert.equal(held.worse, false, `${key} sitting at the recorded ceiling must pass`)
 
-  // Below it: the work was done and the ceiling has to follow, or the debt can
-  // silently come back to 126 without the gate ever noticing.
-  const paid = compareBaseline({ ...clean, patternClass: 125 }, ceiling)
-  assert.equal(paid.worse, true)
-  assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+    // Above it: a screen just drew another piece of a role for itself.
+    const grown = compareBaseline({ ...clean, [key]: 127 }, ceiling)
+    assert.equal(grown.worse, true)
+    assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+
+    // Below it: the work was done and the ceiling has to follow, or the debt can
+    // silently come back to 126 without the gate ever noticing.
+    const paid = compareBaseline({ ...clean, [key]: 125 }, ceiling)
+    assert.equal(paid.worse, true)
+    assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+  }
+
+  const ceiling = { ...clean, patternClass: 126, screenAppearance: 126 }
 
   // A non-zero ceiling is still refused for every other category.
   const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
@@ -463,9 +469,55 @@ test('a burn-down category is gated on a ceiling that may only fall', () => {
   // And a category that has burned down to nothing leaves the ratchet: type
   // sizes reached zero, so a single literal coming back is refused outright
   // rather than measured against a ceiling of nought.
-  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126 }, ceiling)
+  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, screenAppearance: 126 }, ceiling)
   assert.equal(returned.worse, true)
   assert.ok(returned.problems.some((p) => p.key === 'rawType'))
+})
+
+test('screen appearance counts role declarations and leaves layout to screens', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const file = path.join(components, 'Example.module.css')
+  fs.writeFileSync(file, [
+    '.role {',
+    '  color: var(--hd-foreground);',
+    '  padding: var(--hd-space-2);',
+    '  font-size: var(--hd-text);',
+    '  border-radius: var(--hd-radius);',
+    '  box-shadow: var(--hd-shadow-sm);',
+    '  height: 30px;',
+    '  display: grid;',
+    '  gap: var(--hd-space-2);',
+    '  margin: var(--hd-space-2);',
+    '  width: 30px;',
+    '  height: 100%;',
+    '  --role-ground: var(--hd-surface);',
+    '  background: ;',
+    '}',
+  ].join('\n'))
+
+  assert.deepEqual(
+    screenAppearanceOf(file, fs.readFileSync(file, 'utf8')).map(({ property }) => property),
+    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow', 'height'],
+  )
+})
+
+test('screen appearance excludes the design system and its named specialized renderers', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-scope-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const source = '.role { color: var(--hd-foreground); padding: var(--hd-space-2); }'
+  const files = [
+    path.join(root, 'packages/ui/src/design/patterns/Role.module.css'),
+    path.join(root, 'packages/ui/src/components/Markdown.module.css'),
+    path.join(root, 'packages/ui/src/components/Diff.module.css'),
+  ]
+  for (const file of files) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, source)
+    assert.deepEqual(screenAppearanceOf(file, fs.readFileSync(file, 'utf8')), [], file)
+  }
 })
 
 

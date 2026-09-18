@@ -47,7 +47,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * that has reached the floor is an ordinary category, and holding it at a
  * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['patternClass'])
+const BURN_DOWN = new Set(['patternClass', 'screenAppearance'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -1729,6 +1729,7 @@ const findings = {
   rawType: [],
   rawWeight: [],
   patternClass: [],
+  screenAppearance: [],
 }
 
 /**
@@ -1756,7 +1757,60 @@ const findings = {
 const PATTERN_STEMS = new Set(['empty'])
 
 /** A screen's own stylesheet, as opposed to the system's. */
-const isScreenSheet = (file) => /\/(components|slots|panels)\//.test(file)
+const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
+
+/**
+ * Specialized renderers whose appearance is their content rather than a role.
+ *
+ * Markdown keeps a prose ladder made from ratios of the body size, as
+ * `docs/design.md` specifies, so a heading and the paragraph it belongs to
+ * must scale together rather than take unrelated system steps. A diff viewer
+ * is a specialized renderer: its ink, rows and marks describe source changes,
+ * not a reusable screen role. Naming both here makes adding another boundary
+ * a deliberate change to the gate rather than an accidental path omission.
+ */
+const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
+  'components/Markdown.module.css',
+  'components/Diff.module.css',
+])
+
+const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)
+const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '')
+const FIXED_HEIGHT = /^[+-]?(?:0(?:\.0+)?|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?:px|cm|mm|q|in|pc|pt|em|rem|ex|rex|cap|rcap|ch|rch|ic|ric|lh|rlh))$/i
+const TYPE_APPEARANCE = new Set([
+  'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'line-height', 'letter-spacing',
+  'text-transform', 'text-decoration', 'text-decoration-color',
+])
+const INK_APPEARANCE = new Set(['color', 'background', 'background-color', 'fill', 'stroke'])
+
+/**
+ * Appearance a screen draws for itself instead of composing from the system.
+ *
+ * Type, ink, ground, edges and a role's inner box are owned by the component
+ * that names that role, so every declaration of one here is a copy a system
+ * change cannot reach. Layout, behaviour, motion and custom properties are
+ * deliberately not counted: those remain the screen's job. Height is split
+ * at the same boundary. A fixed length or token is a control metric, while a
+ * percentage, intrinsic size or viewport measure describes its layout.
+ *
+ * Markdown is exempt because prose keeps its own ratio ladder, and Diff is
+ * exempt because a diff viewer is a specialized renderer. Both boundaries
+ * are named above rather than hidden in the directory walk.
+ */
+export const screenAppearanceOf = (file, css) => {
+  if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
+  return declarationsOf(css).filter(({ property, value }) => {
+    if (property.startsWith('--')) return false
+    const name = unprefixedProperty(property)
+    if (TYPE_APPEARANCE.has(name) || INK_APPEARANCE.has(name)) return true
+    if (name === 'border' || name.startsWith('border-')) return true
+    if (name === 'outline' || name.startsWith('outline-') || name === 'box-shadow') return true
+    if (name === 'padding' || name.startsWith('padding-')) return true
+    if (name !== 'height' && name !== 'min-height') return false
+    const metric = value.replace(/\s*!important\s*$/i, '').trim()
+    return FIXED_HEIGHT.test(metric) || /^var\(/i.test(metric)
+  })
+}
 
 /**
  * Controls sitting in a slot whose meaning the design system has fixed.
@@ -1878,6 +1932,9 @@ for (const file of cssFiles()) {
       if (stem && PATTERN_STEMS.has(stem)) declared.add(stem)
     }
     for (const stem of [...declared].sort()) findings.patternClass.push(`${name}: .${stem}*`)
+    for (const { property } of screenAppearanceOf(file, read(file))) {
+      findings.screenAppearance.push(`${name}: ${property}`)
+    }
   }
 
   // Spacing that is not a step of the scale.
@@ -2304,7 +2361,16 @@ if (isMain) {
     const list = findings[key]
     console.log(`${String(list.length).padStart(4)}  ${title}`)
     console.log(`      ${why}`)
-    if (verbose) for (const line of list) console.log(`        ${line}`)
+    if (verbose && key === 'screenAppearance') {
+      const bySheet = new Map()
+      for (const line of list) {
+        const sheet = line.slice(0, line.lastIndexOf(': '))
+        bySheet.set(sheet, (bySheet.get(sheet) ?? 0) + 1)
+      }
+      for (const [sheet, count] of [...bySheet].sort(([a, ac], [b, bc]) => bc - ac || a.localeCompare(b))) {
+        console.log(`        ${sheet}: ${count}`)
+      }
+    } else if (verbose) for (const line of list) console.log(`        ${line}`)
     else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
     if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
     console.log('')

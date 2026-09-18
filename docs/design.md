@@ -619,9 +619,17 @@ these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds sixteen categories at a baseline. Fifteen
+`pnpm design:audit --strict` holds seventeen categories at a baseline. Fifteen
 are at zero; `patternClass` sits at 3, which is three screens still drawing
-their own empty state.
+their own empty state, and `screenAppearance` sits at 2,747 declarations.
+
+`screenAppearance` counts every browser-kept declaration in a screen sheet
+that draws a role's type, ink, ground, edge or inner box, including fixed and
+token heights; layout, behaviour and motion stay with the screen. A class name
+cannot say whether `.head` is a title bar, a table header or a card heading,
+which is why `patternClass` could safely keep only `empty`. The declaration
+says what the screen actually owns. Markdown's prose ratio ladder and the diff
+viewer remain named specialized-renderer exemptions.
 
 Two of those categories spent a long time reporting zero while they were simply
 unable to see:
