@@ -5,7 +5,23 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## 0.2.3 — 2026-09-18
+## 0.2.4 — 2026-09-18
+
+Usage now reflects what each agent actually keeps and reports, so balances and
+spend no longer disappear behind a generic unsupported state or get described
+as public-price estimates when they came from the agent itself.
+
+- **Usage cards now cover five more agents** — Amp's credit balance, Cline's
+  account balance and billed session spend, Gemini CLI and Qwen Code's
+  transcript-derived spend, and OpenCode's recorded session cost now appear in
+  the Dashboard and account surfaces.
+- **Usage provenance is visible and honest** — totals distinguish public list
+  prices from agent-recorded costs, spent balances explain whether they need a
+  top-up or reset, and free models remain visibly free instead of being treated
+  as unpriced.
+- **Foreign usage databases are read safely** — HarnessDesk reads another
+  agent's records without writing beside, locking, or modifying the agent's
+  own files, including when a database is using WAL mode.
 
 Conversations now keep more of the history the agents expose, while the desk
 gets clearer about which folder and build it is actually using. Alongside it,
