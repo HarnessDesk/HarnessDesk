@@ -1025,7 +1025,7 @@ roles:
 | `isolate` means a worktree | A lane: checkout, port range, browser profile |
 | `permission: read`, which may edit and commit | `ceiling:` and `grant:`, where `edit` says that and `read` changes nothing; the old key keeps its old meaning until its author rewrites it |
 | A ceiling stated in a paragraph | A ceiling held by the runtime or the desk, and marked *asked* where neither can |
-| Settings › Agents (the installed CLIs) | Settings › Runtimes; Agents becomes the roster of who |
+| Settings › Agents (the installed CLIs) | Settings › Runtimes; the roster of who is **Agents**, in the left menu |
 | `agents/*` wire verbs, mixing a registry with two install verbs | `acp/*` for the registry, `runtime/installs*` for the machine |
 | `~/.harnessdesk/agents.json` | Unchanged — it faces ACP, where the word is right |
 

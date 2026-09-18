@@ -13,6 +13,14 @@
 - Part A: 1 a reason and a fix on every candidate · 2 the reads before choosing have a deadline · 3 a passed-over seat leaves nothing behind · 4 `agent/seat/dry` · 5 the refusal carries every candidate · 6 `seating.json` · 7 the nine shipped Agents · 8 the roster watcher · 9 an Agent's files · 10 the backup carries Agents and seats.
 - Part B: 11 Settings › Runtimes, the route split · 12 the roster in the renderer · 13 Settings › Agents · 14 starting as an Agent, ⌘K and the refusal sheet · 15 an Agent's page · 16 *On this Mac* · 17 Workspaces › a project · 18 a conversation seated as an Agent · 19 *Save as an Agent…* · 20 Agents in a room · 21 the documentation · 22 verified in the real app, one picture per surface.
 
+## Amendments decided after this plan was written (2026-09-18)
+
+These govern Part B wherever a task below says otherwise. The roadmap carries the same decisions.
+
+- **Agents live in the left menu, not in Settings.** A top-level **Agents** row beside *Dashboard* and *Plugins* opens an Agents window in the full-window shell Settings and Usage share (`components/AppWindow.tsx`): its rail is the roster (*All Agents*; *In <project>*, *Yours*, *Built in*), its page the overview (Task 13's sections and rows) or the selected Agent's page (Tasks 15–16). Settings keeps **Runtimes** (Task 11) and gains no Agents page: `MOVED` maps `agents` to `runtimes` for good. Every door that opened the roster or an Agent in Settings — the palette's *Open <Agent>*, the refusal sheet's *Edit seats for this Mac*, a project page's Agent rows, *Save as an Agent…* — opens the Agents window on that Agent instead.
+- **The plain path stays plain.** ⌘N and a conversation that is not started as an Agent are unchanged; the new-session dialog lists Agents but still opens on, and starts with Enter, the plain choice; *Needs you* and a project's *Goals* appear only once there is something in them (later phases); nothing is read, written or run until a person asks. Each task's tests include one that renders the plain path and finds none of its surfaces there.
+- **Every surface is held to the design system as rendered, not only as audited:** one job drawn one way across the app, the house idioms for rows, menus, dialogs and the full-window shell, and frames in both themes and at a narrow width for every new surface.
+
 ## Global Constraints
 
 - **This plan is phase 2 of 12.** Ceilings that hold (`edit`, *held*, enforcement at the tool surface), evidence, the Seat record, Goal, lanes and triggers are later phases. Do not reach into them. The seated-as record stays in memory (`SessionRecord.seatedAs`) until phase 4 makes it durable.

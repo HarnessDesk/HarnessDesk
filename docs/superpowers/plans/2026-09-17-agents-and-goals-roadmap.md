@@ -38,15 +38,15 @@ app that means it is **done**; and what it **needs**.
 | # | Phase | Configuration | Settings | Interface | Needs |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Agents foundation** — [#770](https://github.com/HarnessDesk/HarnessDesk/pull/770) | `AGENT.md` in a project and in `~/.harnessdesk/agents/` | — | — (the verbs are pinned unreached) | — |
-| 2 | **Agents in the app** | Agents that ship with the app; `seating.json` | **Agents** (new: the roster); **Runtimes** (today's Agents page); a page per project | Start as an Agent; the refusal sheet; Save as Agent; Agents in a room | 1 |
+| 2 | **Agents in the app** | Agents that ship with the app; `seating.json` | **Runtimes** (today's Agents page); a page per project | **Agents** in the left menu: the roster and a page per Agent; Start as an Agent; the refusal sheet; Save as Agent; Agents in a room | 1 |
 | 3 | **Ceilings that hold** | `ceiling:` with `read · edit · publish · merge` | Permissions › Ceilings; what to do when one cannot be held | *held* or *asked* on every seat; refusals as sentences | 2 |
 | 4 | **The evidence ledger** | `checks.yml` | A project's checks; Backup carries the records | Evidence on cards, stale drawn; columns from facts; the Seat record | 2 |
 | 5 | **Goal** | Lanes | Workspaces › Lanes; Goal notifications | Goals in the sidebar; starting one; wrap and its receipt | 2, 4 |
-| 6 | **Flows on the new nouns** | `uses`, `grant`, `evidence:`; the flow migration | A project's flows | A dry run by Agent, seat and ceiling; *Update…* with the diff | 3, 4, 5 |
+| 6 | **Flows on the new nouns** | `uses`, `grant`, `evidence:`; the flow migration; shapes where Agents live — the project's, yours, built in | A project's flows | A dry run by Agent, seat and ceiling; *Update…* with the diff | 3, 4, 5 |
 | 7 | **The findings ledger** | `budget.rounds`, `without-progress`; posting to the pull request | — | Findings in the Goal; the repair delta; the embargo; the person at the ceiling | 6 |
 | 8 | **Intake** | `triggers.yml`; arming per machine | A project's triggers; pause and cap; skipped-trigger notices | Goals that opened themselves; named stop reasons | 3, 5, 6, 7 |
 | 9 | **Provenance** | Capture, per project | A project's provenance | The Seat on a commit; ambiguity shown | 2, 4 |
-| 10 | **The front door** | Writes the same files | The Agent page becomes an editor; *New Agent* | Start with a team; *Review with…*; the flow it wrote; the first run | 2–8 |
+| 10 | **The front door** | Writes the same files | The Agent page becomes an editor; *New Agent* | Start with a team; *Your own shape*; *Review with…*; the flow it wrote; the first run | 2–8 |
 | 11 | **Insight** | — | — | What a Goal cost, by Agent, seat, load and delegation | 4, 5 |
 | 12 | **Shared memory, skills and MCP** | `mcp:`; `NOTES.md`; `.harnessdesk/memory/` | The Library by Agent; an Agent's skills and servers | What an Agent carries, and what did not load | 2, 5 |
 
@@ -81,13 +81,13 @@ Three rules every row follows:
 
 ## Settings, when every phase has landed
 
-The window keeps its groups. The roster is new, today's Agents page becomes
-Runtimes, six more pages each gain a section, and each project gains a page of
-its own.
+The window keeps its groups. Today's Agents page becomes Runtimes, six more
+pages each gain a section, and each project gains a page of its own. The roster
+of Agents is not a settings page: it is a place of its own, reached from the
+left menu (below), because it is the main new noun and not a preference.
 
 | Group | Page | What changes | Phase |
 | --- | --- | --- | --- |
-| Agents | **Agents** | New: the roster of who — this project's, yours, built in — and a page per Agent | 2; an editor in 10; skills and servers in 12 |
 | Agents | **Runtimes** | Today's Agents page, renamed: installed CLIs, accounts, sign-in, the registry | 2 |
 | Agents | Models | Presets stay a runtime's controls under a name; the save dialog stops suggesting a role | 2 |
 | Access | Permissions | **Ceilings**: what each runtime can hold, and what to do when it cannot — watched, and in a Goal a trigger opened | 3, 8 |
@@ -99,11 +99,11 @@ its own.
 
 Two things about the renames are easy to get wrong:
 
-- **The route id `agents` is reused.** It names the roster from phase 2, so
-  every caller that means the installed CLIs — the sign-in banners, the
-  composer's menus, ⌘K — moves to `runtimes` in the same change. `MOVED` in
-  `Settings.tsx` cannot cover an id that still exists, so a test asserts that
-  nothing opens the roster to ask for a sign-in.
+- **The route id `agents` now means Runtimes.** It named the page of installed
+  CLIs, and the roster does not take it back, so `MOVED` in `Settings.tsx` maps
+  `agents` to `runtimes` for good. Every door that meant the CLIs — the sign-in
+  banners, the composer's menus, ⌘K — keeps working, and a test asserts that
+  nothing opens Settings expecting the roster.
 - **Presets are not Agents.** A preset is one runtime's session controls under a
   name; an Agent is a who that can sit on any runtime. Both stay. The only
   change to presets is that their save dialog stops offering *Careful reviewer*
@@ -111,6 +111,18 @@ Two things about the renames are easy to get wrong:
 
 Usage keeps its own window; phase 11 adds views to it rather than a settings
 page.
+
+## The left menu, when every phase has landed
+
+Today's sidebar, with one row added in phase 2 and two things that appear only
+when there is something in them.
+
+| Row | What it is | Phase |
+| --- | --- | --- |
+| **Agents** | Beside *Dashboard* and *Plugins*. Opens the Agents window, in the same full-window shell as Settings and Usage: its rail is the roster (*All Agents*; *In <project>*, *Yours*, *Built in*), its page the overview or the selected Agent's page. The count is the Agents in force; a warning tone only when a file will not parse | 2; an editor in 10; skills and servers in 12 |
+| **Needs you** | Every person step and waiting approval, across Goals. Shown only when something waits | 5, 6 |
+| A project's **Goals** | Nested under the project, above its conversations. The heading appears only once the project has a Goal | 5 |
+| A project's conversations | As today. One started as an Agent carries its name; a plain one is unchanged | 2 |
 
 ## Rules every surface follows
 
@@ -135,6 +147,17 @@ page.
    renderer on an isolated home with fake runtimes, gets a fixture in the
    preview harness (`packages/ui/preview.html`), and every frame shown anywhere
    comes from that rig.
+7. **The plain path stays plain.** A person who never uses Agents or Goals sees
+   today's app and one new row. ⌘N starts a plain conversation as it always did;
+   a new noun appears only once it is used; nothing is read, written or run until
+   a person asks — no `.harnessdesk/` folder until they make an Agent, flow or
+   trigger, and no trigger fires until it is armed. Each phase's tests include one
+   that renders the plain path and finds none of its surfaces there.
+8. **No use case is built in.** The worked flows are examples written with the
+   same parts anyone can use: three kinds of step — an Agent, a check, a person —
+   and rules over the Agents' own answers and the evidence. The app ships
+   starting points as ordinary, editable files, never as code, and every surface
+   draws whatever a file declares.
 
 ## The phases
 
@@ -188,17 +211,20 @@ are pinned as unreached until phase 2 gives them a caller.
   *Customize…* — uses `permission:`, the only key the parser knows until phase
   3 moves them to `ceiling:`.
 
-**Settings.**
+**The left menu.**
 
-- **Agents** (new). Titled *Agents*, with the blurb *Who does the work: a brief,
+- **Agents** (new), a top-level row beside *Dashboard* and *Plugins*, opening the
+  Agents window in the full-window shell Settings and Usage share. Its rail is
+  the roster, its page the overview or the selected Agent's page. The overview is
+  titled *Agents*, with the blurb *Who does the work: a brief,
   the most it may do, and the seats it prefers.* Three sections — *In
   <project>* (the active conversation's project, by name), *Yours* and *Built
   in* — each footnoted with the folder it reads. A row is the Agent's name and
   description, with its ceiling and the seat it would take here at the right, or
   *Can't seat here* and the first reason. A shadowed row is muted and says what
-  shadows it; a file that failed to parse is a row whose note says why. The nav
-  row counts the Agents in force and carries a dot only when one fails to
-  parse.
+  shadows it; a file that failed to parse is a row whose note says why. The
+  left-menu row counts the Agents in force and carries a warning tone only when
+  one fails to parse.
 - **An Agent's page** — a drill, not a dialog. The file it comes from, with
   *Open file* and *Reveal*; **Ceiling**; **Seats**, the `prefer` list, each
   candidate with its state on this Mac and the fix for any that fails; **On
@@ -209,19 +235,24 @@ are pinned as unreached until phase 2 gives them a caller.
   built-in or user Agent, which copies it to the project or to you, where the
   copy shadows the original; *Remove…* on a project or user Agent, to the
   Trash.
+
+**Settings.**
+
 - **Runtimes** — today's Agents page (`AgentsSection` in `SettingsAgents.tsx`),
   renamed, with *Add a runtime* for what the ACP registry calls a custom agent.
 - **Workspaces › a project** (new). The sidebar's project menu opens it, and so
   does each repository row on Workspaces. It starts with the project's own
-  Agents; later phases add its checks, flows, triggers and provenance.
+  Agents, each opening the Agents window on it; later phases add its checks,
+  flows, triggers and provenance.
 - Models › Presets: only the example in the save dialog changes.
 
 **Interface.**
 
 - **Starting as an Agent.** The new-session dialog's *one agent* choice
   (`NewSessionChoice.tsx`) lists Agents above runtimes, each with the runtime
-  mark it would sit on here. ⌘K gains *Start as <Agent>* and *Open <Agent> in
-  Settings*. ⌘N is unchanged, because a shortcut is for what is already decided.
+  mark it would sit on here; the row it opens on, and what Enter starts, is still
+  the plain choice. ⌘K gains *Start as <Agent>* and *Open <Agent>*. ⌘N is
+  unchanged, because a shortcut is for what is already decided.
 - **A conversation seated as an Agent** leads its pane header and its sidebar
   row with the Agent's name, and the composer shows the seat actually taken, as
   read back. Its name card (`AgentCards.tsx`) adds the description, the ceiling,
@@ -239,11 +270,12 @@ are pinned as unreached until phase 2 gives them a caller.
 - Until phase 3 lands, every ceiling on these surfaces is labelled *asked*,
   because that is what it is.
 
-**Done when.** On a fresh home with fake runtimes, Settings › Agents lists the
+**Done when.** On a fresh home with fake runtimes, the Agents window lists the
 shipped Agents and a project Agent shadowing one of them; *Start as Code
 reviewer* opens a conversation headed *Code reviewer*; with one runtime signed
-out, its candidate shows as passed over with *Sign in*; and when no runtime can
-seat an Agent, the sheet lists every candidate and nothing has opened.
+out, its candidate shows as passed over with *Sign in*; when no runtime can
+seat an Agent, the sheet lists every candidate and nothing has opened; and a
+plain ⌘N conversation shows none of it.
 
 **Needs.** 1.
 
@@ -443,6 +475,13 @@ ports.
   asks for a lane.
 - `/race` restated as one Agent on two seats.
 - The migration of committed flow files.
+- **Shapes live where Agents do.** A flow is found in the project's
+  `.harnessdesk/flows/`, in yours (`~/.harnessdesk/flows/`), or among the ones
+  that ship — ordinary, editable files, never code. The nearest wins, and
+  *Customize…* copies one to where it shadows the original, as it does for an
+  Agent. The engine knows three kinds of step (an Agent, a check, a person) and
+  rules over answers and evidence; nothing in it knows what a review, a race or
+  a match is.
 
 **Configuration.**
 
@@ -620,14 +659,21 @@ resolves to that Seat and its session.
   shown afterwards.
 - A first run with nothing to configure.
 - The Agent page, turned into an editor.
-- The canvas: rounds as nodes and rules as edges, with positions kept in the
-  flow file's reserved `layout:` key. It is big enough to be a plan of its own,
-  and it belongs here because it edits what the shapes start.
+- **Your own shape**: an editor for how Agents work together, without writing
+  YAML. Steps in order, each an Agent, a check or a person; who does each, how
+  many, whether they are blind, where each works and what it may do; and the
+  rules between them in plain words (*when any reviewer asks for changes, back to
+  the writer with only the open findings*). The file is written as it is edited
+  and shown beside it, a dry run says what would open and run before anything
+  starts, and it saves to the project or to you. A graph view of the same file,
+  with positions in its reserved `layout:` key, comes after it, for shapes that
+  branch.
 
 **Configuration.** Nothing new: every surface here writes files that phases 1–8
 defined. A shape runs from text; *Save to project* writes
 `.harnessdesk/flows/<name>.yml`, and any Agent it created, as an ordinary change
-in the git pane. *Every time…* writes `triggers.yml` the same way.
+in the git pane; *Save for me* writes it under `~/.harnessdesk/flows/`. *Every
+time…* writes `triggers.yml` the same way.
 
 **Settings.** The Agent page edits in place. Each row changes one key and
 rewrites only that line, so comments and the brief survive; the brief opens in
@@ -646,6 +692,9 @@ the editor beside it. *New Agent* starts from a shipped Agent or from nothing.
   offer *Review with…*, and an empty Goal board offers the shapes.
 - **After starting,** *The flow this wrote* shows its YAML, with *Save to
   project*.
+- **Your own shape**, from the same list of shapes: start from one that ships or
+  from nothing, and it joins the list — the project's with the code, yours on
+  this Mac.
 - **The first run.** Once a runtime is ready (`SetupDesk.tsx`), the empty window
   offers the shapes, using the shipped Agents.
 
@@ -763,7 +812,7 @@ parts still hold.
 | --- | --- | --- |
 | 1 | `docs/agents.md` → `docs/runtimes.md`, `docs/README.md` | The installed CLI is a *runtime* throughout; ACP-facing mentions and `agents.json` keep the word *agent*. Done in #770 |
 | 2 | New `docs/agents.md` | The Agent, reintroduced now that a person can reach it: the folder, the three layers, seating and this machine's override, the shipped Agents, starting as one |
-| 2 | `docs/interface.md`, `docs/runtimes.md` | Settings › Agents, Settings › Runtimes and a project's page; starting as an Agent; *Save as an Agent* |
+| 2 | `docs/interface.md`, `docs/runtimes.md` | Agents in the left menu, Settings › Runtimes and a project's page; starting as an Agent; *Save as an Agent*; the plain path unchanged |
 | 2 | `docs/multi-agent.md` | Seating an Agent in a room |
 | 3 | `docs/flows.md`, `docs/agents.md` | The four ceilings, held and asked; `ceiling:`, and what `permission:` still means in an Agent or flow file written before it |
 | 3 | `docs/agent-capabilities.md`, `docs/interface.md` | Which runtime holds which ceiling, and how; Permissions › Ceilings |
