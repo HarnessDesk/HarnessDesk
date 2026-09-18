@@ -108,7 +108,7 @@ export interface AgentProblem {
  * host's sentence (it words a runtime by its presentation), so it reads this
  * instead, and the fix beside it (`SeatFix`).
  *
- * The first seven are known before anything is opened; the last two only
+ * The first eight are known before anything is opened; the last two only
  * once a conversation exists.
  */
 export type SeatReason =
@@ -120,6 +120,8 @@ export type SeatReason =
   | { readonly kind: 'notInstalled'; readonly added: boolean }
   /** It cannot open a conversation right now — too old, crashed, still starting — in its own words. */
   | { readonly kind: 'unavailable'; readonly detail: string }
+  /** Asked whether it is signed in, it did not answer within `after` milliseconds, and was not waited for. */
+  | { readonly kind: 'noAnswer'; readonly after: number }
   | { readonly kind: 'signedOut' }
   /** An account-wide window is used up. */
   | { readonly kind: 'spent' }

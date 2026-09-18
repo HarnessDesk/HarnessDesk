@@ -253,6 +253,11 @@ export interface HostOptions {
    */
   readonly sendAcceptDeadlineMs?: number
   /**
+   * How long each read a seating makes before it chooses may take — an
+   * account, a model list, the usage. See `SEAT_READ_DEADLINE_MS`.
+   */
+  readonly seatReadDeadlineMs?: number
+  /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
    * second credential home — the host stays free of any one backend's idea of

@@ -452,6 +452,10 @@ interface Pretend {
   readonly accountFails?: boolean
   /** Keeps its own credential, so the desk never asks it to sign in. */
   readonly keepsOwnAccount?: boolean
+  /** Asked whether it is signed in, it never answers. */
+  readonly accountHangs?: boolean
+  /** Asked for its models, it never answers. */
+  readonly modelsHang?: boolean
 }
 
 const pretendRuntime = (id: string, pretend: Pretend) => {
@@ -465,15 +469,22 @@ const pretendRuntime = (id: string, pretend: Pretend) => {
     info: { id: runtimeId(id), capabilities: { account: pretend.keepsOwnAccount !== true } },
     health: (): RuntimeHealth => pretend.health ?? { state: 'ready' },
     getAccount: async () => {
+      if (pretend.accountHangs) return new Promise<never>(() => {})
       if (pretend.accountFails) throw new Error('the account endpoint timed out')
       return { accounts: pretend.signedOut ? [] : [{ kind: 'apiKey', label: 'key' }], signInMethods: [] }
     },
     listModels: async () => {
+      if (pretend.modelsHang) return new Promise<never>(() => {})
       if (pretend.modelsFail) throw new Error('the catalogue did not load')
       return pretend.modelsUnknown ? [] : catalogue
     },
     ...(pretend.modelsUnknown !== undefined
-      ? { knownModels: async () => (pretend.modelsUnknown ? null : catalogue) }
+      ? {
+          knownModels: async () => {
+            if (pretend.modelsHang) return new Promise<never>(() => {})
+            return pretend.modelsUnknown ? null : catalogue
+          },
+        }
       : {}),
   }
 }
@@ -495,6 +506,12 @@ const rig = async (
     readonly orderFails?: string
     /** The Agent's ceiling, as its file declares it. */
     readonly permission?: FlowPermission
+    /** Asked for usage, the desk never answers. */
+    readonly usageHangs?: boolean
+    /** The last readings the desk already holds, by runtime. */
+    readonly cached?: readonly UsageReport[]
+    /** How long each read before choosing may take. A second unless a test says otherwise. */
+    readonly deadlineMs?: number
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -505,6 +522,7 @@ const rig = async (
   const roster = new Agents({ user, builtin: join(root, 'builtin') })
 
   const created: { runtime: string; model?: string; cwd: string }[] = []
+  const warned: string[] = []
   const titles: string[] = []
   const ordered: string[] = []
   const retired: string[] = []
@@ -535,7 +553,12 @@ const rig = async (
       get: (id: string) => runtimes.get(id),
       infoOf: (runtime: { info: unknown }) => runtime.info,
     },
-    usage: () => ({ reports: async () => options.reports ?? [] }),
+    options: { seatReadDeadlineMs: options.deadlineMs ?? 1_000 },
+    logger: { warn: (message: string) => warned.push(message) },
+    usage: () => ({
+      reports: async () => (options.usageHangs ? new Promise<never>(() => {}) : (options.reports ?? [])),
+      cached: (id: string) => (options.cached ?? []).find((one) => String(one.runtime) === id) ?? null,
+    }),
     seats: {
       open: async (seat: FlowSeat, where: { cwd: string; title: string }): Promise<OpenedSeat> => {
         const fails = options.openFails?.(seat)
@@ -582,7 +605,7 @@ const rig = async (
       },
     },
   } as never
-  return { ctx, source, created, titles, ordered, retired, recorded, asked, root, overlaps, alive: () => alive }
+  return { ctx, source, created, titles, ordered, retired, recorded, asked, root, overlaps, warned, alive: () => alive }
 }
 
 /** Nothing was opened, handed a brief, closed or recorded. */
@@ -1383,3 +1406,61 @@ for (const [order, how] of [
     assert.equal(harness.host.registry.get(runtimeId('codex'), sessionId('thread-e2e'))?.live ?? null, null, 'the first is let go')
   })
 }
+
+/*
+ * The reads a seating makes before it chooses, each held to a deadline. A
+ * runtime that never answers would otherwise hold the seating — and every menu
+ * drawn from a dry run — open for ever.
+ */
+
+test('a runtime that never says whether it is signed in is passed over, and the next candidate is seated', async () => {
+  const started = Date.now()
+  const seen = await rig(
+    'mute=m1, claude=opus-5',
+    { mute: { models: ['m1'], accountHangs: true }, claude: { models: ['opus-5'] } },
+    { deadlineMs: 30 },
+  )
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+  assert.ok(Date.now() - started < 2_000, 'the silent runtime was not waited for')
+})
+
+test('when the only candidate never answers, the refusal says so and nothing is opened', async () => {
+  const seen = await rig('mute=m1', { mute: { models: ['m1'], accountHangs: true } }, { deadlineMs: 30 })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          '  mute=m1 — mute did not answer within 30 ms when asked whether it is signed in',
+      )
+      return true
+    },
+  )
+  untouched(seen)
+})
+
+test('a model list that never arrives is unread, and a candidate that names no model is still seated', async () => {
+  const named = await rig('slow=m1', { slow: { models: ['m1'], modelsHang: true } }, { deadlineMs: 30 })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](named.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    /slow=m1 — cannot tell whether slow offers m1: its model list could not be read$/,
+  )
+  untouched(named)
+  const bare = await rig('slow', { slow: { models: ['m1'], modelsHang: true } }, { deadlineMs: 30 })
+  await agentMethods['agent/seat'](bare.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(bare.created, [{ runtime: 'slow', cwd: '/tmp/x' }])
+})
+
+test('usage that never arrives holds no seating: the last reading stands in, and the log says so', async () => {
+  const seen = await rig(
+    'spent=m1, claude=opus-5',
+    { spent: { models: ['m1'] }, claude: { models: ['opus-5'] } },
+    { deadlineMs: 30, usageHangs: true, cached: [reportFor('spent', [{ usedPercent: 100 }])] },
+  )
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  // Spent by the last reading, so passed over; claude has no reading, so is not known to be spent.
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+  assert.deepEqual(seen.warned, ['a seating read no usage within its deadline, so the last readings stand in'])
+})

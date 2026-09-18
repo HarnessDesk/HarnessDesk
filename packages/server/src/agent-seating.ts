@@ -51,6 +51,12 @@ export interface SeatOffer {
    */
   readonly unavailable?: string | null
   /**
+   * Asked whether it is signed in, it did not answer within this many
+   * milliseconds, so nothing else about it is known. Not `unavailable`: that
+   * is a runtime saying what is wrong with it, and this is one saying nothing.
+   */
+  readonly silent?: number | null
+  /**
    * Models this runtime currently offers, by the id a seat spec writes, not
    * the label a picker shows. Empty means it does not take a model, so a
    * candidate that names one is passed over. **Null means the list could not
@@ -94,12 +100,20 @@ export type Seating =
 /** The runtime's own sentence, fitted into one of ours: one line, no closing stop. */
 const quoted = (words: string): string => words.replace(/\s+/g, ' ').trim().replace(/\.$/, '')
 
+/** A deadline, in the unit a person would say it. */
+export const durationWords = (ms: number): string => {
+  if (ms < 1_000) return `${ms} ms`
+  const seconds = Math.round(ms / 1_000)
+  return seconds === 1 ? '1 second' : `${seconds} seconds`
+}
+
 /** Why this candidate cannot be taken, as a fact a surface can act on, or null when it can. */
 export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): SeatReason | null => {
   const offer = offers.find((one) => one.runtime === seat.runtime)
   if (!offer) return { kind: 'notInstalled', added: false }
   if (offer.notInstalled) return { kind: 'notInstalled', added: true }
   if (offer.unavailable) return { kind: 'unavailable', detail: quoted(offer.unavailable) }
+  if (offer.silent) return { kind: 'noAnswer', after: offer.silent }
   /* Before anything the candidate asked for: signed out, a runtime may list no
      models at all, and "does not offer" would then send the reader to change a
      spec that was right. */
@@ -128,6 +142,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
       return `${runtime} is not installed`
     case 'unavailable':
       return `${runtime} is unavailable: ${reason.detail}`
+    case 'noAnswer':
+      return `${runtime} did not answer within ${durationWords(reason.after)} when asked whether it is signed in`
     case 'signedOut':
       return `${runtime} is signed out`
     case 'spent':
@@ -160,6 +176,7 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'spent':
       return { kind: 'usage', runtime }
     case 'unavailable':
+    case 'noAnswer':
     case 'modelsUnread':
     case 'couldNotOpen':
       return { kind: 'runtime', runtime }

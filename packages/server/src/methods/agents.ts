@@ -14,6 +14,7 @@ import {
 } from '../agent-seating.js'
 import { seatSpec } from '../flow.js'
 import type { OpenedSeat } from '../host.js'
+import { SEAT_READ_DEADLINE_MS, within } from '../seat-reads.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
 /**
@@ -204,14 +205,39 @@ const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[]): Pro
     return runtime ? [runtime] : []
   })
   if (runtimes.length === 0) return []
-  const reports = await ctx.usage().reports()
-  return Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports)))
+  const deadline = ctx.options.seatReadDeadlineMs ?? SEAT_READ_DEADLINE_MS
+  const reports = await usageWithin(ctx, runtimes, deadline)
+  return Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline)))
+}
+
+/**
+ * The usage each runtime reports, within the deadline — or, past it, the last
+ * reading the desk already holds for it.
+ *
+ * Usage is read for every runtime at once, so one silent source would hold
+ * every seating. A window the desk cannot read now is one the runtime states
+ * again on the first turn, and the last reading is still a reading; a runtime
+ * with none is not known to be spent, exactly as before a reading exists.
+ */
+const usageWithin = async (
+  ctx: HostContext,
+  runtimes: readonly AgentRuntime[],
+  deadline: number,
+): Promise<readonly UsageReport[]> => {
+  const read = await within(() => ctx.usage().reports(), deadline)
+  if (read.settled === 'value') return read.value
+  ctx.logger.warn('a seating read no usage within its deadline, so the last readings stand in')
+  return runtimes.flatMap((runtime) => {
+    const last = ctx.usage().cached(runtime.info.id)
+    return last ? [last] : []
+  })
 }
 
 const offerOf = async (
   ctx: HostContext,
   runtime: AgentRuntime,
   reports: readonly UsageReport[],
+  deadline: number,
 ): Promise<SeatOffer> => {
   const id = String(runtime.info.id)
   const health = runtime.health()
@@ -232,16 +258,17 @@ const offerOf = async (
   let signedIn = true
   // An agent that keeps its own credential is never asked to sign in here.
   if (ctx.runtimes.infoOf(runtime).capabilities.account !== false) {
-    try {
-      signedIn = (await runtime.getAccount()).accounts.length > 0
-    } catch (error) {
-      return { runtime: id, unavailable: `its account could not be read — ${messageOf(error)}`, ...unread }
+    const account = await within(() => runtime.getAccount(), deadline)
+    if (account.settled === 'late') return { runtime: id, silent: deadline, ...unread }
+    if (account.settled === 'error') {
+      return { runtime: id, unavailable: `its account could not be read — ${messageOf(account.error)}`, ...unread }
     }
+    signedIn = account.value.accounts.length > 0
   }
   const report = reports.find((one) => one.runtime === runtime.info.id)
   return {
     runtime: id,
-    models: await modelsOf(runtime),
+    models: await modelsOf(runtime, deadline),
     efforts: null,
     signedIn,
     spent: report ? isBlocked(report) : false,
@@ -249,20 +276,18 @@ const offerOf = async (
 }
 
 /**
- * The ids of the models a runtime offers, or null when it could not say.
+ * The ids of the models a runtime offers, or null when it could not say —
+ * failing, or not saying within the deadline, which is the same "could not
+ * say" to the chooser.
  *
  * `listModels` is the picker's question, and a picker would rather draw nothing
  * than an error: the ACP adapter answers it with an empty list when its agent
  * never managed to declare a catalogue. To the chooser empty is "offers none",
  * so a runtime that can tell the two apart is asked the way that does
- * (`knownModels`); any other is asked `listModels`, and its failing is its
- * "could not say".
+ * (`knownModels`); any other is asked `listModels`.
  */
-const modelsOf = async (runtime: AgentRuntime): Promise<readonly string[] | null> => {
-  try {
-    const models = await (runtime.knownModels ? runtime.knownModels() : runtime.listModels())
-    return models?.map((one) => one.id) ?? null
-  } catch {
-    return null
-  }
+const modelsOf = async (runtime: AgentRuntime, deadline: number): Promise<readonly string[] | null> => {
+  const read = await within(() => (runtime.knownModels ? runtime.knownModels() : runtime.listModels()), deadline)
+  if (read.settled !== 'value') return null
+  return read.value?.map((one) => one.id) ?? null
 }
