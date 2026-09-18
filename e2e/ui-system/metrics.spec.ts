@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
 import { CATALOG_ENTRIES } from '../../packages/ui/src/design/catalog/manifest'
+import { writeOnceEveryTestPasses } from './write-once'
 
 /**
  * Every rendered number in the system, in one table.
@@ -81,29 +82,15 @@ const wholeTable = (rows: ReadonlyMap<string, Record<string, unknown>>): string 
  * unchanged. The single walk wrote mid-file and the scale test after it
  * navigated into that reload, which failed 2 re-records in 5 with "Execution
  * context was destroyed". Written by each tab's test, it would be a reload
- * after every tab. So the rows wait here, and the file's `afterAll` writes
- * them once every test in it is done with its page — and only if every one
- * of them passed. It does not lean on the order the tests are declared in,
- * nor on serial mode skipping after a failure: a test that reads the table
- * before every tab is in fails (`recordedTable` below), and a failure
- * anywhere in the file leaves the table as it was, whether or not the tests
- * after it still run.
- *
- * In memory, so a re-record runs the file serially, in one worker; were the
- * tests ever spread across workers, none would hold every tab, and none
- * would write.
+ * after every tab. So the rows wait here, and are written once every test
+ * in the file is done with its page — and only if every one of them passed
+ * (`writeOnceEveryTestPasses`, which runs the file serially, in one worker,
+ * as rows held in memory need). A test that reads the table before every
+ * tab is in fails rather than checking half of it (`recordedTable` below),
+ * and fails the write with it.
  */
 const staged = new Map<string, Record<string, unknown>>()
-if (UPDATE) {
-  test.describe.configure({ mode: 'serial' })
-  let failed = false
-  test.afterEach(({}, testInfo) => {
-    if (testInfo.status !== testInfo.expectedStatus) failed = true
-  })
-  test.afterAll(() => {
-    if (!failed) writeFileSync(TABLE, wholeTable(staged))
-  })
-}
+if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, wholeTable(staged)))
 
 /** The table the tests hold: in a re-record the whole one it is about to write, otherwise the file. */
 const recordedTable = (): Record<string, unknown> =>
