@@ -1536,8 +1536,11 @@ export interface HostMethods {
    * listed on it rather than dropped, and an Agent whose file will not parse is
    * listed with its problems rather than hidden.
    *
-   * `project` is held host-side to the folders opened here. A roster directory
-   * that exists and cannot be read fails the call, with its path and reason.
+   * `project` is held host-side to the folders opened here, or the top of the
+   * repository one sits in. A directory of this machine's roster that exists
+   * and cannot be read fails the call, with its path and reason. Nothing in a
+   * project does: a project's Agent directory that leads out of the project,
+   * or cannot be read, is one entry saying why, and names nothing beyond it.
    */
   'agent/list': {
     params: { readonly project?: string }

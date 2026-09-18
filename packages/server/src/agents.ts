@@ -1,6 +1,6 @@
 import { constants, type Stats } from 'node:fs'
-import { open, readdir, realpath, type FileHandle } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { lstat, open, readdir, readlink, realpath, type FileHandle } from 'node:fs/promises'
+import { dirname, isAbsolute, join, sep } from 'node:path'
 
 import { digestOf } from '@harnessdesk/agent-inventory'
 import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
@@ -55,6 +55,18 @@ const LIMIT = 256 * 1024
  */
 const READ = constants.O_RDONLY | constants.O_NONBLOCK
 
+/** The most links one path may pass through before it is taken for a loop: the kernel's own limit on macOS. */
+const MAX_LINKS = 32
+
+/*
+ * Why something in a project that leads out of it was not read. The words are
+ * the same whether anything is there or not, because a sentence that changed
+ * with what is outside would be a way of asking about it.
+ */
+const FILE_LEADS_OUT = "this file links outside the project, so it was not read: a project's Agents are read only from inside it"
+const DIR_LEADS_OUT =
+  "this directory links outside the project, so nothing in it was read: a project's Agents are read only from inside it"
+
 /**
  * The two failures that mean "no Agents here" rather than "something is wrong".
  *
@@ -106,10 +118,84 @@ const realRoot = async (dir: string): Promise<string | null> => {
   }
 }
 
-/** Whether `path` lies beneath `root`. Both are real paths, so the arithmetic on their text means what it says. */
-const beneath = (path: string, root: string): boolean => {
-  const rest = relative(root, path)
-  return rest !== '' && rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest)
+/** Where a path inside a project led: to a real path still inside it, to nothing, or out of it. */
+type Resolved =
+  | { readonly to: 'inside'; readonly path: string }
+  | { readonly to: 'nothing' }
+  | { readonly to: 'outside' }
+
+/**
+ * Follows `steps` from `from` without ever leaving `root`, and says where they led.
+ *
+ * `realpath` answers "where does this lead" by going there — through every
+ * link, out of the project, and through whatever is outside — and only then can
+ * its answer be compared. For a project that order is the leak. What is out
+ * there would decide what the roster shows for a clone: the names in a
+ * directory it links to, whether a path it names exists, whether it may be
+ * searched. A clone could ask about this machine by linking to places and
+ * watching the answer change.
+ *
+ * So this walks inside only. Each step is looked at with `lstat` beneath what is
+ * already resolved; a link's target is read and walked in its place; and the
+ * first step that would leave `root` — a `..` above it, or an absolute target
+ * that is not beneath it as written — ends the walk as `outside`, without a
+ * look at where it goes. What the roster answers for a project is then the
+ * project's own tree and nothing else.
+ *
+ * `root` is a real path, and `from` is `root` or a real path beneath it. "Not
+ * there" is `nothing`; any other failure is raised, and can only name a path
+ * inside the project, because no other path is ever looked at.
+ *
+ * What it reached is used at once — listed, or opened. A directory on the way
+ * swapped for a link in between is not caught: that takes something writing
+ * inside the project while it is being listed, which a clone cannot do.
+ */
+const resolveWithin = async (root: string, from: string, steps: readonly string[]): Promise<Resolved> => {
+  const rootSteps = root.split(sep).filter(Boolean)
+  const pending = [...steps]
+  let at = from
+  let links = 0
+  for (let step = pending.shift(); step !== undefined; step = pending.shift()) {
+    if (step === '' || step === '.') continue
+    if (step === '..') {
+      if (at === root) return { to: 'outside' }
+      at = dirname(at)
+      continue
+    }
+    const next = join(at, step)
+    let target: string
+    try {
+      if (!(await lstat(next)).isSymbolicLink()) {
+        at = next
+        continue
+      }
+      target = await readlink(next)
+    } catch (error) {
+      if (NOTHING_HERE.has(errnoOf(error))) return { to: 'nothing' }
+      throw error
+    }
+    if (++links > MAX_LINKS) {
+      throw Object.assign(new Error(`ELOOP: too many symbolic links encountered, resolving '${next}'`), {
+        code: 'ELOOP',
+      })
+    }
+    // A link to the empty string leads nowhere, as the kernel reads it.
+    if (target === '') return { to: 'nothing' }
+    const parts = target.split(sep)
+    if (isAbsolute(target)) {
+      /* Taken as written, because following it to find out where it lands is
+         the look this walk exists not to take. A link that names the project's
+         own real path is followed from there; one that names anything else,
+         including the project by some other spelling, is outside. */
+      const written = parts.filter(Boolean)
+      if (!rootSteps.every((one, index) => written[index] === one)) return { to: 'outside' }
+      at = root
+      pending.unshift(...written.slice(rootSteps.length))
+    } else {
+      pending.unshift(...parts)
+    }
+  }
+  return { to: 'inside', path: at }
 }
 
 /** What something that is not a regular file is, in the words somebody would go looking for. */
@@ -142,19 +228,23 @@ const readAtMost = async (handle: FileHandle, limit: number): Promise<Buffer | n
 /** One directory the roster reads, and how far the links in it are followed. */
 interface Place {
   readonly origin: AgentOrigin
+  /** The directory as a person would write it: what an entry's path is built from, so it is a path they can open. */
   readonly dir: string
+  /** The directory as it resolved: what is read. For this machine's roots, the same path, and the system follows its links. */
+  readonly real: string
   /**
-   * The real path every file read here must stay beneath, or null where links
-   * are followed wherever they lead.
+   * The real path every file read here must resolve beneath, step by step, or
+   * null where links are followed wherever they lead.
    *
    * Where an Agent came from is the trust boundary. A project arrives in a
    * clone — somebody else's input — and its brief becomes a model's standing
    * order. Followed freely, one committed symlink would have the host read a
    * file from this machine, a key or a token, into that prompt, past every
    * permission prompt the runtime would have put between the model and the
-   * file. So a project's `AGENT.md` is read only if its real path is inside the
-   * project's, which admits a link that stays in the repository and refuses one
-   * that leaves it — a linked `.harnessdesk/agents` included.
+   * file; and a linked directory would list another folder's names. So in a
+   * project nothing is followed out of it — not the Agent directory, not a
+   * folder in it, not a file — which admits a link that stays in the repository
+   * and refuses one that leaves it without looking at where it goes.
    *
    * This machine's roster and the built-in one were put there by the person
    * and by the build. A dotfiles checkout linked into place is a setup, not an
@@ -162,6 +252,60 @@ interface Place {
    */
   readonly within: string | null
 }
+
+/** A project's Agent directory: where it resolved inside the project, that there is none, or why it was not read. */
+type ProjectDir =
+  | { readonly at: 'nothing' }
+  | { readonly at: 'inside'; readonly place: Place }
+  | { readonly at: 'unread'; readonly why: string }
+
+/**
+ * Finds a project's Agent directory, inside the project or not at all.
+ *
+ * A project cannot fail the listing. It arrives in a clone, and a clone that
+ * could make `agent/list` raise — by linking its Agent directory into a folder
+ * this user cannot read, or into itself — could take this machine's Agents
+ * away with it. So a directory that leads out, or cannot be followed, comes
+ * back as a reason and becomes one entry; this machine's roster, which nobody
+ * else wrote, still raises what it cannot read.
+ */
+const projectDirOf = async (project: string): Promise<ProjectDir> => {
+  // A project that is not there has no Agents to read, and nothing to stay inside.
+  const root = await realRoot(project)
+  if (root === null) return { at: 'nothing' }
+  let reached: Resolved
+  try {
+    reached = await resolveWithin(root, root, PROJECT_AGENT_DIR.split(sep))
+  } catch (error) {
+    return { at: 'unread', why: `this directory could not be read — ${messageOf(error)}` }
+  }
+  if (reached.to === 'nothing') return { at: 'nothing' }
+  if (reached.to === 'outside') return { at: 'unread', why: DIR_LEADS_OUT }
+  return {
+    at: 'inside',
+    place: { origin: 'project', dir: join(project, PROJECT_AGENT_DIR), real: reached.path, within: root },
+  }
+}
+
+/**
+ * The one entry a project's Agent directory becomes when it was not read.
+ *
+ * One, not silence: a person whose project Agents have gone is owed the reason,
+ * and zero rows would give none. Its id is the directory's place in the
+ * project, which no Agent's folder can be called, so it shadows nothing and
+ * nothing shadows it — this machine's Agents stay usable beside it. Its path is
+ * where the person can go and look. And nothing past the directory is named:
+ * not where a link leads, not what is there, not whether anything is.
+ */
+const unreadDirectory = (dir: string, why: string): AgentEntry => ({
+  definition: null,
+  id: PROJECT_AGENT_DIR,
+  origin: 'project',
+  path: dir,
+  digest: null,
+  shadows: [],
+  problems: [problem('error', PROJECT_AGENT_DIR, why)],
+})
 
 /** What was at a candidate's `AGENT.md`: nothing, its text, or why it was not read. */
 type Candidate =
@@ -187,29 +331,25 @@ const missed = (error: unknown): Candidate =>
  * gives up, its text from the same handle. A check on a path followed by a
  * read of the path is two looks at a name that can change in between.
  */
-const candidateAt = async (path: string, within: string | null): Promise<Candidate> => {
-  let target = path
+const candidateAt = async (place: Place, id: string): Promise<Candidate> => {
+  let target = join(place.real, id, FILE)
   let flags = READ
-  if (within !== null) {
-    let real: string
+  if (place.within !== null) {
+    let reached: Resolved
     try {
-      real = await realpath(path)
+      reached = await resolveWithin(place.within, place.real, [id, FILE])
     } catch (error) {
-      return missed(error)
+      return { at: 'unread', why: `this file could not be read — ${messageOf(error)}` }
     }
-    // Refused before it is opened, because opening is already an act on whatever is at the far end.
-    if (!beneath(real, within)) {
-      return {
-        at: 'unread',
-        why: "this file links outside the project, so it was not read: a project's Agents are read only from inside it",
-      }
-    }
-    /* The path that was checked is the path opened, and a link at its last step
+    if (reached.to === 'nothing') return { at: 'nothing' }
+    // Refused before it is opened, and before anything past the project is looked at.
+    if (reached.to === 'outside') return { at: 'unread', why: FILE_LEADS_OUT }
+    /* The path the walk reached is the path opened, and a link at its last step
        is refused rather than followed, so a file swapped for a link after the
-       check cannot lead out. A directory above it swapped for a link in that
+       walk cannot lead out. A directory above it swapped for a link in that
        same instant is not caught: that takes something writing inside the
        project while it is being listed, which a clone cannot do. */
-    target = real
+    target = reached.path
     flags |= constants.O_NOFOLLOW
   }
 
@@ -242,30 +382,40 @@ const candidateAt = async (path: string, within: string | null): Promise<Candida
 export class Agents {
   constructor(private readonly roots: AgentRoots) {}
 
-  /** Highest precedence first, so the first hit for an id is the winner. */
-  private async places(project?: string): Promise<Place[]> {
-    const places: Place[] = []
-    if (project) {
-      // A project that is not there has no Agents to read, and nothing to stay inside.
-      const within = await realRoot(project)
-      if (within !== null) places.push({ origin: 'project', dir: join(project, PROJECT_AGENT_DIR), within })
-    }
-    places.push({ origin: 'user', dir: this.roots.user, within: null })
-    places.push({ origin: 'builtin', dir: this.roots.builtin, within: null })
-    return places
-  }
-
   async list(project?: string): Promise<AgentEntry[]> {
     const found = new Map<string, AgentEntry>()
-    for (const place of await this.places(project)) {
-      for (const id of await idsIn(place.dir)) {
+
+    // Highest precedence first, so the first hit for an id is the winner.
+    const places: Place[] = []
+    if (project) {
+      const reached = await projectDirOf(project)
+      if (reached.at === 'inside') places.push(reached.place)
+      if (reached.at === 'unread') {
+        found.set(PROJECT_AGENT_DIR, unreadDirectory(join(project, PROJECT_AGENT_DIR), reached.why))
+      }
+    }
+    places.push({ origin: 'user', dir: this.roots.user, real: this.roots.user, within: null })
+    places.push({ origin: 'builtin', dir: this.roots.builtin, real: this.roots.builtin, within: null })
+
+    for (const place of places) {
+      let ids: string[]
+      try {
+        ids = await idsIn(place.real)
+      } catch (error) {
+        // This machine's roster raises what it cannot read; a project cannot fail the listing (see `projectDirOf`).
+        if (place.within === null) throw error
+        const why = `this directory could not be read — ${messageOf(error)}`
+        found.set(PROJECT_AGENT_DIR, unreadDirectory(place.dir, why))
+        continue
+      }
+      for (const id of ids) {
         const path = join(place.dir, id, FILE)
         /* Read first, decide second. A directory with no AGENT.md is not an
            Agent at *any* tier, and asking about the winner before asking about
            the file is how a folder somebody deleted the file out of came to be
            reported as a shadow at a path nobody can open. One check, on the one
            path, so the two cannot drift apart. */
-        const candidate = await candidateAt(path, place.within)
+        const candidate = await candidateAt(place, id)
         if (candidate.at === 'nothing') continue
 
         const winner = found.get(id)

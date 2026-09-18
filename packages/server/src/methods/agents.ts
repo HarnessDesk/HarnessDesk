@@ -9,11 +9,12 @@ import type { HostContext, MethodsUnder } from './context.js'
  * plane for that — a second write path for the same file is a second answer to
  * "what does this Agent say".
  *
- * Neither verb catches. A roster directory that exists and cannot be read
- * fails the call, naming the path and the reason, because a person can act on
- * that and cannot act on a roster that is quietly empty. One `AGENT.md` that
- * cannot be read or parsed is not a failure of the call: it arrives as an
- * entry with no definition and a problem saying why, and goes out as it came.
+ * Neither verb catches. A directory of this machine's roster that exists and
+ * cannot be read fails the call, naming the path and the reason, because a
+ * person can act on that and cannot act on a roster that is quietly empty.
+ * Nothing in a project fails it — a project arrives in a clone — and neither
+ * does one `AGENT.md` that cannot be read or parsed: each arrives as an entry
+ * with no definition and a problem saying why, and goes out as it came.
  */
 export const agentMethods = {
   'agent/list': async (ctx, params) => ctx.agents.list(await projectOf(ctx, params.project)),

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readdir, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
 import type { AgentEntry } from '@harnessdesk/protocol'
@@ -248,11 +248,12 @@ test('an AGENT.md that cannot be read is listed with its failure, and costs only
  * Links, and what is at the end of them.
  *
  * Where an Agent came from decides how far its links are followed. A project
- * arrives in a clone — somebody else's input — so its files are read only from
- * inside it: an `AGENT.md` whose real path leaves the project is refused, and
- * so is every file under a `.harnessdesk/agents` that is itself a link out. The
- * brief is a model's standing order, and a repository must not be able to put
- * a file from this machine into one.
+ * arrives in a clone — somebody else's input — so nothing in it is followed out
+ * of it: not a file, not a folder, not the Agent directory itself. The brief is
+ * a model's standing order, and a repository must not be able to put a file
+ * from this machine into one; nor may it learn anything about this machine by
+ * pointing somewhere and reading the answer — the names in a folder, or whether
+ * a path exists. What a project answers is its own tree and nothing else.
  *
  * This machine's roster, and the one that ships with the app, were put there
  * by the person or the build: a dotfiles checkout linked into place is a setup,
@@ -261,6 +262,15 @@ test('an AGENT.md that cannot be read is listed with its failure, and costs only
  * In every root, what is read is a regular file of at most 256 KiB, and what is
  * refused is still listed, saying why and carrying nothing of what is there.
  */
+
+/** The id and the path a project's Agent directory is listed under when it is not read. */
+const AGENT_DIR = join('.harnessdesk', 'agents')
+
+/** None of `names` anywhere in the answer: not an id, not a path, not a problem. */
+const assertNamesNothing = (listed: readonly AgentEntry[], names: readonly string[]) => {
+  const answer = JSON.stringify(listed)
+  for (const name of names) assert.equal(answer.includes(name), false, `${name} is in the answer: ${answer}`)
+}
 
 /** The shape every refusal takes: listed, unusable, unhashed, and saying why. */
 const assertRefused = (entry: AgentEntry | undefined, why: RegExp) => {
@@ -287,40 +297,191 @@ test('a project AGENT.md that links outside the project is refused, and nothing 
   await writeFile(secret, 'TOKEN=hunter2\n', 'utf8')
   await mkdir(join(project, '.harnessdesk', 'agents', 'leak'), { recursive: true })
   await symlink(secret, join(project, '.harnessdesk', 'agents', 'leak', 'AGENT.md'))
+  // …and one that climbs out by `..` rather than naming a path outright.
+  await mkdir(join(project, '.harnessdesk', 'agents', 'climb'), { recursive: true })
+  await symlink(join('..', '..', '..', '..', 'secret.env'), join(project, '.harnessdesk', 'agents', 'climb', 'AGENT.md'))
 
   const listed = await agents.list(project)
   const leak = listed.find((one) => one.id === 'leak')
   assertRefused(leak, /links outside the project/)
   assert.equal(leak?.origin, 'project')
+  assertRefused(
+    listed.find((one) => one.id === 'climb'),
+    /links outside the project/,
+  )
   assert.equal(JSON.stringify(listed).includes('hunter2'), false, "the linked file's text is nowhere in the answer")
 })
 
-test('a project .harnessdesk/agents that links outside the project yields none of the Agents there', async () => {
+/**
+ * A folder outside every project, holding what a clone would like listed: plain
+ * folders, one with an Agent in it, and one this user cannot enter — which
+ * stands in for another user's home, or a folder the system guards.
+ */
+const outsideFolder = async (t: TestContext, at: string): Promise<string[]> => {
+  const names = ['Documents', '.ssh', '.aws', 'codename-orion', 'vault']
+  for (const name of names) await mkdir(join(at, name), { recursive: true })
+  await writeFile(join(at, 'codename-orion', 'AGENT.md'), brief('Orion'), 'utf8')
+  await chmod(join(at, 'vault'), 0o000)
+  t.after(() => chmod(join(at, 'vault'), 0o700))
+  return names
+}
+
+test('a project .harnessdesk/agents that links outside the project is one refused entry, naming nothing that is there', async (t) => {
   const root = tempDir('hd-agents-')
-  const outside = join(root, 'elsewhere', 'agents')
-  await write(outside, 'secret', brief('Somebody else'))
+  const outside = join(root, 'elsewhere-home')
+  const names = await outsideFolder(t, outside)
   const project = join(root, 'project')
   await mkdir(join(project, '.harnessdesk'), { recursive: true })
   await symlink(outside, join(project, '.harnessdesk', 'agents'))
   const agents = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
 
   const listed = await agents.list(project)
-  assert.equal(
-    listed.some((one) => one.definition !== null),
-    false,
-    'no Agent is read from the folder the link leads to',
+  assertNamesNothing(listed, [...names, outside])
+  assert.deepEqual(
+    listed.map((one) => [one.id, one.origin, one.path]),
+    [[AGENT_DIR, 'project', join(project, AGENT_DIR)]],
   )
-  assert.equal(JSON.stringify(listed).includes('Somebody else'), false, 'nor any of its text')
+  assertRefused(listed[0], /links outside the project/)
+})
+
+test('a project whose .harnessdesk itself links outside the project names nothing that is there either', async (t) => {
+  const root = tempDir('hd-agents-')
+  const outside = join(root, 'elsewhere-hd')
+  const names = await outsideFolder(t, join(outside, 'agents'))
+  const project = join(root, 'project')
+  await mkdir(project, { recursive: true })
+  await symlink(outside, join(project, '.harnessdesk'))
+  const agents = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
+
+  const listed = await agents.list(project)
+  assertNamesNothing(listed, [...names, outside])
+  assert.deepEqual(
+    listed.map((one) => [one.id, one.origin, one.path]),
+    [[AGENT_DIR, 'project', join(project, AGENT_DIR)]],
+  )
+  assertRefused(listed[0], /links outside the project/)
+})
+
+test('a project Agent directory this user cannot read does not fail the listing, linked out to one or its own', async (t) => {
+  const root = tempDir('hd-agents-')
+  const locked = join(root, 'locked')
+  await mkdir(join(locked, 'inner'), { recursive: true })
+  await chmod(locked, 0o000)
+  t.after(() => chmod(locked, 0o700))
+  const readable = await readdir(locked).then(
+    () => true,
+    () => false,
+  )
+  // Modes do not apply to root, so there is no refusal here to observe.
+  if (readable) return t.skip('this user can read a directory with mode 000')
+
+  const agents = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
+  await write(join(root, 'user'), 'scout', brief('Scout'))
+  // Into the folder that cannot be read, and into one beneath it, which cannot even be looked for.
+  for (const [name, target] of [
+    ['into-locked', locked],
+    ['beneath-locked', join(locked, 'inner')],
+  ] as const) {
+    const project = join(root, name)
+    await mkdir(join(project, '.harnessdesk'), { recursive: true })
+    await symlink(target, join(project, '.harnessdesk', 'agents'))
+
+    const listed = await agents.list(project)
+    assert.deepEqual(
+      listed.map((one) => [one.id, one.origin]),
+      [
+        [AGENT_DIR, 'project'],
+        ['scout', 'user'],
+      ],
+      "the project's refusal, and this machine's Agents beside it",
+    )
+    assertRefused(listed[0], /links outside the project/)
+  }
+
+  // Its own, inside the project, made unreadable here: still an entry saying why, not a failed call.
+  const own = join(root, 'own')
+  await mkdir(join(own, '.harnessdesk', 'agents'), { recursive: true })
+  await chmod(join(own, '.harnessdesk', 'agents'), 0o000)
+  t.after(() => chmod(join(own, '.harnessdesk', 'agents'), 0o700))
+  const listed = await agents.list(own)
+  assert.deepEqual(
+    listed.map((one) => [one.id, one.origin]),
+    [
+      [AGENT_DIR, 'project'],
+      ['scout', 'user'],
+    ],
+  )
+  assertRefused(listed[0], /could not be read — EACCES/)
+})
+
+/*
+ * The same property from the other side. A roster that followed a link out and
+ * then judged what it found would answer differently for a path that exists
+ * and one that does not — and a clone could ask about this machine one link at
+ * a time, reading the answer. So the answer for a link out is the same whatever
+ * is, or is not, at the end of it.
+ */
+test('a link out of a project reads the same whether anything is at the end of it or not', async () => {
+  const root = tempDir('hd-agents-')
+  await writeFile(join(root, 'id_rsa'), 'KEY\n', 'utf8')
+  await write(join(root, 'home'), 'orion', brief('Orion'))
+  const agents = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
+
+  /** A project whose link is made by `link`, answered with the project's own path taken out. */
+  const answer = async (name: string, link: (project: string) => Promise<void>) => {
+    const project = join(root, name)
+    await link(project)
+    return JSON.stringify(await agents.list(project)).replaceAll(project, '<project>')
+  }
+  const file = (target: string) => async (project: string) => {
+    await mkdir(join(project, '.harnessdesk', 'agents', 'probe'), { recursive: true })
+    await symlink(target, join(project, '.harnessdesk', 'agents', 'probe', 'AGENT.md'))
+  }
+  const directory = (target: string) => async (project: string) => {
+    await mkdir(join(project, '.harnessdesk'), { recursive: true })
+    await symlink(target, join(project, '.harnessdesk', 'agents'))
+  }
+
+  const toFile = await answer('a', file(join(root, 'id_rsa')))
+  assert.match(toFile, /links outside the project/)
+  assert.equal(await answer('b', file(join(root, 'no-such-file'))), toFile)
+
+  const toDirectory = await answer('c', directory(join(root, 'home')))
+  assert.match(toDirectory, /links outside the project/)
+  assert.equal(await answer('d', directory(join(root, 'no-such-directory'))), toDirectory)
+})
+
+test('a loop in a project does not fail the listing, and costs only what loops', async () => {
+  const root = tempDir('hd-agents-')
+  const agents = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
+  await write(join(root, 'user'), 'scout', brief('Scout'))
+
+  // The whole Agent directory a link to itself…
+  const spun = join(root, 'spun')
+  await mkdir(join(spun, '.harnessdesk'), { recursive: true })
+  await symlink('agents', join(spun, '.harnessdesk', 'agents'))
+  const listed = await agents.list(spun)
+  assert.deepEqual(
+    listed.map((one) => one.id),
+    [AGENT_DIR, 'scout'],
+  )
+  assertRefused(listed[0], /ELOOP/)
+
+  // …or one Agent's file.
+  const spinning = join(root, 'spinning')
+  await mkdir(join(spinning, '.harnessdesk', 'agents', 'spin'), { recursive: true })
+  await symlink('AGENT.md', join(spinning, '.harnessdesk', 'agents', 'spin', 'AGENT.md'))
   assertRefused(
-    listed.find((one) => one.id === 'secret'),
-    /links outside the project/,
+    (await agents.list(spinning)).find((one) => one.id === 'spin'),
+    /ELOOP/,
   )
 })
 
 /*
- * The control for the two refusals above, which a roster refusing every link
- * in a project would also pass: a link that stays inside the repository — a
- * file, a folder, or the whole `.harnessdesk/agents` — is followed.
+ * The control for the refusals above, which a roster refusing every link in a
+ * project would also pass: a link that stays inside the repository — a file, a
+ * folder, the whole `.harnessdesk/agents` or `.harnessdesk` itself, written
+ * relative or as the project's own absolute path — is followed.
  */
 test('a link that stays inside the project is followed', async () => {
   const { project, agents } = await rig()
@@ -331,24 +492,36 @@ test('a link that stays inside the project is followed', async () => {
   await symlink(join('..', '..', '..', 'docs', 'reviewer.md'), join(here, 'reviewer', 'AGENT.md'))
   await write(join(project, 'shared'), 'scout', brief('Shared scout'))
   await symlink(join('..', '..', 'shared', 'scout'), join(here, 'scout'))
+  await writeFile(join(project, 'docs', 'absolute.md'), brief('Absolute planner'), 'utf8')
+  await mkdir(join(here, 'planner'), { recursive: true })
+  await symlink(join(await realpath(project), 'docs', 'absolute.md'), join(here, 'planner', 'AGENT.md'))
 
   assert.deepEqual(
     (await agents.list(project)).map((one) => [one.id, one.origin, one.definition?.name]),
     [
+      ['planner', 'project', 'Absolute planner'],
       ['reviewer', 'project', 'Linked reviewer'],
       ['scout', 'project', 'Shared scout'],
     ],
   )
 
   const root = tempDir('hd-agents-')
+  const roster = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
   const linked = join(root, 'linked')
   await write(join(linked, 'team', 'agents'), 'planner', brief('Team planner'))
   await mkdir(join(linked, '.harnessdesk'), { recursive: true })
   await symlink(join('..', 'team', 'agents'), join(linked, '.harnessdesk', 'agents'))
-  const roster = new Agents({ user: join(root, 'user'), builtin: join(root, 'builtin') })
   assert.deepEqual(
     (await roster.list(linked)).map((one) => [one.id, one.origin, one.definition?.name]),
     [['planner', 'project', 'Team planner']],
+  )
+
+  const relocated = join(root, 'relocated')
+  await write(join(relocated, 'config', 'agents'), 'tester', brief('Relocated tester'))
+  await symlink('config', join(relocated, '.harnessdesk'))
+  assert.deepEqual(
+    (await roster.list(relocated)).map((one) => [one.id, one.origin, one.definition?.name]),
+    [['tester', 'project', 'Relocated tester']],
   )
 })
 

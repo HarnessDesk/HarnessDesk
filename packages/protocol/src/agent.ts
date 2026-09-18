@@ -51,7 +51,14 @@ export interface AgentEntry {
    * list is the same defect as a shadowed one that vanishes.
    */
   readonly definition: AgentDefinition | null
-  /** The directory name. Present even when `definition` is null. */
+  /**
+   * The directory name. Present even when `definition` is null.
+   *
+   * One entry is not an Agent's folder. When a project's own Agent directory
+   * is not read — it leads out of the project, or cannot be read — the
+   * project contributes a single entry whose id is that directory's place in
+   * it, `.harnessdesk/agents`, which no Agent's folder can be called.
+   */
   readonly id: AgentId
   readonly origin: AgentOrigin
   readonly path: string
