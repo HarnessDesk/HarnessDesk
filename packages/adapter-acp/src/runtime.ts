@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { extname, join } from 'node:path'
+import { extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
@@ -2077,20 +2077,55 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  /** Where a stored session worked, from the agent's own listing. */
+  /**
+   * Where a stored session worked, as the agent's own listing records it —
+   * every page of it — and nowhere else.
+   *
+   * ACP's load takes the folder from the client, and the agent runs the
+   * conversation in whatever it is handed. This used to hand over this
+   * process's working directory whenever the listing had no row for the id:
+   * the checkout under `pnpm dev`, `/` from Finder. The conversation was then
+   * held here with that as its folder, and a conversation's folder is an open
+   * root, so every repository under it could be read and branched. A folder
+   * the agent does not vouch for is a refusal instead, one that names the
+   * conversation. Gemini CLI keeps no listing at all, and Claude Code's leaves
+   * out a conversation its own store has no folder for.
+   */
   async #cwdOf(id: SessionId): Promise<string> {
-    try {
-      const listed = await this.#connection.request<{ sessions?: readonly AcpSessionRow[] }>(
-        'session/list',
-        {},
+    const name = this.#config.name
+    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
+      throw new SessionGoneError(
+        `${name} keeps no list of its conversations, so the folder conversation ${id} worked in is not known.`,
       )
-      const row = (listed.sessions ?? []).find((entry) => entry.sessionId === String(id))
-      if (row) return row.cwd
-    } catch {
-      // Fall through to the working directory; the load itself will complain
-      // if the id is genuinely unknown.
     }
-    return process.cwd()
+    const asked = new Set<string>()
+    let cursor: string | null = null
+    do {
+      let page: AcpSessionPage
+      try {
+        page = await this.#connection.request<AcpSessionPage>('session/list', cursor === null ? {} : { cursor })
+      } catch (error) {
+        // Not gone: a listing that failed this time may not the next.
+        throw new Error(
+          `${name} could not list its conversations (${describeAcp(error)}), so the folder conversation ${id} worked in is not known.`,
+        )
+      }
+      const row = (page.sessions ?? []).find((entry) => entry.sessionId === String(id))
+      if (row) {
+        // ACP says it is absolute. One that is not would be read — by the
+        // folder check below and by the agent's own load — against the working
+        // directory both have, which is this process's.
+        if (typeof row.cwd === 'string' && isAbsolute(row.cwd)) return row.cwd
+        throw new SessionGoneError(
+          `${name} lists conversation ${id} as working in ${JSON.stringify(row.cwd ?? '')}, which is not an absolute path.`,
+        )
+      }
+      cursor = typeof page.nextCursor === 'string' && page.nextCursor !== '' ? page.nextCursor : null
+      // A cursor handed back twice would be asked for forever.
+      if (cursor !== null && asked.has(cursor)) break
+      if (cursor !== null) asked.add(cursor)
+    } while (cursor !== null)
+    throw new SessionGoneError(`${name} does not list conversation ${id}, so the folder it worked in is not known.`)
   }
 
   async forkSession(): Promise<AgentSession> {
@@ -2445,6 +2480,12 @@ const firstSentence = (text: string): string => {
   const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
   const cut = line.search(/[.!?](\s|$)/)
   return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
+}
+
+/** One page of `session/list`. No `nextCursor` is the last page. */
+interface AcpSessionPage {
+  readonly sessions?: readonly AcpSessionRow[]
+  readonly nextCursor?: string | null
 }
 
 /** Antigravity labels an unnamed conversation `Session <id>` in its store. */

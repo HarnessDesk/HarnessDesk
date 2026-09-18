@@ -16,7 +16,7 @@
  *  - "slow"           → answers only after 10s (interrupt target)
  *  - anything else    → two message chunks and end_turn
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -26,6 +26,32 @@ import { createInterface } from 'node:readline'
  * its own store, so the adapter's resume path is tested across "restarts".
  */
 const STORE = process.env.FAKE_ACP_STORE ?? null
+/**
+ * The ways `session/list` can fail to say where a conversation ran while
+ * `session/load` still serves it, which a client asking the listing where to
+ * reopen one has to survive:
+ *  - FAKE_ACP_UNLISTED=<id>,<id>… leaves those out of it. Claude Code's
+ *    bridge skips a conversation its own listing has no folder for, and
+ *    Cursor's lists only the workspaces it has been shown.
+ *  - FAKE_ACP_LIST_PAGE=<n> answers n rows a page and a `nextCursor` for the
+ *    rest, as ACP's `session/list` allows, so a row past the first page is
+ *    found only by asking for the next.
+ *  - FAKE_ACP_NO_LIST=1 declares `loadSession` and no listing, and answers
+ *    `session/list` as Gemini CLI 0.59.0 does: -32601, "Method not found".
+ *  - FAKE_ACP_LIST_FAILS=1 declares a listing and fails every call to it.
+ * FAKE_ACP_UNLOADABLE=<id> is the other way round: listed, and refused when
+ * it is loaded, with the reason in `data` the way Claude Code gives one.
+ * FAKE_ACP_OPENS=<file> records every session it is asked to open, new or
+ * loaded, with the folder it was handed, one JSON line each.
+ */
+const UNLISTED = new Set((process.env.FAKE_ACP_UNLISTED ?? '').split(',').filter(Boolean))
+const LIST_PAGE = Number(process.env.FAKE_ACP_LIST_PAGE ?? 0)
+const NO_LIST = process.env.FAKE_ACP_NO_LIST === '1'
+const recordOpen = (method, sessionId, cwd) => {
+  if (process.env.FAKE_ACP_OPENS) {
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd })}\n`)
+  }
+}
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
 const readStore = () => {
   if (!STORE) return {}
@@ -710,7 +736,7 @@ const handlers = {
         loadSession: Boolean(STORE),
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
-        ...(STORE ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
+        ...(STORE && !NO_LIST ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
         /* `{}` is the only yes; `null` is a no that is spelled out rather
            than omitted, and both are on the wire. */
         ...(LOGS_OUT ? { auth: { logout: {} } } : LOGOUT_NULL ? { auth: { logout: null } } : {}),
@@ -823,6 +849,7 @@ const handlers = {
       } catch {}
     }
     const state = newSession(undefined, params?.cwd)
+    recordOpen('session/new', state.id, params?.cwd)
     reply(id, {
       sessionId: state.id,
       ...(CONFIG_MODEL_ONLY ? {} : { models: {
@@ -915,21 +942,38 @@ const handlers = {
     update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
   },
   'session/prompt': (id, params) => void runPrompt(id, params),
-  'session/list': (id) => {
-    const store = readStore()
-    reply(id, {
-      sessions: Object.values(store).map((entry) => ({
+  'session/list': (id, params) => {
+    if (NO_LIST) {
+      return send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: '"Method not found": session/list', data: { method: 'session/list' } },
+      })
+    }
+    if (process.env.FAKE_ACP_LIST_FAILS === '1') {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the index is locked' } } })
+    }
+    const rows = Object.values(readStore())
+      .filter((entry) => !UNLISTED.has(entry.sessionId))
+      .map((entry) => ({
         sessionId: entry.sessionId,
         cwd: entry.cwd,
         title: entry.title,
         updatedAt: entry.updatedAt,
-      })),
-    })
+      }))
+    if (!(LIST_PAGE > 0)) return reply(id, { sessions: rows })
+    const from = Number(params?.cursor ?? 0)
+    const rest = from + LIST_PAGE < rows.length
+    reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(rest ? { nextCursor: String(from + LIST_PAGE) } : {}) })
   },
   'session/load': (id, params) => {
+    recordOpen('session/load', params.sessionId, params.cwd)
     const store = readStore()
     const entry = store[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`, { details: 'the store has no such id' })
+    if (process.env.FAKE_ACP_UNLOADABLE === params.sessionId) {
+      return fail(id, 'Internal error', { details: 'the transcript could not be read' })
+    }
     const state = newSession(entry.sessionId, entry.cwd)
     // Replay: every content block of a stored turn as its own user chunk,
     // then an answer chunk — the shape Claude Code replays.
