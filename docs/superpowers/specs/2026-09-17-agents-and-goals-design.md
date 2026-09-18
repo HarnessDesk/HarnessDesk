@@ -155,12 +155,17 @@ where that sits in the noun model:
   answered, how many calls, what they cost. "Five workers" and "five Seats that
   between them spun off thirty children" are different sentences, and a budget
   that cannot tell them apart is a budget that fails at the worst moment.
-- **The ceiling has to survive delegation, and it cannot do so on trust.** If a
-  `read` Agent's runtime delegates a child that writes, the ceiling was
-  decoration. It holds because permission is enforced where the tool call
-  *arrives* — the MCP surface the desk offers every runtime — and a child calls
-  the same server as its parent. Nothing here relies on a runtime propagating a
-  permission it was never told about.
+- **The ceiling has to survive delegation, and today it does not.** If a `read`
+  Agent's runtime delegates a child that writes, the ceiling was decoration. The
+  only place it can hold is where the tool call *arrives* — the MCP surface the
+  desk offers every runtime, which a child calls just as its parent does — so
+  that nothing relies on a runtime propagating a permission it was never told
+  about. **That enforcement does not exist yet.** Measured while building the
+  first phase: a seat's permission reaches it only as an instruction in its
+  standing order, the way a flow seat's always has (`GIT_RULES`), and an
+  instruction is exactly what a delegated child is not bound by. Enforcing the
+  ceiling at the tool boundary is therefore a requirement of a later phase, and
+  until it lands this bullet describes the goal rather than the product.
 - **Provenance resolves to the Seat.** A commit belongs to the Seat that produced
   it; which delegation inside that turn wrote the line is a detail the transcript
   holds. The chain does not grow a level, because the Seat is the thing with a
