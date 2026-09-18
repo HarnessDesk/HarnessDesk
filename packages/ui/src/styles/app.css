@@ -205,18 +205,20 @@ a:hover {
  * events (#785). A zero duration starts no transition at all.
  *
  * A declared delay still stands, since a delay alone is enough to run a
- * transition: a sidebar still turns hidden when its slide would have ended.
- * A surface that must not wait says so itself, as the Workbench scrim does.
+ * transition, and a delay can be the point where a duration is only ever
+ * motion. A delay that only waited out a motion has nothing left to wait
+ * for, and its surface says so itself, as the Workbench's scrim and sidebar
+ * do.
  *
  * An animation still happens, in an instant: its start and end events fire
- * and a fill mode holds its last frame. What it no longer does is paint its
- * first keyframe for a frame.
+ * and a fill mode holds its last frame. What it no longer does is hold its
+ * first keyframe until the next frame starts it.
  */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0s !important; /* desk: 0.01ms → 0s, no first keyframe painted for a frame (#785) */
+    animation-duration: 0s !important; /* desk: 0.01ms → 0s, no first keyframe held until the next frame (#785) */
     animation-iteration-count: 1 !important;
     transition-duration: 0s !important; /* desk: 0.01ms → 0s, no transition started (#785) */
   }
