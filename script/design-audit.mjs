@@ -140,6 +140,25 @@ const cssFiles = () => filesIn('.css')
 const tsxFiles = () => filesIn('.tsx', (name) => name.includes('.test.'))
 
 /*
+ * CSS's own preprocessing (Syntax §3.3): a CR, a form feed, or a CR LF pair is
+ * one newline. Every scanner below reads the text after this, so a string
+ * ends at any of the three the way it ends at a newline, and a backslash
+ * before a CR LF is one line continuation, not a backslash and a stray LF.
+ * Without it a CR-terminated string swallowed the declarations after it, and
+ * an escaped CR LF ended a string early (#762 review).
+ */
+const preprocess = (text) => text.replace(/\r\n?|\f/g, '\n')
+
+/* Where an unquoted `url(` token's address ends, from `open`: past its `)`,
+   where a backslash escapes whatever follows it — `url(a\).png)` is one
+   address, and its first `)` closes nothing (#762 review). */
+const unquotedUrlEnd = (text, open) => {
+  let index = open
+  while (index < text.length && text[index] !== ')') index += text[index] === '\\' ? 2 : 1
+  return Math.min(index + 1, text.length)
+}
+
+/*
  * Where a CSS string that opens at `start` ends: past its closing quote, with
  * escapes skipped — or at an unescaped newline, which ends a string by the
  * grammar and keeps one stray quote from swallowing a whole stylesheet.
@@ -175,7 +194,8 @@ const urlAt = (text, index) =>
  * because the grammar reads everything there as the address — a `/*` inside
  * one is part of a path, not a comment.
  */
-const bare = (css) => {
+const bare = (raw) => {
+  const css = preprocess(raw)
   let out = ''
   let index = 0
   while (index < css.length) {
@@ -194,8 +214,7 @@ const bare = (css) => {
         out += css.slice(index, open)
         index = open
       } else {
-        const close = css.indexOf(')', open)
-        const end = close === -1 ? css.length : close + 1
+        const end = unquotedUrlEnd(css, open)
         out += css.slice(index, end)
         index = end
       }
@@ -215,7 +234,8 @@ const bare = (css) => {
  * holds `translate(1)` does not end the URL early and leave its tail exposed
  * (#762 review).
  */
-const plainOf = (value) => {
+const plainOf = (raw) => {
+  const value = preprocess(raw)
   let out = ''
   let index = 0
   while (index < value.length) {
@@ -228,6 +248,10 @@ const plainOf = (value) => {
       let at = index + 3
       while (at < value.length) {
         const inner = value[at]
+        if (inner === '\\') {
+          at += 2 // an escaped paren is part of the address, not its end
+          continue
+        }
         if (inner === '"' || inner === "'") {
           at = stringEnd(value, at)
           continue
@@ -289,6 +313,12 @@ export const declarationsOf = (css) => {
       index = end
       continue
     }
+    if (char === '\\') {
+      // an escaped `;`, `}` or paren is a character of the value, not structure
+      buffer += text.slice(index, index + 2)
+      index += 2
+      continue
+    }
     index += 1
     if (char === '(') depth += 1
     else if (char === ')') depth = Math.max(0, depth - 1)
@@ -310,7 +340,8 @@ const splitDeclaration = (raw) => {
   let depth = 0
   for (let index = 0; index < raw.length; index += 1) {
     const char = raw[index]
-    if (char === '"' || char === "'") index = stringEnd(raw, index) - 1
+    if (char === '\\') index += 1
+    else if (char === '"' || char === "'") index = stringEnd(raw, index) - 1
     else if (char === '(') depth += 1
     else if (char === ')') depth = Math.max(0, depth - 1)
     else if (char === ':' && depth === 0) {

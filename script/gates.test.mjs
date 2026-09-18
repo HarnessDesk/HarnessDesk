@@ -1623,3 +1623,20 @@ test('a quoted url() ends at its own paren, not one inside its string (#762)', (
 test('a stray quote ends at the line, and does not hide the rest of a stylesheet (#762)', () => {
   assert.deepEqual(rawColours('.a { content: "unterminated\n  ; color: red }').map(({ property }) => property), ['color'])
 })
+
+/* The third #762 re-review: escapes, and the newlines CSS counts as one. */
+test('an escaped paren inside an unquoted url() is part of the address (#762)', () => {
+  assert.deepEqual(rawColours('.a { background: url(a\\)red.png); }'), [])
+  assert.deepEqual(rawColours('.a { background: url(x\\)#fff.png); }'), [])
+  // and a colour after the whole address is still one
+  assert.deepEqual(rawColours('.a { background: url(a\\)b.png) red; }').map(({ property }) => property), ['background'])
+})
+
+test('CR, form feed and CR LF are the newline CSS preprocessing makes them (#762)', () => {
+  // an unescaped CR or form feed ends a string, as a newline does
+  assert.deepEqual(rawColours('.a { content: "a\r; color: red }').map(({ property }) => property), ['color'])
+  assert.deepEqual(rawColours('.a { content: "a\f; color: red }').map(({ property }) => property), ['color'])
+  // a backslash before CR LF is one line continuation: the string goes on
+  assert.deepEqual(rawColours('.a { content: "a\\\r\n#fff"; }'), [])
+  assert.deepEqual(declarationsOf('.a {\r\n  color: red;\r\n  gap: 4px;\r\n}').map(({ property }) => property), ['color', 'gap'])
+})
