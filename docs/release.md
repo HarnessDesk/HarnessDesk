@@ -4,17 +4,29 @@ A release is cut **by hand, on a Mac that holds the signing identity** — not
 by `.github/workflows/release.yml`. That workflow exists, is
 `workflow_dispatch`-only, and **has run once**:
 [run 34928000550](https://github.com/HarnessDesk/HarnessDesk/actions/runs/34928000550)
-(2026-09-15) got through checkout, build, and choosing a signing identity,
-then correctly refused at *Build signed app* — `A publishing run needs
+(2026-09-15) got through checkout, build, and typecheck, then hit two steps
+that found nothing to work with and said so — *Import signing certificate*
+printed `No MAC_CERTIFICATE_P12 configured. This build will be unsigned.`
+and exited 0 (it skips rather than fails when the cert secret is absent),
+and *Choose the notarization credentials* printed `No notarization
+credentials configured; this build will not be notarized.`, every one of
+`APPLE_API_KEY`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER`/`APPLE_ID`/
+`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` empty in its own env dump. The
+run then correctly refused at *Build signed app* — `A publishing run needs
 MAC_CERTIFICATE_P12. Refusing to publish an unsigned build.` The repository
-still carries none of the Actions secrets that command needs
+still carries none of the Actions secrets any of that needs
 (`gh api repos/HarnessDesk/HarnessDesk/actions/secrets` reports
 `total_count: 0`), so today it is **dormant, not decommissioned**: a second
-publish path with its own generated-notes, runner-only version flow, one
-`MAC_CERTIFICATE_P12` secret away from reactivating and disagreeing with
-everything below. Don't add that secret without first reconciling the two
+publish path with its own generated-notes, runner-only version flow, that
+reactivates once it has **both** a signing credential pair
+(`MAC_CERTIFICATE_P12` + `MAC_CERTIFICATE_PASSWORD`) **and** one complete
+notarization credential set (`APPLE_API_KEY`/`_ID`/`_ISSUER`, or
+`APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID`) — adding the
+certificate alone would only carry a run as far as `dist:notarized`'s own
+preflight, which refuses for the same reason
+`packages/desktop/script/preflight-notarize.mjs` refuses below. Don't add any of these without first reconciling the two
 paths — until then, this document is the one that actually runs, and the
-recipe below is manual because that workflow's own guard keeps it from
+recipe below is manual because that workflow's own guards keep it from
 being anything else.
 
 It works locally because the login keychain holds the Developer ID
