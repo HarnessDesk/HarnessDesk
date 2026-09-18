@@ -1,5 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { constants, type Stats } from 'node:fs'
+import { open, readdir, realpath, type FileHandle } from 'node:fs/promises'
+import { isAbsolute, join, relative, sep } from 'node:path'
 
 import { digestOf } from '@harnessdesk/agent-inventory'
 import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
@@ -20,7 +21,11 @@ import { problem } from './flow.js'
  */
 
 export interface AgentRoots {
-  /** `~/.harnessdesk/agents` — this machine. */
+  /**
+   * `agents` in the state directory: this machine's. That directory is
+   * `~/.harnessdesk` unless `HARNESSDESK_HOME`, the desktop shell or a test rig
+   * put it somewhere else, and this moves with it.
+   */
   readonly user: string
   /** Ships with the build. */
   readonly builtin: string
@@ -30,6 +35,25 @@ export interface AgentRoots {
 export const PROJECT_AGENT_DIR = join('.harnessdesk', 'agents')
 
 const FILE = 'AGENT.md'
+
+/**
+ * The most of an `AGENT.md` that is read.
+ *
+ * An `AGENT.md` is a brief, and 256 KiB is a generous one. A larger file is
+ * refused whole rather than cut short: a brief that stops mid-sentence is a
+ * different standing order from the one somebody wrote, and nothing would say
+ * so.
+ */
+const LIMIT = 256 * 1024
+
+/**
+ * How an `AGENT.md` is opened: to read, and without waiting.
+ *
+ * Not waiting is for a named pipe, whose open otherwise blocks until something
+ * writes to it — which, for a roster listed every time a screen asks, is
+ * forever. It changes nothing for a regular file, the only kind that is read.
+ */
+const READ = constants.O_RDONLY | constants.O_NONBLOCK
 
 /**
  * The two failures that mean "no Agents here" rather than "something is wrong".
@@ -51,6 +75,8 @@ const errnoOf = (error: unknown): string => {
   return typeof code === 'string' ? code : ''
 }
 
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
 const idsIn = async (dir: string): Promise<string[]> => {
   let entries
   try {
@@ -59,31 +85,157 @@ const idsIn = async (dir: string): Promise<string[]> => {
     if (NOTHING_HERE.has(errnoOf(error))) return []
     throw error
   }
+  /* A link is kept, and where it leads decides. A linked folder is an Agent like
+     any other — a dotfiles checkout linked into place is exactly that — and a
+     link to a file, or to nothing, has no AGENT.md beneath it, which the read
+     answers as nothing. Dropping links here hid every linked Agent without a
+     word. */
   return entries
-    .filter((one) => one.isDirectory())
+    .filter((one) => one.isDirectory() || one.isSymbolicLink())
     .map((one) => one.name)
     .sort()
 }
 
-/** What was at a candidate's `AGENT.md`: nothing, its text, or a reason. */
+/** A directory's real path, or null when it is not there. Anything else is raised, as a root's failure is. */
+const realRoot = async (dir: string): Promise<string | null> => {
+  try {
+    return await realpath(dir)
+  } catch (error) {
+    if (NOTHING_HERE.has(errnoOf(error))) return null
+    throw error
+  }
+}
+
+/** Whether `path` lies beneath `root`. Both are real paths, so the arithmetic on their text means what it says. */
+const beneath = (path: string, root: string): boolean => {
+  const rest = relative(root, path)
+  return rest !== '' && rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest)
+}
+
+/** What something that is not a regular file is, in the words somebody would go looking for. */
+const kindOf = (info: Stats): string => {
+  if (info.isDirectory()) return 'a directory'
+  if (info.isFIFO()) return 'a named pipe'
+  if (info.isCharacterDevice() || info.isBlockDevice()) return 'a device'
+  if (info.isSocket()) return 'a socket'
+  return 'something other than a file'
+}
+
+/**
+ * The file's bytes, or null when there are more than `limit` of them.
+ *
+ * Decided by what is read, not by the size the file reports: a file can grow
+ * between the two, and some report no size at all. One byte past the limit is
+ * the most that is ever read, and it is enough to know.
+ */
+const readAtMost = async (handle: FileHandle, limit: number): Promise<Buffer | null> => {
+  const buffer = Buffer.allocUnsafe(limit + 1)
+  let filled = 0
+  while (filled < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, filled, buffer.length - filled, filled)
+    if (bytesRead === 0) return buffer.subarray(0, filled)
+    filled += bytesRead
+  }
+  return null
+}
+
+/** One directory the roster reads, and how far the links in it are followed. */
+interface Place {
+  readonly origin: AgentOrigin
+  readonly dir: string
+  /**
+   * The real path every file read here must stay beneath, or null where links
+   * are followed wherever they lead.
+   *
+   * Where an Agent came from is the trust boundary. A project arrives in a
+   * clone — somebody else's input — and its brief becomes a model's standing
+   * order. Followed freely, one committed symlink would have the host read a
+   * file from this machine, a key or a token, into that prompt, past every
+   * permission prompt the runtime would have put between the model and the
+   * file. So a project's `AGENT.md` is read only if its real path is inside the
+   * project's, which admits a link that stays in the repository and refuses one
+   * that leaves it — a linked `.harnessdesk/agents` included.
+   *
+   * This machine's roster and the built-in one were put there by the person
+   * and by the build. A dotfiles checkout linked into place is a setup, not an
+   * attack, and those links are followed.
+   */
+  readonly within: string | null
+}
+
+/** What was at a candidate's `AGENT.md`: nothing, its text, or why it was not read. */
 type Candidate =
   | { readonly at: 'nothing' }
   | { readonly at: 'text'; readonly source: string }
-  | { readonly at: 'unreadable'; readonly reason: string }
+  | { readonly at: 'unread'; readonly why: string }
+
+/** A failure to reach the file: nothing there at all, or something there that could not be read. */
+const missed = (error: unknown): Candidate =>
+  NOTHING_HERE.has(errnoOf(error))
+    ? { at: 'nothing' }
+    : { at: 'unread', why: `this file could not be read — ${messageOf(error)}` }
 
 /**
  * Reads one candidate before anything asks which tier it belongs to.
  *
- * "Not there" and "there but unreadable" are different answers because they
- * deserve different ones: the first is not an Agent at all, and the second is an
- * Agent somebody needs told about.
+ * "Not there" and "there but not read" are different answers because they
+ * deserve different ones: the first is not an Agent at all, and the second is
+ * an Agent somebody needs told about — told why, and never told what is there.
+ *
+ * The file is opened once, and what is decided about it is decided on what was
+ * opened: its kind from the open handle, its length from what that handle
+ * gives up, its text from the same handle. A check on a path followed by a
+ * read of the path is two looks at a name that can change in between.
  */
-const candidateAt = async (path: string): Promise<Candidate> => {
+const candidateAt = async (path: string, within: string | null): Promise<Candidate> => {
+  let target = path
+  let flags = READ
+  if (within !== null) {
+    let real: string
+    try {
+      real = await realpath(path)
+    } catch (error) {
+      return missed(error)
+    }
+    // Refused before it is opened, because opening is already an act on whatever is at the far end.
+    if (!beneath(real, within)) {
+      return {
+        at: 'unread',
+        why: "this file links outside the project, so it was not read: a project's Agents are read only from inside it",
+      }
+    }
+    /* The path that was checked is the path opened, and a link at its last step
+       is refused rather than followed, so a file swapped for a link after the
+       check cannot lead out. A directory above it swapped for a link in that
+       same instant is not caught: that takes something writing inside the
+       project while it is being listed, which a clone cannot do. */
+    target = real
+    flags |= constants.O_NOFOLLOW
+  }
+
+  let handle: FileHandle
   try {
-    return { at: 'text', source: await readFile(path, 'utf8') }
+    handle = await open(target, flags)
   } catch (error) {
-    if (NOTHING_HERE.has(errnoOf(error))) return { at: 'nothing' }
-    return { at: 'unreadable', reason: error instanceof Error ? error.message : String(error) }
+    return missed(error)
+  }
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) {
+      return { at: 'unread', why: `this is not a regular file — it is ${kindOf(info)} — so it was not read` }
+    }
+    const bytes = await readAtMost(handle, LIMIT)
+    if (bytes === null) {
+      return {
+        at: 'unread',
+        why: `this file is larger than ${LIMIT / 1024} KiB, so it was not read: a brief is read whole or not at all`,
+      }
+    }
+    return { at: 'text', source: bytes.toString('utf8') }
+  } catch (error) {
+    return { at: 'unread', why: `this file could not be read — ${messageOf(error)}` }
+  } finally {
+    await handle.close()
   }
 }
 
@@ -91,17 +243,21 @@ export class Agents {
   constructor(private readonly roots: AgentRoots) {}
 
   /** Highest precedence first, so the first hit for an id is the winner. */
-  private places(project?: string): { origin: AgentOrigin; dir: string }[] {
-    const places: { origin: AgentOrigin; dir: string }[] = []
-    if (project) places.push({ origin: 'project', dir: join(project, PROJECT_AGENT_DIR) })
-    places.push({ origin: 'user', dir: this.roots.user })
-    places.push({ origin: 'builtin', dir: this.roots.builtin })
+  private async places(project?: string): Promise<Place[]> {
+    const places: Place[] = []
+    if (project) {
+      // A project that is not there has no Agents to read, and nothing to stay inside.
+      const within = await realRoot(project)
+      if (within !== null) places.push({ origin: 'project', dir: join(project, PROJECT_AGENT_DIR), within })
+    }
+    places.push({ origin: 'user', dir: this.roots.user, within: null })
+    places.push({ origin: 'builtin', dir: this.roots.builtin, within: null })
     return places
   }
 
   async list(project?: string): Promise<AgentEntry[]> {
     const found = new Map<string, AgentEntry>()
-    for (const place of this.places(project)) {
+    for (const place of await this.places(project)) {
       for (const id of await idsIn(place.dir)) {
         const path = join(place.dir, id, FILE)
         /* Read first, decide second. A directory with no AGENT.md is not an
@@ -109,7 +265,7 @@ export class Agents {
            the file is how a folder somebody deleted the file out of came to be
            reported as a shadow at a path nobody can open. One check, on the one
            path, so the two cannot drift apart. */
-        const candidate = await candidateAt(path)
+        const candidate = await candidateAt(path, place.within)
         if (candidate.at === 'nothing') continue
 
         const winner = found.get(id)
@@ -120,22 +276,22 @@ export class Agents {
           continue
         }
 
-        if (candidate.at === 'unreadable') {
+        if (candidate.at === 'unread') {
           /* The shape a file that does not parse already arrives in, so a reader
-             has one case and not two: no definition, and a problem saying what
-             happened. Losing the rest of the roster over one unreadable file
-             would be the same defect as hiding a shadowed one. */
+             has one case and not two: no definition, and a problem saying why.
+             Losing the rest of the roster over one file would be the same
+             defect as hiding a shadowed one. */
           found.set(id, {
             definition: null,
             id,
             origin: place.origin,
             path,
             // Nothing was read, so there is nothing to hash. Null rather than a
-            // sentinel string: two unrelated unreadable entries must not compare
+            // sentinel string: two unrelated unread entries must not compare
             // equal to a consumer that is comparing digests.
             digest: null,
             shadows: [],
-            problems: [problem('error', FILE, `this file could not be read — ${candidate.reason}`)],
+            problems: [problem('error', FILE, candidate.why)],
           })
           continue
         }

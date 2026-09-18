@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
+import { promisify } from 'node:util'
 
 import type { AgentEntry } from '@harnessdesk/protocol'
 
@@ -58,11 +60,21 @@ const writeAgent = async (dir: string, id: string, name: string) => {
  * `project` crosses the socket, and a project's Agents are read from beneath
  * it. Unconfined, a request could have the host list `.harnessdesk/agents`
  * under any directory on the disk and read what is in it — so it answers to the
- * rule every other path the renderer names answers to: inside a folder opened
- * here, or refused before anything is read.
+ * rule the git verbs answer to: an open folder, or the top of the repository an
+ * open folder sits in, compared by real path, or refused before anything is
+ * read.
+ *
+ * The rule itself is the host's, and the host is where it is tested, further
+ * down. These two pin only what the verbs do with it: ask it, and read what it
+ * answered — never the text that arrived, and nothing at all when it refuses.
  */
 
-/** One folder open, one not, and a roster that records every project it is asked about. */
+/**
+ * A roster that records every project it is asked about, behind a stand-in for
+ * the host's confinement that records what it was handed. It confines one
+ * spelling of the open folder, deliberately not the folder's own, so a verb
+ * that read the text that arrived would be caught asking about the wrong path.
+ */
 const confinedRig = async () => {
   const root = tempDir('hd-agent-methods-')
   const user = join(root, 'user')
@@ -73,6 +85,8 @@ const confinedRig = async () => {
   await writeAgent(join(elsewhere, '.harnessdesk', 'agents'), 'secret', 'Somebody else')
   const roster = new Agents({ user, builtin: join(root, 'builtin') })
   const asked: (string | undefined)[] = []
+  const handed: string[] = []
+  const spelled = `${open}/x/..`
   const ctx = {
     agents: {
       list: (project?: string) => {
@@ -84,41 +98,43 @@ const confinedRig = async () => {
         return roster.read(id, project)
       },
     },
-    workspaces: { openRoots: () => [open] },
+    workspaces: {
+      confineGitRoot: async (project: string) => {
+        handed.push(project)
+        if (project === spelled) return open
+        throw new Error(`${project} is outside every open workspace. Open its folder first to read from it.`)
+      },
+    },
   } as never
-  return { ctx, asked, open, elsewhere }
+  return { ctx, asked, handed, open, spelled, elsewhere }
 }
 
-test('a project outside every open folder is refused, and nothing under it is read', async () => {
-  const { ctx, asked, open, elsewhere } = await confinedRig()
+test('a project the host will not confine is refused, and nothing under it is read', async () => {
+  const { ctx, asked, handed, elsewhere } = await confinedRig()
   await assert.rejects(agentMethods['agent/list'](ctx, { project: elsewhere }), /outside every open workspace/)
   await assert.rejects(
     agentMethods['agent/read'](ctx, { id: 'secret', project: elsewhere }),
     /outside every open workspace/,
   )
-  // `..` is collapsed before the check, so it cannot walk out of an open folder.
-  await assert.rejects(
-    agentMethods['agent/list'](ctx, { project: join(open, '..', 'elsewhere') }),
-    /outside every open workspace/,
-  )
-  // Nor can a relative path, which would resolve against wherever the host was started.
+  // Nor a relative path, which the host would resolve against wherever it was started.
   await assert.rejects(agentMethods['agent/list'](ctx, { project: 'elsewhere' }), /not an absolute path/)
+  assert.deepEqual(handed, [elsewhere, elsewhere], 'the host is asked about the text that arrived, and only that')
   assert.deepEqual(asked, [], 'the roster is not asked about a folder the window does not have open')
 })
 
 /*
  * The control for the refusal above, which a handler refusing every project
- * would also pass: an open folder's project reaches the roster, and what it
- * holds comes back.
+ * would also pass: a project the host confines reaches the roster — as the path
+ * the host answered, not the one that was sent — and what it holds comes back.
  */
-test('a project inside an open folder is read, and its Agents are the ones answered', async () => {
-  const { ctx, asked, open } = await confinedRig()
-  const listed = await agentMethods['agent/list'](ctx, { project: open })
+test('a project the host confines is read at the path the host answered', async () => {
+  const { ctx, asked, open, spelled } = await confinedRig()
+  const listed = await agentMethods['agent/list'](ctx, { project: spelled })
   assert.deepEqual(
     listed.map((one) => [one.id, one.origin, one.definition?.name]),
     [['reviewer', 'project', 'Open reviewer']],
   )
-  const one = await agentMethods['agent/read'](ctx, { id: 'reviewer', project: open })
+  const one = await agentMethods['agent/read'](ctx, { id: 'reviewer', project: spelled })
   assert.equal(one?.origin, 'project')
   assert.deepEqual(asked, [open, open])
 })
@@ -205,6 +221,77 @@ test("the host reads this machine's Agents from its own state directory, and a p
   assert.equal(read?.origin, 'project')
   assert.equal(read?.definition?.name, 'Project scout')
   assert.deepEqual(read?.shadows, [{ origin: 'user', path: join(mine, 'scout', 'AGENT.md') }])
+})
+
+/** A host on the real socket, and a client on it, both gone when the test is. */
+const connected = async (t: TestContext) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  return client
+}
+
+const idsOf = (listed: unknown) =>
+  (listed as readonly AgentEntry[]).map((one) => [one.id, one.origin, one.definition?.name])
+
+/*
+ * The host's rule, through the host. Every path below is sent exactly as
+ * written: `..` included, uncollapsed, so nothing on the way to the host has
+ * already done its work for it.
+ */
+test('the host confines a project by its real path: `..` walks nowhere, and a link does not lead out', async (t) => {
+  const client = await connected(t)
+  const root = tempDir('hd-agent-methods-')
+  const open = join(root, 'open')
+  const elsewhere = join(root, 'elsewhere')
+  await writeAgent(join(open, '.harnessdesk', 'agents'), 'reviewer', 'Open reviewer')
+  await writeAgent(join(elsewhere, '.harnessdesk', 'agents'), 'secret', 'Somebody else')
+  await mkdir(join(open, 'x'))
+  // Inside the open folder by its text, and outside it by where it leads.
+  await symlink(elsewhere, join(open, 'door'))
+  await client.call('workspace/open', { path: open })
+
+  const refused = /outside every open workspace/
+  await assert.rejects(client.call('agent/list', { project: elsewhere }), refused)
+  await assert.rejects(client.call('agent/read', { id: 'secret', project: elsewhere }), refused)
+  await assert.rejects(client.call('agent/list', { project: `${open}/../elsewhere` }), refused)
+  await assert.rejects(client.call('agent/list', { project: join(open, 'door') }), refused)
+  await assert.rejects(client.call('agent/read', { id: 'secret', project: join(open, 'door') }), refused)
+  await assert.rejects(client.call('agent/list', { project: 'elsewhere' }), /not an absolute path/)
+
+  // The control: `..` that lands back inside the open folder is the open folder.
+  assert.deepEqual(idsOf(await client.call('agent/list', { project: `${open}/x/..` })), [
+    ['reviewer', 'project', 'Open reviewer'],
+  ])
+})
+
+const run = promisify(execFile)
+
+/*
+ * A workspace is often a folder inside its repository, and a project's Agents
+ * live at the repository's top. Confined by text, the top was refused and the
+ * subfolder held nothing, so no input reached them; confined the way the git
+ * verbs are, the top of a repository an open folder sits in is admitted.
+ */
+test("a subfolder of an open repository reaches that repository's Agents", async (t) => {
+  const client = await connected(t)
+  const repo = tempDir('hd-agent-methods-repo-')
+  await run('git', ['init', '-q', repo])
+  await writeAgent(join(repo, '.harnessdesk', 'agents'), 'reviewer', 'Repository reviewer')
+  await mkdir(join(repo, 'pkg'))
+  await client.call('workspace/open', { path: join(repo, 'pkg') })
+
+  assert.deepEqual(idsOf(await client.call('agent/list', { project: repo })), [
+    ['reviewer', 'project', 'Repository reviewer'],
+  ])
+  const read = (await client.call('agent/read', { id: 'reviewer', project: repo })) as AgentEntry | null
+  assert.equal(read?.definition?.name, 'Repository reviewer')
+
+  // That repository and no other: git names the top of what is open, and a repository nobody opened is still refused.
+  const sibling = tempDir('hd-agent-methods-repo-')
+  await run('git', ['init', '-q', sibling])
+  await assert.rejects(client.call('agent/list', { project: sibling }), /outside every open workspace/)
 })
 
 /*
