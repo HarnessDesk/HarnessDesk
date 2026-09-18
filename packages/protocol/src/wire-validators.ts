@@ -464,6 +464,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/stop': shape({ run: isString }),
   'flow/runs': shape({ room: isString }),
 
+  'agent/list': shape({ project: optional(isString) }),
+  'agent/read': shape({ id: isString, project: optional(isString) }),
+
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),
   'git/checkout': shape({ root: isString, branch: isString, create: optional(isBoolean) }),

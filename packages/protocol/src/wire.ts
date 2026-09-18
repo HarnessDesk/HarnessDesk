@@ -1,3 +1,4 @@
+import type { AgentEntry } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -1526,6 +1527,27 @@ export interface HostMethods {
   'flow/stop': { params: { readonly run: string }; result: FlowRun }
   /** Every run this room has had, oldest first. */
   'flow/runs': { params: { readonly room: string }; result: readonly FlowRun[] }
+
+  // -- agents: who does the work, as opposed to the runtime it runs on. Read
+  // only: an Agent is a file, and writing one is editing that file.
+  /**
+   * Every Agent there is to seat, one per id: a project's own when `project`
+   * names one, then this machine's, then those built in. What a winner beat is
+   * listed on it rather than dropped, and an Agent whose file will not parse is
+   * listed with its problems rather than hidden.
+   *
+   * `project` is held host-side to the folders opened here. A roster directory
+   * that exists and cannot be read fails the call, with its path and reason.
+   */
+  'agent/list': {
+    params: { readonly project?: string }
+    result: readonly AgentEntry[]
+  }
+  /** One Agent by its directory name, chosen exactly as `agent/list` chooses; null when nobody defined it. */
+  'agent/read': {
+    params: { readonly id: string; readonly project?: string }
+    result: AgentEntry | null
+  }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
@@ -56,7 +57,8 @@ import {
   sessionModel,
 } from '@harnessdesk/protocol'
 
-import type { AgentDirectory } from './agent-registry.js'
+import { packagedPath, type AgentDirectory } from './agent-registry.js'
+import { Agents } from './agents.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
@@ -168,6 +170,21 @@ const START_TIMEOUT_MS = 15_000
  * is judged by its session again, exactly as it was before the mark existed.
  */
 const SEND_ACCEPT_DEADLINE_MS = 30_000
+
+/**
+ * Where the built-in Agents ship: `agents/` at the root of this package, beside
+ * `src` and `dist`.
+ *
+ * Found from this module the way the bridges and the tool bridge are found —
+ * relative to the compiled file, then through `packagedPath` — so it is the same
+ * directory in a checkout, a standalone host and the app. The unpacked twin
+ * matters here for a reason of its own: an entry's `path` is shown to a person
+ * and handed to other programs to open, and a path inside `app.asar` is one only
+ * this process can read. Nothing ships there yet, and a directory that is not
+ * there is an empty tier rather than a failure.
+ */
+export const builtinAgentRoot = (): string =>
+  packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
 
 /**
  * The "Last terminal output" composer chip. Terminals are the host's own
@@ -333,6 +350,12 @@ export class Host {
    * and is the only thing on this plane that spends anything.
    */
   readonly #flows: Flows
+  /**
+   * The Agent roster: this machine's under the state directory, the built-in
+   * ones beside this package, and a project's own under whichever open folder a
+   * request names. Read afresh on every ask — an Agent is a file somebody edits.
+   */
+  readonly #agents: Agents
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -418,6 +441,9 @@ export class Host {
     )
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
+    // Beside `agents.json` and everything else the desk keeps, so a test rig or
+    // a HARNESSDESK_HOME that moves the state directory moves these with it.
+    this.#agents = new Agents({ user: join(this.#state.directory, 'agents'), builtin: builtinAgentRoot() })
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1032,6 +1058,7 @@ export class Host {
       worktrees: this.#worktrees,
       team: this.#team,
       flows: this.#flows,
+      agents: this.#agents,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,

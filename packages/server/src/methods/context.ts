@@ -25,6 +25,7 @@ import type {
 } from '@harnessdesk/protocol'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 
+import type { Agents } from '../agents.js'
 import type { SessionArchive } from '../archive.js'
 import type { AuditLog } from '../audit.js'
 import type { CatalogRefresher } from '../catalog-refresher.js'
@@ -76,6 +77,13 @@ export interface HostContext {
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows
+  /**
+   * The Agent roster: who can be seated, and what each one is for.
+   *
+   * Not `options.agents`, which is the ACP registry — the runtimes this desk
+   * can start. An Agent is who does the work; a runtime is what it runs on.
+   */
+  readonly agents: Agents
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher

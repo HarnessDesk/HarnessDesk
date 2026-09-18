@@ -1,6 +1,7 @@
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { accountMethods } from './accounts.js'
+import { agentMethods } from './agents.js'
 import { appMethods } from './app.js'
 import type { HostContext, HostMethodTable } from './context.js'
 import { credentialMethods } from './credentials.js'
@@ -56,6 +57,7 @@ export const hostMethods: HostMethodTable = {
   ...worktreeMethods,
   ...teamMethods,
   ...flowMethods,
+  ...agentMethods,
   ...gitMethods,
   ...pluginMethods,
 }
@@ -80,6 +82,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   worktreeMethods,
   teamMethods,
   flowMethods,
+  agentMethods,
   gitMethods,
   pluginMethods,
 ]
