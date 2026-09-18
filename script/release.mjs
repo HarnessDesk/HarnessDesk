@@ -33,7 +33,7 @@
  *     one that doesn't say "Notarized Developer ID".
  */
 
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -63,10 +63,32 @@ const gap = sinceArg => {
   for (const line of lines) console.log(`  ${line}`)
 }
 
-const bumpVersionField = (path, version) => {
+/**
+ * Find `pattern` in the file at `path` and replace its whole match with
+ * `build(match)`. Fails (before writing anything) if `pattern` isn't found —
+ * but a match whose replacement comes out identical to what's already there
+ * is success, not failure: `bump` calls this for three separate targets and
+ * plans all three before writing any of them, so retrying after fixing one
+ * broken target must not re-fail on the two that were already bumped by the
+ * first, partial attempt. Testing `next === text` to mean "no match" doesn't
+ * survive that retry — an already-correct value makes the replacement a
+ * no-op string-for-string, which looks identical to never having matched at
+ * all. Matching with the pattern directly (`exec`, not a before/after
+ * comparison) keeps those two cases apart.
+ */
+const planFieldBump = (path, pattern, build) => {
   const text = readFileSync(path, 'utf8')
-  const next = text.replace(/^(\s*"version":\s*")[^"]+(")/m, `$1${version}$2`)
-  if (next === text) fail(`${path}: no "version" field matched in the expected shape — bump it by hand.`)
+  const match = pattern.exec(text)
+  if (!match) fail(`${path}: expected shape not found — update it by hand.`)
+  const next = text.slice(0, match.index) + build(match) + text.slice(match.index + match[0].length)
+  return { path, text, next }
+}
+
+const applyFieldBump = ({ path, text, next }) => {
+  if (next === text) {
+    console.log(`${path}: already at the target value`)
+    return
+  }
   writeFileSync(path, next)
   console.log(`bumped ${path}`)
 }
@@ -74,18 +96,24 @@ const bumpVersionField = (path, version) => {
 const bump = version => {
   if (!SEMVER.test(version)) fail(`"${version}" doesn't look like X.Y.Z`)
 
-  bumpVersionField(join(root, 'package.json'), version)
-  bumpVersionField(join(root, 'packages/desktop/package.json'), version)
+  const versionField = /^(\s*"version":\s*")[^"]+(")/m
+  const bumpVersion = match => `${match[1]}${version}${match[2]}`
 
-  const fakeHost = join(root, 'packages/ui/site-demo/fake-host.ts')
-  const text = readFileSync(fakeHost, 'utf8')
-  const next = text.replace(
-    /const DOWNLOAD = 'https:\/\/github\.com\/HarnessDesk\/HarnessDesk\/releases\/download\/v[^']+'/,
-    `const DOWNLOAD = 'https://github.com/HarnessDesk/HarnessDesk/releases/download/v${version}/HarnessDesk-${version}-arm64.dmg'`,
-  )
-  if (next === text) fail(`${fakeHost}: DOWNLOAD constant not found in the expected shape — update it by hand.`)
-  writeFileSync(fakeHost, next)
-  console.log(`bumped ${fakeHost}`)
+  // Every target is planned — and, on a bad shape, fail() exits — before any
+  // of them are written. A partial write here is exactly the half-applied
+  // state a retry can't recover from: two versions bumped, the download URL
+  // untouched, no way to tell which run left it that way.
+  const plans = [
+    planFieldBump(join(root, 'package.json'), versionField, bumpVersion),
+    planFieldBump(join(root, 'packages/desktop/package.json'), versionField, bumpVersion),
+    planFieldBump(
+      join(root, 'packages/ui/site-demo/fake-host.ts'),
+      /const DOWNLOAD = 'https:\/\/github\.com\/HarnessDesk\/HarnessDesk\/releases\/download\/v[^']+'/,
+      () =>
+        `const DOWNLOAD = 'https://github.com/HarnessDesk/HarnessDesk/releases/download/v${version}/HarnessDesk-${version}-arm64.dmg'`,
+    ),
+  ]
+  for (const plan of plans) applyFieldBump(plan)
 
   console.log('\nStill by hand: CHANGELOG.md ("## Unreleased" -> "## ' + version + ' — <date>" plus an')
   console.log('opening paragraph). Run "node script/release.mjs gap" first to find what it must cover.')
@@ -101,28 +129,58 @@ const checksums = dirArg => {
   console.log(`\nwrote ${join(dir, 'SHA256SUMS.txt')}`)
 }
 
+/**
+ * Run a command, print whatever it wrote (stdout and stderr, interleaved as
+ * two blocks rather than by arrival order — good enough for a command that
+ * prints one thing), and hand back that text along with the exit status.
+ *
+ * Not `execFileSync` with `stdio: 'inherit'`: that only lets a caller ask
+ * "did it exit non-zero", and `spctl`'s exit status is not the promise this
+ * command exists to keep. A wrapper that answers `-v` with a fabricated
+ * "accepted" and exits 0, or that answers nothing at all and *also* exits 0
+ * (both happen — an empty PATH match, a mocked binary in a test harness),
+ * satisfies an exit-code check while satisfying nothing about the artifact.
+ * Read the text spctl actually printed.
+ */
+const runCaptured = (command, args, opts = {}) => {
+  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', ...opts })
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  process.stdout.write(output)
+  return { status: result.status, output }
+}
+
+const requireInOutput = (result, needle, onFail) => {
+  if (result.status !== 0 || !result.output.includes(needle)) fail(onFail)
+}
+
 const verifyArtifacts = dirArg => {
   const dir = resolve(root, dirArg ?? 'packages/desktop/release')
   const dmgs = readdirSync(dir).filter(f => f.endsWith('.dmg')).sort()
   if (dmgs.length === 0) fail(`no .dmg files in ${dir}`)
 
-  try {
-    run('shasum', ['-a', '256', '-c', 'SHA256SUMS.txt'], { cwd: dir, stdio: 'inherit' })
-  } catch {
-    fail(`\nSHA256SUMS.txt does not match what is on disk in ${dir} — stop here.`)
-  }
+  const shasum = runCaptured('shasum', ['-a', '256', '-c', 'SHA256SUMS.txt'], { cwd: dir })
+  if (shasum.status !== 0) fail(`\nSHA256SUMS.txt does not match what is on disk in ${dir} — stop here.`)
 
   for (const dmg of dmgs) {
     console.log(`\n=== ${dmg}`)
-    try {
-      run('xcrun', ['stapler', 'validate', dmg], { cwd: dir, stdio: 'inherit' })
-      run('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '-v', dmg], {
-        cwd: dir,
-        stdio: 'inherit',
-      })
-    } catch {
-      fail(`\n${dmg} failed staple/notarization verification — do not publish it.`)
-    }
+
+    const staple = runCaptured('xcrun', ['stapler', 'validate', dmg], { cwd: dir })
+    requireInOutput(
+      staple,
+      'The validate action worked!',
+      `\n${dmg} did not staple-validate — do not publish it.`,
+    )
+
+    const spctl = runCaptured(
+      'spctl',
+      ['--assess', '--type', 'open', '--context', 'context:primary-signature', '-v', dmg],
+      { cwd: dir },
+    )
+    requireInOutput(
+      spctl,
+      'source=Notarized Developer ID',
+      `\n${dmg}: spctl did not report "Notarized Developer ID" — do not publish it.`,
+    )
   }
 }
 

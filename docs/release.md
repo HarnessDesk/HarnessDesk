@@ -1,14 +1,26 @@
 # Cutting a release
 
 A release is cut **by hand, on a Mac that holds the signing identity** — not
-by `.github/workflows/release.yml`, which looks like the release path and is
-not one. The repository carries none of the Actions secrets it needs
+by `.github/workflows/release.yml`. That workflow exists, is
+`workflow_dispatch`-only, and **has run once**:
+[run 34928000550](https://github.com/HarnessDesk/HarnessDesk/actions/runs/34928000550)
+(2026-09-15) got through checkout, build, and choosing a signing identity,
+then correctly refused at *Build signed app* — `A publishing run needs
+MAC_CERTIFICATE_P12. Refusing to publish an unsigned build.` The repository
+still carries none of the Actions secrets that command needs
 (`gh api repos/HarnessDesk/HarnessDesk/actions/secrets` reports
-`total_count: 0`), and the workflow has never run once. It works locally
-because the login keychain holds the Developer ID Application identity and
-the notarization credentials sit in the environment.
-`node script/release.mjs` does the mechanical half of what follows; the rest
-is judgment, done here in order.
+`total_count: 0`), so today it is **dormant, not decommissioned**: a second
+publish path with its own generated-notes, runner-only version flow, one
+`MAC_CERTIFICATE_P12` secret away from reactivating and disagreeing with
+everything below. Don't add that secret without first reconciling the two
+paths — until then, this document is the one that actually runs, and the
+recipe below is manual because that workflow's own guard keeps it from
+being anything else.
+
+It works locally because the login keychain holds the Developer ID
+Application identity and the notarization credentials sit in the
+environment. `node script/release.mjs` does the mechanical half of what
+follows; the rest is judgment, done here in order.
 
 Before starting, confirm the signing side is actually ready:
 
@@ -104,7 +116,7 @@ what you're about to build and sign are the same tree.
 ## 4. Build, sign, and notarize
 
 ```
-cd packages/desktop && pnpm run dist:notarized
+pnpm --dir packages/desktop run dist:notarized
 ```
 
 runs the preflight check, `electron-builder --mac --publish never
@@ -112,6 +124,12 @@ runs the preflight check, `electron-builder --mac --publish never
 Roughly 20–30 minutes end to end, two notarization round trips with Apple.
 No password prompt: the identity and credentials are already in the
 keychain, found by `preflight-notarize.mjs` before the build starts.
+
+Use `pnpm --dir`, not `cd packages/desktop &&` — the next two steps run
+`node script/release.mjs ...` from the repository root, and a plain `cd`
+here leaves the shell in `packages/desktop` for whatever runs next: the
+`script/release.mjs` in step 5 resolves one `packages/desktop` too deep
+(`MODULE_NOT_FOUND`), and so does every upload path in step 6.
 
 Stapling invalidates the DMGs' own blockmaps, and the script deletes them —
 only the `.zip.blockmap` files (which the in-app updater reads) survive.
