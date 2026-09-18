@@ -27,6 +27,7 @@ import { corpusRoot, type CorpusKind } from './ledger/index.js'
 import { AgyMeter } from './usage/agy.js'
 import { AmpMeter } from './usage/amp.js'
 import { ClineMeter } from './usage/cline.js'
+import { clineDataDirOverride } from './installs/identity.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
 import { GeminiMeter } from './usage/gemini.js'
@@ -525,8 +526,19 @@ export const localUsageFor = (
     // agent — see `usage/agy.ts`.
     case 'agy_acp_server':
       return { meter: new AgyMeter() }
-    case 'cline':
-      return { meter: new ClineMeter({ env }), ...records('cline') }
+    case 'cline': {
+      // `--data-dir` moves Cline's folder; there is no environment variable
+      // for it, so a row that runs `cline --data-dir <dir> --acp` is read
+      // from there — sign-in and spend together — rather than from whatever
+      // `CLINE_DATA_DIR` or the process home happen to hold.
+      const override = clineDataDirOverride({ args: agent.args, cwd: agent.cwd })
+      if (override === null) return { meter: new ClineMeter({ env }), ...records('cline') }
+      return {
+        meter: new ClineMeter({ env, settingsPath: join(override, 'settings', 'providers.json') }),
+        corpus: 'cline',
+        root: join(override, 'db', 'sessions.db'),
+      }
+    }
     case 'opencode':
       // Zen's balance has no endpoint an API key can read (asked upstream,
       // anomalyco/opencode#10448). Go's limits do — `GET /zen/go/v1/usage`

@@ -195,7 +195,12 @@ The token Cline's meter uses is **never refreshed**: refreshing rotates the
 refresh token, and without writing the new pair back — which the desk never
 does to another application's file — that would sign Cline out. Cline
 refreshes it whenever it runs, including each turn the desk sends it; between
-times the last reading stands with its own age. The ledger reads OpenCode's
+times the last reading stands with its own age. A second Cline account is
+moved with `--data-dir` on the row, not an environment variable — Cline has
+none for it — so the sign-in and the spend are both read from that folder
+when the row carries the flag (round 3 review: the binding read only
+`CLINE_DATA_DIR`, which a `--data-dir` row never sets, and missed it). The
+ledger reads OpenCode's
 and Cline's databases the same way it reads nothing else: through
 `readForeignDatabase`, which never guesses whether the owner is running. A WAL
 database with no `-wal` or `-shm` beside it is opened `immutable` and the read

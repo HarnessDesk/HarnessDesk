@@ -127,3 +127,26 @@ test('a moved Gemini home moves the sign-in and the spend together, so one card 
     assert.equal(plain?.root, `${home}/.gemini/tmp`)
   }
 })
+
+test('a Cline row moved with --data-dir is read from there, sign-in and spend together', () => {
+  // --data-dir is Cline's real mechanism for a second account; unlike Gemini
+  // it has no environment variable for it (known-agents.ts), so the row's
+  // own args are the only place a moved account is named (#772, review round 3).
+  const moved = localUsageFor(
+    row({ id: 'cline-work', command: 'cline', args: ['--acp', '--data-dir', '/work/second-cline'] }),
+    knowledge('cline'),
+  )
+  assert.deepEqual(moved?.meter?.watchPaths(), ['/work/second-cline/settings/providers.json'])
+  assert.equal(moved?.root, '/work/second-cline/db/sessions.db')
+
+  // A relative --data-dir resolves against the row's own cwd, as Cline itself resolves it.
+  const relative = localUsageFor(
+    row({ id: 'cline-rel', command: 'cline', args: ['--acp', '--data-dir', 'second'], cwd: '/work/base' }),
+    knowledge('cline'),
+  )
+  assert.equal(relative?.root, '/work/base/second/db/sessions.db')
+
+  // Unmoved, it falls back to the environment-based default as before.
+  const plain = localUsageFor(row({ id: 'cline', command: 'cline', args: ['--acp'] }), knowledge('cline'))
+  assert.ok(plain?.root?.endsWith('/.cline/data/db/sessions.db'), plain?.root)
+})
