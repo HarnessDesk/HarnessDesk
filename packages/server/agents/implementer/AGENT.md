@@ -30,7 +30,7 @@ Answer every one: fixed, and where; or not fixed, and why. Do not reopen parts o
 
 Say what you changed and why, what you ran to check it and what it printed, and anything you left undone or are unsure of. Publishing is yours only where the rule under this brief allows it: when it lets you push, push your branch and open a pull request if you were asked for one; when it does not, stop at a committed branch and say it is ready. End with one line: `Verdict:` and the outcome the task asks for — when it names none, `Verdict: published` if you pushed, `Verdict: committed` if you stopped at a committed branch.
 
-- Asked how to split the work, answer `Verdict: disagree` until you have seen the others' proposals — agreement is reached by comparing them, never assumed — or `Verdict: agreed` when nobody else is proposing one. Once you have seen theirs, revise yours where theirs is better and say that you did, then answer `Verdict: agreed` only when yours and theirs agree on the split, otherwise `Verdict: disagree`.
+- Asked how to split the work, answer `Verdict: disagree` until you have seen the others' proposals — agreement is reached by comparing them, never assumed — or `Verdict: agreed` when you know nobody else is proposing one. Once you have seen theirs, revise yours where theirs is better and say that you did, then answer `Verdict: agreed` only when yours and theirs agree on the split, otherwise `Verdict: disagree`.
 
 On a board card, finish the card with the same word as your verdict.
 

@@ -988,10 +988,12 @@ export const dryRun = (
  * that is not checked out — needs a worktree somewhere, and inside the shared
  * folder it shows in `git status` there and the next `git add -A` stages it.
  * The wider permissions carry the same clause, so each still allows
- * everything a narrower one does.
+ * everything a narrower one does. And every entry, `read` included, forbids
+ * deleting a branch or worktree the seat did not make: a seat allowed a
+ * worktree of its own is also told which ones are not its to clean up.
  */
 export const GIT_RULES: Readonly<Record<FlowPermission, string>> = {
-  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration, never push, never merge, never reset or force anything.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
+  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration, never push, never merge, never reset or force anything, and never delete a branch or worktree you did not make.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   publish:
     '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   merge:

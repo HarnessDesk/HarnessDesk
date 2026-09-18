@@ -321,6 +321,10 @@ test('a permission rule is about permission, and it travels with anything delega
   // pays for it, not to the ceiling.
   for (const [permission, rule] of Object.entries(GIT_RULES)) {
     assert.doesNotMatch(rule, /costs a request|never spawn/i, `${permission} still carries a billing rule`)
+    // The judge, the test reviewer and the performance reviewer run code at
+    // another commit in a worktree of their own, outside the shared folder.
+    // Without this clause the rule they are handed forbids exactly that.
+    assert.ok(rule.includes('write nothing outside it, but for a temporary folder of your own that you remove when you are done.'), `${permission} lets a seat keep a temporary folder of its own, which three shipped briefs need`)
     // The ceiling is an instruction today, not an enforcement, and a child a
     // seat spawns is not bound by instructions the parent was given. So the
     // rule says outright that it covers delegated work, as its last line.
