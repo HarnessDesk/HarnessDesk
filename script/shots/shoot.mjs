@@ -918,9 +918,40 @@ rules:
     key, gives the focus back to its row on Tab. Each scene checks only that
     its key left from a row, so it photographs any build: where the focus
     went is the frame's to show, by its ring, and the specs' to assert
-    (e2e/ui-system/menu-tab.spec.ts).
+    (e2e/ui-system/menu-tab.spec.ts). The scene says where it went in its own
+    log line as well, because the ring is missing from a frame for the very
+    reason the frame is taken; and one that cannot stage its row names what
+    it was waiting for.
   */
-  const onModelRow = async () => {
+  const reach = async (scene, what, read) => {
+    try {
+      await waitForSnapshot(read, Boolean)
+    } catch {
+      throw new Error(`${scene}: never reached ${what}`)
+    }
+  }
+  const focusLine = () => cdp.eval(`(() => {
+    const held = document.activeElement
+    if (!held || held === document.body) return 'the page'
+    const name = (held.getAttribute('aria-label') ?? held.getAttribute('title') ?? held.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 40)
+    return held.tagName.toLowerCase() + (name ? ' “' + name + '”' : '')
+      + (held.hasAttribute('data-base-ui-focus-guard') ? ' — an invisible focus guard' : '')
+      + (held.closest('[role="menu"]') ? ' — in a menu that is still open' : '')
+      + (held.matches(':focus-visible') ? '' : ' — no focus ring')
+  })()`)
+  /* What a menu does on its way out — and a context menu on its way in —
+     waits for frames, which a window the rig cannot see (behind another, on
+     another space) is not given: measured `visibilityState` hidden, no
+     animation frame in 300ms, the focus still on the session row after the
+     key, and a Popover not yet gone from under the focus it will give back.
+     A capture draws one. */
+  const drawFrames = async (count) => {
+    for (let frame = 0; frame < count; frame += 1) {
+      await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 } })
+      await sleep(16)
+    }
+  }
+  const onModelRow = async (scene) => {
     await stageCodexComposer()
     // A task in the composer turns its send button on, and that button is
     // the stop after the trigger: Tab from the menu lands beside it, where
@@ -931,41 +962,35 @@ rules:
     }
     await cdp.eval(`${MODEL_TRIGGER}.focus(); true`)
     await pressKey('Enter')
-    await waitForSnapshot(() => box(REASONING_ROW), Boolean)
+    await reach(scene, 'the model menu', () => box(REASONING_ROW))
     await pressKey('ArrowDown')
-    await waitForSnapshot(() => cdp.eval(`/^menuitem/.test(document.activeElement?.getAttribute('role') ?? '')`), Boolean)
+    await reach(scene, 'a row of the model menu', () => cdp.eval(`/^menuitem/.test(document.activeElement?.getAttribute('role') ?? '')`))
   }
   SCENES['composer-model-tab'] = { leaveOverlay: true, run: async () => {
-    await onModelRow()
+    await onModelRow('composer-model-tab')
     await pressKey('Tab')
+    await drawFrames(30)
+    say(`Tab from a row: the focus is on ${await focusLine()}`)
   } }
   SCENES['composer-model-shift-tab'] = { leaveOverlay: true, run: async () => {
-    await onModelRow()
+    await onModelRow('composer-model-shift-tab')
     await pressKey('Tab', { shift: true })
+    await drawFrames(30)
+    say(`Shift+Tab from a row: the focus is on ${await focusLine()}`)
   } }
-  /* A context menu takes the focus onto its first row once it has drawn, and
-     goes once it has drawn its exit — on frames, which a window the rig
-     cannot see (behind another, on another space) is not given: measured
-     `visibilityState` hidden, no animation frame in 300ms, the focus still
-     on the session row. A capture draws one. */
-  const drawFrames = async (count) => {
-    for (let frame = 0; frame < count; frame += 1) {
-      await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 } })
-      await sleep(16)
-    }
-  }
   const SESSION_ROW = `document.querySelector('[class*="rowWrap"] [data-slot="button"][data-variant="navigation"]')`
   SCENES['session-menu-tab'] = { leaveOverlay: true, run: async () => {
     await SCENES.desk.run()
-    await waitForSnapshot(() => cdp.eval(`Boolean(${SESSION_ROW})`), Boolean)
+    await reach('session-menu-tab', 'a session row in the sidebar', () => cdp.eval(`Boolean(${SESSION_ROW})`))
     await cdp.eval(`${SESSION_ROW}.focus(); true`)
     await pressKey('ContextMenu')
-    await waitForSnapshot(async () => {
+    await reach('session-menu-tab', 'a row of the context menu', async () => {
       await drawFrames(1)
       return cdp.eval(`document.activeElement?.getAttribute('role') === 'menuitem'`)
-    }, Boolean)
+    })
     await pressKey('Tab')
     await drawFrames(30)
+    say(`Tab from a row of the context menu: the focus is on ${await focusLine()}`)
   } }
   SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
     await SCENES.conversation.run()

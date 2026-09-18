@@ -114,23 +114,70 @@ test.describe('a Popover’s menu', () => {
     await expect(trigger).not.toHaveAttribute('data-open', '')
     await expect(page.getByRole('menu')).toHaveCount(0)
   })
+
+  test('with nothing after its trigger, Tab still closes it and leaves the focus on the page', async ({ page }) => {
+    // Nothing tabbable follows the model control. Base UI leaves a Popover by
+    // wrapping round in that case, and that is its rule; what this holds is
+    // that the focus is not left on a guard, nor in the menu that is going.
+    await modelControl(page).evaluate((trigger) => {
+      for (const stop of document.querySelectorAll<HTMLElement>('a[href],button,input,select,textarea,[tabindex]')) {
+        if (trigger.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING) stop.tabIndex = -1
+      }
+    })
+    await openModelMenu(page)
+
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(modelControl(page)).not.toHaveAttribute('data-open', '')
+    expect(await onFocusGuard(page)).toBe(false)
+    expect(
+      await page.evaluate(() => {
+        const held = document.activeElement
+        return (
+          held === document.body ||
+          (held instanceof HTMLElement && held.isConnected && !held.closest('[data-base-ui-portal],[role="menu"]'))
+        )
+      }),
+    ).toBe(true)
+  })
 })
 
-test('Tab, Shift+Tab and Escape each close a context menu and give the focus back to its row', async ({ page }) => {
+test.describe('a context menu', () => {
   // A context menu opens at a point, not from a place in the tab order, so
   // leaving it goes back to where the focus was. Before, Tab stopped on the
   // guard after it; Shift+Tab and Escape dropped the focus on the page.
-  await page.goto('/preview.html')
-  const session = page.locator('[class*="sidebar_"]').getByRole('button', { name: /^Duplicate Codex accounts/ })
-  await session.scrollIntoViewIfNeeded()
-  for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
-    await session.focus()
-    await page.keyboard.press('ContextMenu')
-    await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+  const sessionRow = (page: Page) =>
+    page.locator('[class*="sidebar_"]').getByRole('button', { name: /^Duplicate Codex accounts/ })
 
-    await page.keyboard.press(key)
-    expect(await onFocusGuard(page)).toBe(false)
-    await expect(session).toBeFocused()
-    await expect(page.getByRole('menu')).toHaveCount(0)
-  }
+  test('Tab, Shift+Tab and Escape each close it and give the focus back to its row', async ({ page }) => {
+    await page.goto('/preview.html')
+    const session = sessionRow(page)
+    await session.scrollIntoViewIfNeeded()
+    for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
+      await session.focus()
+      await page.keyboard.press('ContextMenu')
+      await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+
+      await page.keyboard.press(key)
+      expect(await onFocusGuard(page)).toBe(false)
+      await expect(session).toBeFocused()
+      await expect(page.getByRole('menu')).toHaveCount(0)
+    }
+  })
+
+  test('opened with the pointer, it gives the focus back the same way', async ({ page }) => {
+    // The press that opens it has already put the focus on the row.
+    await page.goto('/preview.html')
+    const session = sessionRow(page)
+    await session.scrollIntoViewIfNeeded()
+    for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
+      await session.click({ button: 'right' })
+      await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+
+      await page.keyboard.press(key)
+      expect(await onFocusGuard(page)).toBe(false)
+      await expect(session).toBeFocused()
+      await expect(page.getByRole('menu')).toHaveCount(0)
+    }
+  })
 })

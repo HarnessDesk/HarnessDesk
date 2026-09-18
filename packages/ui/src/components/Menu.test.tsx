@@ -599,6 +599,69 @@ describe('Tab and Shift+Tab in a Popover’s menu', () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it('Tab from a menu with no Popover around it goes where the browser would — past what cannot take the focus — and closes it', async () => {
+    // Every menu in the app is opened by a Popover, whose guard closes it and
+    // moves on. A host without one gets the same contract from the menu: the
+    // focus goes to the next stop, and the owner is told to close.
+    const sheet = document.head.appendChild(document.createElement('style'))
+    sheet.textContent = '.undrawn { display: none }'
+    const close = vi.fn()
+    act(() => {
+      root.render(
+        <>
+          <Menu close={close}>
+            <MenuItem label="One" onSelect={() => {}} />
+          </Menu>
+          <button type="button" tabIndex={-1}>Off the tab order</button>
+          <button type="button" disabled>Disabled</button>
+          <button type="button" className="undrawn">Not drawn</button>
+          <div inert>
+            <button type="button">Inert</button>
+          </div>
+          {/* Visited before every stop with no tabindex, so never the one after this. */}
+          <button type="button" tabIndex={2}>Earlier in the order</button>
+          <button type="button">Next stop</button>
+        </>,
+      )
+    })
+    await frame()
+    act(() => row('One').focus())
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(document.activeElement).toBe(row('Next stop'))
+    expect(close).toHaveBeenCalledOnce()
+    sheet.remove()
+  })
+
+  it('with nothing after its trigger, Tab still closes a Popover’s menu and leaves the focus on something on the page', async () => {
+    act(() => {
+      root.render(
+        <>
+          <button type="button">Before</button>
+          <Popover label="Model" title="Model and reasoning">
+            {(close) => (
+              <Menu close={close}>
+                <MenuItem label="One" onSelect={() => {}} />
+              </Menu>
+            )}
+          </Popover>
+        </>,
+      )
+    })
+    await open()
+    key(document.activeElement!, 'ArrowDown')
+    expect(document.activeElement).toBe(row('One'))
+
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    await frame()
+    expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    // Base UI's rule for leaving a Popover, as everywhere else in the app: on
+    // round to the first stop.
+    expect(document.activeElement).toBe(row('Before'))
+  })
+
   it('Shift+Tab from a row closes the menu and gives its trigger the focus', async () => {
     // Base UI answers Shift+Tab in a menu by closing it and focusing the
     // menu's trigger; with none to focus, the key did nothing at all.
@@ -781,6 +844,46 @@ describe('ContextMenu', () => {
       await frame()
       expect(document.querySelector('[role="menu"]')).toBeNull()
     }
+  })
+
+  it('opened from a row that has gone by the time Tab leaves it, Tab leaves for the page, not the guard', async () => {
+    // Archived, or listed away, while its menu was open: the row it would
+    // give the focus back to is not there.
+    let listAway = (): void => {}
+    const Harness = () => {
+      const menu = useContextMenu()
+      const [listed, setListed] = useState(true)
+      listAway = () => setListed(false)
+      return (
+        <>
+          {listed && (
+            <button type="button" onContextMenu={menu.open}>
+              Session
+            </button>
+          )}
+          <ContextMenu at={menu.at} label="Actions" onClose={menu.close}>
+            <MenuItem label="Pin" onSelect={() => {}} />
+          </ContextMenu>
+        </>
+      )
+    }
+    act(() => {
+      root.render(<Harness />)
+    })
+    act(() => row('Session').focus())
+    act(() => {
+      row('Session').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    expect(document.activeElement).toBe(row('Pin'))
+    act(() => listAway())
+    expect(document.activeElement).toBe(row('Pin'))
+
+    tab()
+    expect(onFocusGuard()).toBe(false)
+    expect(document.activeElement).toBe(document.body)
+    await frame()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
   })
 
   it('opened while nothing had the focus, Tab leaves it for the page, not the guard', async () => {

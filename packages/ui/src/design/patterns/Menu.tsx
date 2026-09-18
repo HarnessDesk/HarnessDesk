@@ -73,6 +73,16 @@ const TAB_STOP =
  * everything in it, in document order, that Tab stops at. A Base UI focus
  * guard is one — the browser stops on those too — and the popup it guards
  * then answers the Tab as its own.
+ *
+ * The browser's order, as far as a focus guard's next stop needs it: the
+ * guard has no `tabindex` of its own to speak of (0), so what comes after it
+ * is the next stop with none either, in document order. A positive `tabindex`
+ * is a stop the browser visits before every one of those, so it is never
+ * the one after a guard. Not modelled: a radio group, which the browser stops
+ * on once, and a shadow tree.
+ *
+ * In this app the first stop found is always the Popover's own guard, which
+ * every menu here sits in; the rest is for a host that has none.
  */
 const nextTabStop = (region: Element): HTMLElement | null => {
   for (const candidate of region.ownerDocument.querySelectorAll<HTMLElement>(TAB_STOP)) {
@@ -80,7 +90,7 @@ const nextTabStop = (region: Element): HTMLElement | null => {
     if (region.contains(candidate) || candidate.closest('[inert]') || passedOver(candidate)) continue
     // An editing host takes Tab although its tabIndex reads -1, until one is set.
     const tabIndex = candidate.isContentEditable && !candidate.hasAttribute('tabindex') ? 0 : candidate.tabIndex
-    if (tabIndex >= 0) return candidate
+    if (tabIndex === 0) return candidate
   }
   return null
 }
@@ -171,14 +181,14 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
                 // From a flyout too: Base UI hands Tab on out of it to here.
                 if (!restsPastLevel(event, level.current) || !host.current) return
                 const next = nextTabStop(host.current)
-                if (next) {
-                  next.focus()
-                } else {
-                  // Nothing follows it on the page: it closes, and the focus
-                  // leaves the guard for the page.
-                  event.target.blur()
-                  close()
-                }
+                // Nothing follows it on the page: the focus leaves the guard
+                // for the page.
+                if (next) next.focus()
+                else event.target.blur()
+                // Inside a Popover the guard it lands on has closed the
+                // Popover by now, and this asks for what is done. Anywhere
+                // else nothing else would: Tab leaves the menu, and closes it.
+                close()
               }}
             >
               <DropdownMenuPopup ref={level} className={styles.level} finalFocus={false}>
