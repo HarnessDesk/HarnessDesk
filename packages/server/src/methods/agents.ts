@@ -197,12 +197,20 @@ export const agentMethods = {
   'agent/seating/read': (ctx) => ctx.seating.read(),
 
   'agent/seating/set': async (ctx, params) => {
+    const before = await ctx.seating.read()
     const after = await ctx.seating.set(params.id, params.seats)
-    // Every plan drawn before this is stale, in every window.
-    ctx.push({ method: 'agent/changed', params: { project: null } })
+    // Every plan drawn before this is stale, in every window — but only once
+    // something actually did: a no-op set (clearing an entry that was never
+    // there, or setting the list already in it) must not send every window
+    // back to re-read a file that did not change.
+    if (!sameSeating(before, after)) ctx.push({ method: 'agent/changed', params: { project: null } })
     return after
   },
 } satisfies MethodsUnder<'agent/'>
+
+/** Whether two readings of `seating.json` show the same seats and the same problems. Never compares `path`, which does not change. */
+const sameSeating = (a: MachineSeating, b: MachineSeating): boolean =>
+  JSON.stringify(a.entries) === JSON.stringify(b.entries) && JSON.stringify(a.problems) === JSON.stringify(b.problems)
 
 /**
  * The project a request named, held to the folders opened here.
@@ -237,6 +245,12 @@ const unusable = (entry: AgentEntry): string => {
   return `${entry.path} cannot be used: ${problem ? `${problem.at} — ${problem.text}` : 'it could not be read'}`
 }
 
+/** A list of seats to try, and where it came from — `candidatesFor`'s answer when it has one. */
+interface CandidateList {
+  readonly from: 'seats' | 'machine' | 'prefer'
+  readonly seats: readonly FlowSeat[]
+}
+
 /**
  * The seats one Agent tries here, highest precedence first: a seating's own
  * `seats`, then this machine's entry for it, then its `prefer` — each replacing
@@ -245,20 +259,21 @@ const unusable = (entry: AgentEntry): string => {
  * An entry this machine has for it that cannot be read is a refusal, never a
  * fall back to `prefer`: the person replaced that list here, and seating on it
  * anyway is the quiet kind of substitution. So is a file that cannot be read
- * at all, because nobody can say whether it held an entry for this Agent.
+ * at all, because nobody can say whether it held an entry for this Agent —
+ * which is also why that whole-file refusal never claims to be "for it": the
+ * file may never have named this Agent at all.
  */
 const candidatesFor = (
   definition: AgentDefinition,
   machine: MachineSeating,
   seats?: readonly FlowSeat[],
-):
-  | { readonly from: 'seats' | 'machine' | 'prefer'; readonly seats: readonly FlowSeat[] }
-  | { readonly refused: string } => {
+): CandidateList | { readonly refused: string } => {
   if (seats?.length) return { from: 'seats', seats }
   const broken = machine.problems.find((one) => one.id === definition.id || one.id === null)
   if (broken) {
+    const where = broken.id === null ? `this machine's seats in ${machine.path}` : `this machine's seats for it in ${machine.path}`
     return {
-      refused: `this Mac's seats for it in ${machine.path} cannot be read${broken.at ? ` at ${broken.at}` : ''}: ${broken.text}`,
+      refused: `${where} cannot be read${broken.at ? ` at ${broken.at}` : ''}: ${broken.text} — edit this machine's seats to fix it.`,
     }
   }
   const entry = machine.entries.find((one) => one.id === definition.id)
@@ -273,12 +288,7 @@ const candidatesFor = (
  * other's keys as optional `undefined`, which defeats the `'plan' in one` /
  * `'list' in one` checks below that tell them apart.
  */
-type Weighed =
-  | { readonly plan: SeatPlan }
-  | {
-      readonly id: AgentId
-      readonly list: { readonly from: 'seats' | 'machine' | 'prefer'; readonly seats: readonly FlowSeat[] }
-    }
+type Weighed = { readonly plan: SeatPlan } | { readonly id: AgentId; readonly list: CandidateList }
 
 /**
  * A registry snapshot's name for an id, worth showing: never blank or

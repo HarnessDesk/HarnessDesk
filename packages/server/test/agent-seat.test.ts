@@ -569,6 +569,13 @@ interface Pretend {
   readonly health?: RuntimeHealth
   /** Asked for its health, it throws rather than answering: a read that fails outright, not one that is late. */
   readonly healthThrows?: string
+  /**
+   * The rig's own `ctx.runtimes.infoOf` throws for this runtime rather than
+   * answering — a rejection from a read `readDesk` never wraps in `within()`,
+   * unlike `health()` and `getAccount()`, so it reaches `Promise.allSettled`
+   * as a genuine rejected promise rather than a caught, resolved offer.
+   */
+  readonly infoThrows?: string
   /** Signed in to nothing. */
   readonly signedOut?: boolean
   /** The account would not answer. */
@@ -696,7 +703,11 @@ const rig = async (
     seating: new MachineSeatingFile(join(root, 'seating.json')),
     runtimes: {
       get: (id: string) => runtimes.get(id),
-      infoOf: (runtime: { info: unknown }) => runtime.info,
+      infoOf: (runtime: { info: { id: RuntimeId } }) => {
+        const pretend = desk[String(runtime.info.id)]
+        if (pretend?.infoThrows) throw new Error(pretend.infoThrows)
+        return runtime.info
+      },
       metered: () => [...runtimes.values()].filter((runtime) => !(options.unmetered ?? []).includes(String(runtime.info.id))),
     },
     options: { seatReadDeadlineMs: options.deadlineMs ?? 1_000, ...(options.directory ? { agents: options.directory } : {}) },
@@ -1478,37 +1489,68 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
 
 test('a renderer cannot overwrite what an already-seated conversation is recorded as, either', async (t) => {
   const { harness, client, work } = await desk(t)
-  const source = await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  // Seated on the plain fake, not Seat Fake: Seat Fake's own `updateSettings`
+  // only ever tracks `model`, so a patch naming anything else never reaches
+  // the settings a runtime announces and this test would pass no matter what
+  // the host did with it. The plain fake echoes a whole patch back into its
+  // settings, the way a runtime that is not this careful might — so this is
+  // the one seating that can actually carry a forgery to the host.
+  //
+  // Two candidates, the first really passed over ("ghost" is not a runtime
+  // this desk has, nor one it can add): forging an *empty* passedOver here
+  // would read back the same whether the forgery won or the truth did, since
+  // the true value would also be empty for one candidate — this needs a true
+  // value the forged one can be told apart from.
+  const source = await writeReviewer(harness.stateDir, 'ghost=m1, fake=fake-1')
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   assert.equal(session.settings?.agent, 'reviewer')
+  assert.equal(session.settings?.passedOver?.length, 1, 'the setup above only means something if this holds')
+  const forged: readonly SeatCandidate[] = [
+    {
+      seat: { runtime: 'forged' },
+      label: 'FORGED · candidate',
+      runtimeName: 'forged',
+      state: 'passed',
+      reason: { kind: 'unavailable', detail: 'forged' },
+      fix: { kind: 'runtime', runtime: 'forged' },
+    },
+  ]
 
   // A patch naming every field the host holds, each with a forged value — the
   // same attack the test above makes on a conversation never seated, made
   // here on one that really is.
   await client.call('session/settings', {
-    runtime: 'seatfake',
+    runtime: FAKE_RUNTIME_ID,
     sessionId: session.id,
     patch: {
-      model: 'small',
+      model: 'fake-2',
       agent: 'forged',
       briefDigest: 'forged',
       permission: 'merge',
       seatLabel: 'forged',
-      passedOver: [],
+      passedOver: forged,
     },
   })
-  await client.until(() => settingsSeen(client, String(session.id))?.model === 'small', 5_000, 'the patch lands')
+  await client.until(() => settingsSeen(client, String(session.id))?.model === 'fake-2', 5_000, 'the patch lands')
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'the real Agent, not the forged one')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
   assert.equal(settingsSeen(client, String(session.id))?.permission, 'read', 'the real permission, never the forged one')
-  assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
-  assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
-  const held = harness.host.registry.get(runtimeId('seatfake'), session.id)?.session.settings
+  assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Fake Runtime · Fake One')
+  assert.notDeepEqual(settingsSeen(client, String(session.id))?.passedOver, forged)
+  assert.equal(settingsSeen(client, String(session.id))?.passedOver?.length, 1)
+  assert.equal(
+    settingsSeen(client, String(session.id))?.passedOver?.[0]?.reason?.kind,
+    'unknownRuntime',
+    'the true reason it was passed over, not the forged one',
+  )
+  const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
   assert.equal(held?.permission, 'read')
-  assert.equal(held?.seatLabel, 'Seat Fake · Big · High')
-  assert.deepEqual(held?.passedOver, [])
+  assert.equal(held?.seatLabel, 'Fake Runtime · Fake One')
+  assert.notDeepEqual(held?.passedOver, forged)
+  assert.equal(held?.passedOver?.length, 1)
+  assert.equal(held?.passedOver?.[0]?.reason?.kind, 'unknownRuntime')
 })
 
 test('the wire refuses a grant that is no permission, and more seats than an Agent may prefer', async (t) => {
@@ -1980,6 +2022,35 @@ test('a runtime whose health throws is passed over as unavailable, in its own wo
   assert.deepEqual(seen.warned, [
     ['a seating read no usage within its deadline, so the last readings stand in', { afterMs: 150 }],
   ])
+})
+
+test('a read that rejects outright still waits for the others to settle before it answers — the allSettled join, not Promise.all', async (t) => {
+  // `broken`'s rejection is instant (`infoOf` throws synchronously, unguarded
+  // by `within()`), while `mute`'s account read and the usage read each hang
+  // to the deadline. `Promise.all` would reject the call the moment `broken`
+  // does; only `Promise.allSettled` waits for every read, the hanging ones
+  // included, before the call answers at all.
+  const seen = await rig(
+    'broken=m1, mute=m1',
+    { broken: { models: ['m1'], infoThrows: 'the registry blew up' }, mute: { models: ['m1'], accountHangs: true } },
+    { deadlineMs: 150, usageHangs: true },
+  )
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let settled = false
+  const call = readDesk(seen.ctx, [
+    { runtime: 'broken', model: 'm1', thinking: false },
+    { runtime: 'mute', model: 'm1', thinking: false },
+  ])
+  call.then(
+    () => (settled = true),
+    () => (settled = true),
+  )
+  await flush()
+  assert.equal(settled, false, "broken's own rejection must not answer the call while mute and usage are still out")
+  t.mock.timers.tick(150)
+  await flush()
+  assert.equal(settled, true)
+  await assert.rejects(call, /the registry blew up/)
 })
 
 test('a seatReadDeadlineMs that is not a real deadline falls back to the ten-second default', async (t) => {
@@ -2779,6 +2850,55 @@ test('one dry run serving several Agents asks each runtime once, not once per Ag
   assert.equal(asks.account, 1, "claude's account was read once, for both Agents' plans at once")
 })
 
+test("readDesk hands back the registry snapshot it read, and both verbs name a candidate from it — never touching the cache when nothing needs it", async () => {
+  const { directory } = await withRegistry([{ id: 'listed', name: 'Listed Agent' }])
+  const seen = await rig('listed=m1, claude=opus-5', { claude: { name: 'Claude', models: ['opus-5'] } }, { directory })
+
+  const desk = await readDesk(seen.ctx, [
+    { runtime: 'listed', model: 'm1' },
+    { runtime: 'claude', model: 'opus-5' },
+  ])
+  assert.deepEqual([...desk.registryNames], [['listed', 'Listed Agent']])
+
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.candidates[0]?.runtimeName, 'Listed Agent')
+
+  const session = await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.equal(session.settings?.passedOver?.[0]?.runtimeName, 'Listed Agent')
+
+  // Every id here is either added (`claude`) or a `knownAgent` (`devin`), so
+  // nothing should ever need to ask what the public registry calls anything.
+  const reads = { count: 0 }
+  const registry = {
+    catalog: async (): Promise<never> => {
+      throw new Error('not read in this test')
+    },
+    resolve: async (): Promise<never> => {
+      throw new Error('not read in this test')
+    },
+    uninstall: (): void => {
+      throw new Error('not read in this test')
+    },
+    cachedAgents: () => {
+      reads.count += 1
+      return []
+    },
+  }
+  const stateDir = tempDir('hd-agent-seat-registry-lazy-')
+  const lazyDirectory = new AgentDirectory({
+    store: new AgentRegistryStore(join(stateDir, 'agents.json')),
+    build: () => {
+      throw new Error('nothing is added in these tests')
+    },
+    usageFor: () => null,
+    registry,
+  })
+  const known = await rig('devin=m1, claude=opus-5', { claude: { models: ['opus-5'] } }, { directory: lazyDirectory })
+  await agentMethods['agent/seat/dry'](known.ctx, { ids: ['reviewer'] })
+  await agentMethods['agent/seat'](known.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.equal(reads.count, 0, 'added and known ids never touch the registry cache')
+})
+
 /*
  * What the seating passed over, as a list: on the refusal, for the sheet that
  * lists every candidate with its fix; and on the seat it kept, for the card
@@ -2885,7 +3005,7 @@ test('an entry this machine cannot read refuses the seating — never the prefer
   const seen = await rig('claude=opus-5', { claude: { models: ['opus-5'] } }, {
     machine: JSON.stringify({ reviewer: ['claude=opus-5', 'claude+fast'] }),
   })
-  const why = `this Mac's seats for it in ${join(seen.root, 'seating.json')} cannot be read at [1]: "+fast" is not a switch a seat takes — the only one is +thinking`
+  const why = `this machine's seats for it in ${join(seen.root, 'seating.json')} cannot be read at [1]: "+fast" is not a switch a seat takes — the only one is +thinking — edit this machine's seats to fix it.`
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
     (error: Error) => {
@@ -2913,6 +3033,13 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
     2_000,
     'agent/changed',
   )
+  assert.deepEqual(
+    client.notifications.find((one): one is { method: 'agent/changed'; params: { project: string | null } } =>
+      'method' in one && one.method === 'agent/changed',
+    )?.params,
+    { project: null },
+    "this machine's own seats, not one project's",
+  )
   const [plan] = (await client.call('agent/seat/dry', { ids: ['reviewer'] })) as SeatPlan[]
   assert.equal(plan?.from, 'machine')
   assert.deepEqual(plan?.candidates.map((one) => one.label), ['Seat Fake · Small'])
@@ -2930,4 +3057,56 @@ test('the wire refuses more seats than an Agent may name, and the file refuses a
     return true
   })
   await assert.rejects(client.call('agent/seating/set', { id: 'reviewer', seats: [] }), /at least one seat/)
+})
+
+test('a set that changes nothing tells no window; a real change does; a refused one neither', async (t) => {
+  const { harness, client } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  const path = join(harness.stateDir, 'seating.json')
+  const changed = () => client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed').length
+
+  // Clearing an entry that was never set: nothing to write, nothing to tell.
+  const cleared = (await client.call('agent/seating/set', { id: 'reviewer', seats: null })) as MachineSeating
+  assert.deepEqual(cleared.entries, [])
+  await assert.rejects(readFile(path, 'utf8'), /ENOENT/, 'the file was never created')
+  assert.equal(changed(), 0)
+
+  // A refused set — an empty list is not a way to clear — tells nothing either.
+  await assert.rejects(client.call('agent/seating/set', { id: 'reviewer', seats: [] }))
+  assert.equal(changed(), 0)
+
+  // A real change: written, and told.
+  await client.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] })
+  assert.equal(changed(), 1)
+
+  // Setting the identical list again changes nothing on disk, and tells nothing new.
+  const before = await readFile(path, 'utf8')
+  await client.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] })
+  assert.equal(await readFile(path, 'utf8'), before)
+  assert.equal(changed(), 1, 'still just the one real change')
+})
+
+/*
+ * I3: the whole-file refusal, and a broken entry for another Agent, each need
+ * their own test — the check that tells them apart is easy to delete by
+ * accident and every existing test still passes without it.
+ */
+
+test('a seating.json that is not JSON refuses every Agent it might have named — never falling back to prefer', async () => {
+  const seen = await rig('claude=opus-5', { claude: { models: ['opus-5'] } }, { machine: '{ oops' })
+  await assert.rejects(() => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }), /cannot be seated/)
+  untouched(seen)
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'machine')
+  assert.ok(plan?.blocked, 'a whole-file problem blocks every Agent, not only the one named in it')
+})
+
+test('a broken entry for another Agent leaves this one alone — seated on its own prefer', async () => {
+  const seen = await rig('claude=opus-5', { claude: { models: ['opus-5'] } }, {
+    machine: JSON.stringify({ other: ['claude+fast'] }),
+  })
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'prefer')
 })

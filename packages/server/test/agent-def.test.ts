@@ -77,6 +77,17 @@ test('a model id with a slash in it is written as a map, the way a role writes o
   assert.deepEqual(agent?.prefer[0], { runtime: 'cline', model: 'deepseek/deepseek-v4-flash' })
 })
 
+test('a misspelt field in a map-form prefer seat is refused, not read as the default model with no problem', () => {
+  const { agent, problems } = parseAgentDefinition(
+    '---\nname: Typo\nprefer:\n  - runtime: cursor\n    modle: gpt-5.3-codex\n---\nWork.\n',
+    'typo',
+  )
+  assert.equal(agent, null)
+  assert.equal(problems.length, 1)
+  assert.equal(problems[0]?.at, 'prefer[0]')
+  assert.match(problems[0]?.text ?? '', /"modle" is not a seat's field/)
+})
+
 test('a seat that does not parse is refused, never pushed through as itself', () => {
   const { agent, problems } = parseAgentDefinition(
     '---\nname: Bad seat\nprefer: [claude=opus-5+turbo]\n---\nx\n',

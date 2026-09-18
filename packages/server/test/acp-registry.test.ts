@@ -177,7 +177,7 @@ test('no cache and no network is an honest empty list', async (t) => {
   assert.match(catalog.unavailable ?? '', /could not be reached/)
 })
 
-test('the cached ids are the last document fetched, however old, and never the network', async (t) => {
+test('cachedAgents is the last document fetched, however old, and never the network', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
   let fetches = 0
@@ -195,33 +195,10 @@ test('the cached ids are the last document fetched, however old, and never the n
       which: async () => null,
     })
 
-  assert.deepEqual([...offline().cachedIds()], [], 'nothing cached is nothing listed')
+  assert.deepEqual(offline().cachedAgents(), [], 'nothing cached is nothing listed')
   // Fetched once while the network was there, and cached.
   await new AcpRegistry({ stateDir: dir, fetchJson: async () => DOCUMENT, which: async () => null }).catalog(() => false)
   // The malformed entry is no agent here either, as it is none in the listing.
-  assert.deepEqual([...offline().cachedIds()], ['npx-agent', 'uvx-agent', 'binary-agent', 'verified-agent'])
-  // What was cached from another registry is not this one's document.
-  assert.deepEqual([...offline('https://registry.example.test/registry.json').cachedIds()], [])
-  assert.equal(fetches, 0, 'nothing went to the network to answer')
-})
-
-test('cachedAgents is cachedIds with the rest of the entry — a name to say, on the same terms', async (t) => {
-  const dir = await tempDir()
-  t.after(() => rm(dir, { recursive: true, force: true }))
-  let fetches = 0
-  const offline = () =>
-    new AcpRegistry({
-      stateDir: dir,
-      freshMs: 0,
-      fetchJson: async () => {
-        fetches += 1
-        throw new Error('offline')
-      },
-      which: async () => null,
-    })
-
-  assert.deepEqual(offline().cachedAgents(), [], 'nothing cached is nothing listed')
-  await new AcpRegistry({ stateDir: dir, fetchJson: async () => DOCUMENT, which: async () => null }).catalog(() => false)
   assert.deepEqual(
     offline()
       .cachedAgents()
@@ -233,6 +210,8 @@ test('cachedAgents is cachedIds with the rest of the entry — a name to say, on
       ['verified-agent', 'Verified Agent'],
     ],
   )
+  // What was cached from another registry is not this one's document.
+  assert.deepEqual(offline('https://registry.example.test/registry.json').cachedAgents(), [])
   assert.equal(fetches, 0, 'nothing went to the network to answer')
 })
 

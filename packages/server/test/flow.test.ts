@@ -413,6 +413,25 @@ seed: { role: worker, title: Do it }
   assert.deepEqual(validateFlow(flow), [])
 })
 
+test('a misspelt field in a seat map is a problem, not a silently ignored typo', () => {
+  const yaml = `
+name: Typo
+roles:
+  worker:
+    kind: agent
+    seat:
+      runtime: cursor
+      modle: gpt-5.3-codex
+    outcomes: [done]
+seed: { role: worker, title: Do it }
+`
+  assert.deepEqual(errors(yaml), [
+    `roles.worker.seat: "modle" is not a seat's field — a seat takes runtime, model, effort and thinking`,
+    // The seat did not parse, so the role is left with none — its own, separate error.
+    'roles.worker.seat: an agent role needs a seat — which agent, model and effort to open',
+  ])
+})
+
 test('a list of seats may mix the two forms', () => {
   const flow = read(`
 name: Mixed

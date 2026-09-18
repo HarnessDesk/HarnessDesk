@@ -386,24 +386,15 @@ export class AcpRegistry {
   }
 
   /**
-   * The ids the document listed when it was last fetched: the cache on disk,
-   * fresh or stale, and never the network — none when nothing is cached.
+   * The entries the document listed when it was last fetched: the cache on
+   * disk, fresh or stale, and never the network — empty when nothing is
+   * cached.
    *
    * For a caller that must answer now. A seating asks whether an id it cannot
-   * seat is one the desk could still add, and every read it makes before it
-   * chooses is held to its deadline, which a fetch would not be. Last week's
-   * list says whether an agent exists as well as today's does.
-   */
-  cachedIds(): ReadonlySet<string> {
-    const cached = this.#readCache()
-    return new Set(cached ? parseRegistryDocument(cached.document).map((agent) => agent.id) : [])
-  }
-
-  /**
-   * The entries the document listed when it was last fetched — the cache on
-   * disk, fresh or stale, and never the network — for a caller that needs
-   * more than the id: a name to say, where `cachedIds` only says whether one
-   * exists.
+   * seat is one the desk could still add, and what to call it if so, and
+   * every read it makes before it chooses is held to its deadline, which a
+   * fetch would not be. Last week's list says whether an agent exists, and
+   * what it is called, as well as today's does.
    */
   cachedAgents(): readonly RegistryAgent[] {
     const cached = this.#readCache()
