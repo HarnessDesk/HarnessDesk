@@ -24,6 +24,8 @@
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
+ *   node script/shots/shoot.mjs --scene session-hover --reduced-motion
+ *                                                 # as a reader who asked for less motion sees it
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -98,6 +100,13 @@ const q = (value) => JSON.stringify(value)
 
 try {
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false })
+  /* app.css answers `prefers-reduced-motion` with a rule of its own, and the
+     media query reads the system setting, which is this machine's rather than
+     the take's. Emulated here, for the window alone. */
+  if (has('reduced-motion')) {
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+    say('motion reduced')
+  }
   await sleep(2500)
   await dismissNotices(cdp).catch(() => {})
 

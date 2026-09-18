@@ -141,7 +141,7 @@ a:hover {
  * character of it: forty-eight ticks a second reads as a cadence — a thing
  * working at a rate — where a continuous sweep reads as a decorative sheen.
  *
- * `app.css` collapses every animation to one 0.01ms iteration under
+ * `app.css` takes every animation to a single instant under
  * `prefers-reduced-motion`, and this keyframe has no fill mode, so the line
  * simply stands still and legible there.
  */
@@ -193,13 +193,32 @@ a:hover {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * Motion reduced: every change arrives at once.
+ *
+ * Zero, and not the 0.01ms of the common reset. `transition-property` is
+ * `all` unless an element names its own, so 0.01ms made every property of
+ * every element a transition — the padding a hovered row takes, a menu's
+ * colours, a column's width — and a transition does not start until the next
+ * frame, holding the old value until then. Code that measured straight after
+ * a change read the box from before it, and every change fired transition
+ * events (#785). A zero duration starts no transition at all.
+ *
+ * A declared delay still stands, since a delay alone is enough to run a
+ * transition: a sidebar still turns hidden when its slide would have ended.
+ * A surface that must not wait says so itself, as the Workbench scrim does.
+ *
+ * An animation still happens, in an instant: its start and end events fire
+ * and a fill mode holds its last frame. What it no longer does is paint its
+ * first keyframe for a frame.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 0s !important; /* desk: 0.01ms → 0s, no first keyframe painted for a frame (#785) */
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important; /* desk: 0.01ms → 0s, no transition started (#785) */
   }
 }
 

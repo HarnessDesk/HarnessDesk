@@ -17,17 +17,17 @@ async function setWidth(page: Page, width: number) {
 /**
  * Read a box once nothing on the page is moving it.
  *
- * The suite runs with motion reduced, and app.css answers that with a 0.01ms
- * `transition-duration` on every element. `all` is the initial
- * `transition-property`, so every property of every element now transitions:
+ * Any transition holds its property at the old value until the next animation
+ * frame starts it, and a runner that goes a while without a frame holds it
+ * there, so reads that agree prove nothing. The suite runs with motion
+ * reduced, and app.css used to answer that with a 0.01ms `transition-duration`
+ * on every element, which made every property of every element a transition —
  * the padding a hovered row takes to make room for its ⋯, and the width
- * `setWidth` hands the column, both arrive as CSS transitions — created at
- * once, but not started until the next animation frame, and held at their
- * old value until then. A runner that goes a while without a frame holds
- * them there, so reads that agree prove nothing: in CI run 35328916230 every
- * read of the mark for 165ms after the hover agreed on where it stood before
- * the hover, 2px under the ⋯ — 459 against 457, the resting row's geometry
- * at 480px to the pixel.
+ * `setWidth` hands the column. In CI run 35328916230 every read of the mark
+ * for 165ms after the hover agreed on where it stood before the hover, 2px
+ * under the ⋯ — 459 against 457, the resting row's geometry at 480px to the
+ * pixel. The rule is zero now (#785) and starts no transition, but a declared
+ * delay still starts one, and so does any motion a test turns back on.
  *
  * So wait for the transitions themselves. `getAnimations()` flushes style
  * before it answers, which lists the one the last change has only just made;

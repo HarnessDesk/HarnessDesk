@@ -506,7 +506,7 @@
   transition: opacity var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
-/* The app shortens every transition's duration when motion is reduced, but
+/* The app zeroes every transition's duration when motion is reduced, but
    not a delay: with no fade to see, the dim goes at once rather than staying
    in the way unseen. */
 @media (prefers-reduced-motion: reduce) {
