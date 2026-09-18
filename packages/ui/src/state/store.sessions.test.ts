@@ -432,8 +432,9 @@ describe('turns dropped under the window', () => {
 /**
  * A conversation the host removed — deleted, or opened for a seat and passed
  * over. `session/removed` is all most windows hear of it, so it has to take out
- * everything in the window that points at it: not only in the window that
- * asked for a delete, which closes its own pane itself.
+ * everything in the window that points at it. The window that asked for a
+ * delete hears it too, and first — the host tells every window before it
+ * answers — so there the removal closes the pane rather than emptying it.
  */
 describe('a conversation the host removed', () => {
   const handlers = () => (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -507,5 +508,46 @@ describe('a conversation the host removed', () => {
     removed(sessionId('held-elsewhere'))
 
     expect(store.getSnapshot()).toBe(before)
+  })
+
+  /** The conversation open, and a file beside it in the same split. */
+  const split = async () => {
+    await store.selectRuntime(RUNTIME)
+    answers['session/read'] = session({ title: 'Code reviewer' })
+    answers['session/resume'] = session({ title: 'Code reviewer' })
+    await store.openSession(ID, { runtime: RUNTIME })
+    store.openFile('/w/a.ts', { split: 'row' })
+    expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([
+      ['conversation', KEY],
+      ['file', null],
+    ])
+  }
+
+  it('closes the pane it was in, in the window that deleted it: a split collapses, and no empty pane is left', async () => {
+    await split()
+    // As the host answers a delete: every window is told first, the one that asked included.
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method !== 'session/delete') return answers[method] ?? null
+      removed()
+      return { disposition: 'removed', removed: 1 }
+    }) as never)
+
+    await store.deleteSession(ID, RUNTIME)
+
+    // What was beside it has the room, rather than sharing it with an empty pane where the conversation was.
+    expect(panesOf().map((pane) => pane.view.kind)).toEqual(['file'])
+    expect(asked('session/close')).toHaveLength(0)
+  })
+
+  it('empties the pane in any other window, and leaves what goes there to the person', async () => {
+    await split()
+
+    // Deleted from another window: the notification is all this one hears.
+    removed()
+
+    expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([
+      ['conversation', null],
+      ['file', null],
+    ])
   })
 })

@@ -319,9 +319,16 @@ const archivedWords = (runtime: string, archived: SeatArchived): string => {
  */
 const leftByFailure = new WeakMap<object, SeatLeft>()
 
-/** Notes what a failed seat's discard left behind on the failure it threw. Nothing is noted for null. */
+/**
+ * Notes what a failed seat's discard left behind on the failure it threw — and,
+ * for null, takes off whatever an earlier seat noted there. An adapter may keep
+ * one error object and throw it again for the next seat, and a note left on it
+ * would be read out on that seat's line as what it left.
+ */
 export const noteLeftOnFailure = (failure: unknown, left: SeatLeft | null): void => {
-  if (left !== null && typeof failure === 'object' && failure !== null) leftByFailure.set(failure, left)
+  if (typeof failure !== 'object' || failure === null) return
+  if (left === null) leftByFailure.delete(failure)
+  else leftByFailure.set(failure, left)
 }
 
 /** What a failed seat's discard left behind, as noted on the failure; null when nothing was. */

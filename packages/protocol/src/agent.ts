@@ -216,14 +216,17 @@ export type SeatLeft =
   /**
    * Somebody had a hand in it while it was open — a window read it, reopened
    * it or wrote to it, or a turn started on it, or a message waited for it —
-   * so it was only closed, as a retired seat is, and left as it is: nothing
-   * deleted, archived or forgotten.
+   * so it was left as it is: nothing deleted, archived or forgotten. One they
+   * were already in when it was passed over keeps its handle open, so a turn
+   * running there is still heard to its end; one they reached for while it was
+   * being closed was only closed, as a retired seat is.
    */
   | { readonly kind: 'inUse' }
   /**
    * The runtime answered with a conversation the desk already held under that
-   * id — one with its own record, name and row — so it was only closed and
-   * left as it is. It was never the seating's to delete.
+   * id — one with its own record, name, handle and row — not a new one. The
+   * seat stopped there: nothing was done to that conversation, not even a
+   * close. It was never the seating's.
    */
   | { readonly kind: 'alreadyHeld' }
   /**

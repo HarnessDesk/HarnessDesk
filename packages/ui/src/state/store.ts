@@ -2165,8 +2165,13 @@ export class AppStore {
    * promising the conversation is gone, and must be able to say it is not.
    */
   async deleteSession(id: SessionId, owner: RuntimeId): Promise<SessionDeletion> {
-    const outcome = await this.transport.request('session/delete', { runtime: owner, sessionId: id })
     const key = sessionKey(owner, id)
+    this.#deleting.add(key)
+    const outcome = await this.transport
+      .request('session/delete', { runtime: owner, sessionId: id })
+      .finally(() => this.#deleting.delete(key))
+    // Closed already, as a rule: the removal arrives first (`#deleting`). A
+    // host that answered before it said so still leaves this pane to close.
     const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
     if (pane) this.closePane(pane.id)
     // A deleted conversation's reworded tasks go with it. They are keyed by
@@ -2178,13 +2183,26 @@ export class AppStore {
   }
 
   /**
+   * Conversations this window has asked the host to delete, while it waits for
+   * the answer. The host tells every window `session/removed` before it
+   * answers, this one included, so here the removal is what closes the pane the
+   * conversation was in (`#dropRemoved`). It used to empty it, like any other
+   * window's, and then `deleteSession` found no pane showing the conversation
+   * left to close, and a split kept an empty pane where it had been.
+   */
+  readonly #deleting = new Set<SessionKey>()
+
+  /**
    * A conversation the host no longer holds — deleted, or opened for a seat
    * and passed over — taken out of this window, whichever window asked for it
    * to go. `session/removed` is all most windows hear of it, so everything here
    * that points at it goes on that alone: its row and its history row, its
    * queue and background tasks, the approvals it was waiting on, and the pane
    * or panel showing it — and with them the focus, which follows the panes.
-   * Nothing is asked of the host for it: the host has already let it go.
+   * The pane is emptied, and the person decides what goes there; in the window
+   * that asked for the delete it is closed, as a delete always closed it
+   * (`#deleting`). Nothing is asked of the host for it: the host has already
+   * let it go.
    *
    * A window that never held it is left exactly as it was — no new snapshot,
    * so nothing on screen draws again for a conversation it never showed.
@@ -2202,7 +2220,11 @@ export class AppStore {
     if (!held) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
-    for (const pane of shown) this.#setLayout(showIn(this.#snapshot.layout, pane.id, emptyView()))
+    const closing = this.#deleting.has(key)
+    for (const pane of shown) {
+      const layout = this.#snapshot.layout
+      this.#setLayout(closing ? closePaneIn(layout, pane.id) : showIn(layout, pane.id, emptyView()))
+    }
     for (const entry of docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
     const nextSessions = new Map(sessions)
     const nextQueues = new Map(queues)

@@ -90,12 +90,13 @@ export const agentMethods = {
    *
    * Discarded is the host's word (`HostContext['seats']['discard']`): closed,
    * deleted where its runtime keeps it, and forgotten by the desk — unless
-   * somebody used it while it was open, and then only closed and left as it
-   * is. What each was left as is said on its line.
+   * somebody used it while it was open, and then left as it is, the handle
+   * they are using it on included. What each was left as is said on its line.
    *
    * One seat at a time. A seat that is not kept is discarded by the host before
-   * the next is opened, so one seating never has two conversations open at
-   * once; the most it can open is the length of `prefer`.
+   * the next is opened, so one seating never holds two conversations open at
+   * once — one somebody took up meanwhile is theirs, not the seating's; the
+   * most it can open is the length of `prefer`.
    *
    * The brief goes over once, as the standing order, through the same order
    * path a flow's seats are given theirs by. Re-sending it every turn would pay
@@ -233,15 +234,18 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 /**
  * Opens one candidate and holds it to what it asked for: the open seat, or the
- * candidate passed over with why — and then nothing of it is left open.
+ * candidate passed over with why — and then nothing the seating opened is left
+ * open, unless somebody took it up meanwhile.
  *
  * A seat that fails part-way through opening is discarded by the host before
  * the failure reaches here, and what that left is noted on the failure
- * (`leftOnFailure`); one that opens on something else is discarded here
- * (`ctx.seats.discard`), and the discard is waited for, so the next candidate
- * is only opened once this one is gone. Either way, what the conversation was
- * left as goes on the candidate's line — left as it is, because somebody used
- * it, or archived, because it could not be deleted — never dropped.
+ * (`leftOnFailure`) — as is a runtime answering with a conversation the desk
+ * already holds, which is refused before anything is done to it; one that
+ * opens on something else is discarded here (`ctx.seats.discard`), and the
+ * discard is waited for, so the next candidate is only opened once this one is
+ * gone. Either way, what the conversation was left as goes on the candidate's
+ * line — left as it is, because somebody used it or it was never the
+ * seating's, or archived, because it could not be deleted — never dropped.
  */
 const openAsAsked = async (
   ctx: HostContext,

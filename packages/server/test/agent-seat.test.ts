@@ -122,6 +122,12 @@ class SeatFake extends FakeRuntime {
   readonly opened: SeatSession[] = []
   /** The next conversation opens, then fails the first time it is asked what it is running. */
   breakNext = false
+  /**
+   * Every conversation opens, then fails the first time it is asked what it is
+   * running — with this very error object, each time: an adapter that keeps
+   * one error and throws it again.
+   */
+  breakWith: Error | null = null
   /** Called as each conversation is asked for, before it exists. */
   beforeCreate: (() => void) | null = null
   /**
@@ -186,8 +192,9 @@ class SeatFake extends FakeRuntime {
     this.emit({ type: 'session/started', session: session.snapshot() })
     if (this.breakNext) {
       this.breakNext = false
-      session.broken = true
+      session.broken = new Error('Seat Fake lost this conversation part-way through opening it')
     }
+    if (this.breakWith) session.broken = this.breakWith
     return session
   }
 
@@ -229,11 +236,13 @@ class SeatSession implements AgentSession {
   /** Every message it was sent, as text. */
   readonly sent: string[] = []
   closed = false
-  /** Opened, and then lost: asked what it is running, it fails. */
-  broken = false
+  /** Opened, and then lost: asked what it is running, it throws this. */
+  broken: Error | null = null
   title: string | null = null
   #values: SeatValues
   #turns = 0
+  /** The turn it is running, until it ends. */
+  #running: TurnId | null = null
 
   constructor(
     private readonly owner: SeatFake,
@@ -260,7 +269,7 @@ class SeatSession implements AgentSession {
   }
 
   options(): readonly ConfigOption[] {
-    if (this.broken) throw new Error('Seat Fake lost this conversation part-way through opening it')
+    if (this.broken) throw this.broken
     const small = this.#values.model === 'small'
     const always = this.owner.alwaysThinks.has(this.#values.model)
     return [
@@ -345,8 +354,22 @@ class SeatSession implements AgentSession {
     this.sent.push(input.map((part) => (part.type === 'text' ? part.text : '')).join(''))
     this.#turns += 1
     const id = turnId(`seat-turn-${this.#turns}`)
+    this.#running = id
     this.owner.emit({ type: 'turn/started', sessionId: this.id, turn: { id, items: [], status: 'inProgress' } })
     return id
+  }
+
+  /**
+   * The turn it is running ends — heard only on a handle still open. A closed
+   * one no longer hears its conversation, as Codex's does not: its close
+   * unsubscribes from the thread, and the turn ends where nobody is listening.
+   */
+  finish(): void {
+    const id = this.#running
+    if (id === null) return
+    this.#running = null
+    if (this.closed) return
+    this.owner.emit({ type: 'turn/completed', sessionId: this.id, turn: { id, items: [], status: 'completed' } })
   }
 
   async steer(): Promise<void> {}
@@ -2090,8 +2113,8 @@ test('through the host: a runtime that cannot delete keeps what it keeps, archiv
  * from its `session/started`, titled with the Agent's name, until the seating
  * decides about it — across the title, the name, every pick and the read-back —
  * and a person can open that row and write in it. The desk deletes only what
- * its seating opened and nobody else touched; anything else is closed and left
- * as it is, and its line says so.
+ * its seating opened and nobody else touched; anything else is left as it is —
+ * the handle somebody is in it on too — and its line says so.
  */
 
 /** The candidate a seating on `seatfake=small/high` opens, held at its naming while the test acts. */
@@ -2141,8 +2164,40 @@ test('through the host: a message a person sends the candidate before it is read
   assert.equal(record.session.turns.length, 1)
   assert.equal(await nameOn(harness.stateDir, 'seatfake', candidate.id), 'Reviewer', 'and its name')
   assert.equal(removedFor(client, candidate.id), 0, 'and its row in every window')
-  assert.equal(candidate.closed, true, 'the seating closed the handle it opened, as a retired seat is')
+  assert.equal(candidate.closed, false, 'and the handle the person’s turn is running on')
   refusedLeaving(USED)(refused)
+})
+
+test('through the host: a turn running on the candidate when it is passed over keeps the handle it runs on — its end is heard, and the next message is not stuck behind it', async (t) => {
+  const { harness, client, seating, candidate, naming } = await heldAtNaming(t)
+  // A person writes in the row, and the turn starts on the seating's own handle.
+  await client.call('turn/queue', {
+    runtime: 'seatfake',
+    sessionId: candidate.id,
+    input: [{ type: 'text', text: 'Is anyone there?' }],
+  })
+  naming.open()
+  await assert.rejects(seating, refusedLeaving(USED))
+
+  // The turn ends, and the desk hears it — as it would not on a handle closed
+  // under it: Codex's close unsubscribes from the thread.
+  candidate.finish()
+  await client.until(
+    () => client.events.some((event) => event.type === 'turn/completed' && String(event.sessionId) === String(candidate.id)),
+    2_000,
+    'the end of the turn that was running when the seat was passed over',
+  )
+  // So the next message goes out, rather than queueing behind a turn nobody would ever see end.
+  const next = await client.call('turn/queue', {
+    runtime: 'seatfake',
+    sessionId: candidate.id,
+    input: [{ type: 'text', text: 'Still there?' }],
+  })
+  assert.deepEqual(next, { queuedId: null, sent: true })
+  assert.deepEqual(candidate.sent, ['Is anyone there?', 'Still there?'])
+  // On the handle it was on all along, which the seating never closed.
+  assert.equal(harness.host.registry.get(runtimeId('seatfake'), candidate.id)?.live, candidate)
+  assert.equal(candidate.closed, false)
 })
 
 test('through the host: a reopen that lands while the seat is being let go keeps its handle, and nothing is removed', async (t) => {
@@ -2172,7 +2227,7 @@ test('through the host: a reopen that lands while the seat is being let go keeps
   refusedLeaving(USED)(refused)
 })
 
-test('through the host: a reopen before the read-back keeps its own handle — the seating closes only the one it opened', async (t) => {
+test('through the host: a reopen before the read-back keeps its own handle — the seating closes nothing somebody is already in', async (t) => {
   const { harness, seats, client, seating, candidate, naming } = await heldAtNaming(t)
   await client.call('session/resume', { runtime: 'seatfake', sessionId: candidate.id })
   const [reopened] = seats.reopened
@@ -2180,9 +2235,12 @@ test('through the host: a reopen before the read-back keeps its own handle — t
   naming.open()
 
   await assert.rejects(seating, refusedLeaving(USED))
-  assert.equal(candidate.closed, true, 'the seating closed the handle it opened')
-  assert.equal(reopened.closed, false, 'and left the person’s alone')
+  assert.equal(reopened.closed, false, 'the person’s handle is left alone')
   assert.equal(harness.host.registry.get(runtimeId('seatfake'), candidate.id)?.live, reopened)
+  // And the seating's own is not closed either. This fake reopens on a handle of
+  // its own; Codex and the ACP agents answer a reopen with the very handle the
+  // seating opened, so closing "the seating's own" would close the person's.
+  assert.equal(candidate.closed, false, 'nothing was closed')
 })
 
 test('through the host: a window that only opened the candidate keeps it — a person looking at a conversation is about to use it', async (t) => {
@@ -2246,20 +2304,51 @@ test('through the host: once the candidate is being deleted, a window that asks 
   await client.until(() => removedFor(client, candidate.id) === 1, 2_000, 'session/removed for the candidate')
 })
 
-test('through the host: a runtime that hands back a conversation the desk already holds keeps it — it was never the seating’s', async (t) => {
-  const { harness, seats, client, work } = await desk(t)
-  // A conversation somebody started on this agent, which the desk holds.
-  const theirs = (await client.call('session/create', { runtime: 'seatfake', options: { cwd: work } })) as Session
-  await writeReviewer(harness.stateDir, 'seatfake=small/high')
-  // Asked for a new one, the agent answers with that same id.
-  seats.mintAs = String(theirs.id)
+test('through the host: a runtime that answers with a conversation the desk already holds is passed over at once — that conversation keeps its name and its handle', async (t) => {
+  const { harness, client, work } = await desk(t)
+  // An agent that keeps no names of its own, so a person's name for a conversation is the desk's to keep.
+  const nameless = new SeatFake({ id: 'nameless', capabilities: { nameHistory: false } })
+  harness.host.register(nameless)
+  await nameless.start()
+  // A conversation somebody started on it and named, which the desk holds.
+  const theirs = (await client.call('session/create', { runtime: 'nameless', options: { cwd: work } })) as Session
+  await client.call('session/setTitle', { runtime: 'nameless', sessionId: theirs.id, title: 'Their work' })
+  const [handle] = nameless.opened
+  assert.ok(handle && harness.host.registry.get(runtimeId('nameless'), theirs.id)?.live === handle)
+  // Asked for a new one, the agent answers with that same id — on a candidate it would run just as asked.
+  await writeReviewer(harness.stateDir, 'nameless=big/high, nameless=small/medium')
+  nameless.mintAs = String(theirs.id)
 
-  await assert.rejects(
-    client.call('agent/seat', { id: 'reviewer', cwd: work }),
-    refusedLeaving('the conversation it opened is one the desk already held, so it was left as it is'),
+  const seated = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+
+  // Passed over, and the seating went on to the next candidate.
+  assert.notEqual(String(seated.id), String(theirs.id))
+  assert.deepEqual(
+    seated.settings?.passedOver?.map((one) => [one.label, one.reason, one.left]),
+    [
+      [
+        'Seat Fake · Big · High',
+        { kind: 'couldNotOpen', detail: 'Seat Fake answered with a conversation the desk already holds, not a new one' },
+        { kind: 'alreadyHeld' },
+      ],
+    ],
   )
-  assert.deepEqual(seats.deleted, [])
-  assert.ok(harness.host.registry.get(runtimeId('seatfake'), theirs.id), 'its record stays')
+  // Their conversation: its name, and the handle it was open on — not replaced, not closed.
+  assert.equal(await nameOn(harness.stateDir, 'nameless', theirs.id), 'Their work')
+  const record = harness.host.registry.get(runtimeId('nameless'), theirs.id)
+  assert.equal(record?.live, handle)
+  assert.equal(handle.closed, false)
+  // Nor the handle the agent answered with: a close is said by the id, and the agent would hear it as theirs.
+  const answered = nameless.opened[1]
+  assert.ok(answered && String(answered.id) === String(theirs.id))
+  assert.equal(answered.closed, false)
+  // Never handed the brief, on any handle, never recorded as the Agent, never deleted or dropped.
+  assert.deepEqual(
+    nameless.opened.filter((one) => String(one.id) === String(theirs.id)).flatMap((one) => one.sent),
+    [],
+  )
+  assert.equal(record?.session.settings?.agent, undefined)
+  assert.deepEqual(nameless.deleted, [])
   assert.equal(removedFor(client, theirs.id), 0)
 })
 
@@ -2362,6 +2451,33 @@ test('through the host: a seat lost part-way through opening says what it was le
   const [lost] = keeper.opened
   assert.ok(lost)
   assert.deepEqual(await archivedOn(harness.stateDir), [['keeper', String(lost.id)]])
+})
+
+test('through the host: an error an adapter throws again for the next seat says only what that seat left, not what the one before it did', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  const keeper = new SeatFake({ id: 'keeper', capabilities: { deleteHistory: false, archiveHistory: false } })
+  harness.host.register(keeper)
+  await keeper.start()
+  // One error object, thrown for every conversation on either runtime — as one kept
+  // in adapter code that two runtimes share would be.
+  const lost = new Error('Seat Fake lost this conversation part-way through opening it')
+  keeper.breakWith = lost
+  seats.breakWith = lost
+  await writeReviewer(harness.stateDir, 'keeper=big/high, seatfake=big/high')
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        "  keeper=big/high — keeper could not open a conversation: Seat Fake lost this conversation part-way through opening it (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)\n" +
+        '  seatfake=big/high — seatfake could not open a conversation: Seat Fake lost this conversation part-way through opening it',
+    )
+    return true
+  })
+  // The second was deleted, so a clause saying it may stay would be a lie.
+  const [second] = seats.opened
+  assert.ok(second)
+  assert.deepEqual(seats.deleted, [String(second.id)])
 })
 
 test('through the host: a runtime gone before its seat could be deleted is said to be, not taken for one that left nothing', async (t) => {

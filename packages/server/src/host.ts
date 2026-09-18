@@ -156,7 +156,9 @@ export interface OpenedSeat {
 /**
  * A conversation a seating has opened and not yet kept or let go — what a
  * discard has to know to delete only what its seating opened and nobody else
- * touched (`Host#discardSeat`).
+ * touched (`Host#discardSeat`). Only ever a conversation the runtime opened
+ * new: one it answered with an id the desk already held is refused before it
+ * is held at all (`Host#openSeat`).
  *
  * Kept beside the registry, not on its record: a record is the conversation's,
  * and outlives the seating; this lives exactly as long as the seating's hold on
@@ -164,17 +166,11 @@ export interface OpenedSeat {
  */
 interface SeatInHand {
   /**
-   * The handle the seating opened it on: the one a discard closes, whatever a
-   * reopen has put on the record since. A handle on the record that is not this
-   * one is somebody else's.
+   * The handle the seating opened it on: the one a discard closes, when nobody
+   * is in the conversation yet, whatever a reopen has put on the record since.
+   * A handle on the record that is not this one is somebody else's.
    */
   readonly live: AgentSession
-  /**
-   * The desk held a record under this id before the seating opened it: the
-   * runtime answered with a conversation the desk already knew, whose record,
-   * name and row are somebody's. Never the seating's to delete.
-   */
-  readonly alreadyHeld: boolean
   /** A window asked something of it — read it, reopened it, wrote to it — while the seating held it. */
   reached: boolean
   /**
@@ -2209,10 +2205,17 @@ export class Host {
    *
    * The seating holds what it opened until its caller keeps it or lets it go
    * (`#seating`), so that a discard can tell the conversation it opened, and
-   * nobody else touched, from one it must leave alone. What the desk already
-   * holds on the runtime is looked at before the conversation is asked for: a
-   * runtime that answers with an id the desk holds has handed back somebody's
-   * conversation, not a new one.
+   * nobody else touched, from one it must leave alone.
+   *
+   * What the desk already holds on the runtime is looked at before the
+   * conversation is asked for, because a runtime that answers with one of those
+   * ids has handed back somebody's conversation, not a new one — with its own
+   * record, name, handle and row. The seat stops there, before anything is done
+   * to it: it is not attached, which would put the seating's handle over
+   * theirs; not named, which would rename their conversation after the Agent;
+   * and not closed, because a close is said by the conversation's id, and the
+   * runtime would hear it as theirs. The failure is noted `alreadyHeld`, so the
+   * seating passes the candidate over as that; a flow's seat fails in its words.
    */
   async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
@@ -2230,12 +2233,18 @@ export class Host {
         ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
       },
     })
-    this.#seating.set(sessionKey(runtime.info.id, live.id), {
-      live,
-      alreadyHeld: held.has(String(live.id)),
-      reached: false,
-      removing: false,
-    })
+    if (held.has(String(live.id))) {
+      this.#logger.warn('a runtime answered a new seat with a conversation the desk already holds, so it was left as it is', {
+        runtime: String(runtime.info.id),
+        session: String(live.id),
+      })
+      const refused = new Error(
+        `${runtime.info.presentation.name} answered with a conversation the desk already holds, not a new one`,
+      )
+      noteLeftOnFailure(refused, { kind: 'alreadyHeld' })
+      throw refused
+    }
+    this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
       const session = this.#attach(runtime, live.id, live)
       await live.setTitle(where.title).catch(() => {})
@@ -2287,13 +2296,18 @@ export class Host {
    * ever deleted. It is a row in every window from its `session/started`,
    * titled with the Agent's name, for as long as the seating holds it — across
    * the title, the name, every pick and the read-back — and a person can open
-   * that row and write in it. So once the seating's own handle is let go, and
-   * before anything that cannot be undone, it is looked at once more
-   * (`#leaveAsItIs`). One somebody had a hand in, or one the desk already held
-   * under that id, is only closed, as a retired seat is, and left as it is: its
-   * record, its name and its row. Nothing is awaited between that look and the
-   * delete being on its way, and from then on a window's request for it is
-   * refused (`#noteReach`), so nothing can start on it in between.
+   * that row and write in it. So it is looked at (`#leaveAsItIs`) before its
+   * handle is touched, and once more after the seating's own handle is let go
+   * and before anything that cannot be undone. One somebody had a hand in is
+   * left as it is — its record, its name and its row — and so is the handle
+   * they were using: one they are already in when it is passed over is not
+   * closed at all, because a closed handle stops hearing its conversation
+   * (Codex's close unsubscribes from the thread), and a turn running on it
+   * would read as running for good, with every message after it queued behind
+   * it. Only one somebody reached for while it was closing is left closed, as a
+   * retired seat is. Nothing is awaited between the second look and the delete
+   * being on its way, and from then on a window's request for it is refused
+   * (`#noteReach`), so nothing can start on it in between.
    *
    * What "removed" means is the runtime's. One that can delete is asked to:
    * Codex erases the thread from its own history, and the Claude Code and
@@ -2316,14 +2330,18 @@ export class Host {
     // Only a seating's own conversation is discarded; anything else is a caller's mistake, and said so.
     if (!inHand) throw new Error(`No seating holds conversation ${String(id)}, so there is none of it to discard.`)
     try {
-      await this.#letGo(runtime, id, inHand.live)
-      // From this look to the delete on its way nothing is awaited, so nothing can start on it in between.
-      const leave = this.#leaveAsItIs(inHand, runtime, id)
+      // Before its handle is touched: somebody already in it keeps the handle they are in it on.
+      const before = this.#leaveAsItIs(inHand, runtime, id)
+      if (!before) await this.#letGo(runtime, id, inHand.live)
+      // And again once it is let go, for anything that reached it while it was closing. From
+      // this look to the delete on its way nothing is awaited, so nothing can start on it in between.
+      const leave = before ?? this.#leaveAsItIs(inHand, runtime, id)
       if (leave) {
         this.#logger.info('a seat passed over was left as it is, not deleted', {
           runtime: String(runtime),
           session: String(id),
           why: leave.kind,
+          handle: before ? 'kept open' : 'closed',
         })
         return leave
       }
@@ -2350,7 +2368,8 @@ export class Host {
 
   /**
    * Why a seat passed over must be left as it is, or null when it is the
-   * seating's alone: opened by it, and touched by nobody else.
+   * seating's alone: opened by it — which `#openSeat` saw to — and touched by
+   * nobody else.
    *
    * Touched is anything the desk can see: a window that asked anything of it
    * (`SeatInHand.reached`); a turn it watched start, or a message waiting for
@@ -2359,7 +2378,6 @@ export class Host {
    * other way than a window asking — a room's post, say — is on the record too.
    */
   #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
-    if (inHand.alreadyHeld) return { kind: 'alreadyHeld' }
     const key = sessionKey(runtime, id)
     const record = this.registry.get(runtime, id)
     const touched =

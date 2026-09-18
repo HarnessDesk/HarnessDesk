@@ -158,7 +158,9 @@ export interface HostContext {
      * error here: the caller compares, and decides. A failure leaves nothing
      * open: a conversation that opened and then failed is discarded first
      * (`discard`), the failure is thrown as it came, and what the discard
-     * left is noted beside it (`leftOnFailure` in `agent-seating.ts`).
+     * left is noted beside it (`leftOnFailure` in `agent-seating.ts`). A
+     * runtime that answers with a conversation the desk already holds fails
+     * it at once, noted `alreadyHeld`, with nothing done to that conversation.
      *
      * The conversation is held for the seating until it is kept
      * (`recordAgent`), retired, or discarded; only while it is held can it be
@@ -180,10 +182,10 @@ export interface HostContext {
      * nothing is left.
      *
      * Only ever the conversation the seating itself opened, untouched: one a
-     * window read, reopened or wrote to while it was open, one a turn started
-     * on, or one the desk already held under that id, is only closed and left
-     * as it is (`inUse`, `alreadyHeld`). One its runtime cannot or will not
-     * delete is archived and keeps its name (`kept`, `undeleted`).
+     * window read, reopened or wrote to while it was open, or one a turn
+     * started on, is left as it is (`inUse`) — its handle not even closed when
+     * somebody is already in it. One its runtime cannot or will not delete is
+     * archived and keeps its name (`kept`, `undeleted`).
      */
     discard(runtime: string, sessionId: string): Promise<SeatLeft | null>
     /**
