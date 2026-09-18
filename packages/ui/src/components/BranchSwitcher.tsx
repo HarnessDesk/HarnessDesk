@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { useStore } from '../state/context'
-import { AlertIcon, BranchIcon, PlusIcon, SearchIcon } from './Icons'
-import { Alert, AlertContent, AlertDescription, Button, Input, MenuItem, MenuLabel } from '../design'
+import { BranchIcon, PlusIcon, SearchIcon } from './Icons'
+import { ActionError, Button, Input, MenuItem, MenuLabel } from '../design'
 import styles from './BranchSwitcher.module.css'
 
 /**
@@ -104,12 +104,7 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
         ))}
       </div>
       {error && (
-        <Alert tone="danger" role="alert">
-          <AlertIcon />
-          <AlertContent>
-            <AlertDescription>{error}</AlertDescription>
-          </AlertContent>
-        </Alert>
+        <ActionError>{error}</ActionError>
       )}
       {creating ? (
         <form

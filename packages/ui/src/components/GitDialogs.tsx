@@ -10,9 +10,7 @@ import type {
 
 import { useStore } from '../state/context'
 import {
-  Alert,
-  AlertContent,
-  AlertDescription,
+  ActionError,
   Button,
   Dialog,
   Input,
@@ -22,7 +20,6 @@ import {
 } from '../design'
 import { DiffView } from './Diff'
 import {
-  AlertIcon,
   BranchIcon,
   CheckIcon,
   CommitIcon,
@@ -347,12 +344,7 @@ export const CommitDialog = ({ root, onDone }: { root: string; onDone: (done: bo
           </div>
         )}
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -433,12 +425,7 @@ export const MergeDialog = ({
           merge.
         </span>
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -516,12 +503,7 @@ export const RenameBranchDialog = ({
         />
         <span className={styles.note}>Only the local branch renames; a remote copy keeps its name.</span>
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -584,12 +566,7 @@ export const DeleteBranchDialog = ({
           <span>Delete even if its commits are nowhere else.</span>
         </div>
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -668,12 +645,7 @@ export const TagDialog = ({
           onChange={(event) => setMessage(event.target.value)}
         />
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -759,12 +731,7 @@ export const ResetDialog = ({
           ))}
         </div>
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -827,12 +794,7 @@ export const StashDialog = ({ root, onDone }: { root: string; onDone: (done: boo
           Sets every change aside, untracked files included, and appears under Stashes in the rail.
         </span>
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -883,12 +845,7 @@ export const DiffRangeDialog = ({
       footer={<Button variant="secondary" onClick={onDone}>Close</Button>}
     >
       {error ? (
-        <Alert tone="danger" role="alert">
-          <AlertIcon />
-          <AlertContent>
-            <AlertDescription>{error}</AlertDescription>
-          </AlertContent>
-        </Alert>
+        <ActionError>{error}</ActionError>
       ) : diff === null ? (
         <div className={styles.quiet}>Reading the difference…</div>
       ) : diff.length === 0 ? (
@@ -975,12 +932,7 @@ export const ConfirmDialog = ({
           (trouble && onAsk ? (
             <TroubleNote message={error} trouble={trouble(error)} onAsk={onAsk} />
           ) : (
-            <Alert tone="danger" role="alert">
-              <AlertIcon />
-              <AlertContent>
-                <AlertDescription>{error}</AlertDescription>
-              </AlertContent>
-            </Alert>
+            <ActionError>{error}</ActionError>
           ))}
       </div>
     </Dialog>

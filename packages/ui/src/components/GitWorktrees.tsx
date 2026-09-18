@@ -9,9 +9,7 @@ import type {
 
 import { useStore } from '../state/context'
 import {
-  Alert,
-  AlertContent,
-  AlertDescription,
+  ActionError,
   Button,
   Dialog,
   Field,
@@ -20,7 +18,6 @@ import {
   Switch,
 } from '../design'
 import {
-  AlertIcon,
   BranchIcon,
   CommitIcon,
   FolderOpenIcon,
@@ -282,12 +279,7 @@ export const WorktreeDialog = ({
         )}
 
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>
@@ -759,12 +751,7 @@ export const AddWorktreeDialog = ({
         </div>
 
         {error && (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>{error}</AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>{error}</ActionError>
         )}
       </div>
     </Dialog>

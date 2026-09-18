@@ -3,9 +3,9 @@ import { useMemo, useState } from 'react'
 import type { RuntimeId, UserContent } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { Alert, AlertContent, AlertDescription, Button, Dialog, Textarea } from '../design'
+import { ActionError, Button, Dialog, Textarea } from '../design'
 import { RuntimeMark } from './BrandIcons'
-import { AgentIcon, AlertIcon, CheckIcon } from './Icons'
+import { AgentIcon, CheckIcon } from './Icons'
 import { troubleHeadline, troublePrompt, type GitTrouble } from '../lib/git-trouble'
 import styles from './GitAskAgent.module.css'
 
@@ -92,14 +92,9 @@ export const AskAgentDialog = ({
         <p className={styles.headline}>{troubleHeadline(trouble)}</p>
 
         {runtimes.length === 0 ? (
-          <Alert tone="danger" role="alert">
-            <AlertIcon />
-            <AlertContent>
-              <AlertDescription>
-                No agents are set up yet, so there is nobody to ask. Add one in Settings first.
-              </AlertDescription>
-            </AlertContent>
-          </Alert>
+          <ActionError>
+            No agents are set up yet, so there is nobody to ask. Add one in Settings first.
+          </ActionError>
         ) : (
           <div className={styles.agents} role="radiogroup" aria-label="Which agent">
             {runtimes.map((entry) => (

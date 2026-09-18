@@ -84,6 +84,7 @@ export {
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
+export { ActionError } from './patterns/ActionError'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
