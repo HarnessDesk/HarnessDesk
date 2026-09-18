@@ -1776,7 +1776,13 @@ const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
 
 const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)
 const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '')
-const FIXED_HEIGHT = /^[+-]?(?:0(?:\.0+)?|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?:px|cm|mm|q|in|pc|pt|em|rem|ex|rex|cap|rcap|ch|rch|ic|ric|lh|rlh))$/i
+/**
+ * A height that describes where a box sits rather than what the role is: a
+ * share of its container, a share of the viewport, or a keyword that lets the
+ * content or the layout decide. Everything else — a length, a token, a `calc()`
+ * of either — is the role's own metric, and counts.
+ */
+const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i))\b|^(?:auto|none|stretch|fit-content|min-content|max-content|inherit|initial|unset|revert|revert-layer)$|^fit-content\(/i
 const TYPE_APPEARANCE = new Set([
   'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'line-height', 'letter-spacing',
   'text-transform', 'text-decoration', 'text-decoration-color',
@@ -1808,7 +1814,7 @@ export const screenAppearanceOf = (file, css) => {
     if (name === 'padding' || name.startsWith('padding-')) return true
     if (name !== 'height' && name !== 'min-height') return false
     const metric = value.replace(/\s*!important\s*$/i, '').trim()
-    return FIXED_HEIGHT.test(metric) || /^var\(/i.test(metric)
+    return !LAYOUT_HEIGHT.test(metric)
   })
 }
 

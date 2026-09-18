@@ -493,6 +493,10 @@ test('screen appearance counts role declarations and leaves layout to screens', 
     '  margin: var(--hd-space-2);',
     '  width: 30px;',
     '  height: 100%;',
+    '  min-height: calc(var(--hd-nav-h) + 2px);',
+    '  height: calc(100% - 2px);',
+    '  height: 10dvh;',
+    '  height: fit-content;',
     '  --role-ground: var(--hd-surface);',
     '  background: ;',
     '}',
@@ -500,7 +504,7 @@ test('screen appearance counts role declarations and leaves layout to screens', 
 
   assert.deepEqual(
     screenAppearanceOf(file, fs.readFileSync(file, 'utf8')).map(({ property }) => property),
-    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow', 'height'],
+    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow', 'height', 'min-height'],
   )
 })
 
