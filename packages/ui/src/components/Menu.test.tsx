@@ -331,26 +331,6 @@ describe('ContextMenu', () => {
     expect(document.activeElement).toBe(row('Pin'))
   })
 
-  it('stays open when one of its rows opens a flyout', () => {
-    // The flyout has no parent in Base UI's tree, so its opening reads as a
-    // sibling menu opening, and Base UI asked the context menu to close.
-    const onClose = vi.fn()
-    act(() => {
-      root.render(
-        <ContextMenu at={{ x: 40, y: 50 }} label="Actions" onClose={onClose}>
-          <MenuItem label="Pin" onSelect={() => {}} />
-          <Submenu label="Move to">
-            <MenuItem label="Archive" onSelect={() => {}} />
-          </Submenu>
-        </ContextMenu>,
-      )
-    })
-    click(row('Move to'))
-    expect(row('Move to').getAttribute('aria-expanded')).toBe('true')
-    expect(row('Archive')).toBeTruthy()
-    expect(onClose).not.toHaveBeenCalled()
-  })
-
   it('closes on Escape, on a click outside, and when a row is taken', () => {
     const onClose = vi.fn()
     const pin = vi.fn()

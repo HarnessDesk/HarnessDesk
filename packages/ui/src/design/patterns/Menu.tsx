@@ -463,17 +463,7 @@ export const ContextMenu = ({
   return (
     <DropdownMenu
       open={at !== null}
-      onOpenChange={(open, details) => {
-        if (open) return
-        // A flyout opening reads to Base UI as a sibling menu opening — the
-        // flyout has no parent in its tree (see `Submenu`) — and is no
-        // reason for the menu it opened from to close.
-        if (details.reason === 'sibling-open') {
-          details.cancel()
-          return
-        }
-        onClose()
-      }}
+      onOpenChange={(open) => { if (!open) onClose() }}
       onOpenChangeComplete={(open) => {
         if (open) panel.current?.querySelector<HTMLElement>(ROW_SELECTOR)?.focus({ preventScroll: true })
       }}
