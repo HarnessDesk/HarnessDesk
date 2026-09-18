@@ -228,9 +228,9 @@
  * program, and at the end of an answer somebody is reading it is the loudest
  * thing in the column.
  *
- * The blink needs no reduced-motion guard of its own — app.css collapses every
- * animation in the app to a single 0.01ms iteration, and this keyframe has no
- * fill mode, so under `reduce` the caret simply stands still and visible.
+ * The blink needs no reduced-motion guard of its own — app.css takes every
+ * animation in the app to a single instant, and this keyframe has no fill
+ * mode, so under `reduce` the caret simply stands still and visible.
  */
 .caret {
   display: inline-block;

@@ -17,7 +17,9 @@ import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import {
+  NARROW_WINDOW,
   activate,
+  areaVisible,
   focusView,
   moveView,
   resizeDock,
@@ -801,6 +803,7 @@ class PreviewStore {
       ]),
       ...seed,
     } as AppSnapshot
+    this.#watchWindowWidth()
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -866,6 +869,37 @@ class PreviewStore {
   focusView(id: MountedId | null): void {
     if ((this.#snapshot.workbench.focus ?? null) === (id ?? null)) return
     this.#workbench(focusView(this.#snapshot.workbench, id))
+  }
+
+  /* The sidebar's verbs, answered as the app's store answers them
+     (`toggleSidebar`, `closeFloatingSidebar` and `setNarrowWindow` in
+     state/store.ts): a wide window collapses the column, a narrow one floats
+     the sidebar over the page, and a panel given the whole window hands the
+     sidebar back first. Narrow is read from the window's width, as the app
+     reads it, so a narrow viewport floats the Panels tab's sidebar exactly
+     where the app would float its own. */
+  toggleSidebar(): void {
+    const { workbench, narrowWindow } = this.#snapshot
+    if (workbench.zoom && !areaVisible(workbench, 'sidebar')) {
+      this.#workbench(zoomArea(workbench, workbench.zoom.area, 'content'))
+      this.patch(narrowWindow ? { sidebarFloating: true } : { sidebarCollapsed: false })
+      return
+    }
+    if (narrowWindow) this.patch({ sidebarFloating: !this.#snapshot.sidebarFloating })
+    else this.patch({ sidebarCollapsed: !this.#snapshot.sidebarCollapsed })
+  }
+  closeFloatingSidebar(): void {
+    if (this.#snapshot.sidebarFloating) this.patch({ sidebarFloating: false })
+  }
+  setNarrowWindow(narrow: boolean): void {
+    if (narrow === this.#snapshot.narrowWindow) return
+    this.patch({ narrowWindow: narrow, sidebarFloating: false })
+  }
+  #watchWindowWidth(): void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(`(max-width: ${NARROW_WINDOW - 0.02}px)`)
+    this.#snapshot = { ...this.#snapshot, narrowWindow: query.matches }
+    query.addEventListener?.('change', (event) => this.setNarrowWindow(event.matches))
   }
 
   #team(mutate: (team: TeamState) => TeamState): void {
