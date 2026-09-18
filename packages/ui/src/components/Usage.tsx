@@ -25,6 +25,7 @@ import {
   formatMoney,
   planLabel,
   provenanceLabel,
+  spendHint,
   runway,
   type LaneView,
   type ReportView,
@@ -1217,8 +1218,7 @@ const Spend = ({
             <div>
               <ChartTitle>{headline}</ChartTitle>
               <ChartHint>
-                Last {ledger?.days ?? range} days — what these tokens would have cost at public
-                API rates. Not a bill.
+                Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
               </ChartHint>
             </div>
           </ChartHead>

@@ -16,6 +16,7 @@ import {
   pace,
   planLabel,
   runway,
+  spendHint,
   workingAccount,
 } from './usage'
 
@@ -490,6 +491,16 @@ describe('runway', () => {
       NOON,
     )
     expect(summary.exhausted).toHaveLength(1)
+  })
+})
+
+describe('spendHint', () => {
+  it('says what the money band is made of, and never calls an agent’s own cost a list price', () => {
+    expect(spendHint('listPrice')).toBe('what these tokens would have cost at public API rates. Not a bill.')
+    expect(spendHint(undefined)).toBe(spendHint('listPrice'))
+    expect(spendHint('vendorMetered')).toBe('what the agents recorded these tokens cost.')
+    expect(spendHint('mixed')).toContain('what the agents recorded')
+    expect(spendHint('mixed')).toContain('public API rates')
   })
 })
 

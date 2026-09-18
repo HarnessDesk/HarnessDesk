@@ -604,6 +604,25 @@ export const formatMoney = (amount: number | null, currency = 'USD'): string | n
  * — which carry different shapes around the same two facts — say it the same
  * way.
  */
+/**
+ * What the figures in the money band are, after "Last 30 days —".
+ *
+ * The band said "what these tokens would have cost at public API rates. Not a
+ * bill." of every total, which stopped being true the day an agent's own cost
+ * could be counted: OpenCode's and Cline's figures are what they recorded, a
+ * free model's zero included, and some of those are bills.
+ */
+export const spendHint = (provenance: SpendSummary['provenance'] | undefined): string => {
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'what the agents recorded these tokens cost.'
+    case 'mixed':
+      return 'what the agents recorded, where they did, and public API rates for the rest. Not all of it is a bill.'
+    default:
+      return 'what these tokens would have cost at public API rates. Not a bill.'
+  }
+}
+
 export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string => {
   switch (spend.provenance) {
     case 'listPrice':
