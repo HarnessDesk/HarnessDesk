@@ -14,6 +14,7 @@ import {
   type SessionId,
   type SessionKey,
   type SessionQueue,
+  type SessionSettings,
   type Turn,
   type TurnId,
   type UserContent,
@@ -84,6 +85,50 @@ export interface SessionRecord {
    * second registry that could disagree with it.
    */
   tasks: readonly BackgroundTask[]
+  /**
+   * The Agent this conversation was seated as, and the brief it was handed, or
+   * null when it was not seated as one.
+   *
+   * Beside the session rather than only inside it, for the reason the queue
+   * is: a runtime re-announcing its settings — a model change does — replaces
+   * them whole, and has never heard of either field. So it is kept here and
+   * laid back over the settings on every fold (`seatedSession`).
+   */
+  seatedAs: SeatedAs | null
+}
+
+/** Which Agent a conversation was seated as, and the digest of the brief it was handed. */
+export interface SeatedAs {
+  readonly agent: string
+  readonly briefDigest: string
+}
+
+/**
+ * Settings with the host's record of which Agent this is laid over them — and
+ * nobody else's.
+ *
+ * Both fields are the host's to write. A runtime that re-announces its
+ * settings drops them; a renderer can name them in a patch that a runtime
+ * echoes back, or in the options it opens a conversation with. So they are put
+ * back from the record after every fold, and taken off a conversation the host
+ * never seated as an Agent: when one is there, it is the host's.
+ */
+export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | null): SessionSettings => {
+  if (seated) {
+    return settings.agent === seated.agent && settings.briefDigest === seated.briefDigest
+      ? settings
+      : { ...settings, agent: seated.agent, briefDigest: seated.briefDigest }
+  }
+  if (settings.agent === undefined && settings.briefDigest === undefined) return settings
+  const { agent: _agent, briefDigest: _briefDigest, ...theirs } = settings
+  return theirs
+}
+
+/** `seatedSettings`, on a whole session. One without settings has nothing to lay it over yet. */
+export const seatedSession = (session: Session, seated: SeatedAs | null): Session => {
+  if (!session.settings) return session
+  const settings = seatedSettings(session.settings, seated)
+  return settings === session.settings ? session : { ...session, settings }
 }
 
 /**
@@ -119,8 +164,9 @@ export class SessionRegistry {
   upsert(session: Session, live: AgentSession | null): SessionRecord {
     const existing = this.#records.get(sessionKey(session.runtime, session.id))
     if (existing) {
-      existing.session = mergeRead(existing.session, this.#settle(existing, session), (turn) =>
-        existing.watched.has(turn.id),
+      existing.session = seatedSession(
+        mergeRead(existing.session, this.#settle(existing, session), (turn) => existing.watched.has(turn.id)),
+        existing.seatedAs,
       )
       if (live) {
         existing.live = live
@@ -140,8 +186,9 @@ export class SessionRegistry {
       running: new Set(),
       queue: emptyQueue(),
       tasks: [],
+      seatedAs: null,
     }
-    record.session = this.#settle(record, session)
+    record.session = seatedSession(this.#settle(record, session), null)
     this.#records.set(sessionKey(session.runtime, session.id), record)
     return record
   }
@@ -339,7 +386,25 @@ export class SessionRegistry {
     if (!target) return undefined
     const record = this.get(runtime, target)
     if (!record) return undefined
-    record.session = reduceSession(record.session, event)
+    record.session = seatedSession(reduceSession(record.session, event), record.seatedAs)
+    return record
+  }
+
+  /**
+   * Records that a conversation was seated as an Agent, and lays it over its
+   * settings from here on. Answers the record, now wearing it.
+   *
+   * Where the held session has no settings — a read that carried none replaced
+   * them — the live handle is asked for them, so a conversation opened a moment
+   * ago always wears the record at once. One with neither keeps it on the
+   * record and wears it as soon as its settings arrive.
+   */
+  seatAs(runtime: RuntimeId, id: SessionId, seated: SeatedAs): SessionRecord {
+    const record = this.get(runtime, id)
+    if (!record) throw new Error(`No conversation ${id} is open to be seated.`)
+    record.seatedAs = seated
+    const settings = record.session.settings ?? record.live?.settings()
+    record.session = seatedSession(settings ? { ...record.session, settings } : record.session, seated)
     return record
   }
 

@@ -63,6 +63,8 @@ const UNREACHED = {
     'the Agent roster reaches the wire before any screen shows it — the roster in Settings that calls this is a later phase of the agents plan',
   'agent/read':
     'likewise — opening one Agent from that roster is the same later phase',
+  'agent/seat':
+    'likewise — seating an Agent from that roster is the same later phase',
 }
 
 /**

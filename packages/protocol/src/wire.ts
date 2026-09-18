@@ -10,7 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { FlowDryRun, FlowFile, FlowRun } from './flow.js'
+import type { FlowDryRun, FlowFile, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
   LibraryDefinition,
@@ -1550,6 +1550,31 @@ export interface HostMethods {
   'agent/read': {
     params: { readonly id: string; readonly project?: string }
     result: AgentEntry | null
+  }
+  /**
+   * Opens a conversation as an Agent: the first of its seats this machine can
+   * offer, handed the Agent's brief once as its standing order, and recorded in
+   * its settings as that Agent and that brief (`agent`, `briefDigest`).
+   *
+   * Refuses, and never substitutes. When no candidate can be seated, nothing is
+   * opened and the refusal names every candidate it tried and why each failed.
+   * A seat is also read back once it is open — a runtime drops a pick it
+   * declines rather than failing — and one running a model, effort or thinking
+   * other than the one asked for is closed and refused, naming what differed.
+   *
+   * The Agent is chosen exactly as `agent/read` chooses it, `project` held to
+   * the same folders; an Agent whose file will not parse is refused with its
+   * problem. `cwd` is where the conversation works, and must be absolute.
+   */
+  'agent/seat': {
+    params: {
+      readonly id: string
+      readonly cwd: string
+      readonly project?: string
+      /** Overrides the Agent's own preference for this one seating. Empty is no override. */
+      readonly seats?: readonly FlowSeat[]
+    }
+    result: Session
   }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }

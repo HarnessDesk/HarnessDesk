@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { FlowSeat } from '@harnessdesk/protocol'
+import type { ConfigOption, FlowSeat } from '@harnessdesk/protocol'
 
-import { chooseSeat, explainRefusal, type SeatOffer } from '../src/agent-seating.js'
+import {
+  chooseSeat,
+  differences,
+  explainRefusal,
+  openedOtherwise,
+  runningOf,
+  type SeatOffer,
+  type SeatRunning,
+} from '../src/agent-seating.js'
 import { parseSeat } from '../src/flow.js'
 
 /**
@@ -168,4 +176,127 @@ test('an Agent with no seat to try is told where to name one', () => {
   const said = explainRefusal(chooseSeat([], [offer('cursor')]).passed)
   assert.match(said, /prefer/)
   assert.match(said, /AGENT\.md/)
+})
+
+/*
+ * What the chooser cannot know by itself: a list that could not be read, and
+ * efforts nobody can list before a session exists. Each is told apart from the
+ * answer it would otherwise be mistaken for.
+ */
+
+test('a model list that could not be read is not a list of nothing', () => {
+  // Null is unread; empty is "takes no model". Mistaken for empty, a failed
+  // read would refuse a spec that was right as "does not offer".
+  const chosen = chooseSeat([seat('cursor', 'gemini-3.8-flash', 'high')], [offer('cursor', { models: null })])
+  assert.equal(chosen.seat, null)
+  assert.deepEqual(chosen.passed.map((one) => one.why), [
+    'cannot tell whether cursor offers gemini-3.8-flash: its model list could not be read',
+  ])
+  // Unread only matters to a candidate that names a model.
+  assert.equal(chooseSeat([seat('cursor')], [offer('cursor', { models: null })]).seat?.runtime, 'cursor')
+})
+
+test('efforts nobody can list before seating let the candidate through, to be held to it once open', () => {
+  const asked = seat('cursor', 'm1', 'xhigh')
+  assert.deepEqual(chooseSeat([asked], [offer('cursor', { efforts: null })]).seat, asked)
+  // The control: an effort list that was read still refuses what it lacks.
+  assert.equal(chooseSeat([asked], [offer('cursor')]).seat, null)
+})
+
+test("a runtime that cannot open a conversation is passed over in its own words, on one line", () => {
+  const chosen = chooseSeat(
+    [seat('gemini', 'm1'), seat('claude', 'm1')],
+    [offer('gemini', { unavailable: 'Gemini CLI 0.9 is too old:\n  1.0 or newer is needed.' }), offer('claude')],
+  )
+  assert.equal(chosen.seat?.runtime, 'claude')
+  assert.deepEqual(chosen.passed.map((one) => one.why), [
+    'gemini is unavailable: Gemini CLI 0.9 is too old: 1.0 or newer is needed',
+  ])
+})
+
+/** A conversation's controls, the way a runtime declares them. */
+const controls = (values: {
+  model?: string
+  effort?: string
+  thinking?: boolean
+  thinkingFixed?: string
+}): ConfigOption[] => [
+  ...(values.model !== undefined
+    ? [{ type: 'select' as const, id: 'model', label: 'Model', currentValue: values.model, choices: [] }]
+    : []),
+  ...(values.effort !== undefined
+    ? [{ type: 'select' as const, id: 'effort', label: 'Effort', currentValue: values.effort, choices: [] }]
+    : []),
+  ...(values.thinking !== undefined
+    ? [
+        {
+          type: 'boolean' as const,
+          id: 'thinking',
+          label: 'Thinking',
+          currentValue: values.thinking,
+          ...(values.thinkingFixed ? { disabled: values.thinkingFixed } : {}),
+        },
+      ]
+    : []),
+]
+
+test('what a conversation runs is read from the controls a seat sets, and its settings when it has no model control', () => {
+  assert.deepEqual(runningOf(controls({ model: 'm1', effort: 'high', thinking: true }), { cwd: '/w', model: 'other' }), {
+    model: 'm1',
+    effort: 'high',
+    thinking: true,
+    thinkingFixed: null,
+  })
+  assert.deepEqual(
+    runningOf(controls({ thinking: false, thinkingFixed: 'M2 has no thinking mode.' }), { cwd: '/w', model: 'm2' }),
+    { model: 'm2', effort: null, thinking: false, thinkingFixed: 'M2 has no thinking mode.' },
+  )
+  assert.deepEqual(runningOf([], { cwd: '/w', model: '' }), {
+    model: null,
+    effort: null,
+    thinking: false,
+    thinkingFixed: null,
+  })
+})
+
+const running = (over: Partial<SeatRunning> = {}): SeatRunning => ({
+  model: 'm1',
+  effort: 'high',
+  thinking: false,
+  thinkingFixed: null,
+  ...over,
+})
+
+test('an opened seat is held to the model and effort it asked for, and each difference names the field', () => {
+  const asked = written('cursor=m1/high')
+  assert.deepEqual(differences(asked, running()), [])
+  assert.equal(openedOtherwise(asked, running()), null)
+  assert.deepEqual(differences(asked, running({ model: 'm2' })), ['on model m2, not m1'])
+  assert.deepEqual(differences(asked, running({ model: null })), ['on no model it would name, not m1'])
+  assert.deepEqual(differences(asked, running({ effort: 'medium' })), ['at medium effort, not high'])
+  assert.deepEqual(differences(asked, running({ effort: null })), ['with no effort setting, not at high effort'])
+  assert.equal(
+    openedOtherwise(asked, running({ model: 'm2', effort: 'medium' })),
+    'cursor opened on model m2, not m1, and at medium effort, not high — so it was closed',
+  )
+  // What the seat does not name is not held against it.
+  assert.deepEqual(differences(written('cursor'), running({ model: 'm9', effort: 'low' })), [])
+})
+
+test('thinking is held to what the spec says either way, except where the model decides it', () => {
+  const thinking = written('cursor=m1/high+thinking')
+  const plain = written('cursor=m1/high')
+  assert.deepEqual(differences(thinking, running({ thinking: true })), [])
+  assert.deepEqual(differences(thinking, running({ thinking: false })), ['without thinking, which was asked for'])
+  // Asked on a model that cannot think: refused all the same, in the runtime's words.
+  assert.deepEqual(
+    differences(thinking, running({ thinking: false, thinkingFixed: 'M1 has no thinking mode.' })),
+    ['without thinking, which was asked for (M1 has no thinking mode)'],
+  )
+  // Not asked, and left on by a switch that would not turn off: that is somebody else's seat.
+  assert.deepEqual(differences(plain, running({ thinking: true })), [
+    'with thinking on, which was not asked for and would not turn off',
+  ])
+  // Not asked, on a model that always thinks: the model asked for, thinking included.
+  assert.deepEqual(differences(plain, running({ thinking: true, thinkingFixed: 'M1 always thinks.' })), [])
 })

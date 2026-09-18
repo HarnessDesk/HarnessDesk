@@ -23,6 +23,27 @@ export interface SessionSettings {
   /** What the session is currently on, for display. Changed through the `model` option. */
   readonly model: string
   readonly modelProvider?: string
+  /**
+   * The Agent this conversation was seated as, when it was seated as one.
+   *
+   * Written by the host and by nothing else: it is laid back over whatever a
+   * runtime re-announces, and taken off a conversation the host never seated,
+   * so a reader can trust it when it is there. A patch that names it changes
+   * nothing.
+   */
+  readonly agent?: string
+  /**
+   * Content hash of the brief it was handed, captured at seating. Named for the
+   * digest it is: `brief` alone would read as the prose, and the prose goes to
+   * the standing order, not here. It is the `AgentEntry.digest` of the file the
+   * Agent was read from, so a front-matter change is a different brief too.
+   *
+   * A project Agent is versioned by git; a user-level one is versioned by
+   * nothing. The hash is what makes "at the version of its brief" answerable
+   * either way, and it is the same reason a flow run freezes its flow. Held
+   * like `agent`, by the host alone.
+   */
+  readonly briefDigest?: string
 }
 
 /** Options accepted when opening a session. All are advisory; runtimes may clamp. */

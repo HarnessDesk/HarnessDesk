@@ -22,6 +22,7 @@ import {
   type Validator,
 } from './validate.js'
 import type { EditorEvent } from './editor.js'
+import type { FlowSeat } from './flow.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId } from './ids.js'
@@ -115,6 +116,25 @@ export const approvalDecisionValidator: Validator<ApprovalDecision> = taggedUnio
  * not even the right shape should not get that far.
  */
 const isRuntimeId: Validator<RuntimeId> = (value, path = '') => runtimeId(isString(value, path))
+
+/** A string with something in it. An empty id or folder names nothing, and would be read as "the default". */
+const isFilled: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (text.trim() === '') throw new ValidationError(path, 'expected a non-empty string')
+  return text
+}
+
+/**
+ * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
+ * spec parses to. Checked field by field because it is handed to the seating
+ * as it arrives, and a seat's runtime is what names the conversation opened.
+ */
+const flowSeatValidator = shape({
+  runtime: isFilled,
+  model: optional(isString),
+  effort: optional(isString),
+  thinking: optional(isBoolean),
+}) as Validator<FlowSeat>
 
 const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
   installSkill: shape({
@@ -466,6 +486,12 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
   'agent/list': shape({ project: optional(isString) }),
   'agent/read': shape({ id: isString, project: optional(isString) }),
+  'agent/seat': shape({
+    id: isFilled,
+    cwd: isFilled,
+    project: optional(isString),
+    seats: optional(arrayOf(flowSeatValidator)),
+  }),
 
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),

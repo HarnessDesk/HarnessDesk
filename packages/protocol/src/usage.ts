@@ -203,3 +203,120 @@ export interface ScanProgress {
   readonly finishedAt: number | null
   readonly error: string | null
 }
+
+// ---------------------------------------------------- whether an account can work
+
+/*
+ * The one rule for whether an account can take a turn, shared by every reader
+ * of a report. It was the renderer's alone, which was right while only the
+ * renderer asked; the host now asks it too, before it seats an Agent, and two
+ * copies of this rule are two answers to "is this account spent" that will
+ * disagree the first time one of them learns about a scoped lane. So it lives
+ * here, beside the report it reads, and `lib/usage.ts` re-exports it.
+ */
+
+/** The account-local choice that changes which usage lane leads a summary. */
+export interface UsagePreference {
+  readonly pinLaneId?: string
+}
+
+const clamp = (value: number, low: number, high: number): number =>
+  value < low ? low : value > high ? high : value
+
+/** Whether the source reported a usage figure for this lane — see `UsageLane.usageKnown`. */
+export const isLaneKnown = (lane: UsageLane): boolean => lane.usageKnown !== false
+
+/** What a lane has left, or null when the source never said. */
+export const remainingOf = (lane: UsageLane): number | null =>
+  isLaneKnown(lane) ? 100 - clamp(lane.usedPercent, 0, 100) : null
+
+/**
+ * The binding lane: the least left wins, and ties keep the source's own order.
+ *
+ * A lane whose usage the source never reported can only be the headline when
+ * nothing measurable exists, because "unknown" is not evidence of trouble.
+ * Placeholders — lanes synthesized to stand in for one that was not reported —
+ * are never candidates at all.
+ *
+ * **A lane scoped to one model is not the account's headline.** Claude Code
+ * reports a weekly limit for the account and a second one for Fable alone;
+ * with Fable spent and the account at 21%, "0% left" is false about the
+ * account and true only about a model you can stop using. The account-wide
+ * lanes decide the headline, and a scoped lane is considered only when there
+ * is nothing else to go on. It still appears in the list, still turns red,
+ * and still says when it comes back.
+ */
+export const bindingLane = (
+  lanes: readonly UsageLane[],
+  preference: UsagePreference = {},
+): UsageLane | null => {
+  const real = lanes.filter((lane) => lane.placeholder !== true)
+  if (real.length === 0) return null
+  const wide = real.filter((lane) => !lane.scope)
+  const candidates = wide.length > 0 ? wide : real
+  // A spent account-wide limit is a hard block. It wins over a shorter live
+  // window and over a pin because the shorter window cannot bypass it. When
+  // several are spent, the longest one is the most useful explanation of the
+  // hold; ties keep the provider's order.
+  const spent = candidates.filter((lane) => {
+    const remaining = remainingOf(lane)
+    return remaining !== null && remaining <= 0
+  })
+  if (spent.length > 0) {
+    return spent.reduce((best, lane) => {
+      const bestMinutes = best.windowMinutes ?? -1
+      const laneMinutes = lane.windowMinutes ?? -1
+      return laneMinutes > bestMinutes ? lane : best
+    })
+  }
+
+  const pinned = preference.pinLaneId
+    ? candidates.find((lane) => lane.id === preference.pinLaneId && isLaneKnown(lane))
+    : undefined
+  if (pinned) return pinned
+
+  const measurable = candidates.filter((lane) => remainingOf(lane) !== null)
+  const ranked = measurable.length > 0 ? measurable : candidates
+  return ranked.reduce((best, lane) => {
+    const bestMinutes = best.windowMinutes ?? Number.POSITIVE_INFINITY
+    const laneMinutes = lane.windowMinutes ?? Number.POSITIVE_INFINITY
+    return laneMinutes < bestMinutes ? lane : best
+  }, ranked[0] as UsageLane)
+}
+
+/**
+ * The lane a report's `reached` names, when it names one we can find.
+ *
+ * A source reports the id of the limit it hit, and that limit may be scoped to
+ * a single model. Resolving it is how every surface avoids saying "out of
+ * quota" about an account that has plenty left on every other model.
+ */
+export const reachedLaneOf = (report: UsageReport): UsageLane | null =>
+  report.reached === null ? null : (report.lanes.find((lane) => lane.id === report.reached) ?? null)
+
+/**
+ * Whether this account cannot be worked with at all.
+ *
+ * True when the lane that decides — the account-wide binding lane — is spent,
+ * or when the limit the source says it hit is an account-wide one. A spent
+ * model-scoped lane is deliberately *not* blocking: switch models and the
+ * work continues.
+ *
+ * The one shape where a scoped lane can block is an account that reports no
+ * account-wide lane at all, because `bindingLane` then has only scoped ones to
+ * choose from and the least left of those is the whole of what we know. No
+ * source we read has that shape — Codex, Claude Code and Cursor all report an
+ * account-wide window — so it is a contract on the reading rather than a case
+ * in the wild; the renderer's `describeReport` pins it, so a source that
+ * arrives with only scoped lanes fails a test rather than quietly blocking an
+ * account.
+ */
+export const isBlocked = (report: UsageReport): boolean => {
+  const reached = reachedLaneOf(report)
+  if (reached && !reached.scope) return true
+  // A `reached` we cannot resolve is trusted as the source meant it.
+  if (report.reached !== null && reached === null) return true
+  const lane = bindingLane(report.lanes)
+  const remaining = lane ? remainingOf(lane) : null
+  return remaining !== null && remaining <= 0
+}

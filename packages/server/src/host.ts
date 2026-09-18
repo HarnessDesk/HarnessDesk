@@ -23,6 +23,7 @@ import {
   type ArchiveFilter,
   type AgentSession,
   type ConfigOption,
+  type FlowSeat,
   type TurnId,
   type CapabilityRegistry,
   type ContextImage,
@@ -58,6 +59,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
+import { runningOf, type SeatRunning } from './agent-seating.js'
 import { Agents } from './agents.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
@@ -73,7 +75,7 @@ import { Worktrees, repositoryOf } from './worktree.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
-import { SessionRegistry, type SessionRecord } from './registry.js'
+import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { Terminals } from './terminals.js'
@@ -127,6 +129,21 @@ export interface ExtensionHost extends CapabilityRegistry {
   }>
   installPlugin(specifier: string): Promise<string>
   uninstallPlugin(pluginId: string): Promise<void>
+}
+
+/**
+ * A conversation opened on a seat, and what it is actually running.
+ *
+ * Both halves are read from the conversation after its picks were applied,
+ * never copied from the request: `running` for a caller that must compare it
+ * with what it asked for, `label` for one that only has to say it.
+ */
+export interface OpenedSeat {
+  readonly runtime: string
+  readonly sessionId: string
+  readonly running: SeatRunning
+  /** How the desk describes it: "Cursor · Gemini 3.8 Flash · High · thinking". */
+  readonly label: string
 }
 
 /** One permission-policy rule, as stored in preferences. */
@@ -500,41 +517,23 @@ export class Host {
          pick it declines rather than failing, so a seat that believes it is
          running at an effort it is not is a seat with an unchecked claim on
          it. Whatever it is really running is what the record and the room
-         say it is. */
+         say it is — a flow says it in the label, and carries on. */
       seat: async (seat, where) => {
-        const runtime = this.#runtime({ runtime: seat.runtime })
-        const live = await runtime.createSession({
-          cwd: where.cwd,
-          ...(seat.model ? { model: seat.model } : {}),
-          options: {
-            ...(seat.effort ? { effort: seat.effort } : {}),
-            ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
-          },
-        })
-        const session = this.#attach(runtime, live.id, live)
-        await live.setTitle(where.title).catch(() => {})
-        await this.#names.set(runtime.info.id, live.id, where.title)
-        const label = await this.#applySeatPicks(live, seat)
-        return { runtime: String(runtime.info.id), sessionId: String(session.id), label }
+        const opened = await this.#openSeat(seat, where)
+        return { runtime: opened.runtime, sessionId: opened.sessionId, label: opened.label }
       },
-      order: async (runtime, sessionId, text) => {
-        const live = await this.#teamLive(runtime as RuntimeId, sessionId)
-        await live.send([{ type: 'text', text }])
-      },
+      order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
       reseat: async (runtime, sessionId, seat) => {
         const live = await this.#teamLive(runtime as RuntimeId, sessionId)
-        return this.#applySeatPicks(live, seat)
+        await this.#applySeatPicks(live, seat)
+        return this.#labelOf(seat.runtime, live.options())
       },
       turnFailure: (runtime, sessionId) => {
         const record = this.registry.get(runtime as RuntimeId, makeSessionId(sessionId))
         const last = record?.session.turns[record.session.turns.length - 1]
         return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
       },
-      retire: async (runtime, sessionId) => {
-        const id = makeSessionId(sessionId)
-        await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
-        this.registry.get(runtime as RuntimeId, id)?.approvals.clear()
-      },
+      retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
       join: async (room, runtime, sessionId) => {
         const id = makeSessionId(sessionId)
         const known = this.registry.get(runtime as RuntimeId, id)?.session
@@ -1102,6 +1101,25 @@ export class Host {
         applyArchive: (runtime, page, filter) => this.#applyArchive(runtime, page, filter),
         busyElsewhere: (runtime, id, error) => this.#busyElsewhere(runtime, id, error),
         cannotReopen: (runtime, error) => this.#cannotReopen(runtime, error),
+      },
+      seats: {
+        open: (seat, where) => this.#openSeat(seat, where),
+        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+        recordAgent: (runtime, sessionId, seated) => {
+          const record = this.registry.seatAs(runtime as RuntimeId, makeSessionId(sessionId), seated)
+          // Every window holding this conversation learns it, not only the one that asked.
+          if (record.session.settings) {
+            this.#push({
+              method: 'event',
+              params: {
+                runtime: record.runtime,
+                event: { type: 'session/settings', sessionId: record.session.id, settings: record.session.settings },
+              },
+            })
+          }
+          return record.session
+        },
       },
       queue: {
         push: (record) => this.#pushQueue(record),
@@ -1876,7 +1894,8 @@ export class Host {
       method: 'event',
       params: {
         runtime: runtime.info.id,
-        event: { type: 'session/settings', sessionId: id, settings: live.settings() },
+        // As the registry now holds them, which is the handle's plus the Agent it was seated as.
+        event: { type: 'session/settings', sessionId: id, settings: record.session.settings ?? live.settings() },
       },
     })
     this.#push({
@@ -2084,13 +2103,62 @@ export class Host {
   }
 
   /**
-   * Puts one conversation on the model, effort and switches a flow's seat
-   * asked for, and answers with what it is *actually* running.
+   * Opens a conversation on a seat, puts it on the seat's picks, and answers
+   * with what it is actually running — the one way the desk opens a
+   * conversation for a seat, whether a flow's role or an Agent asked for it.
+   *
+   * What it answers is read back from the conversation once the picks are in,
+   * never copied from the request: a runtime drops a pick it has no place for
+   * rather than failing (see `#applySeatPicks`). What to do about a difference
+   * is the caller's. A flow says it in the seat's label and carries on; an
+   * Agent is refused rather than seated on something it did not ask for.
+   */
+  async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
+    const runtime = this.#runtime({ runtime: seat.runtime })
+    const live = await runtime.createSession({
+      cwd: where.cwd,
+      ...(seat.model ? { model: seat.model } : {}),
+      options: {
+        ...(seat.effort ? { effort: seat.effort } : {}),
+        ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+      },
+    })
+    const session = this.#attach(runtime, live.id, live)
+    await live.setTitle(where.title).catch(() => {})
+    await this.#names.set(runtime.info.id, live.id, where.title)
+    await this.#applySeatPicks(live, seat)
+    const ran = live.options()
+    return {
+      runtime: String(runtime.info.id),
+      sessionId: String(session.id),
+      running: runningOf(ran, live.settings()),
+      label: this.#labelOf(seat.runtime, ran),
+    }
+  }
+
+  /** Hands a seated conversation its standing order: one message, and the whole job is inside its turn. */
+  async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
+    const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+    await live.send([{ type: 'text', text }])
+  }
+
+  /** Closes a conversation a seating opened and will not use, and drops what it was waiting to be asked. */
+  async #retireSeat(runtime: string, sessionId: string): Promise<void> {
+    const id = makeSessionId(sessionId)
+    await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
+    this.registry.get(runtime as RuntimeId, id)?.approvals.clear()
+  }
+
+  /**
+   * Puts one conversation on the model, effort and switches a seat asked for.
+   * What it is *actually* running afterwards is read back by the caller, from
+   * the conversation — `#openSeat`, and a flow's re-arm.
    *
    * Read back rather than assumed, because a runtime drops a pick it declines
    * rather than failing — a seat that believes it is running at an effort it
    * is not is a seat with an unchecked claim on it, and a review signed with
-   * that claim is a review that lies about who wrote it.
+   * that claim is a review that lies about who wrote it. A pick that fails is
+   * logged and the rest still go on: whether that is fatal is the caller's.
    *
    * Applied at seating **and before every re-arm**. A bridge that restarts
    * holds no session state, so a conversation it reopens comes back on the
@@ -2104,7 +2172,7 @@ export class Host {
   async #applySeatPicks(
     live: Awaited<ReturnType<AgentRuntime['createSession']>>,
     seat: { runtime: string; model?: string | null; effort?: string | null; thinking?: boolean },
-  ): Promise<string> {
+  ): Promise<void> {
     for (const [id, value] of Object.entries({
       ...(seat.model ? { model: seat.model } : {}),
       ...(seat.effort ? { effort: seat.effort } : {}),
@@ -2133,9 +2201,16 @@ export class Host {
         })
       })
     }
-    const ran = live.options()
+  }
+
+  /**
+   * What a seat is running, as the desk says it: the runtime, the model and
+   * the effort by the labels the runtime gives them, and `thinking` when it
+   * is on — from the controls as they stand, not as they were asked for.
+   */
+  #labelOf(runtime: string, ran: readonly ConfigOption[]): string {
     return [
-      this.#runtimes.get(seat.runtime)?.info.presentation.name ?? seat.runtime,
+      this.#runtimes.get(runtime)?.info.presentation.name ?? runtime,
       ...['model', 'effort'].map((id) => {
         const option = ran.find((one) => one.id === id)
         if (!option) return null
@@ -2269,6 +2344,19 @@ export class Host {
       this.#sendingNow.delete(recordKey(record))
     }
     let outgoing: AgentEvent = event
+    /* Which Agent a conversation was seated as is the host's to say. A runtime
+       re-announcing its settings, or its whole session, knows nothing of it —
+       or echoes back what a renderer patched in — and a window folding that
+       event would lose the record the host kept, or take one it never made.
+       So it goes out as the host holds it (`seatedSettings`). */
+    if (event.type === 'session/settings') {
+      const settings = seatedSettings(event.settings, record?.seatedAs ?? null)
+      if (settings !== event.settings) outgoing = { ...event, settings }
+    }
+    if (event.type === 'session/started') {
+      const session = seatedSession(event.session, record?.seatedAs ?? null)
+      if (session !== event.session) outgoing = { ...event, session }
+    }
     if (record && event.type === 'turn/completed' && published.length > 0) {
       const kept = record.session.turns.find((turn) => turn.id === event.turn.id)
       const items = withPublications(kept?.items ?? [], published)
