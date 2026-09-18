@@ -1132,8 +1132,19 @@ rather than copy it.
 
 Add tests for each: a `null` model list refuses with the sixth sentence, not
 "does not offer"; a `null` effort list lets the candidate through to seating; a
-session that comes back on a different effort than asked is closed and refused;
-a `+thinking` candidate seated without thinking is closed and refused.
+session that comes back on a different effort than asked is closed and **passed
+over for the next candidate**; a `+thinking` candidate seated without thinking is
+closed and passed over likewise.
+
+**A post-open mismatch moves on; it does not end the seating.** A fact found
+after opening is treated exactly like the same fact found before: the candidate
+is passed over and the next one in `prefer` is tried. Refusing instead would make
+the outcome depend on *when* a fact happens to be knowable, and trying the next
+candidate is not substitution — the Agent asked for it too. Refuse only when
+every candidate has failed, as one list in the Agent's order, so a reader cannot
+tell which checks ran when. The one exception is a failed *brief*: once `send`
+may have reached the conversation, moving on could leave two seats working one
+brief, so that stops the call.
 
 - [ ] **Step 1: Write the failing test**
 
