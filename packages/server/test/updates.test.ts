@@ -5,9 +5,11 @@ import { test } from 'node:test'
 
 import { tempDir } from './scratch.js'
 
-import type { RuntimeInfo } from '@harnessdesk/protocol'
+import type { RuntimeId, RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
 
+import { Host, Logger, StateStore } from '../src/index.js'
 import { UpdateChecker, isNewer, upgradeCommand } from '../src/updates.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 /**
  * The update advisory: a registry dist-tag read, cached for a day, compared
@@ -106,4 +108,141 @@ test('an unreachable registry is a null, not an error, and keeps the last answer
   assert.equal((await checker.updateFor(info({ version: '1.0.0', pkg: 'x' })))?.version, '2.0.0')
   const fresh = new UpdateChecker({ cachePath: join(dir, 'nothing.json'), fetch })
   assert.equal(await fresh.updateFor(info({ version: '1.0.0', pkg: 'x' })), null)
+})
+
+/*
+  The host's half: the notice shown beside a runtime is measured against the
+  build that runtime is on now. "Refresh models" can move a runtime onto an
+  upgrade — `checkInstallation` restarts an idle one onto the build it finds
+  on disk — and a notice measured before that move is about a build that has
+  gone. Seen on 2026-09-18: "Codex 0.155.0", and under it, "Codex 0.155.0 is
+  available".
+*/
+
+const LATEST = '0.155.0'
+const silent = new Logger('test', { level: 'error', console: false })
+
+/** A Codex-shaped fake whose build on disk can change under it, as an upgrade does. */
+const upgradable = (running: string) => {
+  const runtime = new FakeRuntime({ id: 'codex' as RuntimeId, name: 'Codex' })
+  const runOn = (version: string): void => {
+    ;(runtime as { info: RuntimeInfo }).info = {
+      ...runtime.info,
+      version,
+      presentation: {
+        ...runtime.info.presentation,
+        name: 'Codex',
+        install: { command: 'npm i -g @openai/codex', package: '@openai/codex' },
+      },
+    }
+  }
+  runOn(running)
+  let onDisk = running
+  Object.assign(runtime, {
+    // As `CodexRuntime.checkInstallation`: an idle runtime restarts onto the build it finds.
+    checkInstallation: async () => {
+      const from = runtime.info.version
+      if (onDisk === from) return { changed: false }
+      runOn(onDisk)
+      return { changed: true, from, to: onDisk, restarted: true }
+    },
+  })
+  return {
+    runtime,
+    install: (version: string): void => {
+      onDisk = version
+    },
+  }
+}
+
+const deskWith = async (
+  t: { after: (fn: () => Promise<void>) => void },
+  runtime: FakeRuntime,
+  /** What the install service chose for the agent, when a test needs one. */
+  chosen?: string,
+) => {
+  const dir = tempDir('hd-update-host-')
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(dir, 'state.json')),
+    catalogRefreshMs: 0,
+    updates: new UpdateChecker({ cachePath: join(dir, 'update-checks.json'), fetch: registry(LATEST).fetch }),
+    ...(chosen ? { installs: { last: () => ({ chosen: { version: chosen } }) } as never } : {}),
+  })
+  t.after(() => host.dispose())
+  const pushed: WireNotification[] = []
+  host.addBroadcaster((notification) => pushed.push(notification))
+  host.register(runtime)
+  await host.start()
+  const id = runtime.info.id
+  return {
+    refresh: () => host.call('runtime/refreshCatalog', { runtime: id }),
+    /** What a window opening now is given. */
+    shown: async (): Promise<RuntimeInfo> =>
+      (await host.call('host/hello', { clientVersion: 'test' })).runtimes.find((info) => info.id === id)!,
+    /** What a window already open was last told. */
+    told: (): RuntimeInfo | undefined => {
+      const told = pushed.filter(
+        (notification) => notification.method === 'runtime/infoChanged' && notification.params.runtime === id,
+      )
+      const last = told.at(-1)
+      return last?.method === 'runtime/infoChanged' ? last.params.info : undefined
+    },
+  }
+}
+
+const until = async (check: () => boolean | Promise<boolean>, what: string): Promise<void> => {
+  const deadline = Date.now() + 2_000
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+/** Long enough for any second look the host takes to land. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50))
+
+test('an upgrade that "Refresh models" moves a runtime onto takes the notice about it away', async (t) => {
+  const { runtime, install } = upgradable('0.149.0')
+  const desk = await deskWith(t, runtime)
+  await until(async () => (await desk.shown()).update?.version === LATEST, 'the notice for 0.149.0')
+
+  install(LATEST)
+  await desk.refresh()
+  await settle()
+
+  const shown = await desk.shown()
+  assert.equal(shown.version, LATEST)
+  assert.equal(shown.update, undefined, 'a window opening now is told the build it runs is behind itself')
+  assert.equal(desk.told()?.version, LATEST)
+  assert.equal(desk.told()?.update, undefined, 'the open window is told the build it runs is behind itself')
+})
+
+test('a runtime moved onto a build that is still behind is told so again, about the build it is on', async (t) => {
+  const { runtime, install } = upgradable('0.149.0')
+  const desk = await deskWith(t, runtime)
+  await until(async () => (await desk.shown()).update?.version === LATEST, 'the notice for 0.149.0')
+
+  install('0.152.0')
+  await desk.refresh()
+
+  // The same 0.155.0, measured against 0.152.0 now — and the open window hears it.
+  await until(
+    () => desk.told()?.version === '0.152.0' && desk.told()?.update?.version === LATEST,
+    'the notice measured against 0.152.0',
+  )
+  assert.equal((await desk.shown()).update?.version, LATEST)
+})
+
+test('an agent shown with the version its install chose is measured against that version', async (t) => {
+  // A direct agent that calls itself 0.0.0-dev is shown with the version the
+  // install service chose (#354). Measured against the placeholder instead,
+  // every release is newer than it.
+  const { runtime } = upgradable('0.0.0-dev')
+  const desk = await deskWith(t, runtime, LATEST)
+  await settle()
+
+  const shown = await desk.shown()
+  assert.equal(shown.version, LATEST)
+  assert.equal(shown.update, undefined)
 })
