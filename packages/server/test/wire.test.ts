@@ -19,6 +19,7 @@ import {
   type HostParams,
   type HostToClient,
   type Session,
+  type SessionSummary,
 } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
@@ -1667,6 +1668,157 @@ test('worktree RPCs refuse a relative path, even one that leads into an open rep
       })
     })
   }
+})
+
+/** The keys a params type names, and none for an open record such as `Record<string, never>`. */
+type NamedKeys<P> = string extends keyof P ? never : keyof P
+
+/** What a params type's `options` hold, when it has them. */
+type OptionsOf<P> = P extends { readonly options?: infer O } ? NonNullable<O> : never
+
+/** Every method whose `options` name the folder a conversation works in. */
+type ConversationFolderMethod = {
+  [M in HostMethodName]: 'options' extends NamedKeys<HostParams<M>>
+    ? 'cwd' extends NamedKeys<OptionsOf<HostParams<M>>>
+      ? M
+      : never
+    : never
+}[HostMethodName]
+
+/**
+ * What each verb that names a conversation's folder is asked in the test
+ * below: to start one there, or to reopen or fork `held` into it.
+ *
+ * Keyed by every method whose `options` carry a cwd, so a verb added with one
+ * and without a line here fails the build rather than going untested.
+ */
+const RELATIVE_CONVERSATION_ASKS: {
+  readonly [M in ConversationFolderMethod]: (held: Session['id'], cwd: string) => HostParams<M>
+} = {
+  'session/create': (_held, cwd) => ({ runtime: FAKE_RUNTIME_ID, options: { cwd } }),
+  'session/resume': (held, cwd) => ({ runtime: FAKE_RUNTIME_ID, sessionId: held, options: { cwd } }),
+  'session/fork': (held, cwd) => ({ runtime: FAKE_RUNTIME_ID, sessionId: held, options: { cwd } }),
+}
+
+test('a conversation is not started, reopened or forked in a relative folder, even one that leads into a repository', async (t) => {
+  // `session/create` handed its cwd to the runtime as it was spelled, and the
+  // adapters pass it on as given. A conversation's cwd is then an open root,
+  // which every confinement check trusts and reads against the host's working
+  // directory: a repository nobody opened answered `git/status` and
+  // `worktree/list` once a conversation had been started in its relative
+  // spelling. The folder below is that spelling, from this process's working
+  // directory, which is the host's, into a repository nobody opened. The empty
+  // string is refused beside it: Codex reads it as its own working directory,
+  // which is the host's, and that is `/` when the app is started from Finder.
+  // Anything but the refusal is the spelling handed on.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const repo = await mkdtemp(join(tmpdir(), 'hd-session-relative-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  // A conversation to reopen and to fork, working in a folder of its own.
+  const held = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: harness.stateDir },
+  })) as Session
+  const resumes = harness.runtime.resumes
+
+  const spelled = relative(process.cwd(), repo)
+  // The controls: the spelling is relative, it leads from the host's working
+  // directory into the repository, and nothing has opened that repository.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(repo))
+  await assert.rejects(() => client.call('git/status', { root: repo }), /outside every open workspace/)
+
+  for (const [verb, ask] of Object.entries(RELATIVE_CONVERSATION_ASKS)) {
+    await t.test(verb, async () => {
+      for (const cwd of [spelled, '']) {
+        await assert.rejects(() => client.call(verb as HostMethodName, ask(held.id, cwd)), {
+          message: `${cwd} is not an absolute path.`,
+        })
+      }
+    })
+  }
+
+  // The runtime was handed none of them, and nothing was opened: the
+  // repository is still refused. Spelled absolutely, the same folder starts a
+  // conversation and is open from then on, so what was refused was the
+  // spelling.
+  assert.equal(harness.runtime.lastCreateOptions?.cwd, harness.stateDir)
+  assert.equal(harness.runtime.resumes, resumes)
+  await assert.rejects(() => client.call('git/status', { root: repo }), /outside every open workspace/)
+  const started = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: repo },
+  })) as Session
+  assert.equal(started.cwd, repo)
+  assert.equal(((await client.call('git/status', { root: repo })) as { branch?: string | null }).branch, 'main')
+})
+
+test('a folder is an open root only when it is absolute, whoever reports it', async (t) => {
+  // The wire refuses a relative folder before it can become an open root, but
+  // not every root arrives as a request. A conversation's cwd is whatever its
+  // agent reports, and one read or reopened from the agent's store carries the
+  // folder the agent wrote down; the workspaces come back from the state file.
+  // Every check that holds a path to the open roots reads a relative one
+  // against the host's working directory, so each spelling below is the one
+  // that would open the repository: from this process's working directory,
+  // which is the host's, into a repository nobody opened.
+  const repo = await mkdtemp(join(tmpdir(), 'hd-root-relative-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  const spelled = relative(process.cwd(), repo)
+  // The controls: the spelling is relative, and it leads from the host's
+  // working directory into the repository.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(repo))
+  const branchOf = async (client: Client): Promise<string | null | undefined> =>
+    ((await client.call('git/status', { root: repo })) as { branch?: string | null }).branch
+
+  await t.test('a conversation its agent keeps in a relative folder', async (t) => {
+    const harness = await start()
+    t.after(() => stop(harness))
+    const client = await Client.connect(harness.server)
+    t.after(() => client.close())
+    const kept = (id: string, cwd: string): SessionSummary => ({
+      id: sessionId(id),
+      runtime: FAKE_RUNTIME_ID,
+      title: id,
+      preview: null,
+      cwd,
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+    })
+    harness.runtime.history.push(kept('kept-relative', spelled), kept('kept-absolute', repo))
+
+    // Read, it is held with the folder its agent reported, and that opens nothing.
+    const read = (await client.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: 'kept-relative' })) as Session
+    assert.equal(read.cwd, spelled)
+    await assert.rejects(() => branchOf(client), /outside every open workspace/)
+    // Reported absolutely, the same folder is open.
+    await client.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: 'kept-absolute' })
+    assert.equal(await branchOf(client), 'main')
+  })
+
+  await t.test('a workspace the state file remembers by a relative path', async (t) => {
+    const at = await mkdtemp(join(tmpdir(), 'harnessdesk-test-'))
+    await writeFile(join(at, 'state.json'), JSON.stringify({ workspaces: [{ path: spelled }] }))
+    const harness = await start({}, at)
+    t.after(() => stop(harness))
+    const client = await Client.connect(harness.server)
+    t.after(() => client.close())
+
+    await assert.rejects(() => branchOf(client), /outside every open workspace/)
+    // Opened absolutely, the same folder is open.
+    await client.call('workspace/open', { path: repo })
+    assert.equal(await branchOf(client), 'main')
+  })
 })
 
 test('worktree/list refuses a repository nobody opened, and answers for one opened through any of its checkouts', async (t) => {

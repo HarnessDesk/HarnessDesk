@@ -11,8 +11,22 @@ import {
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
+import { assertAbsolute } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
+
+/**
+ * Refuses a folder for a conversation that is not an absolute path, before any
+ * runtime is handed it. The adapters pass a cwd on as given, and an agent reads
+ * a relative one against its own working directory, which it has from this
+ * process: wherever the app happened to be started. Codex reads an empty one
+ * as that directory itself. The conversation's cwd is then an open root, and
+ * every confinement check trusts it. A reopen or a fork that names no folder
+ * keeps the conversation's own.
+ */
+const assertAbsoluteCwd = (options: { readonly cwd?: string } | undefined): void => {
+  if (options?.cwd !== undefined) assertAbsolute(options.cwd)
+}
 
 /**
  * Conversations as the host holds them: listing and search across the
@@ -53,6 +67,7 @@ export const sessionMethods = {
   },
 
   'session/create': async (ctx, params) => {
+    assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
     // Routes resolve here and only here. A client-supplied `route` is
     // discarded: the wire names a route by id, the host exchanges the
@@ -70,6 +85,7 @@ export const sessionMethods = {
   },
 
   'session/resume': async (ctx, params) => {
+    assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
     const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
@@ -114,6 +130,7 @@ export const sessionMethods = {
   },
 
   'session/fork': async (ctx, params) => {
+    assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
     const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -1227,15 +1227,23 @@ export class Host {
    * Where the renderer may read: the workspaces the user opened and the
    * working directories of sessions it is looking at. Everything else is
    * refused before any reader is asked.
+   *
+   * Only those spelled absolutely. Every check that holds a path to these —
+   * `confine`, `#confineGitRoot`, `openRepositoryRoot` — reads a relative one
+   * against this process's working directory, which is no folder anybody
+   * opened. The wire refuses one before it can become a root, but a
+   * conversation's cwd is whatever its agent reports, and one read or reopened
+   * from the agent's store carries the folder the agent wrote down; the
+   * workspaces come back from the state file.
    */
   #openRoots(): string[] {
     return [
       ...this.#state.state.workspaces
         .map((entry) => entry?.path)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0),
+        .filter((path): path is string => typeof path === 'string' && isAbsolute(path)),
       ...this.registry.snapshot()
         .map((session) => session.cwd)
-        .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
+        .filter((cwd): cwd is string => typeof cwd === 'string' && isAbsolute(cwd)),
     ]
   }
 

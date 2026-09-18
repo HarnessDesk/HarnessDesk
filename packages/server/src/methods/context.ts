@@ -224,7 +224,7 @@ export interface HostContext {
   }
 
   readonly workspaces: {
-    /** Every folder a path may be confined to: open workspaces and live conversations' cwds. */
+    /** Every folder a path may be confined to: open workspaces and live conversations' cwds. Absolute paths only. */
     openRoots(): string[]
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
