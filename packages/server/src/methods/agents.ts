@@ -190,8 +190,10 @@ const openAsAsked = async (
  *   desk could add but has not gets no offer at all; one whose id names no
  *   runtime this desk has ever heard of gets an offer that says so, rather
  *   than being read as though it could still be added (`knownAgent`).
- * - **Unavailable** is its own health when that is not ready — too old, crashed,
- *   still starting — in its own words, and an account that would not answer.
+ * - **Unavailable** is its own health when that is not ready — too old,
+ *   crashed, still starting — in its own words.
+ * - **Silent** is its account not answering within the deadline: nothing else
+ *   about the runtime is read, and it is not waited for past it.
  * - **Signed in** is the accounts plane: an account on it, or an agent that keeps
  *   its own credential where the desk cannot see it and so never asks for one.
  * - **Spent** is the usage the desk already reads, judged by the one rule every
@@ -221,10 +223,26 @@ export const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[
     }
   }
   if (runtimes.length === 0) return unknown
-  const deadline = ctx.options.seatReadDeadlineMs ?? SEAT_READ_DEADLINE_MS
-  const reports = await usageWithin(ctx, runtimes, deadline)
-  const offers = await Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline)))
+  const deadline = seatReadDeadline(ctx)
+  // Started, not yet awaited: usage is read for every runtime at once, and
+  // waiting for it here before a single account or model read even begins is
+  // exactly the wait this deadline exists to bound. `offerOf` awaits it only
+  // once it actually needs `reports`, near the end of its own reads, so the
+  // two run concurrently; the explicit await below is what still guarantees
+  // this call does not return — and leave its timer running behind it — before
+  // the usage read has settled one way or the other.
+  const reports = usageWithin(ctx, runtimes, deadline)
+  const [offers] = await Promise.all([
+    Promise.all(runtimes.map((runtime) => offerOf(ctx, runtime, reports, deadline))),
+    reports,
+  ])
   return [...offers, ...unknown]
+}
+
+/** `seatReadDeadlineMs`, held to a deadline a real timer can use: finite and positive, or the default. */
+const seatReadDeadline = (ctx: HostContext): number => {
+  const ms = ctx.options.seatReadDeadlineMs
+  return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms : SEAT_READ_DEADLINE_MS
 }
 
 /**
@@ -235,6 +253,12 @@ export const offersFor = async (ctx: HostContext, candidates: readonly FlowSeat[
  * every seating. A window the desk cannot read now is one the runtime states
  * again on the first turn, and the last reading is still a reading; a runtime
  * with none is not known to be spent, exactly as before a reading exists.
+ *
+ * The fallback is metered runtimes only (`ctx.runtimes.metered`), the same
+ * runtimes the normal path would have reported on: one switched off is never
+ * read for usage at all, so an old cached reading for it — if that runtime
+ * had one before it was switched off — must not be read back in here as
+ * today's answer.
  */
 const usageWithin = async (
   ctx: HostContext,
@@ -243,8 +267,14 @@ const usageWithin = async (
 ): Promise<readonly UsageReport[]> => {
   const read = await within(() => ctx.usage().reports(), deadline)
   if (read.settled === 'value') return read.value
-  ctx.logger.warn('a seating read no usage within its deadline, so the last readings stand in')
+  if (read.settled === 'late') {
+    ctx.logger.warn('a seating read no usage within its deadline, so the last readings stand in', { afterMs: deadline })
+  } else {
+    ctx.logger.warn('a seating could not read usage, so the last readings stand in', { error: String(read.error) })
+  }
+  const metered = new Set(ctx.runtimes.metered().map((runtime) => String(runtime.info.id)))
   return runtimes.flatMap((runtime) => {
+    if (!metered.has(String(runtime.info.id))) return []
     const last = ctx.usage().cached(runtime.info.id)
     return last ? [last] : []
   })
@@ -253,7 +283,7 @@ const usageWithin = async (
 export const offerOf = async (
   ctx: HostContext,
   runtime: AgentRuntime,
-  reports: readonly UsageReport[],
+  reports: Promise<readonly UsageReport[]>,
   deadline: number,
 ): Promise<SeatOffer> => {
   const id = String(runtime.info.id)
@@ -282,10 +312,12 @@ export const offerOf = async (
     }
     signedIn = account.value.accounts.length > 0
   }
-  const report = reports.find((one) => one.runtime === runtime.info.id)
+  const models = await modelsOf(runtime, deadline)
+  const resolved = await reports
+  const report = resolved.find((one) => one.runtime === runtime.info.id)
   return {
     runtime: id,
-    models: await modelsOf(runtime, deadline),
+    models,
     efforts: null,
     signedIn,
     spent: report ? isBlocked(report) : false,

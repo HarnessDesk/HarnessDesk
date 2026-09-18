@@ -42,6 +42,7 @@ import type { OpenedSeat } from '../src/host.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, offersFor } from '../src/methods/agents.js'
 import type { SeatedAs } from '../src/registry.js'
+import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -508,10 +509,14 @@ const rig = async (
     readonly permission?: FlowPermission
     /** Asked for usage, the desk never answers. */
     readonly usageHangs?: boolean
+    /** Asked for usage, the desk fails outright rather than staying silent. */
+    readonly usageFails?: boolean
     /** The last readings the desk already holds, by runtime. */
     readonly cached?: readonly UsageReport[]
     /** How long each read before choosing may take. A second unless a test says otherwise. */
     readonly deadlineMs?: number
+    /** Runtime ids whose usage the person has switched off — left out of `ctx.runtimes.metered()`. */
+    readonly unmetered?: readonly string[]
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -552,11 +557,16 @@ const rig = async (
     runtimes: {
       get: (id: string) => runtimes.get(id),
       infoOf: (runtime: { info: unknown }) => runtime.info,
+      metered: () => [...runtimes.values()].filter((runtime) => !(options.unmetered ?? []).includes(String(runtime.info.id))),
     },
     options: { seatReadDeadlineMs: options.deadlineMs ?? 1_000 },
     logger: { warn: (message: string) => warned.push(message) },
     usage: () => ({
-      reports: async () => (options.usageHangs ? new Promise<never>(() => {}) : (options.reports ?? [])),
+      reports: async () => {
+        if (options.usageHangs) return new Promise<never>(() => {})
+        if (options.usageFails) throw new Error('the usage endpoint timed out')
+        return options.reports ?? []
+      },
       cached: (id: string) => (options.cached ?? []).find((one) => String(one.runtime) === id) ?? null,
     }),
     seats: {
@@ -985,7 +995,7 @@ test('a registered runtime whose program is missing is offered with that said, f
     models: ['m'],
     health: { state: 'unavailable', reason: 'notInstalled', message: 'Gone is not installed on this machine.' },
   })
-  const offer = await offerOf(ctx, runtime as never, [], 1_000)
+  const offer = await offerOf(ctx, runtime as never, Promise.resolve([]), 1_000)
   assert.deepEqual(offer, { runtime: 'gone', notInstalled: true, models: null, efforts: null, signedIn: false, spent: false })
   assert.deepEqual(reasonAgainst({ runtime: 'gone', thinking: false }, [offer]), { kind: 'notInstalled', added: true })
   assert.deepEqual(fixOf('gone', { kind: 'notInstalled', added: true }), { kind: 'install', runtime: 'gone' })
@@ -1468,7 +1478,6 @@ for (const [order, how] of [
  */
 
 test('a runtime that never says whether it is signed in is passed over, and the next candidate is seated', async () => {
-  const started = Date.now()
   const seen = await rig(
     'mute=m1, claude=opus-5',
     { mute: { models: ['m1'], accountHangs: true }, claude: { models: ['opus-5'] } },
@@ -1476,7 +1485,14 @@ test('a runtime that never says whether it is signed in is passed over, and the 
   )
   await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
-  assert.ok(Date.now() - started < 2_000, 'the silent runtime was not waited for')
+  // Not merely "some other candidate was seated" — `mute` specifically was
+  // passed over for staying silent, not for some other, accidental reason
+  // (the deadline that let `agent/seat` above proceed at all is deterministic
+  // proof of this on its own, but a real-clock bound on that is redundant and
+  // was flaky; this checks the reason itself instead).
+  const muted = pretendRuntime('mute', { models: ['m1'], accountHangs: true })
+  const offer = await offerOf(seen.ctx, muted as never, Promise.resolve([]), 30)
+  assert.deepEqual(reasonAgainst({ runtime: 'mute', thinking: false }, [offer]), { kind: 'noAnswer', after: 30 })
 })
 
 test('when the only candidate never answers, the refusal says so and nothing is opened', async () => {
@@ -1493,6 +1509,28 @@ test('when the only candidate never answers, the refusal says so and nothing is 
     },
   )
   untouched(seen)
+})
+
+test('usage and the per-runtime reads run concurrently: the wait is bounded by the slower one, not their sum', async () => {
+  // Both usage and mute's own account read hang to their deadline. Stacked
+  // in front of each other that is 2x the deadline; run at once, about 1x.
+  const seen = await rig('mute=m1', { mute: { models: ['m1'], accountHangs: true } }, { deadlineMs: 150, usageHangs: true })
+  const started = Date.now()
+  await offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }])
+  const took = Date.now() - started
+  assert.ok(took < 260, `offersFor took ${took} ms for a 150 ms deadline — usage was waited for before the read even began`)
+})
+
+test('a seatReadDeadlineMs that is not a real deadline falls back to the ten-second default', async (t) => {
+  // -5 is neither finite-and-positive nor left unset, so `?? SEAT_READ_DEADLINE_MS`
+  // alone would pass it straight through to a real timer.
+  const seen = await rig('mute=m1', { mute: { models: ['m1'], accountHangs: true } }, { deadlineMs: -5 })
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const offers = offersFor(seen.ctx, [{ runtime: 'mute', model: 'm1', thinking: false }])
+  t.mock.timers.tick(SEAT_READ_DEADLINE_MS)
+  assert.deepEqual(await offers, [
+    { runtime: 'mute', silent: SEAT_READ_DEADLINE_MS, models: null, efforts: null, signedIn: false, spent: false },
+  ])
 })
 
 test('a model list that never arrives is unread, and a candidate that names no model is still seated', async () => {
@@ -1517,4 +1555,33 @@ test('usage that never arrives holds no seating: the last reading stands in, and
   // Spent by the last reading, so passed over; claude has no reading, so is not known to be spent.
   assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
   assert.deepEqual(seen.warned, ['a seating read no usage within its deadline, so the last readings stand in'])
+})
+
+test('usage that fails outright holds no seating either: the last reading stands in, and the log names the failure', async () => {
+  const seen = await rig(
+    'spent=m1, claude=opus-5',
+    { spent: { models: ['m1'] }, claude: { models: ['opus-5'] } },
+    { deadlineMs: 30, usageFails: true, cached: [reportFor('spent', [{ usedPercent: 100 }])] },
+  )
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+  // A distinct message from the "late" branch above: this one failed outright.
+  assert.deepEqual(seen.warned, ['a seating could not read usage, so the last readings stand in'])
+})
+
+test('a runtime whose usage is switched off is not passed over as spent from an old reading', async () => {
+  const seen = await rig(
+    'silenced=m1, claude=opus-5',
+    { silenced: { models: ['m1'] }, claude: { models: ['opus-5'] } },
+    {
+      deadlineMs: 30,
+      usageHangs: true,
+      unmetered: ['silenced'],
+      cached: [reportFor('silenced', [{ usedPercent: 100 }])],
+    },
+  )
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  // `silenced` is first in `prefer`: were its old 100% reading consulted, it
+  // would be passed over as spent and `claude` seated instead.
+  assert.deepEqual(seen.created, [{ runtime: 'silenced', model: 'm1', cwd: '/tmp/x' }])
 })

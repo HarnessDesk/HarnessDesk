@@ -63,10 +63,11 @@ export interface SeatOffer {
   readonly unknownRuntime?: boolean
   /**
    * Why it cannot open a conversation right now, in its own words — too old,
-   * crashed, still starting, an account it would not answer about — or absent
-   * when it can. Not installed is not this: that is either no offer at all, or
-   * one that says so itself (`notInstalled`). When it is set, the rest of the
-   * offer is not consulted, and need not have been read.
+   * crashed, still starting — or absent when it can. Not installed is not
+   * this: that is either no offer at all, or one that says so itself
+   * (`notInstalled`). Nor is a runtime that answered nothing (`silent`) —
+   * that is silence, not a reason. When it is set, the rest of the offer is
+   * not consulted, and need not have been read.
    */
   readonly unavailable?: string | null
   /**
@@ -133,7 +134,10 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): Sea
   if (offer.unknownRuntime) return { kind: 'unknownRuntime' }
   if (offer.notInstalled) return { kind: 'notInstalled', added: true }
   if (offer.unavailable) return { kind: 'unavailable', detail: quoted(offer.unavailable) }
-  if (offer.silent) return { kind: 'noAnswer', after: offer.silent }
+  // `!= null`, not truthiness: a deadline of 0ms is a real (if silly) deadline,
+  // and falling through would read the placeholder `signedIn: false` as a
+  // signed-out runtime instead of one that never answered.
+  if (offer.silent != null) return { kind: 'noAnswer', after: offer.silent }
   /* Before anything the candidate asked for: signed out, a runtime may list no
      models at all, and "does not offer" would then send the reader to change a
      spec that was right. */

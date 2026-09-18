@@ -7,6 +7,7 @@ import {
   chooseSeat,
   differences,
   differencesOf,
+  durationWords,
   explainRefusal,
   fixOf,
   openedOtherwise,
@@ -331,10 +332,13 @@ test('a seat that asks for thinking off is held to it — the allowance for a mo
 
 test('every reason carries what removes it, and the sentence is unchanged', () => {
   const chosen = chooseSeat(
-    ['ghost=m1', 'gone=m1', 'old=m1', 'out=m1', 'spent=m1', 'unread=m1', 'cursor=nope', 'cursor=m1/xhigh'].map(written),
+    ['ghost=m1', 'gone=m1', 'old=m1', 'mute=m1', 'out=m1', 'spent=m1', 'unread=m1', 'cursor=nope', 'cursor=m1/xhigh'].map(
+      written,
+    ),
     [
       offer('gone', { notInstalled: true }),
       offer('old', { unavailable: 'Old 0.1 is too old.' }),
+      offer('mute', { silent: 30 }),
       offer('out', { signedIn: false }),
       offer('spent', { spent: true }),
       offer('unread', { models: null }),
@@ -348,6 +352,7 @@ test('every reason carries what removes it, and the sentence is unchanged', () =
       [{ kind: 'notInstalled', added: false }, { kind: 'add', runtime: 'ghost' }],
       [{ kind: 'notInstalled', added: true }, { kind: 'install', runtime: 'gone' }],
       [{ kind: 'unavailable', detail: 'Old 0.1 is too old' }, { kind: 'runtime', runtime: 'old' }],
+      [{ kind: 'noAnswer', after: 30 }, { kind: 'runtime', runtime: 'mute' }],
       [{ kind: 'signedOut' }, { kind: 'signIn', runtime: 'out' }],
       [{ kind: 'spent' }, { kind: 'usage', runtime: 'spent' }],
       [{ kind: 'modelsUnread', model: 'm1' }, { kind: 'runtime', runtime: 'unread' }],
@@ -362,6 +367,7 @@ test('every reason carries what removes it, and the sentence is unchanged', () =
       'ghost is not installed',
       'gone is not installed',
       'old is unavailable: Old 0.1 is too old',
+      'mute did not answer within 30 ms when asked whether it is signed in',
       'out is signed out',
       "spent's window is spent",
       'cannot tell whether unread offers m1: its model list could not be read',
@@ -410,6 +416,24 @@ test('an id nothing knows is its own reason, fixed by editing the seats — neve
   })
   assert.equal(sentenceOf('praxis', { kind: 'unknownRuntime' }), 'praxis does not name a runtime this desk knows')
   assert.deepEqual(fixOf('praxis', { kind: 'unknownRuntime' }), { kind: 'seats' })
+})
+
+test('a silent offer of 0ms is still a reason of its own, not read as the placeholder "signed out"', () => {
+  // `silent` is a deadline, and 0 is a real (if silly) one: `!signedIn` must
+  // not win just because `0` is falsy.
+  assert.deepEqual(reasonAgainst(written('cursor'), [offer('cursor', { silent: 0, signedIn: false })]), {
+    kind: 'noAnswer',
+    after: 0,
+  })
+})
+
+test('durationWords says milliseconds under a second and rounds to whole seconds above it', () => {
+  assert.equal(durationWords(30), '30 ms')
+  assert.equal(durationWords(999), '999 ms')
+  assert.equal(durationWords(1_000), '1 second')
+  assert.equal(durationWords(1_499), '1 second')
+  assert.equal(durationWords(1_500), '2 seconds')
+  assert.equal(durationWords(10_000), '10 seconds')
 })
 
 /*
