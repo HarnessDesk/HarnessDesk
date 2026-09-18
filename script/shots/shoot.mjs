@@ -34,6 +34,7 @@ import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, make
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
+import { runScene } from './scene.mjs'
 import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
@@ -1270,10 +1271,10 @@ rules:
     const scene = SCENES[name]
     if (!scene) throw new Error(`no scene "${name}" — have ${Object.keys(SCENES).join(', ')}`)
     say(`— ${name}`)
-    try {
-      if (scene.leaveOverlay) await leaveOverlay()
-      await scene.run()
-      for (const theme of THEMES) {
+    await runScene(scene, {
+      leaveOverlay,
+      themes: THEMES,
+      photograph: async (theme) => {
         await setTheme(theme)
         if (!scene.hover && !scene.keepPointer) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
         if (scene.hover) {
@@ -1286,11 +1287,8 @@ rules:
           }
         }
         await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
-      }
-    } finally {
-      // A scene that bent an agent's history puts it back, whether or not it got its frames.
-      await scene.finish?.()
-    }
+      },
+    })
   }
   if (has('interactive')) {
     say('Isolated app ready for native interaction. Press Return here to close it.')
