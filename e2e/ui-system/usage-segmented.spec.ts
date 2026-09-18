@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [1440, 980]) {
@@ -88,30 +88,130 @@ for (const theme of ['light', 'dark'] as const) {
   }
 }
 
+/** What the ink has to reach against what it is drawn on: a glyph's 3, text's 4.5. */
+const floorOf = (part: string) => part.includes('acctMark') ? 3 : 4.5
+
+/**
+ * Override fixture data at its module boundary; Usage still renders the real
+ * accounts, selection state, tones and no-meter subline.
+ */
+async function stageAccounts(page: Page) {
+  await page.route('**/src/preview/sidebar-fixture.ts*', async route => {
+    const response = await route.fetch()
+    await route.fulfill({
+      response,
+      body: `${await response.text()}\n{
+        const templates = [...previewUsage];
+        previewUsage.splice(0, previewUsage.length, ...[
+          ['normal', 22], ['warning', 90], ['bad', 100], ['no-meter', null]
+        ].map(([state, usedPercent], index) => ({
+          ...templates[index],
+          account: state + '@example.com',
+          credits: null,
+          reached: null,
+          lanes: usedPercent === null ? [] : [{ ...templates[index].lanes[0], usedPercent }],
+        })));
+      }`,
+    })
+  })
+}
+
+/**
+ * Read an account row's ink against what it is drawn on, once nothing on the
+ * page is still moving.
+ *
+ * A transition holds its property at the old value until the next animation
+ * frame starts it, so a read straight after a change can be the ink from
+ * before it. Selecting a row is one transition for each element that changes:
+ * the button's fill, and the colour of each child that takes the selected ink
+ * (`.acctMark`, `.acctFigure`, `.acctSub`). The suite runs with motion
+ * reduced, and app.css used to answer that with a 0.01ms `transition-duration`
+ * on every element (#785), which made all of them transitions. This spec
+ * waited on `node.getAnimations()`, which lists only the button's own. On a
+ * quiet machine those end together with the children's, so it passed there,
+ * but nothing makes them. CI read the fill already the selected one and the
+ * ink still the unselected one (run 35386407892, #792): a no-meter row's mark,
+ * figure and sub at 2.916, which is `--hd-muted-foreground` on `--hd-active`
+ * to three decimals, where the selected ink reads 4.614. The rule is zero now
+ * and starts no transition, but a declared delay still starts one, and so does
+ * any motion a test turns back on, so the wait still has to be on what is
+ * read. The read also paints every ancestor's background under the text, so it
+ * is the document's rather than the row's subtree, which
+ * `getAnimations({ subtree: true })` would leave out.
+ *
+ * So wait for the transitions themselves. `getAnimations()` flushes style
+ * before it answers, which lists the ones the click has only just made; ask
+ * again after each batch finishes, since one can hand over to the next. The
+ * read comes in the turn the last look found nothing running, so nothing can
+ * start between them. That is why the wait and the read are one function, not
+ * a helper the read calls: the page runs only what `evaluate` sends it. The
+ * wait is bounded, and the bound can wake it: an animation that outlasts
+ * `within`, or whose timeline never advances, fails the read by name rather
+ * than holding it until the test's own timeout.
+ */
+async function inkOf(account: Locator, within = 10_000) {
+  return account.evaluate(async (node, within) => {
+    const deadline = performance.now() + within
+    for (;;) {
+      // Paused and endless animations never finish; only the rest can settle.
+      const moving = document.getAnimations().filter(animation =>
+        animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
+      if (moving.length === 0) break
+      const remaining = deadline - performance.now()
+      if (remaining <= 0) {
+        const names = moving.map(animation =>
+          (animation as CSSTransition).transitionProperty ?? (animation as CSSAnimation).animationName ?? (animation.id || 'an animation'))
+        throw new Error(`still moving after ${within}ms: ${names.join(', ')}`)
+      }
+      // Until the batch finishes or the bound comes, whichever is first. A
+      // transition the next change interrupts rejects; either way the next
+      // pass asks again, so a batch that ends as the bound lands is read, and
+      // only what is still running then is named.
+      let timer = 0
+      await Promise.race([
+        Promise.all(moving.map(animation => animation.finished.catch(() => undefined))),
+        new Promise(resolve => {
+          timer = window.setTimeout(resolve, remaining)
+        }),
+      ])
+      window.clearTimeout(timer)
+    }
+    const context = document.createElement('canvas').getContext('2d')!
+    const stack: Element[] = []
+    for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) stack.unshift(ancestor)
+    const paint = (color: string) => {
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+    }
+    const luminance = (rgb: Uint8ClampedArray) => {
+      const channels = [...rgb].slice(0, 3).map(channel => {
+        const value = channel / 255
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+      })
+      return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+    }
+    return [...node.querySelectorAll('[class*="acctMark"], [class*="acctName"], [class*="acctFigure"], [class*="acctSub"]')].map(child => {
+      context.clearRect(0, 0, 1, 1)
+      for (const ancestor of stack) paint(getComputedStyle(ancestor).backgroundColor)
+      const background = luminance(context.getImageData(0, 0, 1, 1).data)
+      const color = getComputedStyle(child).color
+      paint(color)
+      const foreground = luminance(context.getImageData(0, 0, 1, 1).data)
+      return {
+        part: child.className,
+        text: child.textContent,
+        color,
+        ratio: (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05),
+      }
+    })
+  }, within)
+}
+
 for (const [look, theme] of [
   ['desk', 'light'], ['desk', 'dark'], ['studio', 'light'], ['studio', 'dark'],
 ] as const) {
   test(`${look} selected account text meets AA in ${theme}`, async ({ page }, testInfo) => {
-    // Override fixture data at its module boundary; Usage still renders the
-    // real accounts, selection state, tones and no-meter subline.
-    await page.route('**/src/preview/sidebar-fixture.ts*', async route => {
-      const response = await route.fetch()
-      await route.fulfill({
-        response,
-        body: `${await response.text()}\n{
-          const templates = [...previewUsage];
-          previewUsage.splice(0, previewUsage.length, ...[
-            ['normal', 22], ['warning', 90], ['bad', 100], ['no-meter', null]
-          ].map(([state, usedPercent], index) => ({
-            ...templates[index],
-            account: state + '@example.com',
-            credits: null,
-            reached: null,
-            lanes: usedPercent === null ? [] : [{ ...templates[index].lanes[0], usedPercent }],
-          })));
-        }`,
-      })
-    })
+    await stageAccounts(page)
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
@@ -120,44 +220,57 @@ for (const [look, theme] of [
       const account = dashboard.locator(`nav button[title$="${state}@example.com"]`)
       await account.click()
       await expect(account).toHaveAttribute('data-selected', '')
-      // Wait for the canonical selection-color transition before measuring.
-      await account.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)))
-      const measurements = await account.evaluate(node => {
-        const context = document.createElement('canvas').getContext('2d')!
-        const stack: Element[] = []
-        for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) stack.unshift(ancestor)
-        const paint = (color: string) => {
-          context.fillStyle = color
-          context.fillRect(0, 0, 1, 1)
-        }
-        const luminance = (rgb: Uint8ClampedArray) => {
-          const channels = [...rgb].slice(0, 3).map(channel => {
-            const value = channel / 255
-            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-          })
-          return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
-        }
-        return [...node.querySelectorAll('[class*="acctMark"], [class*="acctName"], [class*="acctFigure"], [class*="acctSub"]')].map(child => {
-          context.clearRect(0, 0, 1, 1)
-          for (const ancestor of stack) paint(getComputedStyle(ancestor).backgroundColor)
-          const background = luminance(context.getImageData(0, 0, 1, 1).data)
-          const color = getComputedStyle(child).color
-          paint(color)
-          const foreground = luminance(context.getImageData(0, 0, 1, 1).data)
-          return {
-            part: child.className,
-            text: child.textContent,
-            color,
-            ratio: (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05),
-          }
-        })
-      })
+      const measurements = await inkOf(account)
       await testInfo.attach(`selected-${state}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
       await account.screenshot({ path: testInfo.outputPath(`selected-${state}.png`) })
       for (const measurement of measurements) {
-        const minimum = measurement.part.includes('acctMark') ? 3 : 4.5
-        expect.soft(measurement.ratio, `${state}: ${measurement.text || 'mark'}`).toBeGreaterThanOrEqual(minimum)
+        expect.soft(measurement.ratio, `${state}: ${measurement.text || 'mark'}`).toBeGreaterThanOrEqual(floorOf(measurement.part))
       }
     }
   })
 }
+
+test('selected account ink waits for a child transition that the row does not carry', async ({ page }) => {
+  await stageAccounts(page)
+  await page.goto('/preview.html')
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('light')
+  await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption('desk')
+  const parts = '[class*="acctMark"], [class*="acctFigure"], [class*="acctSub"]'
+  // The reduced-motion rule starts no transition for an element that declares
+  // none, and a declared delay still starts one. That holds the children where
+  // CI found them: each child's colour change is a transition of its own, made
+  // with the selection and held at the unselected ink, while the row has none
+  // of its own. It is long enough that no stall can end it.
+  await page.addStyleTag({ content: `${parts} { transition-delay: 30s !important }` })
+  const account = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('nav button[title$="no-meter@example.com"]')
+  const inks = () => account.locator(parts).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color))
+  // Nothing moves once this returns, so what follows is the ink the row rests on.
+  await inkOf(account)
+  const unselected = await inks()
+  await account.click()
+  await expect(account).toHaveAttribute('data-selected', '')
+
+  // The control: what this spec once waited on, the row's own animations, has
+  // nothing in it while every child still holds the unselected ink. A read
+  // here is the CI failure with no rig.
+  await account.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)))
+  expect(await inks()).toEqual(unselected)
+
+  // The wait sees them: they are still running, so a bounded read gives up by
+  // name instead of returning the unselected ink.
+  await expect(inkOf(account, 300)).rejects.toThrow(/still moving after 300ms:.*\bcolor\b/)
+
+  // And when they finish the wait comes back, on the ink they landed on. The
+  // release comes while the wait is under way, so a wait that returned early
+  // would read the held ink and miss the floors. It lets go of the whole
+  // page's: the row that lost the selection holds its own colour change the
+  // same way.
+  await page.evaluate(() => {
+    window.setTimeout(() => {
+      for (const animation of document.getAnimations()) animation.effect?.updateTiming({ delay: 0 })
+    }, 200)
+  })
+  for (const measurement of await inkOf(account)) {
+    expect(measurement.ratio, measurement.text || 'mark').toBeGreaterThanOrEqual(floorOf(measurement.part))
+  }
+})
