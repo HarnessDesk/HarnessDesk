@@ -255,7 +255,8 @@ armed waits to be armed again, the same rule a command from a repository follows
 ceiling is **held**, never merely asked — see the permission section.
 
 **Why the word.** The first draft called this a *binding*. That word is taken:
-the usage dashboard's *binding lane* is the one with the least left. *Trigger*
+the usage code already calls the lane a summary leads with its *binding lane*
+(`bindingLane`). *Trigger*
 is what [docs/flows.md](../../flows.md) already calls this ladder of sources, so
 the reader meets one word for it everywhere.
 
@@ -775,7 +776,8 @@ rules:
 
 ```yaml
 # .harnessdesk/triggers.yml
-- on: pull-request
+- id: blind-review
+  on: pull-request
   events: [opened, pushed]
   opens: { flow: review-pr }
   concurrency: 4
@@ -820,7 +822,8 @@ rules:
 
 ```yaml
 # .harnessdesk/triggers.yml
-- on: issue
+- id: agent-ready-issues
+  on: issue
   events: [labelled]
   label: agent-ready
   opens: { flow: implement-and-review }

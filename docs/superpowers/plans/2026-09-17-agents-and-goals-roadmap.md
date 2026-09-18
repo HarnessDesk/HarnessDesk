@@ -11,9 +11,11 @@ spec disagree, the spec is right and this is a bug.*
 ## How to read it
 
 - **Numbered in the order recommended; the Needs line is the real
-  constraint.** Phase 4 needs only phase 1, so it can go before 2 and 3;
-  provenance can run beside flows, findings and intake; 11 and 12 need only
-  what their lines name.
+  constraint.** Phases 3 and 4 each need only phase 2, so either can go first;
+  provenance needs only 2 and 4, so it can run beside 5 to 8; 11 and 12 need
+  only what their lines name. A phase needs every phase whose surface it adds
+  to or whose noun its "Done when" uses, not only the one whose mechanism it
+  extends.
 - **Every phase ships something a person can reach.** Its configuration, the
   settings that change it, and a surface that shows its noun truthfully are
   part of the phase, not a later one — the roster lands with the Agent, the
@@ -38,15 +40,15 @@ app that means it is **done**; and what it **needs**.
 | 1 | **Agents foundation** — [#770](https://github.com/HarnessDesk/HarnessDesk/pull/770) | `AGENT.md` in a project and in `~/.harnessdesk/agents/` | — | — (the verbs are pinned unreached) | — |
 | 2 | **Agents in the app** | Agents that ship with the app; `seating.json` | **Agents** (new: the roster); **Runtimes** (today's Agents page); a page per project | Start as an Agent; the refusal sheet; Save as Agent; Agents in a room | 1 |
 | 3 | **Ceilings that hold** | `read · edit · publish · merge` | Permissions › Ceilings; what to do when one cannot be held | *held* or *asked* on every seat; refusals as sentences | 2 |
-| 4 | **The evidence ledger** | `checks.yml` | A project's checks; Backup carries the records | Evidence on cards, stale drawn; columns from facts; the Seat record | 1 |
-| 5 | **Goal** | Lanes | Workspaces › Lanes; Goal notifications | Goals in the sidebar; starting one; wrap and its receipt | 4 |
+| 4 | **The evidence ledger** | `checks.yml` | A project's checks; Backup carries the records | Evidence on cards, stale drawn; columns from facts; the Seat record | 2 |
+| 5 | **Goal** | Lanes | Workspaces › Lanes; Goal notifications | Goals in the sidebar; starting one; wrap and its receipt | 2, 4 |
 | 6 | **Flows on the new nouns** | `uses`, `grant`, `evidence:`; the flow migration | A project's flows | A dry run by Agent, seat and ceiling; *Update…* with the diff | 3, 4, 5 |
 | 7 | **The findings ledger** | `budget.rounds`, `without-progress`; posting to the pull request | — | Findings in the Goal; the repair delta; the embargo; the person at the ceiling | 6 |
 | 8 | **Intake** | `triggers.yml`; arming per machine | A project's triggers; pause and cap; skipped-trigger notices | Goals that opened themselves; named stop reasons | 3, 5, 6, 7 |
-| 9 | **Provenance** | Capture, per project | A project's provenance | The Seat on a commit; ambiguity shown | 4 |
+| 9 | **Provenance** | Capture, per project | A project's provenance | The Seat on a commit; ambiguity shown | 2, 4 |
 | 10 | **The front door** | Writes the same files | The Agent page becomes an editor; *New Agent* | Start with a team; *Review with…*; the flow it wrote; the first run | 2–8 |
 | 11 | **Insight** | — | — | What a Goal cost, by Agent, seat, load and delegation | 4, 5 |
-| 12 | **Shared memory, skills and MCP** | `mcp:`; `NOTES.md`; `.harnessdesk/memory/` | The Library by Agent; an Agent's skills and servers | What an Agent carries, and what did not load | 2 |
+| 12 | **Shared memory, skills and MCP** | `mcp:`; `NOTES.md`; `.harnessdesk/memory/` | The Library by Agent; an Agent's skills and servers | What an Agent carries, and what did not load | 2, 5 |
 
 ## Where configuration lives
 
@@ -346,7 +348,8 @@ and a team started in two clicks both need ceilings that hold.
 and fresh again when the check re-runs; and a closed conversation's Seat record
 is still there after a restart.
 
-**Needs.** 1. It records whatever 2 and 3 know, if they have landed.
+**Needs.** 2, whose project page is where the checks are listed. It records
+whatever 3 knows, if it has landed.
 
 ### 5. Goal
 
@@ -404,7 +407,7 @@ chat and members intact; a Goal wraps into a receipt and leaves the project's
 open list; and two isolated Seats run the same dev server at once, on different
 ports.
 
-**Needs.** 4.
+**Needs.** 2 and 4.
 
 ### 6. Flows on the new nouns
 
@@ -549,7 +552,7 @@ together as one pull-request review; and a budget stop is named on the Goal.
 through amend, rebase and squash; capture health per project.
 
 **Configuration.** Capture on or off per project, a machine preference, on by
-default for a project with Goals.
+default.
 
 **Settings.** A project's page gains **Provenance**: *healthy*, *degraded* or
 *stopped*, with the reason and the next step.
@@ -565,7 +568,7 @@ default for a project with Goals.
 **Done when.** A commit a Seat made, then amended and squash-merged, still
 resolves to that Seat and its session.
 
-**Needs.** 4. It can run beside 6, 7 and 8.
+**Needs.** 2 and 4. It can run beside 5 to 8.
 
 ### 10. The front door
 
@@ -629,8 +632,9 @@ never spread.
 - An Agent's page shows what each of its seats has cost it on this machine.
   *Order by cost* rewrites the machine's override, never the committed `prefer`.
 
-**Done when.** UC2's receipt shows each competitor's tokens beside its diff, and
-the loser's seat can be moved down this machine's order from the Agent's page.
+**Done when.** A wrapped Goal's receipt shows what each of its Seats cost, with
+anything the desk could not attribute as a slice of its own; and a seat that
+cost more can be moved down this machine's order from the Agent's page.
 
 **Needs.** 4, 5.
 
@@ -659,8 +663,8 @@ never a silent omission.
 can load it and shows it as not loaded on one that cannot; and a fact one Goal
 wrote to the project's memory is cited by revision in the next.
 
-**Needs.** 2. It is best after 11, which measures what carrying each skill and
-server costs.
+**Needs.** 2 and 5, because shared memory is cited from one Goal to the next.
+It is best after 11, which measures what carrying each skill and server costs.
 
 ## When each use case first runs
 
