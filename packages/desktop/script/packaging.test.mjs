@@ -70,3 +70,13 @@ test('the packaged smoke awaits forced exit before removing isolated state', () 
   assert.match(smoke, /child\.kill\('SIGKILL'\)\s*\n\s*await waitForExit\(3000\)/)
   assert.match(smoke, /maxRetries:\s*10/)
 })
+
+test('the built-in Agents are part of the server package, so a packaged app carries them', () => {
+  const server = JSON.parse(readFileSync(new URL('../../server/package.json', import.meta.url), 'utf8'))
+  assert.ok(
+    (server.files ?? []).includes('agents'),
+    '@harnessdesk/server must list "agents" in its files: the shipped Agents live in ' +
+      'packages/server/agents, and a packaged app without them lists no built-in Agent at all.',
+  )
+  assert.match(smoke, /agent\/list/, 'the packaged smoke asks the built app for its Agents')
+})
