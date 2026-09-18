@@ -64,6 +64,20 @@ const UPDATE = process.env.UPDATE_METRICS === '1'
  * each sheet's own rule count, since a sheet whose rules are replaced in
  * place (a CSS-module hot update, elsewhere in this pipeline) would pass the
  * old count-only check without ever having stopped changing.
+ *
+ * Review on that fix (PR #767) found the loop below still exited as soon as
+ * any two consecutive samples matched, which a richer fingerprint cannot fix
+ * on its own: a value that has not changed *yet* is not a value that will
+ * not change, and two samples one frame apart only rule out the first kind.
+ * The reviewer's own repro made this concrete — a case starting at 16px
+ * whose real, 14px stylesheet lands 100ms later read as "settled" at 16px
+ * after 18ms, because nothing had changed in the one frame gap the old loop
+ * happened to check. So settling is no longer "the last two samples agree";
+ * it is "no sample has disagreed for a real stretch of wall-clock time",
+ * tracked below by resetting the stability clock on every change and only
+ * returning once it has been quiet for `STABLE_MS`. `settle waits out a
+ * style update that lands after it looked stable` (below) pins this down
+ * with the reviewer's own scenario.
  */
 const settle = async (page: import('@playwright/test').Page) => {
   await page.evaluate(async () => {
@@ -88,18 +102,57 @@ const settle = async (page: import('@playwright/test').Page) => {
         .join(',')
       return `${sheets}|${body.fontSize}|${body.fontFamily}|${body.backgroundColor}|${cases}`
     }
-    let previous = ''
-    // 120, not 60: a wider margin for a slow cold runner, on top of — not
-    // instead of — the fingerprint fix above.
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      const current = fingerprint()
-      if (current === previous) return
-      previous = current
+    const STABLE_MS = 300 // comfortably past the 100ms delay the review reproduced
+    const TIMEOUT_MS = 6000
+    const start = performance.now()
+    let previous = fingerprint()
+    let stableSince = start
+    while (true) {
       await frame()
+      const now = performance.now()
+      const current = fingerprint()
+      if (current !== previous) {
+        previous = current
+        stableSince = now
+      } else if (now - stableSince >= STABLE_MS) {
+        return
+      }
+      if (now - start >= TIMEOUT_MS) throw new Error(`stylesheets never settled: ${current}`)
     }
-    throw new Error(`stylesheets never settled: ${fingerprint()}`)
   })
 }
+
+/**
+ * The exact race a reviewer found in `settle()` (see the comment above it):
+ * a case that reads one value, keeps it for a single frame, then changes to
+ * its real value 100ms later. A `settle()` that declares victory on the
+ * first repeated sample reads the page here as 16px; this only passes
+ * against the version that waits out a real stretch of quiet.
+ */
+test('settle waits out a style update that lands after it looked stable', async ({ page }) => {
+  await page.setContent(`
+    <!doctype html>
+    <html>
+      <body>
+        <!-- No inline style: it would out-specificity the stylesheet rule
+             below forever, which would make this fixture pass for the wrong
+             reason. Starting unstyled means the browser's 16px default is
+             the honest stand-in for "before the app's CSS has arrived". -->
+        <div data-catalog-size="probe"></div>
+        <script>
+          setTimeout(() => {
+            const style = document.createElement('style')
+            style.textContent = '[data-catalog-size] { font-size: 14px }'
+            document.head.appendChild(style)
+          }, 100)
+        </script>
+      </body>
+    </html>
+  `)
+  await settle(page)
+  const fontSize = await page.locator('[data-catalog-size]').evaluate(node => getComputedStyle(node).fontSize)
+  expect(fontSize).toBe('14px')
+})
 
 test('every catalogued case composes to the recorded number', async ({ page }, testInfo) => {
   await page.goto('/design.html?view=coverage')
