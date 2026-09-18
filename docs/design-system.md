@@ -725,6 +725,13 @@ A HarnessDesk menu level. Base UI owns item collection, roving focus,
 selection, Escape and submenu coordination; this wrapper carries the
 product-level close callback used by async actions.
 
+Tab and Shift+Tab leave a menu and close every level of it (WAI-ARIA APG,
+menu pattern). The menu stands in the tab order just after its trigger,
+where Base UI places a Popover: Tab moves on to what follows the trigger,
+and Shift+Tab goes back to the trigger, as Escape does. A panel of plain
+buttons in a menu keeps Tab for going from one to the next, and leaves by
+it after the last.
+
 ### `MenuToggle`
 
 `packages/ui/src/design/patterns/Menu.tsx`
