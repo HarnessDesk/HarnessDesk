@@ -60,10 +60,11 @@ const announced = (runtime: AcpRuntime) => {
  * before the agent has answered at all. The adapter reads what the agent
  * writes in order and closes the turn on its reply, so a closed turn means
  * everything the agent sent during it has been read. The deadline is a
- * ceiling for a turn that never closes, not a budget for a slow one.
+ * ceiling for a turn that never closes, not a budget for a slow one; only the
+ * test of this wait itself shortens it.
  */
-const closed = async (runtime: AcpRuntime, session: SessionId, turn: TurnId): Promise<Turn> => {
-  const deadline = Date.now() + 10_000
+const closed = async (runtime: AcpRuntime, session: SessionId, turn: TurnId, ceilingMs = 10_000): Promise<Turn> => {
+  const deadline = Date.now() + ceilingMs
   for (;;) {
     const found = (await runtime.readSession(session)).turns.find(({ id }) => id === turn)
     if (found && found.status !== 'inProgress') return found
@@ -126,6 +127,20 @@ test('an agent with no such concept has no capability and no registry', async (t
   assert.equal(turn.status, 'completed')
   assert.equal(runtime.info.capabilities.backgroundTasks, false)
   assert.equal(runtime.tasks, undefined)
+})
+
+test('the wait for a turn to close holds while the turn is open, and names it when it never closes', async (t) => {
+  // The control for the test above, which is only as good as this wait: an
+  // agent that leaves a turn open must be reported at the ceiling, not read
+  // as closed, and the same wait must return once the turn does end.
+  const runtime = make()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: '/tmp/acp-tasks' })
+  const sent = await session.send([{ type: 'text', text: 'slow' }])
+  await assert.rejects(closed(runtime, session.id, sent, 200), /never closed; it is inProgress/)
+  await session.interrupt()
+  assert.equal((await closed(runtime, session.id, sent)).status, 'interrupted')
 })
 
 test('a list pushed without the declaration is still believed', async (t) => {
