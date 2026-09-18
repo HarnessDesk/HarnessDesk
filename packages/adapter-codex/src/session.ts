@@ -25,6 +25,7 @@ import {
 
 import { automaticContext, contextPreamble, type ToolProjection } from './capabilities.js'
 import type { ApprovalRouter } from './approvals.js'
+import { undoTurns } from './history.js'
 import {
   sameSandbox,
   sessionOptions,
@@ -588,9 +589,13 @@ export class CodexSession implements AgentSession {
   /**
    * Drops the last `turns` turns. Codex changes the thread; the files it
    * wrote stay on disk, which the interface warns about before calling.
+   *
+   * With the verb the thread's history takes (`undoTurns`): `thread/rollback`
+   * is refused a paginated thread — every thread Codex has started since
+   * 0.151.0 — after a deprecation notice, so Undo failed there under two toasts.
    */
   async rollback(turns: number): Promise<void> {
-    await this.deps.server.request('thread/rollback', { threadId: this.id, numTurns: turns })
+    await undoTurns(this.deps.server, this.deps.thread, turns)
   }
 
   async compact(): Promise<void> {

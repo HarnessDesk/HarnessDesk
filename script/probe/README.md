@@ -142,3 +142,46 @@ codex exec -c model_providers.x.wire_api=chat ...
 
 If that ever stops erroring, [the gateway decision](../../docs/decisions.md#other-models-reach-codex-through-a-gateway-never-a-fork)
 should be revisited.
+
+## `paginated-history.mjs`
+
+How a conversation's history is read, forked and undone against a real
+`codex app-server`, the way the Codex adapter does each
+(`packages/adapter-codex/src/history.ts`), and whether Codex says anything
+about it. It serves its own fake Responses endpoint, so it needs nothing but a
+`codex` binary.
+
+```bash
+node script/probe/paginated-history.mjs --codex <path to codex>
+```
+
+Since 0.151.0 Codex keeps a new thread's history in pages
+(`historyMode: "paginated"`) and deprecates reading one whole: `thread/read`
+with `includeTurns`, and `thread/fork` or `thread/resume` without
+`excludeTurns`, each draw a `deprecationNotice`, which the desk showed as a
+toast naming those methods. Each "no notice" check has a control: the
+deprecated call on the same thread, which must draw one. Measured on 0.155.0
+(27/27) and 0.145.0 (18/18; 14/14 with `--history paginated`, a conversation a
+newer Codex started, opened after a downgrade):
+
+- a paginated thread reads in pages — `thread/turns/list`, then
+  `thread/items/list` filed under each item's turn — to exactly what a whole
+  read gives, and silently. A legacy thread (every thread before 0.151.0, and
+  any an older Codex started) is refused `thread/items/list` and read whole,
+  which draws nothing;
+- `thread/revert` before the Nth turn from the end undoes a paginated thread,
+  silently, followed by `thread/reverted`. `thread/rollback` is refused one
+  ("paginated threads do not support thread/rollback") after its notice, so
+  Undo failed there under two toasts;
+- a legacy thread is refused `thread/revert` ("only supports paginated
+  threads") and undone by `thread/rollback`, which still draws "thread/rollback
+  is deprecated and will be removed soon". Codex has nothing else for a legacy
+  thread, so that notice stays;
+- `thread/fork` and `thread/resume` with `excludeTurns: true` draw nothing, and
+  a fork keeps its source's history mode;
+- a thread with no first message yet is refused its turns, as "… is
+  unavailable before first user message" — which the adapter reads as none, as
+  Codex's own terminal client does — or, on 0.155.0, sometimes as "list_turns
+  is not supported yet", which it leaves to the transcript the host holds;
+- 0.145.0 has no `thread/revert` (0.148.0 added it). It pages a paginated
+  thread but refuses to read one whole, and refuses to fork one.
