@@ -367,9 +367,21 @@ export const mapUserInputApproval = (
   raw: new Map(),
 })
 
+/**
+ * The elicitations a person can answer: a form to fill in, or a page to
+ * visit. Codex 0.155.0 added a third kind, `openai/userVerification`, which
+ * is answered with a signature over a challenge, made by a key enrolled on
+ * the device — nothing a person could type — so the router answers it before
+ * it gets here, and the compiler holds that.
+ */
+export type AnswerableElicitation = Exclude<
+  CodexProtocol.v2.McpServerElicitationRequestParams,
+  { readonly mode: 'openai/userVerification' }
+>
+
 export const mapElicitationApproval = (
   requestId: string,
-  params: CodexProtocol.v2.McpServerElicitationRequestParams,
+  params: AnswerableElicitation,
 ): { approval: Approval; raw: Map<string, unknown> } => ({
   approval: {
     ...base({ threadId: params.threadId, turnId: params.turnId }, requestId),

@@ -479,6 +479,62 @@ const startBackground = (command, { fails = false } = {}) => {
   return processId
 }
 
+/**
+ * A user verification, the elicitation mode 0.155.0 added: an MCP server
+ * asking Codex to have the person sign a challenge with a key enrolled on the
+ * device. Real Codex routes one only to its own in-process terminal UI and
+ * cancels it for every other client; the fake asks anyone who says
+ * `verify <title>`, so the client's answer can be seen. The turn then ends
+ * with the agent saying what came back.
+ */
+const verifications = new Map()
+
+const askVerification = (title) => {
+  notify('turn/started', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: nowSeconds() },
+  })
+  const asked = {
+    type: 'userMessage',
+    id: 'item-v0',
+    content: (lastInput ?? []).map((part) => (part.type === 'text' ? { ...part, text_elements: part.text_elements ?? [] } : part)),
+  }
+  notify('item/started', { threadId: THREAD, turnId: TURN, item: asked, startedAtMs: nowMs() })
+  notify('item/completed', { threadId: THREAD, turnId: TURN, item: asked, completedAtMs: nowMs() })
+  const id = ++approvalRequestId
+  verifications.set(id, THREAD)
+  send({
+    id,
+    method: 'mcpServer/elicitation/request',
+    params: {
+      threadId: THREAD,
+      turnId: TURN,
+      serverName: 'payments',
+      mode: 'openai/userVerification',
+      title,
+      description: 'Approve it with the key enrolled on this device.',
+      challenge: 'c2lnbi1tZQ',
+    },
+  })
+}
+
+const answerVerification = (message) => {
+  THREAD = verifications.get(message.id)
+  TURN = `turn-${THREAD}`
+  verifications.delete(message.id)
+  const outcome = message.error
+    ? `as error ${message.error.code}`
+    : `"${message.result?.action}" with ${message.result?.content == null ? 'nothing signed' : 'content'}`
+  const item = { type: 'agentMessage', id: 'item-v1', text: `The verification came back ${outcome}.`, phase: null, memoryCitation: null }
+  notify('item/started', { threadId: THREAD, turnId: TURN, item: { ...item, text: '' }, startedAtMs: nowMs() })
+  notify('item/completed', { threadId: THREAD, turnId: TURN, item, completedAtMs: nowMs() })
+  notify('turn/completed', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null },
+  })
+  notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
+}
+
 const finishTurn = () => {
   notify('item/commandExecution/outputDelta', {
     threadId: THREAD,
@@ -652,6 +708,12 @@ rl.on('line', (line) => {
         threadId: THREAD,
         message: `TOOL_ANSWER success=${message.result.success} body=${text}`,
       })
+      return
+    }
+    // Answered with a result or refused with an error, a verification ends
+    // its turn the same way; only what the agent says differs.
+    if (verifications.has(message.id)) {
+      answerVerification(message)
       return
     }
     answeredApprovals.push(message)
@@ -1390,6 +1452,14 @@ rl.on('line', (line) => {
           })
           notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
         })
+        return
+      }
+      // The person's words, without the context blocks the desk puts in front
+      // of them, so a person typing `verify …` in the app reaches this too.
+      const words = said.replace(/<context source=[^>]*>[\s\S]*?<\/context>/g, '').trim()
+      const verify = /^verify\s+(.+)$/.exec(words)
+      if (verify) {
+        setImmediate(() => askVerification(verify[1]))
         return
       }
       if (mode === 'turn') setImmediate(playTurn)

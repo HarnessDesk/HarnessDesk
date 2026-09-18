@@ -85,6 +85,10 @@ export class ApprovalRouter {
         return true
       }
       case 'mcpServer/elicitation/request': {
+        if (request.params.mode === 'openai/userVerification') {
+          this.#cancelVerification(request.params, responder)
+          return true
+        }
         const mapped = mapElicitationApproval(key, request.params)
         this.#enqueue(key, mapped.approval, mapped.raw, responder)
         return true
@@ -92,6 +96,43 @@ export class ApprovalRouter {
       default:
         return false
     }
+  }
+
+  /**
+   * An MCP server asking, through Codex, to verify that the person is who
+   * they are (0.155.0). The answer is a signature over the request's
+   * challenge, made with a key the client enrolled on the device
+   * (`userVerification/enroll`). HarnessDesk enrols none, so nothing the
+   * person could enter would verify anything: drawn as a form, which is what
+   * this router did with every elicitation before, it would have asked them
+   * for something no answer of theirs could satisfy.
+   *
+   * So it is cancelled — the answer Codex gives itself on every connection it
+   * has not enabled verification for. 0.155.0 enables it only for its own
+   * in-process terminal UI, so over `codex app-server` this is for a later
+   * Codex that widens that. A refusal would come to the same thing: Codex
+   * reads any error to a verification as a cancel and passes its message on
+   * to no one. The tool call that asked now fails, and the person is told why
+   * here, because nothing else would tell them.
+   */
+  #cancelVerification(
+    params: Extract<
+      CodexProtocol.v2.McpServerElicitationRequestParams,
+      { readonly mode: 'openai/userVerification' }
+    >,
+    responder: ServerRequestResponder,
+  ): void {
+    responder.respond({
+      action: 'cancel',
+      content: null,
+      _meta: null,
+    } satisfies CodexProtocol.v2.McpServerElicitationRequestResponse)
+    this.emit({
+      type: 'notice',
+      sessionId: makeSessionId(params.threadId),
+      level: 'warning',
+      message: `${params.serverName} asked to verify it is you ("${params.title}"). HarnessDesk cannot do that, so the request was cancelled.`,
+    })
   }
 
   #enqueue(
