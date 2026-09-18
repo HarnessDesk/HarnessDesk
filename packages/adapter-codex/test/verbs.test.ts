@@ -7,9 +7,11 @@ import type { AgentEvent } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
 
 /**
- * The per-conversation verbs — rollback, compact, memory, review — each map to
- * a Codex request. The point worth a test is that they reach the right method
- * with the right shape; the fake echoes the call so it is observable.
+ * The per-conversation verbs — compact, memory, review — each map to a Codex
+ * request. The point worth a test is that they reach the right method with the
+ * right shape; the fake echoes the call so it is observable. Rollback is
+ * `history.test.ts`'s, since its verb depends on how the thread keeps its
+ * history.
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -41,12 +43,6 @@ test('every session verb the runtime declares is implemented', async (t) => {
   assert.ok(capabilities.compaction && typeof session.compact === 'function')
   assert.ok(capabilities.memory && typeof session.setMemoryMode === 'function')
   assert.ok(capabilities.review && typeof session.review === 'function')
-})
-
-test('rollback sends the turn count', async (t) => {
-  const { session, events, until } = await start(t)
-  await session.rollback!(2)
-  await until(() => notices(events).includes('ROLLBACK 2'))
 })
 
 test('memory mode maps on and off to Codex enabled/disabled', async (t) => {

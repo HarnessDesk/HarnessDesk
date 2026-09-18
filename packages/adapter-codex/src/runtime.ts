@@ -49,6 +49,7 @@ import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse 
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
 import { CodexExtensions } from './extensions.js'
+import { readHistory } from './history.js'
 import { iconDataUri } from './icon-uri.js'
 import { CodexProcesses } from './processes.js'
 import { CodexTasks } from './tasks.js'
@@ -774,18 +775,17 @@ export class CodexRuntime implements AgentRuntime {
   /**
    * Reads a full transcript without making the session live.
    *
-   * `thread/read` returns turns but may leave their items unloaded, so any turn
-   * that comes back short is paged through explicitly. Real threads reach
-   * several hundred items, well past one page.
+   * The thread first, without its turns, for how it keeps its history; then
+   * its history, read the way that says (`readHistory`). Reading it whole in
+   * one call is what Codex deprecated for a paginated thread — every thread
+   * it has started since 0.151.0 — and each one opened here raised the
+   * deprecation as a toast.
    */
   async readSession(id: SessionId): Promise<Session> {
     let thread: CodexProtocol.v2.Thread
     try {
-      const response = await this.#server.request('thread/read', {
-        threadId: id,
-        includeTurns: true,
-      })
-      thread = response.thread
+      const { thread: head } = await this.#server.request('thread/read', { threadId: id })
+      thread = { ...head, turns: await readHistory(this.#server, head) }
     } catch (error) {
       // Codex refuses a whole thread over one item it cannot deserialize — a
       // rollout saved by a newer build. The file itself still reads line by
@@ -799,46 +799,18 @@ export class CodexRuntime implements AgentRuntime {
       }
       throw error
     }
-    const turns: CodexProtocol.v2.Turn[] = []
-    for (const turn of thread.turns) {
-      if (turn.itemsView === 'full') {
-        turns.push(turn)
-        continue
-      }
-      turns.push({ ...turn, items: await this.#loadTurnItems(id, turn.id), itemsView: 'full' })
-    }
-    return mapSession(
-      { ...thread, turns },
-      {
-        runtime: this.#id,
-        skip: this.#automatic(),
-        itemsLoaded: true,
-        // Codex answers `thread/read` with no token figures whatsoever, so the
-        // last ones it reported are carried across from the live session — the
-        // read path `AcpSession` already has. A thread this process never
-        // opened has none, and the ring stays off until its next turn.
-        usage: this.#sessions.get(id)?.usage ?? null,
-      },
-    )
-  }
-
-  async #loadTurnItems(
-    id: SessionId,
-    turn: string,
-  ): Promise<CodexProtocol.v2.ThreadItem[]> {
-    const items: CodexProtocol.v2.ThreadItem[] = []
-    let cursor: string | null = null
-    do {
-      const page: CodexProtocol.v2.ThreadItemsListResponse = await this.#server.request(
-        'thread/items/list',
-        { threadId: id, turnId: turn, cursor, limit: 200 },
-      )
-      // 0.149.0 pages entries rather than bare items, each tagged with the turn
-      // it belongs to; the request is already scoped to one turn.
-      items.push(...page.data.map((entry) => entry.item))
-      cursor = page.nextCursor
-    } while (cursor)
-    return items
+    return mapSession(thread, {
+      runtime: this.#id,
+      skip: this.#automatic(),
+      // Whole by construction when paged. A turn read whole says for itself,
+      // and no Codex measured has answered one short.
+      itemsLoaded: thread.turns.every((turn) => turn.itemsView === 'full'),
+      // Codex answers `thread/read` with no token figures whatsoever, so the
+      // last ones it reported are carried across from the live session — the
+      // read path `AcpSession` already has. A thread this process never
+      // opened has none, and the ring stays off until its next turn.
+      usage: this.#sessions.get(id)?.usage ?? null,
+    })
   }
 
   async archiveSession(id: SessionId, archived: boolean): Promise<void> {
@@ -943,6 +915,8 @@ export class CodexRuntime implements AgentRuntime {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         ...this.#developerInstructions(),
         ...start,
+        // The caller reads the transcript itself (`readSession`), and asked
+        // for here a paginated thread's turns draw a deprecationNotice.
         excludeTurns: true,
       })
     } catch (error) {
@@ -986,6 +960,13 @@ export class CodexRuntime implements AgentRuntime {
     )
   }
 
+  /**
+   * Forks a thread, arriving with the history it copied: the fork is shown
+   * from the turns its `session/started` carries, and nothing reads it again.
+   * Those turns are read the way the fork keeps them (`readHistory`), not
+   * taken from `thread/fork` itself — asked for there, a paginated source's
+   * are answered with a deprecationNotice.
+   */
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     const { start, after } = startParamsFor(options)
     const response = await this.#server.request('thread/fork', {
@@ -993,11 +974,40 @@ export class CodexRuntime implements AgentRuntime {
       ...(options.cwd ? { cwd: options.cwd } : {}),
       ...this.#developerInstructions(),
       ...start,
+      excludeTurns: true,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
-      route: options.route ?? null,
-    })
+    const session = await this.#register(
+      { ...response.thread, turns: await this.#forkedHistory(response.thread) },
+      stateFromStartResponse(response),
+      new ToolProjection(),
+      { route: options.route ?? null },
+    )
     return this.#applyAfterStart(session, after)
+  }
+
+  /**
+   * The turns a fork was made with. The fork exists whether or not they can
+   * be read, so one that cannot is opened without them, which its
+   * `session/started` already calls unloaded. Nothing reads a fork again on
+   * its own, and an empty pane reads as a new conversation, so the person is
+   * told what loads it: choosing it in the sidebar, which reads it
+   * (`openSession`), even while it is the conversation on screen.
+   */
+  async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[]> {
+    try {
+      return await readHistory(this.#server, fork)
+    } catch (error) {
+      this.#logger?.warn?.(`codex could not read the history of fork ${fork.id}`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      this.#emit({
+        type: 'notice',
+        sessionId: makeSessionId(fork.id),
+        level: 'warning',
+        message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
+      })
+      return []
+    }
   }
 
   /**

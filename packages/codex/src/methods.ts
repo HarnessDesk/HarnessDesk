@@ -102,6 +102,8 @@ import type {
   ThreadRollbackResponse,
   ThreadReadParams,
   ThreadReadResponse,
+  ThreadRevertParams,
+  ThreadRevertResponse,
   ThreadResumeParams,
   ThreadResumeResponse,
   ThreadSearchParams,
@@ -158,6 +160,7 @@ export interface CodexMethods {
   'thread/compact/start': { params: ThreadCompactStartParams; result: ThreadCompactStartResponse }
   'thread/memoryMode/set': { params: ThreadMemoryModeSetParams; result: ThreadMemoryModeSetResponse }
   'thread/rollback': { params: ThreadRollbackParams; result: ThreadRollbackResponse }
+  'thread/revert': { params: ThreadRevertParams; result: ThreadRevertResponse }
   'thread/goal/set': { params: ThreadGoalSetParams; result: ThreadGoalSetResponse }
   'thread/goal/get': { params: ThreadGoalGetParams; result: ThreadGoalGetResponse }
   'thread/goal/clear': { params: ThreadGoalClearParams; result: ThreadGoalClearResponse }

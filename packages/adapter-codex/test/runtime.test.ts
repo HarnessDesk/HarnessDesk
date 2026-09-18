@@ -21,7 +21,7 @@ import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/sessio
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
- * streaming, approval round-trip, interrupt, history paging.
+ * streaming, approval round-trip, interrupt, history.
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -354,15 +354,17 @@ test('deleteSession closes and removes live session from in-memory registry (#41
   )
 })
 
-test('reading a session pages through every turn item', async (t) => {
+test('reading a session brings every turn item', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())
   await runtime.start()
 
+  // The fake plays 0.149.0 here, whose threads are read whole; paged history
+  // is `history.test.ts`'s.
   const session = await runtime.readSession(sessionId('thread-e2e'))
   assert.equal(session.itemsLoaded, true)
   const items = allItems(session)
-  assert.equal(items.length, 2, 'both pages were fetched')
+  assert.equal(items.length, 2, 'both items of the stored turn')
   assert.deepEqual(
     items.map((item) => item.type),
     ['userMessage', 'assistantMessage'],
