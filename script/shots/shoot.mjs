@@ -879,7 +879,7 @@ rules:
   }
   const stageCodexComposer = async () => {
     if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') {
-      throw new Error('the reasoning scenes need HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels')
+      throw new Error('this scene needs HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels and a build to update')
     }
     await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
     await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
@@ -1330,6 +1330,91 @@ rules:
       await dismissNotices(cdp)
       // Unfolded, as the conversation scene is: the step that was refused is the point.
       await click('Worked', null, { wait: 1500 })
+    },
+  }
+
+  /**
+   * The model menu's footer when the build it names is behind a published one,
+   * and after "Refresh models" has moved Codex onto that build. The footer once
+   * kept its notice — "Codex 0.155.0 is available" under "Codex 0.155.0" —
+   * because the notice was measured once, before the move.
+   *
+   * The fixture is upgraded the way a person upgrades Codex under an open
+   * app: the file FAKE_CODEX_VERSION_FILE names is written with the newest
+   * published release, which the app's own notice names, and the next check
+   * finds it. Needs HD_SHOTS_NATIVE_CODEX=1, and the npm registry to answer:
+   * without a notice to start from the scene stops rather than photograph
+   * nothing. HD_SHOTS_UPDATE_EXPECT=stale is what a build from before the
+   * change shows after the refresh: the notice still there.
+   */
+  const codexFooter = () => cdp.json(`(() => {
+    const codex = ${STORE}.getSnapshot().runtimes.find((runtime) => runtime.id === 'codex')
+    const lines = document.body.innerText.split('\\n').filter((line) => /^Codex \\d/.test(line) || / is available\\./.test(line))
+    return { version: codex?.version ?? null, notice: codex?.update?.version ?? null, footer: lines }
+  })()`)
+  const menuOpen = () => cdp.eval(`Boolean([...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? '')))`)
+  /**
+   * The model menu, open and staying open. A menu seen on its way out — the
+   * previous scene's, still leaving the page — reads as open, so it has to
+   * still be there a beat later.
+   */
+  const openModelMenu = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!(await menuOpen())) {
+        if (!(await press({ selector: 'button[title$="odel and reasoning"]' }))) throw new Error('composer model trigger missing')
+        await waitForSnapshot(menuOpen, Boolean)
+      }
+      await sleep(500)
+      if (await menuOpen()) return
+    }
+    throw new Error('the model menu would not stay open')
+  }
+  let behind = null
+  const stageUpdateNotice = async () => {
+    if (behind) return behind
+    await stageCodexComposer()
+    // The check answers a beat after the runtime is up, and asks the registry.
+    behind = await waitForSnapshot(codexFooter, (state) => state.notice !== null, { attempts: 300 }).catch((error) => {
+      throw new Error(`no update notice to start from — does the npm registry answer? ${error.message}`)
+    })
+    return behind
+  }
+  SCENES['model-menu-update'] = {
+    leaveOverlay: true,
+    expect: ' is available.',
+    run: async () => {
+      await stageUpdateNotice()
+      await openModelMenu()
+    },
+    verify: async () => {
+      const state = await codexFooter()
+      say(`footer ${JSON.stringify(state)}`)
+      if (state.footer.length < 2) throw new Error('the footer does not name the build and the newer one')
+    },
+  }
+  SCENES['model-menu-updated'] = {
+    leaveOverlay: true,
+    expect: 'models checked',
+    run: async () => {
+      const { notice: latest } = await stageUpdateNotice()
+      writeFileSync(SHOT_ENV.FAKE_CODEX_VERSION_FILE, `${latest}\n`)
+      await openModelMenu()
+      if (!(await press({ text: 'Refresh models' }))) throw new Error('no "Refresh models" in the model menu')
+      await waitForSnapshot(codexFooter, (state) => state.version?.includes(latest), { attempts: 300 })
+      // A beat for the notice to be measured against the build it is on now.
+      await sleep(1500)
+      await openModelMenu()
+    },
+    verify: async () => {
+      const state = await codexFooter()
+      say(`footer ${JSON.stringify(state)}`)
+      if (process.env['HD_SHOTS_UPDATE_EXPECT'] === 'stale') {
+        if (state.notice === null) throw new Error('a build from before the change was expected to keep its notice')
+        return
+      }
+      if (state.notice !== null || state.footer.some((line) => / is available\./.test(line))) {
+        throw new Error('the footer still says a newer build is available, under the build it names')
+      }
     },
   }
 
