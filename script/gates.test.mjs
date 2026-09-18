@@ -1747,3 +1747,251 @@ test('a rung may be named, chosen between, or nudged by one digit; anything else
     assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
   assert.equal(counted('.a { --l: 60; z-index: calc(var(--hd-z-sticky) + var(--l)); }'), true)
 })
+
+/* The sixth #762 re-review, and the neighbours of each finding — every case
+   below computed in Chromium first, with the ladder in a sheet of its own. */
+test('only a rung, a choice between rungs, or a rung nudged by a whole digit takes a name (#762)', () => {
+  for (const value of ['calc(var(--hd-z-popover) * var(--hd-z-drawer))', 'abs(var(--hd-z-popover))',
+    'calc(var(--hd-z-popover) + infinity)', 'calc(var(--hd-z-popover) + 9.9)', 'round(var(--hd-z-popover))',
+    'calc(var(--hd-z-drawer) / var(--hd-z-popover))', 'calc(9 - var(--hd-z-popover))', 'calc(var(--hd-z-popover) + 1e1)',
+    // a nudge is the last thing done, not something to choose between
+    'max(var(--hd-z-popover), calc(var(--hd-z-drawer) + 1))'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  for (const value of ['calc(var(--hd-z-popover) + 9)', 'calc(var(--hd-z-popover) + 1.0)', 'calc(9 + var(--hd-z-popover))',
+    'min(var(--hd-z-popover))', 'clamp(var(--hd-z-sticky), var(--hd-z-popover), var(--hd-z-drawer))',
+    'calc(max(var(--hd-z-popover), var(--hd-z-drawer)) + 1)', 'C\\41LC(var(--hd-z-popover) + 1)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+})
+
+test('a var() of nothing is invalid wherever it is, and a keyword is read decoded (#762)', () => {
+  assert.equal(counted('.a { --l: var(--missing); z-index: var(--l, 60); }'), true)
+  assert.equal(counted('.a { --l: in\\69 tial; z-index: var(--l, 60); }'), true)
+  // invalid at computed-value time is the guaranteed-invalid value, not the parent's
+  assert.equal(counted('.p { --l: 5; } .a { --l: var(--missing); z-index: var(--l, 60); }'), true)
+  // a fallback that is used and reads the property back is a cycle; one that is not used is nothing
+  assert.equal(counted('.a { --a: var(--missing, var(--a)); z-index: var(--a, 60); }'), true)
+  assert.equal(counted('.a { --b: 5; --a: var(--b, var(--a)); z-index: var(--a, 60); }'), false)
+})
+
+test('a custom property another rule sets may not reach the element; one the whole document has does (#762)', () => {
+  assert.equal(counted('.a { z-index: var(--l, 60); } .b { --l: 5; }'), true)
+  for (const css of ['.a { --l: 5; } .a { z-index: var(--l, 60); }', ':root { --l: 5; } .a { z-index: var(--l, 60); }',
+    'html { --l: 5; } .a { z-index: var(--l, 60); }', '* { --l: 5; } .a { z-index: var(--l, 60); }',
+    ':r\\6f ot { --l: 5; } .a { z-index: var(--l, 60); }', '@layer x { :root { --l: 5; } } .a { z-index: var(--l, 60); }',
+    '.a { --l: 5; @media all { z-index: var(--l, 60); } }'])
+    assert.equal(counted(css), false, css)
+  // under a condition, or computed on the root where the other property is not set
+  assert.equal(counted('@media print { :root { --l: 5; } } .a { z-index: var(--l, 60); }'), true)
+  assert.equal(counted(':root { --l: inherit; } .a { z-index: var(--l, 60); }'), true)
+  assert.equal(counted(':root { --l: var(--m, 70); } .a { --m: 5; z-index: var(--l); }'), true)
+})
+
+test('an empty custom property is set, so its var() does not fall back (#762)', () => {
+  assert.deepEqual(declarationsOf('.a { --l: ; gap: ; }'), [{ property: '--l', value: '' }])
+  for (const css of ['.a { --l: ; z-index: var(--l, 60); }', '.a { --l: !important; z-index: var(--l, 60); }',
+    '.a { --l: ; } .a { z-index: var(--l, 60); }', '.a { --m: ; --l: var(--m); z-index: var(--l, 60); }'])
+    assert.equal(counted(css), false, css)
+})
+
+test('a registered custom property is its initial value where nothing sets it, and when what sets it does not fit (#762)', () => {
+  const at = (body, rest) => `@property --l { ${body} } ${rest}`
+  const integer = "syntax: '<integer>'; inherits: false; initial-value: 60"
+  for (const css of [at(integer, '.a { z-index: var(--l); }'), at(integer, '.a { z-index: var(--l, 5); }'),
+    at(integer, '.a { --l: initial; z-index: var(--l, 5); }'), at(integer, '.a { --l: foo; z-index: var(--l, 5); }'),
+    // it does not inherit, so the root's value never reaches
+    at(integer, ':root { --l: 5; } .a { z-index: var(--l); }'),
+    at("syntax: '*'; inherits: false", '.a { z-index: var(--l, 60); }'),
+    "@PROPERTY --\\6c { syntax: '<integer>'; inherits: false; initial-value: 60 } .a { z-index: var(--l, 5); }",
+    // a descriptor that does not parse, or is marked !important, is dropped on its own — not the rule
+    at("syntax: '<integer>'; syntax: '<Integer>'; inherits: false; initial-value: 60", '.a { z-index: var(--l, 5); }'),
+    at(`${integer}; foo: 1 !important`, '.a { z-index: var(--l, 5); }'),
+    // every property on a cycle is invalid, whatever a registration makes of what it read
+    "@property --b { syntax: '<integer>'; inherits: false; initial-value: 3 } .a { --a: var(--b); --b: var(--a); z-index: var(--a, 60); }"])
+    assert.equal(counted(css), true, css)
+  // a rule that registers nothing, a later rule that wins, a value that fits
+  for (const css of [at('initial-value: 60', '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<Integer>'; inherits: false; initial-value: 60", '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: 60px", '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: 60 !important", '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: var(--x)", '.a { z-index: var(--l, 5); }'),
+    ".x { @property --l { syntax: '<integer>'; inherits: false; initial-value: 60 } } .a { z-index: var(--l, 5); }",
+    at(integer, "@property --l { syntax: '<integer>'; inherits: false; initial-value: 3 } .a { z-index: var(--l, 5); }"),
+    at(integer, '.a { --l: 5; z-index: var(--l); }'),
+    at("syntax: 'auto'; inherits: false; initial-value: auto", '.a { z-index: var(--l, 60); }'),
+    at("syntax: '<integer>'; inherits: true; initial-value: 60", ':root { --l: 5; } .a { z-index: var(--l); }')])
+    assert.equal(counted(css), false, css)
+})
+
+/* Swept before the next review round rather than found by it: what a second
+   reader found in the answer to the sixth, each case computed in Chromium. */
+test('a declaration the browser drops sets nothing, and a comment still separates tokens (#762)', () => {
+  // dropped: an unmatched closer, a `!` at the top of a custom property, a bad string or URL
+  for (const value of ['5)', '5]', '(5])', '5 !foo', '!', '5 !important !important', '"x\n', 'url(a b)'])
+    assert.equal(counted(`.a { --l: ${value}; z-index: var(--l, 60); }`), true, value)
+  // kept: a `!` inside brackets, a lone block
+  assert.equal(counted('.a { --l: (5 !); z-index: var(--l, 60); }'), false)
+  assert.equal(counted('.a { --l: {5}; z-index: var(--l, 60); }'), false)
+  // a `;` inside brackets is part of the value
+  assert.deepEqual(declarationsOf('.a { --x: (a;b); gap: 1px }'), [{ property: '--x', value: '(a;b)' }, { property: 'gap', value: '1px' }])
+  // `.b {}; .a {…}`: the `;` joins the next prelude, and the browser drops that rule
+  assert.equal(counted('.b {}; .a { --l: 5 } .a { z-index: var(--l, 60); }'), true)
+  // inside a bracket, or an unquoted URL, nothing is structure
+  assert.equal(counted('.b { --x: [}]; --l: 5 } .a { --x: [}]; z-index: var(--l, 60); }'), true)
+  assert.equal(counted('.a { background: url(a(b); z-index: 60 }'), true)
+  // a comment is a token boundary
+  assert.equal(counted("@property/**/--l { syntax: '<integer>'; inherits: false; initial-value: 60 } .a { z-index: var(--l, 5); }"), true)
+  assert.equal(counted("@property --l { syn/**/tax: '<integer>'; inherits: false; initial-value: 5 } .a { z-index: var(--l, 60); }"), true)
+  // a block names one layer or none; a default namespace narrows `:root` and `*`
+  assert.equal(counted('@layer a, b { :root { --l: 5 } } .a { z-index: var(--l, 60); }'), true)
+  assert.equal(counted('@namespace url(http://www.w3.org/2000/svg); :root { --l: 5 } .a { z-index: var(--l, 60); }'), true)
+  // a `var()` that names no custom property drops its declaration
+  assert.equal(counted('.a { z-index: var(foo, 60); }'), false)
+  assert.equal(counted('.p { --l: 60; } .a { --l: var(foo); z-index: var(--l, 5); }'), true)
+})
+
+test('math is read with CSS tokens, and what cannot be computed is counted (#762)', () => {
+  // `+` and `-` need whitespace; a sign belongs to its number; no unary minus
+  for (const value of ['calc(5 +5)', 'calc(5+ 5)', 'calc(- 50)', 'calc(-(50))', 'calc(5 --5)', '1e1', '10.0'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+  for (const value of ['calc(5 - -5)', 'calc(-5 * -2)', 'calc(6 * +2)', 'clamp(none, 60, 100)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  // the end of the sheet closes what is open
+  assert.equal(counted('.a { z-index: var(--l, 60'), true)
+  assert.equal(counted('.a { z-index: calc(60'), true)
+  // `if()`, typed `attr()` and anything else it does not compute
+  for (const value of ['if(style(--x: 1): 5; else: 60)', 'attr(data-z type(<integer>), 60)', 'calc(10 * sibling-count())'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  // past a hundred levels Chromium refuses the expression
+  assert.equal(counted(`.a { z-index: calc(${'('.repeat(100)}60${')'.repeat(100)}); }`), false)
+  // and a rung's expression that is not CSS is `auto`, not a plane
+  assert.equal(counted('.a { z-index: calc(var(--hd-z-popover) -1); }'), false)
+})
+
+test('a keyword substituted into a custom property acts as one (#762)', () => {
+  for (const keyword of ['initial', 'unset', 'revert-layer', 'in\\69 tial', 'INITIAL'])
+    assert.equal(counted(`.a { --l: var(--missing, ${keyword}); z-index: var(--l, 60); }`), true, keyword)
+  // not alone, it is a value
+  assert.equal(counted('.a { --l: var(--missing, initial) 5; z-index: var(--l, 60); }'), false)
+})
+
+test('a cycle is invalid in whichever order the browser meets it (#762)', () => {
+  // a second cycle behind the first, or behind an invalid var(), still reaches its fallback
+  assert.equal(counted('.a { --b: var(--b) var(--c); --c: var(--b, 9); z-index: var(--c, 60); }'), true)
+  assert.equal(counted('.a { --m: initial; --b: var(--m) var(--c); --c: var(--b, 9); z-index: var(--c, 60); }'), true)
+  // `color: var(--c)` beside it makes `--b` read `--a` resolved, and fall back to 60
+  assert.equal(counted('.a { --c: var(--a) var(--b); --a: var(--c); --b: var(--a, 60); z-index: var(--b, 5); }'), true)
+  // but a property that reads the other directly can never find it resolved first
+  assert.equal(counted('.a { --a: var(--b, 70); --b: var(--a); z-index: var(--b, 5); }'), false)
+  assert.equal(counted('.a { --l: var(--l, 70); z-index: var(--l, 5); }'), false)
+})
+
+test('a registered value computes the way Chromium computes it (#762)', () => {
+  const at = (body, rest) => `@property --l { ${body} } ${rest}`
+  const number = "syntax: '<number>'; inherits: false"
+  const integer = "syntax: '<integer>'; inherits: false; initial-value: 60"
+  for (const css of [at(`${number}; initial-value: 60.0`, '.a { z-index: var(--l, 5); }'),
+    at(`${number}; initial-value: 6e1`, '.a { z-index: var(--l, 5); }'),
+    at(`${number}; initial-value: 1`, '.a { --l: 30.0; z-index: calc(var(--l) * 2); }'),
+    // math that is not CSS does not fit, so the property is its initial value
+    at(integer, '.a { --l: calc(2 +3); z-index: var(--l); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: calc(2 +3)", '.a { z-index: var(--l, 60); }'),
+    at("syntax: '<length>'; inherits: false; initial-value: 5", '.a { z-index: var(--l, 60); }'),
+    // a dropped descriptor leaves the one before it
+    at("syntax: '*'; inherits: false; initial-value: 60; initial-value: 5)", '.a { z-index: var(--l, 5); }'),
+    // a rule under a condition that never holds registers nothing
+    `@media not all { ${at("syntax: '<integer>'; inherits: false; initial-value: 5", '')} } .a { z-index: var(--l, 60); }`,
+    // an invalid value of an inheriting registration is its parent's — which another stylesheet may set to a rung
+    at("syntax: '<integer>'; inherits: true; initial-value: 1", '.a { --l: foo; z-index: calc(var(--l) * 2); }'),
+    // animated, it passes through every value between its keyframes
+    at("syntax: '<integer>'; inherits: false; initial-value: 3", '@keyframes k { from { --l: -3 } to { --l: 3 } } .a { --l: 3; animation: k 10s; z-index: calc(10 / var(--l)); }')])
+    assert.equal(counted(css), true, css)
+  for (const css of [at(`${number}; initial-value: 60.5`, '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<int\\65ger>'; inherits: false; initial-value: 60", '.a { --l: 5; z-index: var(--l); }'),
+    at("syntax: '<integer>'; inherits: maybe; initial-value: 60", '.a { z-index: var(--l, 5); }')])
+    assert.equal(counted(css), false, css)
+})
+
+test('a broader selector, a pseudo-element and a nested rule reach what they cover (#762)', () => {
+  for (const css of ['.a { --l: 5 } .a:hover { z-index: var(--l, 60); }', '.a { --l: 5 } div.a { z-index: var(--l, 60); }',
+    '.a { --l: 5 } .x > .a { z-index: var(--l, 60); }', '.a { --l: 5 } .a::before { z-index: var(--l, 60); }',
+    '.a { --l: 5; &:hover { z-index: var(--l, 60); } }', '.a { --l: 5; & .b { z-index: var(--l, 60); } }',
+    '.a { --l: 5; .b { z-index: var(--l, 60); } }', '.a { --l: 5; .x & { z-index: var(--l, 60); } }',
+    '.a { --l: "var(--missing)"; z-index: var(--l, 60); }'])
+    assert.equal(counted(css), false, css)
+  // a narrower rule, a sibling, a list it does not cover, a selector the browser drops
+  for (const css of ['.a.b { --l: 5 } .a { z-index: var(--l, 60); }', '.a { --l: 5; & + .b { z-index: var(--l, 60); } }',
+    '.a { --l: 5 } .a, .b { z-index: var(--l, 60); }', ':root, .x:unknown { --l: 5 } .a { z-index: var(--l, 60); }',
+    // a registration that does not inherit reaches no pseudo-element
+    "@property --l { syntax: '<integer>'; inherits: false; initial-value: 60 } .a { --l: 5 } .a::before { z-index: var(--l); }"])
+    assert.equal(counted(css), true, css)
+})
+
+test('a chain too deep to follow is counted, never thrown (#762)', () => {
+  const chain = (length) => Array.from({ length }, (_, i) => `--p${i}: var(--p${i + 1});`).join(' ') + ` --p${length}: 5;`
+  // past the depth it follows — well inside any stack — it counts rather than assume the end is small
+  assert.equal(counted(`.a { ${chain(300)} z-index: var(--p0); }`), true)
+  assert.equal(counted(`.a { ${chain(100)} z-index: var(--p0); }`), false)
+  assert.doesNotThrow(() => rawZIndexes(`.a { ${chain(20000)} z-index: var(--p0); }`))
+  assert.doesNotThrow(() => rawZIndexes(`.a { z-index: ${'max('.repeat(20000)}var(--hd-z-x)${')'.repeat(20000)}; }`))
+})
+
+/* And from a second read of that answer, each case again computed in Chromium. */
+test('inside a style rule or @scope a selector is relative, so a broader one proves nothing (#762)', () => {
+  for (const css of ['.p { .a { --x: 5 } &.a { z-index: var(--x, 60); } }', '.p { .a { --x: 5 } + .a { z-index: var(--x, 60); } }',
+    '.p { .a { --x: 5 } .b &.a { z-index: var(--x, 60); } }', '@scope (.p) { .a { --x: 5 } :scope.a { z-index: var(--x, 60); } }',
+    '.p { @media all { .a { --x: 5 } &.a { z-index: var(--x, 60); } } }'])
+    assert.equal(counted(css), true, css)
+  // at the top of the sheet, or under conditions only, it still does
+  assert.equal(counted('@media all { .a { --x: 5 } .a:hover { z-index: var(--x, 60); } }'), false)
+})
+
+test('the top of a sheet reads as the browser reads it (#762)', () => {
+  // a `}` that closes nothing joins the next prelude, and drops that rule
+  for (const css of ['} .a { --x: 5 } .a { z-index: var(--x, 60); }', '.q { } } :root { --x: 5 } .a { z-index: var(--x, 60); }',
+    "} @property --x { syntax: '<integer>'; inherits: false; initial-value: 5 } .a { z-index: var(--x, 60); }"])
+    assert.equal(counted(css), true, css)
+  // a layer block names `ident('.'ident)*` or nothing
+  for (const name of ['1', 'a.', '"a"', 'a..b', 'a.1', '-1', 'a!'])
+    assert.equal(counted(`@layer ${name} { :root { --x: 5 } } .a { z-index: var(--x, 60); }`), true, name)
+  for (const name of ['a.b.c', '\\31', 'initial', ''])
+    assert.equal(counted(`@layer ${name} { :root { --x: 5 } } .a { z-index: var(--x, 60); }`), false, name)
+  // `<!--` and `-->` are nothing there, and a token of their own in a value
+  assert.equal(counted('<!-- :root { --x: 5 } --> .a { z-index: var(--x, 60); }'), false)
+  assert.equal(counted('.a { --x: <!-- 5; z-index: var(--x, 60); }'), false)
+})
+
+test('a registered number substitutes as the browser writes it back out (#762)', () => {
+  const number = (value, z = 'var(--x)') => `@property --x { syntax: '<number>'; inherits: false; initial-value: 0 } .a { --x: ${value}; z-index: ${z}; }`
+  for (const css of [number('59.9999999'), number('-9.9999999'), number('60.0000001', 'calc(var(--x))'), number('1234567', 'calc(var(--x) / 100000)')])
+    assert.equal(counted(css), true, css)
+  // from a million up it has an exponent, which is no integer
+  for (const css of [number('1234567'), number('1000000'), number('12345.67')]) assert.equal(counted(css), false, css)
+})
+
+test('a finite value against an infinite step is what CSS Values says (#762)', () => {
+  for (const value of ['mod(60, infinity)', 'rem(-60, infinity)', 'mod(-60, -infinity)', 'rem(60, -infinity)',
+    'round(up, 60, infinity)', 'round(down, -60, infinity)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  for (const value of ['mod(60, -infinity)', 'mod(-60, infinity)', 'round(to-zero, 60, infinity)', 'round(60, infinity)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+})
+
+test('a var() name is read decoded, and only where a token starts (#762)', () => {
+  assert.equal(counted('.a { z-index: var(\\-\\-x, 60); }'), true)
+  assert.equal(counted('.a { --x: 60; z-index: var(\\2d-x); }'), true)
+  // `20var(` is a dimension and a bracket, not a call: substituted, this would be 20
+  assert.equal(counted('.a { z-index: calc(20var(--x, * 1)); }'), false)
+  assert.equal(counted('.a { z-index: calc(20 var(--x, * 1)); }'), true)
+})
+
+test('a URL is bad as the tokenizer says, and NUL is U+FFFD (#762)', () => {
+  const nul = String.fromCharCode(0)
+  assert.equal(counted('.a { --x: a url(a\\' + '\n' + 'b); z-index: var(--x, 60); }'), true)
+  assert.equal(counted(`.a { --x: 60; z-index: var(--x, url(a${nul}b)); }`), true)
+  assert.deepEqual(rawColours(`.a { background: url(a${nul}b) red; }`).map(({ property }) => property), ['background'])
+})
+
+test('deep nesting of rules does not throw (#762)', () => {
+  assert.doesNotThrow(() => rawZIndexes(`${'.a{'.repeat(12000)}--x: 1`))
+  assert.doesNotThrow(() => rawZIndexes(`${'@media all{'.repeat(12000)}.a { z-index: 60 }`))
+})

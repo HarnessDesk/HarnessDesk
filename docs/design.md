@@ -642,12 +642,32 @@ unable to see:
   context and are not counted; from 10 up is the band two components can
   genuinely collide in, and that is what the ladder is for. A number counts
   however it is written — any CSS math function, escaped or not (`calc(5 + 5)`,
-  `abs(-12)`, `round(up, 10.1, 1)`), a custom property any rule in the same
-  stylesheet defines, a `var()` fallback — and a math expression the audit
-  cannot compute is reported rather than assumed small. A rung may be named,
-  chosen between, or nudged by one digit — `calc(var(--hd-z-sticky) + 1)`, the
-  app's one such case, moves with the ladder — and anything else done to a rung
-  (`+ 60`, `* 2`) writes a plane of its own, and counts.
+  `abs(-12)`, `round(up, 10.1, 1)`), read with CSS's own tokens, so
+  `calc(5 +5)` is no number at all — or anything a `var()` in the value can
+  come to: a custom property's value, its fallback wherever the property can
+  be unset or invalid, an `@property` initial value, what a registered value
+  computes to. A rung may be named, chosen between (`min()`, `max()`,
+  `clamp()`, or `calc()` and parentheses around one), or nudged by a whole
+  number from 0 to 9 — `calc(var(--hd-z-sticky) + 1)`, the app's one such
+  case, moves with the ladder — and anything else done to a rung (`+ 60`,
+  `* 2`, `abs()`, `+ 9.9`) writes a plane of its own, and counts.
+
+  Which rules reach an element is the page's business, so the audit does not
+  guess. A property set for the same elements — the same selector under the
+  same conditions, a broader one outside any style rule (`.a` for
+  `.a:hover`), a rule it sits in through `&` or conditions only — is what the
+  rules here set it to. One set
+  on an element it descends from — a rule it is nested in through `& .b`, the
+  element of a pseudo-element, an unconditional `:root`, `html` or `*` — is
+  inherited from there when the property inherits. Any other may be
+  inherited from anywhere, set by another stylesheet, or not set at all. A
+  declaration the browser drops sets nothing, and a cycle is invalid in
+  whichever order the browser meets it. Where the audit cannot tell — a rule
+  under a condition, a selector list it does not wholly cover, a registration
+  it cannot prove, a registered value this stylesheet animates or
+  transitions, `if()` or `attr()`, a chain deeper than it follows — it keeps
+  every possibility, and reports what it cannot compute rather than assume
+  it small.
 
 Both failures have the same shape as the line-height ratios before them: name
 the spellings you happen to remember, and everything else is invisible —
