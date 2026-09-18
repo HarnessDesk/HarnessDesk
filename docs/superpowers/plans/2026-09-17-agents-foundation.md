@@ -1070,8 +1070,56 @@ The payoff: `agent/seat` resolves the Agent's preference against what this machi
 - Test: `packages/server/test/agent-seat.test.ts`
 
 **Interfaces:**
-- Consumes: `chooseSeat`, `explainRefusal`, `seatLabel` (Task 4); `ctx.agents.read` (Task 5).
+- Consumes: `chooseSeat`, `explainRefusal` (Task 4); `seatSpec` from `packages/server/src/flow.ts` (the inverse of `parseSeat` — note `packages/server/src/seat.ts` exports an unrelated *human* `seatLabel`, do not confuse them); `ctx.agents.read` (Task 5).
 - Produces: `agent/seat` → `Session`. The session's settings carry `agent: string` and `brief: string` (the hash from Task 3), which the provenance plan later reads.
+
+#### Before you start: what the chooser cannot know
+
+Task 4's chooser is only as truthful as the offers it is handed, and building
+those offers from the real desk exposes two facts the pure function cannot see.
+Both were found by the Task 4 implementer and are requirements here, not notes.
+
+**1. An empty model list means two opposite things.** To the chooser, `models: []`
+means *this runtime takes no model*. But the flow dry run reads a runtime's model
+list with `listModels().catch(() => [])` (`packages/server/src/methods/flows.ts`),
+so a list that *could not be read* also arrives as `[]` — and would refuse every
+candidate that names a model, with the false reason "does not offer". Distinguish
+them: widen `SeatOffer.models` to `readonly string[] | null`, where **null means
+the list could not be read**, and give that its own sixth refusal sentence —
+*cannot tell whether cursor offers gemini-3.8-flash: its model list could not be
+read*. Never build an offer by catching a failed read into an empty array.
+
+**2. Effort and thinking are only known once a session is open.** The same file's
+own comment says a runtime declares its efforts only after a session exists, so
+they cannot be pre-checked at all — and `host.ts` silently skips a setting a
+runtime does not have, so a `+thinking` candidate on a runtime without the switch
+is seated without thinking. So:
+
+- widen `SeatOffer.efforts` to `readonly string[] | null` too, where null means
+  *not knowable before seating*, and let the chooser **pass** an effort-naming
+  candidate when efforts are null rather than refuse it;
+- after `openSession` returns, **compare what the session reports it is running
+  with what was asked** — model, effort, thinking. On any mismatch, close the
+  session and refuse, naming the field that differed. This is the contract the
+  flow engine's `FlowPort.seat` already keeps ("reports what it is *actually*
+  running … because a runtime drops a pick it declines rather than failing");
+  reuse that report rather than trusting the request.
+
+The rule that ties both together: **check before opening what can be known
+before opening; verify after opening what can only be known then; on any
+mismatch, close and refuse.** A pre-check that guesses and a post-check that
+trusts are the same defect.
+
+**3. `spent` is one flag per runtime,** so a limit that binds a single model
+cannot be expressed. Acceptable for this phase — record it as a known limit in
+the report rather than solving it. The account-wide check lives only in
+`packages/ui/src/lib/usage.ts` (`isBlocked`); if the server needs it, move it
+rather than copy it.
+
+Add tests for each: a `null` model list refuses with the sixth sentence, not
+"does not offer"; a `null` effort list lets the candidate through to seating; a
+session that comes back on a different effort than asked is closed and refused;
+a `+thinking` candidate seated without thinking is closed and refused.
 
 - [ ] **Step 1: Write the failing test**
 
