@@ -56,30 +56,58 @@ const VIEWS = [...new Set(CATALOG_ENTRIES.map((entry) => entry.exampleId))].sort
 const viewOf = (key: string) => key.split('/')[0]!
 
 /**
- * A re-record's rows, tab by tab, until the one write at the end of the file.
+ * The bytes a re-record writes: every tab's rows, sorted by key, as two-space
+ * JSON with a closing newline — the walk's own format. It refuses rows that
+ * are missing a tab, naming it, and a table too small to be holding anything.
+ * `a re-record writes the recorded table byte for byte, and refuses one
+ * missing a tab` (below) holds it against the committed file.
+ */
+const wholeTable = (rows: ReadonlyMap<string, Record<string, unknown>>): string => {
+  const unmeasured = VIEWS.filter(view => !rows.has(view))
+  if (unmeasured.length > 0) throw new Error(`a re-record writes only a whole table; not measured: ${unmeasured.join(', ')}`)
+  const entries = [...rows.values()].flatMap(tab => Object.entries(tab))
+  if (entries.length <= 20) throw new Error(`${entries.length} cases is too few to be the table`)
+  entries.sort(([a], [b]) => a.localeCompare(b))
+  return `${JSON.stringify(Object.fromEntries(entries), null, 2)}\n`
+}
+
+/**
+ * A re-record's rows, tab by tab, until the one write when the file is done.
  *
  * Writing `metrics.json` reloads every page open on the dev server:
  * `@tailwindcss/vite` scans `packages/ui/src` for class names, and a change
  * to a scanned file that no module imports is answered with a full reload —
  * measured on 2026-09-18 landing ~160ms after the write, with the bytes
- * unchanged. The single walk wrote once and the scale test after it
+ * unchanged. The single walk wrote mid-file and the scale test after it
  * navigated into that reload, which failed 2 re-records in 5 with "Execution
  * context was destroyed". Written by each tab's test, it would be a reload
- * after every tab. So the rows wait here, and the last test in the file
- * writes them, when no page is left for the reload to land on.
+ * after every tab. So the rows wait here, and the file's `afterAll` writes
+ * them once every test in it is done with its page — and only if every one
+ * of them passed. It does not lean on the order the tests are declared in,
+ * nor on serial mode skipping after a failure: a test that reads the table
+ * before every tab is in fails (`recordedTable` below), and a failure
+ * anywhere in the file leaves the table as it was, whether or not the tests
+ * after it still run.
  *
- * In memory, so a re-record runs the file serially: one worker, in order,
- * and the first failure skips everything after it, the write included. A
- * table is only ever written whole — as the single walk only ever wrote one.
+ * In memory, so a re-record runs the file serially, in one worker; were the
+ * tests ever spread across workers, none would hold every tab, and none
+ * would write.
  */
 const staged = new Map<string, Record<string, unknown>>()
-if (UPDATE) test.describe.configure({ mode: 'serial' })
+if (UPDATE) {
+  test.describe.configure({ mode: 'serial' })
+  let failed = false
+  test.afterEach(({}, testInfo) => {
+    if (testInfo.status !== testInfo.expectedStatus) failed = true
+  })
+  test.afterAll(() => {
+    if (!failed) writeFileSync(TABLE, wholeTable(staged))
+  })
+}
 
-/** The table the tests hold: in a re-record the one it is about to write, otherwise the file. */
+/** The table the tests hold: in a re-record the whole one it is about to write, otherwise the file. */
 const recordedTable = (): Record<string, unknown> =>
-  UPDATE
-    ? Object.fromEntries([...staged.values()].flatMap((rows) => Object.entries(rows)))
-    : JSON.parse(readFileSync(TABLE, 'utf8'))
+  JSON.parse(UPDATE ? wholeTable(staged) : readFileSync(TABLE, 'utf8'))
 
 /**
  * Wait until the page stops changing shape.
@@ -312,30 +340,39 @@ test('the composed numbers stay on the scale', async ({ page }) => {
  * can see: a row recorded for a tab the catalogue no longer has (the walk
  * never reached it, so it surfaced as "no longer rendered"), and a table too
  * small to be holding anything.
- *
- * In a re-record this is also the one write, which is why it comes last: it
- * writes only a table every tab was measured into — the whole table, sorted,
- * exactly as the walk wrote it — and no test is left to navigate into the
- * reload the write sets off (see `staged`).
  */
-test('every recorded case belongs to a tab the catalogue still has', async ({}, testInfo) => {
+test('every recorded case belongs to a tab the catalogue still has', () => {
   expect(VIEWS.length).toBeGreaterThan(10)
   // `viewOf` reads a key's tab as everything before its first slash.
   expect(VIEWS.filter(view => view.includes('/'))).toEqual([])
   const recorded = recordedTable()
-
-  if (UPDATE) {
-    const unmeasured = VIEWS.filter(view => !staged.has(view))
-    expect(unmeasured.join(', ') || 'every tab measured', 'a re-record writes only a whole table').toBe('every tab measured')
-    expect(Object.keys(recorded).length).toBeGreaterThan(20)
-    const ordered = Object.fromEntries(Object.entries(recorded).sort(([a], [b]) => a.localeCompare(b)))
-    writeFileSync(TABLE, `${JSON.stringify(ordered, null, 2)}\n`)
-    testInfo.annotations.push({ type: 'recorded', description: `${Object.keys(ordered).length} cases` })
-    return
-  }
-
   expect(Object.keys(recorded).length).toBeGreaterThan(20)
   const orphans = Object.keys(recorded).filter(key => !VIEWS.includes(viewOf(key)))
   expect(orphans.map(key => `${key}\n  recorded, no longer rendered`).join('\n\n') || 'the table holds')
     .toBe('the table holds')
+})
+
+/**
+ * The write a re-record makes, held without making one. The committed table,
+ * split back into its tabs and handed over in reverse, has to come out of
+ * `wholeTable` as the same bytes — a writer that drifted from the format, or
+ * stopped sorting, would otherwise surface only as a whole-file diff in
+ * someone's re-record. The same rows with any one tab missing, and a table
+ * with every tab but no rows, have to be refused. A row for a tab the
+ * catalogue no longer has is split out like any other: that failure belongs
+ * to the test above.
+ */
+test('a re-record writes the recorded table byte for byte, and refuses one missing a tab', () => {
+  test.skip(UPDATE, 'a re-record is rewriting the file this reads')
+  const text = readFileSync(TABLE, 'utf8')
+  const recorded: Record<string, unknown> = JSON.parse(text)
+  const rows = new Map<string, Record<string, unknown>>([...VIEWS].reverse().map(view => [view, {}]))
+  for (const [key, value] of Object.entries(recorded).reverse()) {
+    rows.set(viewOf(key), { ...rows.get(viewOf(key)), [key]: value })
+  }
+  expect(wholeTable(rows)).toBe(text)
+  const dropped = VIEWS[0]!
+  rows.delete(dropped)
+  expect(() => wholeTable(rows)).toThrow(`not measured: ${dropped}`)
+  expect(() => wholeTable(new Map(VIEWS.map(view => [view, {}])))).toThrow('0 cases is too few')
 })
