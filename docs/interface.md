@@ -323,7 +323,8 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 - The **git control** is the branch chip and the menu behind it: Changes with the
   count of files this conversation touched, the branch and folder, bring a
   managed worktree back to the main checkout or remove it, review uncommitted
-  changes, and commit changes. Its glyph says where the conversation runs — a
+  changes — in a conversation of its own, which opens, while this one waits in
+  the sidebar as it was — and commit changes. Its glyph says where the conversation runs — a
   laptop for the main checkout, a branch for a worktree, which also wears a
   **worktree** badge, HarnessDesk's own or not — and in a narrow header the
   words fold away and the glyph stays.

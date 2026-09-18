@@ -57,6 +57,21 @@ describe('splitTurn', () => {
     expect(view.answer.map((entry) => entry.id)).toEqual(['a'])
   })
 
+  test("a review opens on its start and its request, as Codex sends them, and the rest is its work and findings", () => {
+    const view = splitTurn(
+      turn([
+        item('review', 'entered', { phase: 'entered', review: 'current changes' }),
+        item('userMessage', 'u'),
+        item('command', 'c'),
+        item('review', 'exited', { phase: 'exited', review: 'One finding.' }),
+        item('assistantMessage', 'a'),
+      ]),
+    )
+    expect(view.prompt.map((entry) => entry.id)).toEqual(['entered', 'u'])
+    expect(view.work.map((entry) => entry.id)).toEqual(['c', 'exited'])
+    expect(view.answer.map((entry) => entry.id)).toEqual(['a'])
+  })
+
   test('a user message after work began is not the prompt', () => {
     const view = splitTurn(turn([item('userMessage', 'u'), item('command', 'c'), item('userMessage', 'steer')]))
     expect(view.prompt.map((entry) => entry.id)).toEqual(['u'])
