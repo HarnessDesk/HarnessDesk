@@ -364,7 +364,6 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
      "id": "claude-code",
      "command": "node",
      "args": ["…/packages/claude-acp/dist/src/main.js"],
-     "package": "@agentclientprotocol/claude-agent-acp",
      "executable": { "command": "claude", "env": "CLAUDE_CODE_EXECUTABLE" }
    }
    ```
@@ -382,7 +381,13 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
    `HARNESSDESK_NO_UPDATE_CHECK=1` to disable). If an update is available,
    an advisory appears in the model selection menu and in runtime settings
    displaying the upgrade command. The notice is purely informative; no
-   features are disabled.
+   features are disabled. It is measured against the version shown beside
+   it, and measured again whenever that version moves — "Refresh models"
+   restarting an idle runtime onto an upgrade, or an app-server coming back
+   up on a new binary — so it never names the build already running. The
+   version compared is the runtime's own, so a bridge's `package` is the
+   bridge's npm package, not the CLI it drives; the bridges in this
+   repository are not published and name none.
 5. **Parse protocols forward-compatibly.** Generated protocol types are
    aligned with vendor releases, but adapters treat enums (modes, reasoning
    efforts, model IDs) as open strings at runtime. Newer options pass
