@@ -88,6 +88,13 @@ export interface FlowPort {
    */
   retire(runtime: string, sessionId: string): Promise<void>
   /**
+   * A seat this run kept, once the run exists: the desk writes its durable
+   * Seat record. The run's own `FlowSeatRecord` is the seat's working state
+   * and goes with the run; the Seat record is what outlives it. Absent on a
+   * port that keeps no records, which is every test port.
+   */
+  recorded?(room: string, seat: FlowSeatRecord): void
+  /**
    * Why this conversation's last turn ended badly, in the runtime's own words,
    * or null when it ended normally.
    *
@@ -501,6 +508,7 @@ export class Flows implements TeamFlows {
       startedAt: now(),
     }
     this.#runs.set(id, run)
+    for (const seat of seats) this.#port.recorded?.(request.room, seat)
 
     /* Past this line the run exists, so a failure is *stopped* rather than
        unwound: its seats have their orders and are already waiting, and a run

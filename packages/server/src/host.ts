@@ -84,6 +84,7 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import { flowSeatInput } from './evidence/seats.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
@@ -667,6 +668,21 @@ export class Host {
         return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
       },
       retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+      /* Not awaited by the run, which already exists: a record that could not
+         be written is logged loudly with the seat it was for, and the run goes
+         on. An Agent's seat is stricter (`agent/seat`), because nothing has
+         started yet when its record is written. */
+      recorded: (room, seat) => {
+        void this.#evidence.seats.opened(flowSeatInput(room, seat)).catch((error: unknown) => {
+          this.#logger.error("a flow seat's record could not be written", {
+            room,
+            role: seat.role,
+            runtime: seat.runtime,
+            sessionId: seat.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      },
       join: async (room, runtime, sessionId) => {
         const id = makeSessionId(sessionId)
         const known = this.registry.get(runtime as RuntimeId, id)?.session

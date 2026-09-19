@@ -1,4 +1,4 @@
-import { sessionKey, type SeatId, type SeatRecord } from '@harnessdesk/protocol'
+import { sessionKey, type FlowSeatRecord, type SeatId, type SeatRecord } from '@harnessdesk/protocol'
 
 import { foldSeats, mintId, type SeatOpening } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
@@ -24,6 +24,26 @@ export type SeatOpeningInput = Omit<SeatOpening, 'id' | 'checkout' | 'openedAt'>
   /** The folder the conversation works in. */
   readonly cwd: string
 }
+
+/**
+ * What a flow's seat records: a runtime on a seat in a role on a board, and no
+ * Agent — a flow seats runtimes until phase 6 gives its roles Agents. Its
+ * standing order is the role's `permission:`; `ceiling` is the one value
+ * phase 3 changes here.
+ */
+export const flowSeatInput = (room: string, seat: FlowSeatRecord): SeatOpeningInput => ({
+  agent: null,
+  briefDigest: null,
+  seat: seat.spec,
+  seatLabel: seat.seat,
+  passedOver: [],
+  standing: { kind: 'permission', permission: seat.permission },
+  ceiling: null,
+  cwd: seat.cwd,
+  session: { runtime: seat.runtime, sessionId: seat.sessionId },
+  board: room,
+  role: seat.role,
+})
 
 export class SeatBook {
   readonly #store: EvidenceStore

@@ -9,14 +9,16 @@ import {
   runtimeId,
   sessionId,
   ValidationError,
+  type FlowRun,
   type SeatRecord,
   type Session,
+  type TeamState,
 } from '@harnessdesk/protocol'
 
 import { canonical } from '../src/evidence/revision.js'
 import { SeatBook } from '../src/evidence/seats.js'
 import { EvidenceStore } from '../src/evidence/store.js'
-import { evidenceDesk, makeRepo, writeAgent } from './fixtures/evidence-desk.js'
+import { evidenceDesk, makeRepo, until, writeAgent } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -167,4 +169,49 @@ test('the wire refuses a Seat record asked of no conversation', () => {
   assert.throws(() => ask({ runtime: 'fake', sessionId: ' ' }), ValidationError)
   assert.throws(() => ask({ runtime: 'fake' }), ValidationError)
   assert.deepEqual(ask({ runtime: 'fake', sessionId: 's1' }).params, { runtime: 'fake', sessionId: 's1' })
+})
+const FLOW = `
+name: Record check
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    permission: read
+    outcomes: [done]
+    order: Do the one thing.
+seed:
+  role: worker
+  title: The one thing
+`
+
+test("through the host: a flow's seat leaves a Seat record on its board and in its role, with no Agent", async (t) => {
+  const { host, repo } = await evidenceDesk(t)
+  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Seat room' })) as TeamState
+  const run = (await host.call('flow/start', { room: room.id, source: FLOW })) as FlowRun
+  await host.call('flow/stop', { run: run.id })
+  const seat = run.seats[0]
+  assert.ok(seat)
+  const record = await until(
+    () => host.call('evidence/seat', { runtime: seat.runtime, sessionId: seat.sessionId }),
+    "the flow seat's record",
+  )
+  assert.equal(record.agent, null)
+  assert.equal(record.briefDigest, null)
+  assert.equal(record.board, room.id)
+  assert.equal(record.role, 'worker')
+  assert.equal(record.seatLabel, seat.seat)
+  assert.deepEqual(record.seat, seat.spec)
+  assert.deepEqual(record.standing, { kind: 'permission', permission: 'read' })
+  assert.equal(record.ceiling, null)
+  assert.equal(record.checkout.cwd, seat.cwd)
+})
+
+test('through the host: deleting a conversation closes its Seat, and the record stays', async (t) => {
+  const { host, stateDir, repo } = await evidenceDesk(t)
+  await writeAgent(stateDir)
+  const session = (await host.call('agent/seat', { id: 'scout', cwd: repo.dir })) as Session
+  await host.call('session/delete', { runtime: runtimeId('fake'), sessionId: session.id })
+  const record = (await host.call('evidence/seat', { runtime: 'fake', sessionId: String(session.id) })) as SeatRecord
+  assert.equal(record.closed?.why, 'deleted')
+  assert.equal(record.agent?.id, 'scout', 'the record outlives the conversation it points at')
 })
