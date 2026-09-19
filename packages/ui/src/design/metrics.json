@@ -47,6 +47,14 @@
     "pad": "12 0 12 0",
     "radius": 0
   },
+  "adopted/table/variant/framed": {
+    "h": 51,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "adopted/textarea/size/compact": {
     "h": 32,
     "text": 13,

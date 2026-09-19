@@ -84,6 +84,18 @@
   border-radius: var(--hd-radius-sm);
 }
 
+.chip[data-variant='outline'] {
+  border-radius: var(--hd-radius-full);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hd-border);
+  color: var(--hd-muted-foreground);
+}
+
+.chip[data-variant='outline'][data-emphasis] {
+  box-shadow: inset 0 0 0 1px currentcolor;
+  color: var(--hd-secondary-foreground);
+}
+
 /* The one label line over a navigation list. Its asymmetric vertical air is
    measured from the sidebar: the ink sits with the rows while the controls
    remain centred in the exact box they occupied before the role was shared. */
@@ -524,6 +536,25 @@
   color: var(--hd-secondary-foreground);
 }
 
+.note[data-ink='muted'] {
+  color: var(--hd-muted-foreground);
+}
+
+.note[data-icon] {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-1);
+}
+
+.note[data-icon] > svg {
+  flex: none;
+}
+
+.note[data-icon] > span {
+  flex: 1;
+  min-width: 0;
+}
+
 .formStack + .note {
   margin-top: var(--hd-space-3);
 }
@@ -913,6 +944,32 @@
 .mono {
   font-family: var(--hd-font-code);
   font-size: 12.5px;
+}
+
+.monoInherit {
+  font-size: inherit;
+}
+
+.monogram {
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.metaList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-1) 0;
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--hd-secondary-foreground);
+}
+
+.metaList > :not(:first-child)::before {
+  content: '·';
+  margin-inline: var(--hd-space-2);
+  color: var(--hd-muted-foreground);
 }
 
 /* A tool's wire name. It is what you need to write a permission rule and not

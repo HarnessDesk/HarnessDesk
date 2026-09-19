@@ -2,7 +2,18 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Chip } from './Settings'
+import {
+  Chip,
+  CodeText,
+  LibraryOperationList,
+  LibraryOperationMark,
+  LibraryReachFace,
+  LibraryReachMark,
+  MetaList,
+  Monogram,
+  Note,
+  Text,
+} from './Settings'
 import css from './Settings.module.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -94,4 +105,84 @@ it('offers the compact tag size without inheriting the full chip height', () => 
   const chip = draw(<Chip tone="neutral" size="sm">Local</Chip>)
   expect(chip.dataset['size']).toBe('sm')
   expect(css).toMatch(/\.chip\[data-size='sm'\]\s*\{[^}]*height:\s*18px[^}]*padding:\s*0 var\(--hd-space-1-5\)[^}]*border-radius:\s*var\(--hd-radius-sm\)/s)
+})
+
+it('offers the established outline tag without changing the chip default', () => {
+  const chip = draw(<Chip tone="neutral" size="sm" variant="outline" emphasis>Loaded first</Chip>)
+  expect(chip.dataset['variant']).toBe('outline')
+  expect(chip.dataset['emphasis']).toBe('')
+  expect(css).toMatch(/\.chip\[data-variant='outline'\]\s*\{[^}]*border-radius:\s*var\(--hd-radius-full\)[^}]*background:\s*transparent/s)
+  expect(css).toMatch(/\.chip\[data-variant='outline'\]\[data-emphasis\][^}]*color:\s*var\(--hd-secondary-foreground\)/s)
+})
+
+it('keeps a supporting note quiet while preserving its icon', () => {
+  const note = draw(<Note icon={<svg data-testid="folder" />} ink="muted">Manifest required</Note>)
+  expect(note.dataset['icon']).toBe('')
+  expect(note.dataset['ink']).toBe('muted')
+  expect(note.querySelector('[data-testid="folder"]')).not.toBeNull()
+  expect(note.textContent).toBe('Manifest required')
+})
+
+it('lets verbatim values inherit the text role around them', () => {
+  const code = draw(<CodeText as="code" size="inherit">~/skills/review</CodeText>)
+  expect(code.dataset['size']).toBe('inherit')
+  expect(code.textContent).toBe('~/skills/review')
+})
+
+it('keeps a text role while selecting its established ink tier', () => {
+  const text = draw(<Text role="meta" ink="secondary">Operation detail</Text>)
+  expect(text.dataset['role']).toBe('meta')
+  expect(text.dataset['ink']).toBe('secondary')
+  expect(text.className).toContain('text-(--hd-secondary-foreground)')
+})
+
+it('draws row marks and compact facts as named roles', () => {
+  act(() => root.render(
+    <>
+      <Monogram>CR</Monogram>
+      <MetaList><span>3 copies</span><span>Last Tuesday</span></MetaList>
+    </>,
+  ))
+  expect(container.querySelector('[data-slot="monogram"]')?.textContent).toBe('CR')
+  const list = container.querySelector('[data-slot="meta-list"]')
+  expect(list?.children).toHaveLength(2)
+  expect(list?.textContent).toBe('3 copiesLast Tuesday')
+})
+
+it('keeps every library reach state named by shape', () => {
+  act(() => root.render(
+    <>
+      <LibraryReachMark state="reaches" label="Loaded" placement="cell" />
+      <LibraryReachMark state="off" label="Switched off" />
+      <LibraryReachMark state="unscanned" label="Outside scan paths" />
+      <LibraryReachMark state="hollow" label="Empty on disk" />
+    </>,
+  ))
+  const marks = [...container.querySelectorAll<HTMLElement>('[data-slot="library-reach-mark"]')]
+  expect(marks.map((mark) => mark.dataset['state'])).toEqual(['reaches', 'off', 'unscanned', 'hollow'])
+  expect(marks[0]?.dataset['placement']).toBe('cell')
+  expect(marks[0]?.className).toContain('h-(--hd-control-h)')
+  expect(marks.every((mark) => mark.getAttribute('role') === 'img')).toBe(true)
+})
+
+it('keeps agent identity content while reach controls only its plate', () => {
+  const face = draw(<LibraryReachFace state="hollow" label="Agent A: empty on disk">A</LibraryReachFace>)
+  expect(face.dataset['slot']).toBe('skill-reach')
+  expect(face.dataset['state']).toBe('hollow')
+  expect(face.dataset['problem']).toBe('')
+  expect(face.getAttribute('aria-label')).toBe('Agent A: empty on disk')
+  expect(face.textContent).toBe('A')
+})
+
+it('names operation marks and keeps a one-operation preview composed', () => {
+  act(() => root.render(
+    <LibraryOperationList>
+      <div role="listitem"><LibraryOperationMark state="planned" />Create skill</div>
+      <div role="listitem"><LibraryOperationMark state="done" />Done</div>
+    </LibraryOperationList>,
+  ))
+  const list = container.querySelector<HTMLElement>('[data-slot="library-operation-list"]')
+  expect(list?.getAttribute('role')).toBe('list')
+  expect(list?.className).toContain('min-h-18')
+  expect([...container.querySelectorAll<HTMLElement>('[data-slot="library-operation-mark"]')].map((mark) => mark.dataset['state'])).toEqual(['planned', 'done'])
 })
