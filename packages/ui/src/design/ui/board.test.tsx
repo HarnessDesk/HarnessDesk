@@ -80,6 +80,50 @@ describe('Board', () => {
       draw(<Board wrap>{columns}</Board>).querySelectorAll('[data-slot="board-column"]'),
     ).toHaveLength(2)
   })
+
+  it('marks a derived board, suppresses every add path, and says when a column is empty', () => {
+    const board = draw(
+      <Board derived>
+        <BoardColumn
+          title="Passed"
+          onAdd={() => {}}
+          onAddTitle={() => {}}
+        />
+      </Board>,
+    )
+    expect(board.hasAttribute('data-derived')).toBe(true)
+    expect(board.querySelector('button')).toBeNull()
+    expect(board.querySelector('[data-slot="board-add"]')).toBeNull()
+    expect(board.querySelector('[data-slot="board-empty"]')?.textContent).toBe('Nothing here')
+  })
+
+  /* A caller writes `{cards.length > 0 && cards.map(...)}` as often as a bare
+     map, and `false` is a child React counts: the column is still empty. */
+  it('reads a column whose only child is a false condition as empty', () => {
+    const cards: string[] = []
+    const board = draw(
+      <Board derived>
+        <BoardColumn title="Failed">{cards.length > 0 && cards.map((card) => <span key={card}>{card}</span>)}</BoardColumn>
+      </Board>,
+    )
+    expect(board.querySelector('[data-slot="board-empty"]')?.textContent).toBe('Nothing here')
+  })
+
+  it('keeps both add controls on a manual board', () => {
+    const board = draw(
+      <Board>
+        <BoardColumn
+          title="Waiting"
+          onAdd={() => {}}
+          onAddTitle={() => {}}
+        />
+      </Board>,
+    )
+    expect(board.hasAttribute('data-derived')).toBe(false)
+    expect(board.querySelectorAll('button')).toHaveLength(2)
+    expect(board.querySelector('[data-slot="board-add"]')).not.toBeNull()
+    expect(board.textContent).not.toContain('Nothing here')
+  })
 })
 
 /*

@@ -53,26 +53,29 @@
   font-size: var(--hd-text-xs);
   line-height: 1;
   white-space: nowrap;
+}
+
+.chip[data-state]:not([data-tone]) {
   background: var(--hd-chip-fill);
   color: var(--hd-secondary-foreground);
 }
 
-.chip[data-state='ready'] {
+.chip[data-state='ready']:not([data-tone]) {
   background: var(--hd-success-dim);
   color: var(--hd-success-ink); /* desk: the fill colour → its readable ink; 2.4:1 became 4.6:1 */
 }
 
-.chip[data-state='signin'] {
+.chip[data-state='signin']:not([data-tone]) {
   background: var(--hd-accent-dim);
   color: var(--hd-primary-ink); /* desk: the fill colour → its readable ink */
 }
 
-.chip[data-state='limit'] {
+.chip[data-state='limit']:not([data-tone]) {
   background: var(--hd-warning-dim);
   color: var(--hd-warning-ink);
 }
 
-.chip[data-state='broken'] {
+.chip[data-state='broken']:not([data-tone]) {
   background: var(--hd-danger-dim);
   color: var(--hd-danger-ink); /* desk: the fill colour → its readable ink */
 }
@@ -81,6 +84,11 @@
    about what state they are showing. */
 .chip .dot {
   background: currentColor;
+}
+
+.chip[data-stale] .chipWords {
+  color: var(--hd-muted-foreground);
+  text-decoration: line-through;
 }
 
 /* --- controls ------------------------------------------------------------ */

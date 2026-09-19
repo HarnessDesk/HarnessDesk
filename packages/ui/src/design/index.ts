@@ -35,6 +35,7 @@
 export {
   Dot,
   Chip,
+  type ChipProps,
   Search,
   Field,
   type FieldControl,
@@ -133,4 +134,4 @@ export {
 } from './patterns/ChannelMessage'
 export { AgentCard, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
-export { KindGlyph, PublicationCard, StatePill, publicationVerb } from './patterns/PublicationCard'
+export { KindGlyph, PublicationCard, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
