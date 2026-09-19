@@ -7,6 +7,7 @@ import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
 import { ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
+import { RunCheck } from '../components/RunCheck'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -36,7 +37,7 @@ import {
   store,
 } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
-import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM } from './evidence-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import '../styles/app.css'
 
 /**
@@ -186,6 +187,7 @@ const Preview = () => {
     | 'seat sheet'
     | 'save as agent'
     | 'what was observed'
+    | 'run a check'
   >('off')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
@@ -226,7 +228,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check'] as const}
           onChange={setDialog}
         />
       </div>
@@ -241,6 +243,15 @@ const Preview = () => {
           title={EVIDENCE_TEAM.intents[0]?.title ?? ''}
           card={EVIDENCE_BOARD.cards[0]}
           onClose={() => setDialog('off')}
+        />
+      )}
+      {dialog === 'run a check' && (
+        <RunCheck
+          unseen={PREVIEW_UNSEEN}
+          card={2}
+          busy={false}
+          onRun={() => setDialog('off')}
+          onCancel={() => setDialog('off')}
         />
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}

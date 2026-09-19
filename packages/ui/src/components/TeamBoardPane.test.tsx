@@ -13,7 +13,8 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
-import { cardEvidence, checkView, prView } from '../preview/evidence-fixture'
+import { cardEvidence, checkView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
+import { ARM_MS } from './RunCheck'
 import { TeamBoardPane } from './TeamBoardPane'
 
 /**
@@ -130,6 +131,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
        exactly as it did before flows existed. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
+    runCheck: vi.fn().mockResolvedValue({ kind: 'started' }),
   } as unknown as AppStore
   return { store }
 }
@@ -1068,4 +1070,144 @@ it('reads what was observed when shown, when the window comes back, and every th
   } finally {
     vi.useRealTimers()
   }
+})
+
+const UNSEEN = {
+  ...PREVIEW_UNSEEN,
+  check: { name: 'verify', run: 'pnpm verify', timeout: 1200 },
+  previous: null,
+}
+
+const question = (): HTMLElement | null => document.querySelector('[role="alertdialog"]')
+
+const pressIn = (scope: ParentNode, label: string): void => {
+  const found = [...scope.querySelectorAll('button')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no button labelled ${label}`)
+  act(() => found.click())
+}
+
+const armed = (): Promise<void> =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ARM_MS + 50))
+  })
+
+it('a card offers each named check, and the first run of a command nobody here has seen shows it and asks', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ kind: 'unseen', unseen: UNSEEN })
+  await render(store)
+
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+  expect(store.runCheck).toHaveBeenCalledWith(ROOM, 1, 'verify')
+  const asked = question()
+  expect(asked?.textContent).toContain('Run verify on this Mac for the first time?')
+  expect(asked?.querySelector('pre')?.textContent).toBe('pnpm verify')
+  expect(asked?.textContent).toContain('.harnessdesk/checks.yml')
+  expect(asked?.textContent).toContain('It runs with your full authority, as it would in your terminal')
+  expect([...(asked?.querySelectorAll('button') ?? [])].includes(document.activeElement as HTMLButtonElement)).toBe(false)
+
+  act(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+
+  pressIn(asked as HTMLElement, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+
+  await armed()
+  pressIn(asked as HTMLElement, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(2)
+  expect(store.runCheck).toHaveBeenLastCalledWith(ROOM, 1, 'verify', {
+    seen: 'pnpm verify',
+    digest: UNSEEN.digest,
+  })
+  expect(question()).toBeNull()
+})
+
+it('Not now runs nothing, and says nothing was seen', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ kind: 'unseen', unseen: UNSEEN })
+  await render(store)
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  pressIn(question() as HTMLElement, 'Not now')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+  expect(question()).toBeNull()
+})
+
+it('a changed command asks again, and shows what ran under its name before', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['lint'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    kind: 'unseen',
+    unseen: PREVIEW_UNSEEN,
+  })
+  await render(store)
+  await pick(1, 'Run lint')
+  await act(async () => {})
+  const asked = question()
+  expect(asked?.textContent).toContain('lint has changed since it last ran here')
+  expect([...(asked?.querySelectorAll('pre') ?? [])].map((one) => one.textContent)).toEqual([
+    'pnpm lint --max-warnings 0',
+    'pnpm lint',
+  ])
+})
+
+const reasonOf = (item: HTMLElement | undefined): string | null => {
+  const id = item?.getAttribute('aria-describedby')
+  return id ? (document.getElementById(id)?.textContent ?? null) : null
+}
+
+it('a check that cannot run stays in the menu, greyed, with its reason as its second line', async () => {
+  const { store } = rig(
+    [intent({ state: 'open' })],
+    {},
+    {
+      ...observed(['verify'], []),
+      refused: [{ name: 'e2e', why: 'The command holds a character that is not plain printable ASCII.' }],
+    },
+  )
+  await render(store)
+  const items = await menuItems(1)
+  const refused = items.find((one) => one.textContent?.startsWith('Run e2e'))
+  expect(refused?.hasAttribute('data-disabled')).toBe(true)
+  expect(reasonOf(refused)).toBe(".harnessdesk/checks.yml refuses it; the project's page says why")
+  act(() => refused?.click())
+  await act(async () => {})
+  expect(store.runCheck).not.toHaveBeenCalled()
+})
+
+it('while a check runs on a card, every check on that card waits, and says why: one runs on a card at a time', async () => {
+  const { store } = rig(
+    [intent({ id: 1, state: 'open' }), intent({ id: 2, state: 'open', title: 'Another card' })],
+    {},
+    observed(['verify', 'lint'], [cardEvidence(1, [], [{ name: 'verify', since: 1 }])]),
+  )
+  await render(store)
+  const items = await menuItems(1)
+  for (const label of ['Run verify', 'Run lint']) {
+    const item = items.find((one) => one.textContent?.startsWith(label))
+    expect(item?.hasAttribute('data-disabled'), label).toBe(true)
+    expect(reasonOf(item)).toBe('verify is running on this card, and one check runs on a card at a time')
+  }
+  act(() => dismissOverlays())
+  await act(async () => {})
+  await pick(2, 'Run lint')
+  expect(store.runCheck).toHaveBeenCalledWith(ROOM, 2, 'lint')
+})
+
+it('a refusal to run is said in the host’s words, and nothing is asked', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+    new Error("#1's checkout, /elsewhere, is not part of this project, so its check does not run there."),
+  )
+  await render(store)
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    "#1's checkout, /elsewhere, is not part of this project, so its check does not run there.",
+  )
+  expect(question()).toBeNull()
 })

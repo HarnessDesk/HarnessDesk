@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
   sessionKey,
+  type BoardEvidence,
   type CardEvidence,
+  type CheckUnseen,
   type Intent,
   type SessionId,
   type TeamPeerInfo,
@@ -14,15 +16,16 @@ import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
+import { RunCheck } from './RunCheck'
 import { HandOut } from './HandOut'
 import { SessionHoverCard } from './AgentCards'
-import { useDismissOverlays } from '../design'
 import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
   BranchIcon,
   ClockIcon,
   HandoffIcon,
+  MoreIcon,
   PlanIcon,
   PlusIcon,
 } from './Icons'
@@ -30,14 +33,13 @@ import {
   Board,
   BoardCard,
   BoardColumn,
-  BoardMenuButton,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   EmptyState,
   IconTile,
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  Popover,
   ToolPane,
   ToolPaneBody,
   ToolPaneHeader,
@@ -189,6 +191,12 @@ const nicknameOf = (
 /** The user's verbs, as the host will take them. */
 type Verb = 'reopen' | 'abandon' | 'done' | 'release' | 'block'
 
+type BoardChecks = Pick<BoardEvidence, 'checks' | 'refused' | 'unreadable'>
+
+const NO_CHECKS: BoardChecks = { checks: [], refused: [], unreadable: null }
+
+const CHECKS_FILE_WORDS = '.harnessdesk/checks.yml'
+
 /**
  * What dropping this card on that column would do — or why nothing happens.
  *
@@ -273,6 +281,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const peers = roster && roster.room === room ? roster.peers : null
   /** The job being stopped, while its reason is being written. */
   const [stopping, setStopping] = useState<Intent | null>(null)
+  const [asking, setAsking] = useState<{ readonly card: number; readonly unseen: CheckUnseen } | null>(null)
+  const [starting, setStarting] = useState(false)
 
   /* Boards are keyed by room, so a room that has gone — deleted, or named by
      a layout written before it existed — simply has no entry, which is the
@@ -426,6 +436,34 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   }
 
   const openAdd = (plan: number | null): void => setDetailed({ plan })
+
+  const runCheck = (
+    card: number,
+    name: string,
+    answer?: { readonly seen: string; readonly digest: string },
+  ): void => {
+    setStarting(answer !== undefined)
+    void (answer !== undefined
+      ? store.runCheck(room, card, name, answer)
+      : store.runCheck(room, card, name))
+      .then((result) => {
+        if (result.kind === 'unseen') {
+          setAsking({ card, unseen: result.unseen })
+          return
+        }
+        setAsking(null)
+        setTrouble(null)
+      })
+      .catch((error: unknown) => {
+        setAsking(null)
+        setTrouble(
+          error instanceof Error && error.message
+            ? error.message
+            : `${name} did not start on #${card}; nothing ran.`,
+        )
+      })
+      .finally(() => setStarting(false))
+  }
 
   /** The edge that makes this a board and not a chart: task to conversation. */
   const openHolder = (intent: Intent): void => {
@@ -720,6 +758,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       now={now}
                       attached={attached}
                       evidence={evidence?.cards.find((one) => one.card === intent.id)}
+                      checks={evidence ?? NO_CHECKS}
+                      onRunCheck={(name) => runCheck(intent.id, name)}
                       onOpenHolder={() => openHolder(intent)}
                       onAct={(verb, outcome) =>
                         verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)
@@ -749,6 +789,20 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             act(stopping.id, 'block', reason)
             setStopping(null)
           }}
+        />
+      )}
+      {asking && (
+        <RunCheck
+          unseen={asking.unseen}
+          card={asking.card}
+          busy={starting}
+          onRun={() =>
+            runCheck(asking.card, asking.unseen.check.name, {
+              seen: asking.unseen.check.run,
+              digest: asking.unseen.digest,
+            })
+          }
+          onCancel={() => setAsking(null)}
         />
       )}
       {handing && (
@@ -855,6 +909,8 @@ const IntentCard = ({
   now,
   attached,
   evidence,
+  checks,
+  onRunCheck,
   onDragStart,
   onDragEnd,
   onOpenHolder,
@@ -869,6 +925,9 @@ const IntentCard = ({
   attached: null | ((claim: { runtime: string; sessionId: string }) => boolean)
   /** What the desk observed on this card; undefined when nothing. */
   evidence: CardEvidence | undefined
+  /** The checks the room's project names: to run, refused, or none readable. */
+  checks: BoardChecks
+  onRunCheck: (name: string) => void
   onDragStart: () => void
   onDragEnd: () => void
   onOpenHolder: () => void
@@ -876,18 +935,6 @@ const IntentCard = ({
   onAct: (verb: Verb, outcome?: string) => void
 }) => {
   const snapshot = useSnapshot()
-
-  /*
-   * The menu's open state is held here rather than left to Base UI, because
-   * something other than the menu has to be able to close it. Base UI closes on
-   * Escape and on a press outside, and a window taking the screen is neither:
-   * Settings, Usage and — in a narrow window — the floating sidebar announce
-   * themselves instead, and a menu drawn at `--hd-z-popover` outranks all
-   * three, so this one hung over whichever of them opened, modal, holding the
-   * focus they had just taken (#214).
-   */
-  const [menuOpen, setMenuOpen] = useState(false)
-  useDismissOverlays(menuOpen, () => setMenuOpen(false))
 
   /* The role this card was addressed to, as the running flow defines it.
      A room with no flow has no entry here at all, which is every room that
@@ -985,6 +1032,33 @@ const IntentCard = ({
       ? [{ verb: 'abandon' as const, label: 'Abandon', danger: true }]
       : []),
   ]
+
+  const busy = evidence?.running[0]?.name ?? null
+  const checkItems: readonly {
+    readonly key: string
+    readonly label: string
+    readonly why: string | null
+  }[] =
+    intent.state === 'abandoned'
+      ? []
+      : [
+          ...checks.checks.map((name) => ({
+            key: name,
+            label: `Run ${name}`,
+            why:
+              busy === null
+                ? null
+                : `${busy} is running on this card, and one check runs on a card at a time`,
+          })),
+          ...checks.refused.map((one) => ({
+            key: one.name,
+            label: `Run ${one.name}`,
+            why: `${CHECKS_FILE_WORDS} refuses it; the project's page says why`,
+          })),
+          ...(checks.unreadable
+            ? [{ key: '', label: 'Run a check', why: `${CHECKS_FILE_WORDS} cannot be read` }]
+            : []),
+        ]
 
   return (
     <BoardCard
@@ -1176,23 +1250,30 @@ const IntentCard = ({
         </span>
       }
       actions={
-        verbs.length > 0 ? (
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger
-              render={<BoardMenuButton aria-label={`What to do with #${intent.id}`} />}
-            />
-            <DropdownMenuContent align="end">
-              {verbs.map((one) => (
-                <DropdownMenuItem
-                  key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
-                  variant={one.danger ? 'destructive' : 'default'}
-                  onClick={() => onAct(one.verb, one.outcome)}
-                >
-                  {one.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        verbs.length > 0 || checkItems.length > 0 ? (
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+            {(close) => (
+              <Menu close={close}>
+                {checkItems.map((one) => (
+                  <MenuItem
+                    key={`check:${one.key}`}
+                    label={one.label}
+                    disabled={one.why ?? false}
+                    onSelect={() => onRunCheck(one.key)}
+                  />
+                ))}
+                {checkItems.length > 0 && verbs.length > 0 && <MenuSeparator />}
+                {verbs.map((one) => (
+                  <MenuItem
+                    key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
+                    label={one.label}
+                    danger={one.danger}
+                    onSelect={() => onAct(one.verb, one.outcome)}
+                  />
+                ))}
+              </Menu>
+            )}
+          </Popover>
         ) : undefined
       }
     />

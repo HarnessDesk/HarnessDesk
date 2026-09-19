@@ -9,6 +9,7 @@ import {
   type PluginInstance,
   type BackgroundTask,
   type BoardEvidence,
+  type CheckUnseen,
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
@@ -3661,6 +3662,29 @@ export class AppStore {
       this.#keepBoardEvidence(room, (await this.transport.request('evidence/board', { room })) as BoardEvidence)
     } catch {
       // A room the host no longer has leaves what is already drawn unchanged.
+    }
+  }
+
+  async runCheck(
+    room: string,
+    card: number,
+    name: string,
+    answer?: { readonly seen: string; readonly digest: string },
+  ): Promise<{ readonly kind: 'started' } | { readonly kind: 'unseen'; readonly unseen: CheckUnseen }> {
+    try {
+      await this.transport.request('evidence/check/run', {
+        room,
+        card,
+        name,
+        ...(answer !== undefined ? { seen: answer.seen, digest: answer.digest } : {}),
+      })
+      return { kind: 'started' }
+    } catch (error) {
+      const refusal = error as { code?: unknown; data?: unknown }
+      if (refusal.code === 'checkUnseen' && refusal.data) {
+        return { kind: 'unseen', unseen: refusal.data as CheckUnseen }
+      }
+      throw error
     }
   }
 

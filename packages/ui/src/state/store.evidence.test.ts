@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 import { type HostMethodName, type WireNotification } from '@harnessdesk/protocol'
 
-import { EVIDENCE_BOARD, EVIDENCE_ROOM } from '../preview/evidence-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, PREVIEW_UNSEEN } from '../preview/evidence-fixture'
 import { AppStore } from './store'
 
 let store: AppStore
@@ -57,4 +57,47 @@ it('a board reads its evidence when asked, and a read that fails leaves what was
   request.mockRejectedValueOnce(new Error('There is no room room-evidence on this desk.'))
   await store.loadBoardEvidence(EVIDENCE_ROOM)
   expect(store.getSnapshot().boardEvidence.get(EVIDENCE_ROOM)).toEqual(EVIDENCE_BOARD)
+})
+
+it('running a check says it started, or hands back the command nobody here has approved, verbatim', async () => {
+  await expect(store.runCheck(EVIDENCE_ROOM, 1, 'verify')).resolves.toEqual({ kind: 'started' })
+  expect(request).toHaveBeenLastCalledWith('evidence/check/run', {
+    room: EVIDENCE_ROOM,
+    card: 1,
+    name: 'verify',
+  })
+
+  request.mockRejectedValueOnce(
+    Object.assign(new Error('lint runs a command this machine has not approved'), {
+      code: 'checkUnseen',
+      data: PREVIEW_UNSEEN,
+    }),
+  )
+  await expect(store.runCheck(EVIDENCE_ROOM, 1, 'lint')).resolves.toEqual({
+    kind: 'unseen',
+    unseen: PREVIEW_UNSEEN,
+  })
+
+  await store.runCheck(EVIDENCE_ROOM, 1, 'lint', {
+    seen: PREVIEW_UNSEEN.check.run,
+    digest: PREVIEW_UNSEEN.digest,
+  })
+  expect(request).toHaveBeenLastCalledWith('evidence/check/run', {
+    room: EVIDENCE_ROOM,
+    card: 1,
+    name: 'lint',
+    seen: 'pnpm lint --max-warnings 0',
+    digest: PREVIEW_UNSEEN.digest,
+  })
+})
+
+it('any other refusal to run a check is thrown in the host’s words', async () => {
+  request.mockRejectedValueOnce(
+    Object.assign(new Error('lint is running on #1, and one check runs on a card at a time.'), {
+      code: 'methodFailed',
+    }),
+  )
+  await expect(store.runCheck(EVIDENCE_ROOM, 1, 'verify')).rejects.toThrow(
+    'lint is running on #1, and one check runs on a card at a time.',
+  )
 })
