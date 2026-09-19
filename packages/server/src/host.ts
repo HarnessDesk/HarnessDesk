@@ -1307,6 +1307,13 @@ export class Host {
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
+      provenance: {
+        read: (root, shas) => this.#provenance.read(root, shas),
+        status: (root) => this.#provenance.status(root),
+        setCapture: (root, enabled) => this.#provenance.setCapture(root, enabled),
+        retry: (root) => this.#provenance.retry(root),
+        seat: (root, id) => this.#provenance.seat(root, id),
+      },
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,

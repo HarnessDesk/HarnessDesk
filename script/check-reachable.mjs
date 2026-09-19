@@ -55,6 +55,11 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron']
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
+  'provenance/commits': 'the history page batches its provenance read in Task 7 of the provenance phase',
+  'provenance/seat': 'the historical Seat dialog reads its exact record in Task 7 of the provenance phase',
+  'provenance/status': 'project health and the sidebar read capture status in Task 8 of the provenance phase',
+  'provenance/capture': 'project capture controls call this in Task 8 of the provenance phase',
+  'provenance/retry': 'project capture retry calls this in Task 8 of the provenance phase',
   'evidence/check/run': "a card offers Run <check>, in the second half of the evidence phase",
   'evidence/board': "a room's board draws its cards' evidence, in the second half of the evidence phase",
   'evidence/checks': "a project's page lists its checks, in the second half of the evidence phase",

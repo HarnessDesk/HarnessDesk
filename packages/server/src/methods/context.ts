@@ -35,6 +35,7 @@ import type { CatalogRefresher } from '../catalog-refresher.js'
 import type { CredentialBroker } from '../credentials.js'
 import type { EditorPlane } from '../editor-plane.js'
 import type { EvidencePlane } from '../evidence/plane.js'
+import type { ProvenancePlane } from '../provenance/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger } from '../ledger/index.js'
 import type { LibraryUsageReader } from '../library-usage.js'
@@ -96,6 +97,7 @@ export interface HostContext {
    * the usage ledger (`ledger()`).
    */
   readonly evidence: EvidencePlane
+  readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher

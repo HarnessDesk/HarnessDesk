@@ -1,6 +1,6 @@
 import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
-import type { CaptureHealth, ProvenanceBackup } from './provenance.js'
+import type { CaptureHealth, ProjectProvenance, ProvenanceBackup, ProvenanceSeatDetail } from './provenance.js'
 import type {
   CapabilityContribution,
   ContextImage,
@@ -565,6 +565,26 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'provenance/commits': {
+    params: { readonly root: string; readonly shas: readonly string[] }
+    result: ProjectProvenance
+  }
+  'provenance/status': {
+    params: { readonly root?: string }
+    result: readonly CaptureHealth[]
+  }
+  'provenance/capture': {
+    params: { readonly root: string; readonly enabled: boolean }
+    result: CaptureHealth
+  }
+  'provenance/retry': {
+    params: { readonly root: string }
+    result: CaptureHealth
+  }
+  'provenance/seat': {
+    params: { readonly root: string; readonly seat: string }
+    result: ProvenanceSeatDetail
+  }
   'host/hello': {
     params: { readonly clientVersion: string }
     result: {
