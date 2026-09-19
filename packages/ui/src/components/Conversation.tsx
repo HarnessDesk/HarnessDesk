@@ -682,9 +682,8 @@ export const Conversation = ({
           <span className={styles.jumpButton}>
             <Button
               type="button"
-              variant="ghost"
+              variant="floating"
               size="sm"
-              className="rounded-full bg-(--hd-card) shadow-[var(--hd-shadow-raised),inset_0_0_0_1px_var(--hd-border-strong)]"
               onClick={jumpToBottom}
             >
               Jump to latest
