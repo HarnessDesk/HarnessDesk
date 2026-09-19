@@ -1730,6 +1730,7 @@ const findings = {
   rawWeight: [],
   patternClass: [],
   screenAppearance: [],
+  screenUnclassified: [],
 }
 
 /**
@@ -1776,29 +1777,82 @@ const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
 
 const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)
 const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '')
+
 /**
  * A height that describes where a box sits rather than what the role is: a
  * share of its container, a share of the viewport, or a keyword that lets the
- * content or the layout decide. Everything else — a length, a token, a `calc()`
- * of either — is the role's own metric, and counts.
+ * content or the layout decide. Zero is the flex/grid shrink reset in every
+ * unit spelling, not a role metric. Everything else — a non-zero length, a
+ * token, a `calc()` of either — is the role's own metric, and counts.
  */
+const ZERO_HEIGHT = /^[+-]?(?:0+(?:\.0*)?|\.0+)(?:e[+-]?\d+)?(?:[a-z]+|%)?$/i
 const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i)|cq(?:h|w|i|b|min|max))\b|^(?:auto|none|stretch|fit-content|min-content|max-content|inherit|initial|unset|revert|revert-layer)$|^fit-content\(/i
-const TYPE_APPEARANCE = new Set([
-  'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'line-height', 'letter-spacing',
-  'text-transform', 'text-decoration', 'text-decoration-color',
-])
-const INK_APPEARANCE = new Set(['color', 'background', 'background-color', 'fill', 'stroke'])
+
+/**
+ * The appearance side of the screen boundary: type, ink and ground, edges,
+ * and a role's inner box. Families are stems because CSS may add or the app
+ * may adopt another longhand without that spelling becoming invisible.
+ */
+const APPEARANCE_PROPERTIES = {
+  exact: new Set([
+    'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-underline-offset', 'text-shadow',
+    'color', 'fill', 'caret-color', 'accent-color', 'filter', 'backdrop-filter', 'mix-blend-mode',
+    'box-shadow', 'height', 'min-height', 'max-height',
+  ]),
+  families: ['font', 'text-decoration', 'background', 'stroke', 'mask', 'border', 'outline', 'padding'],
+}
+
+/**
+ * The layout and behaviour side of the screen boundary. It names geometry,
+ * flow, interaction and motion explicitly; the last group are descriptors or
+ * specialized properties that the app's screen sheets currently use.
+ */
+const LAYOUT_BEHAVIOUR_PROPERTIES = {
+  exact: new Set([
+    'display', 'gap', 'row-gap', 'column-gap', 'position', 'top', 'right', 'bottom', 'left',
+    'width', 'min-width', 'max-width', 'block-size', 'min-block-size', 'max-block-size',
+    'inline-size', 'min-inline-size', 'max-inline-size', 'z-index', 'order', 'float', 'box-sizing',
+    'aspect-ratio', 'isolation', 'visibility', 'opacity', 'cursor', 'pointer-events', 'user-select',
+    'will-change', 'content', 'white-space', 'text-overflow', 'text-align', 'vertical-align',
+    'word-break', 'hyphens', 'table-layout', 'resize', 'appearance', 'app-region',
+    'box-orient', 'caption-side', 'clip-path', 'direction', 'line-clamp', 'touch-action', 'unicode-bidi',
+    'syntax', 'inherits', 'initial-value',
+  ]),
+  families: [
+    'flex', 'grid', 'align', 'justify', 'place', 'inset', 'margin', 'overflow', 'object', 'transform',
+    'contain', 'container', 'transition', 'animation', 'list-style', 'scroll', 'overscroll', 'scrollbar',
+  ],
+}
+
+const inPropertyTable = (name, table) =>
+  table.exact.has(name) || table.families.some((family) => name === family || name.startsWith(`${family}-`))
+
+const screenPropertySideOf = (property, value) => {
+  if (property.startsWith('--')) return 'custom'
+  const name = unprefixedProperty(property)
+  if (inPropertyTable(name, APPEARANCE_PROPERTIES)) {
+    if (name === 'height' || name === 'min-height' || name === 'max-height') {
+      const metric = value.replace(/\s*!important\s*$/i, '').trim()
+      if (ZERO_HEIGHT.test(metric) || LAYOUT_HEIGHT.test(metric)) return 'layout'
+    }
+    return 'appearance'
+  }
+  if (inPropertyTable(name, LAYOUT_BEHAVIOUR_PROPERTIES)) return 'layout'
+  return 'unclassified'
+}
 
 /**
  * Appearance a screen draws for itself instead of composing from the system.
  *
  * Type, ink, ground, edges and a role's inner box are owned by the component
  * that names that role, so every declaration of one here is a copy a system
- * change cannot reach. Layout, behaviour, motion and custom properties are
- * deliberately not counted: those remain the screen's job. Height and its
- * minimum and maximum constraints are split at the same boundary. A fixed
- * length or token is a control metric, while a percentage, intrinsic size or
- * viewport measure describes its layout.
+ * change cannot reach. Every ordinary property is matched against the two
+ * explicit tables above; one on neither side is a separate strict finding,
+ * rather than silently becoming layout. Custom properties define values
+ * rather than draw either side and remain outside the split. Height and its
+ * minimum and maximum constraints use one value rule: a non-zero fixed length
+ * or token is a control metric, while zero, a percentage, an intrinsic size,
+ * or a viewport/container share describes layout.
  *
  * Markdown is exempt because prose keeps its own ratio ladder, and Diff is
  * exempt because a diff viewer is a specialized renderer. Both boundaries
@@ -1806,17 +1860,13 @@ const INK_APPEARANCE = new Set(['color', 'background', 'background-color', 'fill
  */
 export const screenAppearanceOf = (file, css) => {
   if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
-  return declarationsOf(css).filter(({ property, value }) => {
-    if (property.startsWith('--')) return false
-    const name = unprefixedProperty(property)
-    if (TYPE_APPEARANCE.has(name) || INK_APPEARANCE.has(name)) return true
-    if (name === 'border' || name.startsWith('border-')) return true
-    if (name === 'outline' || name.startsWith('outline-') || name === 'box-shadow') return true
-    if (name === 'padding' || name.startsWith('padding-')) return true
-    if (name !== 'height' && name !== 'min-height' && name !== 'max-height') return false
-    const metric = value.replace(/\s*!important\s*$/i, '').trim()
-    return !LAYOUT_HEIGHT.test(metric)
-  })
+  return declarationsOf(css).filter(({ property, value }) => screenPropertySideOf(property, value) === 'appearance')
+}
+
+/** Ordinary declarations in a screen sheet that are on neither explicit side. */
+export const screenUnclassifiedOf = (file, css) => {
+  if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
+  return declarationsOf(css).filter(({ property, value }) => screenPropertySideOf(property, value) === 'unclassified')
 }
 
 /**
@@ -1941,6 +1991,9 @@ for (const file of cssFiles()) {
     for (const stem of [...declared].sort()) findings.patternClass.push(`${name}: .${stem}*`)
     for (const { property } of screenAppearanceOf(file, read(file))) {
       findings.screenAppearance.push(`${name}: ${property}`)
+    }
+    for (const { property } of screenUnclassifiedOf(file, read(file))) {
+      findings.screenUnclassified.push(`${name}: ${property}`)
     }
   }
 
