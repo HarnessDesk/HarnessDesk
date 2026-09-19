@@ -1520,6 +1520,24 @@ rules:
   }
 
   /**
+   * A turn the agent could not run. The reason stands in the conversation as
+   * the same alert every other failed action uses.
+   */
+  SCENES['turn-failed'] = {
+    leaveOverlay: true,
+    expect: 'owned by another process',
+    run: async () => {
+      writeFileSync(switchFile('claude-code', 'prompt-fails'), '')
+      const key = await seat(cdp, { work: REPO, runtime: rigRuntimeId('claude-code'), picks: {} })
+      await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('owned by another process')`), Boolean, { attempts: 60 })
+      // The same reason also arrives as a toast, over the question it answers.
+      await dismissNotices(cdp).catch(() => {})
+    },
+    finish: () => rmSync(switchFile('claude-code', 'prompt-fails'), { force: true }),
+  }
+
+  /**
    * Every agent answering one row a page, as ACP allows. The sidebar lists
    * whole what an agent has; taken against a build from before the change, it
    * lists the first page of each and nothing after it.
