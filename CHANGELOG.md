@@ -32,6 +32,10 @@ needed for the next agent-focused release.
   history now follows Codex's own conversation model, side-thread reviews no
   longer rely on deprecated detached delivery, and the interface can keep a
   review's held state visible while it runs.
+- **Codex conversations can start from one of your CLI profiles** — a profile
+  chosen under an agent's new-session defaults contributes its model and
+  context settings without changing the base configuration. The context ring
+  still waits for Codex to report the window it actually applied.
 - **A folder only opens when the desk has its full path** — relative roots and
   folders that are not present are refused explicitly instead of being
   interpreted against the host's working directory or mistaken for an empty
